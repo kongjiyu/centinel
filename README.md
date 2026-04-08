@@ -1,2 +1,3 @@
-# centinel
-FYP Repo
+# Centinel
+
+This is my FYP (Final Year Project) Repo.
