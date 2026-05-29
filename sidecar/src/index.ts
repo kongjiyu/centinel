@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 
-import 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import http from 'http';
+import { config as readEnv } from 'dotenv';
 import { minimaxSmokeAsync } from './minimaxSmoke';
 import { playwrightSmoke } from './playwrightSmoke';
 import { geminiSmoke } from './geminiSmoke';
 import { sqliteSmoke } from './sqliteSmoke';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+readEnv({ path: path.resolve(__dirname, '../../.env') });
+
 const evidenceDir = path.resolve(__dirname, '../../evidence/phase-0');
 const dataDir = path.resolve(__dirname, '../../data');
 
@@ -92,7 +94,6 @@ const PORT = 37701;
 const HOST = 'localhost';
 
 const server = http.createServer(async (req, res) => {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -105,7 +106,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/smoke') {
     try {
-      await parseJsonBody(req); // consume body
+      await parseJsonBody(req);
     } catch {
       // ignore malformed body for smoke
     }

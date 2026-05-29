@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
-import 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { config as readEnv } from 'dotenv';
 import { minimaxSmokeAsync } from './minimaxSmoke';
 import { playwrightSmoke } from './playwrightSmoke';
 import { geminiSmoke } from './geminiSmoke';
 import { sqliteSmoke } from './sqliteSmoke';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+readEnv({ path: path.resolve(__dirname, '../../.env') });
+
 const evidenceDir = path.resolve(__dirname, '../../evidence/phase-0');
 const dataDir = path.resolve(__dirname, '../../data');
 

@@ -1,5 +1,3 @@
-import 'dotenv/config';
-
 const API_KEY = process.env.MINIMAX_API_KEY;
 const BASE_URL = process.env.MINIMAX_BASE_URL ?? 'https://api.minimax.io/v1';
 const MODEL = process.env.MINIMAX_MODEL ?? 'MiniMax-M2.7';
