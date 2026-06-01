@@ -31,17 +31,10 @@ AI-based software quality assurance platform for FYP. Two modules:
 git clone https://github.com/Cstan0824/centinel.git
 cd centinel
 
-# 2. Install desktop app dependencies
-cd centinel
+# 2. Install all dependencies (root + workspaces)
 pnpm install
-cd ..
 
-# 3. Install sidecar dependencies
-cd sidecar
-pnpm install
-cd ..
-
-# 4. Copy environment template and fill in your API keys
+# 3. Copy environment template and fill in your API keys
 cp .env.example .env
 ```
 
@@ -59,46 +52,38 @@ GEMINI_MODEL=gemini-2.5-flash
 ## Running the App
 
 ```bash
-# Start the Tauri desktop app (dev mode)
-cd centinel
-pnpm tauri dev
-```
+# Start everything (sidecar server + Tauri desktop app)
+pnpm dev
 
-## Sidecar Smoke Tests
-
-The sidecar has standalone smoke tests to validate each integration:
-
-```bash
-cd sidecar
-
-# CLI smoke test
+# Run smoke checks to verify all integrations
 pnpm smoke
 
-# MiMo API smoke test
-pnpm mimo:smoke
+# Production build
+pnpm build
+```
 
-# Gemini API smoke test
-pnpm gemini:smoke
+## Individual Smoke Tests
 
-# Playwright smoke test
-pnpm playwright:smoke
-
-# SQLite smoke test
-pnpm sqlite:smoke
+```bash
+pnpm --filter @centinel/sidecar mimo:smoke        # MiMo API
+pnpm --filter @centinel/sidecar gemini:smoke       # Gemini API
+pnpm --filter @centinel/sidecar playwright:smoke   # Playwright
+pnpm --filter @centinel/sidecar sqlite:smoke       # SQLite
 ```
 
 ## Project Structure
 
 ```
 centinel/
-├── centinel/          # Tauri + React desktop app
-│   ├── src/           # React frontend (TypeScript)
-│   └── src-tauri/     # Tauri backend (Rust)
-├── sidecar/           # Node.js sidecar service
-│   └── src/           # AI integration, Playwright, SQLite
-├── docs/              # Documentation (PRD, project plan)
-├── .env.example       # API key template
-└── CLAUDE.md          # AI assistant instructions
+├── package.json           # Root workspace (pnpm dev, pnpm smoke, pnpm build)
+├── pnpm-workspace.yaml    # Workspace config
+├── centinel/              # Tauri + React desktop app
+│   ├── src/               # React frontend (TypeScript)
+│   └── src-tauri/         # Tauri backend (Rust)
+├── sidecar/               # Node.js sidecar service
+│   └── src/               # AI integration, Playwright, SQLite
+├── docs/                  # Documentation (PRD, project plan)
+└── .env.example           # API key template
 ```
 
 ## Module Ownership
