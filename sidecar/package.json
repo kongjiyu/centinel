@@ -6,7 +6,7 @@
     "start": "tsx src/index.ts",
     "smoke": "tsx src/cliSmoke.ts",
     "playwright:smoke": "tsx src/playwrightSmoke.ts",
-    "minimax:smoke": "tsx src/minimaxSmoke.ts",
+    "mimo:smoke": "tsx src/mimoSmoke.ts",
     "gemini:smoke": "tsx src/geminiSmoke.ts",
     "sqlite:smoke": "tsx src/sqliteSmoke.ts"
   },

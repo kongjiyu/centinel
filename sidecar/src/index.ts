@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import http from 'http';
 import { config as readEnv } from 'dotenv';
-import { minimaxSmokeAsync } from './minimaxSmoke';
+import { mimoSmokeAsync } from './mimoSmoke';
 import { playwrightSmoke } from './playwrightSmoke';
 import { geminiSmoke } from './geminiSmoke';
 import { sqliteSmoke } from './sqliteSmoke';
@@ -21,7 +21,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 
 type SmokeResults = {
   sqlite: string;
-  minimax: string;
+  mimo: string;
   playwright: string;
   gemini: string;
   artifacts: Record<string, string>;
@@ -30,7 +30,7 @@ type SmokeResults = {
 async function runSmokeChecks(): Promise<SmokeResults> {
   const results: SmokeResults = {
     sqlite: 'pending',
-    minimax: 'pending',
+    mimo: 'pending',
     playwright: 'pending',
     gemini: 'pending',
     artifacts: {},
@@ -54,14 +54,14 @@ async function runSmokeChecks(): Promise<SmokeResults> {
   }
 
   try {
-    const r2 = await minimaxSmokeAsync();
-    results.minimax = r2.status;
+    const r2 = await mimoSmokeAsync();
+    results.mimo = r2.status;
     if (r2.raw) {
-      const fp = path.join(evidenceDir, 'minimax-response.json');
+      const fp = path.join(evidenceDir, 'mimo-response.json');
       fs.writeFileSync(fp, r2.raw);
     }
   } catch (e) {
-    results.minimax = `fail: ${e}`;
+    results.mimo = `fail: ${e}`;
   }
 
   try {

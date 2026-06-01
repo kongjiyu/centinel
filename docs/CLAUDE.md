@@ -15,7 +15,7 @@ Target users: QA engineers, testers, developers, and resource-constrained SMEs.
 - **Desktop shell:** Tauri v2 (Rust + WebView)
 - **Frontend:** React + TypeScript + Vite (`centinel/` workspace member)
 - **Automation runtime:** Node.js sidecar (`sidecar/` workspace member) with Playwright
-- **Text model:** MiniMax via OpenAI-compatible endpoint
+- **Text model:** MiMo via Anthropic-compatible endpoint
 - **Vision model:** Gemini via `@google/genai`
 - **Local data:** SQLite via `sql.js` (WebAssembly — no native compilation required)
 
@@ -23,7 +23,7 @@ Target users: QA engineers, testers, developers, and resource-constrained SMEs.
 
 This is a monorepo with two workspace members:
 - `centinel/` — Tauri desktop app (React frontend + Rust backend)
-- `sidecar/` — Node.js automation runtime (Playwright, MiniMax, Gemini, SQLite)
+- `sidecar/` — Node.js automation runtime (Playwright, MiMo, Gemini, SQLite)
 
 ## Commands
 
@@ -54,10 +54,10 @@ pnpm --filter @centinel/sidecar playwright:smoke
 API keys are loaded via `dotenv` from `.env` at the **project root** (not inside `sidecar/`).
 
 ```bash
-# Required for MiniMax and Gemini checks
-MINIMAX_API_KEY=
-MINIMAX_BASE_URL=https://api.minimax.io/v1
-MINIMAX_MODEL=MiniMax-M2.7
+# Required for MiMo and Gemini checks
+MIMO_API_KEY=
+MIMO_BASE_URL=https://api.xiaomimimo.com/anthropic/v1/messages
+MIMO_MODEL=mimo-v2.5-pro
 
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash
@@ -77,7 +77,7 @@ sidecar/           ← Node.js automation runtime
     index.ts       ← HTTP server (port 37701)
     cliSmoke.ts    ← CLI smoke runner (stdout JSON)
     playwrightSmoke.ts
-    minimaxSmoke.ts
+    mimoSmoke.ts
     geminiSmoke.ts
     sqliteSmoke.ts
 

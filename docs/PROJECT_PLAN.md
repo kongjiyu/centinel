@@ -4,9 +4,9 @@
 
 **Goal:** Build Centinel as a complete FYP-grade desktop software quality assurance platform with static artifact review, dynamic web application testing, structured evidence, and report generation.
 
-**Architecture:** Centinel will be a local-first desktop app. The desktop shell manages projects, files, sessions, reports, and user workflows. Static testing uses MiniMax for text-based artifact analysis. Dynamic testing uses Playwright as the browser automation engine and Gemini as the multimodal reasoning layer for screenshot-based understanding when DOM/accessibility information is insufficient.
+**Architecture:** Centinel will be a local-first desktop app. The desktop shell manages projects, files, sessions, reports, and user workflows. Static testing uses MiMo for text-based artifact analysis. Dynamic testing uses Playwright as the browser automation engine and Gemini as the multimodal reasoning layer for screenshot-based understanding when DOM/accessibility information is insufficient.
 
-**Tech Stack:** Tauri, React, TypeScript, SQLite, Playwright, MiniMax, Gemini, Markdown/HTML/PDF reporting.
+**Tech Stack:** Tauri, React, TypeScript, SQLite, Playwright, MiMo, Gemini, Markdown/HTML/PDF reporting.
 
 ---
 
@@ -81,7 +81,7 @@ Responsibilities:
 
 - Artifact upload and parsing.
 - Requirement/design/code review workflows.
-- MiniMax prompt design for text review.
+- MiMo prompt design for text review.
 - Static finding schema.
 - Static report generation.
 - Traceability between artifact sections and findings.
@@ -135,7 +135,7 @@ Why desktop:
 
 Text generation and static review:
 
-- Use MiniMax for requirement review, code review summaries, inconsistency detection, and report generation.
+- Use MiMo for requirement review, code review summaries, inconsistency detection, and report generation.
 
 Multimodal reasoning:
 
@@ -346,7 +346,7 @@ Required:
 
 - Upload requirement document.
 - Upload source code file or folder.
-- Run MiniMax review.
+- Run MiMo review.
 - Generate structured findings.
 - Display findings in the app.
 - Export static review report.
@@ -434,7 +434,7 @@ The final shared platform should support:
 - Evidence browser.
 - Exportable project quality report.
 - AI response audit log.
-- Basic settings for MiniMax and Gemini API keys.
+- Basic settings for MiMo and Gemini API keys.
 
 ---
 
@@ -450,7 +450,7 @@ Deliverables:
 
 - Tauri + React desktop app starts successfully.
 - SQLite can store and read a project record.
-- MiniMax API test call works.
+- MiMo API test call works.
 - Gemini API test call with screenshot input works.
 - Playwright can open a URL and capture screenshot.
 
@@ -459,7 +459,7 @@ Acceptance criteria:
 - The team can run the desktop app locally.
 - A sample project record persists after app restart.
 - A browser screenshot is saved to local evidence storage.
-- A simple MiniMax response and Gemini response are displayed in a debug screen or terminal output.
+- A simple MiMo response and Gemini response are displayed in a debug screen or terminal output.
 
 Recommended owner:
 
@@ -509,7 +509,7 @@ Deliverables:
 
 - Artifact upload.
 - Artifact type selection.
-- MiniMax review prompt.
+- MiMo review prompt.
 - Static finding extraction.
 - Static findings UI.
 - Static review report export.
@@ -726,7 +726,7 @@ Workflow 4: Cross-artifact consistency
 
 ### 10.3 Static AI Output Format
 
-MiniMax should return structured JSON with:
+MiMo should return structured JSON with:
 
 - `title`
 - `severity`
@@ -953,7 +953,7 @@ Mitigation:
 - Use controlled demo apps.
 - Record blocked states clearly.
 
-### Risk: MiniMax output is inconsistent
+### Risk: MiMo output is inconsistent
 
 Mitigation:
 

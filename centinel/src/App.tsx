@@ -10,7 +10,7 @@ type CheckResult = {
 
 type SmokeResults = {
   sqlite: string;
-  minimax: string;
+  mimo: string;
   playwright: string;
   gemini: string;
   artifacts: Record<string, string>;
@@ -61,7 +61,7 @@ function App() {
       <div className="cards-grid">
         <StatusCard name="Desktop Shell (Tauri)" status={results?.sqlite ? "pass" : "pending"} />
         <StatusCard name="SQLite" status={results?.sqlite ?? "pending"} />
-        <StatusCard name="MiniMax" status={results?.minimax ?? "pending"} />
+        <StatusCard name="MiMo" status={results?.mimo ?? "pending"} />
         <StatusCard name="Playwright" status={results?.playwright ?? "pending"} />
         <StatusCard name="Gemini" status={results?.gemini ?? "pending"} />
       </div>
