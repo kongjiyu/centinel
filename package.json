@@ -1,0 +1,13 @@
+{
+  "name": "centinel-root",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names sidecar,app --prefix-colors blue,green \"pnpm --filter @centinel/sidecar start\" \"cd centinel && pnpm tauri dev\"",
+    "smoke": "pnpm --filter @centinel/sidecar smoke",
+    "build": "cd centinel && pnpm tauri build",
+    "install:all": "pnpm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
