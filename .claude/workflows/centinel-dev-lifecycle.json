@@ -1,0 +1,178 @@
+{
+  "id": "centinel-dev-lifecycle",
+  "name": "centinel-dev-lifecycle",
+  "version": "1.0.0",
+  "description": "Full development lifecycle: ingest artifacts, human approval, iterative development with requirement-to-code validation, and final documentation.",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "name": "start",
+      "position": { "x": 50, "y": 400 },
+      "data": { "label": "Start" }
+    },
+
+    {
+      "id": "ingest-artifacts",
+      "type": "subAgent",
+      "name": "ingest-artifacts",
+      "position": { "x": 300, "y": 400 },
+      "data": {
+        "description": "Collect and analyze all project artifacts: PRD, docs, existing code, requirements, and design specs.",
+        "agentDefinition": "Investigation agent that scans the repository for all relevant project artifacts including PRD, documentation, existing source code, configuration, and any design documents.",
+        "prompt": "Scan the entire repository and collect all project artifacts. Read the PRD (Centinel_PRD_Revised.md), any docs/, existing source code, configuration files, and design documents. Produce a structured summary of: (1) all functional requirements, (2) non-functional requirements, (3) system architecture decisions, (4) existing code coverage, (5) gaps between requirements and current implementation. Output a comprehensive artifact inventory.",
+        "builtInType": "explore",
+        "agentType": "claudeCode",
+        "outputPorts": 1
+      }
+    },
+
+    {
+      "id": "create-plan",
+      "type": "subAgent",
+      "name": "create-plan",
+      "position": { "x": 600, "y": 400 },
+      "data": {
+        "description": "Create a detailed implementation plan based on ingested artifacts.",
+        "agentDefinition": "Architecture and planning agent that designs implementation plans based on project requirements and existing codebase analysis.",
+        "prompt": "Based on the artifact inventory, create a detailed implementation plan. Structure it as: (1) Module breakdown (what to build), (2) File-by-file implementation plan, (3) Dependency order (what to build first), (4) Technology decisions and rationale, (5) Test strategy for each component, (6) Estimated complexity per task. Focus on the Centinel Static and Dynamic modules as defined in the PRD. Output a step-by-step plan ready for human review.",
+        "builtInType": "plan",
+        "agentType": "claudeCode",
+        "outputPorts": 1
+      }
+    },
+
+    {
+      "id": "human-review-plan",
+      "type": "askUserQuestion",
+      "name": "human-review-plan",
+      "position": { "x": 900, "y": 400 },
+      "data": {
+        "questionText": "Review the implementation plan. How would you like to proceed?",
+        "options": [
+          { "id": "approve", "label": "Approve & Proceed", "description": "Plan looks good — start development" },
+          { "id": "revise", "label": "Request Changes", "description": "Need modifications to the plan before proceeding" },
+          { "id": "details", "label": "Ask Questions", "description": "Need clarification on specific parts of the plan" }
+        ],
+        "outputPorts": 3
+      }
+    },
+
+    {
+      "id": "handle-questions",
+      "type": "prompt",
+      "name": "handle-questions",
+      "position": { "x": 1200, "y": 650 },
+      "data": {
+        "label": "Q&A Session",
+        "prompt": "The user has questions about the plan. Engage in a Q&A session to clarify any ambiguities, explain technical decisions, and address concerns. After answering, summarize what was clarified and re-present the plan for approval. Use the conversation context to provide informed answers based on the artifact analysis and plan."
+      }
+    },
+
+    {
+      "id": "develop",
+      "type": "subAgent",
+      "name": "develop",
+      "position": { "x": 1200, "y": 200 },
+      "data": {
+        "description": "Implement code according to the approved plan. Create files, write functions, set up project structure.",
+        "agentDefinition": "Code generation agent that implements software according to the approved plan. Creates files, writes functions, sets up project structure, and handles dependencies.",
+        "prompt": "Implement the code according to the approved plan. For each task in the plan: (1) Create or modify the specified files, (2) Write clean, well-structured code following the project's conventions, (3) Add appropriate comments and documentation, (4) Handle error cases, (5) Follow the dependency order from the plan. After implementation, provide a summary of all files created/modified and what was implemented.",
+        "builtInType": "general-purpose",
+        "agentType": "claudeCode",
+        "outputPorts": 1
+      }
+    },
+
+    {
+      "id": "review-and-test",
+      "type": "subAgent",
+      "name": "review-and-test",
+      "position": { "x": 1500, "y": 200 },
+      "data": {
+        "description": "Review implemented code against requirements. Run tests, check requirement coverage, validate behavior matches specs.",
+        "agentDefinition": "Quality assurance agent that reviews implemented code against original requirements. Performs requirement-to-code traceability, runs tests, checks for defects, and validates behavior matches specifications.",
+        "prompt": "Perform a comprehensive review and test of the implemented code: (1) Read the original PRD and requirements, (2) Map each requirement to its implementing code — identify any gaps, (3) Review code quality: naming, structure, error handling, (4) Run any available tests and check results, (5) Verify the behavior matches the PRD specifications, (6) Identify any defects, missing implementations, or requirement violations. Output a structured review with: PASS/FAIL status, list of requirement coverage (which are met, which are not), defects found, and specific recommendations for fixes.",
+        "builtInType": "general-purpose",
+        "agentType": "claudeCode",
+        "outputPorts": 1
+      }
+    },
+
+    {
+      "id": "quality-gate",
+      "type": "ifElse",
+      "name": "quality-gate",
+      "position": { "x": 1800, "y": 200 },
+      "data": {
+        "evaluationTarget": "Review and test results",
+        "branches": [
+          { "id": "pass", "label": "All Requirements Met", "condition": "Review passes: all requirements covered, no critical defects, code matches PRD specifications" },
+          { "id": "fail", "label": "Issues Found", "condition": "Review fails: missing requirements, defects found, or behavior doesn't match specs" }
+        ],
+        "outputPorts": 2
+      }
+    },
+
+    {
+      "id": "fix-issues",
+      "type": "subAgent",
+      "name": "fix-issues",
+      "position": { "x": 2100, "y": 400 },
+      "data": {
+        "description": "Fix identified defects and implement missing requirements from the review.",
+        "agentDefinition": "Bug fix and refinement agent that addresses issues found during review. Fixes defects, implements missing requirements, and corrects behavior mismatches.",
+        "prompt": "Based on the review findings: (1) Fix each identified defect with the specific file and line reference, (2) Implement any missing requirement coverage, (3) Correct any behavior that doesn't match the PRD specs, (4) After fixes, do a quick self-review to verify the changes address all issues. Output a summary of all changes made and which issues were resolved.",
+        "builtInType": "general-purpose",
+        "agentType": "claudeCode",
+        "outputPorts": 1
+      }
+    },
+
+    {
+      "id": "generate-docs",
+      "type": "subAgent",
+      "name": "generate-docs",
+      "position": { "x": 2100, "y": 100 },
+      "data": {
+        "description": "Generate final documentation: what was built, how, and what actions were taken throughout the development lifecycle.",
+        "agentDefinition": "Documentation agent that produces comprehensive project documentation including architecture decisions, implementation details, development history, and future reference materials.",
+        "prompt": "Generate comprehensive documentation for the project at /docs. Create the following files: (1) docs/DEVELOPMENT_LOG.md — chronological record of all development actions taken, decisions made, and iterations performed, (2) docs/ARCHITECTURE.md — system architecture, module structure, and design decisions, (3) docs/REQUIREMENTS_TRACEABILITY.md — mapping of each PRD requirement to its implementing code with status, (4) docs/IMPLEMENTATION_SUMMARY.md — what was built, file-by-file summary, key functions and their purposes, (5) docs/KNOWN_ISSUES.md — any remaining issues, technical debt, or future improvements. Each document should be thorough enough to serve as future reference for anyone joining the project.",
+        "builtInType": "general-purpose",
+        "agentType": "claudeCode",
+        "outputPorts": 1
+      }
+    },
+
+    {
+      "id": "end",
+      "type": "end",
+      "name": "end",
+      "position": { "x": 2400, "y": 200 },
+      "data": { "label": "Complete" }
+    }
+  ],
+  "connections": [
+    { "id": "c1", "from": "start", "to": "ingest-artifacts", "fromPort": "output", "toPort": "input" },
+    { "id": "c2", "from": "ingest-artifacts", "to": "create-plan", "fromPort": "output", "toPort": "input" },
+    { "id": "c3", "from": "create-plan", "to": "human-review-plan", "fromPort": "output", "toPort": "input" },
+
+    { "id": "c4", "from": "human-review-plan", "to": "develop", "fromPort": "branch-0", "toPort": "input", "condition": "User approved the plan" },
+    { "id": "c5", "from": "human-review-plan", "to": "create-plan", "fromPort": "branch-1", "toPort": "input", "condition": "User requested plan changes" },
+    { "id": "c6", "from": "human-review-plan", "to": "handle-questions", "fromPort": "branch-2", "toPort": "input", "condition": "User has questions" },
+
+    { "id": "c7", "from": "handle-questions", "to": "human-review-plan", "fromPort": "output", "toPort": "input" },
+
+    { "id": "c8", "from": "develop", "to": "review-and-test", "fromPort": "output", "toPort": "input" },
+    { "id": "c9", "from": "review-and-test", "to": "quality-gate", "fromPort": "output", "toPort": "input" },
+
+    { "id": "c10", "from": "quality-gate", "to": "generate-docs", "fromPort": "branch-0", "toPort": "input", "condition": "All requirements met" },
+    { "id": "c11", "from": "quality-gate", "to": "fix-issues", "fromPort": "branch-1", "toPort": "input", "condition": "Issues found" },
+
+    { "id": "c12", "from": "fix-issues", "to": "review-and-test", "fromPort": "output", "toPort": "input" },
+
+    { "id": "c13", "from": "generate-docs", "to": "end", "fromPort": "output", "toPort": "input" }
+  ],
+  "createdAt": "2026-06-02T00:00:00Z",
+  "updatedAt": "2026-06-02T00:00:00Z"
+}
