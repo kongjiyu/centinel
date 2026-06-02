@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiTestResult } from '../types';
+import type { Project, AiProviderSetting, AiTestResult, DynamicSession, DynamicEvidence } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -40,4 +40,26 @@ export const api = {
     }),
   testAiProvider: (id: 'text' | 'vision') =>
     request<AiTestResult>(`/settings/ai/${id}/test`, { method: 'POST' }),
+
+  // Dynamic Sessions
+  listDynamicSessions: (projectId: string) =>
+    request<DynamicSession[]>(`/projects/${projectId}/dynamic-sessions`),
+  createDynamicSession: (projectId: string, data: {
+    targetUrl: string;
+    goal: string;
+    missionType: 'user_journey' | 'smoke';
+    maxSteps?: number;
+  }) =>
+    request<DynamicSession>(`/projects/${projectId}/dynamic-sessions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getDynamicSession: (projectId: string, sessionId: string) =>
+    request<DynamicSession>(`/projects/${projectId}/dynamic-sessions/${sessionId}`),
+  listDynamicEvidence: (projectId: string, sessionId: string) =>
+    request<DynamicEvidence[]>(`/projects/${projectId}/dynamic-sessions/${sessionId}/evidence`),
+  cancelDynamicSession: (projectId: string, sessionId: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/dynamic-sessions/${sessionId}/cancel`, {
+      method: 'POST',
+    }),
 };

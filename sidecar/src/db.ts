@@ -85,6 +85,20 @@ function initSchema(db: Database) {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS dynamic_session_details (
+      session_id TEXT PRIMARY KEY,
+      target_url TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      mission_type TEXT NOT NULL,
+      browser_mode TEXT NOT NULL,
+      max_steps INTEGER NOT NULL,
+      final_summary TEXT NOT NULL DEFAULT '',
+      failure_reason TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS ai_provider_settings (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,

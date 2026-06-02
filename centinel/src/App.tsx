@@ -4,6 +4,7 @@ import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
 import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
+import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { api } from './api/client';
 import type { Project, AiProviderSetting, Screen } from './types';
@@ -101,6 +102,13 @@ function App() {
       {screen.name === 'project-detail' && currentProject && (
         <ProjectDetailScreen
           project={currentProject}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'dynamic-session' && (
+        <DynamicSessionScreen
+          projectId={screen.projectId}
+          sessionId={screen.sessionId}
           onNavigate={setScreen}
         />
       )}
