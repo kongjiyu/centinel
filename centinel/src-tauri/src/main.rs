@@ -3,15 +3,18 @@
     windows_subsystem = "windows"
 )]
 
-// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+fn app_data_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let dir = app_handle
+        .path_resolver()
+        .app_data_dir()
+        .ok_or("Could not resolve app data dir")?;
+    Ok(dir.to_string_lossy().to_string())
 }
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![app_data_dir])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

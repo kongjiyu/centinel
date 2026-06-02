@@ -1,95 +1,121 @@
-import { useState, useCallback } from "react";
-import "./App.css";
-
-type CheckResult = {
-  status: string;
-  message?: string;
-  screenshotPath?: string;
-  raw?: string;
-};
-
-type SmokeResults = {
-  sqlite: string;
-  mimo: string;
-  playwright: string;
-  gemini: string;
-  artifacts: Record<string, string>;
-};
-
-function StatusCard({ name, status }: { name: string; status: string }) {
-  const isPass = status === "pass";
-  const isPending = status === "pending";
-  const isFail = status === "fail";
-
-  return (
-    <div className={`status-card ${isPass ? "pass" : isFail ? "fail" : "pending"}`}>
-      <span className="status-dot" />
-      <span className="status-label">{name}</span>
-      <span className="status-value">
-        {isPending ? "pending" : isPass ? "pass" : "fail"}
-      </span>
-    </div>
-  );
-}
+import { useState, useEffect, useCallback } from 'react';
+import './App.css';
+import { AppShell } from './components/AppShell';
+import { DashboardScreen } from './screens/DashboardScreen';
+import { ProjectsScreen } from './screens/ProjectsScreen';
+import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
+import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { api } from './api/client';
+import type { Project, AiProviderSetting, Screen } from './types';
 
 function App() {
-  const [running, setRunning] = useState(false);
-  const [results, setResults] = useState<SmokeResults | null>(null);
+  const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [aiSettings, setAiSettings] = useState<AiProviderSetting[]>([]);
+  const [sidecarOnline, setSidecarOnline] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const runSmoke = useCallback(async () => {
-    setRunning(true);
-    setError(null);
+  const loadData = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:37701/smoke", {
-        method: "POST",
-      });
-      const text = await res.text();
-      setResults(JSON.parse(text));
+      const [projectsData, settingsData] = await Promise.all([
+        api.projects(),
+        api.aiSettings(),
+      ]);
+      setProjects(projectsData);
+      setAiSettings(settingsData);
+      setSidecarOnline(true);
+      setError(null);
     } catch (e) {
+      setSidecarOnline(false);
       setError(String(e));
     } finally {
-      setRunning(false);
+      setLoading(false);
     }
   }, []);
 
-  return (
-    <div className="container">
-      <h1 className="title">Centinel</h1>
-      <p className="subtitle">Phase 0 — Stack Validation</p>
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-      <div className="cards-grid">
-        <StatusCard name="Desktop Shell (Tauri)" status={results?.sqlite ? "pass" : "pending"} />
-        <StatusCard name="SQLite" status={results?.sqlite ?? "pending"} />
-        <StatusCard name="MiMo" status={results?.mimo ?? "pending"} />
-        <StatusCard name="Playwright" status={results?.playwright ?? "pending"} />
-        <StatusCard name="Gemini" status={results?.gemini ?? "pending"} />
+  const handleCreateProject = async (name: string, description: string, workspacePath: string) => {
+    const project = await api.createProject(name, description, workspacePath);
+    setProjects(prev => [project, ...prev]);
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    await api.deleteProject(id);
+    setProjects(prev => prev.filter(p => p.id !== id));
+    if (screen.name === 'project-detail' && screen.projectId === id) {
+      setScreen({ name: 'projects' });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <p>Connecting to Centinel sidecar...</p>
       </div>
+    );
+  }
 
-      <div className="actions">
-        <button onClick={runSmoke} disabled={running} className="btn-primary">
-          {running ? "Running..." : "Run Phase 0 Smoke Check"}
+  if (!sidecarOnline && error) {
+    return (
+      <div className="error-screen">
+        <h1>Centinel</h1>
+        <p>Cannot connect to the local sidecar service.</p>
+        <p className="error-detail">{error}</p>
+        <button className="btn-primary" onClick={() => { setLoading(true); loadData(); }}>
+          Retry
         </button>
       </div>
+    );
+  }
 
-      {error && (
-        <div className="error-panel">
-          <strong>Error:</strong> {error}
-        </div>
-      )}
+  const currentProject = screen.name === 'project-detail'
+    ? projects.find(p => p.id === screen.projectId) ?? null
+    : null;
 
-      {results && (
-        <div className="result-panel">
-          <h3>Results</h3>
-          <pre>{JSON.stringify(results, null, 2)}</pre>
-          {results.artifacts?.screenshot && (
-            <div className="screenshot-preview">
-              <img src={`file://${results.artifacts.screenshot}`} alt="screenshot" />
-            </div>
-          )}
-        </div>
+  return (
+    <AppShell
+      screen={screen}
+      onNavigate={setScreen}
+      aiSettings={aiSettings}
+      sidecarOnline={sidecarOnline}
+    >
+      {screen.name === 'dashboard' && (
+        <DashboardScreen
+          projects={projects}
+          aiSettings={aiSettings}
+          onNavigate={setScreen}
+        />
       )}
-    </div>
+      {screen.name === 'projects' && (
+        <ProjectsScreen
+          projects={projects}
+          onNavigate={setScreen}
+          onCreate={handleCreateProject}
+          onDelete={handleDeleteProject}
+        />
+      )}
+      {screen.name === 'project-detail' && currentProject && (
+        <ProjectDetailScreen
+          project={currentProject}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'dynamic-session' && (
+        <DynamicSessionScreen
+          projectId={screen.projectId}
+          sessionId={screen.sessionId}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'settings' && (
+        <SettingsScreen settings={aiSettings} onRefresh={loadData} />
+      )}
+    </AppShell>
   );
 }
 
