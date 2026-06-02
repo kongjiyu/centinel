@@ -28,6 +28,9 @@ dist-srv
 .env.local
 .env.*.local
 
+# MCP config (local only — each dev has their own)
+.mcp.json
+
 # Generated artifacts (Phase 0 evidence)
 evidence/
 data/
