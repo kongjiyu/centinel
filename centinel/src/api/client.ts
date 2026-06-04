@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiTestResult, DynamicSession, DynamicEvidence } from '../types';
+import type { Project, AiProviderSetting, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -60,6 +60,67 @@ export const api = {
     request<DynamicEvidence[]>(`/projects/${projectId}/dynamic-sessions/${sessionId}/evidence`),
   cancelDynamicSession: (projectId: string, sessionId: string) =>
     request<{ ok: boolean }>(`/projects/${projectId}/dynamic-sessions/${sessionId}/cancel`, {
+      method: 'POST',
+    }),
+
+  // Artifacts
+  listArtifacts: (projectId: string) =>
+    request<Artifact[]>(`/projects/${projectId}/artifacts`),
+  uploadArtifact: (projectId: string, data: { fileName: string; content: string; type?: string }) =>
+    request<Artifact>(`/projects/${projectId}/artifacts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  importRepoArtifacts: (projectId: string, repoPath: string) =>
+    request<{ imported: Artifact[]; skipped: string[] }>(`/projects/${projectId}/artifacts/import-repo`, {
+      method: 'POST',
+      body: JSON.stringify({ repoPath }),
+    }),
+  deleteArtifact: (projectId: string, artifactId: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/artifacts/${artifactId}`, {
+      method: 'DELETE',
+    }),
+
+  // Static Sessions
+  listStaticSessions: (projectId: string) =>
+    request<StaticSession[]>(`/projects/${projectId}/static-sessions`),
+  createStaticSession: (projectId: string, data: {
+    name: string;
+    reviewType: string;
+    artifactIds: string[];
+    remarks?: string;
+  }) =>
+    request<StaticSession>(`/projects/${projectId}/static-sessions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getStaticSession: (projectId: string, sessionId: string) =>
+    request<StaticSession>(`/projects/${projectId}/static-sessions/${sessionId}`),
+  listStaticFindings: (projectId: string, sessionId: string) =>
+    request<Finding[]>(`/projects/${projectId}/static-sessions/${sessionId}/findings`),
+  cancelStaticSession: (projectId: string, sessionId: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/static-sessions/${sessionId}/cancel`, {
+      method: 'POST',
+    }),
+  exportSessionReport: (projectId: string, sessionId: string) =>
+    request<{ reportPath: string }>(`/projects/${projectId}/static-sessions/${sessionId}/report`, {
+      method: 'POST',
+    }),
+  listReviewArtifacts: (projectId: string, sessionId: string) =>
+    request<ReviewArtifact[]>(`/projects/${projectId}/static-sessions/${sessionId}/artifacts`),
+
+  // Unified Findings
+  listFindings: (projectId: string) =>
+    request<Finding[]>(`/projects/${projectId}/findings`),
+  updateFinding: (projectId: string, findingId: string, status: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/findings/${findingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+
+  // Reports
+  exportProjectReport: (projectId: string) =>
+    request<{ reportPath: string }>(`/projects/${projectId}/reports/export`, {
       method: 'POST',
     }),
 };

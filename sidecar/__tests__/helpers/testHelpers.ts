@@ -1,49 +1,12 @@
 import initSqlJs, { Database } from 'sql.js';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let testDb: Database | null = null;
 
-let dbInstance: Database | null = null;
-let dbPath = path.resolve(__dirname, '../../data/centinel.sqlite');
-let isTestMode = false;
-
-export function getDbPath(): string {
-  return dbPath;
-}
-
-export function setTestDb(db: Database) {
-  dbInstance = db;
-  isTestMode = true;
-}
-
-export function clearTestDb() {
-  dbInstance = null;
-  isTestMode = false;
-}
-
-export async function getDb(): Promise<Database> {
-  if (dbInstance) return dbInstance;
-
+export async function createTestDb(): Promise<Database> {
   const SQL = await initSqlJs();
-  const dir = path.dirname(dbPath);
-  fs.mkdirSync(dir, { recursive: true });
+  testDb = new SQL.Database();
 
-  if (fs.existsSync(dbPath)) {
-    const buffer = fs.readFileSync(dbPath);
-    dbInstance = new SQL.Database(buffer);
-  } else {
-    dbInstance = new SQL.Database();
-  }
-
-  initSchema(dbInstance);
-  saveDb();
-  return dbInstance;
-}
-
-function initSchema(db: Database) {
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -54,7 +17,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -67,7 +30,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS findings (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -88,7 +51,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS evidence (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -101,7 +64,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS dynamic_session_details (
       session_id TEXT PRIMARY KEY,
       target_url TEXT NOT NULL,
@@ -115,7 +78,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS artifacts (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -124,13 +87,12 @@ function initSchema(db: Database) {
       file_path TEXT NOT NULL,
       original_path TEXT,
       content_hash TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'documents',
       created_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id)
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS static_sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -148,7 +110,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS review_artifacts (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -161,7 +123,7 @@ function initSchema(db: Database) {
     )
   `);
 
-  db.run(`
+  testDb.run(`
     CREATE TABLE IF NOT EXISTS ai_provider_settings (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -173,49 +135,66 @@ function initSchema(db: Database) {
     )
   `);
 
-  // Migrate: add columns to findings if they don't exist (existing DBs)
-  const migrateCol = (col: string, colDef: string) => {
-    try { db.run(`ALTER TABLE findings ADD COLUMN ${col} ${colDef}`); } catch { /* already exists */ }
-  };
-  migrateCol('artifact_id', 'TEXT');
-  migrateCol('category', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('evidence_text', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('recommendation', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('confidence', "TEXT NOT NULL DEFAULT ''");
+  return testDb;
+}
 
-  // Migrate: add remarks column to static_sessions if missing
-  try { db.run("ALTER TABLE static_sessions ADD COLUMN remarks TEXT NOT NULL DEFAULT ''"); } catch { /* already exists */ }
+export function getTestDb(): Database {
+  if (!testDb) throw new Error('Test DB not initialized');
+  return testDb;
+}
 
-  // Migrate: add progress_json column to static_sessions if missing
-  try { db.run("ALTER TABLE static_sessions ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
-
-  // Migrate: add from_remarks column to findings if missing
-  try { db.run("ALTER TABLE findings ADD COLUMN from_remarks INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
-
-  // Migrate: add source column to artifacts if missing
-  try { db.run("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'documents'"); } catch { /* already exists */ }
-
-  // Seed defaults if empty
-  const stmt = db.prepare("SELECT COUNT(*) FROM ai_provider_settings WHERE id = 'text'");
-  stmt.step();
-  const count = (stmt.get() as unknown[])[0] as number;
-  stmt.free();
-
-  if (count === 0) {
-    const now = new Date().toISOString();
-    db.run(
-      "INSERT INTO ai_provider_settings (id, label, compatibility_mode, api_key, base_url, model, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ['text', 'Text Generation', 'anthropic', '', 'https://api.xiaomimimo.com/anthropic/v1/messages', 'mimo-v2.5-pro', now]
-    );
-    db.run(
-      "INSERT INTO ai_provider_settings (id, label, compatibility_mode, api_key, base_url, model, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ['vision', 'Multimodal Vision', 'anthropic', '', 'https://token-plan-sgp.xiaomimimo.com/anthropic/v1/messages', 'mimo-v2.5', now]
-    );
+export function closeTestDb() {
+  if (testDb) {
+    testDb.close();
+    testDb = null;
   }
 }
 
-export function saveDb() {
-  if (!dbInstance || isTestMode) return;
-  const data = dbInstance.export();
-  fs.writeFileSync(dbPath, Buffer.from(data));
+export function insertTestProject(db: Database, id: string = 'proj-1', workspacePath: string = '/tmp/test-workspace') {
+  const now = new Date().toISOString();
+  db.run(
+    'INSERT INTO projects (id, name, description, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, 'Test Project', 'A test project', workspacePath, now, now]
+  );
+}
+
+export function insertTestArtifact(
+  db: Database,
+  id: string = 'art-1',
+  projectId: string = 'proj-1',
+  type: string = 'requirement',
+  fileName: string = 'requirements.md',
+  filePath: string = '/tmp/artifacts/art-1_requirements.md'
+) {
+  const now = new Date().toISOString();
+  db.run(
+    'INSERT INTO artifacts (id, project_id, type, file_name, file_path, original_path, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, type, fileName, filePath, null, `hash-${id}`, now]
+  );
+}
+
+export function insertTestStaticSession(
+  db: Database,
+  id: string = 'ss-1',
+  projectId: string = 'proj-1',
+  status: string = 'success'
+) {
+  const now = new Date().toISOString();
+  db.run(
+    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, 'Test Review', 'requirement_review', status, '{}', '{}', '', 'Test summary', '', now, now]
+  );
+}
+
+export function insertTestFinding(
+  db: Database,
+  id: string = 'find-1',
+  projectId: string = 'proj-1',
+  sessionId: string = 'ss-1'
+) {
+  const now = new Date().toISOString();
+  db.run(
+    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, sessionId, 'static', 'high', 'Test Finding', 'A test finding description', 'new', now, null, 'unclear_requirement', 'Some evidence', 'Fix it', 'high', 0]
+  );
 }

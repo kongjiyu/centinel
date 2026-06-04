@@ -17,6 +17,29 @@ import {
   updateDynamicSessionStatus,
 } from './dynamicSessions';
 import { runDynamicSession, cancelSession } from './dynamicRunner';
+import {
+  listArtifacts,
+  getArtifact,
+  createArtifact,
+  deleteArtifact,
+  importArtifactsFromRepo,
+  initSyncDb,
+  detectArtifactType,
+} from './artifacts';
+import {
+  createStaticSession,
+  listStaticSessions,
+  getStaticSession,
+  getActiveStaticSession,
+  listStaticFindings,
+  listAllFindings,
+  updateFindingStatus,
+  updateStaticSessionStatus,
+  updateStaticSessionProgress,
+  listReviewArtifacts,
+} from './staticSessions';
+import { runStaticReview } from './staticReview';
+import { exportProjectReport, exportSessionReport } from './reportExport';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 readEnv({ path: path.resolve(__dirname, '../../.env') });
@@ -67,6 +90,66 @@ function matchDynamicEvidence(url: string): { projectId: string; sessionId: stri
 
 function matchDynamicCancel(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([a-f0-9-]+)\/dynamic-sessions\/([a-f0-9-]+)\/cancel$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchArtifacts(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/artifacts$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchArtifact(url: string): { projectId: string; artifactId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/artifacts\/([a-f0-9-]+)$/);
+  return m ? { projectId: m[1], artifactId: m[2] } : null;
+}
+
+function matchImportRepo(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/artifacts\/import-repo$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchStaticSessions(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchStaticSession(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions\/([a-f0-9-]+)$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticFindings(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions\/([a-f0-9-]+)\/findings$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticCancel(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions\/([a-f0-9-]+)\/cancel$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchFindings(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/findings$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchFinding(url: string): { projectId: string; findingId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/findings\/([a-f0-9-]+)$/);
+  return m ? { projectId: m[1], findingId: m[2] } : null;
+}
+
+function matchReportExport(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/reports\/export$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchSessionReportExport(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions\/([a-f0-9-]+)\/report$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchReviewArtifacts(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/artifacts$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
 }
 
@@ -211,11 +294,182 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    // === Artifacts ===
+
+    // Import artifacts from repo path
+    const importMatch = matchImportRepo(url);
+    if (importMatch && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const repoPath = typeof body.repoPath === 'string' ? body.repoPath.trim() : '';
+      if (!repoPath) return json(res, 400, { error: 'repoPath is required' });
+      try {
+        const result = await importArtifactsFromRepo(importMatch.projectId, repoPath);
+        return json(res, 200, result);
+      } catch (e) {
+        return json(res, 400, { error: String(e) });
+      }
+    }
+
+    // List artifacts
+    const artMatch = matchArtifacts(url);
+    if (artMatch && req.method === 'GET') {
+      return json(res, 200, await listArtifacts(artMatch.projectId));
+    }
+
+    // Upload artifact
+    if (artMatch && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const fileName = typeof body.fileName === 'string' ? body.fileName.trim() : '';
+      const content = typeof body.content === 'string' ? body.content : '';
+      const type = typeof body.type === 'string' ? body.type.trim() : '';
+      if (!fileName) return json(res, 400, { error: 'fileName is required' });
+      if (!content) return json(res, 400, { error: 'content is required (base64 encoded)' });
+      const artifactType = type || detectArtifactType(fileName);
+      const buffer = Buffer.from(content, 'base64');
+      const artifact = await createArtifact(artMatch.projectId, artifactType as any, fileName, buffer);
+      return json(res, 201, artifact);
+    }
+
+    // Delete artifact
+    const artIdMatch = matchArtifact(url);
+    if (artIdMatch && req.method === 'DELETE') {
+      const deleted = await deleteArtifact(artIdMatch.artifactId);
+      if (!deleted) return json(res, 404, { error: 'Artifact not found' });
+      return json(res, 200, { ok: true });
+    }
+
+    // === Static Sessions ===
+
+    // List static sessions
+    const ssMatch = matchStaticSessions(url);
+    if (ssMatch && req.method === 'GET') {
+      return json(res, 200, await listStaticSessions(ssMatch.projectId));
+    }
+
+    // Create and run static session
+    if (ssMatch && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const reviewType = typeof body.reviewType === 'string' ? body.reviewType.trim() : '';
+      const artifactIds = Array.isArray(body.artifactIds) ? body.artifactIds : [];
+      const remarks = typeof body.remarks === 'string' ? body.remarks.trim() : '';
+
+      if (!name) return json(res, 400, { error: 'name is required' });
+      const validTypes = ['requirement_review', 'code_review', 'requirement_to_code_traceability', 'cross_artifact_consistency'];
+      if (!validTypes.includes(reviewType)) return json(res, 400, { error: 'Invalid reviewType' });
+
+      const activeSession = await getActiveStaticSession(ssMatch.projectId);
+      if (activeSession) return json(res, 409, { error: 'A static review session is already running' });
+
+      // Load artifacts — use all if none specified
+      let artifacts = [];
+      if (artifactIds.length > 0) {
+        for (const aid of artifactIds) {
+          const a = await getArtifact(aid);
+          if (!a) return json(res, 400, { error: `Artifact ${aid} not found` });
+          artifacts.push(a);
+        }
+      } else {
+        artifacts = await listArtifacts(ssMatch.projectId);
+      }
+
+      const session = await createStaticSession(ssMatch.projectId, name, reviewType as any, { artifactIds }, remarks);
+
+      // Run review asynchronously
+      runStaticReview(session, artifacts, async (progress) => {
+        await updateStaticSessionProgress(session.id, progress);
+      }).catch(err => {
+        console.error('[static-review] error:', err);
+      });
+
+      return json(res, 201, session);
+    }
+
+    // Static session - cancel (must be before get)
+    const scMatch = matchStaticCancel(url);
+    if (scMatch && req.method === 'POST') {
+      const session = await getStaticSession(scMatch.projectId, scMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      if (session.status !== 'running' && session.status !== 'queued') {
+        return json(res, 400, { error: 'Session is not active' });
+      }
+      await updateStaticSessionStatus(scMatch.sessionId, 'cancelled', '', 'Cancelled by user');
+      return json(res, 200, { ok: true });
+    }
+
+    // Static session - findings
+    const sfMatch = matchStaticFindings(url);
+    if (sfMatch && req.method === 'GET') {
+      return json(res, 200, await listStaticFindings(sfMatch.projectId, sfMatch.sessionId));
+    }
+
+    // Static session - report export
+    const srMatch = matchSessionReportExport(url);
+    if (srMatch && req.method === 'POST') {
+      try {
+        const reportPath = await exportSessionReport(srMatch.projectId, srMatch.sessionId);
+        return json(res, 200, { reportPath });
+      } catch (e) {
+        return json(res, 400, { error: String(e) });
+      }
+    }
+
+    // Static session - review artifacts
+    const raMatch = matchReviewArtifacts(url);
+    if (raMatch && req.method === 'GET') {
+      return json(res, 200, await listReviewArtifacts(raMatch.projectId, raMatch.sessionId));
+    }
+
+    // Static session - get
+    const ssIdMatch = matchStaticSession(url);
+    if (ssIdMatch && req.method === 'GET') {
+      const session = await getStaticSession(ssIdMatch.projectId, ssIdMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      return json(res, 200, session);
+    }
+
+    // === Unified Findings ===
+
+    // List all findings for project
+    const fMatch = matchFindings(url);
+    if (fMatch && req.method === 'GET') {
+      return json(res, 200, await listAllFindings(fMatch.projectId));
+    }
+
+    // Update finding status
+    const fIdMatch = matchFinding(url);
+    if (fIdMatch && req.method === 'PUT') {
+      const body = await parseJsonBody(req);
+      const status = typeof body.status === 'string' ? body.status : '';
+      const validStatuses = ['new', 'accepted', 'dismissed', 'fixed'];
+      if (!validStatuses.includes(status)) return json(res, 400, { error: 'Invalid status' });
+      await updateFindingStatus(fIdMatch.findingId, status as any);
+      return json(res, 200, { ok: true });
+    }
+
+    // === Reports ===
+
+    // Export project report
+    const rMatch = matchReportExport(url);
+    if (rMatch && req.method === 'POST') {
+      try {
+        const reportPath = await exportProjectReport(rMatch.projectId);
+        return json(res, 200, { reportPath });
+      } catch (e) {
+        return json(res, 400, { error: String(e) });
+      }
+    }
+
     json(res, 404, { error: 'Not found' });
   } catch (e) {
     console.error('[server] error:', e);
     json(res, 500, { error: 'Internal server error' });
   }
+});
+
+// Initialize sync db reference for repo import
+initSyncDb().catch(err => {
+  console.error('[server] Failed to init sync db:', err);
 });
 
 server.listen(Number(PORT), HOST, () => {

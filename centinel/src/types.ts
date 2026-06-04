@@ -53,9 +53,80 @@ export type DynamicEvidence = {
   createdAt: string;
 };
 
+export type ArtifactType = 'requirement' | 'design' | 'source_code' | 'coding_standard' | 'other';
+export type ArtifactSource = 'documents' | 'repository' | 'drive';
+
+export type Artifact = {
+  id: string;
+  projectId: string;
+  type: ArtifactType;
+  source: ArtifactSource;
+  fileName: string;
+  filePath: string;
+  originalPath: string | null;
+  contentHash: string;
+  createdAt: string;
+};
+
+export type ReviewType = 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
+
+export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
+
+export type StaticSession = {
+  id: string;
+  projectId: string;
+  name: string;
+  reviewType: ReviewType;
+  status: StaticSessionStatus;
+  configJson: string;
+  progressJson: string;
+  remarks: string;
+  finalSummary: string;
+  failureReason: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Finding = {
+  id: string;
+  projectId: string;
+  sessionId: string | null;
+  source: 'static' | 'dynamic';
+  severity: string;
+  title: string;
+  description: string;
+  status: 'new' | 'accepted' | 'dismissed' | 'fixed';
+  createdAt: string;
+  artifactId: string | null;
+  category: string;
+  evidenceText: string;
+  recommendation: string;
+  confidence: string;
+  fromRemarks: boolean;
+};
+
+export type ReviewProgress = {
+  stage: string;
+  message: string;
+  steps: { label: string; status: 'pending' | 'active' | 'done' }[];
+  startedAt: string;
+  updatedAt: string;
+};
+
+export type ReviewArtifact = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  title: string;
+  content: string;
+  artifactType: string;
+  createdAt: string;
+};
+
 export type Screen =
   | { name: 'dashboard' }
   | { name: 'projects' }
   | { name: 'project-detail'; projectId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
+  | { name: 'static-session'; projectId: string; sessionId: string }
   | { name: 'settings' };

@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "smoke": "tsx src/cliSmoke.ts",
     "playwright:smoke": "tsx src/playwrightSmoke.ts",
     "mimo:smoke": "tsx src/mimoSmoke.ts",
@@ -17,7 +19,9 @@
     "sql.js": "^1.12.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.8"
   }
 }
