@@ -134,7 +134,7 @@ export async function createArtifact(
   );
   saveDb();
 
-  return { id, projectId, type, fileName, filePath: destPath, originalPath: originalPath ?? null, contentHash, createdAt: now };
+  return { id, projectId, type, source, fileName, filePath: destPath, originalPath: originalPath ?? null, contentHash, createdAt: now };
 }
 
 export async function deleteArtifact(id: string): Promise<boolean> {

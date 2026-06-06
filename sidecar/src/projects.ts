@@ -75,6 +75,8 @@ export async function deleteProject(id: string): Promise<boolean> {
   db.run('DELETE FROM sessions WHERE project_id = ?', [id]);
   db.run('DELETE FROM static_sessions WHERE project_id = ?', [id]);
   db.run('DELETE FROM artifacts WHERE project_id = ?', [id]);
+  db.run('DELETE FROM requirement_mappings WHERE requirement_id IN (SELECT id FROM requirements WHERE project_id = ?)', [id]);
+  db.run('DELETE FROM requirements WHERE project_id = ?', [id]);
   db.run('DELETE FROM projects WHERE id = ?', [id]);
   saveDb();
   return true;

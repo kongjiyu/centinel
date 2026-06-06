@@ -40,6 +40,18 @@ import {
 } from './staticSessions';
 import { runStaticReview } from './staticReview';
 import { exportProjectReport, exportSessionReport } from './reportExport';
+import { indexProject, getIndexedFiles, getFileSymbols, getDependencies, getDependents } from './repoIndex';
+import { retrieveContext, searchByKeyword, getRelatedFiles } from './contextRetrieval';
+import { runStaticAnalysis as runStaticEngine, getStaticFindings } from './staticEngine';
+import {
+  createRequirement,
+  listRequirements,
+  getRequirement,
+  updateRequirement,
+  deleteRequirement,
+  mapRequirementToCode,
+  getRequirementMappings,
+} from './requirements';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 readEnv({ path: path.resolve(__dirname, '../../.env') });
@@ -153,8 +165,66 @@ function matchReviewArtifacts(url: string): { projectId: string; sessionId: stri
   return m ? { projectId: m[1], sessionId: m[2] } : null;
 }
 
+function matchRequirements(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/requirements$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchRequirement(url: string): { projectId: string; reqId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/requirements\/([a-f0-9-]+)$/);
+  return m ? { projectId: m[1], reqId: m[2] } : null;
+}
+
+function matchRequirementMap(url: string): { projectId: string; reqId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/requirements\/([a-f0-9-]+)\/map$/);
+  return m ? { projectId: m[1], reqId: m[2] } : null;
+}
+
+function matchRequirementMappings(url: string): { projectId: string; reqId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/requirements\/([a-f0-9-]+)\/mappings$/);
+  return m ? { projectId: m[1], reqId: m[2] } : null;
+}
+
+function matchRepoIndex(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/index$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchRepoIndexStatus(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/index\/status$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchRepoIndexFile(url: string): { projectId: string; fileId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/index\/([a-f0-9-]+)$/);
+  return m ? { projectId: m[1], fileId: m[2] } : null;
+}
+
+function matchRepoSearch(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/index\/search$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchStaticAnalysis(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/analysis$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchStaticAnalysisSession(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/analysis\/session\/([a-f0-9-]+)$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchContextRetrieval(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/retrieve$/);
+  return m ? { projectId: m[1] } : null;
+}
+
 const PORT = 37701;
 const HOST = 'localhost';
+
+// Track indexing status per project
+const indexStatus = new Map<string, { status: 'idle' | 'indexing' | 'done' | 'error'; fileCount: number; error?: string }>();
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -304,6 +374,18 @@ const server = http.createServer(async (req, res) => {
       if (!repoPath) return json(res, 400, { error: 'repoPath is required' });
       try {
         const result = await importArtifactsFromRepo(importMatch.projectId, repoPath);
+        // Trigger indexing in background after import
+        const projectId = importMatch.projectId;
+        indexStatus.set(projectId, { status: 'indexing', fileCount: result.imported.length });
+        listArtifacts(projectId).then(artifacts => {
+          return indexProject(projectId, artifacts);
+        }).then(() => {
+          indexStatus.set(projectId, { status: 'done', fileCount: result.imported.length });
+          console.log(`[index] Project ${projectId} indexed ${result.imported.length} files`);
+        }).catch(err => {
+          indexStatus.set(projectId, { status: 'error', fileCount: 0, error: String(err) });
+          console.error(`[index] Project ${projectId} indexing failed:`, err);
+        });
         return json(res, 200, result);
       } catch (e) {
         return json(res, 400, { error: String(e) });
@@ -371,6 +453,20 @@ const server = http.createServer(async (req, res) => {
         }
       } else {
         artifacts = await listArtifacts(ssMatch.projectId);
+      }
+
+      // Filter artifacts by review type to reduce token usage
+      if (reviewType === 'requirement_review') {
+        artifacts = artifacts.filter(a => a.type === 'requirement' || a.type === 'design');
+      } else if (reviewType === 'code_review') {
+        artifacts = artifacts.filter(a => a.type === 'source_code');
+      } else if (reviewType === 'requirement_to_code_traceability') {
+        artifacts = artifacts.filter(a => a.type === 'requirement' || a.type === 'design' || a.type === 'source_code');
+      }
+      // cross_artifact_consistency uses all artifacts
+
+      if (artifacts.length === 0) {
+        return json(res, 400, { error: 'No matching artifacts found for this review type' });
       }
 
       const session = await createStaticSession(ssMatch.projectId, name, reviewType as any, { artifactIds }, remarks);
@@ -458,6 +554,139 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 400, { error: String(e) });
       }
+    }
+
+    // === Requirements ===
+
+    // List requirements
+    const reqListMatch = matchRequirements(url);
+    if (reqListMatch && req.method === 'GET') {
+      return json(res, 200, await listRequirements(reqListMatch.projectId));
+    }
+
+    // Create requirement
+    if (reqListMatch && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      const description = typeof body.description === 'string' ? body.description.trim() : '';
+      const category = typeof body.category === 'string' ? body.category.trim() : '';
+      const priority = typeof body.priority === 'string' ? body.priority.trim() : 'medium';
+      if (!title) return json(res, 400, { error: 'title is required' });
+      const requirement = await createRequirement(reqListMatch.projectId, title, description, category, priority);
+      return json(res, 201, requirement);
+    }
+
+    // Add mapping to requirement (must be before single requirement get)
+    const reqMapMatch = matchRequirementMap(url);
+    if (reqMapMatch && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const fileId = typeof body.fileId === 'string' ? body.fileId : null;
+      const symbolId = typeof body.symbolId === 'string' ? body.symbolId : null;
+      const coverageStatus = typeof body.coverageStatus === 'string' ? body.coverageStatus : 'unknown';
+      const confidence = typeof body.confidence === 'number' ? body.confidence : 0;
+      const mapping = await mapRequirementToCode(reqMapMatch.reqId, fileId, symbolId, coverageStatus, confidence);
+      return json(res, 201, mapping);
+    }
+
+    // List mappings for requirement (must be before single requirement get)
+    const reqMappingsMatch = matchRequirementMappings(url);
+    if (reqMappingsMatch && req.method === 'GET') {
+      return json(res, 200, await getRequirementMappings(reqMappingsMatch.reqId));
+    }
+
+    // Update requirement
+    const reqUpdateMatch = matchRequirement(url);
+    if (reqUpdateMatch && req.method === 'PUT') {
+      const body = await parseJsonBody(req);
+      const updates: Record<string, string> = {};
+      if (typeof body.title === 'string') updates.title = body.title;
+      if (typeof body.description === 'string') updates.description = body.description;
+      if (typeof body.category === 'string') updates.category = body.category;
+      if (typeof body.priority === 'string') updates.priority = body.priority;
+      try {
+        const updated = await updateRequirement(reqUpdateMatch.reqId, updates);
+        return json(res, 200, updated);
+      } catch (e) {
+        return json(res, 404, { error: String(e) });
+      }
+    }
+
+    // Delete requirement
+    if (reqUpdateMatch && req.method === 'DELETE') {
+      const deleted = await deleteRequirement(reqUpdateMatch.reqId);
+      if (!deleted) return json(res, 404, { error: 'Requirement not found' });
+      return json(res, 200, { ok: true });
+    }
+
+    // Get single requirement
+    if (reqUpdateMatch && req.method === 'GET') {
+      const requirement = await getRequirement(reqUpdateMatch.reqId);
+      if (!requirement) return json(res, 404, { error: 'Requirement not found' });
+      return json(res, 200, requirement);
+    }
+
+    // === Repository Indexing ===
+
+    // Index status (check if indexing is complete)
+    const riStatusMatch = matchRepoIndexStatus(url);
+    if (riStatusMatch && req.method === 'GET') {
+      const status = indexStatus.get(riStatusMatch.projectId) || { status: 'idle', fileCount: 0 };
+      return json(res, 200, status);
+    }
+
+    // Index project (trigger indexing)
+    const riMatch = matchRepoIndex(url);
+    if (riMatch && req.method === 'POST') {
+      const artifacts = await listArtifacts(riMatch.projectId);
+      await indexProject(riMatch.projectId, artifacts);
+      return json(res, 200, { ok: true, indexed: artifacts.length });
+    }
+
+    // Get indexed files
+    if (riMatch && req.method === 'GET') {
+      return json(res, 200, await getIndexedFiles(riMatch.projectId));
+    }
+
+    // Get symbols for a file
+    const riFileMatch = matchRepoIndexFile(url);
+    if (riFileMatch && req.method === 'GET') {
+      return json(res, 200, await getFileSymbols(riFileMatch.fileId));
+    }
+
+    // Search index
+    const riSearchMatch = matchRepoSearch(url);
+    if (riSearchMatch && req.method === 'GET') {
+      const q = new URL(url, `http://localhost`).searchParams.get('q') || '';
+      return json(res, 200, await searchByKeyword(riSearchMatch.projectId, q));
+    }
+
+    // === Context Retrieval ===
+
+    const crMatch = matchContextRetrieval(url);
+    if (crMatch && req.method === 'GET') {
+      const reviewType = new URL(url, `http://localhost`).searchParams.get('type') || 'code_review';
+      return json(res, 200, await retrieveContext(crMatch.projectId, reviewType));
+    }
+
+    // === Static Analysis ===
+
+    // Run static analysis on project
+    const saMatch = matchStaticAnalysis(url);
+    if (saMatch && req.method === 'POST') {
+      const artifacts = await listArtifacts(saMatch.projectId);
+      const findings = await runStaticEngine(saMatch.projectId, artifacts);
+      return json(res, 200, { findings, count: findings.length });
+    }
+
+    // Get static analysis findings
+    if (saMatch && req.method === 'GET') {
+      return json(res, 200, await getStaticFindings(saMatch.projectId));
+    }
+
+    // Get static analysis findings for a session
+    const saSessionMatch = matchStaticAnalysisSession(url);
+    if (saSessionMatch && req.method === 'GET') {
+      return json(res, 200, await getStaticFindings(saSessionMatch.projectId, saSessionMatch.sessionId));
     }
 
     json(res, 404, { error: 'Not found' });

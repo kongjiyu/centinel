@@ -129,4 +129,24 @@ export type Screen =
   | { name: 'project-detail'; projectId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'static-session'; projectId: string; sessionId: string }
+  | { name: 'requirements'; projectId: string }
   | { name: 'settings' };
+
+export type Requirement = {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  category: string;
+  priority: string;
+  createdAt: string;
+};
+
+export type RequirementMapping = {
+  id: string;
+  requirementId: string;
+  fileId: string | null;
+  symbolId: string | null;
+  coverageStatus: string;
+  confidence: number;
+};

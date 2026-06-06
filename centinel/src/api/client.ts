@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact } from '../types';
+import type { Project, AiProviderSetting, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -76,6 +76,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ repoPath }),
     }),
+  getIndexStatus: (projectId: string) =>
+    request<{ status: string; fileCount: number; error?: string }>(`/projects/${projectId}/index/status`),
   deleteArtifact: (projectId: string, artifactId: string) =>
     request<{ ok: boolean }>(`/projects/${projectId}/artifacts/${artifactId}`, {
       method: 'DELETE',
@@ -123,4 +125,29 @@ export const api = {
     request<{ reportPath: string }>(`/projects/${projectId}/reports/export`, {
       method: 'POST',
     }),
+
+  // Requirements
+  listRequirements: (projectId: string) =>
+    request<Requirement[]>(`/projects/${projectId}/requirements`),
+  createRequirement: (projectId: string, data: { title: string; description: string; category: string; priority: string }) =>
+    request<Requirement>(`/projects/${projectId}/requirements`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateRequirement: (projectId: string, reqId: string, data: Partial<Requirement>) =>
+    request<Requirement>(`/projects/${projectId}/requirements/${reqId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteRequirement: (projectId: string, reqId: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/requirements/${reqId}`, {
+      method: 'DELETE',
+    }),
+  mapRequirement: (projectId: string, reqId: string, data: { fileId?: string; symbolId?: string; coverageStatus: string; confidence: number }) =>
+    request<RequirementMapping>(`/projects/${projectId}/requirements/${reqId}/map`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  listRequirementMappings: (projectId: string, reqId: string) =>
+    request<RequirementMapping[]>(`/projects/${projectId}/requirements/${reqId}/mappings`),
 };

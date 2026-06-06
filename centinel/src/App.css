@@ -1046,6 +1046,19 @@
   color: #888;
 }
 
+.indexing-spinner {
+  display: inline-block;
+  font-size: 14px;
+  color: #3b82f6;
+  animation: spin 1s linear infinite;
+  margin-left: 6px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .artifact-expand-icon {
   transition: transform 0.15s;
   color: #888;

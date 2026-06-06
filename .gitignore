@@ -36,3 +36,5 @@ data/
 
 # Sidecar build output
 sidecar/dist/
+sidecar/artifacts/
+sidecar/__tests__/

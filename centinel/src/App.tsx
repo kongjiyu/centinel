@@ -7,6 +7,7 @@ import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
 import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { StaticSessionScreen } from './screens/StaticSessionScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { RequirementsScreen } from './screens/RequirementsScreen';
 import { api } from './api/client';
 import type { Project, AiProviderSetting, Screen } from './types';
 
@@ -117,6 +118,12 @@ function App() {
         <StaticSessionScreen
           projectId={screen.projectId}
           sessionId={screen.sessionId}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'requirements' && (
+        <RequirementsScreen
+          projectId={screen.projectId}
           onNavigate={setScreen}
         />
       )}

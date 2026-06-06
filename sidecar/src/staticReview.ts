@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { getRawAiSetting } from './settings.js';
-import { readArtifactContent } from './artifacts.js';
+import { readArtifactContent, listArtifacts } from './artifacts.js';
 import {
   createFinding,
   updateStaticSessionStatus,
@@ -10,6 +10,10 @@ import {
 } from './staticSessions.js';
 import type { StaticSession, ReviewType } from './staticSessions.js';
 import type { Artifact } from './artifacts.js';
+import { indexProject } from './repoIndex.js';
+import { retrieveContext } from './contextRetrieval.js';
+import { runStaticAnalysis, type Finding } from './staticEngine.js';
+import { scoreFindings, type RiskInput } from './riskScore.js';
 
 type ReviewFinding = {
   title: string;
@@ -121,7 +125,7 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
     headers = { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
     body = JSON.stringify({
       model: setting.model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     });
@@ -133,7 +137,7 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
       ],
-      max_completion_tokens: 4096,
+      max_completion_tokens: 8192,
     });
   }
 
@@ -204,6 +208,28 @@ function validateConfidence(confidence: string): string {
   return valid.includes(confidence) ? confidence : 'medium';
 }
 
+/**
+ * Build a summary of static analysis findings to include in the AI prompt.
+ */
+function buildStaticAnalysisSummary(staticFindings: Finding[]): string {
+  if (staticFindings.length === 0) return '';
+  const grouped: Record<string, Finding[]> = {};
+  for (const f of staticFindings) {
+    if (!grouped[f.category]) grouped[f.category] = [];
+    grouped[f.category].push(f);
+  }
+  const lines = ['## Pre-computed Static Analysis Results\nThe following issues were detected by rule-based analysis before AI review.'];
+  for (const [category, items] of Object.entries(grouped)) {
+    lines.push(`\n### ${category.replace(/_/g, ' ')} (${items.length})`);
+    for (const item of items.slice(0, 10)) { // limit per category
+      lines.push(`- [${item.severity}] ${item.message} — ${item.filePath}:${item.lineNumber}`);
+    }
+    if (items.length > 10) lines.push(`  ... and ${items.length - 10} more`);
+  }
+  lines.push('\nPlease validate these findings and add any additional issues the rules may have missed.');
+  return lines.join('\n');
+}
+
 export async function runStaticReview(
   session: StaticSession,
   artifacts: Artifact[],
@@ -218,25 +244,67 @@ export async function runStaticReview(
   try {
     await updateStaticSessionStatus(session.id, 'running', '', '');
 
-    // Progress: initializing
-    const initialSteps = artifacts.map(a => ({ label: a.fileName, status: 'pending' as const }));
+    // Group artifacts by source type
+    const SOURCE_LABELS: Record<string, string> = {
+      documents: 'Documents',
+      repository: 'Repository',
+      drive: 'Drive',
+    };
+    const groups: Record<string, Artifact[]> = {};
+    for (const a of artifacts) {
+      const key = a.source || 'documents';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(a);
+    }
+    const groupEntries = Object.entries(groups);
+
+    // Progress: initializing — show grouped steps
+    const initialSteps = groupEntries.map(([source, items]) => ({
+      label: `${SOURCE_LABELS[source] || source} (${items.length} files)`,
+      status: 'pending' as const,
+    }));
     await emit('initializing', 'Starting review session...', initialSteps);
 
-    // Read artifact contents
+    // ── Phase A: Index repository ──────────────────────────────────
+    await emit('indexing', 'Indexing repository structure...', [
+      ...initialSteps.map(s => ({ ...s, status: 'done' as const })),
+    ]);
+    await indexProject(session.projectId, artifacts);
+
+    // ── Phase B: Retrieve relevant context ─────────────────────────
+    const retrieved = await retrieveContext(session.projectId, session.reviewType);
+    // Map retrieved file paths back to artifacts
+    const retrievedPaths = new Set(retrieved.files.map(f => f.filePath));
+    const relevantArtifacts = artifacts.filter(a =>
+      retrievedPaths.size === 0 || retrievedPaths.has(a.filePath) || retrievedPaths.has(a.fileName)
+    );
+    // Fall back to all artifacts if retrieval returned nothing
+    const artifactsToAnalyze = relevantArtifacts.length > 0 ? relevantArtifacts : artifacts;
+
+    const retrieveSteps = [
+      { label: 'Index repository', status: 'done' as const },
+      { label: `Retrieve context (${artifactsToAnalyze.length}/${artifacts.length} files)`, status: 'done' as const },
+      { label: 'Static analysis', status: 'pending' as const },
+      { label: 'AI analysis', status: 'pending' as const },
+    ];
+    await emit('retrieving', `Retrieved ${artifactsToAnalyze.length} relevant file(s) from ${artifacts.length} total`, retrieveSteps);
+
+    // ── Phase C: Run static analysis rules ─────────────────────────
+    const staticFindings = await runStaticAnalysis(session.projectId, artifactsToAnalyze, session.id);
+
+    const staticSteps = [
+      { label: 'Index repository', status: 'done' as const },
+      { label: `Retrieve context (${artifactsToAnalyze.length}/${artifacts.length} files)`, status: 'done' as const },
+      { label: `Static analysis (${staticFindings.length} findings)`, status: 'done' as const },
+      { label: 'AI analysis', status: 'pending' as const },
+    ];
+    await emit('static_analysis', `Static analysis found ${staticFindings.length} issue(s)`, staticSteps);
+
+    // ── Phase D: Read artifact contents ────────────────────────────
     const artifactContents: { name: string; type: string; content: string }[] = [];
-    for (let i = 0; i < artifacts.length; i++) {
-      const artifact = artifacts[i];
-
-      // Progress: reading artifact
-      const readSteps = artifacts.map((a, idx) => ({
-        label: a.fileName,
-        status: idx < i ? 'done' as const : idx === i ? 'active' as const : 'pending' as const,
-      }));
-      await emit('reading_artifacts', `Reading ${artifact.fileName}...`, readSteps);
-
+    for (const artifact of artifactsToAnalyze) {
       try {
         const content = await readArtifactContent(artifact.id);
-        // Truncate very large files to avoid token limits
         const maxChars = 50000;
         const truncated = content.length > maxChars
           ? content.substring(0, maxChars) + '\n\n[... truncated ...]'
@@ -251,16 +319,44 @@ export async function runStaticReview(
       throw new Error('No artifacts could be read');
     }
 
-    // Progress: analyzing
-    const allReadSteps = artifacts.map(a => ({ label: a.fileName, status: 'done' as const }));
-    const analyzingSteps = [
-      ...allReadSteps,
+    // ── Phase E: AI analysis ───────────────────────────────────────
+    const REVIEW_ARCHITECTURE: Record<string, { analyzes: string; outcome: string }> = {
+      requirement_review: {
+        analyzes: 'Analyzing requirement documents for clarity, completeness, and testability',
+        outcome: 'Findings on ambiguous, missing, or unverifiable requirements',
+      },
+      code_review: {
+        analyzes: 'Inspecting source code for defects, security issues, and maintainability',
+        outcome: 'Findings on potential bugs, code smells, and quality concerns',
+      },
+      requirement_to_code_traceability: {
+        analyzes: 'Mapping requirements to source code implementations',
+        outcome: 'Traceability report showing implemented, partial, and missing implementations',
+      },
+      cross_artifact_consistency: {
+        analyzes: 'Comparing artifacts for terminology, behavior, and structural consistency',
+        outcome: 'Findings on mismatches, conflicts, and inconsistencies across artifacts',
+      },
+    };
+    const arch = REVIEW_ARCHITECTURE[session.reviewType] || { analyzes: 'Analyzing artifacts', outcome: 'Review findings' };
+
+    const aiSteps = [
+      { label: 'Index repository', status: 'done' as const },
+      { label: `Retrieve context (${artifactsToAnalyze.length}/${artifacts.length} files)`, status: 'done' as const },
+      { label: `Static analysis (${staticFindings.length} findings)`, status: 'done' as const },
       { label: 'AI analysis', status: 'active' as const },
     ];
-    await emit('analyzing', `Sending ${artifactContents.length} artifact(s) to AI for analysis...`, analyzingSteps);
+    await emit('analyzing', `${arch.analyzes} — ${artifactContents.length} artifact(s)`, aiSteps);
 
     const promptConfig = REVIEW_PROMPTS[session.reviewType];
-    const userPrompt = promptConfig.build(artifactContents);
+    let userPrompt = promptConfig.build(artifactContents);
+
+    // Include static analysis summary in prompt
+    const staticSummary = buildStaticAnalysisSummary(staticFindings);
+    if (staticSummary) {
+      userPrompt = staticSummary + '\n\n' + userPrompt;
+    }
+
     let systemPrompt = promptConfig.system;
 
     // Append reviewer remarks if present
@@ -268,72 +364,97 @@ export async function runStaticReview(
       systemPrompt += `\n\n## Reviewer Notes\nThe reviewer has provided the following additional instructions/context:\n---\n${session.remarks}\n---\nApply these notes to your analysis. If the notes request supplementary outputs (risk matrices, traceability maps, test case suggestions, etc.), include them in a separate "extra_artifacts" array in your JSON response with the shape: [{ "title": "...", "content": "...", "type": "risk_matrix|traceability|test_cases|other" }]. Findings that directly address the reviewer's specific criteria should include "fromRemarks": true in the finding object.`;
     }
 
-    // Call AI
     const rawResponse = await callAi(userPrompt, systemPrompt);
 
-    // Parse findings - extract JSON array from response (may be wrapped in markdown code blocks)
-    let jsonStr = rawResponse.trim();
-    const codeBlockMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (codeBlockMatch) {
-      jsonStr = codeBlockMatch[1].trim();
-    }
-    const arrayMatch = jsonStr.match(/\[[\s\S]*\]/);
-    const parsed = JSON.parse(arrayMatch ? arrayMatch[0] : '[]');
+    // Parse findings using the robust parser (handles truncated/malformed JSON)
+    const aiFindings = parseFindingsJson(rawResponse);
 
-    // Handle extra artifacts from remarks
-    const extraArtifacts = parsed.filter((f: any) => f.title && f.content && f.type && !f.severity);
-    const findings = parsed
-      .filter((f: any) => typeof f === 'object' && f !== null && typeof f.title === 'string' && typeof f.severity === 'string')
-      .map((item: Record<string, unknown>) => ({
-        ...item,
-        artifactReference: Array.isArray(item.artifactReference)
-          ? (item.artifactReference as string[]).join(', ')
-          : String(item.artifactReference ?? ''),
-      }));
-
-    // Progress: generating findings
-    const generatingSteps = [
-      ...allReadSteps,
-      { label: 'AI analysis', status: 'done' as const },
-      { label: 'Generating findings', status: 'active' as const },
-    ];
-    await emit('generating_findings', `Processing ${findings.length} finding(s)...`, generatingSteps);
-
-    for (const ea of extraArtifacts) {
-      if (session.remarks) {
-        await createReviewArtifact(session.id, session.projectId, {
-          title: ea.title,
-          content: ea.content,
-          artifactType: ea.type || 'analysis',
-        });
+    // Extract extra artifacts from raw response (only present when remarks are used)
+    let extraArtifacts: { title: string; content: string; type: string }[] = [];
+    if (session.remarks) {
+      try {
+        let jsonStr = rawResponse.trim();
+        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+        if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
+        const arrayMatch = jsonStr.match(/\[[\s\S]*\]/);
+        const allParsed = JSON.parse(arrayMatch ? arrayMatch[0] : '[]');
+        extraArtifacts = allParsed.filter((f: any) =>
+          typeof f === 'object' && f !== null && f.title && f.content && f.type && !f.severity
+        );
+      } catch {
+        // Ignore — extra artifacts are optional
       }
     }
 
-    // Save findings with fromRemarks flag
+    // ── Phase F: Merge findings + apply risk scoring ───────────────
+    const generatingSteps = [
+      { label: 'Index repository', status: 'done' as const },
+      { label: `Retrieve context (${artifactsToAnalyze.length}/${artifacts.length} files)`, status: 'done' as const },
+      { label: `Static analysis (${staticFindings.length} findings)`, status: 'done' as const },
+      { label: 'AI analysis', status: 'done' as const },
+      { label: 'Risk scoring', status: 'active' as const },
+    ];
+    const totalFindings = aiFindings.length + staticFindings.length;
+    await emit('generating_findings', `Processing ${totalFindings} finding(s)...`, generatingSteps);
+
+    // Save extra artifacts
+    for (const ea of extraArtifacts) {
+      await createReviewArtifact(session.id, session.projectId, {
+        title: ea.title,
+        content: ea.content,
+        artifactType: ea.type || 'analysis',
+      });
+    }
+
+    // Convert static findings to risk inputs
+    const staticRiskInputs: RiskInput[] = staticFindings.map(f => ({
+      severity: f.severity,
+      confidence: 'medium', // rules don't have confidence, default to medium
+      category: f.category,
+      filePath: f.filePath,
+    }));
+
+    // Convert AI findings to risk inputs
+    const aiRiskInputs: RiskInput[] = aiFindings.map(f => ({
+      severity: f.severity,
+      confidence: f.confidence || 'medium',
+      category: f.category || '',
+      filePath: f.artifactReference || '',
+    }));
+
+    // Score all findings
+    const allRiskInputs = [...staticRiskInputs, ...aiRiskInputs];
+    const scored = scoreFindings(allRiskInputs, artifacts.length);
+
+    // Save AI findings with risk scores
     let savedCount = 0;
-    for (const finding of findings) {
+    for (let i = 0; i < aiFindings.length; i++) {
+      const finding = aiFindings[i];
+      const risk = scored[staticRiskInputs.length + i]?.risk;
       await createFinding(session.projectId, session.id, {
-        severity: validateSeverity(finding.severity),
+        severity: validateSeverity(risk?.level || finding.severity),
         title: finding.title,
         description: finding.description || '',
         category: finding.category || '',
-        evidenceText: finding.evidence || finding.evidenceText || '',
+        evidenceText: finding.evidence || '',
         recommendation: finding.recommendation || '',
         confidence: validateConfidence(finding.confidence),
         artifactId: finding.artifactReference || undefined,
-        fromRemarks: !!finding.fromRemarks,
+        fromRemarks: !!(finding as any).fromRemarks,
       });
       savedCount++;
     }
 
-    const summary = `Review completed. ${savedCount} finding(s) generated from ${artifactContents.length} artifact(s).`;
+    const summary = `Review completed. ${savedCount} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifactContents.length} artifact(s).`;
     await updateStaticSessionStatus(session.id, 'success', summary, '');
 
     // Progress: completed
     const completedSteps = [
-      ...allReadSteps,
+      { label: 'Index repository', status: 'done' as const },
+      { label: `Retrieve context (${artifactsToAnalyze.length}/${artifacts.length} files)`, status: 'done' as const },
+      { label: `Static analysis (${staticFindings.length} findings)`, status: 'done' as const },
       { label: 'AI analysis', status: 'done' as const },
-      { label: 'Generating findings', status: 'done' as const },
+      { label: 'Risk scoring', status: 'done' as const },
     ];
     await emit('completed', summary, completedSteps);
 
@@ -342,8 +463,9 @@ export async function runStaticReview(
     await updateStaticSessionStatus(session.id, 'failure', '', errorMsg);
 
     // Progress: failed
-    const failedSteps = artifacts.map(a => ({ label: a.fileName, status: 'pending' as const }));
-    await emit('failed', `Review failed: ${errorMsg}`, failedSteps);
+    await emit('failed', `Review failed: ${errorMsg}`, [
+      { label: 'Review failed', status: 'pending' as const },
+    ]);
 
     throw err;
   }

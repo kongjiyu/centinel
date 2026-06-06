@@ -195,6 +195,95 @@ function initSchema(db: Database) {
   // Migrate: add source column to artifacts if missing
   try { db.run("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'documents'"); } catch { /* already exists */ }
 
+  // Phase 2: Repository Indexing
+  db.run(`
+    CREATE TABLE IF NOT EXISTS repo_index (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      parent_path TEXT,
+      file_type TEXT,
+      language TEXT,
+      file_size INTEGER,
+      symbol_count INTEGER DEFAULT 0,
+      indexed_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS code_symbols (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_id TEXT NOT NULL,
+      symbol_type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      start_line INTEGER,
+      end_line INTEGER,
+      signature TEXT,
+      exports INTEGER DEFAULT 0,
+      FOREIGN KEY (project_id) REFERENCES projects(id),
+      FOREIGN KEY (file_id) REFERENCES repo_index(id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS code_relationships (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      source_file_id TEXT NOT NULL,
+      target_file_path TEXT,
+      target_symbol TEXT,
+      relationship_type TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id),
+      FOREIGN KEY (source_file_id) REFERENCES repo_index(id)
+    )
+  `);
+
+  // Phase 4: Static Analysis Results
+  db.run(`
+    CREATE TABLE IF NOT EXISTS static_analysis_results (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      session_id TEXT,
+      file_path TEXT NOT NULL,
+      line_number INTEGER,
+      rule_id TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      category TEXT NOT NULL,
+      message TEXT NOT NULL,
+      evidence TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+
+  // Phase 6: Requirements
+  db.run(`
+    CREATE TABLE IF NOT EXISTS requirements (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'medium',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS requirement_mappings (
+      id TEXT PRIMARY KEY,
+      requirement_id TEXT NOT NULL,
+      file_id TEXT,
+      symbol_id TEXT,
+      coverage_status TEXT NOT NULL DEFAULT 'unknown',
+      confidence REAL DEFAULT 0,
+      FOREIGN KEY (requirement_id) REFERENCES requirements(id)
+    )
+  `);
+
   // Seed defaults if empty
   const stmt = db.prepare("SELECT COUNT(*) FROM ai_provider_settings WHERE id = 'text'");
   stmt.step();

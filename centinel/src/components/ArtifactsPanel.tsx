@@ -39,6 +39,7 @@ export function ArtifactsPanel({ projectId }: Props) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
@@ -242,6 +243,29 @@ export function ArtifactsPanel({ projectId }: Props) {
       await api.importRepoArtifacts(projectId, selected as string);
       await loadArtifacts();
       setShowImportDialog(false);
+
+      // Poll indexing status in background
+      setIndexing(true);
+      let attempts = 0;
+      const maxAttempts = 60; // 60 seconds max
+      const poll = async () => {
+        try {
+          const status = await api.getIndexStatus(projectId);
+          if (status.status === 'done' || status.status === 'error' || attempts >= maxAttempts) {
+            setIndexing(false);
+            if (status.status === 'error') {
+              setError(`Indexing failed: ${status.error}`);
+            }
+            return;
+          }
+          attempts++;
+          setTimeout(poll, 1000);
+        } catch {
+          setIndexing(false);
+        }
+      };
+      // Start polling after a short delay
+      setTimeout(poll, 500);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -328,6 +352,7 @@ export function ArtifactsPanel({ projectId }: Props) {
                     <span className="badge badge-repository">Repository</span>
                     <span className="artifact-name">{group.repoName}</span>
                     <span className="artifact-file-count">{group.artifacts.length} files</span>
+                    {indexing && <span className="indexing-spinner" title="Indexing repository...">⟳</span>}
                     <svg className={`artifact-expand-icon ${isExpanded ? 'expanded' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="9 18 15 12 9 6"/>
                     </svg>
