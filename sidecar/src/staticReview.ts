@@ -118,30 +118,44 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
   if (!setting) throw new Error('Text AI provider not configured');
   if (!setting.apiKey) throw new Error('Text AI API key not configured');
 
+  const { provider, apiFormat, apiKey, baseUrl, model } = setting;
+
   let body: string;
   let headers: Record<string, string>;
 
-  if (setting.compatibilityMode === 'anthropic') {
-    headers = { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+  // Build auth headers based on provider
+  function getAuthHeaders(): Record<string, string> {
+    if (provider === 'mimo') {
+      return { 'Content-Type': 'application/json', 'api-key': apiKey };
+    }
+    if (apiFormat === 'anthropic-compatible') {
+      return { 'Content-Type': 'application/json', 'api-key': apiKey };
+    }
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
+  }
+
+  if (apiFormat === 'anthropic-compatible') {
+    headers = getAuthHeaders();
     body = JSON.stringify({
-      model: setting.model,
+      model,
       max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     });
   } else {
-    headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
+    headers = getAuthHeaders();
     body = JSON.stringify({
-      model: setting.model,
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
       ],
       max_completion_tokens: 8192,
+      thinking: { type: 'disabled' },
     });
   }
 
-  const res = await fetch(setting.baseUrl, { method: 'POST', headers, body });
+  const res = await fetch(baseUrl, { method: 'POST', headers, body });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`AI API error: HTTP ${res.status} — ${text}`);
@@ -150,7 +164,7 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
   const json = await res.json();
 
   // Extract text from response based on format
-  if (setting.compatibilityMode === 'anthropic') {
+  if (apiFormat === 'anthropic-compatible') {
     const content = json.content;
     if (Array.isArray(content) && content.length > 0) {
       return content[0].text ?? '';

@@ -24,7 +24,7 @@ export type DynamicSession = {
 
 export type DynamicEvidence = {
   id: string;
-  type: 'screenshot' | 'action_trace' | 'ai_response' | 'console_log' | 'session_summary';
+  type: 'screenshot' | 'action_trace' | 'ai_request' | 'ai_response' | 'console_log' | 'debug_log' | 'session_summary';
   filePath: string;
   summary: string;
   createdAt: string;
@@ -212,4 +212,16 @@ export async function addEvidence(
     [id, projectId, sessionId, type, filePath, summary, now]
   );
   saveDb();
+}
+
+export async function isEvidenceFilePath(filePath: string): Promise<boolean> {
+  const db = await getDb();
+  const stmt = db.prepare('SELECT COUNT(*) FROM evidence WHERE file_path = ?');
+  stmt.bind([filePath]);
+  let count = 0;
+  if (stmt.step()) {
+    count = (stmt.get() as unknown[])[0] as number;
+  }
+  stmt.free();
+  return count > 0;
 }

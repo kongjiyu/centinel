@@ -15,6 +15,7 @@ import {
   getActiveSession,
   listDynamicEvidence,
   updateDynamicSessionStatus,
+  isEvidenceFilePath,
 } from './dynamicSessions';
 import { runDynamicSession, cancelSession } from './dynamicRunner';
 import {
@@ -39,7 +40,7 @@ import {
   listReviewArtifacts,
 } from './staticSessions';
 import { runStaticReview } from './staticReview';
-import { exportProjectReport, exportSessionReport } from './reportExport';
+import { exportProjectReport, exportSessionReport, exportDynamicSessionReport } from './reportExport';
 import { indexProject, getIndexedFiles, getFileSymbols, getDependencies, getDependents } from './repoIndex';
 import { retrieveContext, searchByKeyword, getRelatedFiles } from './contextRetrieval';
 import { runStaticAnalysis as runStaticEngine, getStaticFindings } from './staticEngine';
@@ -160,6 +161,11 @@ function matchSessionReportExport(url: string): { projectId: string; sessionId: 
   return m ? { projectId: m[1], sessionId: m[2] } : null;
 }
 
+function matchDynamicSessionReportExport(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/dynamic-sessions\/([a-f0-9-]+)\/report$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
 function matchReviewArtifacts(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/artifacts$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
@@ -256,7 +262,8 @@ const server = http.createServer(async (req, res) => {
       const validationError = validateUpdateRequest(body);
       if (validationError) return json(res, 400, validationError);
       const updated = await updateAiSetting(id, {
-        compatibilityMode: body.compatibilityMode as 'openai' | 'anthropic',
+        provider: body.provider as 'mimo' | 'gemini' | 'custom',
+        apiFormat: body.apiFormat as 'openai-compatible' | 'anthropic-compatible' | 'google-native',
         apiKey: (body.apiKey as string).trim(),
         baseUrl: (body.baseUrl as string).trim(),
         model: (body.model as string).trim(),
@@ -299,7 +306,7 @@ const server = http.createServer(async (req, res) => {
       const targetUrl = typeof body.targetUrl === 'string' ? body.targetUrl.trim() : '';
       const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
       const missionType = body.missionType === 'smoke' ? 'smoke' : 'user_journey';
-      const maxSteps = typeof body.maxSteps === 'number' ? body.maxSteps : 15;
+      const maxSteps = Math.min(25, Math.max(1, typeof body.maxSteps === 'number' ? body.maxSteps : 15));
 
       if (!targetUrl) return json(res, 400, { error: 'targetUrl is required' });
       try { new URL(targetUrl); } catch { return json(res, 400, { error: 'targetUrl must be a valid URL' }); }
@@ -339,6 +346,17 @@ const server = http.createServer(async (req, res) => {
     const deMatch = matchDynamicEvidence(url);
     if (deMatch && req.method === 'GET') {
       return json(res, 200, await listDynamicEvidence(deMatch.projectId, deMatch.sessionId));
+    }
+
+    // Dynamic session - report export
+    const drMatch = matchDynamicSessionReportExport(url);
+    if (drMatch && req.method === 'POST') {
+      try {
+        const result = await exportDynamicSessionReport(drMatch.projectId, drMatch.sessionId);
+        return json(res, 200, result);
+      } catch (e) {
+        return json(res, 400, { error: String(e) });
+      }
     }
 
     // Dynamic session - get
@@ -687,6 +705,66 @@ const server = http.createServer(async (req, res) => {
     const saSessionMatch = matchStaticAnalysisSession(url);
     if (saSessionMatch && req.method === 'GET') {
       return json(res, 200, await getStaticFindings(saSessionMatch.projectId, saSessionMatch.sessionId));
+    }
+
+    // Evidence file serving
+    if (req.method === 'GET' && url.startsWith('/evidence-file')) {
+      const urlObj = new URL(url, `http://${HOST}:${PORT}`);
+      const filePath = urlObj.searchParams.get('path');
+
+      if (!filePath) {
+        return json(res, 400, { error: 'Missing path parameter' });
+      }
+
+      // Validate the path exists in evidence table (prevents arbitrary file access)
+      const isEvidence = await isEvidenceFilePath(filePath);
+      if (!isEvidence) {
+        return json(res, 403, { error: 'File not registered as evidence', path: filePath });
+      }
+
+      // Validate file exists on disk
+      if (!fs.existsSync(filePath)) {
+        return json(res, 404, { error: 'File not found on disk', path: filePath });
+      }
+
+      // Validate it's an image file
+      const ext = path.extname(filePath).toLowerCase();
+      const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+      if (!allowedExts.includes(ext)) {
+        return json(res, 403, { error: 'Only image files are allowed', ext });
+      }
+
+      // Set content type based on extension
+      const mimeTypes: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+      };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      // Stream the file
+      try {
+        const fileStream = fs.createReadStream(filePath);
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+        });
+        fileStream.pipe(res);
+        fileStream.on('error', (err) => {
+          console.error('[server] Error streaming file:', err);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error reading file' }));
+          }
+        });
+      } catch (err) {
+        console.error('[server] Error serving file:', err);
+        return json(res, 500, { error: 'Error serving file' });
+      }
+      return;
     }
 
     json(res, 404, { error: 'Not found' });

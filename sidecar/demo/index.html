@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Centinel Demo App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    h1 { text-align: center; margin-bottom: 30px; color: #2563eb; }
+    .card { background: white; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h2 { margin-bottom: 16px; font-size: 18px; }
+    label { display: block; margin-bottom: 4px; font-weight: 500; font-size: 14px; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; margin-bottom: 12px; font-size: 14px; }
+    button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-danger { background: #dc2626; color: white; font-size: 12px; padding: 4px 8px; }
+    .btn-danger:hover { background: #b91c1c; }
+    .error { color: #dc2626; font-size: 14px; margin-top: 8px; display: none; }
+    .success { color: #16a34a; font-size: 14px; margin-top: 8px; display: none; }
+    #login-section, #app-section { }
+    #app-section { display: none; }
+    .todo-input { display: flex; gap: 8px; margin-bottom: 16px; }
+    .todo-input input { flex: 1; margin-bottom: 0; }
+    .todo-list { list-style: none; }
+    .todo-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+    .todo-item:last-child { border-bottom: none; }
+    .todo-text { flex: 1; }
+    .todo-text.done { text-decoration: line-through; color: #9ca3af; }
+    .user-info { text-align: right; margin-bottom: 16px; font-size: 14px; color: #6b7280; }
+    .user-info span { font-weight: 600; color: #333; }
+    #welcome-msg { display: none; text-align: center; padding: 20px; color: #16a34a; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Centinel Demo App</h1>
+
+    <div id="login-section" class="card">
+      <h2>Login</h2>
+      <label for="username">Username</label>
+      <input type="text" id="username" placeholder="Enter username" autocomplete="off">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="Enter password">
+      <button class="btn-primary" id="login-btn">Login</button>
+      <div class="error" id="login-error">Invalid username or password</div>
+    </div>
+
+    <div id="welcome-msg">Login successful! Welcome, <span id="welcome-user"></span>.</div>
+
+    <div id="app-section">
+      <div class="user-info">
+        Logged in as <span id="display-user"></span>
+        <button class="btn-danger" id="logout-btn" style="margin-left: 8px;">Logout</button>
+      </div>
+
+      <div class="card">
+        <h2>Todo List</h2>
+        <div class="todo-input">
+          <input type="text" id="todo-input" placeholder="Add a new todo...">
+          <button class="btn-primary" id="add-btn">Add</button>
+        </div>
+        <ul class="todo-list" id="todo-list"></ul>
+        <div class="success" id="add-success">Todo added successfully!</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const VALID_USERS = { admin: 'password123', test: 'test123', demo: 'demo' };
+    let currentUser = null;
+    let todos = [];
+
+    const loginSection = document.getElementById('login-section');
+    const appSection = document.getElementById('app-section');
+    const welcomeMsg = document.getElementById('welcome-msg');
+    const loginError = document.getElementById('login-error');
+    const addSuccess = document.getElementById('add-success');
+
+    document.getElementById('login-btn').addEventListener('click', () => {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      loginError.style.display = 'none';
+
+      if (!username || !password) {
+        loginError.textContent = 'Please enter both username and password';
+        loginError.style.display = 'block';
+        return;
+      }
+
+      if (VALID_USERS[username] && VALID_USERS[username] === password) {
+        currentUser = username;
+        loginSection.style.display = 'none';
+        welcomeMsg.style.display = 'block';
+        document.getElementById('welcome-user').textContent = username;
+
+        setTimeout(() => {
+          welcomeMsg.style.display = 'none';
+          appSection.style.display = 'block';
+          document.getElementById('display-user').textContent = username;
+          document.getElementById('todo-input').focus();
+        }, 1500);
+      } else {
+        loginError.textContent = 'Invalid username or password';
+        loginError.style.display = 'block';
+      }
+    });
+
+    document.getElementById('password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('login-btn').click();
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      currentUser = null;
+      todos = [];
+      appSection.style.display = 'none';
+      loginSection.style.display = 'block';
+      document.getElementById('username').value = '';
+      document.getElementById('password').value = '';
+      document.getElementById('todo-list').innerHTML = '';
+    });
+
+    function renderTodos() {
+      const list = document.getElementById('todo-list');
+      list.innerHTML = '';
+      todos.forEach((todo, i) => {
+        const li = document.createElement('li');
+        li.className = 'todo-item';
+        li.innerHTML = `
+          <input type="checkbox" ${todo.done ? 'checked' : ''} data-index="${i}">
+          <span class="todo-text ${todo.done ? 'done' : ''}">${todo.text}</span>
+          <button class="btn-danger" data-delete="${i}">Delete</button>
+        `;
+        list.appendChild(li);
+      });
+    }
+
+    document.getElementById('add-btn').addEventListener('click', () => {
+      const input = document.getElementById('todo-input');
+      const text = input.value.trim();
+      if (!text) return;
+      todos.push({ text, done: false });
+      input.value = '';
+      renderTodos();
+      addSuccess.style.display = 'block';
+      setTimeout(() => { addSuccess.style.display = 'none'; }, 2000);
+    });
+
+    document.getElementById('todo-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('add-btn').click();
+    });
+
+    document.getElementById('todo-list').addEventListener('click', (e) => {
+      if (e.target.type === 'checkbox') {
+        todos[parseInt(e.target.dataset.index)].done = e.target.checked;
+        renderTodos();
+      }
+      if (e.target.dataset.delete !== undefined) {
+        todos.splice(parseInt(e.target.dataset.delete), 1);
+        renderTodos();
+      }
+    });
+  </script>
+</body>
+</html>

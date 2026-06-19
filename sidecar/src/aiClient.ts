@@ -1,7 +1,15 @@
 import fs from 'fs';
-import { getRawAiSetting } from './settings.js';
+import { getRawAiSetting, type AiProvider, type AiApiFormat } from './settings.js';
 
 type TestResult = { status: string; message?: string; raw?: string };
+
+type SettingLike = {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  provider: AiProvider;
+  apiFormat: AiApiFormat;
+};
 
 export async function testAiProvider(id: 'text' | 'vision', imagePath?: string): Promise<TestResult> {
   const setting = await getRawAiSetting(id);
@@ -14,45 +22,84 @@ export async function testAiProvider(id: 'text' | 'vision', imagePath?: string):
   return testVisionProvider(setting, imagePath);
 }
 
-async function testTextProvider(setting: { apiKey: string; baseUrl: string; model: string; compatibilityMode: string }): Promise<TestResult> {
+function getAuthHeaders(setting: SettingLike): Record<string, string> {
+  // MiMo uses api-key header, not Authorization Bearer
+  if (setting.provider === 'mimo') {
+    return { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+  }
+  // Anthropic-compatible uses api-key header
+  if (setting.apiFormat === 'anthropic-compatible') {
+    return { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+  }
+  // OpenAI-compatible uses Authorization Bearer
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
+}
+
+async function testTextProvider(setting: SettingLike): Promise<TestResult> {
   const prompt = 'Reply with exactly this JSON: {"status":"ok"}';
 
   let body: string;
   let headers: Record<string, string>;
+  let fetchUrl = setting.baseUrl;
 
-  if (setting.compatibilityMode === 'anthropic') {
-    headers = { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+  if (setting.apiFormat === 'google-native') {
+    // Google Gemini API format
+    fetchUrl = `${setting.baseUrl}/${setting.model}:generateContent?key=${setting.apiKey}`;
+    headers = { 'Content-Type': 'application/json' };
+    body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 128 },
+    });
+  } else if (setting.apiFormat === 'anthropic-compatible') {
+    headers = getAuthHeaders(setting);
     body = JSON.stringify({
       model: setting.model,
       max_tokens: 128,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     });
   } else {
-    headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
+    // openai-compatible
+    headers = getAuthHeaders(setting);
     body = JSON.stringify({
       model: setting.model,
       messages: [{ role: 'user', content: prompt }],
       max_completion_tokens: 128,
+      // Disable thinking mode for MiMo to prevent token exhaustion
+      thinking: { type: 'disabled' },
     });
   }
 
-  return doFetch(setting.baseUrl, headers, body);
+  return doFetch(fetchUrl, headers, body);
 }
 
-async function testVisionProvider(setting: { apiKey: string; baseUrl: string; model: string; compatibilityMode: string }, imagePath?: string): Promise<TestResult> {
+async function testVisionProvider(setting: SettingLike, imagePath?: string): Promise<TestResult> {
   let base64 = '';
   if (imagePath && fs.existsSync(imagePath)) {
     const buf = fs.readFileSync(imagePath);
     base64 = buf.toString('base64');
   }
 
-  const prompt = 'Describe this image briefly.';
+  const prompt = 'Describe this image briefly. Return JSON: {"status":"ok","description":"..."}';
 
   let body: string;
   let headers: Record<string, string>;
+  let fetchUrl = setting.baseUrl;
 
-  if (setting.compatibilityMode === 'anthropic') {
-    headers = { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+  if (setting.apiFormat === 'google-native') {
+    // Google Gemini API format
+    fetchUrl = `${setting.baseUrl}/${setting.model}:generateContent?key=${setting.apiKey}`;
+    headers = { 'Content-Type': 'application/json' };
+    const parts: unknown[] = [];
+    if (base64) {
+      parts.push({ inlineData: { mimeType: 'image/png', data: base64 } });
+    }
+    parts.push({ text: prompt });
+    body = JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { maxOutputTokens: 256 },
+    });
+  } else if (setting.apiFormat === 'anthropic-compatible') {
+    headers = getAuthHeaders(setting);
     const content: unknown[] = [];
     if (base64) {
       content.push({
@@ -67,7 +114,8 @@ async function testVisionProvider(setting: { apiKey: string; baseUrl: string; mo
       messages: [{ role: 'user', content }],
     });
   } else {
-    headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
+    // openai-compatible (MiMo default)
+    headers = getAuthHeaders(setting);
     const content: unknown[] = [];
     if (base64) {
       content.push({
@@ -80,10 +128,12 @@ async function testVisionProvider(setting: { apiKey: string; baseUrl: string; mo
       model: setting.model,
       messages: [{ role: 'user', content }],
       max_completion_tokens: 256,
+      // Disable thinking mode for MiMo to prevent token exhaustion
+      thinking: { type: 'disabled' },
     });
   }
 
-  return doFetch(setting.baseUrl, headers, body);
+  return doFetch(fetchUrl, headers, body);
 }
 
 async function doFetch(url: string, headers: Record<string, string>, body: string): Promise<TestResult> {

@@ -7,17 +7,28 @@ export type Project = {
   updatedAt: string;
 };
 
-export type AiCompatibilityMode = 'openai' | 'anthropic';
+export type AiProvider = 'mimo' | 'gemini' | 'custom';
+export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native';
 
 export type AiProviderSetting = {
   id: 'text' | 'vision';
   label: string;
-  compatibilityMode: AiCompatibilityMode;
+  provider: AiProvider;
+  apiFormat: AiApiFormat;
   hasApiKey: boolean;
   apiKeyPreview: string;
   baseUrl: string;
   model: string;
   updatedAt: string;
+};
+
+export type AiProviderPreset = {
+  id: string;
+  label: string;
+  provider: AiProvider;
+  apiFormat: AiApiFormat;
+  baseUrl: string;
+  model: string;
 };
 
 export type AiTestResult = {
@@ -47,7 +58,7 @@ export type DynamicSession = {
 
 export type DynamicEvidence = {
   id: string;
-  type: 'screenshot' | 'action_trace' | 'ai_response' | 'console_log' | 'session_summary';
+  type: 'screenshot' | 'action_trace' | 'ai_request' | 'ai_response' | 'console_log' | 'debug_log' | 'session_summary';
   filePath: string;
   summary: string;
   createdAt: string;

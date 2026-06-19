@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { writeText } from '@tauri-apps/api/clipboard';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '../api/client';
 import type { DynamicSession, DynamicEvidence, Screen } from '../types';
 
@@ -12,10 +15,36 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge-${status}`}>{status}</span>;
 }
 
+/**
+ * Convert a local file path to a sidecar-served URL.
+ * More reliable than Tauri asset:// for paths with spaces or special chars.
+ */
+function evidenceImageSrc(filePath: string): string {
+  return `http://localhost:37701/evidence-file?path=${encodeURIComponent(filePath)}`;
+}
+
+const EVIDENCE_GROUPS: { type: DynamicEvidence['type']; label: string }[] = [
+  { type: 'screenshot', label: 'Screenshots' },
+  { type: 'action_trace', label: 'Action Trace' },
+  { type: 'ai_response', label: 'AI Responses' },
+  { type: 'ai_request', label: 'AI Requests' },
+  { type: 'console_log', label: 'Console Logs' },
+  { type: 'debug_log', label: 'Debug Log' },
+  { type: 'session_summary', label: 'Session Summary' },
+];
+
 export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props) {
   const [session, setSession] = useState<DynamicSession | null>(null);
   const [evidence, setEvidence] = useState<DynamicEvidence[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedScreenshot, setSelectedScreenshot] = useState<DynamicEvidence | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<{
+    success: boolean;
+    message: string;
+    reportPath?: string;
+    markdown?: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -25,8 +54,8 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
       ]);
       setSession(s);
       setEvidence(e);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to load dynamic session:', err);
     } finally {
       setLoading(false);
     }
@@ -36,12 +65,22 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
     load();
   }, [load]);
 
-  // Poll while running
   useEffect(() => {
     if (!session || (session.status !== 'running' && session.status !== 'queued')) return;
     const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
   }, [session?.status, load]);
+
+  // Handle Esc key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedScreenshot) {
+        setSelectedScreenshot(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedScreenshot]);
 
   const handleCancel = async () => {
     try {
@@ -52,10 +91,36 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    setExportResult(null);
+    try {
+      const result = await api.exportDynamicSessionReport(projectId, sessionId);
+      setExportResult({
+        success: true,
+        message: 'Report exported successfully',
+        reportPath: result.reportPath,
+        markdown: result.markdown,
+      });
+    } catch (e) {
+      setExportResult({ success: false, message: `Export failed: ${String(e)}` });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleCopyPath = async (path: string) => {
+    try {
+      await writeText(path);
+      // Could add a toast notification here
+    } catch (err) {
+      console.error('Failed to copy path:', err);
+    }
+  };
+
   if (loading) return <div className="screen"><p>Loading...</p></div>;
   if (!session) return <div className="screen"><p>Session not found.</p></div>;
 
-  const screenshots = evidence.filter(e => e.type === 'screenshot');
   const isActive = session.status === 'running' || session.status === 'queued';
 
   return (
@@ -66,10 +131,48 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         </button>
         <h1>Dynamic Test</h1>
         <StatusBadge status={session.status} />
-        {isActive && (
-          <button className="btn-delete" onClick={handleCancel}>Cancel</button>
-        )}
+        <div className="header-actions">
+          {!isActive && (
+            <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export Summary'}
+            </button>
+          )}
+          {isActive && (
+            <button className="btn-delete" onClick={handleCancel}>Cancel</button>
+          )}
+        </div>
       </div>
+
+      {exportResult && (
+        <div className={`export-result ${exportResult.success ? 'success' : 'error'}`}>
+          <div className="export-result-message">{exportResult.message}</div>
+
+          {exportResult.markdown && (
+            <div className="report-preview">
+              <h3>Report Preview</h3>
+              <div className="report-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {exportResult.markdown}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {exportResult.reportPath && (
+            <div className="export-result-path">
+              <span className="export-result-path-label">File Location:</span>
+              <code>{exportResult.reportPath}</code>
+              <button
+                className="btn-copy"
+                onClick={() => handleCopyPath(exportResult.reportPath!)}
+                title="Copy path"
+              >
+                📋 Copy Path
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="session-info">
         <div className="info-row">
@@ -108,23 +211,118 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         </div>
       )}
 
-      {screenshots.length > 0 && (
-        <div className="section">
-          <h2>Screenshots</h2>
-          <div className="screenshot-grid">
-            {screenshots.map(s => (
-              <div key={s.id} className="screenshot-item">
-                <img src={`asset://localhost/${s.filePath}`} alt={s.summary} className="screenshot-img" />
-                <span className="screenshot-label">{s.summary}</span>
+      {EVIDENCE_GROUPS.map(group => {
+        const items = evidence.filter(e => e.type === group.type);
+        if (items.length === 0) return null;
+
+        return (
+          <div key={group.type} className="section">
+            <h2>{group.label} ({items.length})</h2>
+            {group.type === 'screenshot' ? (
+              <div className="screenshot-grid">
+                {items.map(s => {
+                  const imgSrc = evidenceImageSrc(s.filePath);
+                  return (
+                    <div
+                      key={s.id}
+                      className="screenshot-item clickable"
+                      onClick={() => setSelectedScreenshot(s)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${s.summary}`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedScreenshot(s);
+                        }
+                      }}
+                    >
+                      <img
+                        src={imgSrc}
+                        alt={s.summary}
+                        className="screenshot-img"
+                        onError={(e) => {
+                          console.error('Failed to load screenshot:', {
+                            filePath: s.filePath,
+                            attemptedUrl: imgSrc,
+                          });
+                          const container = (e.target as HTMLImageElement).parentElement;
+                          if (container) {
+                            container.innerHTML = `
+                              <div class="screenshot-error">
+                                <span class="screenshot-error-icon">⚠️</span>
+                                <span class="screenshot-error-text">Screenshot failed to load</span>
+                              </div>
+                            `;
+                          }
+                        }}
+                      />
+                      <span className="screenshot-label">{s.summary}</span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            ) : (
+              <div className="evidence-list">
+                {items.map(item => (
+                  <div key={item.id} className="evidence-item">
+                    <div className="evidence-header">
+                      <span className="evidence-type">{item.type}</span>
+                      <span className="evidence-time">{new Date(item.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="evidence-summary">{item.summary}</div>
+                    <code className="evidence-path">{item.filePath}</code>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })}
 
       {isActive && (
         <div className="section">
-          <p className="running-hint">Test is running... screenshots will appear here as they are captured.</p>
+          <p className="running-hint">Test is running... evidence will appear here as it is captured.</p>
+        </div>
+      )}
+
+      {/* Screenshot Modal */}
+      {selectedScreenshot && (
+        <div
+          className="screenshot-modal-overlay"
+          onClick={() => setSelectedScreenshot(null)}
+        >
+          <div className="screenshot-modal" onClick={e => e.stopPropagation()}>
+            <div className="screenshot-modal-header">
+              <span className="screenshot-modal-title">{selectedScreenshot.summary}</span>
+              <button
+                className="screenshot-modal-close"
+                onClick={() => setSelectedScreenshot(null)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="screenshot-modal-body">
+              <img
+                src={evidenceImageSrc(selectedScreenshot.filePath)}
+                alt={selectedScreenshot.summary}
+                className="screenshot-modal-img"
+                onError={(e) => {
+                  console.error('Failed to load modal screenshot:', selectedScreenshot.filePath);
+                  const container = (e.target as HTMLImageElement).parentElement;
+                  if (container) {
+                    container.innerHTML = `
+                      <div class="screenshot-error">
+                        <span class="screenshot-error-icon">⚠️</span>
+                        <span class="screenshot-error-text">Screenshot failed to load</span>
+                      </div>
+                    `;
+                  }
+                }}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

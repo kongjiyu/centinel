@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { getProject } from './projects.js';
 import { listStaticSessions, getStaticSession, listStaticFindings } from './staticSessions.js';
-import { listDynamicSessions, getDynamicSession, listDynamicEvidence } from './dynamicSessions.js';
+import { listDynamicSessions, getDynamicSession, listDynamicEvidence, type DynamicSession } from './dynamicSessions.js';
 import type { Finding } from './staticSessions.js';
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -241,4 +241,167 @@ export async function exportSessionReport(projectId: string, sessionId: string):
   fs.writeFileSync(reportPath, lines.join('\n'));
 
   return reportPath;
+}
+
+export async function exportDynamicSessionReport(projectId: string, sessionId: string): Promise<{ reportPath: string; markdown: string }> {
+  const project = await getProject(projectId);
+  if (!project) throw new Error('Project not found');
+
+  const session = await getDynamicSession(projectId, sessionId);
+  if (!session) throw new Error('Dynamic session not found');
+
+  const evidence = await listDynamicEvidence(projectId, sessionId);
+
+  const lines: string[] = [];
+
+  // Header
+  lines.push(`# Dynamic Test Report`);
+  lines.push('');
+  lines.push(`**Project:** ${project.name}`);
+  lines.push(`**Session:** ${session.name}`);
+  lines.push(`**Generated:** ${formatDate(new Date().toISOString())}`);
+  lines.push('');
+
+  // Test Configuration
+  lines.push('## Test Configuration');
+  lines.push('');
+  lines.push(`| Field | Value |`);
+  lines.push(`| --- | --- |`);
+  lines.push(`| Target URL | \`${session.targetUrl}\` |`);
+  lines.push(`| Goal | ${session.goal} |`);
+  lines.push(`| Mission Type | ${session.missionType === 'smoke' ? 'Smoke Test' : 'User Journey'} |`);
+  lines.push(`| Max Steps | ${session.maxSteps} |`);
+  lines.push(`| Browser Mode | ${session.browserMode} |`);
+  lines.push('');
+
+  // Results
+  lines.push('## Results');
+  lines.push('');
+  lines.push(`| Field | Value |`);
+  lines.push(`| --- | --- |`);
+  lines.push(`| **Status** | **${session.status}** |`);
+  lines.push(`| Started | ${formatDate(session.createdAt)} |`);
+  lines.push(`| Completed | ${formatDate(session.updatedAt)} |`);
+  lines.push('');
+
+  if (session.finalSummary) {
+    lines.push('### Summary');
+    lines.push('');
+    lines.push(session.finalSummary);
+    lines.push('');
+  }
+
+  if (session.failureReason) {
+    lines.push('### Failure Reason');
+    lines.push('');
+    lines.push(session.failureReason);
+    lines.push('');
+  }
+
+  // Evidence Overview
+  lines.push('## Evidence');
+  lines.push('');
+  lines.push(`| Type | Count |`);
+  lines.push(`| --- | ---: |`);
+
+  const evidenceCounts: Record<string, number> = {};
+  evidence.forEach(e => {
+    evidenceCounts[e.type] = (evidenceCounts[e.type] || 0) + 1;
+  });
+
+  const evidenceTypeLabels: Record<string, string> = {
+    screenshot: '📸 Screenshots',
+    action_trace: '📋 Action Trace',
+    ai_request: '🤖 AI Requests',
+    ai_response: '💬 AI Responses',
+    console_log: '🖥️ Console Logs',
+    debug_log: '🔍 Debug Logs',
+    session_summary: '📄 Session Summary',
+  };
+
+  for (const [type, label] of Object.entries(evidenceTypeLabels)) {
+    const count = evidenceCounts[type] || 0;
+    if (count > 0) {
+      lines.push(`| ${label} | ${count} |`);
+    }
+  }
+  lines.push('');
+
+  // Action Trace
+  const actionTraces = evidence.filter(e => e.type === 'action_trace');
+  if (actionTraces.length > 0) {
+    lines.push('## Action Trace');
+    lines.push('');
+
+    // Try to read the action trace file
+    const tracePath = actionTraces[0].filePath;
+    try {
+      if (fs.existsSync(tracePath)) {
+        const traceData = JSON.parse(fs.readFileSync(tracePath, 'utf-8'));
+        if (Array.isArray(traceData) && traceData.length > 0) {
+          lines.push('| Step | Action | Target | Result | Reasoning |');
+          lines.push('| ---: | --- | --- | --- | --- |');
+          for (const entry of traceData) {
+            const target = entry.targetDescription || entry.text || '';
+            const result = entry.result === 'success' ? '✅' : entry.result === 'failure' ? '❌' : '⚠️';
+            lines.push(`| ${entry.step} | ${entry.action} | ${target.slice(0, 40)} | ${result} | ${entry.reasoning.slice(0, 60)}... |`);
+          }
+          lines.push('');
+        }
+      }
+    } catch {
+      lines.push('*Could not read action trace data.*');
+      lines.push('');
+    }
+  }
+
+  // Screenshots
+  const screenshots = evidence.filter(e => e.type === 'screenshot');
+  if (screenshots.length > 0) {
+    lines.push('## Screenshots');
+    lines.push('');
+    for (const s of screenshots) {
+      lines.push(`- **${s.summary}** — \`${path.basename(s.filePath)}\``);
+    }
+    lines.push('');
+  }
+
+  // AI Requests/Responses Summary
+  const aiRequests = evidence.filter(e => e.type === 'ai_request');
+  const aiResponses = evidence.filter(e => e.type === 'ai_response');
+  if (aiRequests.length > 0 || aiResponses.length > 0) {
+    lines.push('## AI Communication');
+    lines.push('');
+    lines.push(`- AI Requests: ${aiRequests.length}`);
+    lines.push(`- AI Responses: ${aiResponses.length}`);
+    lines.push('');
+  }
+
+  // Console Logs Reference
+  const consoleLogs = evidence.filter(e => e.type === 'console_log');
+  if (consoleLogs.length > 0) {
+    lines.push('## Console Logs');
+    lines.push('');
+    lines.push(`Console output saved to: \`${consoleLogs[0].filePath}\``);
+    lines.push('');
+  }
+
+  // Debug Log Reference
+  const debugLogs = evidence.filter(e => e.type === 'debug_log');
+  if (debugLogs.length > 0) {
+    lines.push('## Debug Log');
+    lines.push('');
+    lines.push(`Full debug log saved to: \`${debugLogs[0].filePath}\``);
+    lines.push('');
+  }
+
+  // Write report
+  const markdown = lines.join('\n');
+  const reportDir = path.join(project.workspacePath, 'reports');
+  fs.mkdirSync(reportDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const reportPath = path.join(reportDir, `dynamic-test-${session.name.replace(/[^a-zA-Z0-9]/g, '-')}-${timestamp}.md`);
+  fs.writeFileSync(reportPath, markdown);
+
+  return { reportPath, markdown };
 }

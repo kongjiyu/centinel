@@ -1,6 +1,83 @@
 import { useState } from 'react';
-import type { AiProviderSetting, AiCompatibilityMode, AiTestResult } from '../types';
+import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
+
+type ProviderPreset = {
+  id: string;
+  label: string;
+  provider: AiProvider;
+  apiFormat: AiApiFormat;
+  baseUrl: string;
+  model: string;
+};
+
+const PROVIDER_PRESETS: ProviderPreset[] = [
+  {
+    id: 'mimo-openai',
+    label: 'MiMo (OpenAI-compatible)',
+    provider: 'mimo',
+    apiFormat: 'openai-compatible',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions',
+    model: 'mimo-v2.5',
+  },
+  {
+    id: 'mimo-anthropic',
+    label: 'MiMo (Anthropic-compatible)',
+    provider: 'mimo',
+    apiFormat: 'anthropic-compatible',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/anthropic/v1/messages',
+    model: 'mimo-v2.5',
+  },
+  {
+    id: 'mimo-pro-openai',
+    label: 'MiMo Pro (OpenAI-compatible)',
+    provider: 'mimo',
+    apiFormat: 'openai-compatible',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions',
+    model: 'mimo-v2.5-pro',
+  },
+  {
+    id: 'mimo-pro-anthropic',
+    label: 'MiMo Pro (Anthropic-compatible)',
+    provider: 'mimo',
+    apiFormat: 'anthropic-compatible',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/anthropic/v1/messages',
+    model: 'mimo-v2.5-pro',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    provider: 'gemini',
+    apiFormat: 'google-native',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
+    model: 'gemini-2.5-flash',
+  },
+  {
+    id: 'custom-openai',
+    label: 'Custom (OpenAI-compatible)',
+    provider: 'custom',
+    apiFormat: 'openai-compatible',
+    baseUrl: '',
+    model: '',
+  },
+  {
+    id: 'custom-anthropic',
+    label: 'Custom (Anthropic-compatible)',
+    provider: 'custom',
+    apiFormat: 'anthropic-compatible',
+    baseUrl: '',
+    model: '',
+  },
+];
+
+function findMatchingPreset(setting: AiProviderSetting): ProviderPreset | null {
+  return PROVIDER_PRESETS.find(p =>
+    p.provider === setting.provider &&
+    p.apiFormat === setting.apiFormat &&
+    p.baseUrl === setting.baseUrl &&
+    p.model === setting.model
+  ) || null;
+}
 
 type Props = {
   settings: AiProviderSetting[];
@@ -8,7 +85,8 @@ type Props = {
 };
 
 function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
-  const [compatMode, setCompatMode] = useState<AiCompatibilityMode>(setting.compatibilityMode);
+  const matchingPreset = findMatchingPreset(setting);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(matchingPreset?.id || 'custom-openai');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(setting.baseUrl);
   const [model, setModel] = useState(setting.model);
@@ -17,6 +95,18 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const selectedPreset = PROVIDER_PRESETS.find(p => p.id === selectedPresetId);
+  const isCustom = selectedPresetId.startsWith('custom-');
+
+  const handlePresetChange = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const preset = PROVIDER_PRESETS.find(p => p.id === presetId);
+    if (preset && !presetId.startsWith('custom-')) {
+      setBaseUrl(preset.baseUrl);
+      setModel(preset.model);
+    }
+  };
 
   const handleSave = async () => {
     setError(null);
@@ -40,7 +130,8 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
     setSaving(true);
     try {
       await api.updateAiSetting(setting.id, {
-        compatibilityMode: compatMode,
+        provider: selectedPreset?.provider || 'custom',
+        apiFormat: selectedPreset?.apiFormat || 'openai-compatible',
         apiKey: apiKey || '', // empty means keep existing
         baseUrl: baseUrl.trim(),
         model: model.trim(),
@@ -73,10 +164,23 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
       <h3>{setting.label}</h3>
 
       <div className="form-field">
-        <label>Compatibility Mode</label>
-        <select value={compatMode} onChange={e => setCompatMode(e.target.value as AiCompatibilityMode)}>
-          <option value="anthropic">Anthropic-compatible</option>
-          <option value="openai">OpenAI-compatible</option>
+        <label>Provider</label>
+        <select value={selectedPresetId} onChange={e => handlePresetChange(e.target.value)}>
+          <optgroup label="MiMo">
+            {PROVIDER_PRESETS.filter(p => p.provider === 'mimo').map(p => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Google">
+            {PROVIDER_PRESETS.filter(p => p.provider === 'gemini').map(p => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Custom">
+            {PROVIDER_PRESETS.filter(p => p.provider === 'custom').map(p => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </optgroup>
         </select>
       </div>
 
@@ -96,6 +200,7 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
           value={baseUrl}
           onChange={e => setBaseUrl(e.target.value)}
           placeholder="https://api.example.com/v1/messages"
+          disabled={!isCustom}
         />
       </div>
 
@@ -105,6 +210,16 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
           value={model}
           onChange={e => setModel(e.target.value)}
           placeholder="model-name"
+          disabled={!isCustom}
+        />
+      </div>
+
+      <div className="form-field">
+        <label>API Format</label>
+        <input
+          value={selectedPreset?.apiFormat || 'openai-compatible'}
+          disabled
+          className="readonly-field"
         />
       </div>
 
@@ -140,12 +255,16 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
 
       <p className="settings-hint">
         Configure AI providers for text generation and multimodal vision.
+        Select a provider preset or configure a custom endpoint.
         Keys are stored locally in SQLite.
       </p>
 
       {textSetting && (
         <div className="settings-section">
           <h2>Text Generation</h2>
+          <p className="settings-section-hint">
+            Used for static analysis, code review, and requirement traceability.
+          </p>
           <ProviderForm setting={textSetting} onRefresh={onRefresh} />
         </div>
       )}
@@ -153,6 +272,10 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
       {visionSetting && (
         <div className="settings-section">
           <h2>Multimodal Vision</h2>
+          <p className="settings-section-hint">
+            Used for dynamic testing with screenshot analysis.
+            Requires a vision-capable model (e.g., MiMo, Gemini).
+          </p>
           <ProviderForm setting={visionSetting} onRefresh={onRefresh} />
         </div>
       )}
