@@ -152,7 +152,6 @@ export async function exportProjectReport(projectId: string): Promise<{ reportPa
   }
 
   // Dynamic Test Sessions (summary only)
-  const dynamicSessions = await listDynamicSessions(projectId);
   if (dynamicSessions.length > 0) {
     lines.push('## Dynamic Test Sessions');
     lines.push('');
