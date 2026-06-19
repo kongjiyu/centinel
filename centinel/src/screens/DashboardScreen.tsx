@@ -81,7 +81,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)', color: '#92400e' }}>
+          <div className="stat-icon" style={{ background: '#e5e5e5', color: '#404040' }}>
             <TrendingUp size={22} />
           </div>
           <div className="stat-content">
@@ -147,7 +147,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
               <ArrowRight size={14} className="quick-action-arrow" />
             </button>
             <button className="quick-action" onClick={() => onNavigate({ name: 'settings' })}>
-              <div className="quick-action-icon" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+              <div className="quick-action-icon" style={{ background: '#e5e5e5', color: '#525252' }}>
                 <Settings size={16} />
               </div>
               <div className="quick-action-text">
@@ -157,7 +157,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
               <ArrowRight size={14} className="quick-action-arrow" />
             </button>
             <button className="quick-action" onClick={() => onNavigate({ name: 'projects' })}>
-              <div className="quick-action-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
+              <div className="quick-action-icon" style={{ background: '#e5e5e5', color: '#737373' }}>
                 <Play size={16} />
               </div>
               <div className="quick-action-text">
