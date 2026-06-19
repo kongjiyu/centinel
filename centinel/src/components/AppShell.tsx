@@ -1,3 +1,4 @@
+import { LayoutDashboard, FolderOpen, Search, FileText, Settings, Circle } from 'lucide-react';
 import type { Screen, AiProviderSetting } from '../types';
 
 type Props = {
@@ -14,47 +15,94 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
   const textOk = aiSettings.some(s => s.id === 'text' && s.hasApiKey);
   const visionOk = aiSettings.some(s => s.id === 'vision' && s.hasApiKey);
 
+  const isActive = (names: Screen['name'][]) => names.includes(screen.name);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src="/assets/centinel-logo-transparent.png" alt="Centinel" className="sidebar-logo" />
+          <img src="/assets/centinel-logo-transparent.png" alt="" className="sidebar-logo" />
           <span className="sidebar-title">Centinel</span>
         </div>
 
         <nav className="sidebar-nav">
           <button
-            className={`nav-item ${screen.name === 'dashboard' ? 'active' : ''}`}
+            className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
             onClick={() => nav('dashboard')}
           >
-            Dashboard
+            <LayoutDashboard size={18} />
+            <span>Dashboard</span>
           </button>
           <button
-            className={`nav-item ${screen.name === 'projects' || screen.name === 'project-detail' || screen.name === 'dynamic-session' || screen.name === 'requirements' ? 'active' : ''}`}
+            className={`nav-item ${isActive(['projects', 'project-detail', 'dynamic-session', 'static-session', 'evidence-browser', 'requirements']) ? 'active' : ''}`}
             onClick={() => nav('projects')}
           >
-            Projects
+            <FolderOpen size={18} />
+            <span>Projects</span>
           </button>
           <button
-            className={`nav-item ${screen.name === 'settings' ? 'active' : ''}`}
+            className={`nav-item ${screen.name === 'evidence-browser' ? 'active' : ''}`}
+            onClick={() => {
+              // Navigate to evidence browser of first project or stay
+              if (screen.name === 'project-detail' || screen.name === 'evidence-browser') {
+                const projectId = 'projectId' in screen ? (screen as any).projectId : undefined;
+                if (projectId) {
+                  onNavigate({ name: 'evidence-browser', projectId });
+                } else {
+                  nav('projects');
+                }
+              } else {
+                nav('projects');
+              }
+            }}
+          >
+            <Search size={18} />
+            <span>Evidence</span>
+          </button>
+          <button
+            className={`nav-item ${isActive(['settings']) ? 'active' : ''}`}
             onClick={() => nav('settings')}
           >
-            Settings
+            <Settings size={18} />
+            <span>Settings</span>
           </button>
         </nav>
 
         <div className="sidebar-footer">
-          <div className={`status-indicator ${sidecarOnline ? 'online' : 'offline'}`}>
-            <span className="status-dot" />
-            {sidecarOnline ? 'Sidecar online' : 'Sidecar offline'}
-          </div>
-          <div className="api-status">
-            <span className={textOk ? 'configured' : 'unconfigured'}>
-              Text {textOk ? '✓' : '✗'}
-            </span>
-            <span className={visionOk ? 'configured' : 'unconfigured'}>
-              Vision {visionOk ? '✓' : '✗'}
-            </span>
+          <div className="status-block">
+            <div className="status-row">
+              <Circle
+                size={8}
+                className={`status-dot ${sidecarOnline ? 'online' : 'offline'}`}
+                fill="currentColor"
+              />
+              <span className="status-label">Sidecar</span>
+              <span className={`status-value ${sidecarOnline ? 'ok' : 'err'}`}>
+                {sidecarOnline ? 'Online' : 'Offline'}
+              </span>
+            </div>
+            <div className="status-row">
+              <Circle
+                size={8}
+                className={`status-dot ${textOk ? 'online' : 'offline'}`}
+                fill="currentColor"
+              />
+              <span className="status-label">Text AI</span>
+              <span className={`status-value ${textOk ? 'ok' : 'err'}`}>
+                {textOk ? 'Ready' : 'Missing'}
+              </span>
+            </div>
+            <div className="status-row">
+              <Circle
+                size={8}
+                className={`status-dot ${visionOk ? 'online' : 'offline'}`}
+                fill="currentColor"
+              />
+              <span className="status-label">Vision AI</span>
+              <span className={`status-value ${visionOk ? 'ok' : 'err'}`}>
+                {visionOk ? 'Ready' : 'Missing'}
+              </span>
+            </div>
           </div>
         </div>
       </aside>
