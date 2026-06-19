@@ -567,8 +567,8 @@ const server = http.createServer(async (req, res) => {
     const rMatch = matchReportExport(url);
     if (rMatch && req.method === 'POST') {
       try {
-        const reportPath = await exportProjectReport(rMatch.projectId);
-        return json(res, 200, { reportPath });
+        const result = await exportProjectReport(rMatch.projectId);
+        return json(res, 200, result);
       } catch (e) {
         return json(res, 400, { error: String(e) });
       }

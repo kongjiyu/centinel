@@ -36,14 +36,14 @@ function formatDate(iso: string): string {
   }
 }
 
-export async function exportProjectReport(projectId: string): Promise<string> {
+export async function exportProjectReport(projectId: string): Promise<{ reportPath: string; markdown: string }> {
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found');
 
   const staticSessions = await listStaticSessions(projectId);
-  const allFindings = await listStaticFindings(projectId, ''); // will need to get all
+  const dynamicSessions = await listDynamicSessions(projectId);
 
-  // Get all findings across all sessions
+  // Get all findings across all static sessions
   const allStaticFindings: Finding[] = [];
   for (const session of staticSessions) {
     const findings = await listStaticFindings(projectId, session.id);
@@ -162,16 +162,22 @@ export async function exportProjectReport(projectId: string): Promise<string> {
       lines.push(`| ${s.name} | ${s.targetUrl} | ${s.missionType} | ${s.status} | ${formatDate(s.createdAt)} |`);
     }
     lines.push('');
+  } else {
+    lines.push('## Dynamic Test Sessions');
+    lines.push('');
+    lines.push('*No dynamic test sessions completed.*');
+    lines.push('');
   }
 
   // Write report
+  const markdown = lines.join('\n');
   const reportDir = path.join(project.workspacePath, 'reports');
   fs.mkdirSync(reportDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const reportPath = path.join(reportDir, `centinel-report-${timestamp}.md`);
-  fs.writeFileSync(reportPath, lines.join('\n'));
+  fs.writeFileSync(reportPath, markdown);
 
-  return reportPath;
+  return { reportPath, markdown };
 }
 
 export async function exportSessionReport(projectId: string, sessionId: string): Promise<string> {

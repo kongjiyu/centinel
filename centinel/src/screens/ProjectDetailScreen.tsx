@@ -181,11 +181,16 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
         <div className="card detail-card">
           <div className="panel-header">
             <h3>Dynamic Testing</h3>
-            {!showDynamicForm && (
-              <button className="btn-primary" onClick={() => setShowDynamicForm(true)}>
-                New Dynamic Test
+            <div className="section-actions">
+              <button className="btn-secondary" onClick={() => onNavigate({ name: 'evidence-browser', projectId: project.id })}>
+                Evidence Browser
               </button>
-            )}
+              {!showDynamicForm && (
+                <button className="btn-primary" onClick={() => setShowDynamicForm(true)}>
+                  New Dynamic Test
+                </button>
+              )}
+            </div>
           </div>
           {showDynamicForm && (
             <DynamicTestForm onSubmit={handleCreateDynamic} onCancel={() => { setShowDynamicForm(false); setError(null); }} />

@@ -140,6 +140,7 @@ export type Screen =
   | { name: 'project-detail'; projectId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'static-session'; projectId: string; sessionId: string }
+  | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
   | { name: 'settings' };
 

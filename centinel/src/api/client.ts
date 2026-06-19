@@ -127,7 +127,7 @@ export const api = {
 
   // Reports
   exportProjectReport: (projectId: string) =>
-    request<{ reportPath: string }>(`/projects/${projectId}/reports/export`, {
+    request<{ reportPath: string; markdown: string }>(`/projects/${projectId}/reports/export`, {
       method: 'POST',
     }),
 
