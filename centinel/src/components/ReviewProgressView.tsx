@@ -1,11 +1,12 @@
 import type { ReviewProgress } from '../types';
+import { Check } from 'lucide-react';
 
 type Props = {
   progress: ReviewProgress | null;
 };
 
 function StepIcon({ status }: { status: string }) {
-  if (status === 'done') return <span className="step-check">&#10003;</span>;
+  if (status === 'done') return <Check className="step-check" size={12} aria-label="Completed" />;
   if (status === 'active') return <span className="step-spinner" />;
   return <span className="step-dot-pending" />;
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Save, Play, Check, X, Eye, EyeOff, Zap } from 'lucide-react';
+import { Save, Play, Check, Eye, EyeOff, Zap, ScanEye } from 'lucide-react';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
+import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 
 type ProviderPreset = {
   id: string;
@@ -86,17 +87,13 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   const Icon = setting.id === 'text' ? Zap : Eye;
 
   return (
-    <div className="panel" style={{ marginBottom: '16px' }}>
-      <div className="panel-header">
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Icon size={16} style={{ color: 'var(--accent)' }} />
+    <div className="provider-form">
+      <div className="provider-form-header">
+        <h3>
+          <Icon size={16} />
           {setting.label}
         </h3>
-        {isConfigured && (
-          <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Check size={12} /> Configured
-          </span>
-        )}
+        <StatusBadge label={isConfigured ? 'Configured' : 'Setup required'} tone={isConfigured ? 'success' : 'warning'} />
       </div>
 
       <div className="form-field">
@@ -122,35 +119,31 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
 
       <div className="form-field">
         <label>API Key</label>
-        <div style={{ position: 'relative' }}>
+        <div className="api-key-field">
           <input
             type={showKey ? 'text' : 'password'}
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder={isConfigured ? `Current: ${setting.apiKeyPreview}` : 'Enter API key'}
-            style={{ paddingRight: '36px' }}
           />
-          <button
-            type="button"
+          <IconButton
+            icon={showKey ? EyeOff : Eye}
+            label={showKey ? 'Hide API key' : 'Show API key'}
             onClick={() => setShowKey(!showKey)}
-            style={{
-              position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-              background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', padding: '4px',
-            }}
-          >
-            {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
+          />
         </div>
       </div>
 
-      <div className="form-field">
-        <label>Base URL</label>
-        <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1/messages" disabled={!isCustom} />
-      </div>
+      <div className={`provider-endpoint-fields ${isCustom ? 'is-custom' : ''}`}>
+        <div className="form-field">
+          <label>Base URL</label>
+          <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1/messages" disabled={!isCustom} />
+        </div>
 
-      <div className="form-field">
-        <label>Model</label>
-        <input value={model} onChange={e => setModel(e.target.value)} placeholder="model-name" disabled={!isCustom} />
+        <div className="form-field">
+          <label>Model</label>
+          <input value={model} onChange={e => setModel(e.target.value)} placeholder="model-name" disabled={!isCustom} />
+        </div>
       </div>
 
       <div className="form-field">
@@ -172,7 +165,8 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
 
       {testResult && (
         <div className={`test-result ${testResult.status}`}>
-          <strong>{testResult.status === 'pass' ? '✓ Success' : '✗ Failed'}</strong>
+          {testResult.status === 'pass' ? <Check size={14} /> : <ScanEye size={14} />}
+          <strong>{testResult.status === 'pass' ? 'Success' : 'Failed'}</strong>
           {testResult.message && <span>: {testResult.message}</span>}
         </div>
       )}
@@ -185,38 +179,37 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
   const visionSetting = settings.find(s => s.id === 'vision');
 
   return (
-    <div className="screen animate-fade-in">
-      <h1>Settings</h1>
+    <div className="screen settings-screen animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Provider Control"
+        title="AI Settings"
+        description="Configure text generation and multimodal vision endpoints. Credentials remain in the local SQLite store."
+        meta={<><span>{settings.filter(s => s.hasApiKey).length}/{settings.length} providers configured</span><span>Local credential storage</span></>}
+      />
 
-      <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '24px', lineHeight: '1.5' }}>
-        Configure AI providers for text generation and multimodal vision.
-        Select a provider preset or configure a custom endpoint.
-        Keys are stored locally in SQLite.
-      </p>
+      <div className="settings-layout">
+        {textSetting && (
+          <section className="settings-section">
+            <div className="settings-section-heading">
+              <div><span className="command-eyebrow">Analysis Channel</span><h2>Text Generation</h2></div>
+              <Zap size={17} />
+            </div>
+            <p className="settings-section-copy">Static analysis, code review, and requirement traceability.</p>
+            <ProviderForm setting={textSetting} onRefresh={onRefresh} />
+          </section>
+        )}
 
-      {textSetting && (
-        <div style={{ marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-            Text Generation
-          </h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-faint)', marginBottom: '12px', fontStyle: 'italic' }}>
-            Used for static analysis, code review, and requirement traceability.
-          </p>
-          <ProviderForm setting={textSetting} onRefresh={onRefresh} />
-        </div>
-      )}
-
-      {visionSetting && (
-        <div>
-          <h2 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-            Multimodal Vision
-          </h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-faint)', marginBottom: '12px', fontStyle: 'italic' }}>
-            Used for dynamic testing with screenshot analysis.
-          </p>
-          <ProviderForm setting={visionSetting} onRefresh={onRefresh} />
-        </div>
-      )}
+        {visionSetting && (
+          <section className="settings-section">
+            <div className="settings-section-heading">
+              <div><span className="command-eyebrow">Observation Channel</span><h2>Multimodal Vision</h2></div>
+              <Eye size={17} />
+            </div>
+            <p className="settings-section-copy">Dynamic testing and screenshot-based interaction analysis.</p>
+            <ProviderForm setting={visionSetting} onRefresh={onRefresh} />
+          </section>
+        )}
+      </div>
     </div>
   );
 }

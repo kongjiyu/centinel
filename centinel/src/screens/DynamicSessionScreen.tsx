@@ -2,15 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { writeText } from '@tauri-apps/api/clipboard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowLeft, Download, X, Copy, Check, Image, FileText, Terminal, Bug, Activity, Clock } from 'lucide-react';
+import { Download, X, Copy, Check, Image, FileText, Terminal, Bug, Activity, Clock } from 'lucide-react';
 import { api } from '../api/client';
+import { CommandEmptyState, CommandPageHeader } from '../components/CommandUI';
 import type { DynamicSession, DynamicEvidence, Screen } from '../types';
 
 type Props = { projectId: string; sessionId: string; onNavigate: (screen: Screen) => void };
-
-function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge badge-${status}`}>{status}</span>;
-}
 
 function evidenceImageSrc(filePath: string): string {
   return `http://localhost:37701/evidence-file?path=${encodeURIComponent(filePath)}`;
@@ -92,20 +89,22 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
     catch (err) { console.error('Failed to copy path:', err); }
   };
 
-  if (loading) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Loading...</p></div>;
-  if (!session) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Session not found.</p></div>;
+  if (loading) return <div className="screen command-loading"><Activity size={20} /> Loading session...</div>;
+  if (!session) return <div className="screen"><CommandEmptyState icon={Bug} title="Session not found" description="This dynamic session is unavailable or has been removed." /></div>;
 
   const isActive = session.status === 'running' || session.status === 'queued';
 
   return (
-    <div className="screen animate-fade-in">
-      <div className="screen-header">
-        <button className="btn-back" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1>Dynamic Test</h1>
-        <StatusBadge status={session.status} />
-        <div className="header-actions">
+    <div className="screen command-dynamic-session animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Autonomous UI Validation"
+        title={session.name || 'Dynamic Test'}
+        description={session.goal}
+        status={{ label: session.status }}
+        onBack={() => onNavigate({ name: 'project-detail', projectId })}
+        meta={<><span>{session.missionType === 'smoke' ? 'Smoke test' : 'User journey'}</span><span>{new Date(session.createdAt).toLocaleString()}</span></>}
+        actions={(
+          <>
           {!isActive && (
             <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
               <Download size={14} /> {exporting ? 'Exporting...' : 'Export Summary'}
@@ -116,8 +115,9 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
               <X size={14} /> Cancel
             </button>
           )}
-        </div>
-      </div>
+          </>
+        )}
+      />
 
       {exportResult && (
         <div className={`export-result ${exportResult.success ? 'success' : 'error'} animate-slide-up`}>
@@ -125,7 +125,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
 
           {exportResult.markdown && (
             <div className="report-preview">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <h3 className="command-section-heading">
                 <FileText size={14} /> Report Preview
               </h3>
               <div className="report-content">
@@ -156,14 +156,14 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
 
       {session.finalSummary && (
         <div className="section">
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={16} /> Summary</h2>
+          <h2 className="command-section-heading"><FileText size={16} /> Summary</h2>
           <div className="summary-box">{session.finalSummary}</div>
         </div>
       )}
 
       {session.failureReason && (
         <div className="section">
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Bug size={16} /> Failure Reason</h2>
+          <h2 className="command-section-heading"><Bug size={16} /> Failure Reason</h2>
           <div className="summary-box error">{session.failureReason}</div>
         </div>
       )}
@@ -175,7 +175,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
 
         return (
           <div key={group.type} className="section">
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <h2 className="command-section-heading">
               <Icon size={16} /> {group.label} ({items.length})
             </h2>
             {group.type === 'screenshot' ? (
@@ -193,7 +193,8 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
                           console.error('Failed to load screenshot:', { filePath: s.filePath, attemptedUrl: imgSrc });
                           const container = (e.target as HTMLImageElement).parentElement;
                           if (container) {
-                            container.innerHTML = `<div class="screenshot-error"><span class="screenshot-error-icon">⚠️</span><span class="screenshot-error-text">Screenshot failed to load</span></div>`;
+                            (e.target as HTMLImageElement).style.display = 'none';
+                            container.classList.add('screenshot-load-error');
                           }
                         }}
                       />
@@ -222,7 +223,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
 
       {isActive && (
         <div className="section">
-          <p className="running-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <p className="running-hint command-running-hint">
             <Clock size={16} className="status-pulse" />
             Test is running... evidence will appear here as it is captured.
           </p>
@@ -245,7 +246,8 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
                   console.error('Failed to load modal screenshot:', selectedScreenshot.filePath);
                   const container = (e.target as HTMLImageElement).parentElement;
                   if (container) {
-                    container.innerHTML = `<div class="screenshot-error"><span class="screenshot-error-icon">⚠️</span><span class="screenshot-error-text">Screenshot failed to load</span></div>`;
+                    (e.target as HTMLImageElement).style.display = 'none';
+                    container.classList.add('screenshot-load-error');
                   }
                 }}
               />

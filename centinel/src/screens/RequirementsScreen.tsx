@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Plus, Trash2, Edit, ChevronDown, ChevronUp, Link, FileText } from 'lucide-react';
+import { Plus, Trash2, Edit, ChevronDown, ChevronUp, Link, FileText, Activity } from 'lucide-react';
 import { api } from '../api/client';
+import { CommandEmptyState, CommandPageHeader, IconButton, StatusBadge, type StatusTone } from '../components/CommandUI';
 import type { Requirement, RequirementMapping, Artifact, Screen } from '../types';
 
 type Props = { projectId: string; onNavigate: (screen: Screen) => void };
@@ -81,25 +82,31 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
     } catch (e) { setError(String(e)); }
   };
 
-  if (loading) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Loading requirements...</p></div>;
+  if (loading) return <div className="screen command-loading"><Activity size={20} /> Loading requirements...</div>;
+
+  const priorityTone = (priority: string): StatusTone =>
+    priority === 'critical' || priority === 'high' ? 'danger' : priority === 'medium' ? 'warning' : 'neutral';
+  const coverageTone = (coverage: string): StatusTone =>
+    coverage === 'implemented' ? 'success' : coverage === 'partial' ? 'warning' : coverage === 'missing' ? 'danger' : 'neutral';
 
   return (
-    <div className="screen animate-fade-in">
-      <div className="screen-header">
-        <button className="btn-back" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1>Requirements</h1>
-        {!showForm && (
+    <div className="screen command-requirements animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Traceability Registry"
+        title="Requirements"
+        description="Maintain requirements and link them to imported source artifacts with explicit coverage evidence."
+        onBack={() => onNavigate({ name: 'project-detail', projectId })}
+        meta={<><span>{requirements.length} requirements</span><span>{artifacts.length} artifacts available</span></>}
+        actions={!showForm ? (
           <button className="btn-primary" onClick={() => { resetForm(); setShowForm(true); }}>
             <Plus size={14} /> Add Requirement
           </button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {showForm && (
-        <div className="panel animate-slide-up" style={{ marginBottom: '16px' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>{editing ? 'Edit Requirement' : 'New Requirement'}</h3>
+        <div className="form-card requirement-form animate-slide-up">
+          <h3>{editing ? 'Edit Requirement' : 'New Requirement'}</h3>
           <div className="form-field">
             <label>Title</label>
             <input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="Requirement title" />
@@ -133,45 +140,39 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
       {!showForm && error && <p className="form-error">{error}</p>}
 
       {requirements.length === 0 ? (
-        <div style={{ color: 'var(--text-faint)', textAlign: 'center', padding: '48px', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--panel-border)' }}>
-          <FileText size={32} style={{ marginBottom: '12px', opacity: 0.4 }} />
-          <p>No requirements yet. Add one to get started.</p>
-        </div>
+        <CommandEmptyState icon={FileText} title="No requirements yet" description="Add a requirement to begin traceability mapping against imported artifacts." />
       ) : (
-        <div className="project-list stagger-children">
+        <div className="requirements-list stagger-children">
           {requirements.map(req => (
-            <div key={req.id}>
-              <div className="project-row" onClick={() => toggleExpand(req.id)}>
-                <div className="project-info" style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className="project-name">{req.title}</span>
-                    <span className={`badge badge-${req.priority === 'critical' || req.priority === 'high' ? 'failure' : req.priority === 'medium' ? 'running' : 'queued'}`}>{req.priority}</span>
-                    {req.category && <span className="finding-category">{req.category}</span>}
-                  </div>
-                  <span className="project-desc">{req.description.length > 100 ? req.description.slice(0, 100) + '...' : req.description || 'No description'}</span>
+            <div key={req.id} className="requirement-row">
+              <div className="requirement-summary" onClick={() => toggleExpand(req.id)} role="button" tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleExpand(req.id); } }}>
+                <div className="requirement-primary">
+                  <span className="requirement-title">{req.title}</span>
+                  <span className="requirement-excerpt">{req.description || 'No description'}</span>
                 </div>
-                <div className="project-meta" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
-                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => handleEdit(req)}><Edit size={12} /></button>
-                    <button className="btn-delete" onClick={() => handleDelete(req.id)}><Trash2 size={12} /></button>
-                  </div>
-                  {expandedId === req.id ? <ChevronUp size={14} style={{ color: 'var(--text-faint)' }} /> : <ChevronDown size={14} style={{ color: 'var(--text-faint)' }} />}
+                <StatusBadge label={req.priority} tone={priorityTone(req.priority)} />
+                {req.category && <span className="finding-category">{req.category}</span>}
+                <div className="requirement-actions" onClick={e => e.stopPropagation()}>
+                  <IconButton icon={Edit} label="Edit requirement" onClick={() => handleEdit(req)} />
+                  <IconButton icon={Trash2} label="Delete requirement" tone="danger" onClick={() => handleDelete(req.id)} />
                 </div>
+                {expandedId === req.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </div>
 
               {expandedId === req.id && (
-                <div style={{ background: 'var(--surface-raised)', padding: '16px', borderBottom: '1px solid var(--panel-border)', borderRadius: '0 0 var(--radius-sm) var(--radius-sm)' }}>
-                  {req.description && <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px', whiteSpace: 'pre-wrap' }}>{req.description}</p>}
+                <div className="requirement-detail animate-slide-up">
+                  {req.description && <p className="requirement-description">{req.description}</p>}
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Link size={12} /> Code Mappings</h4>
-                    <button className="btn-primary" style={{ padding: '3px 10px', fontSize: '12px' }} onClick={() => setShowMapForm(showMapForm === req.id ? null : req.id)}>
+                  <div className="requirement-mapping-header">
+                    <h4><Link size={12} /> Code Mappings</h4>
+                    <button className="btn-secondary" onClick={() => setShowMapForm(showMapForm === req.id ? null : req.id)}>
                       {showMapForm === req.id ? 'Cancel' : 'Link to Code'}
                     </button>
                   </div>
 
                   {showMapForm === req.id && (
-                    <div className="panel" style={{ marginBottom: '8px' }}>
+                    <div className="requirement-map-form">
                       <div className="form-row">
                         <div className="form-field">
                           <label>Artifact File</label>
@@ -192,32 +193,26 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
                         </div>
                       </div>
                       <div className="form-actions">
-                        <button className="btn-primary" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={() => handleMap(req.id)}>Add Mapping</button>
+                        <button className="btn-primary" onClick={() => handleMap(req.id)}>Add Mapping</button>
                       </div>
                     </div>
                   )}
 
                   {mappings[req.id] && mappings[req.id].length > 0 ? (
-                    <div className="project-list" style={{ marginTop: '4px' }}>
+                    <div className="requirement-mappings">
                       {mappings[req.id].map(m => {
                         const artifact = artifacts.find(a => a.id === m.fileId);
                         return (
-                          <div key={m.id} className="project-row" style={{ cursor: 'default' }}>
-                            <div className="project-info">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}>{artifact ? artifact.fileName : m.fileId ?? 'Unknown file'}</span>
-                                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, color: m.coverageStatus === 'implemented' ? 'var(--success)' : m.coverageStatus === 'partial' ? 'var(--warning)' : m.coverageStatus === 'missing' ? 'var(--danger)' : 'var(--text-faint)', background: m.coverageStatus === 'implemented' ? 'rgba(74,222,128,0.15)' : m.coverageStatus === 'partial' ? 'rgba(251,191,36,0.15)' : m.coverageStatus === 'missing' ? 'rgba(248,113,113,0.15)' : 'rgba(107,114,128,0.15)' }}>
-                                  {m.coverageStatus}
-                                </span>
-                                <span style={{ fontSize: '12px', color: 'var(--text-faint)' }}>{Math.round(m.confidence * 100)}% confidence</span>
-                              </div>
-                            </div>
+                          <div key={m.id} className="requirement-mapping-row">
+                            <span className="mapping-file">{artifact ? artifact.fileName : m.fileId ?? 'Unknown file'}</span>
+                            <StatusBadge label={m.coverageStatus} tone={coverageTone(m.coverageStatus)} />
+                            <span className="mapping-confidence">{Math.round(m.confidence * 100)}% confidence</span>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <p style={{ fontSize: '13px', color: 'var(--text-faint)', margin: 0 }}>No code mappings yet.</p>
+                    <p className="command-compact-empty">No code mappings yet.</p>
                   )}
                 </div>
               )}

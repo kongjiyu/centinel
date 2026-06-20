@@ -36,26 +36,26 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
   };
 
   return (
-    <div className="panel animate-slide-up" style={{ marginBottom: '16px' }}>
+    <div className="panel dynamic-test-form animate-slide-up">
       <div className="panel-header">
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Play size={14} style={{ color: 'var(--accent)' }} />
+        <h3>
+          <Play size={14} />
           New Dynamic Test
         </h3>
-        <button className="btn-secondary" onClick={onCancel} style={{ padding: '4px 8px', fontSize: '12px' }}>
+        <button className="command-icon-button" onClick={onCancel} title="Close test form" aria-label="Close test form">
           <X size={14} />
         </button>
       </div>
 
       <div className="form-field">
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <label className="field-label-with-icon">
           <Globe size={13} /> Target URL
         </label>
         <input value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="http://localhost:3000" />
       </div>
 
       <div className="form-field">
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <label className="field-label-with-icon">
           <Target size={13} /> Testing Goal
         </label>
         <textarea
@@ -75,7 +75,7 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
           </select>
         </div>
         <div className="form-field">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <label className="field-label-with-icon">
             <Hash size={13} /> Max Steps
           </label>
           <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} min={1} max={50} />

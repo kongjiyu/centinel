@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Image, Activity, FileText, Terminal, Bug, Search, X, AlertCircle } from 'lucide-react';
+import { Image, Activity, FileText, Terminal, Bug, Search, X, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
+import { CommandEmptyState, CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import type { DynamicSession, DynamicEvidence, Screen } from '../types';
 
 type Props = { projectId: string; onNavigate: (screen: Screen) => void };
@@ -66,29 +67,30 @@ export function EvidenceBrowser({ projectId, onNavigate }: Props) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedScreenshot]);
 
-  if (loading) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Loading...</p></div>;
+  if (loading) return <div className="screen command-loading"><Activity size={20} /> Loading evidence...</div>;
 
   const selectedSession = sessions.find(s => s.id === selectedSessionId);
   const filteredEvidence = filter === 'all' ? evidence : evidence.filter(e => e.type === filter);
 
   return (
-    <div className="screen animate-fade-in">
-      <div className="screen-header">
-        <button className="btn-back" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1>Evidence Browser</h1>
-      </div>
+    <div className="screen command-evidence-browser animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Evidence Inspector"
+        title="Evidence Browser"
+        description="Inspect screenshots, model exchanges, action traces, and runtime logs captured by dynamic sessions."
+        onBack={() => onNavigate({ name: 'project-detail', projectId })}
+        meta={<><span>{sessions.length} sessions</span><span>{evidence.length} evidence items</span></>}
+      />
 
       <div className="evidence-browser-layout">
         {/* Session List Sidebar */}
         <div className="evidence-sidebar">
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <h3 className="command-section-heading">
             <Search size={14} /> Sessions
           </h3>
           <div className="session-list">
             {sessions.length === 0 ? (
-              <p style={{ color: 'var(--text-faint)', fontSize: '13px', textAlign: 'center', padding: '16px 0' }}>No sessions found</p>
+              <p className="command-compact-empty">No sessions found</p>
             ) : (
               sessions.map(session => (
                 <div
@@ -98,7 +100,7 @@ export function EvidenceBrowser({ projectId, onNavigate }: Props) {
                 >
                   <div className="session-item-header">
                     <span className="session-name">{session.name}</span>
-                    <span className={`badge badge-${session.status}`}>{session.status}</span>
+                    <StatusBadge label={session.status} />
                   </div>
                   <div className="session-item-meta">
                     <span>{session.targetUrl}</span>
@@ -118,7 +120,7 @@ export function EvidenceBrowser({ projectId, onNavigate }: Props) {
                 <h2>{selectedSession.name}</h2>
                 <div className="session-meta">
                   <span><strong>Target:</strong> {selectedSession.targetUrl}</span>
-                  <span><strong>Status:</strong> <span className={`badge badge-${selectedSession.status}`}>{selectedSession.status}</span></span>
+                  <span><strong>Status:</strong> <StatusBadge label={selectedSession.status} /></span>
                 </div>
                 {selectedSession.finalSummary && (
                   <div className="session-summary">{selectedSession.finalSummary}</div>
@@ -144,8 +146,8 @@ export function EvidenceBrowser({ projectId, onNavigate }: Props) {
               {/* Evidence Grid */}
               <div className="evidence-grid stagger-children">
                 {filteredEvidence.length === 0 ? (
-                  <p style={{ color: 'var(--text-faint)', gridColumn: '1 / -1', textAlign: 'center', padding: '32px' }}>
-                    <AlertCircle size={20} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                  <p className="command-filter-empty">
+                    <AlertCircle size={20} />
                     <br />No evidence found for this filter
                   </p>
                 ) : (
@@ -176,10 +178,7 @@ export function EvidenceBrowser({ projectId, onNavigate }: Props) {
               </div>
             </>
           ) : (
-            <div style={{ color: 'var(--text-faint)', textAlign: 'center', padding: '48px' }}>
-              <Search size={24} style={{ marginBottom: '12px', opacity: 0.4 }} />
-              <p>Select a session to view evidence</p>
-            </div>
+            <CommandEmptyState icon={Search} title="Select a session" description="Choose a dynamic session from the left to inspect its captured evidence." />
           )}
         </div>
       </div>

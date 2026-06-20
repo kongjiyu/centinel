@@ -18,7 +18,7 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
 
   return (
-    <div className={`app-shell ${screen.name === 'dashboard' ? 'dashboard-mode' : ''}`}>
+    <div className={`app-shell command-mode ${screen.name === 'dashboard' ? 'dashboard-mode' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <img src="/assets/centinel-shield.svg" alt="" className="sidebar-logo-mark" />
@@ -69,18 +69,16 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
         </nav>
 
         <div className="sidebar-footer">
-          {screen.name === 'dashboard' && (
-            <div className="sidebar-edge-module" aria-hidden="true">
-              <div className="edge-module-label">
-                <Radio size={11} />
-                QA node
-              </div>
-              <div className="edge-radar">
-                <span className="edge-radar-sweep" />
-                <span className="edge-radar-core" />
-              </div>
+          <div className="sidebar-edge-module" aria-hidden="true">
+            <div className="edge-module-label">
+              <Radio size={11} />
+              QA node
             </div>
-          )}
+            <div className="edge-radar">
+              <span className="edge-radar-sweep" />
+              <span className="edge-radar-core" />
+            </div>
+          </div>
           <div className="status-block">
             <div className="status-row">
               <Circle

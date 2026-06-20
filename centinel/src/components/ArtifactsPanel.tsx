@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/api/dialog';
 import { readBinaryFile } from '@tauri-apps/api/fs';
 import { api } from '../api/client';
 import type { Artifact, ArtifactSource } from '../types';
+import { ChevronRight, File, Folder, RotateCw, X } from 'lucide-react';
 
 const SOURCE_LABELS: Record<ArtifactSource, string> = {
   documents: 'Documents',
@@ -352,13 +353,11 @@ export function ArtifactsPanel({ projectId }: Props) {
                     <span className="badge badge-repository">Repository</span>
                     <span className="artifact-name">{group.repoName}</span>
                     <span className="artifact-file-count">{group.artifacts.length} files</span>
-                    {indexing && <span className="indexing-spinner" title="Indexing repository...">⟳</span>}
-                    <svg className={`artifact-expand-icon ${isExpanded ? 'expanded' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
+                    {indexing && <RotateCw className="indexing-spinner" size={13} aria-label="Indexing repository" />}
+                    <ChevronRight className={`artifact-expand-icon ${isExpanded ? 'expanded' : ''}`} size={14} />
                   </div>
                   <div className="artifact-meta">
-                    <button className="btn-delete-icon" onClick={(e) => { e.stopPropagation(); handleDeleteRepo(group.repoName); }} title="Remove repository">×</button>
+                    <button className="btn-delete-icon" onClick={(e) => { e.stopPropagation(); handleDeleteRepo(group.repoName); }} title="Remove repository" aria-label="Remove repository"><X size={13} /></button>
                   </div>
                 </div>
                 {isExpanded && (
@@ -372,12 +371,8 @@ export function ArtifactsPanel({ projectId }: Props) {
                           return (
                             <div key={nodePath}>
                               <div className="artifact-repo-folder" style={{ paddingLeft: 12 + depth * 16 }} onClick={() => toggleFolder(nodePath)}>
-                                <svg className={`artifact-expand-icon ${isFolderOpen ? 'expanded' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="9 18 15 12 9 6"/>
-                                </svg>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
-                                </svg>
+                                <ChevronRight className={`artifact-expand-icon ${isFolderOpen ? 'expanded' : ''}`} size={12} />
+                                <Folder size={14} />
                                 <span className="artifact-file-name">{node.name}</span>
                                 <span className="artifact-file-count">{node.children?.length}</span>
                               </div>
@@ -387,10 +382,7 @@ export function ArtifactsPanel({ projectId }: Props) {
                         }
                         return (
                           <div key={nodePath} className="artifact-repo-file-row" style={{ paddingLeft: 12 + depth * 16 }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: '#999' }}>
-                              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                              <polyline points="14 2 14 8 20 8"/>
-                            </svg>
+                            <File className="artifact-file-icon" size={14} />
                             <span className="artifact-file-name">{node.name}</span>
                             <span className={`badge badge-${node.artifact!.type.replace('_', '-')}`}>{node.artifact!.type.replace(/_/g, ' ')}</span>
                           </div>

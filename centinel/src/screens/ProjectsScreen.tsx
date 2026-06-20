@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { open } from '@tauri-apps/api/dialog';
 import { FolderOpen, Plus, Trash2, Folder, ArrowRight } from 'lucide-react';
+import { CommandEmptyState, CommandPageHeader, IconButton } from '../components/CommandUI';
 import type { Project, Screen } from '../types';
 
 type Props = {
@@ -52,14 +53,19 @@ export function ProjectsScreen({ projects, onNavigate, onCreate, onDelete }: Pro
   const canCreate = name.trim() && workspacePath;
 
   return (
-    <div className="screen animate-fade-in">
-      <div className="screen-header">
-        <h1>Projects</h1>
-        <button className="btn-primary" onClick={() => setShowForm(!showForm)}>
-          <Plus size={14} />
-          {showForm ? 'Cancel' : 'New Project'}
-        </button>
-      </div>
+    <div className="screen command-projects animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Workspace Registry"
+        title="Projects"
+        description="Manage local workspaces and enter their static and dynamic testing operations."
+        meta={<span>{projects.length} registered project{projects.length === 1 ? '' : 's'}</span>}
+        actions={(
+          <button className={showForm ? 'btn-secondary' : 'btn-primary'} onClick={() => setShowForm(!showForm)}>
+            <Plus size={14} />
+            {showForm ? 'Cancel' : 'New Project'}
+          </button>
+        )}
+      />
 
       {showForm && (
         <div className="form-card animate-slide-up">
@@ -91,17 +97,12 @@ export function ProjectsScreen({ projects, onNavigate, onCreate, onDelete }: Pro
       )}
 
       {projects.length === 0 && !showForm && (
-        <div className="empty-state animate-fade-in">
-          <div className="empty-state-icon">
-            <FolderOpen size={48} strokeWidth={1} />
-          </div>
-          <h3>No projects yet</h3>
-          <p>Create your first project to start testing with AI-powered analysis.</p>
-          <button className="btn-primary" onClick={() => setShowForm(true)}>
-            <Plus size={14} />
-            Create Project
-          </button>
-        </div>
+        <CommandEmptyState
+          icon={FolderOpen}
+          title="No projects yet"
+          description="Register a local workspace to begin static review and autonomous UI testing."
+          action={<button className="btn-primary" onClick={() => setShowForm(true)}><Plus size={14} /> Create Project</button>}
+        />
       )}
 
       {projects.length > 0 && (
@@ -118,14 +119,13 @@ export function ProjectsScreen({ projects, onNavigate, onCreate, onDelete }: Pro
               <div className="project-info">
                 <span className="project-name">{p.name}</span>
                 {p.description && <span className="project-desc">{p.description}</span>}
+                <span className="project-workspace">{p.workspacePath}</span>
               </div>
               <div className="project-meta">
                 <span className="project-date">{new Date(p.createdAt).toLocaleDateString()}</span>
-                <button className="btn-delete" onClick={e => handleDelete(e, p.id)} title="Delete project">
-                  <Trash2 size={13} />
-                </button>
+                <IconButton icon={Trash2} label="Delete project" tone="danger" onClick={e => handleDelete(e, p.id)} />
               </div>
-              <ArrowRight size={14} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+              <ArrowRight size={14} className="project-row-arrow" />
             </div>
           ))}
         </div>

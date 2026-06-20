@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import './command.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
@@ -91,6 +92,7 @@ function App() {
         <DashboardScreen
           projects={projects}
           aiSettings={aiSettings}
+          sidecarOnline={sidecarOnline}
           onNavigate={setScreen}
         />
       )}

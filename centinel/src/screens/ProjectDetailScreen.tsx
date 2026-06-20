@@ -1,17 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Download, Plus, FolderOpen, Play, BarChart3, Bug, Search, AlertCircle } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
 import { ReviewModal } from '../components/ReviewModal';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
+import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import type { Project, DynamicSession, StaticSession, Screen, ReviewType } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
-
-function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge badge-${status}`}>{status}</span>;
-}
 
 const REVIEW_TYPE_LABELS: Record<string, string> = {
   requirement_review: 'Requirement Review',
@@ -72,45 +69,46 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   };
 
   return (
-    <div className="screen animate-fade-in">
-      <div className="screen-header">
-        <button className="btn-back" onClick={() => onNavigate({ name: 'projects' })}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1>{project.name}</h1>
-        <div className="header-actions">
+    <div className="screen command-project-detail animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Project Workspace"
+        title={project.name}
+        description={project.description || 'Static review, autonomous UI testing, evidence, and findings in one workspace.'}
+        onBack={() => onNavigate({ name: 'projects' })}
+        meta={(
+          <>
+            <span className="workspace"><FolderOpen size={12} /> {project.workspacePath}</span>
+            <span>Created {new Date(project.createdAt).toLocaleDateString()}</span>
+          </>
+        )}
+        actions={(
+          <>
           <button className="btn-secondary" onClick={() => onNavigate({ name: 'evidence-browser', projectId: project.id })}>
             <Search size={14} /> Evidence
           </button>
           <button className="btn-secondary" onClick={handleExportReport} disabled={exporting}>
             <Download size={14} /> {exporting ? 'Exporting...' : 'Export Report'}
           </button>
-        </div>
-      </div>
+          </>
+        )}
+      />
 
-      {project.description && <p style={{ color: 'var(--text-muted)', marginBottom: '12px' }}>{project.description}</p>}
+      {error && <p className="form-error command-inline-alert"><AlertCircle size={14} /> {error}</p>}
 
-      <div className="detail-meta" style={{ display: 'flex', gap: '20px', fontSize: '13px', color: 'var(--text-faint)', marginBottom: '20px' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FolderOpen size={13} /> {project.workspacePath}</span>
-        <span>Created: {new Date(project.createdAt).toLocaleDateString()}</span>
-      </div>
-
-      {error && <p className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><AlertCircle size={14} /> {error}</p>}
-
-      <div className="detail-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+      <div className="detail-grid">
         {/* Artifacts */}
-        <div className="card detail-card">
+        <div className="card detail-card sources-card">
           <ArtifactsPanel projectId={project.id} />
         </div>
 
         {/* Static Review */}
         <div className="card detail-card">
           <div className="panel-header">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <h3>
               <BarChart3 size={14} /> Static Review
             </h3>
             {!showStaticForm && (
-              <button className="btn-primary" onClick={() => setShowStaticForm(true)} style={{ fontSize: '12px', padding: '6px 12px' }}>
+              <button className="btn-primary" onClick={() => setShowStaticForm(true)}>
                 <Plus size={14} /> New Review
               </button>
             )}
@@ -129,25 +127,25 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                     <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
                   </div>
                   <div className="session-meta">
-                    <StatusBadge status={s.status} />
+                    <StatusBadge label={s.status} />
                     <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            !showStaticForm && <p className="card-empty" style={{ padding: '16px 0', color: 'var(--text-faint)' }}>No reviews yet.</p>
+            !showStaticForm && <p className="card-empty">No reviews yet.</p>
           )}
         </div>
 
         {/* Dynamic Testing */}
-        <div className="card detail-card">
+        <div className="card detail-card dynamic-card">
           <div className="panel-header">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Play size={14} style={{ color: 'var(--accent)' }} /> Dynamic Testing
+            <h3>
+              <Play size={14} /> Dynamic Testing
             </h3>
             {!showDynamicForm && (
-              <button className="btn-primary" onClick={() => setShowDynamicForm(true)} style={{ fontSize: '12px', padding: '6px 12px' }}>
+              <button className="btn-primary" onClick={() => setShowDynamicForm(true)}>
                 <Plus size={14} /> New Test
               </button>
             )}
@@ -165,19 +163,19 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                     <span className="session-type">{s.targetUrl}</span>
                   </div>
                   <div className="session-meta">
-                    <StatusBadge status={s.status} />
+                    <StatusBadge label={s.status} />
                     <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            !showDynamicForm && <p className="card-empty" style={{ padding: '16px 0', color: 'var(--text-faint)' }}>No tests yet.</p>
+            !showDynamicForm && <p className="card-empty">No tests yet.</p>
           )}
         </div>
 
         {/* Findings */}
-        <div className="card detail-card">
+        <div className="card detail-card findings-card">
           <FindingsPanel projectId={project.id} />
         </div>
       </div>

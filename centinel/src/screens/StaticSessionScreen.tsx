@@ -1,14 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Download, X, Check, FileText, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react';
+import { Download, X, FileText, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2, XCircle, Activity, Bug } from 'lucide-react';
 import { api } from '../api/client';
 import { ReviewProgressView } from '../components/ReviewProgressView';
+import { CommandEmptyState, CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import type { StaticSession, Finding, Screen, ReviewProgress, ReviewArtifact } from '../types';
 
 type Props = { projectId: string; sessionId: string; onNavigate: (screen: Screen) => void };
-
-function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge badge-${status}`}>{status}</span>;
-}
 
 function SeverityBadge({ severity }: { severity: string }) {
   return <span className={`badge badge-severity-${severity}`}>{severity}</span>;
@@ -67,8 +64,8 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
     finally { setExporting(false); }
   };
 
-  if (loading) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Loading...</p></div>;
-  if (!session) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Session not found.</p></div>;
+  if (loading) return <div className="screen command-loading"><Activity size={20} /> Loading review...</div>;
+  if (!session) return <div className="screen"><CommandEmptyState icon={Bug} title="Review not found" description="This static review is unavailable or has been removed." /></div>;
 
   const isActive = session.status === 'running' || session.status === 'queued';
   const progress: ReviewProgress | null = (() => { try { return session.progressJson ? JSON.parse(session.progressJson) : null; } catch { return null; } })();
@@ -78,14 +75,16 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
   });
 
   return (
-    <div className="screen animate-fade-in">
-      <div className="screen-header">
-        <button className="btn-back" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1>Static Review</h1>
-        <StatusBadge status={session.status} />
-        <div className="header-actions">
+    <div className="screen command-static-session animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Static Analysis"
+        title={session.name || 'Static Review'}
+        description={REVIEW_TYPE_LABELS[session.reviewType] || session.reviewType}
+        status={{ label: session.status }}
+        onBack={() => onNavigate({ name: 'project-detail', projectId })}
+        meta={<span>{new Date(session.createdAt).toLocaleString()}</span>}
+        actions={(
+          <>
           {isActive && (
             <button className="btn-delete" onClick={handleCancel}><X size={14} /> Cancel</button>
           )}
@@ -94,8 +93,9 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
               <Download size={14} /> {exporting ? 'Exporting...' : 'Export Report'}
             </button>
           )}
-        </div>
-      </div>
+          </>
+        )}
+      />
 
       <div className="session-info">
         <div className="info-row"><span className="info-label">Name</span><span>{session.name}</span></div>
@@ -104,20 +104,20 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
       </div>
 
       {session.remarks && (
-        <div className="section"><h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={16} /> Remarks</h2><div className="summary-box">{session.remarks}</div></div>
+        <div className="section"><h2 className="command-section-heading"><FileText size={16} /> Remarks</h2><div className="summary-box">{session.remarks}</div></div>
       )}
       {session.finalSummary && (
-        <div className="section"><h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={16} /> Summary</h2><div className="summary-box">{session.finalSummary}</div></div>
+        <div className="section"><h2 className="command-section-heading"><FileText size={16} /> Summary</h2><div className="summary-box">{session.finalSummary}</div></div>
       )}
       {session.failureReason && (
-        <div className="section"><h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={16} /> Failure Reason</h2><div className="summary-box error">{session.failureReason}</div></div>
+        <div className="section"><h2 className="command-section-heading"><AlertTriangle size={16} /> Failure Reason</h2><div className="summary-box error">{session.failureReason}</div></div>
       )}
 
       {isActive && <div className="section"><ReviewProgressView progress={progress} /></div>}
 
       {sortedFindings.length > 0 && (
         <div className="section">
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={16} /> Findings ({sortedFindings.length})</h2>
+          <h2 className="command-section-heading"><AlertTriangle size={16} /> Findings ({sortedFindings.length})</h2>
           <div className="findings-list stagger-children">
             {sortedFindings.map((f, i) => (
               <div key={f.id} className={`finding-row finding-${f.status}`}>
@@ -128,7 +128,7 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
                   {f.category && <span className="finding-category">{f.category.replace(/_/g, ' ')}</span>}
                   {f.fromRemarks && <span className="badge-from-remarks">Reviewer Notes</span>}
                   <span className={`finding-status finding-status-${f.status}`}>{f.status}</span>
-                  {expandedFinding === f.id ? <ChevronUp size={14} style={{ color: 'var(--text-faint)' }} /> : <ChevronDown size={14} style={{ color: 'var(--text-faint)' }} />}
+                  {expandedFinding === f.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </div>
 
                 {expandedFinding === f.id && (
@@ -156,12 +156,12 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
       )}
 
       {!isActive && findings.length === 0 && session.status === 'success' && (
-        <p style={{ color: 'var(--text-faint)', padding: '16px 0' }}>No findings were generated for this review.</p>
+        <p className="command-compact-empty">No findings were generated for this review.</p>
       )}
 
       {reviewArtifacts.length > 0 && (
         <div className="section review-artifacts-section">
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={16} /> Generated Artifacts ({reviewArtifacts.length})</h2>
+          <h2 className="command-section-heading"><FileText size={16} /> Generated Artifacts ({reviewArtifacts.length})</h2>
           {reviewArtifacts.map(a => (
             <div key={a.id} className="review-artifact-card">
               <div className="review-artifact-type">{a.artifactType.replace(/_/g, ' ')}</div>
