@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Play, X, Globe, Target, Hash } from 'lucide-react';
 
 type Props = {
   onSubmit: (data: {
@@ -35,18 +36,28 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
   };
 
   return (
-    <div className="form-card">
-      <h3>New Dynamic Test</h3>
-      <div className="form-field">
-        <label>Target URL</label>
-        <input
-          value={targetUrl}
-          onChange={e => setTargetUrl(e.target.value)}
-          placeholder="https://example.com"
-        />
+    <div className="panel animate-slide-up" style={{ marginBottom: '16px' }}>
+      <div className="panel-header">
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Play size={14} style={{ color: 'var(--accent)' }} />
+          New Dynamic Test
+        </h3>
+        <button className="btn-secondary" onClick={onCancel} style={{ padding: '4px 8px', fontSize: '12px' }}>
+          <X size={14} />
+        </button>
       </div>
+
       <div className="form-field">
-        <label>Testing Goal</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Globe size={13} /> Target URL
+        </label>
+        <input value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="http://localhost:3000" />
+      </div>
+
+      <div className="form-field">
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Target size={13} /> Testing Goal
+        </label>
         <textarea
           value={goal}
           onChange={e => setGoal(e.target.value)}
@@ -54,6 +65,7 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
           rows={3}
         />
       </div>
+
       <div className="form-row">
         <div className="form-field">
           <label>Mission Type</label>
@@ -63,20 +75,18 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
           </select>
         </div>
         <div className="form-field">
-          <label>Max Steps</label>
-          <input
-            type="number"
-            value={maxSteps}
-            onChange={e => setMaxSteps(Number(e.target.value))}
-            min={1}
-            max={50}
-          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Hash size={13} /> Max Steps
+          </label>
+          <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} min={1} max={50} />
         </div>
       </div>
+
       {error && <p className="form-error">{error}</p>}
+
       <div className="form-actions">
         <button className="btn-primary" onClick={handleSubmit} disabled={submitting}>
-          {submitting ? 'Starting...' : 'Run Test'}
+          <Play size={14} /> {submitting ? 'Starting...' : 'Run Test'}
         </button>
         <button className="btn-secondary" onClick={onCancel}>Cancel</button>
       </div>

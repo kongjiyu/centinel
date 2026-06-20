@@ -2,26 +2,29 @@ import { useState, useEffect, useCallback } from 'react';
 import { writeText } from '@tauri-apps/api/clipboard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ArrowLeft, Download, X, Copy, Check, Image, FileText, Terminal, Bug, Activity, Clock } from 'lucide-react';
 import { api } from '../api/client';
 import type { DynamicSession, DynamicEvidence, Screen } from '../types';
 
-type Props = {
-  projectId: string;
-  sessionId: string;
-  onNavigate: (screen: Screen) => void;
-};
+type Props = { projectId: string; sessionId: string; onNavigate: (screen: Screen) => void };
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge-${status}`}>{status}</span>;
 }
 
-/**
- * Convert a local file path to a sidecar-served URL.
- * More reliable than Tauri asset:// for paths with spaces or special chars.
- */
 function evidenceImageSrc(filePath: string): string {
   return `http://localhost:37701/evidence-file?path=${encodeURIComponent(filePath)}`;
 }
+
+const EVIDENCE_ICONS: Record<string, typeof Image> = {
+  screenshot: Image,
+  action_trace: Activity,
+  ai_request: FileText,
+  ai_response: FileText,
+  console_log: Terminal,
+  debug_log: Bug,
+  session_summary: FileText,
+};
 
 const EVIDENCE_GROUPS: { type: DynamicEvidence['type']; label: string }[] = [
   { type: 'screenshot', label: 'Screenshots' },
@@ -39,11 +42,9 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
   const [loading, setLoading] = useState(true);
   const [selectedScreenshot, setSelectedScreenshot] = useState<DynamicEvidence | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [exportResult, setExportResult] = useState<{
-    success: boolean;
-    message: string;
-    reportPath?: string;
-    markdown?: string;
+    success: boolean; message: string; reportPath?: string; markdown?: string;
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -52,18 +53,12 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         api.getDynamicSession(projectId, sessionId),
         api.listDynamicEvidence(projectId, sessionId),
       ]);
-      setSession(s);
-      setEvidence(e);
-    } catch (err) {
-      console.error('Failed to load dynamic session:', err);
-    } finally {
-      setLoading(false);
-    }
+      setSession(s); setEvidence(e);
+    } catch (err) { console.error('Failed to load dynamic session:', err); }
+    finally { setLoading(false); }
   }, [projectId, sessionId]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!session || (session.status !== 'running' && session.status !== 'queued')) return;
@@ -71,89 +66,70 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
     return () => clearInterval(interval);
   }, [session?.status, load]);
 
-  // Handle Esc key to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedScreenshot) {
-        setSelectedScreenshot(null);
-      }
+      if (e.key === 'Escape' && selectedScreenshot) setSelectedScreenshot(null);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedScreenshot]);
 
   const handleCancel = async () => {
-    try {
-      await api.cancelDynamicSession(projectId, sessionId);
-      await load();
-    } catch {
-      // ignore
-    }
+    try { await api.cancelDynamicSession(projectId, sessionId); await load(); } catch {}
   };
 
   const handleExport = async () => {
-    setExporting(true);
-    setExportResult(null);
+    setExporting(true); setExportResult(null);
     try {
       const result = await api.exportDynamicSessionReport(projectId, sessionId);
-      setExportResult({
-        success: true,
-        message: 'Report exported successfully',
-        reportPath: result.reportPath,
-        markdown: result.markdown,
-      });
-    } catch (e) {
-      setExportResult({ success: false, message: `Export failed: ${String(e)}` });
-    } finally {
-      setExporting(false);
-    }
+      setExportResult({ success: true, message: 'Report exported successfully', reportPath: result.reportPath, markdown: result.markdown });
+    } catch (e) { setExportResult({ success: false, message: `Export failed: ${String(e)}` }); }
+    finally { setExporting(false); }
   };
 
   const handleCopyPath = async (path: string) => {
-    try {
-      await writeText(path);
-      // Could add a toast notification here
-    } catch (err) {
-      console.error('Failed to copy path:', err);
-    }
+    try { await writeText(path); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch (err) { console.error('Failed to copy path:', err); }
   };
 
-  if (loading) return <div className="screen"><p>Loading...</p></div>;
-  if (!session) return <div className="screen"><p>Session not found.</p></div>;
+  if (loading) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Loading...</p></div>;
+  if (!session) return <div className="screen"><p style={{ color: 'var(--text-muted)' }}>Session not found.</p></div>;
 
   const isActive = session.status === 'running' || session.status === 'queued';
 
   return (
-    <div className="screen">
+    <div className="screen animate-fade-in">
       <div className="screen-header">
         <button className="btn-back" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-          Back
+          <ArrowLeft size={14} /> Back
         </button>
         <h1>Dynamic Test</h1>
         <StatusBadge status={session.status} />
         <div className="header-actions">
           {!isActive && (
             <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
-              {exporting ? 'Exporting...' : 'Export Summary'}
+              <Download size={14} /> {exporting ? 'Exporting...' : 'Export Summary'}
             </button>
           )}
           {isActive && (
-            <button className="btn-delete" onClick={handleCancel}>Cancel</button>
+            <button className="btn-delete" onClick={handleCancel}>
+              <X size={14} /> Cancel
+            </button>
           )}
         </div>
       </div>
 
       {exportResult && (
-        <div className={`export-result ${exportResult.success ? 'success' : 'error'}`}>
+        <div className={`export-result ${exportResult.success ? 'success' : 'error'} animate-slide-up`}>
           <div className="export-result-message">{exportResult.message}</div>
 
           {exportResult.markdown && (
             <div className="report-preview">
-              <h3>Report Preview</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <FileText size={14} /> Report Preview
+              </h3>
               <div className="report-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {exportResult.markdown}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{exportResult.markdown}</ReactMarkdown>
               </div>
             </div>
           )}
@@ -162,12 +138,8 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
             <div className="export-result-path">
               <span className="export-result-path-label">File Location:</span>
               <code>{exportResult.reportPath}</code>
-              <button
-                className="btn-copy"
-                onClick={() => handleCopyPath(exportResult.reportPath!)}
-                title="Copy path"
-              >
-                📋 Copy Path
+              <button className="btn-copy" onClick={() => handleCopyPath(exportResult.reportPath!)}>
+                {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy Path</>}
               </button>
             </div>
           )}
@@ -175,38 +147,23 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
       )}
 
       <div className="session-info">
-        <div className="info-row">
-          <span className="info-label">Goal</span>
-          <span>{session.goal}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Target</span>
-          <code>{session.targetUrl}</code>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Mission</span>
-          <span>{session.missionType === 'smoke' ? 'Smoke Test' : 'User Journey'}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Max Steps</span>
-          <span>{session.maxSteps}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Started</span>
-          <span>{new Date(session.createdAt).toLocaleString()}</span>
-        </div>
+        <div className="info-row"><span className="info-label">Goal</span><span>{session.goal}</span></div>
+        <div className="info-row"><span className="info-label">Target</span><code>{session.targetUrl}</code></div>
+        <div className="info-row"><span className="info-label">Mission</span><span>{session.missionType === 'smoke' ? 'Smoke Test' : 'User Journey'}</span></div>
+        <div className="info-row"><span className="info-label">Max Steps</span><span>{session.maxSteps}</span></div>
+        <div className="info-row"><span className="info-label">Started</span><span>{new Date(session.createdAt).toLocaleString()}</span></div>
       </div>
 
       {session.finalSummary && (
         <div className="section">
-          <h2>Summary</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={16} /> Summary</h2>
           <div className="summary-box">{session.finalSummary}</div>
         </div>
       )}
 
       {session.failureReason && (
         <div className="section">
-          <h2>Failure Reason</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Bug size={16} /> Failure Reason</h2>
           <div className="summary-box error">{session.failureReason}</div>
         </div>
       )}
@@ -214,46 +171,29 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
       {EVIDENCE_GROUPS.map(group => {
         const items = evidence.filter(e => e.type === group.type);
         if (items.length === 0) return null;
+        const Icon = EVIDENCE_ICONS[group.type] || FileText;
 
         return (
           <div key={group.type} className="section">
-            <h2>{group.label} ({items.length})</h2>
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Icon size={16} /> {group.label} ({items.length})
+            </h2>
             {group.type === 'screenshot' ? (
-              <div className="screenshot-grid">
+              <div className="screenshot-grid stagger-children">
                 {items.map(s => {
                   const imgSrc = evidenceImageSrc(s.filePath);
                   return (
-                    <div
-                      key={s.id}
-                      className="screenshot-item clickable"
-                      onClick={() => setSelectedScreenshot(s)}
-                      role="button"
-                      tabIndex={0}
+                    <div key={s.id} className="screenshot-item clickable"
+                      onClick={() => setSelectedScreenshot(s)} role="button" tabIndex={0}
                       aria-label={`Open ${s.summary}`}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setSelectedScreenshot(s);
-                        }
-                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedScreenshot(s); } }}
                     >
-                      <img
-                        src={imgSrc}
-                        alt={s.summary}
-                        className="screenshot-img"
+                      <img src={imgSrc} alt={s.summary} className="screenshot-img"
                         onError={(e) => {
-                          console.error('Failed to load screenshot:', {
-                            filePath: s.filePath,
-                            attemptedUrl: imgSrc,
-                          });
+                          console.error('Failed to load screenshot:', { filePath: s.filePath, attemptedUrl: imgSrc });
                           const container = (e.target as HTMLImageElement).parentElement;
                           if (container) {
-                            container.innerHTML = `
-                              <div class="screenshot-error">
-                                <span class="screenshot-error-icon">⚠️</span>
-                                <span class="screenshot-error-text">Screenshot failed to load</span>
-                              </div>
-                            `;
+                            container.innerHTML = `<div class="screenshot-error"><span class="screenshot-error-icon">⚠️</span><span class="screenshot-error-text">Screenshot failed to load</span></div>`;
                           }
                         }}
                       />
@@ -263,7 +203,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
                 })}
               </div>
             ) : (
-              <div className="evidence-list">
+              <div className="evidence-list stagger-children">
                 {items.map(item => (
                   <div key={item.id} className="evidence-item">
                     <div className="evidence-header">
@@ -282,42 +222,30 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
 
       {isActive && (
         <div className="section">
-          <p className="running-hint">Test is running... evidence will appear here as it is captured.</p>
+          <p className="running-hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <Clock size={16} className="status-pulse" />
+            Test is running... evidence will appear here as it is captured.
+          </p>
         </div>
       )}
 
       {/* Screenshot Modal */}
       {selectedScreenshot && (
-        <div
-          className="screenshot-modal-overlay"
-          onClick={() => setSelectedScreenshot(null)}
-        >
+        <div className="screenshot-modal-overlay" onClick={() => setSelectedScreenshot(null)}>
           <div className="screenshot-modal" onClick={e => e.stopPropagation()}>
             <div className="screenshot-modal-header">
               <span className="screenshot-modal-title">{selectedScreenshot.summary}</span>
-              <button
-                className="screenshot-modal-close"
-                onClick={() => setSelectedScreenshot(null)}
-                aria-label="Close"
-              >
-                ✕
+              <button className="screenshot-modal-close" onClick={() => setSelectedScreenshot(null)} aria-label="Close">
+                <X size={18} />
               </button>
             </div>
             <div className="screenshot-modal-body">
-              <img
-                src={evidenceImageSrc(selectedScreenshot.filePath)}
-                alt={selectedScreenshot.summary}
-                className="screenshot-modal-img"
+              <img src={evidenceImageSrc(selectedScreenshot.filePath)} alt={selectedScreenshot.summary} className="screenshot-modal-img"
                 onError={(e) => {
                   console.error('Failed to load modal screenshot:', selectedScreenshot.filePath);
                   const container = (e.target as HTMLImageElement).parentElement;
                   if (container) {
-                    container.innerHTML = `
-                      <div class="screenshot-error">
-                        <span class="screenshot-error-icon">⚠️</span>
-                        <span class="screenshot-error-text">Screenshot failed to load</span>
-                      </div>
-                    `;
+                    container.innerHTML = `<div class="screenshot-error"><span class="screenshot-error-icon">⚠️</span><span class="screenshot-error-text">Screenshot failed to load</span></div>`;
                   }
                 }}
               />

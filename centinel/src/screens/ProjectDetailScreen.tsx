@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { ArrowLeft, Download, Plus, FolderOpen, Play, BarChart3, Bug, Search, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
 import { ReviewModal } from '../components/ReviewModal';
@@ -6,10 +7,7 @@ import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import type { Project, DynamicSession, StaticSession, Screen, ReviewType } from '../types';
 
-type Props = {
-  project: Project;
-  onNavigate: (screen: Screen) => void;
-};
+type Props = { project: Project; onNavigate: (screen: Screen) => void };
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge-${status}`}>{status}</span>;
@@ -31,106 +29,75 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   const [exporting, setExporting] = useState(false);
 
   const loadDynamicSessions = useCallback(async () => {
-    try {
-      const data = await api.listDynamicSessions(project.id);
-      setDynamicSessions(data);
-    } catch {
-      // ignore
-    }
+    try { setDynamicSessions(await api.listDynamicSessions(project.id)); } catch {}
   }, [project.id]);
 
   const loadStaticSessions = useCallback(async () => {
-    try {
-      const data = await api.listStaticSessions(project.id);
-      setStaticSessions(data);
-    } catch {
-      // ignore
-    }
+    try { setStaticSessions(await api.listStaticSessions(project.id)); } catch {}
   }, [project.id]);
 
-  useEffect(() => {
-    loadDynamicSessions();
-    loadStaticSessions();
-  }, [loadDynamicSessions, loadStaticSessions]);
+  useEffect(() => { loadDynamicSessions(); loadStaticSessions(); }, [loadDynamicSessions, loadStaticSessions]);
 
-  // Poll for active sessions
   useEffect(() => {
-    const hasActiveDynamic = dynamicSessions.some(s => s.status === 'running' || s.status === 'queued');
-    const hasActiveStatic = staticSessions.some(s => s.status === 'running' || s.status === 'queued');
-    if (!hasActiveDynamic && !hasActiveStatic) return;
-    const interval = setInterval(() => {
-      loadDynamicSessions();
-      loadStaticSessions();
-    }, 2000);
+    const hasActive = dynamicSessions.some(s => s.status === 'running' || s.status === 'queued') ||
+      staticSessions.some(s => s.status === 'running' || s.status === 'queued');
+    if (!hasActive) return;
+    const interval = setInterval(() => { loadDynamicSessions(); loadStaticSessions(); }, 2000);
     return () => clearInterval(interval);
   }, [dynamicSessions, staticSessions, loadDynamicSessions, loadStaticSessions]);
 
-  const handleCreateDynamic = async (data: {
-    targetUrl: string;
-    goal: string;
-    missionType: 'user_journey' | 'smoke';
-    maxSteps: number;
-  }) => {
+  const handleCreateDynamic = async (data: { targetUrl: string; goal: string; missionType: 'user_journey' | 'smoke'; maxSteps: number }) => {
     setError(null);
     try {
       const session = await api.createDynamicSession(project.id, data);
       setShowDynamicForm(false);
       onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: session.id });
-    } catch (e) {
-      setError(String(e));
-      throw e;
-    }
+    } catch (e) { setError(String(e)); throw e; }
   };
 
-  const handleCreateStatic = async (data: {
-    name: string;
-    reviewType: ReviewType;
-    artifactIds: string[];
-    remarks: string;
-  }) => {
+  const handleCreateStatic = async (data: { name: string; reviewType: ReviewType; artifactIds: string[]; remarks: string }) => {
     setError(null);
     try {
       const session = await api.createStaticSession(project.id, data);
       setShowStaticForm(false);
       onNavigate({ name: 'static-session', projectId: project.id, sessionId: session.id });
-    } catch (e) {
-      setError(String(e));
-      throw e;
-    }
+    } catch (e) { setError(String(e)); throw e; }
   };
 
   const handleExportReport = async () => {
     setExporting(true);
-    try {
-      const result = await api.exportProjectReport(project.id);
-      alert(`Report exported to:\n${result.reportPath}`);
-    } catch (e) {
-      alert(`Export failed: ${e}`);
-    } finally {
-      setExporting(false);
-    }
+    try { const result = await api.exportProjectReport(project.id); alert(`Report exported to:\n${result.reportPath}`); }
+    catch (e) { alert(`Export failed: ${e}`); }
+    finally { setExporting(false); }
   };
 
   return (
-    <div className="screen">
+    <div className="screen animate-fade-in">
       <div className="screen-header">
         <button className="btn-back" onClick={() => onNavigate({ name: 'projects' })}>
-          Back
+          <ArrowLeft size={14} /> Back
         </button>
         <h1>{project.name}</h1>
-        <button className="btn-secondary" onClick={handleExportReport} disabled={exporting}>
-          {exporting ? 'Exporting...' : 'Export Report'}
-        </button>
+        <div className="header-actions">
+          <button className="btn-secondary" onClick={() => onNavigate({ name: 'evidence-browser', projectId: project.id })}>
+            <Search size={14} /> Evidence
+          </button>
+          <button className="btn-secondary" onClick={handleExportReport} disabled={exporting}>
+            <Download size={14} /> {exporting ? 'Exporting...' : 'Export Report'}
+          </button>
+        </div>
       </div>
 
-      {project.description && <p className="project-description">{project.description}</p>}
+      {project.description && <p style={{ color: 'var(--text-muted)', marginBottom: '12px' }}>{project.description}</p>}
 
-      <div className="detail-meta">
-        <span>Workspace: <code>{project.workspacePath}</code></span>
-        <span>Created: {new Date(project.createdAt).toLocaleString()}</span>
+      <div className="detail-meta" style={{ display: 'flex', gap: '20px', fontSize: '13px', color: 'var(--text-faint)', marginBottom: '20px' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FolderOpen size={13} /> {project.workspacePath}</span>
+        <span>Created: {new Date(project.createdAt).toLocaleDateString()}</span>
       </div>
 
-      <div className="detail-grid">
+      {error && <p className="form-error" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><AlertCircle size={14} /> {error}</p>}
+
+      <div className="detail-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
         {/* Artifacts */}
         <div className="card detail-card">
           <ArtifactsPanel projectId={project.id} />
@@ -139,28 +106,24 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
         {/* Static Review */}
         <div className="card detail-card">
           <div className="panel-header">
-            <h3>Static Review</h3>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <BarChart3 size={14} /> Static Review
+            </h3>
             {!showStaticForm && (
-              <button className="btn-primary" onClick={() => setShowStaticForm(true)}>
-                New Review
+              <button className="btn-primary" onClick={() => setShowStaticForm(true)} style={{ fontSize: '12px', padding: '6px 12px' }}>
+                <Plus size={14} /> New Review
               </button>
             )}
           </div>
           {showStaticForm && (
-            <ReviewModal
-              projectId={project.id}
-              onSubmit={handleCreateStatic}
-              onClose={() => { setShowStaticForm(false); setError(null); }}
-            />
+            <ReviewModal projectId={project.id} onSubmit={handleCreateStatic}
+              onClose={() => { setShowStaticForm(false); setError(null); }} />
           )}
           {staticSessions.length > 0 ? (
             <div className="session-list">
               {staticSessions.map(s => (
-                <div
-                  key={s.id}
-                  className="session-row"
-                  onClick={() => onNavigate({ name: 'static-session', projectId: project.id, sessionId: s.id })}
-                >
+                <div key={s.id} className="session-row"
+                  onClick={() => onNavigate({ name: 'static-session', projectId: project.id, sessionId: s.id })}>
                   <div className="session-info-compact">
                     <span className="session-name">{s.name}</span>
                     <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
@@ -173,24 +136,21 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
               ))}
             </div>
           ) : (
-            !showStaticForm && <p className="card-empty">No reviews yet.</p>
+            !showStaticForm && <p className="card-empty" style={{ padding: '16px 0', color: 'var(--text-faint)' }}>No reviews yet.</p>
           )}
         </div>
 
         {/* Dynamic Testing */}
         <div className="card detail-card">
           <div className="panel-header">
-            <h3>Dynamic Testing</h3>
-            <div className="section-actions">
-              <button className="btn-secondary" onClick={() => onNavigate({ name: 'evidence-browser', projectId: project.id })}>
-                Evidence Browser
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Play size={14} style={{ color: 'var(--accent)' }} /> Dynamic Testing
+            </h3>
+            {!showDynamicForm && (
+              <button className="btn-primary" onClick={() => setShowDynamicForm(true)} style={{ fontSize: '12px', padding: '6px 12px' }}>
+                <Plus size={14} /> New Test
               </button>
-              {!showDynamicForm && (
-                <button className="btn-primary" onClick={() => setShowDynamicForm(true)}>
-                  New Dynamic Test
-                </button>
-              )}
-            </div>
+            )}
           </div>
           {showDynamicForm && (
             <DynamicTestForm onSubmit={handleCreateDynamic} onCancel={() => { setShowDynamicForm(false); setError(null); }} />
@@ -198,11 +158,8 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
           {dynamicSessions.length > 0 ? (
             <div className="session-list">
               {dynamicSessions.map(s => (
-                <div
-                  key={s.id}
-                  className="session-row"
-                  onClick={() => onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: s.id })}
-                >
+                <div key={s.id} className="session-row"
+                  onClick={() => onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: s.id })}>
                   <div className="session-info-compact">
                     <span className="session-name">{s.name}</span>
                     <span className="session-type">{s.targetUrl}</span>
@@ -215,7 +172,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
               ))}
             </div>
           ) : (
-            !showDynamicForm && <p className="card-empty">No tests yet.</p>
+            !showDynamicForm && <p className="card-empty" style={{ padding: '16px 0', color: 'var(--text-faint)' }}>No tests yet.</p>
           )}
         </div>
 
@@ -224,8 +181,6 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
           <FindingsPanel projectId={project.id} />
         </div>
       </div>
-
-      {error && <p className="form-error">{error}</p>}
     </div>
   );
 }
