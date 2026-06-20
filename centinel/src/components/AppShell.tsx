@@ -1,4 +1,4 @@
-import { LayoutDashboard, FolderOpen, Search, FileText, Settings, Circle } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Search, Settings, Circle, Radio } from 'lucide-react';
 import type { Screen, AiProviderSetting } from '../types';
 
 type Props = {
@@ -18,11 +18,11 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${screen.name === 'dashboard' ? 'dashboard-mode' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src="/assets/centinel-logo-transparent.png" alt="" className="sidebar-logo" />
-          <span className="sidebar-title">Centinel</span>
+          <img src="/assets/centinel-shield.svg" alt="" className="sidebar-logo-mark" />
+          <span className="sidebar-title">CENTINEL</span>
         </div>
 
         <nav className="sidebar-nav">
@@ -69,6 +69,18 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
         </nav>
 
         <div className="sidebar-footer">
+          {screen.name === 'dashboard' && (
+            <div className="sidebar-edge-module" aria-hidden="true">
+              <div className="edge-module-label">
+                <Radio size={11} />
+                QA node
+              </div>
+              <div className="edge-radar">
+                <span className="edge-radar-sweep" />
+                <span className="edge-radar-core" />
+              </div>
+            </div>
+          )}
           <div className="status-block">
             <div className="status-row">
               <Circle
