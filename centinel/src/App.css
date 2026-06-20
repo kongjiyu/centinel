@@ -2720,8 +2720,8 @@ select option {
 }
 
 .report-content pre {
-  background: #1e293b;
-  color: #f1f5f9;
+  background: #0f172a;
+  color: #e2e8f0;
   padding: 16px;
   border-radius: var(--radius-md);
   overflow-x: auto;
