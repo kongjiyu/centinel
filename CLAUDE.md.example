@@ -1,0 +1,13 @@
+# Loopful Rules
+
+When the `/loopful` skill is invoked:
+
+- Follow the active workflow stages defined in the skill.
+- Do not make irreversible changes without explicit approval.
+- Use existing project conventions and tooling.
+- Verify before claiming completion — run existing tests first.
+- Prefer minimal changes over large rewrites.
+- Save all reports under `.loopful/reports/`.
+- Respect the user's preferences in `.loopful/preferences.md`.
+- Do not skip the clarification gate when requirements are ambiguous.
+- Update `.loopful/state.json` at each stage transition.

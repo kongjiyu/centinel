@@ -30,7 +30,7 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
             Dashboard
           </button>
           <button
-            className={`nav-item ${screen.name === 'projects' || screen.name === 'project-detail' || screen.name === 'dynamic-session' || screen.name === 'requirements' ? 'active' : ''}`}
+            className={`nav-item ${screen.name === 'projects' || screen.name === 'project-detail' || screen.name === 'review' || screen.name === 'review-session' || screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' || screen.name === 'static-session' || screen.name === 'requirements' ? 'active' : ''}`}
             onClick={() => nav('projects')}
           >
             Projects

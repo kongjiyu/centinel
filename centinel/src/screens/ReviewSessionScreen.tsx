@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/client';
 import { ReviewProgressView } from '../components/ReviewProgressView';
-import type { StaticSession, Finding, Screen, ReviewProgress, ReviewArtifact } from '../types';
+import type { StaticSession, Finding, Screen, ReviewProgress, ReviewArtifact, Requirement } from '../types';
 
 type Props = {
   projectId: string;
@@ -9,7 +9,7 @@ type Props = {
   onNavigate: (screen: Screen) => void;
 };
 
-type TabId = 'overview' | 'issues' | 'requirements' | 'traceability' | 'files' | 'qa' | 'artifacts' | 'activity';
+type TabId = 'overview' | 'issues' | 'requirements' | 'traceability' | 'testcases' | 'artifacts' | 'activity';
 
 const REVIEW_TYPE_LABELS: Record<string, string> = {
   requirement_review: 'Requirement Review',
@@ -18,25 +18,19 @@ const REVIEW_TYPE_LABELS: Record<string, string> = {
   cross_artifact_consistency: 'Cross-Artifact Consistency',
 };
 
-const TAB_ITEMS: { id: TabId; label: string; icon: string }[] = [
+const SIDEBAR_ITEMS: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: '📊' },
   { id: 'issues', label: 'Issues', icon: '⚠️' },
   { id: 'requirements', label: 'Requirements', icon: '📋' },
   { id: 'traceability', label: 'Traceability', icon: '🔗' },
-  { id: 'files', label: 'Files', icon: '📁' },
-  { id: 'qa', label: 'QA Validation', icon: '✅' },
+  { id: 'testcases', label: 'Test Cases', icon: '🧪' },
   { id: 'artifacts', label: 'Artifacts', icon: '📄' },
   { id: 'activity', label: 'Activity', icon: '📝' },
 ];
 
-const SIDEBAR_ITEMS = [
-  { id: 'overview' as TabId, label: 'Overview', icon: '📊' },
-  { id: 'issues' as TabId, label: 'Issues', icon: '⚠️' },
-  { id: 'requirements' as TabId, label: 'Requirements', icon: '📋' },
-  { id: 'files' as TabId, label: 'Test Cases', icon: '🧪' },
-  { id: 'artifacts' as TabId, label: 'Artifacts', icon: '📄' },
-  { id: 'qa' as TabId, label: 'Reports', icon: '📊' },
-];
+const TAB_ITEMS: { id: TabId; label: string }[] = SIDEBAR_ITEMS.map(({ id, label }) => ({ id, label }));
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
 function QualityGauge({ score }: { score: number }) {
   const radius = 50;
@@ -108,7 +102,6 @@ function IssuesSummary({ findings }: { findings: Finding[] }) {
 }
 
 function RequirementCoverage({ findings, totalRequirements }: { findings: Finding[]; totalRequirements: number }) {
-  // Derive coverage from findings
   const coverage = useMemo(() => {
     const mapped = findings.filter(f => f.category?.includes('requirement') || f.category?.includes('traceability'));
     const impl = totalRequirements > 0 ? Math.round(((totalRequirements - mapped.length) / totalRequirements) * 100) : 0;
@@ -218,12 +211,12 @@ function ScopeInfo({ session, findings }: { session: StaticSession; findings: Fi
 }
 
 function QuickLinks({ onTabChange, issueCount }: { onTabChange: (tab: TabId) => void; issueCount: number }) {
-  const links = [
-    { tab: 'issues' as TabId, label: `Issues (${issueCount})`, icon: '⚠️' },
-    { tab: 'requirements' as TabId, label: 'Requirements', icon: '📋' },
-    { tab: 'traceability' as TabId, label: 'Traceability Matrix', icon: '🔗' },
-    { tab: 'qa' as TabId, label: 'QA Validation', icon: '✅' },
-    { tab: 'artifacts' as TabId, label: 'Artifacts', icon: '📄' },
+  const links: { tab: TabId; label: string; icon: string }[] = [
+    { tab: 'issues', label: `Issues (${issueCount})`, icon: '⚠️' },
+    { tab: 'requirements', label: 'Requirements', icon: '📋' },
+    { tab: 'traceability', label: 'Traceability Matrix', icon: '🔗' },
+    { tab: 'testcases', label: 'Test Cases', icon: '🧪' },
+    { tab: 'artifacts', label: 'Artifacts', icon: '📄' },
   ];
 
   return (
@@ -248,7 +241,7 @@ function QuickLinks({ onTabChange, issueCount }: { onTabChange: (tab: TabId) => 
   );
 }
 
-function RecentIssuesTable({ findings, onNavigate }: { findings: Finding[]; onNavigate: (screen: Screen) => void }) {
+function RecentIssuesTable({ findings }: { findings: Finding[] }) {
   const sorted = useMemo(() => {
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
     return [...findings]
@@ -260,7 +253,6 @@ function RecentIssuesTable({ findings, onNavigate }: { findings: Finding[]; onNa
     <div className="rs-issues-table-card">
       <div className="rs-issues-table-header">
         <h3>Recent Issues</h3>
-        <button className="rs-issues-table-header-link">View all issues →</button>
       </div>
       {sorted.length === 0 ? (
         <div className="rs-empty">No issues found for this review session.</div>
@@ -298,12 +290,13 @@ function RecentIssuesTable({ findings, onNavigate }: { findings: Finding[]; onNa
   );
 }
 
-function OverviewTab({ session, findings, totalRequirements, onTabChange, onNavigate }: {
+// ─── Tab Panels ──────────────────────────────────────────────────────────────
+
+function OverviewTab({ session, findings, totalRequirements, onTabChange }: {
   session: StaticSession;
   findings: Finding[];
   totalRequirements: number;
   onTabChange: (tab: TabId) => void;
-  onNavigate: (screen: Screen) => void;
 }) {
   const score = useMemo(() => {
     if (findings.length === 0) return 100;
@@ -351,7 +344,7 @@ function OverviewTab({ session, findings, totalRequirements, onTabChange, onNavi
         <QuickLinks onTabChange={onTabChange} issueCount={findings.length} />
       </div>
 
-      <RecentIssuesTable findings={findings} onNavigate={onNavigate} />
+      <RecentIssuesTable findings={findings} />
     </div>
   );
 }
@@ -363,38 +356,56 @@ function IssuesTab({ findings, onAccept, onDismiss }: {
 }) {
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
 
   const sorted = useMemo(() => {
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
     return [...findings]
       .filter(f => filterSeverity === 'all' || f.severity === filterSeverity)
+      .filter(f => filterStatus === 'all' || f.status === filterStatus)
       .sort((a, b) => (order[a.severity] ?? 99) - (order[b.severity] ?? 99));
-  }, [findings, filterSeverity]);
+  }, [findings, filterSeverity, filterStatus]);
 
   return (
     <div className="rs-overview">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, color: '#f1f5f9', margin: 0 }}>
           Issues ({sorted.length})
         </h2>
-        <select
-          value={filterSeverity}
-          onChange={e => setFilterSeverity(e.target.value)}
-          style={{
-            background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
-            padding: '6px 10px', color: '#e2e8f0', fontSize: 13
-          }}
-        >
-          <option value="all">All Severity</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <select
+            value={filterSeverity}
+            onChange={e => setFilterSeverity(e.target.value)}
+            style={{
+              background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
+              padding: '6px 10px', color: '#e2e8f0', fontSize: 13
+            }}
+          >
+            <option value="all">All Severity</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            style={{
+              background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
+              padding: '6px 10px', color: '#e2e8f0', fontSize: 13
+            }}
+          >
+            <option value="all">All Status</option>
+            <option value="new">Open</option>
+            <option value="accepted">Accepted</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="fixed">Fixed</option>
+          </select>
+        </div>
       </div>
 
       {sorted.length === 0 ? (
-        <div className="rs-empty">No issues found.</div>
+        <div className="rs-empty">No issues match the current filters.</div>
       ) : (
         <div className="rs-findings-list">
           {sorted.map((f, i) => (
@@ -447,6 +458,122 @@ function IssuesTab({ findings, onAccept, onDismiss }: {
   );
 }
 
+function RequirementsTab({ requirements, findings }: { requirements: Requirement[]; findings: Finding[] }) {
+  const requirementFindings = useMemo(() =>
+    findings.filter(f => f.category?.includes('requirement')),
+    [findings]
+  );
+
+  return (
+    <div className="rs-overview">
+      <div className="rs-card">
+        <h3>Requirements ({requirements.length})</h3>
+        {requirements.length === 0 ? (
+          <div className="rs-empty">No requirements linked to this project. Add requirements from the project detail page.</div>
+        ) : (
+          <div className="rs-findings-list">
+            {requirements.map((r) => {
+              const relatedFindings = requirementFindings.filter(f =>
+                f.description?.toLowerCase().includes(r.title.toLowerCase()) ||
+                f.title?.toLowerCase().includes(r.title.toLowerCase())
+              );
+              const hasIssues = relatedFindings.length > 0;
+              return (
+                <div key={r.id} className="rs-finding-row">
+                  <div className="rs-finding-header">
+                    <span className={`rs-issue-severity ${hasIssues ? 'high' : 'low'}`}>
+                      {hasIssues ? 'Issue' : 'OK'}
+                    </span>
+                    <span className="rs-finding-title">{r.title}</span>
+                    <span className="rs-finding-category">{r.category || '—'}</span>
+                    <span className="rs-finding-category">{r.priority || '—'}</span>
+                  </div>
+                  {hasIssues && (
+                    <div className="rs-finding-detail">
+                      <p className="rs-finding-description">
+                        {relatedFindings.length} issue{relatedFindings.length > 1 ? 's' : ''} found related to this requirement.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TraceabilityTab({ requirements, findings }: { requirements: Requirement[]; findings: Finding[] }) {
+  // Build a simple traceability matrix
+  const matrix = useMemo(() => {
+    return requirements.map(req => {
+      const relatedFindings = findings.filter(f =>
+        f.description?.toLowerCase().includes(req.title.toLowerCase()) ||
+        f.title?.toLowerCase().includes(req.title.toLowerCase())
+      );
+      const hasCode = true; // placeholder — in real impl, check requirement mappings
+      return {
+        requirement: req,
+        hasCode,
+        hasTests: false, // placeholder
+        issues: relatedFindings.length,
+        status: relatedFindings.some(f => f.severity === 'critical') ? 'blocked'
+          : relatedFindings.length > 0 ? 'partial'
+          : 'covered',
+      };
+    });
+  }, [requirements, findings]);
+
+  return (
+    <div className="rs-overview">
+      <div className="rs-card">
+        <h3>Traceability Matrix</h3>
+        {matrix.length === 0 ? (
+          <div className="rs-empty">No requirements to trace. Add requirements first.</div>
+        ) : (
+          <table className="rs-issues-table">
+            <thead>
+              <tr>
+                <th>Requirement</th>
+                <th>Code</th>
+                <th>Tests</th>
+                <th>Issues</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.map(row => (
+                <tr key={row.requirement.id}>
+                  <td>{row.requirement.title}</td>
+                  <td>{row.hasCode ? '✅' : '❌'}</td>
+                  <td>{row.hasTests ? '✅' : '❌'}</td>
+                  <td>{row.issues}</td>
+                  <td>
+                    <span className={`rs-issue-status ${row.status === 'covered' ? 'fixed' : row.status === 'partial' ? 'accepted' : 'new'}`}>
+                      {row.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TestCasesTab() {
+  return (
+    <div className="rs-placeholder">
+      <h2>Test Cases</h2>
+      <p>Test case generation and linking coming soon. This tab will show test cases derived from review findings.</p>
+    </div>
+  );
+}
+
 function ArtifactsTab({ artifacts }: { artifacts: ReviewArtifact[] }) {
   if (artifacts.length === 0) {
     return <div className="rs-placeholder"><h2>Artifacts</h2><p>No artifacts generated for this session.</p></div>;
@@ -472,11 +599,89 @@ function ArtifactsTab({ artifacts }: { artifacts: ReviewArtifact[] }) {
   );
 }
 
-export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props) {
+function ActivityTab({ session, findings }: { session: StaticSession; findings: Finding[] }) {
+  const accepted = findings.filter(f => f.status === 'accepted').length;
+  const dismissed = findings.filter(f => f.status === 'dismissed').length;
+  const fixed = findings.filter(f => f.status === 'fixed').length;
+
+  return (
+    <div className="rs-overview">
+      <div className="rs-card">
+        <h3>Activity Timeline</h3>
+        <div className="rs-activity-list">
+          <div className="rs-activity-item">
+            <div className="rs-activity-dot" />
+            <div className="rs-activity-content">
+              <div className="rs-activity-text">Review session created</div>
+              <div className="rs-activity-time">{new Date(session.createdAt).toLocaleString()}</div>
+            </div>
+          </div>
+          {session.status === 'success' && (
+            <>
+              <div className="rs-activity-item">
+                <div className="rs-activity-dot" style={{ background: '#22c55e' }} />
+                <div className="rs-activity-content">
+                  <div className="rs-activity-text">Review completed — {findings.length} issues found</div>
+                  <div className="rs-activity-time">{new Date(session.updatedAt).toLocaleString()}</div>
+                </div>
+              </div>
+              {accepted > 0 && (
+                <div className="rs-activity-item">
+                  <div className="rs-activity-dot" style={{ background: '#3b82f6' }} />
+                  <div className="rs-activity-content">
+                    <div className="rs-activity-text">{accepted} issue{accepted > 1 ? 's' : ''} accepted</div>
+                  </div>
+                </div>
+              )}
+              {dismissed > 0 && (
+                <div className="rs-activity-item">
+                  <div className="rs-activity-dot" style={{ background: '#f59e0b' }} />
+                  <div className="rs-activity-content">
+                    <div className="rs-activity-text">{dismissed} issue{dismissed > 1 ? 's' : ''} dismissed</div>
+                  </div>
+                </div>
+              )}
+              {fixed > 0 && (
+                <div className="rs-activity-item">
+                  <div className="rs-activity-dot" style={{ background: '#22c55e' }} />
+                  <div className="rs-activity-content">
+                    <div className="rs-activity-text">{fixed} issue{fixed > 1 ? 's' : ''} marked as fixed</div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {session.status === 'failure' && (
+            <div className="rs-activity-item">
+              <div className="rs-activity-dot" style={{ background: '#ef4444' }} />
+              <div className="rs-activity-content">
+                <div className="rs-activity-text">Review failed: {session.failureReason || 'Unknown error'}</div>
+                <div className="rs-activity-time">{new Date(session.updatedAt).toLocaleString()}</div>
+              </div>
+            </div>
+          )}
+          {session.status === 'cancelled' && (
+            <div className="rs-activity-item">
+              <div className="rs-activity-dot" style={{ background: '#f59e0b' }} />
+              <div className="rs-activity-content">
+                <div className="rs-activity-text">Review cancelled</div>
+                <div className="rs-activity-time">{new Date(session.updatedAt).toLocaleString()}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
+
+export function ReviewSessionScreen({ projectId, sessionId, onNavigate }: Props) {
   const [session, setSession] = useState<StaticSession | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [reviewArtifacts, setReviewArtifacts] = useState<ReviewArtifact[]>([]);
-  const [requirements, setRequirements] = useState<any[]>([]);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [exporting, setExporting] = useState(false);
@@ -560,8 +765,7 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
     issues: findings.length,
     requirements: requirements.length,
     traceability: 0,
-    files: 0,
-    qa: 0,
+    testcases: 0,
     artifacts: reviewArtifacts.length,
     activity: 0,
   };
@@ -605,8 +809,8 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
             Project
           </button>
           <span className="rs-breadcrumb-sep">›</span>
-          <button className="rs-breadcrumb-link" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-            Review Sessions
+          <button className="rs-breadcrumb-link" onClick={() => onNavigate({ name: 'review', projectId })}>
+            Reviews
           </button>
           <span className="rs-breadcrumb-sep">›</span>
           <span className="rs-breadcrumb-current">{session.name}</span>
@@ -685,7 +889,6 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
             findings={findings}
             totalRequirements={requirements.length}
             onTabChange={setActiveTab}
-            onNavigate={onNavigate}
           />
         )}
 
@@ -693,68 +896,24 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
           <IssuesTab findings={findings} onAccept={handleAccept} onDismiss={handleDismiss} />
         )}
 
+        {activeTab === 'requirements' && (
+          <RequirementsTab requirements={requirements} findings={findings} />
+        )}
+
+        {activeTab === 'traceability' && (
+          <TraceabilityTab requirements={requirements} findings={findings} />
+        )}
+
+        {activeTab === 'testcases' && (
+          <TestCasesTab />
+        )}
+
         {activeTab === 'artifacts' && (
           <ArtifactsTab artifacts={reviewArtifacts} />
         )}
 
-        {activeTab === 'requirements' && (
-          <div className="rs-overview">
-            <div className="rs-card">
-              <h3>Requirements ({requirements.length})</h3>
-              {requirements.length === 0 ? (
-                <div className="rs-empty">No requirements linked to this project.</div>
-              ) : (
-                <div className="rs-findings-list">
-                  {requirements.map((r: any) => (
-                    <div key={r.id} className="rs-finding-row">
-                      <div className="rs-finding-header">
-                        <span className="rs-finding-title">{r.title}</span>
-                        <span className="rs-finding-category">{r.category || '—'}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'traceability' && (
-          <div className="rs-placeholder"><h2>Traceability Matrix</h2><p>Traceability view coming soon.</p></div>
-        )}
-
-        {activeTab === 'files' && (
-          <div className="rs-placeholder"><h2>Files</h2><p>File browser coming soon.</p></div>
-        )}
-
-        {activeTab === 'qa' && (
-          <div className="rs-placeholder"><h2>QA Validation</h2><p>QA validation view coming soon.</p></div>
-        )}
-
         {activeTab === 'activity' && (
-          <div className="rs-overview">
-            <div className="rs-card">
-              <h3>Activity</h3>
-              <div className="rs-activity-list">
-                <div className="rs-activity-item">
-                  <div className="rs-activity-dot" />
-                  <div className="rs-activity-content">
-                    <div className="rs-activity-text">Review session created</div>
-                    <div className="rs-activity-time">{new Date(session.createdAt).toLocaleString()}</div>
-                  </div>
-                </div>
-                {session.status === 'success' && (
-                  <div className="rs-activity-item">
-                    <div className="rs-activity-dot" style={{ background: '#22c55e' }} />
-                    <div className="rs-activity-content">
-                      <div className="rs-activity-text">Review completed — {findings.length} issues found</div>
-                      <div className="rs-activity-time">{new Date(session.updatedAt).toLocaleString()}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <ActivityTab session={session} findings={findings} />
         )}
       </div>
     </div>

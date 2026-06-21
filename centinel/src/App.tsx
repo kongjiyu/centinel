@@ -6,6 +6,9 @@ import { ProjectsScreen } from './screens/ProjectsScreen';
 import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
 import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { StaticSessionScreen } from './screens/StaticSessionScreen';
+import { ReviewScreen } from './screens/ReviewScreen';
+import { ReviewSessionScreen } from './screens/ReviewSessionScreen';
+import { DynamicTestingScreen } from './screens/DynamicTestingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { RequirementsScreen } from './screens/RequirementsScreen';
 import { api } from './api/client';
@@ -75,7 +78,7 @@ function App() {
     );
   }
 
-  const currentProject = screen.name === 'project-detail'
+  const currentProject = (screen.name === 'project-detail' || screen.name === 'review' || screen.name === 'dynamic-testing')
     ? projects.find(p => p.id === screen.projectId) ?? null
     : null;
 
@@ -103,6 +106,25 @@ function App() {
       )}
       {screen.name === 'project-detail' && currentProject && (
         <ProjectDetailScreen
+          project={currentProject}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'review' && currentProject && (
+        <ReviewScreen
+          project={currentProject}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'review-session' && (
+        <ReviewSessionScreen
+          projectId={screen.projectId}
+          sessionId={screen.sessionId}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'dynamic-testing' && currentProject && (
+        <DynamicTestingScreen
           project={currentProject}
           onNavigate={setScreen}
         />

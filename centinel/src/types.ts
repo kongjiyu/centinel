@@ -127,6 +127,9 @@ export type Screen =
   | { name: 'dashboard' }
   | { name: 'projects' }
   | { name: 'project-detail'; projectId: string }
+  | { name: 'review'; projectId: string }
+  | { name: 'review-session'; projectId: string; sessionId: string }
+  | { name: 'dynamic-testing'; projectId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'static-session'; projectId: string; sessionId: string }
   | { name: 'requirements'; projectId: string }
