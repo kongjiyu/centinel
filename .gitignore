@@ -42,3 +42,6 @@ sidecar/__tests__/
 # Local browser verification output
 .playwright-cli/
 output/playwright/
+
+# Loopful workflow state
+.loopful/
