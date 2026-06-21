@@ -45,3 +45,4 @@ output/playwright/
 
 # Loopful workflow state
 .loopful/
+.claude/skills/loopful
