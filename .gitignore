@@ -39,5 +39,6 @@ sidecar/dist/
 sidecar/artifacts/
 sidecar/__tests__/
 
-.loopful
-.claude/skills/loopful
+# Local browser verification output
+.playwright-cli/
+output/playwright/

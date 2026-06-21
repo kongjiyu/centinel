@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping } from '../types';
+import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -29,7 +29,8 @@ export const api = {
   // AI Settings
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
   updateAiSetting: (id: 'text' | 'vision', data: {
-    compatibilityMode: 'openai' | 'anthropic';
+    provider: AiProvider;
+    apiFormat: AiApiFormat;
     apiKey: string;
     baseUrl: string;
     model: string;
@@ -60,6 +61,10 @@ export const api = {
     request<DynamicEvidence[]>(`/projects/${projectId}/dynamic-sessions/${sessionId}/evidence`),
   cancelDynamicSession: (projectId: string, sessionId: string) =>
     request<{ ok: boolean }>(`/projects/${projectId}/dynamic-sessions/${sessionId}/cancel`, {
+      method: 'POST',
+    }),
+  exportDynamicSessionReport: (projectId: string, sessionId: string) =>
+    request<{ reportPath: string; markdown: string }>(`/projects/${projectId}/dynamic-sessions/${sessionId}/report`, {
       method: 'POST',
     }),
 
@@ -122,7 +127,7 @@ export const api = {
 
   // Reports
   exportProjectReport: (projectId: string) =>
-    request<{ reportPath: string }>(`/projects/${projectId}/reports/export`, {
+    request<{ reportPath: string; markdown: string }>(`/projects/${projectId}/reports/export`, {
       method: 'POST',
     }),
 

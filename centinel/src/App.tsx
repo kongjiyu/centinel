@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import './command.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
@@ -11,6 +12,7 @@ import { ReviewSessionScreen } from './screens/ReviewSessionScreen';
 import { DynamicTestingScreen } from './screens/DynamicTestingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { RequirementsScreen } from './screens/RequirementsScreen';
+import { EvidenceBrowser } from './screens/EvidenceBrowser';
 import { api } from './api/client';
 import type { Project, AiProviderSetting, Screen } from './types';
 
@@ -93,6 +95,7 @@ function App() {
         <DashboardScreen
           projects={projects}
           aiSettings={aiSettings}
+          sidecarOnline={sidecarOnline}
           onNavigate={setScreen}
         />
       )}
@@ -140,6 +143,12 @@ function App() {
         <StaticSessionScreen
           projectId={screen.projectId}
           sessionId={screen.sessionId}
+          onNavigate={setScreen}
+        />
+      )}
+      {screen.name === 'evidence-browser' && (
+        <EvidenceBrowser
+          projectId={screen.projectId}
           onNavigate={setScreen}
         />
       )}

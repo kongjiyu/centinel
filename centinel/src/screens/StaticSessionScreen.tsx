@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { Download, X, FileText, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2, XCircle, Activity, Bug } from 'lucide-react';
 import { api } from '../api/client';
 import { ReviewProgressView } from '../components/ReviewProgressView';
+import { CommandEmptyState, CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import type { StaticSession, Finding, Screen, ReviewProgress, ReviewArtifact } from '../types';
 
-type Props = {
-  projectId: string;
-  sessionId: string;
-  onNavigate: (screen: Screen) => void;
-};
+type Props = { projectId: string; sessionId: string; onNavigate: (screen: Screen) => void };
 
-type TabId = 'overview' | 'issues' | 'requirements' | 'traceability' | 'files' | 'qa' | 'artifacts' | 'activity';
+function SeverityBadge({ severity }: { severity: string }) {
+  return <span className={`badge badge-severity-${severity}`}>{severity}</span>;
+}
 
 const REVIEW_TYPE_LABELS: Record<string, string> = {
   requirement_review: 'Requirement Review',
@@ -487,272 +487,141 @@ export function StaticSessionScreen({ projectId, sessionId, onNavigate }: Props)
         api.getStaticSession(projectId, sessionId),
         api.listStaticFindings(projectId, sessionId),
       ]);
-      setSession(s);
-      setFindings(f);
+      setSession(s); setFindings(f);
       if (s.status === 'success') {
-        const [arts, reqs] = await Promise.all([
-          api.listReviewArtifacts(projectId, sessionId),
-          api.listRequirements(projectId).catch(() => []),
-        ]);
-        setReviewArtifacts(arts);
-        setRequirements(reqs);
+        setReviewArtifacts(await api.listReviewArtifacts(projectId, sessionId));
       }
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
+    } catch {} finally { setLoading(false); }
   }, [projectId, sessionId]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll while running
   useEffect(() => {
     if (!session || (session.status !== 'running' && session.status !== 'queued')) return;
     const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
   }, [session?.status, load]);
 
+  const handleCancel = async () => { try { await api.cancelStaticSession(projectId, sessionId); await load(); } catch {} };
+
   const handleAccept = async (findingId: string) => {
-    try {
-      await api.updateFinding(projectId, findingId, 'accepted');
-      setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'accepted' } : f));
-    } catch { /* ignore */ }
+    try { await api.updateFinding(projectId, findingId, 'accepted'); setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'accepted' } : f)); } catch {}
   };
 
   const handleDismiss = async (findingId: string) => {
-    try {
-      await api.updateFinding(projectId, findingId, 'dismissed');
-      setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'dismissed' } : f));
-    } catch { /* ignore */ }
+    try { await api.updateFinding(projectId, findingId, 'dismissed'); setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'dismissed' } : f)); } catch {}
   };
 
   const handleExportReport = async () => {
     setExporting(true);
-    try {
-      const result = await api.exportSessionReport(projectId, sessionId);
-      alert(`Report exported to:\n${result.reportPath}`);
-    } catch (e) {
-      alert(`Export failed: ${e}`);
-    } finally {
-      setExporting(false);
-    }
+    try { const result = await api.exportSessionReport(projectId, sessionId); alert(`Report exported to:\n${result.reportPath}`); }
+    catch (e) { alert(`Export failed: ${e}`); }
+    finally { setExporting(false); }
   };
 
-  const handleCancel = async () => {
-    try {
-      await api.cancelStaticSession(projectId, sessionId);
-      await load();
-    } catch { /* ignore */ }
-  };
-
-  if (loading) return <div className="screen"><p>Loading...</p></div>;
-  if (!session) return <div className="screen"><p>Session not found.</p></div>;
+  if (loading) return <div className="screen command-loading"><Activity size={20} /> Loading review...</div>;
+  if (!session) return <div className="screen"><CommandEmptyState icon={Bug} title="Review not found" description="This static review is unavailable or has been removed." /></div>;
 
   const isActive = session.status === 'running' || session.status === 'queued';
-  const progress: ReviewProgress | null = (() => {
-    try { return session.progressJson ? JSON.parse(session.progressJson) : null; }
-    catch { return null; }
-  })();
-
-  const tabCountMap: Record<TabId, number> = {
-    overview: 0,
-    issues: findings.length,
-    requirements: requirements.length,
-    traceability: 0,
-    files: 0,
-    qa: 0,
-    artifacts: reviewArtifacts.length,
-    activity: 0,
-  };
+  const progress: ReviewProgress | null = (() => { try { return session.progressJson ? JSON.parse(session.progressJson) : null; } catch { return null; } })();
+  const sortedFindings = [...findings].sort((a, b) => {
+    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+    return (order[a.severity] ?? 99) - (order[b.severity] ?? 99);
+  });
 
   return (
-    <div className="rs-layout">
-      {/* Session Sidebar */}
-      <aside className="rs-sidebar">
-        <nav className="rs-sidebar-nav">
-          {SIDEBAR_ITEMS.map(item => (
-            <button
-              key={item.id}
-              className={`rs-sidebar-item ${activeTab === item.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(item.id)}
-            >
-              <span className="rs-sidebar-icon">{item.icon}</span>
-              {item.label}
-              {tabCountMap[item.id] > 0 && (
-                <span className="rs-sidebar-count">{tabCountMap[item.id]}</span>
-              )}
+    <div className="screen command-static-session animate-fade-in">
+      <CommandPageHeader
+        eyebrow="Static Analysis"
+        title={session.name || 'Static Review'}
+        description={REVIEW_TYPE_LABELS[session.reviewType] || session.reviewType}
+        status={{ label: session.status }}
+        onBack={() => onNavigate({ name: 'project-detail', projectId })}
+        meta={<span>{new Date(session.createdAt).toLocaleString()}</span>}
+        actions={(
+          <>
+          {isActive && (
+            <button className="btn-delete" onClick={handleCancel}><X size={14} /> Cancel</button>
+          )}
+          {session.status === 'success' && (
+            <button className="btn-secondary" onClick={handleExportReport} disabled={exporting}>
+              <Download size={14} /> {exporting ? 'Exporting...' : 'Export Report'}
             </button>
-          ))}
-        </nav>
-        <div className="rs-sidebar-project">
-          <div className="rs-sidebar-project-name">Review Session</div>
-          <div className="rs-sidebar-project-branch">
-            {session.name}
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <div className="rs-main">
-        {/* Breadcrumbs */}
-        <div className="rs-breadcrumbs">
-          <button className="rs-breadcrumb-link" onClick={() => onNavigate({ name: 'projects' })}>
-            Projects
-          </button>
-          <span className="rs-breadcrumb-sep">›</span>
-          <button className="rs-breadcrumb-link" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-            Project
-          </button>
-          <span className="rs-breadcrumb-sep">›</span>
-          <button className="rs-breadcrumb-link" onClick={() => onNavigate({ name: 'project-detail', projectId })}>
-            Review Sessions
-          </button>
-          <span className="rs-breadcrumb-sep">›</span>
-          <span className="rs-breadcrumb-current">{session.name}</span>
-        </div>
-
-        {/* Header */}
-        <div className="rs-header">
-          <div className="rs-header-left">
-            <div className="rs-header-title-row">
-              <h1 className="rs-header-title">Review Session: {session.name}</h1>
-              <span className={`rs-status-badge ${session.status}`}>
-                {session.status === 'success' ? 'Completed' : session.status}
-              </span>
-            </div>
-            <div className="rs-header-meta">
-              <span className="rs-meta-item">
-                <span className="rs-meta-icon">📅</span>
-                {new Date(session.createdAt).toLocaleDateString('en-US', {
-                  day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                })}
-              </span>
-              <span className="rs-meta-item">
-                <span className="rs-meta-icon">🔀</span>
-                {REVIEW_TYPE_LABELS[session.reviewType] || session.reviewType}
-              </span>
-            </div>
-          </div>
-          <div className="rs-header-actions">
-            {isActive && (
-              <button className="rs-btn rs-btn-secondary" onClick={handleCancel}>Cancel</button>
-            )}
-            {session.status === 'success' && (
-              <button className="rs-btn rs-btn-secondary" onClick={handleExportReport} disabled={exporting}>
-                <span className="rs-btn-icon">📥</span>
-                {exporting ? 'Exporting...' : 'Download Report'}
-              </button>
-            )}
-            {session.status === 'success' && (
-              <button className="rs-btn rs-btn-primary">
-                <span className="rs-btn-icon">🔄</span>
-                Re-run Review
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="rs-tabs">
-          {TAB_ITEMS.map(tab => (
-            <button
-              key={tab.id}
-              className={`rs-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-              {tabCountMap[tab.id] > 0 && (
-                <span className="rs-tab-count">{tabCountMap[tab.id]}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Active running progress */}
-        {isActive && progress && (
-          <div className="rs-overview">
-            <div className="rs-card">
-              <ReviewProgressView progress={progress} />
-            </div>
-          </div>
+          )}
+          </>
         )}
+      />
 
-        {/* Tab Content */}
-        {activeTab === 'overview' && !isActive && (
-          <OverviewTab
-            session={session}
-            findings={findings}
-            totalRequirements={requirements.length}
-            onTabChange={setActiveTab}
-            onNavigate={onNavigate}
-          />
-        )}
+      <div className="session-info">
+        <div className="info-row"><span className="info-label">Name</span><span>{session.name}</span></div>
+        <div className="info-row"><span className="info-label">Review Type</span><span>{REVIEW_TYPE_LABELS[session.reviewType] || session.reviewType}</span></div>
+        <div className="info-row"><span className="info-label">Started</span><span>{new Date(session.createdAt).toLocaleString()}</span></div>
+      </div>
 
-        {activeTab === 'issues' && (
-          <IssuesTab findings={findings} onAccept={handleAccept} onDismiss={handleDismiss} />
-        )}
+      {session.remarks && (
+        <div className="section"><h2 className="command-section-heading"><FileText size={16} /> Remarks</h2><div className="summary-box">{session.remarks}</div></div>
+      )}
+      {session.finalSummary && (
+        <div className="section"><h2 className="command-section-heading"><FileText size={16} /> Summary</h2><div className="summary-box">{session.finalSummary}</div></div>
+      )}
+      {session.failureReason && (
+        <div className="section"><h2 className="command-section-heading"><AlertTriangle size={16} /> Failure Reason</h2><div className="summary-box error">{session.failureReason}</div></div>
+      )}
 
-        {activeTab === 'artifacts' && (
-          <ArtifactsTab artifacts={reviewArtifacts} />
-        )}
+      {isActive && <div className="section"><ReviewProgressView progress={progress} /></div>}
 
-        {activeTab === 'requirements' && (
-          <div className="rs-overview">
-            <div className="rs-card">
-              <h3>Requirements ({requirements.length})</h3>
-              {requirements.length === 0 ? (
-                <div className="rs-empty">No requirements linked to this project.</div>
-              ) : (
-                <div className="rs-findings-list">
-                  {requirements.map((r: any) => (
-                    <div key={r.id} className="rs-finding-row">
-                      <div className="rs-finding-header">
-                        <span className="rs-finding-title">{r.title}</span>
-                        <span className="rs-finding-category">{r.category || '—'}</span>
+      {sortedFindings.length > 0 && (
+        <div className="section">
+          <h2 className="command-section-heading"><AlertTriangle size={16} /> Findings ({sortedFindings.length})</h2>
+          <div className="findings-list stagger-children">
+            {sortedFindings.map((f, i) => (
+              <div key={f.id} className={`finding-row finding-${f.status}`}>
+                <div className="finding-header" onClick={() => setExpandedFinding(expandedFinding === f.id ? null : f.id)}>
+                  <span className="finding-index">{i + 1}</span>
+                  <SeverityBadge severity={f.severity} />
+                  <span className="finding-title">{f.title}</span>
+                  {f.category && <span className="finding-category">{f.category.replace(/_/g, ' ')}</span>}
+                  {f.fromRemarks && <span className="badge-from-remarks">Reviewer Notes</span>}
+                  <span className={`finding-status finding-status-${f.status}`}>{f.status}</span>
+                  {expandedFinding === f.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+
+                {expandedFinding === f.id && (
+                  <div className="finding-detail animate-slide-up">
+                    <p className="finding-description">{f.description}</p>
+                    {f.evidenceText && (
+                      <div className="finding-evidence"><strong>Evidence:</strong><pre>{f.evidenceText}</pre></div>
+                    )}
+                    {f.recommendation && (
+                      <div className="finding-recommendation"><strong>Recommendation:</strong> {f.recommendation}</div>
+                    )}
+                    <div className="finding-meta">{f.confidence && <span>Confidence: {f.confidence}</span>}</div>
+                    {f.status === 'new' && (
+                      <div className="finding-actions">
+                        <button className="btn-accept" onClick={() => handleAccept(f.id)}><CheckCircle2 size={12} /> Accept</button>
+                        <button className="btn-dismiss" onClick={() => handleDismiss(f.id)}><XCircle size={12} /> Dismiss</button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'traceability' && (
-          <div className="rs-placeholder"><h2>Traceability Matrix</h2><p>Traceability view coming soon.</p></div>
-        )}
-
-        {activeTab === 'files' && (
-          <div className="rs-placeholder"><h2>Files</h2><p>File browser coming soon.</p></div>
-        )}
-
-        {activeTab === 'qa' && (
-          <div className="rs-placeholder"><h2>QA Validation</h2><p>QA validation view coming soon.</p></div>
-        )}
-
-        {activeTab === 'activity' && (
-          <div className="rs-overview">
-            <div className="rs-card">
-              <h3>Activity</h3>
-              <div className="rs-activity-list">
-                <div className="rs-activity-item">
-                  <div className="rs-activity-dot" />
-                  <div className="rs-activity-content">
-                    <div className="rs-activity-text">Review session created</div>
-                    <div className="rs-activity-time">{new Date(session.createdAt).toLocaleString()}</div>
-                  </div>
-                </div>
-                {session.status === 'success' && (
-                  <div className="rs-activity-item">
-                    <div className="rs-activity-dot" style={{ background: '#22c55e' }} />
-                    <div className="rs-activity-content">
-                      <div className="rs-activity-text">Review completed — {findings.length} issues found</div>
-                      <div className="rs-activity-time">{new Date(session.updatedAt).toLocaleString()}</div>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!isActive && findings.length === 0 && session.status === 'success' && (
+        <p className="command-compact-empty">No findings were generated for this review.</p>
+      )}
+
+      {reviewArtifacts.length > 0 && (
+        <div className="section review-artifacts-section">
+          <h2 className="command-section-heading"><FileText size={16} /> Generated Artifacts ({reviewArtifacts.length})</h2>
+          {reviewArtifacts.map(a => (
+            <div key={a.id} className="review-artifact-card">
+              <div className="review-artifact-type">{a.artifactType.replace(/_/g, ' ')}</div>
+              <h4>{a.title}</h4>
+              <pre>{a.content}</pre>
             </div>
           </div>
         )}

@@ -2,7 +2,7 @@
   "name": "centinel-root",
   "private": true,
   "scripts": {
-    "dev": "concurrently --names sidecar,app --prefix-colors blue,green \"pnpm --filter @centinel/sidecar start\" \"cd centinel && pnpm tauri dev\"",
+    "dev": "concurrently --names sidecar,demo,app --prefix-colors blue,yellow,green \"pnpm --filter @centinel/sidecar start\" \"pnpm --filter @centinel/sidecar demo\" \"cd centinel && pnpm tauri dev\"",
     "smoke": "pnpm --filter @centinel/sidecar smoke",
     "build": "cd centinel && pnpm tauri build",
     "install:all": "pnpm install"
