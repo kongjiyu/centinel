@@ -38,3 +38,6 @@ data/
 sidecar/dist/
 sidecar/artifacts/
 sidecar/__tests__/
+
+.loopful
+.claude/skills/loopful
