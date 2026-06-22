@@ -82,10 +82,13 @@ export type Artifact = {
 
 export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
 
+export type ReviewType = 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
+
 export type StaticSession = {
   id: string;
   projectId: string;
   name: string;
+  reviewType: ReviewType;
   status: StaticSessionStatus;
   configJson: string;
   progressJson: string;
@@ -149,7 +152,6 @@ export type Screen =
   | { name: 'dashboard' }
   | { name: 'projects' }
   | { name: 'project-detail'; projectId: string }
-  | { name: 'dynamic-testing'; projectId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }

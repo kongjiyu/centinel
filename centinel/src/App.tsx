@@ -6,15 +6,13 @@ import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
 import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
 import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
-import { StaticSessionScreen } from './screens/StaticSessionScreen';
-import { ReviewScreen } from './screens/ReviewScreen';
-import { ReviewSessionScreen } from './screens/ReviewSessionScreen';
-import { DynamicTestingScreen } from './screens/DynamicTestingScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { RequirementsScreen } from './screens/RequirementsScreen';
 import { EvidenceBrowser } from './screens/EvidenceBrowser';
 import { api } from './api/client';
 import type { Project, AiProviderSetting, Screen } from './types';
+import { ActiveReviewProvider } from './hooks/useActiveReview';
+import { ReviewToast } from './components/ReviewToast';
 
 function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
@@ -80,88 +78,65 @@ function App() {
     );
   }
 
-  const currentProject = (screen.name === 'project-detail' || screen.name === 'review' || screen.name === 'dynamic-testing')
+  const currentProject = screen.name === 'project-detail'
     ? projects.find(p => p.id === screen.projectId) ?? null
     : null;
 
   return (
-    <AppShell
-      screen={screen}
-      onNavigate={setScreen}
-      aiSettings={aiSettings}
-      sidecarOnline={sidecarOnline}
-    >
-      {screen.name === 'dashboard' && (
-        <DashboardScreen
-          projects={projects}
-          aiSettings={aiSettings}
-          sidecarOnline={sidecarOnline}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'projects' && (
-        <ProjectsScreen
-          projects={projects}
-          onNavigate={setScreen}
-          onCreate={handleCreateProject}
-          onDelete={handleDeleteProject}
-        />
-      )}
-      {screen.name === 'project-detail' && currentProject && (
-        <ProjectDetailScreen
-          project={currentProject}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'review' && currentProject && (
-        <ReviewScreen
-          project={currentProject}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'review-session' && (
-        <ReviewSessionScreen
-          projectId={screen.projectId}
-          sessionId={screen.sessionId}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'dynamic-testing' && currentProject && (
-        <DynamicTestingScreen
-          project={currentProject}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'dynamic-session' && (
-        <DynamicSessionScreen
-          projectId={screen.projectId}
-          sessionId={screen.sessionId}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'static-session' && (
-        <StaticSessionScreen
-          projectId={screen.projectId}
-          sessionId={screen.sessionId}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'evidence-browser' && (
-        <EvidenceBrowser
-          projectId={screen.projectId}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'requirements' && (
-        <RequirementsScreen
-          projectId={screen.projectId}
-          onNavigate={setScreen}
-        />
-      )}
-      {screen.name === 'settings' && (
-        <SettingsScreen settings={aiSettings} onRefresh={loadData} />
-      )}
-    </AppShell>
+    <ActiveReviewProvider>
+      <AppShell
+        screen={screen}
+        onNavigate={setScreen}
+        aiSettings={aiSettings}
+        sidecarOnline={sidecarOnline}
+      >
+        {screen.name === 'dashboard' && (
+          <DashboardScreen
+            projects={projects}
+            aiSettings={aiSettings}
+            sidecarOnline={sidecarOnline}
+            onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'projects' && (
+          <ProjectsScreen
+            projects={projects}
+            onNavigate={setScreen}
+            onCreate={handleCreateProject}
+            onDelete={handleDeleteProject}
+          />
+        )}
+        {screen.name === 'project-detail' && currentProject && (
+          <ProjectDetailScreen
+            project={currentProject}
+            onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'dynamic-session' && (
+          <DynamicSessionScreen
+            projectId={screen.projectId}
+            sessionId={screen.sessionId}
+            onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'evidence-browser' && (
+          <EvidenceBrowser
+            projectId={screen.projectId}
+            onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'requirements' && (
+          <RequirementsScreen
+            projectId={screen.projectId}
+            onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'settings' && (
+          <SettingsScreen settings={aiSettings} onRefresh={loadData} />
+        )}
+      </AppShell>
+      <ReviewToast />
+    </ActiveReviewProvider>
   );
 }
 
