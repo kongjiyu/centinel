@@ -181,6 +181,9 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
           {testResult.status === 'pass' ? <Check size={14} /> : <ScanEye size={14} />}
           <strong>{testResult.status === 'pass' ? 'Success' : 'Failed'}</strong>
           {testResult.message && <span>: {testResult.message}</span>}
+          {testResult.hint && (
+            <p className="test-result-hint">{testResult.hint}</p>
+          )}
         </div>
       )}
     </div>

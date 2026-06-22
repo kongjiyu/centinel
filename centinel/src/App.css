@@ -2267,6 +2267,14 @@ select option {
   border: 1px solid rgba(248,113,113,0.2);
 }
 
+.test-result-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 /* Static review form */
 .static-review-form {
   margin-top: 8px;

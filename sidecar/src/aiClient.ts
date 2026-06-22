@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { getRawAiSetting, type AiProvider, type AiApiFormat } from './settings.js';
 
-type TestResult = { status: string; message?: string; raw?: string };
+type TestResult = { status: string; message?: string; raw?: string; hint?: string };
 
 type SettingLike = {
   apiKey: string;
@@ -69,7 +69,7 @@ async function testTextProvider(setting: SettingLike): Promise<TestResult> {
     });
   }
 
-  return doFetch(fetchUrl, headers, body);
+  return doFetch(fetchUrl, headers, body, { apiFormat: setting.apiFormat });
 }
 
 async function testVisionProvider(setting: SettingLike, imagePath?: string): Promise<TestResult> {
@@ -133,19 +133,50 @@ async function testVisionProvider(setting: SettingLike, imagePath?: string): Pro
     });
   }
 
-  return doFetch(fetchUrl, headers, body);
+  return doFetch(fetchUrl, headers, body, { apiFormat: setting.apiFormat });
 }
 
-async function doFetch(url: string, headers: Record<string, string>, body: string): Promise<TestResult> {
+async function doFetch(url: string, headers: Record<string, string>, body: string, ctx: { apiFormat: AiApiFormat }): Promise<TestResult> {
   try {
     const res = await fetch(url, { method: 'POST', headers, body });
     if (!res.ok) {
       const text = await res.text();
-      return { status: 'fail', message: `HTTP ${res.status}: ${res.statusText}`, raw: text };
+      const hint = buildHint(res.status, url, ctx.apiFormat, text);
+      return { status: 'fail', message: `HTTP ${res.status}: ${res.statusText}`, raw: text, hint };
     }
     const json = await res.json();
     return { status: 'pass', message: 'ok', raw: JSON.stringify(json) };
   } catch (err) {
-    return { status: 'fail', message: String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      status: 'fail',
+      message: msg,
+      hint: 'Could not reach the configured endpoint. Verify the sidecar is running, the Base URL is correct, and the network allows outbound HTTPS.',
+    };
   }
+}
+
+function buildHint(status: number, url: string, apiFormat: AiApiFormat, body: string): string {
+  if (status === 404) {
+    if (apiFormat === 'openai-compatible' && /\/anthropic/i.test(url)) {
+      return 'The endpoint URL contains "/anthropic" but the format is "openai-compatible". Switch the API format to "anthropic-compatible" or use the OpenAI chat-completions URL (e.g. /v1/chat/completions).';
+    }
+    if (apiFormat === 'anthropic-compatible' && !/\/v1\/messages/.test(url)) {
+      return 'Anthropic-compatible endpoints typically end with /v1/messages. Check that the Base URL points to the messages endpoint.';
+    }
+    if (apiFormat === 'openai-compatible' && !/\/chat\/completions/.test(url)) {
+      return 'OpenAI-compatible endpoints typically end with /v1/chat/completions. Check that the Base URL points to the chat-completions endpoint.';
+    }
+    return 'The endpoint returned 404. The Base URL may be wrong, the path may be missing a suffix (e.g. /v1/chat/completions), or the model may be unavailable at this URL.';
+  }
+  if (status === 401 || status === 403) {
+    return 'Authentication failed. Verify the API key has access to the configured model.';
+  }
+  if (status === 429) {
+    return 'Rate limited. Wait a moment and try again, or check your plan quota.';
+  }
+  if (status >= 500) {
+    return 'The upstream service is having trouble. Try again in a few seconds.';
+  }
+  return `Unexpected status ${status}. Inspect the raw response in the test result.`;
 }

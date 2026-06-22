@@ -35,6 +35,7 @@ export type AiTestResult = {
   status: string;
   message?: string;
   raw?: string;
+  hint?: string;
 };
 
 export type DynamicSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'blocked' | 'cancelled';
