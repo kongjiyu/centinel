@@ -410,6 +410,56 @@ describe('staticReview', () => {
       expect(vi.mocked(createFinding).mock.calls.some((c: any) => c[2].title === 'Bug')).toBe(true);
     });
 
+    it('should persist the latest thought to progress_json for each stage', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.example.com',
+        model: 'test-model',
+        provider: 'mimo',
+        apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('Some content');
+
+      const aiResponse = JSON.stringify({
+        content: [{ text: JSON.stringify({
+          thoughts: ['I noticed a login flow.', 'The flow uses JWT.'],
+          projectSummary: 'A project.',
+          artifactInventory: [],
+          userIntent: 'review',
+        }) }],
+      });
+
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        json: async () => JSON.parse(aiResponse),
+      } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const session = {
+        id: 'ss-thoughts', projectId: 'proj-1', name: 'Test',
+        reviewType: 'requirement_review' as const, status: 'queued' as const,
+        configJson: '{}', finalSummary: '', failureReason: '',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      };
+      const artifact = {
+        id: 'art-1', projectId: 'proj-1', type: 'requirement' as const,
+        fileName: 'req.md', filePath: '/tmp/req.md', originalPath: null,
+        contentHash: 'hash1', createdAt: new Date().toISOString(),
+      };
+
+      await runStaticReview(session, [artifact]);
+
+      // Confirm that updateStaticSessionProgress was called with thoughts in the payload
+      const calls = vi.mocked(updateStaticSessionProgress).mock.calls;
+      const thoughtCalls = calls.filter((c: any) => {
+        const progress = c[1];
+        return progress.stages[0]?.thoughts?.length > 0;
+      });
+      expect(thoughtCalls.length).toBeGreaterThan(0);
+      const lastWithThoughts = thoughtCalls[thoughtCalls.length - 1];
+      expect(lastWithThoughts[1].stages[0].thoughts).toContain('I noticed a login flow.');
+    });
+
     it('should validate and normalize invalid severity values', async () => {
       vi.mocked(getRawAiSetting).mockResolvedValue({
         apiKey: 'test-key',

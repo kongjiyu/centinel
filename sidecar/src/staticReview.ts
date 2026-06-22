@@ -308,6 +308,24 @@ export async function runStaticReview(
   const completedThoughts: string[][] = [[], [], [], []];
   const completedSummaries: string[] = ['', '', '', ''];
 
+  const emitThinking = (stageIdx: number, thought: string) => {
+    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
+      id: def.id,
+      label: def.label,
+      status: i < stageIdx ? 'done' : i === stageIdx ? 'active' : 'pending',
+      thoughts: i === stageIdx ? [thought] : (i < stageIdx ? completedThoughts[i] : []),
+      summary: i < stageIdx ? completedSummaries[i] : undefined,
+    }));
+    const progress: ReviewProgress = {
+      currentStage: STAGE_DEFINITIONS[stageIdx].id,
+      stages,
+      startedAt: session.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    updateStaticSessionProgress(session.id, progress);
+    onProgress?.(progress);
+  };
+
   const emit = (stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string) => {
     const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
       id: def.id,
@@ -354,6 +372,7 @@ export async function runStaticReview(
 
     // ── Stage 1: Understanding Context ────────────────────────
     emit(0, 'active', []);
+    emitThinking(0, `Reading ${artifactContents.length} artifact(s) to understand the project...`);
     const s1Response = await callAi(
       CONTEXT_UNDERSTANDING_PROMPT.build(artifactContents, session.remarks),
       CONTEXT_UNDERSTANDING_PROMPT.system
@@ -368,6 +387,7 @@ export async function runStaticReview(
     const codeArtifacts = artifactContents.filter(a => a.type === 'source_code');
     // If no code artifacts, use all artifacts
     const codeToReview = codeArtifacts.length > 0 ? codeArtifacts : artifactContents;
+    emitThinking(1, `Inspecting ${codeToReview.length} source file(s) for code-quality issues...`);
 
     const s2Response = await callAi(
       CODE_REVIEW_PROMPT.build(codeToReview, {
@@ -411,6 +431,9 @@ export async function runStaticReview(
     emit(2, 'active', []);
     const reqArtifacts = artifactContents.filter(a => a.type === 'requirement' || a.type === 'design');
     // If no requirement artifacts, skip with empty results
+    emitThinking(2, reqArtifacts.length > 0
+      ? `Tracing ${reqArtifacts.length} requirement document(s) to the codebase...`
+      : 'No artifacts to analyze.');
     let s3: StageResponse = { thoughts: ['No requirement documents found — skipping traceability analysis.'], findings: [] };
 
     if (reqArtifacts.length > 0) {
@@ -460,6 +483,7 @@ export async function runStaticReview(
 
     // ── Stage 4: Summarize Findings ───────────────────────────
     emit(3, 'active', []);
+    emitThinking(3, `Consolidating findings and prioritizing recommendations...`);
 
     // Extract extra artifacts from Stage 4 if user provided remarks
     let extraArtifacts: { title: string; content: string; type: string }[] = [];

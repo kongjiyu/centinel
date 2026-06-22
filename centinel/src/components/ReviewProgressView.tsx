@@ -25,18 +25,43 @@ export function ReviewProgressView({ progress }: Props) {
 
   return (
     <div className="review-progress">
-      <div className="review-progress-header">
-        {progress.stage !== 'completed' && progress.stage !== 'failed' && <span className="step-spinner" />}
-        <span className="review-progress-message">{progress.message}</span>
-      </div>
       <div className="review-stepper">
-        {progress.steps.map((step, i) => (
-          <div key={i} className={`step step-${step.status}`}>
-            <div className="step-indicator">
-              <StepIcon status={step.status} />
-              {i < progress.steps.length - 1 && <div className={`step-line step-line-${step.status}`} />}
+        {progress.stages.map((stage, i) => (
+          <div key={stage.id} className={`stage stage-${stage.status}`}>
+            <div className="stage-header">
+              <div className="step-indicator">
+                <StepIcon status={stage.status} />
+                {i < progress.stages.length - 1 && <div className={`step-line step-line-${stage.status}`} />}
+              </div>
+              <span className="stage-label">{stage.label}</span>
+              {stage.status === 'done' && stage.summary && (
+                <span className="stage-summary">{stage.summary}</span>
+              )}
+              {stage.status === 'active' && (
+                <span className="step-spinner thought-inline-spinner" aria-label="In progress" />
+              )}
             </div>
-            <span className="step-label">{step.label}</span>
+
+            {/* Latest thought — visible for the active stage AND for any stage that has thoughts persisted */}
+            {stage.thoughts.length > 0 && (
+              <div className="stage-thoughts">
+                <div className="thought-line">
+                  <span className="thought-bullet">›</span>
+                  <span className="thought-text">{stage.thoughts[stage.thoughts.length - 1]}</span>
+                </div>
+                {stage.thoughts.length > 1 && stage.status === 'done' && (
+                  <details className="thought-history">
+                    <summary>{stage.thoughts.length - 1} earlier thought(s)</summary>
+                    {stage.thoughts.slice(0, -1).map((t, idx) => (
+                      <div className="thought-line" key={idx}>
+                        <span className="thought-bullet">›</span>
+                        <span className="thought-text">{t}</span>
+                      </div>
+                    ))}
+                  </details>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -3654,6 +3654,12 @@ select option {
 /* ============================================================
    21b. STATIC REVIEW STAGE STEPPER (Task 1)
    ============================================================ */
+.stage {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
 .stage-header {
   display: flex;
   align-items: flex-start;
@@ -3672,6 +3678,90 @@ select option {
   color: var(--text-faint);
   line-height: 20px;          /* matches circle diameter for true center */
   white-space: nowrap;
+}
+
+.stage-done .stage-label {
+  color: var(--success);
+}
+
+.stage-active .stage-label {
+  color: var(--warning);
+}
+
+.stage-pending .stage-label {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.stage-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+  padding-top: 3px;
+}
+
+/* ── Thoughts list ───────────────────────────────────────── */
+.stage-thoughts {
+  margin-left: 30px; /* align with text after indicator */
+  padding: 6px 0 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thought-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.thought-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.thought-bullet {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.stage-done .thought-line {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.stage-active .thought-line {
+  color: var(--text-secondary);
+}
+
+.thought-inline-spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+  margin-left: 8px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.thought-history {
+  margin-left: 18px;
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.thought-history summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+
+.thought-history summary:hover {
+  color: var(--text-muted);
 }
 
 /* ============================================================

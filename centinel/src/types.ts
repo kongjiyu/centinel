@@ -79,15 +79,12 @@ export type Artifact = {
   createdAt: string;
 };
 
-export type ReviewType = 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
-
 export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
 
 export type StaticSession = {
   id: string;
   projectId: string;
   name: string;
-  reviewType: ReviewType;
   status: StaticSessionStatus;
   configJson: string;
   progressJson: string;
@@ -116,16 +113,22 @@ export type Finding = {
   fromRemarks: boolean;
 };
 
-export interface ReviewStageProgress {
-  id: 'understanding_context' | 'code_review' | 'requirement_validation' | 'summarizing';
+export type ReviewStageId =
+  | 'understanding_context'
+  | 'code_review'
+  | 'requirement_validation'
+  | 'summarizing';
+
+export type ReviewStageProgress = {
+  id: ReviewStageId;
   label: string;
   status: 'pending' | 'active' | 'done';
   thoughts: string[];
   summary?: string;
-}
+};
 
 export type ReviewProgress = {
-  currentStage: ReviewStageProgress['id'];
+  currentStage: ReviewStageId;
   stages: ReviewStageProgress[];
   startedAt: string;
   updatedAt: string;
@@ -145,11 +148,8 @@ export type Screen =
   | { name: 'dashboard' }
   | { name: 'projects' }
   | { name: 'project-detail'; projectId: string }
-  | { name: 'review'; projectId: string }
-  | { name: 'review-session'; projectId: string; sessionId: string }
   | { name: 'dynamic-testing'; projectId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
-  | { name: 'static-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
   | { name: 'settings' };

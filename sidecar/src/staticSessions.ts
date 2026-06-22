@@ -1,19 +1,12 @@
 import crypto from 'crypto';
 import { getDb, saveDb } from './db.js';
 
-export type ReviewType =
-  | 'requirement_review'
-  | 'code_review'
-  | 'requirement_to_code_traceability'
-  | 'cross_artifact_consistency';
-
 export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
 
 export type StaticSession = {
   id: string;
   projectId: string;
   name: string;
-  reviewType: ReviewType;
   status: StaticSessionStatus;
   configJson: string;
   progressJson: string;
@@ -42,16 +35,22 @@ export type Finding = {
   fromRemarks: boolean;
 };
 
-export interface ReviewStageProgress {
-  id: 'understanding_context' | 'code_review' | 'requirement_validation' | 'summarizing';
+export type ReviewStageId =
+  | 'understanding_context'
+  | 'code_review'
+  | 'requirement_validation'
+  | 'summarizing';
+
+export type ReviewStageProgress = {
+  id: ReviewStageId;
   label: string;
   status: 'pending' | 'active' | 'done';
   thoughts: string[];
   summary?: string;
-}
+};
 
 export type ReviewProgress = {
-  currentStage: ReviewStageProgress['id'];
+  currentStage: ReviewStageId;
   stages: ReviewStageProgress[];
   startedAt: string;
   updatedAt: string;
@@ -72,7 +71,6 @@ function mapSession(row: unknown[]): StaticSession {
     id: row[0] as string,
     projectId: row[1] as string,
     name: row[2] as string,
-    reviewType: row[3] as ReviewType,
     status: row[4] as StaticSessionStatus,
     configJson: row[5] as string,
     progressJson: row[6] as string,
@@ -107,7 +105,6 @@ function mapFinding(row: unknown[]): Finding {
 export async function createStaticSession(
   projectId: string,
   name: string,
-  reviewType: ReviewType,
   configJson: Record<string, unknown>,
   remarks: string = ''
 ): Promise<StaticSession> {
@@ -117,12 +114,12 @@ export async function createStaticSession(
 
   db.run(
     'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, name, reviewType, 'queued', JSON.stringify(configJson), '{}', remarks, '', '', now, now]
+    [id, projectId, name, 'comprehensive', 'queued', JSON.stringify(configJson), '{}', remarks, '', '', now, now]
   );
   saveDb();
 
   return {
-    id, projectId, name, reviewType, status: 'queued',
+    id, projectId, name, status: 'queued',
     configJson: JSON.stringify(configJson), progressJson: '{}', remarks, finalSummary: '', failureReason: '',
     createdAt: now, updatedAt: now,
   };
