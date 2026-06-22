@@ -75,9 +75,8 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   const handleCreateStatic = async (data: { name: string; reviewType: ReviewType; artifactIds: string[]; remarks: string }) => {
     setError(null);
     try {
-      const session = await api.createStaticSession(project.id, data);
+      await api.createStaticSession(project.id, data);
       setShowStaticForm(false);
-      onNavigate({ name: 'static-session', projectId: project.id, sessionId: session.id });
     } catch (e) { setError(String(e)); throw e; }
   };
 

@@ -34,7 +34,7 @@ export function AppShell({ screen, onNavigate, aiSettings, sidecarOnline, childr
             <span>Dashboard</span>
           </button>
           <button
-            className={`nav-item ${isActive(['projects', 'project-detail', 'dynamic-session', 'static-session', 'evidence-browser', 'requirements']) ? 'active' : ''}`}
+            className={`nav-item ${isActive(['projects', 'project-detail', 'dynamic-session', 'evidence-browser', 'requirements']) ? 'active' : ''}`}
             onClick={() => nav('projects')}
           >
             <FolderOpen size={18} />
