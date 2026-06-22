@@ -100,8 +100,12 @@ export const api = {
   // Static Sessions
   listStaticSessions: (projectId: string) =>
     request<StaticSession[]>(`/projects/${projectId}/static-sessions`),
+  listActiveStaticSessions: () =>
+    request<StaticSession[]>('/static-sessions/active'),
   createStaticSession: (projectId: string, data: {
     name: string;
+    reviewType: 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
+    artifactIds: string[];
     remarks?: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {
