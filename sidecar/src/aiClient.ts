@@ -78,6 +78,104 @@ export function buildRequestUrl(setting: SettingLike): string {
   return setting.baseUrl;
 }
 
+// ── Prompt size cap ────────────────────────────────────────────────────
+//
+// Provider context windows are finite. The static review pipeline concatenates
+// artifact content across stages (Stage 3 in particular sends requirement
+// content + source code content + earlier-stage summaries in a single call),
+// so a single oversized prompt can blow past the window and get a 400.
+//
+// Rather than try to tokenize the prompt, we cap in characters with a generous
+// ceiling (~25K tokens at a 4-char/token heuristic) and leave room for an
+// 8K-token response. The cap is applied to the user-content text only — the
+// system prompt is never truncated, so instructions stay intact.
+
+export const MAX_PROMPT_CHARS = 100_000;
+
+const TRUNCATION_MARKER = '\n\n[... prompt truncated to fit model context window ...]';
+
+/**
+ * Return the prompt unchanged if it fits within `maxChars`. Otherwise, cut it
+ * to `maxChars - markerLength` and append a marker so the AI knows it is
+ * seeing a partial prompt.
+ */
+export function capPrompt(prompt: string, maxChars: number = MAX_PROMPT_CHARS): string {
+  if (prompt.length <= maxChars) return prompt;
+  return prompt.substring(0, maxChars - TRUNCATION_MARKER.length) + TRUNCATION_MARKER;
+}
+
+/**
+ * Cap the user content inside a messages array, leaving the system prompt and
+ * any prior conversation turns untouched. Supports both Anthropic-style content
+ * blocks (`{ type: 'text', text }`) and OpenAI-style plain strings.
+ *
+ * Returns `{ messages, truncated }` so callers can surface the trim in the
+ * progress UI. If `messages` is not a recognized shape, the array is returned
+ * unchanged.
+ */
+type AnyMessage = Record<string, unknown>;
+type CapResult = { messages: AnyMessage[]; truncated: boolean };
+
+export function capMessages(
+  messages: AnyMessage[],
+  maxChars: number = MAX_PROMPT_CHARS
+): CapResult {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return { messages, truncated: false };
+  }
+  // Walk to the last user-role message; if none, cap the last message.
+  let targetIdx = messages.length - 1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      targetIdx = i;
+      break;
+    }
+  }
+  const target = { ...messages[targetIdx] };
+  const content = target.content;
+  let userText: string | null = null;
+  let textField: 'text' | 'content' = 'text';
+
+  if (typeof content === 'string') {
+    userText = content;
+    textField = 'content';
+  } else if (Array.isArray(content)) {
+    // Anthropic-style: find the first text block on the last user message.
+    const textBlock = (content as unknown[]).find(
+      (b): b is Record<string, unknown> =>
+        typeof b === 'object' && b !== null && (b as Record<string, unknown>).type === 'text' && typeof (b as Record<string, unknown>).text === 'string'
+    );
+    if (textBlock) {
+      userText = textBlock.text as string;
+      textField = 'text';
+    }
+  }
+
+  if (userText === null || userText.length <= maxChars) {
+    return { messages, truncated: false };
+  }
+
+  const truncatedText = capPrompt(userText, maxChars);
+  if (typeof content === 'string') {
+    target.content = truncatedText;
+  } else if (Array.isArray(content)) {
+    target.content = (content as unknown[]).map((b) => {
+      if (
+        typeof b === 'object' &&
+        b !== null &&
+        (b as Record<string, unknown>).type === 'text' &&
+        typeof (b as Record<string, unknown>).text === 'string'
+      ) {
+        return { ...(b as Record<string, unknown>), [textField]: truncatedText };
+      }
+      return b;
+    });
+  }
+  const next = messages.slice();
+  next[targetIdx] = target;
+  return { messages: next, truncated: true };
+}
+
 async function testTextProvider(setting: SettingLike): Promise<TestResult> {
   const prompt = 'Reply with exactly this JSON: {"status":"ok"}';
 

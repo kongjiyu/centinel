@@ -668,4 +668,397 @@ describe('staticReview', () => {
       }
     });
   });
+
+  // ── E2E pipeline (4 stages) ──────────────────────────────────────
+  //
+  // The cases below drive runStaticReview end-to-end and assert that:
+  //   - Each of the 4 stages fires a fetch with the right shape
+  //   - The inputs to each stage (artifact content, prior stage summaries,
+  //     finding lists) are propagated correctly
+  //   - The context-overflow cap protects the provider from receiving a
+  //     400-class error when the project is large
+  //   - Progress events fire for every stage in order
+  //   - The earlier x-api-key / base-URL fixes are still in place
+  describe('pipeline (e2e)', () => {
+    // Per-stage Anthropic-shape response builder. text defaults to a stage-appropriate
+    // shape so individual tests can also use it for one-off assertions.
+    function stageResponse(stage: 1 | 2 | 3 | 4, overrides: Record<string, unknown> = {}) {
+      switch (stage) {
+        case 1:
+          return {
+            thoughts: ['I see a project with auth flow.'],
+            projectSummary: 'A TypeScript project with login + dashboard.',
+            artifactInventory: [{ name: 'a.ts', type: 'source_code', purpose: 'main module' }],
+            userIntent: 'review',
+            ...overrides,
+          };
+        case 2:
+          return {
+            thoughts: ['I reviewed the source files.'],
+            findings: [
+              { title: 'Null pointer risk', severity: 'high', category: 'potential_bug', artifactReference: 'a.ts', description: 'x.y may be null', evidence: 'x.y', recommendation: 'Add null check', confidence: 'high' },
+            ],
+            codeQualitySummary: 'Mixed quality; needs error handling.',
+            riskAreas: ['a.ts'],
+            ...overrides,
+          };
+        case 3:
+          return {
+            thoughts: ['Traced requirements to code.'],
+            findings: [
+              { title: 'Missing login requirement', severity: 'medium', category: 'missing_implementation', artifactReference: 'login spec', description: 'No 2FA implementation', evidence: '', recommendation: 'Add 2FA', confidence: 'medium' },
+            ],
+            coverageScore: 0.7,
+            mappings: [],
+            ...overrides,
+          };
+        case 4:
+          return {
+            thoughts: ['Consolidated 2 findings.'],
+            executiveSummary: 'Project has 1 high-severity bug and 1 medium traceability gap.',
+            totalFindings: { critical: 0, high: 1, medium: 1, low: 0, info: 0 },
+            topConcerns: ['Null pointer risk'],
+            recommendations: ['Add null check', 'Add 2FA'],
+            addressedUserThoughts: 'Reviewed per user notes.',
+            ...overrides,
+          };
+      }
+    }
+
+    function wrap(StageObj: object) {
+      return { content: [{ type: 'text', text: JSON.stringify(StageObj) }] };
+    }
+
+    // Build a session/artifact pair with default anthropic-compatible provider.
+    function defaultSession(overrides: Partial<any> = {}) {
+      return {
+        id: 'ss-e2e', projectId: 'proj-1', name: 'E2E',
+        reviewType: 'code_review' as const, status: 'queued' as const,
+        configJson: '{}', finalSummary: '', failureReason: '',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        ...overrides,
+      };
+    }
+    function defaultArtifact(overrides: Partial<any> = {}) {
+      return {
+        id: 'art-1', projectId: 'proj-1', type: 'source_code' as const,
+        fileName: 'a.ts', filePath: '/tmp/a.ts', originalPath: null,
+        contentHash: 'h1', createdAt: new Date().toISOString(),
+        ...overrides,
+      };
+    }
+
+    // Helper: pull the user-content text out of a fetch call's body.
+    function getUserText(call: readonly unknown[]): string {
+      const init = call[1] as RequestInit;
+      const body = JSON.parse(init.body as string);
+      const msgs = body.messages as Array<{ role: string; content: unknown }>;
+      const last = msgs[msgs.length - 1];
+      if (Array.isArray(last.content)) {
+        const textBlock = (last.content as Array<{ type: string; text: string }>).find(b => b.type === 'text');
+        return textBlock?.text ?? '';
+      }
+      return last.content as string;
+    }
+
+    // (1) All 4 stages run and produce a final success status
+    it('runs all 4 stages end-to-end and reaches success', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.minimax.io/anthropic', model: 'MiniMax-M2.7',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// some typescript code');
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      vi.mocked(createFinding).mockResolvedValue({} as any);
+      const { runStaticReview } = await import('../../src/staticReview');
+      // Need a requirement artifact so Stage 3 doesn't skip.
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      await runStaticReview(defaultSession(), [req, defaultArtifact()]);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(4);
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-e2e', 'success', expect.any(String), '');
+      // Stage 2 + Stage 3 each persist 1 finding.
+      expect(createFinding).toHaveBeenCalledTimes(2);
+    });
+
+    // (2) Stage 1 receives artifact content
+    it('Stage 1 receives the artifact content in its prompt', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// UNIQUE_STAGE1_MARKER source');
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const artifact = defaultArtifact({ fileName: 'login.ts' });
+      await runStaticReview(defaultSession(), [artifact]);
+
+      const text = getUserText(fetchSpy.mock.calls[0]);
+      expect(text).toContain('login.ts');
+      expect(text).toContain('UNIQUE_STAGE1_MARKER');
+    });
+
+    // (3) Stage 2 receives project context from Stage 1
+    it('Stage 2 receives the project context produced by Stage 1', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// code');
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1, {
+          projectSummary: 'PROJECT_SUMMARY_UNIQUE_TO_STAGE2',
+        })) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      await runStaticReview(defaultSession(), [defaultArtifact()]);
+
+      const text = getUserText(fetchSpy.mock.calls[1]);
+      expect(text).toContain('## Project Context');
+      expect(text).toContain('PROJECT_SUMMARY_UNIQUE_TO_STAGE2');
+    });
+
+    // (4) Stage 3 receives req + code + code review summary
+    it('Stage 3 receives requirements, code, and the Stage 2 code review summary', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockImplementation(async (id: string) => {
+        if (id === 'art-req') return 'REQUIREMENT_FILE_UNIQUE_CONTENT';
+        return '// CODE_FILE_UNIQUE_CONTENT';
+      });
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2, {
+          codeQualitySummary: 'CODE_QUALITY_SUMMARY_UNIQUE_TO_STAGE3',
+        })) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      const code = defaultArtifact({ id: 'art-code', fileName: 'main.ts' });
+      await runStaticReview(defaultSession(), [req, code]);
+
+      const text = getUserText(fetchSpy.mock.calls[2]);
+      expect(text).toContain('## Requirements');
+      expect(text).toContain('REQUIREMENT_FILE_UNIQUE_CONTENT');
+      expect(text).toContain('## Source Code');
+      expect(text).toContain('CODE_FILE_UNIQUE_CONTENT');
+      expect(text).toContain('CODE_QUALITY_SUMMARY_UNIQUE_TO_STAGE3');
+    });
+
+    // (5) Stage 4 receives all findings + project context
+    it('Stage 4 receives the consolidated finding lists from Stages 2 and 3', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// code');
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      await runStaticReview(defaultSession(), [req, defaultArtifact()]);
+
+      const text = getUserText(fetchSpy.mock.calls[3]);
+      expect(text).toContain('Null pointer risk');      // Stage 2 finding
+      expect(text).toContain('Missing login requirement'); // Stage 3 finding
+      expect(text).toContain('Code Review Findings');
+      expect(text).toContain('Traceability Findings');
+    });
+
+    // (6) Stage 3 makes no fetch call when there are no requirement/design artifacts
+    it('skips Stage 3 fetch when there are no requirement or design artifacts', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// code');
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      await runStaticReview(defaultSession(), [defaultArtifact()]);
+
+      // Only 3 fetches — no Stage 3.
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      // Stage 3 should not have produced any findings.
+      const findingCalls = vi.mocked(createFinding).mock.calls;
+      expect(findingCalls).toHaveLength(1); // just Stage 2's finding
+    });
+
+    // (7) Context-overflow protection: large content gets truncated, no 400
+    it('truncates oversized prompts so the provider does not return HTTP 400', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      // 5 artifacts of 30 KB each = 150 KB raw — far over MAX_PROMPT_CHARS (100K).
+      // The pipeline sends the same content to multiple stages, so the
+      // cap must apply per-fetch.
+      const large = 'A'.repeat(30_000);
+      vi.mocked(readArtifactContent).mockResolvedValue(large);
+      vi.mocked(createFinding).mockResolvedValue({} as any);
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      const code = defaultArtifact({ id: 'art-code', fileName: 'main.ts' });
+      // 3 more code artifacts to amplify the input
+      const extras = [
+        defaultArtifact({ id: 'art-c2', fileName: 'b.ts' }),
+        defaultArtifact({ id: 'art-c3', fileName: 'c.ts' }),
+        defaultArtifact({ id: 'art-c4', fileName: 'd.ts' }),
+      ];
+      const session = defaultSession();
+      await expect(runStaticReview(session, [req, code, ...extras])).resolves.toBeUndefined();
+
+      // Every fetch body must fit under MAX_PROMPT_CHARS.
+      for (const call of fetchSpy.mock.calls) {
+        const init = call[1] as RequestInit;
+        const bodyStr = init.body as string;
+        expect(bodyStr.length).toBeLessThanOrEqual(200_000); // system + 100K cap + JSON overhead
+        // The user text inside the body should be capped.
+        const userText = getUserText(call);
+        // Cap is on the user content; allow marker + ~MAX_PROMPT_CHARS worth.
+        expect(userText.length).toBeLessThanOrEqual(110_000);
+      }
+
+      // Pipeline should have reached success despite the truncation.
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-e2e', 'success', expect.any(String), '');
+    });
+
+    // (8) Progress events emitted for every stage
+    it('emits a progress event with status: done for each of the 4 stages', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// code');
+      vi.mocked(createFinding).mockResolvedValue({} as any);
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const progressEvents: any[] = [];
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      await runStaticReview(
+        defaultSession(),
+        [req, defaultArtifact()],
+        (progress) => progressEvents.push(progress)
+      );
+
+      // The final progress event shows all 4 stages as done, in order.
+      const finalProgress = progressEvents[progressEvents.length - 1];
+      const finalStageStatuses = finalProgress.stages.map((s: any) => [s.id, s.status]);
+      expect(finalStageStatuses).toEqual([
+        ['understanding_context', 'done'],
+        ['code_review', 'done'],
+        ['requirement_validation', 'done'],
+        ['summarizing', 'done'],
+      ]);
+    });
+
+    // (9) Regression: auth headers + URL correct for every call
+    it('sends x-api-key + anthropic-version to a /v1/messages URL on every call', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'sk-ant-xyz', baseUrl: 'https://api.minimax.io/anthropic', model: 'MiniMax-M2.7',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// code');
+      vi.mocked(createFinding).mockResolvedValue({} as any);
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      await runStaticReview(defaultSession(), [req, defaultArtifact()]);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(4);
+      for (const call of fetchSpy.mock.calls) {
+        const url = call[0] as string;
+        const init = call[1] as RequestInit;
+        const headers = init.headers as Record<string, string>;
+        expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+        expect(headers['x-api-key']).toBe('sk-ant-xyz');
+        expect(headers['api-key']).toBeUndefined();
+        expect(headers['anthropic-version']).toBe('2023-06-01');
+      }
+    });
+
+    // (10) Truncation surfaces in the progress stream
+    it('emits a thought to the progress stream when the prompt cap fires', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      // One giant artifact — guaranteed to exceed the 100K char cap on Stage 3
+      // (which also concatenates code content for traceability).
+      const huge = 'X'.repeat(120_000);
+      vi.mocked(readArtifactContent).mockResolvedValue(huge);
+      vi.mocked(createFinding).mockResolvedValue({} as any);
+
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(2)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const progressEvents: any[] = [];
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      await runStaticReview(
+        defaultSession(),
+        [req, defaultArtifact()],
+        (progress) => progressEvents.push(progress)
+      );
+
+      // Walk the progress events and look for a thought mentioning truncation.
+      const allThoughts = progressEvents.flatMap((p) =>
+        p.stages.flatMap((s: any) => s.thoughts as string[])
+      );
+      const hasTruncationNote = allThoughts.some((t) => /truncat/i.test(t));
+      expect(hasTruncationNote).toBe(true);
+    });
+  });
 });

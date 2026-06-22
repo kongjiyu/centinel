@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { getRawAiSetting } from './settings.js';
 import { readArtifactContent, listArtifacts } from './artifacts.js';
-import { getAuthHeaders, buildRequestUrl } from './aiClient.js';
+import { getAuthHeaders, buildRequestUrl, capMessages, MAX_PROMPT_CHARS } from './aiClient.js';
 import {
   createFinding,
   updateStaticSessionStatus,
@@ -171,36 +171,85 @@ Return ONLY the JSON object, no other text.`,
 
 // ── AI Client ──────────────────────────────────────────────────────────
 
-async function callAi(prompt: string, systemPrompt: string): Promise<string> {
+type CallContext = {
+  /** Current stage index (0-3) so the cap can emit a progress thought on trim. */
+  stageIdx: number;
+  /** Optional progress emitter; passed in by runStaticReview. */
+  onTruncate?: (stageIdx: number, thought: string) => void;
+};
+
+/**
+ * Build the Anthropic / OpenAI messages array for a (systemPrompt, prompt) pair.
+ * Pulled out so callAi can apply capMessages() to the result without duplicating
+ * the per-format shape logic.
+ */
+function buildMessages(apiFormat: 'openai-compatible' | 'anthropic-compatible' | 'google-native', systemPrompt: string, prompt: string): Record<string, unknown>[] {
+  if (apiFormat === 'anthropic-compatible') {
+    return [
+      { role: 'user', content: [{ type: 'text', text: prompt }] },
+    ];
+  }
+  // openai-compatible (and the openai-shaped branch used for MiMo)
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: prompt },
+  ];
+}
+
+function buildRequestBody(
+  apiFormat: 'openai-compatible' | 'anthropic-compatible' | 'google-native',
+  model: string,
+  systemPrompt: string,
+  prompt: string
+): { body: Record<string, unknown>; messages: Record<string, unknown>[] } {
+  if (apiFormat === 'anthropic-compatible') {
+    const messages = buildMessages(apiFormat, systemPrompt, prompt);
+    return {
+      messages,
+      body: {
+        model,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages,
+      },
+    };
+  }
+  // openai-compatible
+  const messages = buildMessages(apiFormat, systemPrompt, prompt);
+  return {
+    messages,
+    body: {
+      model,
+      messages,
+      max_completion_tokens: 8192,
+      thinking: { type: 'disabled' },
+    },
+  };
+}
+
+async function callAi(prompt: string, systemPrompt: string, ctx: CallContext = { stageIdx: -1 }): Promise<string> {
   const setting = await getRawAiSetting('text');
   if (!setting) throw new Error('Text AI provider not configured');
   if (!setting.apiKey) throw new Error('Text AI API key not configured');
 
   const { apiFormat, model } = setting;
 
-  let body: string;
-  let headers: Record<string, string>;
-
-  if (apiFormat === 'anthropic-compatible') {
-    headers = getAuthHeaders(setting);
-    body = JSON.stringify({
-      model,
-      max_tokens: 8192,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-    });
-  } else {
-    headers = getAuthHeaders(setting);
-    body = JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt },
-      ],
-      max_completion_tokens: 8192,
-      thinking: { type: 'disabled' },
-    });
+  // Cap user content before serializing. System prompt is left intact.
+  const { messages: cappedMessages, truncated } = capMessages(
+    buildMessages(apiFormat, systemPrompt, prompt)
+  );
+  if (truncated) {
+    ctx.onTruncate?.(
+      ctx.stageIdx,
+      `Prompt was over ${MAX_PROMPT_CHARS.toLocaleString()} chars; truncated to fit the model context window. The model is working with a partial view of the project.`
+    );
   }
+
+  const { body: requestBody } = buildRequestBody(apiFormat, model, systemPrompt, prompt);
+  // Replace the (uncapped) messages in the request body with the capped version.
+  requestBody.messages = cappedMessages;
+  const body = JSON.stringify(requestBody);
+  const headers = getAuthHeaders(setting);
 
   const res = await fetch(buildRequestUrl(setting), { method: 'POST', headers, body });
   if (!res.ok) {
@@ -366,7 +415,8 @@ export async function runStaticReview(
     emitThinking(0, `Reading ${artifactContents.length} artifact(s) to understand the project...`);
     const s1Response = await callAi(
       CONTEXT_UNDERSTANDING_PROMPT.build(artifactContents, session.remarks),
-      CONTEXT_UNDERSTANDING_PROMPT.system
+      CONTEXT_UNDERSTANDING_PROMPT.system,
+      { stageIdx: 0, onTruncate: emitThinking }
     );
     const s1 = parseStageResponse(s1Response);
     completedThoughts[0] = s1.thoughts;
@@ -386,7 +436,8 @@ export async function runStaticReview(
         artifactInventory: (s1.artifactInventory as { name: string; type: string; purpose: string }[]) || [],
         userIntent: (s1.userIntent as string) || session.remarks,
       }, session.remarks),
-      CODE_REVIEW_PROMPT.system
+      CODE_REVIEW_PROMPT.system,
+      { stageIdx: 1, onTruncate: emitThinking }
     );
     const s2 = parseStageResponse(s2Response);
 
@@ -439,7 +490,8 @@ export async function runStaticReview(
           (s2.codeQualitySummary as string) || '',
           session.remarks
         ),
-        TRACEABILITY_PROMPT.system
+        TRACEABILITY_PROMPT.system,
+        { stageIdx: 2, onTruncate: emitThinking }
       );
       s3 = parseStageResponse(s3Response);
 
@@ -490,7 +542,8 @@ export async function runStaticReview(
         staticFindings,
         session.remarks
       ),
-      SUMMARY_PROMPT.system
+      SUMMARY_PROMPT.system,
+      { stageIdx: 3, onTruncate: emitThinking }
     );
     const s4 = parseStageResponse(s4Response);
 
