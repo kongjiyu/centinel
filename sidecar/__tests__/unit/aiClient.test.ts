@@ -56,4 +56,54 @@ describe('testAiProvider', () => {
     expect(result.status).toBe('fail');
     expect(result.hint).toMatch(/reach|sidecar|network|DNS/i);
   });
+
+  it('sends x-api-key (not api-key) for anthropic-compatible providers', async () => {
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'sk-ant-test',
+      baseUrl: 'https://api.minimax.io/anthropic/v1/messages',
+      model: 'MiniMax-M2.7',
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ content: [{ type: 'text', text: '{"status":"ok"}' }] }),
+    } as Response);
+
+    const result = await testAiProvider('text');
+    expect(result.status).toBe('pass');
+
+    // Verify the sidecar sent the right header name
+    const call = fetchSpy.mock.calls[0];
+    const init = call[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('sk-ant-test');
+    expect(headers['api-key']).toBeUndefined();
+    expect(headers['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('surfaces MiniMax-style X-Api-Key hint on 401', async () => {
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'bad-key',
+      baseUrl: 'https://api.minimax.io/anthropic/v1/messages',
+      model: 'MiniMax-M2.7',
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: async () =>
+        '{"type":"error","error":{"type":"authentication_error","message":"login fail: Please carry the API secret key in the X-Api-Key field of the request header"}}',
+    } as Response);
+
+    const result = await testAiProvider('text');
+    expect(result.status).toBe('fail');
+    expect(result.hint).toMatch(/X-Api-Key/i);
+  });
 });

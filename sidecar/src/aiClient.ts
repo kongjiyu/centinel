@@ -23,13 +23,13 @@ export async function testAiProvider(id: 'text' | 'vision', imagePath?: string):
 }
 
 function getAuthHeaders(setting: SettingLike): Record<string, string> {
-  // MiMo uses api-key header, not Authorization Bearer
+  // MiMo uses x-api-key header (Anthropic-compatible convention)
   if (setting.provider === 'mimo') {
-    return { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+    return { 'Content-Type': 'application/json', 'x-api-key': setting.apiKey, 'anthropic-version': '2023-06-01' };
   }
-  // Anthropic-compatible uses api-key header
+  // Anthropic-compatible uses x-api-key header + required anthropic-version
   if (setting.apiFormat === 'anthropic-compatible') {
-    return { 'Content-Type': 'application/json', 'api-key': setting.apiKey };
+    return { 'Content-Type': 'application/json', 'x-api-key': setting.apiKey, 'anthropic-version': '2023-06-01' };
   }
   // OpenAI-compatible uses Authorization Bearer
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
@@ -170,6 +170,10 @@ function buildHint(status: number, url: string, apiFormat: AiApiFormat, body: st
     return 'The endpoint returned 404. The Base URL may be wrong, the path may be missing a suffix (e.g. /v1/chat/completions), or the model may be unavailable at this URL.';
   }
   if (status === 401 || status === 403) {
+    // Surface provider-specific auth guidance (e.g. MiniMax requires "X-Api-Key").
+    if (/X-Api-Key/i.test(body)) {
+      return 'Authentication failed: the provider requires the API key in the "X-Api-Key" header. This is the standard header; verify the sidecar is sending it (it does for Anthropic-compatible and MiMo formats).';
+    }
     return 'Authentication failed. Verify the API key has access to the configured model.';
   }
   if (status === 429) {
