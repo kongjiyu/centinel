@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Artifact, ReviewType } from '../types';
+import type { ReviewType } from '../types';
 
 const REVIEW_TYPES: { value: ReviewType; label: string; description: string }[] = [
   {
@@ -24,47 +24,26 @@ const REVIEW_TYPES: { value: ReviewType; label: string; description: string }[] 
   },
 ];
 
-const MAX_REMARKS_CHARS = 300;
-const TYPE_ORDER: Artifact['type'][] = ['requirement', 'source_code', 'design', 'coding_standard', 'other'];
-const TYPE_LABELS: Record<Artifact['type'], string> = {
-  requirement: 'Requirements',
-  design: 'Design Documents',
-  source_code: 'Source Code',
-  coding_standard: 'Coding Standards',
-  other: 'Other',
-};
+const MAX_INSTRUCTIONS_CHARS = 1000;
 
 type Props = {
   projectId: string;
-  artifacts: Artifact[];
-  onSubmit: (data: { name: string; reviewType: ReviewType; artifactIds: string[]; remarks: string }) => Promise<void>;
+  onSubmit: (data: { name: string; reviewType: ReviewType; instructions: string }) => Promise<void>;
   onCancel: () => void;
 };
 
-export function StaticReviewForm({ projectId, artifacts, onSubmit, onCancel }: Props) {
+export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
+  void projectId;
   const [name, setName] = useState('');
   const [reviewType, setReviewType] = useState<ReviewType>('requirement_review');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(artifacts.map(a => a.id)));
-  const [remarks, setRemarks] = useState('');
+  const [instructions, setInstructions] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const toggle = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const selectAll = () => setSelectedIds(new Set(artifacts.map(a => a.id)));
-  const selectNone = () => setSelectedIds(new Set());
-
   const currentConfig = REVIEW_TYPES.find(r => r.value === reviewType)!;
 
-  const charCount = remarks.length;
-  const overLimit = charCount > MAX_REMARKS_CHARS;
+  const charCount = instructions.length;
+  const overLimit = charCount > MAX_INSTRUCTIONS_CHARS;
 
   const handleSubmit = async () => {
     setError(null);
@@ -72,12 +51,8 @@ export function StaticReviewForm({ projectId, artifacts, onSubmit, onCancel }: P
       setError('Session name is required');
       return;
     }
-    if (selectedIds.size === 0) {
-      setError('Select at least one artifact to review');
-      return;
-    }
     if (overLimit) {
-      setError(`Remarks must be ${MAX_REMARKS_CHARS} characters or fewer (currently ${charCount})`);
+      setError(`Instructions must be ${MAX_INSTRUCTIONS_CHARS} characters or fewer (currently ${charCount})`);
       return;
     }
 
@@ -86,8 +61,7 @@ export function StaticReviewForm({ projectId, artifacts, onSubmit, onCancel }: P
       await onSubmit({
         name: name.trim(),
         reviewType,
-        artifactIds: Array.from(selectedIds),
-        remarks: remarks.trim(),
+        instructions: instructions.trim(),
       });
     } catch (e) {
       setError(String(e));
@@ -121,51 +95,20 @@ export function StaticReviewForm({ projectId, artifacts, onSubmit, onCancel }: P
       </div>
 
       <div className="form-field">
-        <div className="artifact-selector-header">
-          <label>Artifacts to Review ({selectedIds.size}/{artifacts.length})</label>
-          <div className="artifact-selector-actions">
-            <button type="button" className="btn-link" onClick={selectAll}>Select all</button>
-            <button type="button" className="btn-link" onClick={selectNone}>Clear</button>
-          </div>
-        </div>
-        <div className="artifact-selector">
-          {TYPE_ORDER.map(type => {
-            const group = artifacts.filter(a => a.type === type);
-            if (group.length === 0) return null;
-            return (
-              <fieldset key={type} className="artifact-group">
-                <legend>{TYPE_LABELS[type]} ({group.length})</legend>
-                {group.map(a => (
-                  <label key={a.id} className="artifact-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(a.id)}
-                      onChange={() => toggle(a.id)}
-                    />
-                    <span className="artifact-filename">{a.fileName}</span>
-                  </label>
-                ))}
-              </fieldset>
-            );
-          })}
-          {artifacts.length === 0 && <p className="form-hint">No artifacts uploaded yet.</p>}
-        </div>
-      </div>
-
-      <div className="form-field">
-        <label>Remarks (optional)</label>
+        <label>Instructions for the Agent</label>
         <div className="textarea-wrapper">
           <textarea
-            value={remarks}
-            onChange={e => setRemarks(e.target.value)}
-            placeholder="Any additional notes or context for this review..."
-            rows={4}
-            maxLength={MAX_REMARKS_CHARS}
+            value={instructions}
+            onChange={e => setInstructions(e.target.value)}
+            placeholder="Tell the agent what to focus on, what to look for, or any extra context for this review. The agent will choose which artifacts to inspect from the project."
+            rows={6}
+            maxLength={MAX_INSTRUCTIONS_CHARS}
           />
           <span className={`textarea-char-count${overLimit ? ' over-limit' : ''}`}>
-            {charCount}/{MAX_REMARKS_CHARS}
+            {charCount}/{MAX_INSTRUCTIONS_CHARS}
           </span>
         </div>
+        <p className="form-hint">Leave blank to let the agent decide its own focus. All project artifacts will be made available.</p>
       </div>
 
       {error && <p className="form-error">{error}</p>}

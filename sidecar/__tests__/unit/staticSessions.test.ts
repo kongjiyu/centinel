@@ -31,14 +31,14 @@ describe('staticSessions', () => {
 
   describe('createStaticSession', () => {
     it('should create a session with correct fields', async () => {
-      const session = await createStaticSession('proj-1', 'My Review', 'requirement_review', { artifactIds: ['art-1'] });
+      const session = await createStaticSession('proj-1', 'My Review', 'requirement_review', { instructions: 'Focus on security' });
 
       expect(session.id).toBeDefined();
       expect(session.projectId).toBe('proj-1');
       expect(session.name).toBe('My Review');
       expect(session.reviewType).toBe('requirement_review');
       expect(session.status).toBe('queued');
-      expect(session.configJson).toBe(JSON.stringify({ artifactIds: ['art-1'] }));
+      expect(session.configJson).toBe(JSON.stringify({ instructions: 'Focus on security' }));
       expect(session.finalSummary).toBe('');
       expect(session.failureReason).toBe('');
       expect(session.createdAt).toBeDefined();

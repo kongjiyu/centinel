@@ -72,7 +72,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
     } catch (e) { setError(String(e)); throw e; }
   };
 
-  const handleCreateStatic = async (data: { name: string; reviewType: ReviewType; artifactIds: string[]; remarks: string }) => {
+  const handleCreateStatic = async (data: { name: string; reviewType: ReviewType; instructions: string }) => {
     setError(null);
     try {
       await api.createStaticSession(project.id, data);
@@ -133,7 +133,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
             )}
           </div>
           {showStaticForm && (
-            <ReviewModal projectId={project.id} artifacts={artifacts} onSubmit={handleCreateStatic}
+            <ReviewModal projectId={project.id} onSubmit={handleCreateStatic}
               onClose={() => { setShowStaticForm(false); setError(null); }} />
           )}
           {staticSessions.length > 0 ? (

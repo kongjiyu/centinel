@@ -105,8 +105,7 @@ export const api = {
   createStaticSession: (projectId: string, data: {
     name: string;
     reviewType: 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
-    artifactIds: string[];
-    remarks?: string;
+    instructions: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {
       method: 'POST',

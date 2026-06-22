@@ -471,8 +471,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const reviewType = body.reviewType;
-      const artifactIds = Array.isArray(body.artifactIds) ? body.artifactIds.filter((x): x is string => typeof x === 'string') : [];
-      const remarks = typeof body.remarks === 'string' ? body.remarks.trim() : '';
+      const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : '';
 
       if (!name) return json(res, 400, { error: 'name is required' });
 
@@ -489,18 +488,16 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: 'No artifacts found. Upload or import files first.' });
       }
 
-      // Filter artifacts if user picked specific IDs; empty array = use all.
-      const filteredArtifacts = artifactIds.length > 0
-        ? allArtifacts.filter(a => artifactIds.includes(a.id))
-        : allArtifacts;
+      // The agent picks which artifacts to inspect; the project workspace makes all of them available.
+      const session = await createStaticSession(
+        ssMatch.projectId,
+        name,
+        reviewType,
+        { instructions },
+        instructions
+      );
 
-      if (artifactIds.length > 0 && filteredArtifacts.length === 0) {
-        return json(res, 400, { error: 'artifactIds contains no valid IDs' });
-      }
-
-      const session = await createStaticSession(ssMatch.projectId, name, reviewType, { artifactIds }, remarks);
-
-      runStaticReview(session, filteredArtifacts, async (progress) => {
+      runStaticReview(session, allArtifacts, async (progress) => {
         await updateStaticSessionProgress(session.id, progress);
       }).catch(err => {
         console.error('[static-review] error:', err);
