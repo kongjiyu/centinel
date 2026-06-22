@@ -23,6 +23,35 @@ export function ReviewProgressView({ progress }: Props) {
     );
   }
 
+  // Backward-compat guard: pre-4-stage progress had { stage, message, steps }
+  // instead of { currentStage, stages, startedAt, updatedAt }. Render a minimal
+  // legacy view instead of crashing on progress.stages.map(...).
+  if (!Array.isArray(progress.stages)) {
+    const legacy = progress as unknown as { stage?: string; message?: string };
+    return (
+      <div className="review-progress">
+        <div className="review-stepper">
+          <div className="stage stage-pending">
+            <div className="stage-header">
+              <div className="step-indicator">
+                <span className="step-dot-pending" />
+              </div>
+              <span className="stage-label">{legacy.stage ?? 'Review'}</span>
+            </div>
+            {legacy.message && (
+              <div className="stage-thoughts">
+                <div className="thought-line">
+                  <span className="thought-bullet">›</span>
+                  <span className="thought-text">{legacy.message}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="review-progress">
       <div className="review-stepper">
