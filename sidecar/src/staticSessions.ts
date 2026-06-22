@@ -42,10 +42,17 @@ export type Finding = {
   fromRemarks: boolean;
 };
 
+export interface ReviewStageProgress {
+  id: 'understanding_context' | 'code_review' | 'requirement_validation' | 'summarizing';
+  label: string;
+  status: 'pending' | 'active' | 'done';
+  thoughts: string[];
+  summary?: string;
+}
+
 export type ReviewProgress = {
-  stage: string;
-  message: string;
-  steps: { label: string; status: 'pending' | 'active' | 'done' }[];
+  currentStage: ReviewStageProgress['id'];
+  stages: ReviewStageProgress[];
   startedAt: string;
   updatedAt: string;
 };
