@@ -848,7 +848,7 @@ export function useActiveReview() {
   const completedAtRef = useRef<string | null>(null);
   const lastSessionIdRef = useRef<string | null>(null);
   const projectNamesRef = useRef<Map<string, string>>(new Map());
-  const stateRef = useRef<ActiveReviewState | null>(null);
+  const stateRef = useRef<ActiveReviewState | null>(state);
   stateRef.current = state;
 
   const controls: ActiveReviewControls = {
@@ -1864,7 +1864,7 @@ describe('<ActiveSessionInline>', () => {
 
   it('does not render for a different project', () => {
     const { container } = render(
-      <ActiveReviewContext.Provider value={{ state: { ...snapshot, projectId: 'p2' } as ActiveReviewSnapshot, controls } as { state: ActiveReviewState; controls: ActiveReviewControls }}>
+      <ActiveReviewContext.Provider value={{ state: { session: { ...snapshot, projectId: 'p2' }, expanded: false, completedAt: null, dismissed: false, connectionLost: false }, controls }}>
         <ActiveSessionInline projectId="p1" sessionId="s1" />
       </ActiveReviewContext.Provider>
     );
