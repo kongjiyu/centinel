@@ -1045,6 +1045,8 @@ describe('callAiWithTools', () => {
     const turn = await callAiWithTools({
       apiFormat: 'anthropic-compatible',
       model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
       systemPrompt: 'sys',
       messages: [{ role: 'user', content: 'review a.ts' }],
       tools: [{ name: 'fetch_file', description: 'd', input_schema: { type: 'object', properties: {} } }],
@@ -1067,6 +1069,8 @@ describe('callAiWithTools', () => {
     const turn = await callAiWithTools({
       apiFormat: 'anthropic-compatible',
       model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
       systemPrompt: 'sys',
       messages: [{ role: 'user', content: 'review' }],
       tools: [{ name: 'fetch_file', description: 'd', input_schema: { type: 'object' } }],
@@ -1081,6 +1085,8 @@ describe('callAiWithTools', () => {
     const turn = await callAiWithTools({
       apiFormat: 'anthropic-compatible',
       model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
       systemPrompt: 'sys',
       messages: [],
       tools: [],
@@ -1295,6 +1301,8 @@ function enforceMessageCap(messages: AppendableMessage[]): AppendableMessage[] {
 export type CallAiWithToolsOpts = {
   apiFormat: ApiFormat;
   model: string;
+  baseUrl: string;
+  provider: 'mimo' | 'gemini' | 'custom';
   systemPrompt: string;
   messages: AppendableMessage[];
   tools: ToolSchema[];
@@ -1304,32 +1312,26 @@ export type CallAiWithToolsOpts = {
 
 export async function callAiWithTools(opts: CallAiWithToolsOpts): Promise<ToolTurn> {
   const maxRounds = opts.maxRounds ?? Number(process.env.STATIC_REVIEW_MAX_ROUNDS) || 3;
-  const { apiFormat, model, systemPrompt } = opts;
+  const { apiFormat, model, baseUrl, provider, systemPrompt } = opts;
   let messages = opts.messages;
   const tools = opts.tools;
 
   // The caller is expected to have wired `executeTool` into a wrapper; we accept
-  // a registry of tool names → handlers via the global. For now, expose a hook:
-  // `executeToolCall` is defined in staticReview.ts (Task 6). To keep this module
-  // testable in isolation, we read the global tool executor that staticReview
-  // installs at session start. Default to throwing.
+  // a registry of tool names → handlers via the global. `setToolExecutor` is
+  // called by staticReview.ts at session start. Default to throwing so an
+  // unconfigured loop fails loudly.
   const toolExecutor: ToolExecutor = (globalThis as any).__centinelToolExecutor ?? defaultToolExecutor;
 
   let lastTurn: ToolTurn | null = null;
   for (let round = 0; round < maxRounds; round++) {
     messages = enforceMessageCap(messages);
     const body = buildToolRequest(apiFormat, model, systemPrompt, messages, tools);
-    const url = buildRequestUrl({
-      apiKey: '', // unused here; actual call sets the real auth
-      baseUrl: opts.baseUrlOverride ?? '',
-      model,
-      provider: opts.providerOverride ?? 'mimo',
-      apiFormat,
-    } as SettingLike);
+    const url = buildRequestUrl({ apiKey: '', baseUrl, model, provider, apiFormat } as SettingLike);
+    const headers = getAuthHeaders({ apiKey: '__placeholder__', baseUrl, model, provider, apiFormat } as SettingLike);
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
       signal: opts.signal,
     });
@@ -1372,25 +1374,12 @@ const defaultToolExecutor: ToolExecutor = async (call) => {
 };
 ```
 
-- [ ] **Step 4: Run the tests to verify the parser-and-loop tests pass**
+- [ ] **Step 4: Run the tests to verify all loop tests pass**
 
 Run: `cd sidecar && pnpm test -- --reporter=verbose -t "callAiWithTools|parseAnthropicToolTurn|parseOpenAIToolTurn|parseGoogleToolTurn"`
-Expected: PASS for the parsers; for `callAiWithTools` the URL construction uses placeholder values (since we don't have a real baseUrl override in the test), so this needs adjustment — see step 5.
+Expected: PASS — all parser tests and all `callAiWithTools` tests pass on the first run. The implementation uses `opts.baseUrl` / `opts.provider` directly; no draft-then-fix needed.
 
-- [ ] **Step 5: Adjust `callAiWithTools` to accept `baseUrl` and `provider` as opts**
-
-The above implementation reaches for `opts.baseUrlOverride` and `opts.providerOverride`. Update the `CallAiWithToolsOpts` type to include them, and update the test to pass them. Replace the URL construction block with:
-
-```ts
-const url = opts.baseUrlOverride;
-```
-
-And update the test setup in step 1 to pass `baseUrlOverride: 'https://example.test/v1/messages'` and `providerOverride: 'mimo'`. The `buildRequestUrl` call is no longer needed inside `callAiWithTools` — the caller (staticReview.ts) provides the URL.
-
-Then re-run: `cd sidecar && pnpm test -- --reporter=verbose -t "callAiWithTools"`
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add sidecar/src/aiClient.ts sidecar/__tests__/unit/aiClient.test.ts
@@ -1539,13 +1528,13 @@ async function runStageWithTools(input: StageInput): Promise<string> {
     { role: 'user', content: input.userPrompt },
   ];
   const turn = await callAiWithTools({
-    apiFormat: 'anthropic-compatible',  // set by caller via callAiWithTools override; see below
+    apiFormat: 'anthropic-compatible',  // placeholder; real call goes through runStaticReviewWithTools
     model: '',
+    baseUrl: '',
+    provider: 'mimo',
     systemPrompt: input.systemPrompt,
     messages,
     tools: [...TOOL_SCHEMAS],
-    baseUrlOverride: undefined,  // caller sets this through callAiWithTools
-    providerOverride: undefined,
   });
   return turn.content ?? '';
 }
@@ -1574,11 +1563,11 @@ async function runStageWithTools(
   const turn = await callAiWithTools({
     apiFormat: setting.apiFormat,
     model: setting.model,
+    baseUrl: setting.baseUrl,
+    provider: setting.provider,
     systemPrompt,
     messages,
     tools: [...TOOL_SCHEMAS],
-    baseUrlOverride: setting.baseUrl,
-    providerOverride: setting.provider,
     onToolCall: (name, args) => emitThinking(`🔧 ${name}: ${JSON.stringify(args).substring(0, 200)}`),
   });
 
