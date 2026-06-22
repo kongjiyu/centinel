@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { getRawAiSetting } from './settings.js';
 import { readArtifactContent, listArtifacts } from './artifacts.js';
+import { getAuthHeaders, buildRequestUrl } from './aiClient.js';
 import {
   createFinding,
   updateStaticSessionStatus,
@@ -175,23 +176,13 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
   if (!setting) throw new Error('Text AI provider not configured');
   if (!setting.apiKey) throw new Error('Text AI API key not configured');
 
-  const { provider, apiFormat, apiKey, baseUrl, model } = setting;
+  const { apiFormat, model } = setting;
 
   let body: string;
   let headers: Record<string, string>;
 
-  function getAuthHeaders(): Record<string, string> {
-    if (provider === 'mimo') {
-      return { 'Content-Type': 'application/json', 'api-key': apiKey };
-    }
-    if (apiFormat === 'anthropic-compatible') {
-      return { 'Content-Type': 'application/json', 'api-key': apiKey };
-    }
-    return { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
-  }
-
   if (apiFormat === 'anthropic-compatible') {
-    headers = getAuthHeaders();
+    headers = getAuthHeaders(setting);
     body = JSON.stringify({
       model,
       max_tokens: 8192,
@@ -199,7 +190,7 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     });
   } else {
-    headers = getAuthHeaders();
+    headers = getAuthHeaders(setting);
     body = JSON.stringify({
       model,
       messages: [
@@ -211,7 +202,7 @@ async function callAi(prompt: string, systemPrompt: string): Promise<string> {
     });
   }
 
-  const res = await fetch(baseUrl, { method: 'POST', headers, body });
+  const res = await fetch(buildRequestUrl(setting), { method: 'POST', headers, body });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`AI API error: HTTP ${res.status} — ${text}`);

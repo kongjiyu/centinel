@@ -10,6 +10,7 @@ type SettingLike = {
   provider: AiProvider;
   apiFormat: AiApiFormat;
 };
+export type { SettingLike };
 
 export type TestOverrides = {
   provider?: AiProvider;
@@ -46,7 +47,7 @@ export async function testAiProvider(
   return testVisionProvider(setting, imagePath);
 }
 
-function getAuthHeaders(setting: SettingLike): Record<string, string> {
+export function getAuthHeaders(setting: SettingLike): Record<string, string> {
   // MiMo uses x-api-key header (Anthropic-compatible convention)
   if (setting.provider === 'mimo') {
     return { 'Content-Type': 'application/json', 'x-api-key': setting.apiKey, 'anthropic-version': '2023-06-01' };
@@ -65,7 +66,7 @@ function getAuthHeaders(setting: SettingLike): Record<string, string> {
 // the full URL (https://api.minimax.io/anthropic/v1/messages). If they
 // supplied the base, we append the canonical path. The full URL is left alone
 // so saved settings from older versions still work.
-function buildRequestUrl(setting: SettingLike): string {
+export function buildRequestUrl(setting: SettingLike): string {
   if (setting.apiFormat === 'google-native') {
     return `${setting.baseUrl.replace(/\/+$/, '')}/${setting.model}:generateContent?key=${setting.apiKey}`;
   }

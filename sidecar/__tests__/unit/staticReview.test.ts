@@ -623,5 +623,49 @@ describe('staticReview', () => {
       expect(userMessage).toContain('[... truncated ...]');
       expect(userMessage.length).toBeLessThan(60000);
     });
+
+    it('should send x-api-key + anthropic-version and normalize base URL for anthropic-compatible', async () => {
+      // Saved setting uses the *base* form (no /v1/messages) — common when users
+      // type a custom provider URL and don't know the exact path suffix.
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'sk-ant-real-key',
+        baseUrl: 'https://api.minimax.io/anthropic',
+        model: 'MiniMax-M2.7',
+        provider: 'mimo',
+        apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('Some content');
+
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        json: async () => ({ content: [{ text: JSON.stringify({ thoughts: [], findings: [] }) }] }),
+      } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const session = {
+        id: 'ss-hdr', projectId: 'proj-1', name: 'Test',
+        reviewType: 'code_review' as const, status: 'queued' as const,
+        configJson: '{}', finalSummary: '', failureReason: '',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      };
+      const artifact = {
+        id: 'art-1', projectId: 'proj-1', type: 'source_code' as const,
+        fileName: 'c.ts', filePath: '/tmp/c.ts', originalPath: null,
+        contentHash: 'h1', createdAt: new Date().toISOString(),
+      };
+
+      await runStaticReview(session, [artifact]);
+
+      // Every AI call must hit the normalized URL with the right headers.
+      for (const call of fetchSpy.mock.calls) {
+        const url = call[0] as string;
+        const init = call[1] as RequestInit;
+        const headers = init.headers as Record<string, string>;
+        expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+        expect(headers['x-api-key']).toBe('sk-ant-real-key');
+        expect(headers['api-key']).toBeUndefined();
+        expect(headers['anthropic-version']).toBe('2023-06-01');
+      }
+    });
   });
 });
