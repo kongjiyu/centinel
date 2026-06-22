@@ -3652,6 +3652,29 @@ select option {
 }
 
 /* ============================================================
+   21b. STATIC REVIEW STAGE STEPPER (Task 1)
+   ============================================================ */
+.stage-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 20px; /* matches .step-check / .step-spinner diameter */
+}
+
+.stage-header > .stage-label,
+.stage-header > .stage-summary {
+  align-self: center;
+}
+
+.stage-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-faint);
+  line-height: 20px;          /* matches circle diameter for true center */
+  white-space: nowrap;
+}
+
+/* ============================================================
    22. REVIEW ARTIFACTS
    ============================================================ */
 .review-artifacts-section {
