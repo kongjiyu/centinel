@@ -6,7 +6,10 @@ import { ReviewModal } from '../components/ReviewModal';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
-import type { Project, DynamicSession, StaticSession, Artifact, Screen, ReviewType } from '../types';
+import { useActiveReviewState } from '../context/ActiveReviewContext';
+import { ActiveSessionInline } from '../components/ActiveSessionInline';
+import { ActiveSessionComplete } from '../components/ActiveSessionComplete';
+import type { Project, DynamicSession, StaticSession, Artifact, Screen, ReviewType, Finding } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
 
@@ -25,6 +28,10 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   const [showStaticForm, setShowStaticForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const [findingsBySession, setFindingsBySession] = useState<Record<string, Finding[]>>({});
+
+  useActiveReviewState(); // ensures context exists; actual reading happens in children
 
   const loadDynamicSessions = useCallback(async () => {
     try { setDynamicSessions(await api.listDynamicSessions(project.id)); } catch {}
@@ -37,6 +44,14 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   const loadArtifacts = useCallback(async () => {
     try { setArtifacts(await api.listArtifacts(project.id)); } catch {}
   }, [project.id]);
+
+  const ensureFindingsLoaded = useCallback(async (sessionId: string) => {
+    if (findingsBySession[sessionId]) return;
+    try {
+      const findings = await api.listStaticFindings(project.id, sessionId);
+      setFindingsBySession(prev => ({ ...prev, [sessionId]: findings }));
+    } catch {}
+  }, [findingsBySession, project.id]);
 
   useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts]);
 
@@ -124,19 +139,40 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
           )}
           {staticSessions.length > 0 ? (
             <div className="session-list">
-              {staticSessions.map(s => (
-                <div key={s.id} className="session-row"
-                  onClick={() => onNavigate({ name: 'static-session', projectId: project.id, sessionId: s.id })}>
-                  <div className="session-info-compact">
-                    <span className="session-name">{s.name}</span>
-                    <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
+              {staticSessions.map(s => {
+                const isActive = s.status === 'running' || s.status === 'queued';
+                const isOpen = openSessionId === s.id;
+                const handleClick = async () => {
+                  if (isOpen) { setOpenSessionId(null); return; }
+                  setOpenSessionId(s.id);
+                  if (!isActive) await ensureFindingsLoaded(s.id);
+                };
+                return (
+                  <div key={s.id} className={`session-block ${isOpen ? 'open' : ''}`}>
+                    <div className="session-row" onClick={handleClick}>
+                      <div className="session-info-compact">
+                        <span className="session-name">{s.name}</span>
+                        <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
+                      </div>
+                      <div className="session-meta">
+                        <StatusBadge label={s.status} />
+                        <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    {isOpen && (
+                      isActive ? (
+                        <ActiveSessionInline projectId={project.id} sessionId={s.id} />
+                      ) : (
+                        <ActiveSessionComplete
+                          projectId={project.id}
+                          sessionId={s.id}
+                          findings={findingsBySession[s.id] ?? []}
+                        />
+                      )
+                    )}
                   </div>
-                  <div className="session-meta">
-                    <StatusBadge label={s.status} />
-                    <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             !showStaticForm && <p className="card-empty">No reviews yet.</p>
