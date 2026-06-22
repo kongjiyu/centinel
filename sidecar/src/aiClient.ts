@@ -59,16 +59,33 @@ function getAuthHeaders(setting: SettingLike): Record<string, string> {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
 }
 
+// Build the actual URL to fetch for a given setting.
+// Anthropic-compatible endpoints are always rooted at /v1/messages, so users
+// can supply either the base URL (e.g. https://api.minimax.io/anthropic) or
+// the full URL (https://api.minimax.io/anthropic/v1/messages). If they
+// supplied the base, we append the canonical path. The full URL is left alone
+// so saved settings from older versions still work.
+function buildRequestUrl(setting: SettingLike): string {
+  if (setting.apiFormat === 'google-native') {
+    return `${setting.baseUrl.replace(/\/+$/, '')}/${setting.model}:generateContent?key=${setting.apiKey}`;
+  }
+  if (setting.apiFormat === 'anthropic-compatible') {
+    if (!/\/v1\/messages\/?$/.test(setting.baseUrl)) {
+      return setting.baseUrl.replace(/\/+$/, '') + '/v1/messages';
+    }
+  }
+  return setting.baseUrl;
+}
+
 async function testTextProvider(setting: SettingLike): Promise<TestResult> {
   const prompt = 'Reply with exactly this JSON: {"status":"ok"}';
 
   let body: string;
   let headers: Record<string, string>;
-  let fetchUrl = setting.baseUrl;
+  const fetchUrl = buildRequestUrl(setting);
 
   if (setting.apiFormat === 'google-native') {
     // Google Gemini API format
-    fetchUrl = `${setting.baseUrl}/${setting.model}:generateContent?key=${setting.apiKey}`;
     headers = { 'Content-Type': 'application/json' };
     body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
@@ -107,11 +124,10 @@ async function testVisionProvider(setting: SettingLike, imagePath?: string): Pro
 
   let body: string;
   let headers: Record<string, string>;
-  let fetchUrl = setting.baseUrl;
+  const fetchUrl = buildRequestUrl(setting);
 
   if (setting.apiFormat === 'google-native') {
     // Google Gemini API format
-    fetchUrl = `${setting.baseUrl}/${setting.model}:generateContent?key=${setting.apiKey}`;
     headers = { 'Content-Type': 'application/json' };
     const parts: unknown[] = [];
     if (base64) {

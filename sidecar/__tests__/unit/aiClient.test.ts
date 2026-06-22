@@ -176,4 +176,73 @@ describe('testAiProvider', () => {
     expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
     expect(headers['x-api-key']).toBe('saved-key');
   });
+
+  it('appends /v1/messages to a base URL for anthropic-compatible', async () => {
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.minimax.io/anthropic',  // base URL, no /v1/messages
+      model: 'MiniMax-M2.7',
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ content: [{ type: 'text', text: '{"status":"ok"}' }] }),
+    } as Response);
+
+    const result = await testAiProvider('text');
+    expect(result.status).toBe('pass');
+
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+  });
+
+  it('strips a trailing slash before appending /v1/messages', async () => {
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.minimax.io/anthropic/',
+      model: 'MiniMax-M2.7',
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ content: [{ type: 'text', text: '{"status":"ok"}' }] }),
+    } as Response);
+
+    const result = await testAiProvider('text');
+    expect(result.status).toBe('pass');
+
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+  });
+
+  it('leaves a full URL with /v1/messages alone (backward compat)', async () => {
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.minimax.io/anthropic/v1/messages',
+      model: 'MiniMax-M2.7',
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ content: [{ type: 'text', text: '{"status":"ok"}' }] }),
+    } as Response);
+
+    const result = await testAiProvider('text');
+    expect(result.status).toBe('pass');
+
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+  });
 });
