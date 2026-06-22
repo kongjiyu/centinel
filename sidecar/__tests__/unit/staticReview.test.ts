@@ -1122,4 +1122,150 @@ describe('staticReview', () => {
       expect(callAiWithTools).toHaveBeenCalled();
     });
   });
+
+  // ── runStaticReview dispatch ─────────────────────────────────────
+  //
+  // Tests the size-based dispatcher that routes between the legacy pre-fetch
+  // path (runStaticReviewPrefetch) and the new tool path (runStaticReviewWithTools).
+  //   - small total + small max  -> prefetch
+  //   - small total + huge single (over 100KB) -> tool path (single-file rule)
+  //   - large total (>= SMALL_PROJECT_BYTES)  -> tool path
+  //   - env var override raises SMALL_PROJECT_BYTES -> prefetch for sizes below the override
+  describe('runStaticReview dispatch', () => {
+    function tmpFile(sizeBytes: number, name: string): string {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-disp-'));
+      const file = path.join(dir, name);
+      fs.writeFileSync(file, 'x'.repeat(sizeBytes));
+      return file;
+    }
+
+    function session(id = 's-disp'): StaticSession {
+      return {
+        id, projectId: 'p-disp', name: 'disp', reviewType: 'code_review',
+        status: 'pending', configJson: '{}', progressJson: '{}', remarks: '',
+        finalSummary: '', failureReason: '', createdAt: '', updatedAt: '',
+      };
+    }
+
+    function artifact(id: string, filePath: string, name: string): Artifact {
+      return {
+        id, projectId: 'p-disp', type: 'source_code', source: 'repository',
+        fileName: name, filePath, originalPath: null,
+        contentHash: 'h', createdAt: '',
+      };
+    }
+
+    // (1) Small total -> prefetch path. callAiWithTools MUST NOT be called;
+    //     the legacy fetch-based pipeline reaches 'success' instead.
+    it('uses the prefetch path when total artifact size is small', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'sk', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// small code');
+      vi.mocked(callAiWithTools).mockClear();
+
+      // 4-stage response — every stage returns empty findings.
+      const empty = JSON.stringify({ thoughts: [], findings: [] });
+      const aiResp = { content: [{ text: empty }] };
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        json: async () => aiResp,
+      } as Response);
+
+      const filePath = tmpFile(1_024, 'tiny.ts');
+      const { runStaticReview } = await import('../../src/staticReview');
+      await runStaticReview(session(), [artifact('a-small', filePath, 'tiny.ts')]);
+
+      // Prefetch path was taken: 4 fetches fired, callAiWithTools never invoked.
+      expect(callAiWithTools).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalled();
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith(
+        's-disp', 'success', expect.any(String), ''
+      );
+    });
+
+    // (2) Single huge file (>100KB) -> tool path even when total is small.
+    it('uses the tool path when any single artifact exceeds 100KB', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'sk', baseUrl: 'https://x', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(callAiWithTools).mockResolvedValue({
+        content: JSON.stringify({ thoughts: ['done'], findings: [] }),
+        toolCalls: [],
+        stopReason: 'end_turn',
+      });
+
+      // 150KB single file. Total = 150KB (< 200KB threshold) but
+      // maxArtifactBytes = 150000 > 100000 -> tool path.
+      const filePath = tmpFile(150_000, 'huge.ts');
+      const { runStaticReview } = await import('../../src/staticReview');
+      await runStaticReview(session(), [artifact('a-big', filePath, 'huge.ts')]);
+
+      expect(callAiWithTools).toHaveBeenCalled();
+    });
+
+    // (3) Total over threshold -> tool path.
+    it('uses the tool path when total artifact size exceeds STATIC_REVIEW_SMALL_PROJECT_BYTES', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'sk', baseUrl: 'https://x', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(callAiWithTools).mockResolvedValue({
+        content: JSON.stringify({ thoughts: ['done'], findings: [] }),
+        toolCalls: [],
+        stopReason: 'end_turn',
+      });
+
+      // 3 x 80KB = 240KB. Total > 200KB, max < 100KB.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-disp-'));
+      const paths = [
+        path.join(dir, 'a.ts'),
+        path.join(dir, 'b.ts'),
+        path.join(dir, 'c.ts'),
+      ];
+      for (const p of paths) fs.writeFileSync(p, 'x'.repeat(80_000));
+      const { runStaticReview } = await import('../../src/staticReview');
+      await runStaticReview(session(), [
+        artifact('a-1', paths[0], 'a.ts'),
+        artifact('a-2', paths[1], 'b.ts'),
+        artifact('a-3', paths[2], 'c.ts'),
+      ]);
+
+      expect(callAiWithTools).toHaveBeenCalled();
+    });
+
+    // (4) Env override raises the threshold so 300KB falls into the prefetch path.
+    it('respects STATIC_REVIEW_SMALL_PROJECT_BYTES env override', async () => {
+      const prev = process.env.STATIC_REVIEW_SMALL_PROJECT_BYTES;
+      process.env.STATIC_REVIEW_SMALL_PROJECT_BYTES = '500000';
+      try {
+        vi.mocked(getRawAiSetting).mockResolvedValue({
+          apiKey: 'sk', baseUrl: 'https://api.example.com', model: 'm',
+          provider: 'mimo', apiFormat: 'anthropic-compatible',
+        });
+        vi.mocked(readArtifactContent).mockResolvedValue('// code');
+        vi.mocked(callAiWithTools).mockClear();
+
+        const empty = JSON.stringify({ thoughts: [], findings: [] });
+        fetchSpy.mockResolvedValue({
+          ok: true,
+          json: async () => ({ content: [{ text: empty }] }),
+        } as Response);
+
+        // 300KB single file: would be tool path with default 200KB threshold,
+        // but env raises SMALL_PROJECT_BYTES to 500KB -> prefetch path.
+        const filePath = tmpFile(300_000, 'medium.ts');
+        const { runStaticReview } = await import('../../src/staticReview');
+        await runStaticReview(session(), [artifact('a-env', filePath, 'medium.ts')]);
+
+        expect(callAiWithTools).not.toHaveBeenCalled();
+        expect(fetchSpy).toHaveBeenCalled();
+      } finally {
+        if (prev === undefined) delete process.env.STATIC_REVIEW_SMALL_PROJECT_BYTES;
+        else process.env.STATIC_REVIEW_SMALL_PROJECT_BYTES = prev;
+      }
+    });
+  });
 });

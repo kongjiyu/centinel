@@ -353,10 +353,6 @@ function buildStaticAnalysisSummary(staticFindings: Finding[]): string {
 
 // ── Tool-use path ─────────────────────────────────────────────────────────────
 
-/** Threshold (in bytes) of total artifact content over which the tool-use path
- *  is preferred. Below this, the legacy pre-fetch path is faster and cheaper. */
-const TOOL_PATH_THRESHOLD_BYTES = 200_000;
-
 /** Read the workspace path from the projects table. Returns '' if missing. */
 async function getWorkspacePathForProject(projectId: string): Promise<string> {
   try {
@@ -372,19 +368,6 @@ async function getWorkspacePathForProject(projectId: string): Promise<string> {
   } catch {
     return '';
   }
-}
-
-/** Sum of all artifact file sizes on disk. Files that cannot be stat'd contribute 0. */
-function totalArtifactBytes(artifacts: Artifact[]): number {
-  let total = 0;
-  for (const a of artifacts) {
-    try {
-      if (a.filePath && fs.existsSync(a.filePath)) {
-        total += fs.statSync(a.filePath).size;
-      }
-    } catch { /* skip */ }
-  }
-  return total;
 }
 
 /** Wrap `executeTool` into a `ToolExecutor` closure over the project + workspace. */
@@ -447,10 +430,98 @@ async function runStageWithTools(
 
 
 
+// ── Dispatcher ──────────────────────────────────────────────────────────
+//
+// Public entry point. Computes artifact sizes, runs the shared pre-flight
+// (indexProject + runStaticAnalysis), looks up the workspace path for the
+// tool path, then routes to either runStaticReviewPrefetch (legacy pre-fetch
+// path) or runStaticReviewWithTools (tool-use path).
+//
+// Routing rule:
+//   - Run the tool path if total artifact bytes >= STATIC_REVIEW_SMALL_PROJECT_BYTES
+//     (default 200_000) OR any single artifact > 100_000 bytes
+//   - Otherwise run the prefetch path
+//
+// The legacy prefetch path is unchanged in behavior; it just receives a
+// precomputed `staticFindings` array so the dispatcher doesn't have to call
+// runStaticAnalysis twice when the prefetch path is chosen.
+
+/** Single-file rule: any artifact over this size forces the tool path. */
+const SINGLE_FILE_TOOL_THRESHOLD_BYTES = 100_000;
+
+/** Total-size threshold above which the tool path is preferred. Overridable
+ *  via STATIC_REVIEW_SMALL_PROJECT_BYTES env var. */
+function getSmallProjectThresholdBytes(): number {
+  return Number(process.env.STATIC_REVIEW_SMALL_PROJECT_BYTES) || 200_000;
+}
+
 export async function runStaticReview(
   session: StaticSession,
   artifacts: Artifact[],
   onProgress?: (progress: ReviewProgress) => void
+): Promise<void> {
+  try {
+    await updateStaticSessionStatus(session.id, 'running', '', '');
+
+    // Compute sizes once for routing decisions.
+    const sizes = artifacts.map((a) => {
+      try {
+        return a.filePath && fs.existsSync(a.filePath) ? fs.statSync(a.filePath).size : 0;
+      } catch {
+        return 0;
+      }
+    });
+    const totalBytes = sizes.reduce((sum, n) => sum + n, 0);
+    const maxArtifactBytes = sizes.length > 0 ? Math.max(...sizes) : 0;
+    const envOverride = process.env.STATIC_REVIEW_SMALL_PROJECT_BYTES;
+    const envSet = envOverride !== undefined && envOverride !== '';
+    const smallProjectBytes = getSmallProjectThresholdBytes();
+    // The single-file rule normally fires above 100KB. The env override
+    // (when explicitly set) raises BOTH the total and single-file thresholds
+    // so callers can keep a single oversized file on the cheap prefetch path.
+    const singleFileThreshold = envSet
+      ? Math.max(SINGLE_FILE_TOOL_THRESHOLD_BYTES, smallProjectBytes)
+      : SINGLE_FILE_TOOL_THRESHOLD_BYTES;
+    const useToolPath = totalBytes >= smallProjectBytes || maxArtifactBytes > singleFileThreshold;
+
+    // Pre-flight shared by both paths: index the project and run static
+    // analysis. The dispatcher runs these once and passes the results to the
+    // chosen path so the work isn't duplicated.
+    await indexProject(session.projectId, artifacts);
+    const staticFindings = await runStaticAnalysis(session.projectId, artifacts, session.id);
+
+    if (useToolPath) {
+      // Tool path needs the workspace path for on-demand file reads. Look
+      // it up here (in the dispatcher) so both paths could be re-entered
+      // without recomputation.
+      const workspacePath = await getWorkspacePathForProject(session.projectId);
+      await runStaticReviewWithTools(session, artifacts, onProgress, staticFindings, workspacePath);
+      return;
+    }
+
+    await runStaticReviewPrefetch(session, artifacts, onProgress, staticFindings);
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await updateStaticSessionStatus(session.id, 'failure', '', errorMsg);
+    throw err;
+  }
+}
+
+/**
+ * Legacy pre-fetch path. Concatenates all artifact content into the prompt
+ * for each stage; cheap and effective for small projects, but blows past
+ * provider context windows for large projects (see runStaticReview dispatcher).
+ *
+ * When called from the dispatcher, `precomputedStaticFindings` is provided so
+ * we don't re-run static analysis. When called directly (e.g. from a unit
+ * test that exercises this function in isolation), the parameter is omitted
+ * and we fall back to running indexProject + runStaticAnalysis ourselves.
+ */
+export async function runStaticReviewPrefetch(
+  session: StaticSession,
+  artifacts: Artifact[],
+  onProgress?: (progress: ReviewProgress) => void,
+  precomputedStaticFindings?: Finding[]
 ): Promise<void> {
   const completedThoughts: string[][] = [[], [], [], []];
   const completedSummaries: string[] = ['', '', '', ''];
@@ -494,21 +565,16 @@ export async function runStaticReview(
   try {
     await updateStaticSessionStatus(session.id, 'running', '', '');
 
-    // ── Dispatcher: pick tool path when the pre-fetch would overflow ─
-    // The legacy pre-fetch path concatenates all artifact content into the
-    // prompt for several stages. For large projects this blows past provider
-    // context windows; the tool path lets the model pull files on demand.
-    // We compute total size on disk (no DB read needed) and route to the
-    // tool path when it crosses the threshold.
-    const totalBytes = totalArtifactBytes(artifacts);
-    if (totalBytes > TOOL_PATH_THRESHOLD_BYTES) {
-      await runStaticReviewWithTools(session, artifacts, onProgress);
-      return;
-    }
-
     // ── Pre-flight: Index + Static Analysis ───────────────────
-    await indexProject(session.projectId, artifacts);
-    const staticFindings = await runStaticAnalysis(session.projectId, artifacts, session.id);
+    // When the dispatcher has already run these, reuse the results. When
+    // this function is called directly (legacy/test path), compute them here.
+    let staticFindings: Finding[];
+    if (precomputedStaticFindings) {
+      staticFindings = precomputedStaticFindings;
+    } else {
+      await indexProject(session.projectId, artifacts);
+      staticFindings = await runStaticAnalysis(session.projectId, artifacts, session.id);
+    }
 
     // Read all artifact contents
     const artifactContents: { name: string; type: string; content: string }[] = [];
@@ -699,22 +765,24 @@ export async function runStaticReview(
 
 // ── Tool-use review pipeline ─────────────────────────────────────────────────
 //
-// When the artifact payload is large (over TOOL_PATH_THRESHOLD_BYTES), the model
-// fetches files on demand via `fetch_file` / `fetch_files` / `get_symbol_body` /
-// `search_symbols` instead of receiving everything pre-inlined. The repository
-// index and dependency graph are sent as system context so the model has a
-// navigation map; tools supply the bodies it asks for.
+// When the artifact payload is large (total bytes >= STATIC_REVIEW_SMALL_PROJECT_BYTES,
+// or any single file > 100KB), the model fetches files on demand via `fetch_file` /
+// `fetch_files` / `get_symbol_body` / `search_symbols` instead of receiving
+// everything pre-inlined. The repository index and dependency graph are sent
+// as system context so the model has a navigation map; tools supply the
+// bodies it asks for.
 //
-// This function is the minimum viable implementation of the tool path. It
-// reuses the same prompt builders and stage ordering as the legacy path so the
-// downstream parsing/saving logic stays shared. (Task 6 may refactor the
-// signature to accept the dispatcher-computed `staticFindings` directly to
-// avoid re-running static analysis.)
+// The dispatcher (runStaticReview) routes to this path when the routing
+// rules fire. When called from the dispatcher, precomputedStaticFindings and
+// precomputedWorkspacePath are supplied so this function does not redo the
+// indexing/analysis pass or the workspace-path lookup.
 
 export async function runStaticReviewWithTools(
   session: StaticSession,
   artifacts: Artifact[],
-  onProgress?: (progress: ReviewProgress) => void
+  onProgress?: (progress: ReviewProgress) => void,
+  precomputedStaticFindings?: Finding[],
+  precomputedWorkspacePath?: string
 ): Promise<void> {
   const completedThoughts: string[][] = [[], [], [], []];
   const completedSummaries: string[] = ['', '', '', ''];
@@ -767,7 +835,7 @@ export async function runStaticReviewWithTools(
     // session or a freshly-imported project without a workspace row), fall
     // back to the directory of the first artifact's filePath so the tool path
     // can still read files on demand.
-    let workspacePath = await getWorkspacePathForProject(session.projectId);
+    let workspacePath = precomputedWorkspacePath ?? await getWorkspacePathForProject(session.projectId);
     if (!workspacePath) {
       const firstWithFile = artifacts.find((a) => a.filePath);
       if (firstWithFile?.filePath) {
@@ -783,8 +851,16 @@ export async function runStaticReviewWithTools(
     // either file is missing on disk (e.g. indexing was a no-op, mocked in
     // tests, or failed silently), fall back to a minimal placeholder so the
     // tool path still runs.
-    await indexProject(session.projectId, artifacts);
-    const staticFindings = await runStaticAnalysis(session.projectId, artifacts, session.id);
+    //
+    // When the dispatcher already ran these (Task 6), skip the redundant
+    // calls and reuse the precomputed values.
+    let staticFindings: Finding[];
+    if (precomputedStaticFindings) {
+      staticFindings = precomputedStaticFindings;
+    } else {
+      await indexProject(session.projectId, artifacts);
+      staticFindings = await runStaticAnalysis(session.projectId, artifacts, session.id);
+    }
 
     const indexPath = path.join(workspacePath, '.centinel', 'index.json');
     const graphPath = path.join(workspacePath, '.centinel', 'graph.json');
