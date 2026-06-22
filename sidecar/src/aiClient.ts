@@ -317,6 +317,7 @@ function enforceMessageCap(messages: AppendableMessage[]): AppendableMessage[] {
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 export type CallAiWithToolsOpts = {
+  apiKey: string;
   apiFormat: ApiFormat;
   model: string;
   baseUrl: string;
@@ -349,7 +350,7 @@ export async function callAiWithTools(opts: CallAiWithToolsOpts): Promise<ToolTu
     messages = enforceMessageCap(messages);
     const body = buildToolRequest(apiFormat, model, systemPrompt, messages, tools);
     const url = buildRequestUrl({ apiKey: '', baseUrl, model, provider, apiFormat } as SettingLike);
-    const headers = getAuthHeaders({ apiKey: '__placeholder__', baseUrl, model, provider, apiFormat } as SettingLike);
+    const headers = getAuthHeaders({ apiKey: opts.apiKey, baseUrl, model, provider, apiFormat } as SettingLike);
 
     const res = await fetch(url, {
       method: 'POST',

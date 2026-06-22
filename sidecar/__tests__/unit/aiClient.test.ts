@@ -405,6 +405,7 @@ describe('callAiWithTools', () => {
     } as Response);
 
     const turn = await callAiWithTools({
+      apiKey: 'test-key',
       apiFormat: 'anthropic-compatible',
       model: 'm',
       baseUrl: 'https://example.test/v1/messages',
@@ -419,6 +420,28 @@ describe('callAiWithTools', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('passes apiKey to x-api-key header on Anthropic-compatible calls', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] }),
+    } as Response);
+
+    await callAiWithTools({
+      apiKey: 'sk-real-key-abc123',
+      apiFormat: 'anthropic-compatible',
+      model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
+      systemPrompt: 'sys',
+      messages: [],
+      tools: [],
+      maxRounds: 1,
+    });
+
+    const headers = fetchSpy.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('sk-real-key-abc123');
+  });
+
   it('returns max_rounds when the model keeps calling tools', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,
@@ -429,6 +452,7 @@ describe('callAiWithTools', () => {
     } as Response);
 
     const turn = await callAiWithTools({
+      apiKey: 'test-key',
       apiFormat: 'anthropic-compatible',
       model: 'm',
       baseUrl: 'https://example.test/v1/messages',
@@ -445,6 +469,7 @@ describe('callAiWithTools', () => {
 
   it('returns a stub for maxRounds=0 without calling the API', async () => {
     const turn = await callAiWithTools({
+      apiKey: 'test-key',
       apiFormat: 'anthropic-compatible',
       model: 'm',
       baseUrl: 'https://example.test/v1/messages',

@@ -411,6 +411,7 @@ async function runStageWithTools(
   ];
 
   const turn = await callAiWithTools({
+    apiKey: setting.apiKey,
     apiFormat: setting.apiFormat,
     model: setting.model,
     baseUrl: setting.baseUrl,
