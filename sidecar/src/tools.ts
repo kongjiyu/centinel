@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { searchSymbols, getSymbolBody, SymbolNotFound } from './repoIndex.js';
+import { searchSymbols as _searchSymbols, getSymbolBody as _getSymbolBody, SymbolNotFound } from './repoIndex.js';
 
 // ── Tool schemas (Anthropic-compatible shape; aiClient.ts converts per-provider) ──
 
@@ -119,63 +119,46 @@ async function toolFetchFiles(args: Record<string, unknown>, workspacePath: stri
   return JSON.stringify({ results });
 }
 
-async function toolGetSymbolBody(args: Record<string, unknown>, workspacePath: string): Promise<string> {
-  const filePath = resolvePath(String(args.file), workspacePath);
-  // We need a projectId; tools are called inside runStaticReviewWithTools which
-  // closes over the session's projectId. The dispatch is plumbed below.
-  throw new Error('get_symbol_body requires projectId from caller; see executeTool signature');
-}
-
-async function toolSearchSymbols(args: Record<string, unknown>): Promise<string> {
-  const query = String(args.query);
-  // Same as get_symbol_body — needs projectId from caller.
-  throw new Error('search_symbols requires projectId from caller; see executeTool signature');
-}
-
 // ── Public dispatch ───────────────────────────────────────────────────────────
 
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
   workspacePath: string,
-  projectId?: string
+  projectId?: string,
+  deps?: {
+    getSymbolBody?: typeof _getSymbolBody;
+    searchSymbols?: typeof _searchSymbols;
+  }
 ): Promise<string> {
+  // Use injected deps if provided (for testing), otherwise fall back to real imports
+  const getSymbolBody = deps?.getSymbolBody ?? _getSymbolBody;
+  const searchSymbolsFn = deps?.searchSymbols ?? _searchSymbols;
+
   switch (name) {
     case 'fetch_file':
       return toolFetchFile(args, workspacePath);
     case 'fetch_files':
       return toolFetchFiles(args, workspacePath);
-    case 'get_symbol_body':
+    case 'get_symbol_body': {
       if (!projectId) throw new Error('get_symbol_body requires projectId');
-      // resolvePath is done inside toolGetSymbolBody; we pass through
-      return toolGetSymbolBodyImpl(args, workspacePath, projectId);
-    case 'search_symbols':
+      const filePath = resolvePath(String(args.file), workspacePath);
+      const symbolName = String(args.name);
+      const result = await getSymbolBody(projectId, filePath, symbolName);
+      // maybeTruncate returns { content, truncated }; rename content→body so the
+      // spread picks it up under the same key (otherwise JSON.stringify drops it).
+      const { content: body, truncated } = maybeTruncate(result.body);
+      return JSON.stringify({ ...result, body, truncated });
+    }
+    case 'search_symbols': {
       if (!projectId) throw new Error('search_symbols requires projectId');
-      return toolSearchSymbolsImpl(args, projectId);
+      const query = String(args.query);
+      const result = await searchSymbolsFn(projectId, query);
+      return JSON.stringify(result);
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
-}
-
-async function toolGetSymbolBodyImpl(
-  args: Record<string, unknown>,
-  workspacePath: string,
-  projectId: string
-): Promise<string> {
-  const filePath = resolvePath(String(args.file), workspacePath);
-  const symbolName = String(args.name);
-  const result = await getSymbolBody(projectId, filePath, symbolName);
-  const { body, truncated } = maybeTruncate(result.body);
-  return JSON.stringify({ ...result, body, truncated });
-}
-
-async function toolSearchSymbolsImpl(
-  args: Record<string, unknown>,
-  projectId: string
-): Promise<string> {
-  const query = String(args.query);
-  const result = await searchSymbols(projectId, query);
-  return JSON.stringify(result);
 }
 
 // Re-export SymbolNotFound so callers can identify the error
