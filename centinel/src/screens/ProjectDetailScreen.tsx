@@ -6,7 +6,7 @@ import { ReviewModal } from '../components/ReviewModal';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
-import type { Project, DynamicSession, StaticSession, Screen, ReviewType } from '../types';
+import type { Project, DynamicSession, StaticSession, Artifact, Screen, ReviewType } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
 
@@ -20,6 +20,7 @@ const REVIEW_TYPE_LABELS: Record<string, string> = {
 export function ProjectDetailScreen({ project, onNavigate }: Props) {
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [showDynamicForm, setShowDynamicForm] = useState(false);
   const [showStaticForm, setShowStaticForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +34,11 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
     try { setStaticSessions(await api.listStaticSessions(project.id)); } catch {}
   }, [project.id]);
 
-  useEffect(() => { loadDynamicSessions(); loadStaticSessions(); }, [loadDynamicSessions, loadStaticSessions]);
+  const loadArtifacts = useCallback(async () => {
+    try { setArtifacts(await api.listArtifacts(project.id)); } catch {}
+  }, [project.id]);
+
+  useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts]);
 
   useEffect(() => {
     const hasActive = dynamicSessions.some(s => s.status === 'running' || s.status === 'queued') ||
@@ -114,7 +119,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
             )}
           </div>
           {showStaticForm && (
-            <ReviewModal projectId={project.id} onSubmit={handleCreateStatic}
+            <ReviewModal projectId={project.id} artifacts={artifacts} onSubmit={handleCreateStatic}
               onClose={() => { setShowStaticForm(false); setError(null); }} />
           )}
           {staticSessions.length > 0 ? (
