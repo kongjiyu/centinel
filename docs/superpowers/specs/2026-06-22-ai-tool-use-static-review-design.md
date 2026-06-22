@@ -594,7 +594,7 @@ we just need to call it once per tool call.
   no hits
 - `get_symbol_body` returns the exact lines from the AST (use a fixture TS
   file with a known function)
-- All four tools cap output at 50,000 chars with a truncation marker
+- All four tools cap output at 25,000 chars with a truncation marker
 
 **`aiClient.test.ts` (EXTEND):**
 
