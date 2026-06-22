@@ -151,6 +151,256 @@ export function buildRequestUrl(setting: SettingLike): string {
   return setting.baseUrl;
 }
 
+// ── Tool-use request builders (Anthropic / OpenAI / Google) ───────────────────
+
+type ApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native';
+
+export function buildAnthropicToolRequest(
+  model: string,
+  systemPrompt: string,
+  messages: unknown[],
+  tools: ToolSchema[]
+): Record<string, unknown> {
+  return {
+    model,
+    max_tokens: 8192,
+    system: systemPrompt,
+    tools: tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    })),
+    messages,
+  };
+}
+
+export function buildOpenAIToolRequest(
+  model: string,
+  systemPrompt: string,
+  messages: unknown[],
+  tools: ToolSchema[]
+): Record<string, unknown> {
+  return {
+    model,
+    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    tools: tools.map((t) => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.input_schema,
+      },
+    })),
+    max_completion_tokens: 8192,
+    thinking: { type: 'disabled' },
+  };
+}
+
+export function buildGoogleToolRequest(
+  model: string,
+  systemPrompt: string,
+  messages: unknown[],
+  tools: ToolSchema[]
+): Record<string, unknown> {
+  return {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: messages,
+    tools: [
+      {
+        functionDeclarations: tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema,
+        })),
+      },
+    ],
+    generationConfig: { maxOutputTokens: 8192 },
+  };
+}
+
+function buildToolRequest(
+  apiFormat: ApiFormat,
+  model: string,
+  systemPrompt: string,
+  messages: unknown[],
+  tools: ToolSchema[]
+): Record<string, unknown> {
+  if (apiFormat === 'anthropic-compatible') return buildAnthropicToolRequest(model, systemPrompt, messages, tools);
+  if (apiFormat === 'openai-compatible') return buildOpenAIToolRequest(model, systemPrompt, messages, tools);
+  return buildGoogleToolRequest(model, systemPrompt, messages, tools);
+}
+
+// ── Per-format tool-result appender ───────────────────────────────────────────
+
+export type AppendableMessage = Record<string, unknown>;
+
+export function appendToolResults(
+  messages: AppendableMessage[],
+  toolCalls: ToolCall[],
+  results: Array<{ toolCallId: string; name: string; content: string; isError?: boolean }>,
+  apiFormat: ApiFormat
+): AppendableMessage[] {
+  let next: AppendableMessage[];
+  if (apiFormat === 'anthropic-compatible') {
+    const blocks = results.map((r) => ({
+      type: 'tool_result',
+      tool_use_id: r.toolCallId,
+      content: r.isError ? `ERROR: ${r.content}` : r.content,
+    }));
+    next = [...messages, { role: 'user', content: blocks }];
+  } else if (apiFormat === 'openai-compatible') {
+    const newMsgs: AppendableMessage[] = results.map((r) => ({
+      role: 'tool',
+      tool_call_id: r.toolCallId,
+      content: r.isError ? `ERROR: ${r.content}` : r.content,
+    }));
+    next = [...messages, ...newMsgs];
+  } else {
+    // google-native
+    const parts = results.map((r) => ({
+      functionResponse: {
+        name: r.name,
+        response: { content: r.content, isError: !!r.isError },
+      },
+    }));
+    next = [...messages, { role: 'user', parts }];
+  }
+  return enforceMessageCap(next);
+}
+
+// ── Message-list cap (drop oldest tool result) ────────────────────────────────
+
+const MAX_MESSAGE_CHARS_DEFAULT = 200_000;
+const DROP_MARKER = '[earliest tool result dropped to stay within the message limit; re-fetch if needed]';
+
+function getMaxMessageChars(): number {
+  const fromEnv = Number(process.env.STATIC_REVIEW_MAX_MESSAGE_CHARS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : MAX_MESSAGE_CHARS_DEFAULT;
+}
+
+function enforceMessageCap(messages: AppendableMessage[]): AppendableMessage[] {
+  const cap = getMaxMessageChars();
+  const serialized = JSON.stringify(messages);
+  if (serialized.length <= cap) return messages;
+
+  // Find the first message that looks like a tool result and replace its content with the marker.
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'user' && Array.isArray(m.content)) {
+      // Anthropic tool_result blocks
+      const blocks = m.content as Array<Record<string, unknown>>;
+      const idx = blocks.findIndex((b) => b.type === 'tool_result');
+      if (idx >= 0) {
+        const newBlocks = [...blocks];
+        newBlocks[idx] = { ...newBlocks[idx], content: DROP_MARKER };
+        return [...messages.slice(0, i), { ...m, content: newBlocks }, ...messages.slice(i + 1)];
+      }
+    } else if (m.role === 'tool') {
+      // OpenAI single tool message
+      return [...messages.slice(0, i), { ...m, content: DROP_MARKER }, ...messages.slice(i + 1)];
+    } else if (m.role === 'user' && Array.isArray((m as Record<string, unknown>).parts)) {
+      // Google functionResponse parts
+      const parts = (m as Record<string, unknown>).parts as Array<Record<string, unknown>>;
+      const idx = parts.findIndex((p) => p.functionResponse);
+      if (idx >= 0) {
+        const newParts = [...parts];
+        newParts[idx] = {
+          functionResponse: { name: 'dropped', response: { content: DROP_MARKER } },
+        };
+        return [...messages.slice(0, i), { ...m, parts: newParts }, ...messages.slice(i + 1)];
+      }
+    }
+  }
+  return messages;
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+
+export type CallAiWithToolsOpts = {
+  apiFormat: ApiFormat;
+  model: string;
+  baseUrl: string;
+  provider: 'mimo' | 'gemini' | 'custom';
+  systemPrompt: string;
+  messages: AppendableMessage[];
+  tools: ToolSchema[];
+  maxRounds?: number;
+  signal?: AbortSignal;
+};
+
+export async function callAiWithTools(opts: CallAiWithToolsOpts): Promise<ToolTurn> {
+  const envRounds = Number(process.env.STATIC_REVIEW_MAX_ROUNDS);
+  const maxRounds = opts.maxRounds ?? (Number.isFinite(envRounds) ? envRounds : 3);
+  const { apiFormat, model, baseUrl, provider, systemPrompt } = opts;
+  let messages = opts.messages;
+  const tools = opts.tools;
+
+  // The caller is expected to have wired `executeTool` into a wrapper; we accept
+  // a registry of tool names → handlers via the global. `setToolExecutor` is
+  // called by staticReview.ts at session start. Default to throwing so an
+  // unconfigured loop fails loudly.
+  const toolExecutor: ToolExecutor = (globalThis as any).__centinelToolExecutor ?? defaultToolExecutor;
+
+  let lastTurn: ToolTurn | null = null;
+  for (let round = 0; round < maxRounds; round++) {
+    messages = enforceMessageCap(messages);
+    const body = buildToolRequest(apiFormat, model, systemPrompt, messages, tools);
+    const url = buildRequestUrl({ apiKey: '', baseUrl, model, provider, apiFormat } as SettingLike);
+    const headers = getAuthHeaders({ apiKey: '__placeholder__', baseUrl, model, provider, apiFormat } as SettingLike);
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`AI API error: HTTP ${res.status} — ${text}`);
+    }
+    const json = await res.json();
+
+    const turn = apiFormat === 'anthropic-compatible'
+      ? parseAnthropicToolTurn(json)
+      : apiFormat === 'openai-compatible'
+      ? parseOpenAIToolTurn(json)
+      : parseGoogleToolTurn(json);
+    lastTurn = turn;
+
+    if (turn.stopReason === 'end_turn') return turn;
+    if (turn.toolCalls.length === 0) return turn;
+
+    // Skip tool execution on the last round — returning max_rounds means
+    // "stop without consuming more rounds", so pending tools are abandoned
+    // rather than executed. This avoids triggering the (uninstalled) executor
+    // in tests and in early integration before setToolExecutor is called.
+    const isLastRound = round === maxRounds - 1;
+    if (isLastRound) {
+      return { ...turn, stopReason: 'max_rounds' as const };
+    }
+
+    // Execute tools in parallel
+    const results = await Promise.all(turn.toolCalls.map(toolExecutor));
+    messages = appendToolResults(messages, turn.toolCalls, results, apiFormat);
+  }
+
+  if (lastTurn) return { ...lastTurn, stopReason: 'max_rounds' };
+  return { content: null, toolCalls: [], stopReason: 'max_rounds' };
+}
+
+// ── Tool executor registry (installed by staticReview.ts) ─────────────────────
+
+export type ToolResult = { toolCallId: string; name: string; content: string; isError?: boolean };
+export type ToolExecutor = (call: ToolCall) => Promise<ToolResult>;
+
+export function setToolExecutor(executor: ToolExecutor): void {
+  (globalThis as any).__centinelToolExecutor = executor;
+}
+
+const defaultToolExecutor: ToolExecutor = async (call) => {
+  throw new Error(`No tool executor registered; cannot run ${call.name}`);
+};
+
 // ── Prompt size cap ────────────────────────────────────────────────────
 //
 // Provider context windows are finite. The static review pipeline concatenates

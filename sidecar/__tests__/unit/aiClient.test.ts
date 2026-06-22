@@ -251,6 +251,8 @@ import {
   parseAnthropicToolTurn,
   parseOpenAIToolTurn,
   parseGoogleToolTurn,
+  callAiWithTools,
+  appendToolResults,
 } from '../../src/aiClient';
 
 describe('parseAnthropicToolTurn', () => {
@@ -348,5 +350,138 @@ describe('parseGoogleToolTurn', () => {
     });
     expect(turn.stopReason).toBe('end_turn');
     expect(turn.content).toBe('done');
+  });
+});
+
+describe('callAiWithTools', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // Per-test isolation: each test sets up its own fetch queue explicitly.
+    // We still create the spy once and re-use it, but we mockReset + re-stub
+    // so no state bleeds from previous tests.
+    if (!fetchSpy) {
+      fetchSpy = vi.spyOn(globalThis, 'fetch');
+    }
+    fetchSpy.mockReset();
+    fetchSpy.mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+    // Prevent defaultToolExecutor from throwing in tests that don't install one.
+    // Task 5 will install the real executor via setToolExecutor.
+    (globalThis as any).__centinelToolExecutor = vi.fn().mockResolvedValue({
+      toolCallId: 't1',
+      name: 'fetch_file',
+      content: '{}',
+    });
+  });
+
+  afterEach(() => {
+    fetchSpy.mockClear();
+    delete (globalThis as any).__centinelToolExecutor;
+  });
+
+  afterAll(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it('returns end_turn after one tool call → result cycle (Anthropic)', async () => {
+    // Round 1: model requests fetch_file
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        stop_reason: 'tool_use',
+        content: [
+          { type: 'text', text: 'looking at auth' },
+          { type: 'tool_use', id: 't1', name: 'fetch_file', input: { path: 'a.ts' } },
+        ],
+      }),
+    } as Response);
+    // Round 2: model returns end_turn
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'reviewed' }],
+      }),
+    } as Response);
+
+    const turn = await callAiWithTools({
+      apiFormat: 'anthropic-compatible',
+      model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'review a.ts' }] }],
+      tools: [{ name: 'fetch_file', description: 'd', input_schema: { type: 'object', properties: {} } }],
+    });
+
+    expect(turn.stopReason).toBe('end_turn');
+    expect(turn.content).toBe('reviewed');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns max_rounds when the model keeps calling tools', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 't1', name: 'fetch_file', input: { path: 'a' } }],
+      }),
+    } as Response);
+
+    const turn = await callAiWithTools({
+      apiFormat: 'anthropic-compatible',
+      model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'review' }] }],
+      tools: [{ name: 'fetch_file', description: 'd', input_schema: { type: 'object' } }],
+      maxRounds: 1,
+    });
+
+    expect(turn.stopReason).toBe('max_rounds');
+    expect(turn.toolCalls).toHaveLength(1);
+  });
+
+  it('returns a stub for maxRounds=0 without calling the API', async () => {
+    const turn = await callAiWithTools({
+      apiFormat: 'anthropic-compatible',
+      model: 'm',
+      baseUrl: 'https://example.test/v1/messages',
+      provider: 'mimo',
+      systemPrompt: 'sys',
+      messages: [],
+      tools: [],
+      maxRounds: 0,
+    });
+    expect(turn.stopReason).toBe('max_rounds');
+    expect(turn.content).toBeNull();
+    expect(turn.toolCalls).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('drops the oldest tool result when the message list exceeds STATIC_REVIEW_MAX_MESSAGE_CHARS', async () => {
+    // Build a messages array whose total length is just under the cap,
+    // then add a tool result that pushes it over.
+    const oldResult = 'x'.repeat(195_000);
+    const newResult = 'y'.repeat(10_000);
+    const messages: any[] = [
+      { role: 'user', content: [{ type: 'text', text: 'review' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'fetch_file', input: { path: 'a' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: oldResult }] },
+    ];
+
+    const next = appendToolResults(
+      messages,
+      [{ id: 't2', name: 'fetch_file', input: { path: 'b' } }],
+      [{ toolCallId: 't2', name: 'fetch_file', content: newResult }],
+      'anthropic-compatible'
+    );
+
+    // The new tool result was appended; the oldest tool_result was dropped
+    // and replaced with a marker.
+    const serialized = JSON.stringify(next);
+    expect(serialized.length).toBeLessThan(220_000);
+    expect(serialized).toContain('earliest tool result dropped');
   });
 });
