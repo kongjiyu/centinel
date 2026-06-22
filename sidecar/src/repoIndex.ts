@@ -1073,3 +1073,130 @@ export async function getDependents(fileId: string): Promise<CodeRelationship[]>
   stmt.free();
   return rows;
 }
+
+// ── Symbol Search & Fetch ─────────────────────────────────────────────────
+
+export async function searchSymbols(
+  projectId: string,
+  query: string,
+  limit: number = 50
+): Promise<{
+  matches: Array<{
+    symbolId: string;
+    name: string;
+    symbolType: string;
+    filePath: string;
+    signature: string;
+    startLine: number;
+    endLine: number;
+  }>;
+  totalMatches: number;
+}> {
+  const db = await getDb();
+  const pattern = `%${query}%`;
+
+  // Count first (so totalMatches reflects the true total, not the LIMIT)
+  const countStmt = db.prepare(
+    `SELECT COUNT(*) AS n FROM code_symbols WHERE project_id = ? AND name LIKE ?`
+  );
+  countStmt.bind([projectId, pattern]);
+  let totalMatches = 0;
+  if (countStmt.step()) {
+    totalMatches = (countStmt.get() as unknown[])[0] as number;
+  }
+  countStmt.free();
+
+  // Then fetch the page
+  const stmt = db.prepare(
+    `SELECT cs.id, cs.symbol_type, cs.name, cs.signature, cs.start_line, cs.end_line, r.file_path
+     FROM code_symbols cs
+     JOIN repo_index r ON r.id = cs.file_id
+     WHERE cs.project_id = ? AND cs.name LIKE ?
+     ORDER BY cs.name
+     LIMIT ?`
+  );
+  stmt.bind([projectId, pattern, limit]);
+
+  const matches: Array<{
+    symbolId: string;
+    name: string;
+    symbolType: string;
+    filePath: string;
+    signature: string;
+    startLine: number;
+    endLine: number;
+  }> = [];
+  while (stmt.step()) {
+    const row = stmt.get() as unknown[];
+    matches.push({
+      symbolId: row[0] as string,
+      symbolType: row[1] as string,
+      name: row[2] as string,
+      signature: (row[3] as string) ?? '',
+      startLine: (row[4] as number) ?? 0,
+      endLine: (row[5] as number) ?? 0,
+      filePath: (row[6] as string) ?? '',
+    });
+  }
+  stmt.free();
+
+  return { matches, totalMatches };
+}
+
+export class SymbolNotFound extends Error {
+  constructor(filePath: string, symbolName: string) {
+    super(`SymbolNotFound: "${symbolName}" not found in ${filePath}`);
+    this.name = 'SymbolNotFound';
+  }
+}
+
+export async function getSymbolBody(
+  projectId: string,
+  filePath: string,
+  symbolName: string
+): Promise<{
+  name: string;
+  symbolType: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  body: string;
+  fileTotalLines: number;
+}> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `SELECT cs.name, cs.symbol_type, cs.start_line, cs.end_line
+     FROM code_symbols cs
+     JOIN repo_index r ON r.id = cs.file_id
+     WHERE cs.project_id = ? AND r.file_path = ? AND cs.name = ?
+     LIMIT 1`
+  );
+  stmt.bind([projectId, filePath, symbolName]);
+
+  if (!stmt.step()) {
+    stmt.free();
+    throw new SymbolNotFound(filePath, symbolName);
+  }
+  const row = stmt.get() as unknown[];
+  stmt.free();
+
+  const name = row[0] as string;
+  const symbolType = row[1] as string;
+  const startLine = (row[2] as number) ?? 0;
+  const endLine = (row[3] as number) ?? 0;
+
+  // Read the file and slice by line range. The DB stores 1-indexed lines.
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const lines = content.split('\n');
+  const body = lines.slice(startLine - 1, endLine).join('\n');
+
+  return {
+    name,
+    symbolType,
+    filePath,
+    startLine,
+    endLine,
+    body,
+    fileTotalLines: lines.length,
+  };
+}
