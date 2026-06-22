@@ -11,9 +11,33 @@ type SettingLike = {
   apiFormat: AiApiFormat;
 };
 
-export async function testAiProvider(id: 'text' | 'vision', imagePath?: string): Promise<TestResult> {
-  const setting = await getRawAiSetting(id);
-  if (!setting) return { status: 'fail', message: `Provider "${id}" not found` };
+export type TestOverrides = {
+  provider?: AiProvider;
+  apiFormat?: AiApiFormat;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+};
+
+export async function testAiProvider(
+  id: 'text' | 'vision',
+  imagePath?: string,
+  overrides: TestOverrides = {}
+): Promise<TestResult> {
+  const saved = await getRawAiSetting(id);
+  if (!saved) return { status: 'fail', message: `Provider "${id}" not found` };
+
+  // Form-state overrides let the Test button reflect what the user just typed,
+  // not just what's persisted. Empty strings mean "ignore this override" so the
+  // saved value is used. For apiKey, the frontend doesn't ship the saved key,
+  // so an empty/undefined apiKey override falls back to the persisted key.
+  const setting: SettingLike = {
+    provider: overrides.provider ?? saved.provider,
+    apiFormat: overrides.apiFormat ?? saved.apiFormat,
+    apiKey: overrides.apiKey && overrides.apiKey.length > 0 ? overrides.apiKey : saved.apiKey,
+    baseUrl: overrides.baseUrl && overrides.baseUrl.length > 0 ? overrides.baseUrl : saved.baseUrl,
+    model: overrides.model && overrides.model.length > 0 ? overrides.model : saved.model,
+  };
   if (!setting.apiKey) return { status: 'fail', message: 'API key is not configured' };
 
   if (id === 'text') {

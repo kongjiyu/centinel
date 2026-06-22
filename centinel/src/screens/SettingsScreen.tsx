@@ -92,7 +92,18 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
 
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
-    try { const result = await api.testAiProvider(setting.id); setTestResult(result); }
+    try {
+      // Test against what the user has on screen, not just what's persisted.
+      // Empty form fields fall back to the saved value (e.g. apiKey when not retyped).
+      const result = await api.testAiProvider(setting.id, {
+        provider: selectedPreset?.provider,
+        apiFormat: selectedPreset?.apiFormat,
+        apiKey: apiKey || undefined,
+        baseUrl: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+      });
+      setTestResult(result);
+    }
     catch (e) { setTestResult({ status: 'fail', message: String(e) }); }
     finally { setTesting(false); }
   };

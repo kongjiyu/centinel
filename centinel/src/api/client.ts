@@ -39,8 +39,17 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  testAiProvider: (id: 'text' | 'vision') =>
-    request<AiTestResult>(`/settings/ai/${id}/test`, { method: 'POST' }),
+  testAiProvider: (id: 'text' | 'vision', overrides?: {
+    provider?: AiProvider;
+    apiFormat?: AiApiFormat;
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+  }) =>
+    request<AiTestResult>(`/settings/ai/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify(overrides ?? {}),
+    }),
 
   // Dynamic Sessions
   listDynamicSessions: (projectId: string) =>
@@ -93,8 +102,6 @@ export const api = {
     request<StaticSession[]>(`/projects/${projectId}/static-sessions`),
   createStaticSession: (projectId: string, data: {
     name: string;
-    reviewType: string;
-    artifactIds: string[];
     remarks?: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {

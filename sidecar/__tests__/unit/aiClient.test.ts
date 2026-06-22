@@ -106,4 +106,74 @@ describe('testAiProvider', () => {
     expect(result.status).toBe('fail');
     expect(result.hint).toMatch(/X-Api-Key/i);
   });
+
+  it('uses form-state overrides (URL, model, key) instead of saved values', async () => {
+    // Saved setting has a wrong URL (no /v1/messages) and a wrong key.
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'saved-key',
+      baseUrl: 'https://api.minimax.io/anthropic',
+      model: 'saved-model',
+      provider: 'mimo',
+      apiFormat: 'openai-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ content: [{ type: 'text', text: '{"status":"ok"}' }] }),
+    } as Response);
+
+    // User typed a new URL/model/key and clicked Test without saving first.
+    const result = await testAiProvider('text', undefined, {
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+      apiKey: 'form-typed-key',
+      baseUrl: 'https://api.minimax.io/anthropic/v1/messages',
+      model: 'MiniMax-M2.7',
+    });
+    expect(result.status).toBe('pass');
+
+    // Verify the request used the override URL, NOT the saved one.
+    const call = fetchSpy.mock.calls[0];
+    const url = call[0] as string;
+    const init = call[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+    expect(headers['x-api-key']).toBe('form-typed-key');
+    expect(headers['api-key']).toBeUndefined();
+    expect(headers['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('falls back to saved values when override fields are empty/undefined', async () => {
+    vi.mocked(getRawAiSetting).mockResolvedValue({
+      apiKey: 'saved-key',
+      baseUrl: 'https://api.minimax.io/anthropic/v1/messages',
+      model: 'MiniMax-M2.7',
+      provider: 'mimo',
+      apiFormat: 'anthropic-compatible',
+    });
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ content: [{ type: 'text', text: '{"status":"ok"}' }] }),
+    } as Response);
+
+    // Empty apiKey override (user didn't retype) must use the saved key,
+    // not be treated as an empty/missing key.
+    const result = await testAiProvider('text', undefined, {
+      apiKey: '',
+      baseUrl: '',
+    });
+    expect(result.status).toBe('pass');
+
+    const call = fetchSpy.mock.calls[0];
+    const url = call[0] as string;
+    const init = call[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
+    expect(headers['x-api-key']).toBe('saved-key');
+  });
 });

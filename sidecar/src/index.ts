@@ -274,7 +274,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && (url === '/settings/ai/text/test' || url === '/settings/ai/vision/test')) {
       const id = url === '/settings/ai/text/test' ? 'text' : 'vision';
       const screenshotPath = path.join(evidenceDir, 'playwright-screenshot.png');
-      return json(res, 200, await testAiProvider(id, id === 'vision' ? screenshotPath : undefined));
+      // Optional body of form-state overrides so Test reflects what the user
+      // just typed (not just what's persisted). Empty body / no body is fine —
+      // we fall through to using the saved setting.
+      let overrides: Parameters<typeof testAiProvider>[2] = {};
+      try {
+        const raw = await parseJsonBody(req);
+        if (raw && typeof raw === 'object') overrides = raw as Parameters<typeof testAiProvider>[2];
+      } catch {
+        // Empty or malformed body — use the saved setting.
+      }
+      return json(res, 200, await testAiProvider(id, id === 'vision' ? screenshotPath : undefined, overrides));
     }
 
     // Projects
@@ -450,44 +460,21 @@ const server = http.createServer(async (req, res) => {
     if (ssMatch && req.method === 'POST') {
       const body = await parseJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
-      const reviewType = typeof body.reviewType === 'string' ? body.reviewType.trim() : '';
-      const artifactIds = Array.isArray(body.artifactIds) ? body.artifactIds : [];
       const remarks = typeof body.remarks === 'string' ? body.remarks.trim() : '';
 
       if (!name) return json(res, 400, { error: 'name is required' });
-      const validTypes = ['requirement_review', 'code_review', 'requirement_to_code_traceability', 'cross_artifact_consistency'];
-      if (!validTypes.includes(reviewType)) return json(res, 400, { error: 'Invalid reviewType' });
 
       const activeSession = await getActiveStaticSession(ssMatch.projectId);
       if (activeSession) return json(res, 409, { error: 'A static review session is already running' });
 
-      // Load artifacts — use all if none specified
-      let artifacts = [];
-      if (artifactIds.length > 0) {
-        for (const aid of artifactIds) {
-          const a = await getArtifact(aid);
-          if (!a) return json(res, 400, { error: `Artifact ${aid} not found` });
-          artifacts.push(a);
-        }
-      } else {
-        artifacts = await listArtifacts(ssMatch.projectId);
-      }
-
-      // Filter artifacts by review type to reduce token usage
-      if (reviewType === 'requirement_review') {
-        artifacts = artifacts.filter(a => a.type === 'requirement' || a.type === 'design');
-      } else if (reviewType === 'code_review') {
-        artifacts = artifacts.filter(a => a.type === 'source_code');
-      } else if (reviewType === 'requirement_to_code_traceability') {
-        artifacts = artifacts.filter(a => a.type === 'requirement' || a.type === 'design' || a.type === 'source_code');
-      }
-      // cross_artifact_consistency uses all artifacts
+      // Load all artifacts — agent sees everything
+      const artifacts = await listArtifacts(ssMatch.projectId);
 
       if (artifacts.length === 0) {
-        return json(res, 400, { error: 'No matching artifacts found for this review type' });
+        return json(res, 400, { error: 'No artifacts found. Upload or import files first.' });
       }
 
-      const session = await createStaticSession(ssMatch.projectId, name, reviewType as any, { artifactIds }, remarks);
+      const session = await createStaticSession(ssMatch.projectId, name, {}, remarks);
 
       // Run review asynchronously
       runStaticReview(session, artifacts, async (progress) => {
