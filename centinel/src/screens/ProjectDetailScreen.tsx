@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
-import { ReviewModal } from '../components/ReviewModal';
 import { DynamicTestForm } from './DynamicTestForm';
+import { ReviewModal } from '../components/ReviewModal';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
@@ -17,7 +17,13 @@ const REVIEW_TYPE_LABELS: Record<string, string> = {
   cross_artifact_consistency: 'Consistency',
 };
 
-// ─── Overview Tab ────────────────────────────────────────────────────────────
+export function ProjectDetailScreen({ project, onNavigate }: Props) {
+  const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
+  const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
+  const [showDynamicForm, setShowDynamicForm] = useState(false);
+  const [showStaticForm, setShowStaticForm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const loadDynamicSessions = useCallback(async () => {
     try { setDynamicSessions(await api.listDynamicSessions(project.id)); } catch {}
@@ -35,24 +41,7 @@ const REVIEW_TYPE_LABELS: Record<string, string> = {
     if (!hasActive) return;
     const interval = setInterval(() => { loadDynamicSessions(); loadStaticSessions(); }, 2000);
     return () => clearInterval(interval);
-  }, [staticSessions, dynamicSessions, loadStaticSessions, loadDynamicSessions]);
-
-  const handleCreateReview = async (data: {
-    name: string;
-    reviewType: ReviewType;
-    artifactIds: string[];
-    remarks: string;
-  }) => {
-    setError(null);
-    try {
-      const session = await api.createStaticSession(project.id, data);
-      setShowReviewModal(false);
-      onNavigate({ name: 'review-session', projectId: project.id, sessionId: session.id });
-    } catch (e) {
-      setError(String(e));
-      throw e;
-    }
-  };
+  }, [dynamicSessions, staticSessions, loadDynamicSessions, loadStaticSessions]);
 
   const handleCreateDynamic = async (data: { targetUrl: string; goal: string; missionType: 'user_journey' | 'smoke'; maxSteps: number }) => {
     setError(null);
@@ -122,20 +111,7 @@ const REVIEW_TYPE_LABELS: Record<string, string> = {
               <button className="btn-primary" onClick={() => setShowStaticForm(true)}>
                 <Plus size={14} /> New Review
               </button>
-            );
-          })}
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-      <div className="ln-main">
-        <div className="ln-header">
-          <div className="ln-breadcrumb">
-            <button className="ln-breadcrumb-link" onClick={() => onNavigate({ name: 'projects' })}>
-              Projects
-            </button>
-            <span className="ln-breadcrumb-sep">/</span>
-            <span>{project.name}</span>
+            )}
           </div>
           {showStaticForm && (
             <ReviewModal projectId={project.id} onSubmit={handleCreateStatic}
