@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save, Play, Check, Eye, EyeOff, Zap, ScanEye } from 'lucide-react';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
@@ -30,6 +30,8 @@ function findMatchingPreset(setting: AiProviderSetting): ProviderPreset | null {
   ) || null;
 }
 
+export { findMatchingPreset, PROVIDER_PRESETS };
+
 type Props = { settings: AiProviderSetting[]; onRefresh: () => Promise<void> };
 
 function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
@@ -44,6 +46,17 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // Re-sync local form state whenever the persisted setting changes (e.g. after save + onRefresh).
+  // Without this, selectedPresetId is pinned to its initial value on first mount and the API Format
+  // input can revert to "openai-compatible" even when the persisted apiFormat is anthropic-compatible.
+  // User edits made during the current session still win until the next render with a new setting prop.
+  useEffect(() => {
+    setBaseUrl(setting.baseUrl);
+    setModel(setting.model);
+    const match = findMatchingPreset(setting);
+    setSelectedPresetId(match?.id ?? (setting.apiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
+  }, [setting.id, setting.baseUrl, setting.model, setting.apiFormat, setting.provider]);
 
   const selectedPreset = PROVIDER_PRESETS.find(p => p.id === selectedPresetId);
   const isCustom = selectedPresetId.startsWith('custom-');
