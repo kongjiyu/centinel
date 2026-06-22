@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 // Mock the dependencies before importing the module under test
 vi.mock('../../src/settings.js', () => ({
@@ -50,6 +53,25 @@ vi.mock('../../src/riskScore.js', () => ({
   }))),
 }));
 
+vi.mock('../../src/tools.js', () => ({
+  executeTool: vi.fn(),
+  TOOL_SCHEMAS: [
+    { name: 'fetch_file', description: 'd', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+    { name: 'fetch_files', description: 'd', input_schema: { type: 'object', properties: { paths: { type: 'array' } }, required: ['paths'] } },
+    { name: 'get_symbol_body', description: 'd', input_schema: { type: 'object', properties: { file: { type: 'string' }, name: { type: 'string' } }, required: ['file', 'name'] } },
+    { name: 'search_symbols', description: 'd', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+  ],
+}));
+
+vi.mock('../../src/aiClient.js', async () => {
+  const actual = await vi.importActual<any>('../../src/aiClient');
+  return {
+    ...actual,
+    callAiWithTools: vi.fn(),
+    setToolExecutor: vi.fn(),
+  };
+});
+
 vi.mock('../../src/crossValidation.js', () => ({
   crossValidateFindings: vi.fn().mockImplementation((staticFindings, aiFindings) => {
     const all = [...staticFindings.map((f: any) => ({
@@ -81,6 +103,9 @@ import { runStaticAnalysis } from '../../src/staticEngine';
 import { scoreFindings, scoreFindingsEnhanced } from '../../src/riskScore';
 import { crossValidateFindings, calibrateConfidence } from '../../src/crossValidation';
 import { clusterFindings, computeClusterBoost, generateFixStrategy } from '../../src/findingsCluster';
+import { callAiWithTools } from '../../src/aiClient';
+import type { StaticSession } from '../../src/staticSessions';
+import type { Artifact } from '../../src/artifacts';
 
 // We test the internal logic by importing the module and testing the exported function
 // Since runStaticReview calls AI, we need to mock fetch globally
@@ -1059,6 +1084,42 @@ describe('staticReview', () => {
       );
       const hasTruncationNote = allThoughts.some((t) => /truncat/i.test(t));
       expect(hasTruncationNote).toBe(true);
+    });
+  });
+
+  describe('runStaticReview tool path', () => {
+    it('uses the tool path when total artifact size exceeds threshold', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'sk', baseUrl: 'https://x', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(callAiWithTools).mockResolvedValue({
+        content: JSON.stringify({ thoughts: ['done'], findings: [] }),
+        toolCalls: [],
+        stopReason: 'end_turn',
+      });
+
+      // Create a real file on disk so fs.statSync works in the tool-path
+      // threshold check. 300 KB > the 200 KB threshold.
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-sr-'));
+      const big = path.join(tmpDir, 'big.ts');
+      fs.writeFileSync(big, 'x'.repeat(300_000));
+
+      const session: StaticSession = {
+        id: 's1', projectId: 'p1', name: 'test', reviewType: 'code_review',
+        status: 'pending', configJson: '{}', progressJson: '{}', remarks: '',
+        finalSummary: '', failureReason: '', createdAt: '', updatedAt: '',
+      };
+      const artifacts: Artifact[] = [{
+        id: 'a1', projectId: 'p1', type: 'source_code', source: 'repository',
+        fileName: 'big.ts', filePath: big, originalPath: null,
+        contentHash: 'h', createdAt: '',
+      }];
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      await runStaticReview(session, artifacts);
+
+      expect(callAiWithTools).toHaveBeenCalled();
     });
   });
 });

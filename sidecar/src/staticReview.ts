@@ -1,7 +1,20 @@
 import fs from 'fs';
+import path from 'path';
 import { getRawAiSetting } from './settings.js';
 import { readArtifactContent, listArtifacts } from './artifacts.js';
-import { getAuthHeaders, buildRequestUrl, capMessages, MAX_PROMPT_CHARS } from './aiClient.js';
+import {
+  getAuthHeaders,
+  buildRequestUrl,
+  capMessages,
+  MAX_PROMPT_CHARS,
+  callAiWithTools,
+  setToolExecutor,
+  type ToolCall,
+  type ToolResult,
+  type AppendableMessage,
+} from './aiClient.js';
+import { executeTool, TOOL_SCHEMAS } from './tools.js';
+import { getDb } from './db.js';
 import {
   createFinding,
   updateStaticSessionStatus,
@@ -338,7 +351,101 @@ function buildStaticAnalysisSummary(staticFindings: Finding[]): string {
   return lines.join('\n');
 }
 
-// ── Main Review Pipeline ───────────────────────────────────────────────
+// ── Tool-use path ─────────────────────────────────────────────────────────────
+
+/** Threshold (in bytes) of total artifact content over which the tool-use path
+ *  is preferred. Below this, the legacy pre-fetch path is faster and cheaper. */
+const TOOL_PATH_THRESHOLD_BYTES = 200_000;
+
+/** Read the workspace path from the projects table. Returns '' if missing. */
+async function getWorkspacePathForProject(projectId: string): Promise<string> {
+  try {
+    const db = await getDb();
+    const stmt = db.prepare('SELECT workspace_path FROM projects WHERE id = ?');
+    stmt.bind([projectId]);
+    let workspacePath = '';
+    if (stmt.step()) {
+      workspacePath = (stmt.get() as unknown[])[0] as string;
+    }
+    stmt.free();
+    return workspacePath ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Sum of all artifact file sizes on disk. Files that cannot be stat'd contribute 0. */
+function totalArtifactBytes(artifacts: Artifact[]): number {
+  let total = 0;
+  for (const a of artifacts) {
+    try {
+      if (a.filePath && fs.existsSync(a.filePath)) {
+        total += fs.statSync(a.filePath).size;
+      }
+    } catch { /* skip */ }
+  }
+  return total;
+}
+
+/** Wrap `executeTool` into a `ToolExecutor` closure over the project + workspace. */
+function makeToolExecutor(projectId: string, workspacePath: string) {
+  return async (call: ToolCall): Promise<ToolResult> => {
+    try {
+      const content = await executeTool(call.name, call.input, workspacePath, projectId);
+      return { toolCallId: call.id, name: call.name, content };
+    } catch (err) {
+      return {
+        toolCallId: call.id,
+        name: call.name,
+        content: err instanceof Error ? err.message : String(err),
+        isError: true,
+      };
+    }
+  };
+}
+
+type SettingWithCreds = {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  provider: 'mimo' | 'gemini' | 'custom';
+  apiFormat: 'openai-compatible' | 'anthropic-compatible' | 'google-native';
+};
+
+async function runStageWithTools(
+  stageIdx: number,
+  systemPrompt: string,
+  userPrompt: string,
+  projectId: string,
+  workspacePath: string,
+  setting: SettingWithCreds,
+  emitThinking: (thought: string) => void
+): Promise<string> {
+  setToolExecutor(makeToolExecutor(projectId, workspacePath));
+
+  const messages: AppendableMessage[] = [
+    { role: 'user', content: userPrompt },
+  ];
+
+  const turn = await callAiWithTools({
+    apiFormat: setting.apiFormat,
+    model: setting.model,
+    baseUrl: setting.baseUrl,
+    provider: setting.provider,
+    systemPrompt,
+    messages,
+    tools: [...TOOL_SCHEMAS],
+    onToolCall: (name, args) =>
+      emitThinking(`🔧 ${name}: ${JSON.stringify(args).substring(0, 200)}`),
+  });
+
+  if (turn.stopReason === 'max_rounds' && !turn.content) {
+    emitThinking('⚠️ Model used all tool rounds without producing a final answer');
+  }
+  return turn.content ?? '';
+}
+
+
 
 export async function runStaticReview(
   session: StaticSession,
@@ -386,6 +493,18 @@ export async function runStaticReview(
 
   try {
     await updateStaticSessionStatus(session.id, 'running', '', '');
+
+    // ── Dispatcher: pick tool path when the pre-fetch would overflow ─
+    // The legacy pre-fetch path concatenates all artifact content into the
+    // prompt for several stages. For large projects this blows past provider
+    // context windows; the tool path lets the model pull files on demand.
+    // We compute total size on disk (no DB read needed) and route to the
+    // tool path when it crosses the threshold.
+    const totalBytes = totalArtifactBytes(artifacts);
+    if (totalBytes > TOOL_PATH_THRESHOLD_BYTES) {
+      await runStaticReviewWithTools(session, artifacts, onProgress);
+      return;
+    }
 
     // ── Pre-flight: Index + Static Analysis ───────────────────
     await indexProject(session.projectId, artifacts);
@@ -569,6 +688,275 @@ export async function runStaticReview(
 
     const totalAiFindings = s2.findings.length + s3.findings.length;
     const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifactContents.length} artifact(s).`;
+    await updateStaticSessionStatus(session.id, 'success', summary, '');
+
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await updateStaticSessionStatus(session.id, 'failure', '', errorMsg);
+    throw err;
+  }
+}
+
+// ── Tool-use review pipeline ─────────────────────────────────────────────────
+//
+// When the artifact payload is large (over TOOL_PATH_THRESHOLD_BYTES), the model
+// fetches files on demand via `fetch_file` / `fetch_files` / `get_symbol_body` /
+// `search_symbols` instead of receiving everything pre-inlined. The repository
+// index and dependency graph are sent as system context so the model has a
+// navigation map; tools supply the bodies it asks for.
+//
+// This function is the minimum viable implementation of the tool path. It
+// reuses the same prompt builders and stage ordering as the legacy path so the
+// downstream parsing/saving logic stays shared. (Task 6 may refactor the
+// signature to accept the dispatcher-computed `staticFindings` directly to
+// avoid re-running static analysis.)
+
+export async function runStaticReviewWithTools(
+  session: StaticSession,
+  artifacts: Artifact[],
+  onProgress?: (progress: ReviewProgress) => void
+): Promise<void> {
+  const completedThoughts: string[][] = [[], [], [], []];
+  const completedSummaries: string[] = ['', '', '', ''];
+
+  const emitThinking = (stageIdx: number, thought: string) => {
+    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
+      id: def.id,
+      label: def.label,
+      status: i < stageIdx ? 'done' : i === stageIdx ? 'active' : 'pending',
+      thoughts: i === stageIdx ? [thought] : (i < stageIdx ? completedThoughts[i] : []),
+      summary: i < stageIdx ? completedSummaries[i] : undefined,
+    }));
+    const progress: ReviewProgress = {
+      currentStage: STAGE_DEFINITIONS[stageIdx].id,
+      stages,
+      startedAt: session.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    updateStaticSessionProgress(session.id, progress);
+    onProgress?.(progress);
+  };
+
+  const emit = (stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string) => {
+    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
+      id: def.id,
+      label: def.label,
+      status: i < stageIdx ? 'done' : i === stageIdx ? status : 'pending',
+      thoughts: i === stageIdx ? thoughts : (i < stageIdx ? completedThoughts[i] : []),
+      summary: i < stageIdx ? completedSummaries[i] : undefined,
+    }));
+    const progress: ReviewProgress = {
+      currentStage: STAGE_DEFINITIONS[stageIdx].id,
+      stages,
+      startedAt: session.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    updateStaticSessionProgress(session.id, progress);
+    onProgress?.(progress);
+  };
+
+  try {
+    await updateStaticSessionStatus(session.id, 'running', '', '');
+
+    // Configure AI provider + locate workspace
+    const setting = await getRawAiSetting('text');
+    if (!setting) throw new Error('Text AI provider not configured');
+    if (!setting.apiKey) throw new Error('Text AI API key not configured');
+
+    // Prefer the project's configured workspace_path. If absent (e.g. a test
+    // session or a freshly-imported project without a workspace row), fall
+    // back to the directory of the first artifact's filePath so the tool path
+    // can still read files on demand.
+    let workspacePath = await getWorkspacePathForProject(session.projectId);
+    if (!workspacePath) {
+      const firstWithFile = artifacts.find((a) => a.filePath);
+      if (firstWithFile?.filePath) {
+        workspacePath = path.dirname(firstWithFile.filePath);
+      }
+    }
+    if (!workspacePath) {
+      throw new Error(`Project ${session.projectId} has no workspace_path and no artifacts with filePath; cannot use tool path`);
+    }
+
+    // Pre-flight: index + static analysis. `indexProject` also writes
+    // .centinel/index.json + graph.json to the workspace for us to load. If
+    // either file is missing on disk (e.g. indexing was a no-op, mocked in
+    // tests, or failed silently), fall back to a minimal placeholder so the
+    // tool path still runs.
+    await indexProject(session.projectId, artifacts);
+    const staticFindings = await runStaticAnalysis(session.projectId, artifacts, session.id);
+
+    const indexPath = path.join(workspacePath, '.centinel', 'index.json');
+    const graphPath = path.join(workspacePath, '.centinel', 'graph.json');
+    const indexJson = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf-8') : '{}';
+    const graphJson = fs.existsSync(graphPath) ? fs.readFileSync(graphPath, 'utf-8') : '{}';
+
+    const baseSystemPrefix = `You are reviewing a software project. The repository index and dependency graph are provided below as your navigation aids. Use the available tools (fetch_file, fetch_files, get_symbol_body, search_symbols) to read the specific files you need to inspect.
+
+## Repository Index (.centinel/index.json)
+${indexJson}
+
+## Dependency Graph (.centinel/graph.json)
+${graphJson}
+`;
+
+    // ── Stage 1: Understanding Context ────────────────────────
+    emit(0, 'active', []);
+    emitThinking(0, `Indexing ${artifacts.length} artifact(s); model will fetch files on demand...`);
+    const s1UserPrompt = `Analyze the following software artifacts to understand this project.${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Artifacts\n${artifacts.map(a => `- ${a.fileName} (${a.type})`).join('\n')}`;
+    const s1Response = await runStageWithTools(
+      0,
+      baseSystemPrefix + '\n\n' + CONTEXT_UNDERSTANDING_PROMPT.system,
+      s1UserPrompt,
+      session.projectId,
+      workspacePath,
+      setting,
+      (thought) => emitThinking(0, thought)
+    );
+    const s1 = parseStageResponse(s1Response);
+    completedThoughts[0] = s1.thoughts;
+    completedSummaries[0] = (s1.projectSummary as string) || 'Context understood';
+    emit(0, 'done', s1.thoughts, completedSummaries[0]);
+
+    // ── Stage 2: Code Review ──────────────────────────────────
+    emit(1, 'active', []);
+    const codeArtifactNames = artifacts.filter(a => a.type === 'source_code').map(a => a.fileName);
+    emitThinking(1, `Reviewing ${codeArtifactNames.length || artifacts.length} file(s) via tools...`);
+    const s2UserPrompt = `## Project Context\n${(s1.projectSummary as string) || ''}\n\nUser intent: ${(s1.userIntent as string) || session.remarks}${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Source Code to Review\nUse the tools to fetch the following files (or others you discover via search_symbols):\n${(codeArtifactNames.length > 0 ? codeArtifactNames : artifacts.map(a => a.fileName)).map(n => `- ${n}`).join('\n')}`;
+    const s2Response = await runStageWithTools(
+      1,
+      baseSystemPrefix + '\n\n' + CODE_REVIEW_PROMPT.system,
+      s2UserPrompt,
+      session.projectId,
+      workspacePath,
+      setting,
+      (thought) => emitThinking(1, thought)
+    );
+    const s2 = parseStageResponse(s2Response);
+
+    // Save code review findings
+    const codeRiskInputs: RiskInput[] = s2.findings.map(f => ({
+      severity: f.severity,
+      confidence: f.confidence || 'medium',
+      category: f.category || '',
+      filePath: f.artifactReference || '',
+    }));
+    const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
+
+    for (let i = 0; i < s2.findings.length; i++) {
+      const f = s2.findings[i];
+      const risk = codeScored[i]?.risk;
+      await createFinding(session.projectId, session.id, {
+        severity: validateSeverity(risk?.level || f.severity),
+        title: f.title,
+        description: f.description || '',
+        category: f.category || '',
+        evidenceText: f.evidence || '',
+        recommendation: f.recommendation || '',
+        confidence: validateConfidence(f.confidence),
+        artifactId: f.artifactReference || undefined,
+      });
+    }
+
+    completedThoughts[1] = s2.thoughts;
+    completedSummaries[1] = `${s2.findings.length} code issue(s) found`;
+    emit(1, 'done', s2.thoughts, completedSummaries[1]);
+
+    // ── Stage 3: Requirement-to-Code Validation ───────────────
+    emit(2, 'active', []);
+    const reqArtifacts = artifacts.filter(a => a.type === 'requirement' || a.type === 'design');
+    emitThinking(2, reqArtifacts.length > 0
+      ? `Tracing ${reqArtifacts.length} requirement document(s) to the codebase...`
+      : 'No artifacts to analyze.');
+    let s3: StageResponse = { thoughts: ['No requirement documents found — skipping traceability analysis.'], findings: [] };
+
+    if (reqArtifacts.length > 0) {
+      const s3UserPrompt = `## Project Context\n${(s1.projectSummary as string) || ''}\n\nUser intent: ${(s1.userIntent as string) || session.remarks}\n\n## Code Review Summary\n${(s2.codeQualitySummary as string) || ''}${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Requirements\n${reqArtifacts.map(a => `--- Requirement File: ${a.fileName} ---\n(use the tools to read this file)`).join('\n\n')}\n\n## Source Code\n${codeArtifactNames.map(n => `--- Code File: ${n} ---\n(use the tools to read this file)`).join('\n\n')}`;
+      const s3Response = await runStageWithTools(
+        2,
+        baseSystemPrefix + '\n\n' + TRACEABILITY_PROMPT.system,
+        s3UserPrompt,
+        session.projectId,
+        workspacePath,
+        setting,
+        (thought) => emitThinking(2, thought)
+      );
+      s3 = parseStageResponse(s3Response);
+
+      const traceRiskInputs: RiskInput[] = s3.findings.map(f => ({
+        severity: f.severity,
+        confidence: f.confidence || 'medium',
+        category: f.category || '',
+        filePath: f.artifactReference || '',
+      }));
+      const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
+
+      for (let i = 0; i < s3.findings.length; i++) {
+        const f = s3.findings[i];
+        const risk = traceScored[i]?.risk;
+        await createFinding(session.projectId, session.id, {
+          severity: validateSeverity(risk?.level || f.severity),
+          title: f.title,
+          description: f.description || '',
+          category: f.category || '',
+          evidenceText: f.evidence || '',
+          recommendation: f.recommendation || '',
+          confidence: validateConfidence(f.confidence),
+          artifactId: f.artifactReference || undefined,
+        });
+      }
+    }
+
+    completedThoughts[2] = s3.thoughts;
+    completedSummaries[2] = `${s3.findings.length} traceability issue(s) found`;
+    emit(2, 'done', s3.thoughts, completedSummaries[2]);
+
+    // ── Stage 4: Summarize Findings ───────────────────────────
+    emit(3, 'active', []);
+    emitThinking(3, `Consolidating findings and prioritizing recommendations...`);
+    let extraArtifacts: { title: string; content: string; type: string }[] = [];
+
+    const s4UserPrompt = SUMMARY_PROMPT.build(
+      {
+        projectSummary: (s1.projectSummary as string) || '',
+        userIntent: (s1.userIntent as string) || session.remarks,
+      },
+      s2.findings,
+      s3.findings,
+      staticFindings,
+      session.remarks
+    );
+    const s4Response = await runStageWithTools(
+      3,
+      baseSystemPrefix + '\n\n' + SUMMARY_PROMPT.system,
+      s4UserPrompt,
+      session.projectId,
+      workspacePath,
+      setting,
+      (thought) => emitThinking(3, thought)
+    );
+    const s4 = parseStageResponse(s4Response);
+
+    if (s4.extra_artifacts && Array.isArray(s4.extra_artifacts)) {
+      extraArtifacts = (s4.extra_artifacts as unknown[]).filter((f: any) =>
+        typeof f === 'object' && f !== null && f.title && f.content
+      ) as { title: string; content: string; type: string }[];
+    }
+
+    for (const ea of extraArtifacts) {
+      await createReviewArtifact(session.id, session.projectId, {
+        title: ea.title,
+        content: ea.content,
+        artifactType: ea.type || 'analysis',
+      });
+    }
+
+    completedThoughts[3] = s4.thoughts;
+    completedSummaries[3] = 'Review complete';
+    emit(3, 'done', s4.thoughts, 'Review complete');
+
+    const totalAiFindings = s2.findings.length + s3.findings.length;
+    const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifacts.length} artifact(s).`;
     await updateStaticSessionStatus(session.id, 'success', summary, '');
 
   } catch (err) {

@@ -326,6 +326,9 @@ export type CallAiWithToolsOpts = {
   tools: ToolSchema[];
   maxRounds?: number;
   signal?: AbortSignal;
+  /** Called once per model-emitted tool call (per round). Useful for surfacing
+   *  what the model is investigating in the progress stream. */
+  onToolCall?: (name: string, args: Record<string, unknown>) => void;
 };
 
 export async function callAiWithTools(opts: CallAiWithToolsOpts): Promise<ToolTurn> {
@@ -369,6 +372,14 @@ export async function callAiWithTools(opts: CallAiWithToolsOpts): Promise<ToolTu
 
     if (turn.stopReason === 'end_turn') return turn;
     if (turn.toolCalls.length === 0) return turn;
+
+    // Surface each tool call to the caller (e.g. for progress UI) before
+    // dispatching to the executor.
+    if (opts.onToolCall) {
+      for (const call of turn.toolCalls) {
+        opts.onToolCall(call.name, call.input);
+      }
+    }
 
     // Skip tool execution on the last round — returning max_rounds means
     // "stop without consuming more rounds", so pending tools are abandoned
