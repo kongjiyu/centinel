@@ -246,3 +246,107 @@ describe('testAiProvider', () => {
     expect(url).toBe('https://api.minimax.io/anthropic/v1/messages');
   });
 });
+
+import {
+  parseAnthropicToolTurn,
+  parseOpenAIToolTurn,
+  parseGoogleToolTurn,
+} from '../../src/aiClient';
+
+describe('parseAnthropicToolTurn', () => {
+  it('extracts text, tool_use blocks, and stop_reason', () => {
+    const turn = parseAnthropicToolTurn({
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'text', text: 'I need to inspect auth.ts' },
+        { type: 'tool_use', id: 'tu_1', name: 'fetch_file', input: { path: 'src/auth.ts' } },
+      ],
+    });
+    expect(turn.content).toBe('I need to inspect auth.ts');
+    expect(turn.toolCalls).toEqual([
+      { id: 'tu_1', name: 'fetch_file', input: { path: 'src/auth.ts' } },
+    ]);
+    expect(turn.stopReason).toBe('tool_use');
+  });
+
+  it('returns end_turn when there are no tool_use blocks', () => {
+    const turn = parseAnthropicToolTurn({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'all done' }],
+    });
+    expect(turn.stopReason).toBe('end_turn');
+    expect(turn.toolCalls).toEqual([]);
+  });
+
+  it('handles empty content array', () => {
+    const turn = parseAnthropicToolTurn({ stop_reason: 'end_turn', content: [] });
+    expect(turn.content).toBeNull();
+    expect(turn.stopReason).toBe('end_turn');
+  });
+});
+
+describe('parseOpenAIToolTurn', () => {
+  it('extracts tool_calls from the first choice message', () => {
+    const turn = parseOpenAIToolTurn({
+      choices: [{
+        message: {
+          content: null,
+          tool_calls: [
+            { id: 'call_1', function: { name: 'fetch_file', arguments: '{"path":"a.ts"}' } },
+          ],
+        },
+      }],
+    });
+    expect(turn.toolCalls).toEqual([
+      { id: 'call_1', name: 'fetch_file', input: { path: 'a.ts' } },
+    ]);
+    expect(turn.stopReason).toBe('tool_use');
+  });
+
+  it('parses content when no tool_calls', () => {
+    const turn = parseOpenAIToolTurn({
+      choices: [{ message: { content: 'hello' } }],
+    });
+    expect(turn.content).toBe('hello');
+    expect(turn.stopReason).toBe('end_turn');
+  });
+
+  it('handles malformed tool_call arguments gracefully (defaults to {})', () => {
+    const turn = parseOpenAIToolTurn({
+      choices: [{
+        message: {
+          tool_calls: [{ id: 'c1', function: { name: 'fetch_file', arguments: 'not-json' } }],
+        },
+      }],
+    });
+    expect(turn.toolCalls[0].input).toEqual({});
+  });
+});
+
+describe('parseGoogleToolTurn', () => {
+  it('extracts functionCall parts and synthesizes IDs', () => {
+    const turn = parseGoogleToolTurn({
+      candidates: [{
+        content: {
+          parts: [
+            { text: 'inspecting' },
+            { functionCall: { name: 'fetch_file', args: { path: 'b.ts' } } },
+          ],
+        },
+      }],
+    });
+    expect(turn.content).toBe('inspecting');
+    expect(turn.toolCalls).toHaveLength(1);
+    expect(turn.toolCalls[0].name).toBe('fetch_file');
+    expect(turn.toolCalls[0].input).toEqual({ path: 'b.ts' });
+    expect(turn.toolCalls[0].id).toMatch(/^google-/);
+  });
+
+  it('returns end_turn when there are no functionCall parts', () => {
+    const turn = parseGoogleToolTurn({
+      candidates: [{ content: { parts: [{ text: 'done' }] } }],
+    });
+    expect(turn.stopReason).toBe('end_turn');
+    expect(turn.content).toBe('done');
+  });
+});

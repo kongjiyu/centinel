@@ -60,6 +60,79 @@ export function getAuthHeaders(setting: SettingLike): Record<string, string> {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${setting.apiKey}` };
 }
 
+// ── Tool-use types and per-format parsers ─────────────────────────────────────
+
+export type ToolCall = { id: string; name: string; input: Record<string, unknown> };
+
+export type ToolTurn = {
+  content: string | null;
+  toolCalls: ToolCall[];
+  stopReason: 'end_turn' | 'tool_use' | 'max_rounds' | 'error';
+  raw?: unknown;
+};
+
+export type ToolSchema = {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+};
+
+type AnthropicContentBlock = Record<string, unknown> & { type: string };
+
+export function parseAnthropicToolTurn(json: unknown): ToolTurn {
+  const j = (json ?? {}) as { stop_reason?: string; content?: AnthropicContentBlock[] };
+  const blocks = Array.isArray(j.content) ? j.content : [];
+  const textParts = blocks
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text as string);
+  const text = textParts.length > 0 ? textParts.join('\n') : null;
+  const toolCalls: ToolCall[] = blocks
+    .filter((b) => b.type === 'tool_use')
+    .map((b) => ({
+      id: String(b.id ?? ''),
+      name: String(b.name ?? ''),
+      input: (b.input as Record<string, unknown>) ?? {},
+    }));
+  const stopReason: ToolTurn['stopReason'] = j.stop_reason === 'tool_use' ? 'tool_use' : 'end_turn';
+  return { content: text, toolCalls, stopReason, raw: json };
+}
+
+export function parseOpenAIToolTurn(json: unknown): ToolTurn {
+  const j = (json ?? {}) as { choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }> };
+  const msg = j.choices?.[0]?.message ?? {};
+  const toolCalls: ToolCall[] = (msg.tool_calls ?? []).map((c) => {
+    let input: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(c.function.arguments || '{}');
+      if (parsed && typeof parsed === 'object') input = parsed as Record<string, unknown>;
+    } catch { /* leave as {} */ }
+    return { id: c.id, name: c.function.name, input };
+  });
+  const content = msg.content ?? null;
+  const stopReason: ToolTurn['stopReason'] = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
+  return { content, toolCalls, stopReason, raw: json };
+}
+
+export function parseGoogleToolTurn(json: unknown): ToolTurn {
+  const j = (json ?? {}) as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }> };
+  const parts = j.candidates?.[0]?.content?.parts ?? [];
+  const textParts = parts
+    .filter((p) => typeof p.text === 'string')
+    .map((p) => p.text as string);
+  const text = textParts.length > 0 ? textParts.join('\n') : null;
+  const fcalls = parts.filter((p) => p.functionCall);
+  const toolCalls: ToolCall[] = fcalls.map((p, i) => {
+    const fc = p.functionCall as { name: string; args?: Record<string, unknown> };
+    return {
+      id: `google-${Date.now()}-${i}`,
+      name: fc.name,
+      input: fc.args ?? {},
+    };
+  });
+  const stopReason: ToolTurn['stopReason'] = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
+  return { content: text, toolCalls, stopReason, raw: json };
+}
+
 // Build the actual URL to fetch for a given setting.
 // Anthropic-compatible endpoints are always rooted at /v1/messages, so users
 // can supply either the base URL (e.g. https://api.minimax.io/anthropic) or
