@@ -3,10 +3,17 @@ import { getDb, saveDb } from './db.js';
 
 export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
 
+export type ReviewType =
+  | 'requirement_review'
+  | 'code_review'
+  | 'requirement_to_code_traceability'
+  | 'cross_artifact_consistency';
+
 export type StaticSession = {
   id: string;
   projectId: string;
   name: string;
+  reviewType: ReviewType;
   status: StaticSessionStatus;
   configJson: string;
   progressJson: string;
@@ -71,6 +78,7 @@ function mapSession(row: unknown[]): StaticSession {
     id: row[0] as string,
     projectId: row[1] as string,
     name: row[2] as string,
+    reviewType: row[3] as ReviewType,
     status: row[4] as StaticSessionStatus,
     configJson: row[5] as string,
     progressJson: row[6] as string,
@@ -105,7 +113,8 @@ function mapFinding(row: unknown[]): Finding {
 export async function createStaticSession(
   projectId: string,
   name: string,
-  configJson: Record<string, unknown>,
+  reviewType: ReviewType,
+  configJson: Record<string, unknown> = {},
   remarks: string = ''
 ): Promise<StaticSession> {
   const db = await getDb();
@@ -114,12 +123,12 @@ export async function createStaticSession(
 
   db.run(
     'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, name, 'comprehensive', 'queued', JSON.stringify(configJson), '{}', remarks, '', '', now, now]
+    [id, projectId, name, reviewType, 'queued', JSON.stringify(configJson), '{}', remarks, '', '', now, now]
   );
   saveDb();
 
   return {
-    id, projectId, name, status: 'queued',
+    id, projectId, name, reviewType, status: 'queued',
     configJson: JSON.stringify(configJson), progressJson: '{}', remarks, finalSummary: '', failureReason: '',
     createdAt: now, updatedAt: now,
   };
@@ -308,6 +317,19 @@ export async function listReviewArtifacts(projectId: string, sessionId: string):
       artifactType: r[5] as string,
       createdAt: r[6] as string,
     });
+  }
+  stmt.free();
+  return rows;
+}
+
+export async function listActiveStaticSessions(): Promise<StaticSession[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at FROM static_sessions WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
+  );
+  const rows: StaticSession[] = [];
+  while (stmt.step()) {
+    rows.push(mapSession(stmt.get() as unknown[]));
   }
   stmt.free();
   return rows;

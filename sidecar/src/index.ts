@@ -32,6 +32,7 @@ import {
   listStaticSessions,
   getStaticSession,
   getActiveStaticSession,
+  listActiveStaticSessions,
   listStaticFindings,
   listAllFindings,
   updateFindingStatus,
@@ -139,6 +140,10 @@ function matchStaticFindings(url: string): { projectId: string; sessionId: strin
 function matchStaticCancel(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions\/([a-f0-9-]+)\/cancel$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticActive(url: string): boolean {
+  return url === '/static-sessions/active';
 }
 
 function matchFindings(url: string): { projectId: string } | null {
@@ -456,28 +461,46 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, await listStaticSessions(ssMatch.projectId));
     }
 
+    // List active static sessions across all projects (for toast polling)
+    if (req.method === 'GET' && matchStaticActive(url)) {
+      return json(res, 200, await listActiveStaticSessions());
+    }
+
     // Create and run static session
     if (ssMatch && req.method === 'POST') {
       const body = await parseJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const reviewType = body.reviewType;
+      const artifactIds = Array.isArray(body.artifactIds) ? body.artifactIds.filter((x): x is string => typeof x === 'string') : [];
       const remarks = typeof body.remarks === 'string' ? body.remarks.trim() : '';
 
       if (!name) return json(res, 400, { error: 'name is required' });
 
+      const VALID_REVIEW_TYPES = ['requirement_review', 'code_review', 'requirement_to_code_traceability', 'cross_artifact_consistency'];
+      if (typeof reviewType !== 'string' || !VALID_REVIEW_TYPES.includes(reviewType)) {
+        return json(res, 400, { error: `reviewType must be one of: ${VALID_REVIEW_TYPES.join(', ')}` });
+      }
+
       const activeSession = await getActiveStaticSession(ssMatch.projectId);
       if (activeSession) return json(res, 409, { error: 'A static review session is already running' });
 
-      // Load all artifacts — agent sees everything
-      const artifacts = await listArtifacts(ssMatch.projectId);
-
-      if (artifacts.length === 0) {
+      const allArtifacts = await listArtifacts(ssMatch.projectId);
+      if (allArtifacts.length === 0) {
         return json(res, 400, { error: 'No artifacts found. Upload or import files first.' });
       }
 
-      const session = await createStaticSession(ssMatch.projectId, name, {}, remarks);
+      // Filter artifacts if user picked specific IDs; empty array = use all.
+      const filteredArtifacts = artifactIds.length > 0
+        ? allArtifacts.filter(a => artifactIds.includes(a.id))
+        : allArtifacts;
 
-      // Run review asynchronously
-      runStaticReview(session, artifacts, async (progress) => {
+      if (artifactIds.length > 0 && filteredArtifacts.length === 0) {
+        return json(res, 400, { error: 'artifactIds contains no valid IDs' });
+      }
+
+      const session = await createStaticSession(ssMatch.projectId, name, reviewType, { artifactIds }, remarks);
+
+      runStaticReview(session, filteredArtifacts, async (progress) => {
         await updateStaticSessionProgress(session.id, progress);
       }).catch(err => {
         console.error('[static-review] error:', err);
