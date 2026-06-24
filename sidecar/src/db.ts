@@ -192,6 +192,10 @@ function initSchema(db: Database) {
   // Migrate: add from_remarks column to findings if missing
   try { db.run("ALTER TABLE findings ADD COLUMN from_remarks INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 
+  // Migrate: add file_path + line_number to findings for precise location display
+  migrateCol('file_path', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('line_number', 'INTEGER');
+
   // Migrate: add source column to artifacts if missing
   try { db.run("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'documents'"); } catch { /* already exists */ }
 
