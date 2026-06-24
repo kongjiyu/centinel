@@ -115,6 +115,8 @@ export type Finding = {
   recommendation: string;
   confidence: string;
   fromRemarks: boolean;
+  filePath: string;
+  lineNumber: number | null;
 };
 
 export type ReviewStageId =
