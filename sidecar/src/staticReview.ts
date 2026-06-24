@@ -54,6 +54,30 @@ type StageResponse = {
   [key: string]: unknown;
 };
 
+/**
+ * Pull (filePath, lineNumber) out of an AI-generated finding.
+ * The AI is asked to use "path:line" in `artifactReference` and may include
+ * "line 42" or "L42" in `evidence`. Returns empty filePath when no match.
+ */
+export function extractLocation(finding: { artifactReference?: string; evidence?: string }): { filePath: string; lineNumber: number | null } {
+  const candidates = [finding.artifactReference ?? '', finding.evidence ?? ''].join('\n');
+
+  // path:line form (e.g. "src/auth.ts:42")
+  const colonLine = candidates.match(/([^\s:]+\.[a-zA-Z0-9]+):(\d{1,5})/);
+  if (colonLine) {
+    return { filePath: colonLine[1], lineNumber: Number(colonLine[2]) };
+  }
+
+  // "line 42" / "L42" form, with a path mentioned elsewhere
+  const pathOnly = candidates.match(/([^\s:]+\.[a-zA-Z0-9]+)/);
+  const lineOnly = candidates.match(/(?:^|\s)(?:line|L)\s*(\d{1,5})\b/i);
+  if (pathOnly && lineOnly) {
+    return { filePath: pathOnly[1], lineNumber: Number(lineOnly[1]) };
+  }
+
+  return { filePath: '', lineNumber: null };
+}
+
 // ── Stage Definitions ──────────────────────────────────────────────────
 
 const STAGE_DEFINITIONS = [
@@ -707,6 +731,7 @@ export async function runStaticReviewPrefetch(
     for (let i = 0; i < s2.findings.length; i++) {
       const f = s2.findings[i];
       const risk = codeScored[i]?.risk;
+      const location = extractLocation(f);
       await createFinding(session.projectId, session.id, {
         severity: validateSeverity(risk?.level || f.severity),
         title: f.title,
@@ -716,6 +741,8 @@ export async function runStaticReviewPrefetch(
         recommendation: f.recommendation || '',
         confidence: validateConfidence(f.confidence),
         artifactId: f.artifactReference || undefined,
+        filePath: location.filePath || undefined,
+        lineNumber: location.lineNumber ?? undefined,
       });
     }
 
@@ -776,6 +803,7 @@ export async function runStaticReviewPrefetch(
       for (let i = 0; i < s3.findings.length; i++) {
         const f = s3.findings[i];
         const risk = traceScored[i]?.risk;
+        const location = extractLocation(f);
         await createFinding(session.projectId, session.id, {
           severity: validateSeverity(risk?.level || f.severity),
           title: f.title,
@@ -785,6 +813,8 @@ export async function runStaticReviewPrefetch(
           recommendation: f.recommendation || '',
           confidence: validateConfidence(f.confidence),
           artifactId: f.artifactReference || undefined,
+          filePath: location.filePath || undefined,
+          lineNumber: location.lineNumber ?? undefined,
         });
       }
     }
@@ -1057,6 +1087,7 @@ ${graphJson}
     for (let i = 0; i < s2.findings.length; i++) {
       const f = s2.findings[i];
       const risk = codeScored[i]?.risk;
+      const location = extractLocation(f);
       await createFinding(session.projectId, session.id, {
         severity: validateSeverity(risk?.level || f.severity),
         title: f.title,
@@ -1066,6 +1097,8 @@ ${graphJson}
         recommendation: f.recommendation || '',
         confidence: validateConfidence(f.confidence),
         artifactId: f.artifactReference || undefined,
+        filePath: location.filePath || undefined,
+        lineNumber: location.lineNumber ?? undefined,
       });
     }
 
@@ -1115,6 +1148,7 @@ ${graphJson}
       for (let i = 0; i < s3.findings.length; i++) {
         const f = s3.findings[i];
         const risk = traceScored[i]?.risk;
+        const location = extractLocation(f);
         await createFinding(session.projectId, session.id, {
           severity: validateSeverity(risk?.level || f.severity),
           title: f.title,
@@ -1124,6 +1158,8 @@ ${graphJson}
           recommendation: f.recommendation || '',
           confidence: validateConfidence(f.confidence),
           artifactId: f.artifactReference || undefined,
+          filePath: location.filePath || undefined,
+          lineNumber: location.lineNumber ?? undefined,
         });
       }
     }
