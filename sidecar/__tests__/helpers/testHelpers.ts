@@ -47,6 +47,8 @@ export async function createTestDb(): Promise<Database> {
       recommendation TEXT NOT NULL DEFAULT '',
       confidence TEXT NOT NULL DEFAULT '',
       from_remarks INTEGER NOT NULL DEFAULT 0,
+      file_path TEXT NOT NULL DEFAULT '',
+      line_number INTEGER,
       FOREIGN KEY (project_id) REFERENCES projects(id)
     )
   `);
@@ -191,11 +193,13 @@ export function insertTestFinding(
   db: Database,
   id: string = 'find-1',
   projectId: string = 'proj-1',
-  sessionId: string = 'ss-1'
+  sessionId: string = 'ss-1',
+  filePath: string = '',
+  lineNumber: number | null = null
 ) {
   const now = new Date().toISOString();
   db.run(
-    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, sessionId, 'static', 'high', 'Test Finding', 'A test finding description', 'new', now, null, 'unclear_requirement', 'Some evidence', 'Fix it', 'high', 0]
+    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, sessionId, 'static', 'high', 'Test Finding', 'A test finding description', 'new', now, null, 'unclear_requirement', 'Some evidence', 'Fix it', 'high', 0, filePath, lineNumber]
   );
 }
