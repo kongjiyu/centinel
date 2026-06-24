@@ -40,6 +40,8 @@ export type Finding = {
   recommendation: string;
   confidence: string;
   fromRemarks: boolean;
+  filePath: string;
+  lineNumber: number | null;
 };
 
 export type ReviewStageId =
@@ -107,6 +109,8 @@ function mapFinding(row: unknown[]): Finding {
     recommendation: row[12] as string,
     confidence: row[13] as string,
     fromRemarks: !!row[14],
+    filePath: (row[15] as string) ?? '',
+    lineNumber: (row[16] as number | null) ?? null,
   };
 }
 
@@ -217,6 +221,8 @@ export async function createFinding(
     confidence: string;
     artifactId?: string;
     fromRemarks?: boolean;
+    filePath?: string;
+    lineNumber?: number;
   }
 ): Promise<Finding> {
   const db = await getDb();
@@ -224,8 +230,8 @@ export async function createFinding(
   const now = new Date().toISOString();
 
   db.run(
-    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, sessionId, 'static', data.severity, data.title, data.description, 'new', now, data.artifactId ?? null, data.category, data.evidenceText, data.recommendation, data.confidence, data.fromRemarks ? 1 : 0]
+    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, sessionId, 'static', data.severity, data.title, data.description, 'new', now, data.artifactId ?? null, data.category, data.evidenceText, data.recommendation, data.confidence, data.fromRemarks ? 1 : 0, data.filePath ?? '', data.lineNumber ?? null]
   );
   saveDb();
 
@@ -235,13 +241,14 @@ export async function createFinding(
     artifactId: data.artifactId ?? null, category: data.category,
     evidenceText: data.evidenceText, recommendation: data.recommendation,
     confidence: data.confidence, fromRemarks: !!data.fromRemarks,
+    filePath: data.filePath ?? '', lineNumber: data.lineNumber ?? null,
   };
 }
 
 export async function listStaticFindings(projectId: string, sessionId: string): Promise<Finding[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks FROM findings WHERE project_id = ? AND session_id = ? ORDER BY created_at DESC'
+    'SELECT id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number FROM findings WHERE project_id = ? AND session_id = ? ORDER BY created_at DESC'
   );
   stmt.bind([projectId, sessionId]);
   const rows: Finding[] = [];
@@ -255,7 +262,7 @@ export async function listStaticFindings(projectId: string, sessionId: string): 
 export async function listAllFindings(projectId: string): Promise<Finding[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks FROM findings WHERE project_id = ? ORDER BY created_at DESC'
+    'SELECT id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number FROM findings WHERE project_id = ? ORDER BY created_at DESC'
   );
   stmt.bind([projectId]);
   const rows: Finding[] = [];
