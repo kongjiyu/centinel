@@ -4,13 +4,14 @@ import type { Finding } from '../types';
 
 type Props = {
   projectId: string;
+  refreshKey?: string;
 };
 
 function SeverityBadge({ severity }: { severity: string }) {
   return <span className={`badge badge-severity-${severity}`}>{severity}</span>;
 }
 
-export function FindingsPanel({ projectId }: Props) {
+export function FindingsPanel({ projectId, refreshKey }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -30,8 +31,8 @@ export function FindingsPanel({ projectId }: Props) {
   }, [projectId]);
 
   useEffect(() => {
-    loadFindings();
-  }, [loadFindings]);
+    void loadFindings();
+  }, [loadFindings, refreshKey]);
 
   const handleUpdateStatus = async (findingId: string, status: string) => {
     try {

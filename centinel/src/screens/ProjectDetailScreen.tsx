@@ -9,7 +9,7 @@ import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { ActiveSessionInline } from '../components/ActiveSessionInline';
 import { ActiveSessionComplete } from '../components/ActiveSessionComplete';
-import type { Project, DynamicSession, StaticSession, Artifact, Screen, ReviewType, Finding } from '../types';
+import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
 
@@ -31,7 +31,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [findingsBySession, setFindingsBySession] = useState<Record<string, Finding[]>>({});
 
-  useActiveReviewState(); // ensures context exists; actual reading happens in children
+  const { state: activeReviewState, controls: activeReviewControls } = useActiveReviewState();
 
   const loadDynamicSessions = useCallback(async () => {
     try { setDynamicSessions(await api.listDynamicSessions(project.id)); } catch {}
@@ -56,6 +56,27 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
   useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts]);
 
   useEffect(() => {
+    const snapshot = activeReviewState?.session;
+    if (!snapshot || snapshot.projectId !== project.id) return;
+
+    setStaticSessions(prev => prev.map(session => session.id === snapshot.id
+      ? {
+          ...session,
+          status: snapshot.status,
+          finalSummary: snapshot.finalSummary,
+          failureReason: snapshot.failureReason,
+        }
+      : session));
+
+    if (snapshot.status === 'success') {
+      setFindingsBySession(prev => ({
+        ...prev,
+        [snapshot.id]: snapshot.findings,
+      }));
+    }
+  }, [activeReviewState?.session, project.id]);
+
+  useEffect(() => {
     const hasActive = dynamicSessions.some(s => s.status === 'running' || s.status === 'queued') ||
       staticSessions.some(s => s.status === 'running' || s.status === 'queued');
     if (!hasActive) return;
@@ -72,10 +93,13 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
     } catch (e) { setError(String(e)); throw e; }
   };
 
-  const handleCreateStatic = async (data: { name: string; reviewType: ReviewType; instructions: string }) => {
+  const handleCreateStatic = async (data: { name: string; instructions: string }) => {
     setError(null);
     try {
-      await api.createStaticSession(project.id, data);
+      const session = await api.createStaticSession(project.id, data);
+      setStaticSessions(prev => [session, ...prev.filter(item => item.id !== session.id)]);
+      setOpenSessionId(session.id);
+      activeReviewControls.trackSession(session, project.name);
       setShowStaticForm(false);
     } catch (e) { setError(String(e)); throw e; }
   };
@@ -142,13 +166,31 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                 const isActive = s.status === 'running' || s.status === 'queued';
                 const isOpen = openSessionId === s.id;
                 const handleClick = async () => {
-                  if (isOpen) { setOpenSessionId(null); return; }
+                  if (isOpen) {
+                    setOpenSessionId(null);
+                    return;
+                  }
                   setOpenSessionId(s.id);
-                  if (!isActive) await ensureFindingsLoaded(s.id);
+                  // Load findings for completed sessions
+                  if (!isActive) {
+                    await ensureFindingsLoaded(s.id);
+                  }
                 };
                 return (
                   <div key={s.id} className={`session-block ${isOpen ? 'open' : ''}`}>
-                    <div className="session-row" onClick={handleClick}>
+                    <div
+                      className="session-row"
+                      onClick={handleClick}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          void handleClick();
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isOpen}
+                    >
                       <div className="session-info-compact">
                         <span className="session-name">{s.name}</span>
                         <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
@@ -216,7 +258,14 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
 
         {/* Findings */}
         <div className="card detail-card findings-card">
-          <FindingsPanel projectId={project.id} />
+          <FindingsPanel
+            projectId={project.id}
+            refreshKey={
+              activeReviewState?.session.projectId === project.id
+                ? `${activeReviewState.session.id}:${activeReviewState.session.status}`
+                : undefined
+            }
+          />
         </div>
       </div>
     </div>

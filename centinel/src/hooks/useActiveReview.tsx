@@ -13,29 +13,59 @@ const POLL_INTERVAL_MS = 1000;
 const AUTO_DISMISS_MS = 5 * 60 * 1000; // 5 min after success
 const FAILURE_DISMISS_MS = 30 * 1000;  // 30s after failure/cancelled
 const MAX_CONSECUTIVE_FAILURES = 3;
+const STAGE_DEFINITIONS: ReviewProgress['stages'] = [
+  { id: 'understanding_context', label: 'Understanding Context', status: 'pending', thoughts: [] },
+  { id: 'code_review', label: 'Code Review', status: 'pending', thoughts: [] },
+  { id: 'requirement_validation', label: 'Requirement Validation', status: 'pending', thoughts: [] },
+  { id: 'summarizing', label: 'Summarizing Findings', status: 'pending', thoughts: [] },
+];
 
 function emptyProgress(): ReviewProgress {
   return {
     currentStage: 'understanding_context',
-    stages: [],
+    stages: STAGE_DEFINITIONS.map(stage => ({ ...stage, thoughts: [] })),
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 }
 
-async function loadSnapshot(session: StaticSession, projectName: string): Promise<ActiveReviewSnapshot> {
-  let progress: ReviewProgress = emptyProgress();
+function parseProgress(progressJson: string): ReviewProgress {
+  const fallback = emptyProgress();
+  if (!progressJson || progressJson === '{}') return fallback;
+
   try {
-    if (session.progressJson && session.progressJson !== '{}') {
-      progress = JSON.parse(session.progressJson);
-    }
-  } catch {
-    progress = emptyProgress();
+    const parsed = JSON.parse(progressJson) as Partial<ReviewProgress>;
+    const parsedStages = Array.isArray(parsed.stages) ? parsed.stages : [];
+    return {
+      currentStage: parsed.currentStage ?? fallback.currentStage,
+      stages: STAGE_DEFINITIONS.map(defaultStage => {
+        const stage = parsedStages.find(candidate => candidate?.id === defaultStage.id);
+        const thoughts = stage && Array.isArray(stage.thoughts) ? stage.thoughts : [];
+        return {
+          ...defaultStage,
+          ...stage,
+          thoughts,
+        };
+      }),
+      startedAt: parsed.startedAt ?? fallback.startedAt,
+      updatedAt: parsed.updatedAt ?? fallback.updatedAt,
+    };
+  } catch (error) {
+    console.warn('[review-session] Ignoring invalid progress payload', error);
+    return fallback;
   }
+}
+
+async function loadSnapshot(session: StaticSession, projectName: string): Promise<ActiveReviewSnapshot> {
+  const progress = parseProgress(session.progressJson);
 
   let findings: Finding[] = [];
   if (session.status === 'success') {
-    try { findings = await api.listStaticFindings(session.projectId, session.id); } catch {}
+    try {
+      findings = await api.listStaticFindings(session.projectId, session.id);
+    } catch (error) {
+      console.warn(`[review-session] Could not load findings for ${session.id}`, error);
+    }
   }
 
   return {
@@ -63,9 +93,27 @@ export function useActiveReview() {
   const stateRef = useRef<ActiveReviewState | null>(state);
   stateRef.current = state;
 
+  const trackSession = useCallback((session: StaticSession, projectName = '') => {
+    lastSessionIdRef.current = session.id;
+    completedAtRef.current = null;
+    if (projectName) projectNamesRef.current.set(session.projectId, projectName);
+
+    void loadSnapshot(session, projectName).then(snapshot => {
+      console.info(`[review-session] Tracking ${session.id} (${session.status})`);
+      setState({
+        session: snapshot,
+        expanded: false,
+        completedAt: null,
+        dismissed: false,
+        connectionLost: false,
+      });
+    });
+  }, []);
+
   const controls: ActiveReviewControls = {
     setExpanded: (expanded) => setState(prev => prev ? { ...prev, expanded } : prev),
     setDismissed: (dismissed) => setState(prev => prev ? { ...prev, dismissed } : prev),
+    trackSession,
     retry: () => { setConnectionLost(false); setRetryTick(t => t + 1); },
   };
 
@@ -124,20 +172,17 @@ export function useActiveReview() {
       if (id && current && (current.session.id === id) && (current.session.status === 'running' || current.session.status === 'queued')) {
         let promoted: StaticSession | null = null;
         try {
-          const projects = await api.projects();
-          for (const p of projects) {
-            try {
-              const s = await api.getStaticSession(p.id, id);
-              if (s) { promoted = s; break; }
-            } catch {}
-          }
-        } catch {}
+          promoted = await api.getStaticSession(current.session.projectId, id);
+        } catch (error) {
+          console.warn(`[review-session] Could not resolve terminal state for ${id}`, error);
+        }
 
         if (promoted && (promoted.status === 'success' || promoted.status === 'failure' || promoted.status === 'cancelled')) {
           if (!completedAtRef.current) completedAtRef.current = new Date().toISOString();
           const projectName = projectNamesRef.current.get(promoted.projectId) ?? '';
           const snapshot = await loadSnapshot(promoted, projectName);
           if (cancelled) return;
+          console.info(`[review-session] ${promoted.id} completed as ${promoted.status} with ${snapshot.findings.length} finding(s)`);
           setState(prev => prev ? {
             ...prev,
             session: snapshot,

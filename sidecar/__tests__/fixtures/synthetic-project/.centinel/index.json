@@ -1,0 +1,549 @@
+{
+  "projectId": "validation-project-1",
+  "indexedAt": "2026-06-24T05:08:33.254Z",
+  "fileCount": 12,
+  "symbolCount": 54,
+  "edgeCount": 15,
+  "files": [
+    {
+      "id": "59ee4a8a-6af2-4403-b1b6-eb30cfd836c8",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\index.html",
+      "type": "html",
+      "language": "html",
+      "size": 532,
+      "symbols": [
+        {
+          "name": "app",
+          "type": "element-id",
+          "line": 0,
+          "endLine": 0,
+          "signature": "id=\"app\"",
+          "exported": false
+        },
+        {
+          "name": "user-content",
+          "type": "element-id",
+          "line": 0,
+          "endLine": 0,
+          "signature": "id=\"user-content\"",
+          "exported": false
+        },
+        {
+          "name": "login-form",
+          "type": "element-id",
+          "line": 0,
+          "endLine": 0,
+          "signature": "id=\"login-form\"",
+          "exported": false
+        },
+        {
+          "name": "username",
+          "type": "element-id",
+          "line": 0,
+          "endLine": 0,
+          "signature": "id=\"username\"",
+          "exported": false
+        },
+        {
+          "name": "password",
+          "type": "element-id",
+          "line": 0,
+          "endLine": 0,
+          "signature": "id=\"password\"",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "74979c5a-19a4-406d-bc2e-dad7020ae41a",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
+      "type": "json",
+      "language": "json",
+      "size": 382,
+      "symbols": [
+        {
+          "name": "name",
+          "type": "string",
+          "line": 0,
+          "endLine": 0,
+          "signature": "name: \"test-app\"",
+          "exported": false
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "line": 0,
+          "endLine": 0,
+          "signature": "version: \"1.0.0\"",
+          "exported": false
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "line": 0,
+          "endLine": 0,
+          "signature": "description: \"Synthetic test project for validation\"",
+          "exported": false
+        },
+        {
+          "name": "main",
+          "type": "string",
+          "line": 0,
+          "endLine": 0,
+          "signature": "main: \"dist/index.js\"",
+          "exported": false
+        },
+        {
+          "name": "scripts",
+          "type": "object",
+          "line": 0,
+          "endLine": 0,
+          "signature": "scripts: {\"build\":\"tsc\",\"start\":\"node dist/index.js\",\"test\":\"vitest run\"}",
+          "exported": false
+        },
+        {
+          "name": "dependencies",
+          "type": "object",
+          "line": 0,
+          "endLine": 0,
+          "signature": "dependencies: {\"express\":\"^4.18.0\",\"pg\":\"^8.11.0\"}",
+          "exported": false
+        },
+        {
+          "name": "devDependencies",
+          "type": "object",
+          "line": 0,
+          "endLine": 0,
+          "signature": "devDependencies: {\"typescript\":\"^5.0.0\",\"vitest\":\"^1.0.0\"}",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "dd9b7d23-22f0-4b9e-9767-9b019d775dd7",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\README.md",
+      "type": "md",
+      "language": "markdown",
+      "size": 656,
+      "symbols": [
+        {
+          "name": "Test Application",
+          "type": "h1",
+          "line": 1,
+          "endLine": 1,
+          "signature": "# Test Application",
+          "exported": false
+        },
+        {
+          "name": "Requirements",
+          "type": "h2",
+          "line": 3,
+          "endLine": 3,
+          "signature": "## Requirements",
+          "exported": false
+        },
+        {
+          "name": "Authentication Flow",
+          "type": "h2",
+          "line": 10,
+          "endLine": 10,
+          "signature": "## Authentication Flow",
+          "exported": false
+        },
+        {
+          "name": "Data Processing",
+          "type": "h2",
+          "line": 14,
+          "endLine": 14,
+          "signature": "## Data Processing",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "de34b69b-43a5-44dd-8b5d-292958e21bc4",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\SPEC.md",
+      "type": "md",
+      "language": "markdown",
+      "size": 771,
+      "symbols": [
+        {
+          "name": "Technical Specification",
+          "type": "h1",
+          "line": 1,
+          "endLine": 1,
+          "signature": "# Technical Specification",
+          "exported": false
+        },
+        {
+          "name": "Authentication",
+          "type": "h2",
+          "line": 3,
+          "endLine": 3,
+          "signature": "## Authentication",
+          "exported": false
+        },
+        {
+          "name": "Security Requirements",
+          "type": "h2",
+          "line": 9,
+          "endLine": 9,
+          "signature": "## Security Requirements",
+          "exported": false
+        },
+        {
+          "name": "Data Flow",
+          "type": "h2",
+          "line": 16,
+          "endLine": 16,
+          "signature": "## Data Flow",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "dedd3eee-05ff-4344-a9a5-812f19ac6be0",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 798,
+      "symbols": [
+        {
+          "name": "getUser",
+          "type": "function",
+          "line": 5,
+          "endLine": 8,
+          "signature": "function getUser(userId)",
+          "exported": true
+        },
+        {
+          "name": "generateSessionId",
+          "type": "function",
+          "line": 11,
+          "endLine": 18,
+          "signature": "function generateSessionId()",
+          "exported": true
+        },
+        {
+          "name": "handleLogin",
+          "type": "function",
+          "line": 20,
+          "endLine": 23,
+          "signature": "function handleLogin(req)",
+          "exported": true
+        },
+        {
+          "name": "executeQuery",
+          "type": "function",
+          "line": 25,
+          "endLine": 28,
+          "signature": "function executeQuery(query)",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "4bfd068f-1626-4458-a39c-cf05ede4c346",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 904,
+      "symbols": [
+        {
+          "name": "authenticate",
+          "type": "function",
+          "line": 8,
+          "endLine": 21,
+          "signature": "function authenticate(username, password)",
+          "exported": true
+        },
+        {
+          "name": "validation",
+          "type": "variable",
+          "line": 11,
+          "endLine": 11,
+          "signature": "const validation = eval(...)",
+          "exported": false
+        },
+        {
+          "name": "token",
+          "type": "variable",
+          "line": 14,
+          "endLine": 14,
+          "signature": "const token = generateToken(...)",
+          "exported": false
+        },
+        {
+          "name": "generateToken",
+          "type": "function",
+          "line": 23,
+          "endLine": 26,
+          "signature": "function generateToken(user)",
+          "exported": true
+        },
+        {
+          "name": "validateSession",
+          "type": "function",
+          "line": 28,
+          "endLine": 32,
+          "signature": "function validateSession(token)",
+          "exported": true
+        },
+        {
+          "name": "decoded",
+          "type": "variable",
+          "line": 30,
+          "endLine": 30,
+          "signature": "const decoded = call(...)",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "5759255b-0fea-4e97-bb08-2e8e2366aa9e",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\config.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 345,
+      "symbols": [
+        {
+          "name": "API_KEY",
+          "type": "export",
+          "line": 0,
+          "endLine": 0,
+          "signature": "export { API_KEY }",
+          "exported": true
+        },
+        {
+          "name": "DB_HOST",
+          "type": "export",
+          "line": 0,
+          "endLine": 0,
+          "signature": "export { DB_HOST }",
+          "exported": true
+        },
+        {
+          "name": "DB_PORT",
+          "type": "export",
+          "line": 0,
+          "endLine": 0,
+          "signature": "export { DB_PORT }",
+          "exported": true
+        },
+        {
+          "name": "DB_NAME",
+          "type": "export",
+          "line": 0,
+          "endLine": 0,
+          "signature": "export { DB_NAME }",
+          "exported": true
+        },
+        {
+          "name": "APP_CONFIG",
+          "type": "export",
+          "line": 0,
+          "endLine": 0,
+          "signature": "export { APP_CONFIG }",
+          "exported": true
+        }
+      ]
+    },
+    {
+      "id": "af48229f-8e45-49f1-93cc-e77ef6a4c07d",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 505,
+      "symbols": [
+        {
+          "name": "connect",
+          "type": "function",
+          "line": 6,
+          "endLine": 8,
+          "signature": "function connect()",
+          "exported": true
+        },
+        {
+          "name": "query",
+          "type": "function",
+          "line": 10,
+          "endLine": 13,
+          "signature": "function query(sql, params)",
+          "exported": true
+        },
+        {
+          "name": "insert",
+          "type": "function",
+          "line": 15,
+          "endLine": 18,
+          "signature": "function insert(table, data)",
+          "exported": true
+        },
+        {
+          "name": "timestamp",
+          "type": "variable",
+          "line": 16,
+          "endLine": 16,
+          "signature": "const timestamp = formatDate(...)",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "b4ca7305-02f5-479a-b59c-80c9b7b02567",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 902,
+      "symbols": [
+        {
+          "name": "renderUserContent",
+          "type": "function",
+          "line": 5,
+          "endLine": 10,
+          "signature": "function renderUserContent(userId, content)",
+          "exported": true
+        },
+        {
+          "name": "element",
+          "type": "variable",
+          "line": 6,
+          "endLine": 6,
+          "signature": "const element = call(...)",
+          "exported": false
+        },
+        {
+          "name": "setupHeaders",
+          "type": "function",
+          "line": 13,
+          "endLine": 17,
+          "signature": "function setupHeaders(res)",
+          "exported": true
+        },
+        {
+          "name": "authMiddleware",
+          "type": "function",
+          "line": 19,
+          "endLine": 26,
+          "signature": "function authMiddleware(req, res, next)",
+          "exported": true
+        },
+        {
+          "name": "requestLogger",
+          "type": "function",
+          "line": 28,
+          "endLine": 31,
+          "signature": "function requestLogger(req, res, next)",
+          "exported": true
+        }
+      ]
+    },
+    {
+      "id": "645314bb-5f02-4366-94a2-d0811bfbe796",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\types.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 428,
+      "symbols": [
+        {
+          "name": "User",
+          "type": "interface",
+          "line": 2,
+          "endLine": 7,
+          "signature": "interface User",
+          "exported": false
+        },
+        {
+          "name": "Session",
+          "type": "interface",
+          "line": 9,
+          "endLine": 14,
+          "signature": "interface Session",
+          "exported": false
+        },
+        {
+          "name": "ApiResponse",
+          "type": "type",
+          "line": 16,
+          "endLine": 20,
+          "signature": "type ApiResponse",
+          "exported": false
+        },
+        {
+          "name": "LogLevel",
+          "type": "enum",
+          "line": 22,
+          "endLine": 27,
+          "signature": "enum LogLevel",
+          "exported": false
+        }
+      ]
+    },
+    {
+      "id": "35b4c2b8-d672-4d81-a5e4-7b8837b6742a",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
+      "type": "ts",
+      "language": "typescript",
+      "size": 741,
+      "symbols": [
+        {
+          "name": "log",
+          "type": "function",
+          "line": 2,
+          "endLine": 4,
+          "signature": "function log(message)",
+          "exported": true
+        },
+        {
+          "name": "formatDate",
+          "type": "function",
+          "line": 6,
+          "endLine": 8,
+          "signature": "function formatDate(date)",
+          "exported": true
+        },
+        {
+          "name": "processItems",
+          "type": "function",
+          "line": 10,
+          "endLine": 26,
+          "signature": "function processItems(items)",
+          "exported": true
+        },
+        {
+          "name": "calculateScore",
+          "type": "function",
+          "line": 28,
+          "endLine": 31,
+          "signature": "function calculateScore(values)",
+          "exported": true
+        }
+      ]
+    },
+    {
+      "id": "c4066e58-2d52-4821-af63-f6e6009b9864",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\styles.css",
+      "type": "css",
+      "language": "css",
+      "size": 327,
+      "symbols": [
+        {
+          "name": "container",
+          "type": "class-selector",
+          "line": 0,
+          "endLine": 0,
+          "signature": ".container",
+          "exported": false
+        },
+        {
+          "name": "button",
+          "type": "class-selector",
+          "line": 0,
+          "endLine": 0,
+          "signature": ".button",
+          "exported": false
+        }
+      ]
+    }
+  ]
+}

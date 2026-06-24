@@ -9,9 +9,13 @@ import {
   MAX_PROMPT_CHARS,
   callAiWithTools,
   setToolExecutor,
+  parseAnthropicToolTurn,
+  parseOpenAIToolTurn,
+  parseGoogleToolTurn,
   type ToolCall,
   type ToolResult,
   type AppendableMessage,
+  type TokenUsage,
 } from './aiClient.js';
 import { executeTool, TOOL_SCHEMAS } from './tools.js';
 import { getDb } from './db.js';
@@ -29,6 +33,7 @@ import { indexProject } from './repoIndex.js';
 import { retrieveContext } from './contextRetrieval.js';
 import { runStaticAnalysis, type Finding } from './staticEngine.js';
 import { scoreFindings, type RiskInput } from './riskScore.js';
+import { recordTokenUsage, type CallKind, type TokenScope } from './tokenUsage.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -240,7 +245,7 @@ function buildRequestBody(
   };
 }
 
-async function callAi(prompt: string, systemPrompt: string, ctx: CallContext = { stageIdx: -1 }): Promise<string> {
+async function callAi(prompt: string, systemPrompt: string, ctx: CallContext = { stageIdx: -1 }, onUsage?: (usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number; totalTokens?: number }) => void): Promise<string> {
   const setting = await getRawAiSetting('text');
   if (!setting) throw new Error('Text AI provider not configured');
   if (!setting.apiKey) throw new Error('Text AI API key not configured');
@@ -271,6 +276,17 @@ async function callAi(prompt: string, systemPrompt: string, ctx: CallContext = {
   }
 
   const json = await res.json();
+
+  // Fire the usage callback (no-op if onUsage is undefined). The provider
+  // returns usage on every successful response; we just forward it.
+  if (onUsage) {
+    const usage = apiFormat === 'anthropic-compatible'
+      ? parseAnthropicToolTurn(json).usage
+      : apiFormat === 'openai-compatible'
+      ? parseOpenAIToolTurn(json).usage
+      : parseGoogleToolTurn(json).usage;
+    if (usage) onUsage(usage);
+  }
 
   if (apiFormat === 'anthropic-compatible') {
     const content = json.content;
@@ -402,7 +418,8 @@ async function runStageWithTools(
   projectId: string,
   workspacePath: string,
   setting: SettingWithCreds,
-  emitThinking: (thought: string) => void
+  emitThinking: (thought: string) => void,
+  onUsage?: (usage: TokenUsage) => void
 ): Promise<string> {
   setToolExecutor(makeToolExecutor(projectId, workspacePath));
 
@@ -421,6 +438,9 @@ async function runStageWithTools(
     tools: [...TOOL_SCHEMAS],
     onToolCall: (name, args) =>
       emitThinking(`🔧 ${name}: ${JSON.stringify(args).substring(0, 200)}`),
+    onUsage: onUsage
+      ? (usage) => onUsage(usage)
+      : undefined,
   });
 
   if (turn.stopReason === 'max_rounds' && !turn.content) {
@@ -527,6 +547,34 @@ export async function runStaticReviewPrefetch(
   const completedThoughts: string[][] = [[], [], [], []];
   const completedSummaries: string[] = ['', '', '', ''];
 
+  // Per-stage usage recorders. The prefetch path makes one AI call per stage,
+  // but we still use the same round-tracking machinery as the tool path so a
+  // future refactor (e.g. self-reflect loops) doesn't have to be rewritten
+  // to surface in the dashboard.
+  const makeStageUsageRecorder = (stageId: string) => {
+    let round = 0;
+    let setting: { provider: 'mimo' | 'gemini' | 'custom'; apiFormat: 'openai-compatible' | 'anthropic-compatible' | 'google-native'; model: string } | null = null;
+    return {
+      bindProvider: (s: { provider: 'mimo' | 'gemini' | 'custom'; apiFormat: 'openai-compatible' | 'anthropic-compatible' | 'google-native'; model: string }) => { setting = s; },
+      handler: async (usage: TokenUsage) => {
+        if (!setting) return;
+        await recordTokenUsage({
+          ...usage,
+          scope: 'text' as TokenScope,
+          callKind: 'review' as CallKind,
+          projectId: session.projectId,
+          sessionId: session.id,
+          stage: stageId,
+          roundNumber: round,
+          provider: setting.provider,
+          apiFormat: setting.apiFormat,
+          model: setting.model,
+        });
+        round += 1;
+      },
+    };
+  };
+
   const emitThinking = (stageIdx: number, thought: string) => {
     const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
       id: def.id,
@@ -599,14 +647,28 @@ export async function runStaticReviewPrefetch(
     // ── Stage 1: Understanding Context ────────────────────────
     emit(0, 'active', []);
     emitThinking(0, `Reading ${artifactContents.length} artifact(s) to understand the project...`);
+    const s1Recorder = makeStageUsageRecorder('understanding_context');
+    {
+      const setting = await getRawAiSetting('text');
+      if (setting) s1Recorder.bindProvider(setting);
+    }
     const s1Response = await callAi(
       CONTEXT_UNDERSTANDING_PROMPT.build(artifactContents, session.remarks),
       CONTEXT_UNDERSTANDING_PROMPT.system,
-      { stageIdx: 0, onTruncate: emitThinking }
+      { stageIdx: 0, onTruncate: emitThinking },
+      s1Recorder.handler
     );
     const s1 = parseStageResponse(s1Response);
     completedThoughts[0] = s1.thoughts;
     completedSummaries[0] = (s1.projectSummary as string) || 'Context understood';
+    console.info(
+      `[review-session] stage=understanding_context session=${session.id} ` +
+      `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
+      `raw_response_length=${s1Response.length}`
+    );
+    if (s1.thoughts.length === 0) {
+      console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
+    }
     emit(0, 'done', s1.thoughts, completedSummaries[0]);
 
     // ── Stage 2: Code Review ──────────────────────────────────
@@ -615,6 +677,11 @@ export async function runStaticReviewPrefetch(
     // If no code artifacts, use all artifacts
     const codeToReview = codeArtifacts.length > 0 ? codeArtifacts : artifactContents;
     emitThinking(1, `Inspecting ${codeToReview.length} source file(s) for code-quality issues...`);
+    const s2Recorder = makeStageUsageRecorder('code_review');
+    {
+      const setting = await getRawAiSetting('text');
+      if (setting) s2Recorder.bindProvider(setting);
+    }
 
     const s2Response = await callAi(
       CODE_REVIEW_PROMPT.build(codeToReview, {
@@ -623,7 +690,8 @@ export async function runStaticReviewPrefetch(
         userIntent: (s1.userIntent as string) || session.remarks,
       }, session.remarks),
       CODE_REVIEW_PROMPT.system,
-      { stageIdx: 1, onTruncate: emitThinking }
+      { stageIdx: 1, onTruncate: emitThinking },
+      s2Recorder.handler
     );
     const s2 = parseStageResponse(s2Response);
 
@@ -653,6 +721,14 @@ export async function runStaticReviewPrefetch(
 
     completedThoughts[1] = s2.thoughts;
     completedSummaries[1] = `${s2.findings.length} code issue(s) found`;
+    console.info(
+      `[review-session] stage=code_review session=${session.id} ` +
+      `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
+      `raw_response_length=${s2Response.length}`
+    );
+    if (s2.findings.length === 0 && s2.thoughts.length === 0) {
+      console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
+    }
     emit(1, 'done', s2.thoughts, completedSummaries[1]);
 
     // ── Stage 3: Requirement-to-Code Validation ───────────────
@@ -663,9 +739,15 @@ export async function runStaticReviewPrefetch(
       ? `Tracing ${reqArtifacts.length} requirement document(s) to the codebase...`
       : 'No artifacts to analyze.');
     let s3: StageResponse = { thoughts: ['No requirement documents found — skipping traceability analysis.'], findings: [] };
+    let s3Response: string = '';  // hoisted so the post-stage log can reference it
 
     if (reqArtifacts.length > 0) {
-      const s3Response = await callAi(
+      const s3Recorder = makeStageUsageRecorder('requirement_validation');
+      {
+        const setting = await getRawAiSetting('text');
+        if (setting) s3Recorder.bindProvider(setting);
+      }
+      s3Response = await callAi(
         TRACEABILITY_PROMPT.build(
           reqArtifacts,
           codeToReview,
@@ -677,7 +759,8 @@ export async function runStaticReviewPrefetch(
           session.remarks
         ),
         TRACEABILITY_PROMPT.system,
-        { stageIdx: 2, onTruncate: emitThinking }
+        { stageIdx: 2, onTruncate: emitThinking },
+        s3Recorder.handler
       );
       s3 = parseStageResponse(s3Response);
 
@@ -708,6 +791,14 @@ export async function runStaticReviewPrefetch(
 
     completedThoughts[2] = s3.thoughts;
     completedSummaries[2] = `${s3.findings.length} traceability issue(s) found`;
+    console.info(
+      `[review-session] stage=requirement_validation session=${session.id} ` +
+      `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
+      `raw_response_length=${s3Response.length}`
+    );
+    if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
+      console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
+    }
     emit(2, 'done', s3.thoughts, completedSummaries[2]);
 
     // ── Stage 4: Summarize Findings ───────────────────────────
@@ -716,6 +807,11 @@ export async function runStaticReviewPrefetch(
 
     // Extract extra artifacts from Stage 4 if user provided remarks
     let extraArtifacts: { title: string; content: string; type: string }[] = [];
+    const s4Recorder = makeStageUsageRecorder('summarizing');
+    {
+      const setting = await getRawAiSetting('text');
+      if (setting) s4Recorder.bindProvider(setting);
+    }
 
     const s4Response = await callAi(
       SUMMARY_PROMPT.build(
@@ -729,7 +825,8 @@ export async function runStaticReviewPrefetch(
         session.remarks
       ),
       SUMMARY_PROMPT.system,
-      { stageIdx: 3, onTruncate: emitThinking }
+      { stageIdx: 3, onTruncate: emitThinking },
+      s4Recorder.handler
     );
     const s4 = parseStageResponse(s4Response);
 
@@ -751,6 +848,11 @@ export async function runStaticReviewPrefetch(
 
     completedThoughts[3] = s4.thoughts;
     completedSummaries[3] = 'Review complete';
+    console.info(
+      `[review-session] stage=summarizing session=${session.id} ` +
+      `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
+      `raw_response_length=${s4Response.length}`
+    );
     emit(3, 'done', s4.thoughts, 'Review complete');
 
     const totalAiFindings = s2.findings.length + s3.findings.length;
@@ -832,6 +934,28 @@ export async function runStaticReviewWithTools(
     if (!setting) throw new Error('Text AI provider not configured');
     if (!setting.apiKey) throw new Error('Text AI API key not configured');
 
+    // Per-stage usage recorders. The tool path may make multiple round-trips
+    // per stage (model uses fetch_file/search_symbols), so the recorder
+    // tracks the round number so the dashboard can show "5 calls in stage 2".
+    const makeStageUsageRecorder = (stageId: string) => {
+      let round = 0;
+      return async (usage: TokenUsage) => {
+        await recordTokenUsage({
+          ...usage,
+          scope: 'text' as TokenScope,
+          callKind: 'review' as CallKind,
+          projectId: session.projectId,
+          sessionId: session.id,
+          stage: stageId,
+          roundNumber: round,
+          provider: setting.provider,
+          apiFormat: setting.apiFormat,
+          model: setting.model,
+        });
+        round += 1;
+      };
+    };
+
     // Prefer the project's configured workspace_path. If absent (e.g. a test
     // session or a freshly-imported project without a workspace row), fall
     // back to the directory of the first artifact's filePath so the tool path
@@ -888,11 +1012,20 @@ ${graphJson}
       session.projectId,
       workspacePath,
       setting,
-      (thought) => emitThinking(0, thought)
+      (thought) => emitThinking(0, thought),
+      makeStageUsageRecorder('understanding_context')
     );
     const s1 = parseStageResponse(s1Response);
     completedThoughts[0] = s1.thoughts;
     completedSummaries[0] = (s1.projectSummary as string) || 'Context understood';
+    console.info(
+      `[review-session] stage=understanding_context session=${session.id} ` +
+      `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
+      `raw_response_length=${s1Response.length}`
+    );
+    if (s1.thoughts.length === 0) {
+      console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
+    }
     emit(0, 'done', s1.thoughts, completedSummaries[0]);
 
     // ── Stage 2: Code Review ──────────────────────────────────
@@ -907,7 +1040,8 @@ ${graphJson}
       session.projectId,
       workspacePath,
       setting,
-      (thought) => emitThinking(1, thought)
+      (thought) => emitThinking(1, thought),
+      makeStageUsageRecorder('code_review')
     );
     const s2 = parseStageResponse(s2Response);
 
@@ -937,6 +1071,14 @@ ${graphJson}
 
     completedThoughts[1] = s2.thoughts;
     completedSummaries[1] = `${s2.findings.length} code issue(s) found`;
+    console.info(
+      `[review-session] stage=code_review session=${session.id} ` +
+      `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
+      `raw_response_length=${s2Response.length}`
+    );
+    if (s2.findings.length === 0 && s2.thoughts.length === 0) {
+      console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
+    }
     emit(1, 'done', s2.thoughts, completedSummaries[1]);
 
     // ── Stage 3: Requirement-to-Code Validation ───────────────
@@ -946,17 +1088,19 @@ ${graphJson}
       ? `Tracing ${reqArtifacts.length} requirement document(s) to the codebase...`
       : 'No artifacts to analyze.');
     let s3: StageResponse = { thoughts: ['No requirement documents found — skipping traceability analysis.'], findings: [] };
+    let s3Response: string = '';  // hoisted so the post-stage log can reference it
 
     if (reqArtifacts.length > 0) {
       const s3UserPrompt = `## Project Context\n${(s1.projectSummary as string) || ''}\n\nUser intent: ${(s1.userIntent as string) || session.remarks}\n\n## Code Review Summary\n${(s2.codeQualitySummary as string) || ''}${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Requirements\n${reqArtifacts.map(a => `--- Requirement File: ${a.fileName} ---\n(use the tools to read this file)`).join('\n\n')}\n\n## Source Code\n${codeArtifactNames.map(n => `--- Code File: ${n} ---\n(use the tools to read this file)`).join('\n\n')}`;
-      const s3Response = await runStageWithTools(
+      s3Response = await runStageWithTools(
         2,
         baseSystemPrefix + '\n\n' + TRACEABILITY_PROMPT.system,
         s3UserPrompt,
         session.projectId,
         workspacePath,
         setting,
-        (thought) => emitThinking(2, thought)
+        (thought) => emitThinking(2, thought),
+        makeStageUsageRecorder('requirement_validation')
       );
       s3 = parseStageResponse(s3Response);
 
@@ -986,6 +1130,14 @@ ${graphJson}
 
     completedThoughts[2] = s3.thoughts;
     completedSummaries[2] = `${s3.findings.length} traceability issue(s) found`;
+    console.info(
+      `[review-session] stage=requirement_validation session=${session.id} ` +
+      `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
+      `raw_response_length=${s3Response.length}`
+    );
+    if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
+      console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
+    }
     emit(2, 'done', s3.thoughts, completedSummaries[2]);
 
     // ── Stage 4: Summarize Findings ───────────────────────────
@@ -1010,7 +1162,8 @@ ${graphJson}
       session.projectId,
       workspacePath,
       setting,
-      (thought) => emitThinking(3, thought)
+      (thought) => emitThinking(3, thought),
+      makeStageUsageRecorder('summarizing')
     );
     const s4 = parseStageResponse(s4Response);
 
@@ -1030,6 +1183,11 @@ ${graphJson}
 
     completedThoughts[3] = s4.thoughts;
     completedSummaries[3] = 'Review complete';
+    console.info(
+      `[review-session] stage=summarizing session=${session.id} ` +
+      `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
+      `raw_response_length=${s4Response.length}`
+    );
     emit(3, 'done', s4.thoughts, 'Review complete');
 
     const totalAiFindings = s2.findings.length + s3.findings.length;

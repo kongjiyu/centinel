@@ -122,7 +122,7 @@ describe('API Integration', () => {
 
         if (ssMatch && req.method === 'POST') {
           const body = await parseBody();
-          const session = await createStaticSession(ssMatch[1], body.name as string, body.reviewType as any, { instructions: body.instructions ?? '' });
+          const session = await createStaticSession(ssMatch[1], body.name as string, 'code_review', { instructions: body.instructions ?? '' });
           return json(201, session);
         }
 
@@ -275,12 +275,11 @@ describe('API Integration', () => {
 
       const { status, data } = await req('POST', '/projects/proj-1/static-sessions', {
         name: 'Test Review',
-        reviewType: 'requirement_review',
         instructions: 'Focus on completeness',
       });
       expect(status).toBe(201);
       expect(data.name).toBe('Test Review');
-      expect(data.reviewType).toBe('requirement_review');
+      expect(data.reviewType).toBe('code_review');
       expect(data.status).toBe('queued');
     });
 
@@ -293,7 +292,6 @@ describe('API Integration', () => {
       });
       const { data: created } = await req('POST', '/projects/proj-1/static-sessions', {
         name: 'My Review',
-        reviewType: 'requirement_review',
         instructions: 'Focus on clarity',
       });
 
@@ -317,7 +315,6 @@ describe('API Integration', () => {
       });
       const { data: session } = await req('POST', '/projects/proj-1/static-sessions', {
         name: 'Review',
-        reviewType: 'requirement_review',
         instructions: '',
       });
 

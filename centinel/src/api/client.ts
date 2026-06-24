@@ -50,6 +50,50 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(overrides ?? {}),
     }),
+  getAiUsage: (filter?: {
+    scope?: 'text' | 'vision';
+    callKind?: 'review' | 'test' | 'dynamic';
+    sessionId?: string;
+    projectId?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filter?.scope) params.set('scope', filter.scope);
+    if (filter?.callKind) params.set('callKind', filter.callKind);
+    if (filter?.sessionId) params.set('sessionId', filter.sessionId);
+    if (filter?.projectId) params.set('projectId', filter.projectId);
+    const qs = params.toString();
+    return request<{
+      totals: { input: number; output: number; cacheRead: number; cacheCreation: number; calls: number };
+      byGroup: Array<{
+        provider: AiProvider;
+        apiFormat: AiApiFormat;
+        model: string;
+        totalInput: number;
+        totalOutput: number;
+        totalCacheRead: number;
+        totalCacheCreation: number;
+        totalCalls: number;
+      }>;
+      recent: Array<{
+        id: string;
+        projectId: string | null;
+        sessionId: string | null;
+        scope: 'text' | 'vision';
+        callKind: 'review' | 'test' | 'dynamic';
+        stage: string | null;
+        roundNumber: number | null;
+        provider: AiProvider;
+        apiFormat: AiApiFormat;
+        model: string;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+        totalTokens: number;
+        createdAt: string;
+      }>;
+    }>(`/settings/ai/usage${qs ? `?${qs}` : ''}`);
+  },
 
   // Dynamic Sessions
   listDynamicSessions: (projectId: string) =>
@@ -104,7 +148,6 @@ export const api = {
     request<StaticSession[]>('/static-sessions/active'),
   createStaticSession: (projectId: string, data: {
     name: string;
-    reviewType: 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
     instructions: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {

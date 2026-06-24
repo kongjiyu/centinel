@@ -1,0 +1,180 @@
+{
+  "nodes": [
+    {
+      "id": "59ee4a8a-6af2-4403-b1b6-eb30cfd836c8",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\index.html",
+      "type": "html",
+      "language": "html",
+      "symbolCount": 5
+    },
+    {
+      "id": "74979c5a-19a4-406d-bc2e-dad7020ae41a",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
+      "type": "json",
+      "language": "json",
+      "symbolCount": 7
+    },
+    {
+      "id": "dd9b7d23-22f0-4b9e-9767-9b019d775dd7",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\README.md",
+      "type": "md",
+      "language": "markdown",
+      "symbolCount": 4
+    },
+    {
+      "id": "de34b69b-43a5-44dd-8b5d-292958e21bc4",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\SPEC.md",
+      "type": "md",
+      "language": "markdown",
+      "symbolCount": 4
+    },
+    {
+      "id": "dedd3eee-05ff-4344-a9a5-812f19ac6be0",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 4
+    },
+    {
+      "id": "4bfd068f-1626-4458-a39c-cf05ede4c346",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 6
+    },
+    {
+      "id": "5759255b-0fea-4e97-bb08-2e8e2366aa9e",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\config.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 5
+    },
+    {
+      "id": "af48229f-8e45-49f1-93cc-e77ef6a4c07d",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 4
+    },
+    {
+      "id": "b4ca7305-02f5-479a-b59c-80c9b7b02567",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 5
+    },
+    {
+      "id": "645314bb-5f02-4366-94a2-d0811bfbe796",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\types.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 4
+    },
+    {
+      "id": "35b4c2b8-d672-4d81-a5e4-7b8837b6742a",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
+      "type": "ts",
+      "language": "typescript",
+      "symbolCount": 4
+    },
+    {
+      "id": "c4066e58-2d52-4821-af63-f6e6009b9864",
+      "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\styles.css",
+      "type": "css",
+      "language": "css",
+      "symbolCount": 2
+    }
+  ],
+  "edges": [
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\index.html",
+      "to": "dist/bundle.js",
+      "type": "html_script",
+      "symbol": "*"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\index.html",
+      "to": "styles.css",
+      "type": "html_link",
+      "symbol": "*"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
+      "to": "express",
+      "type": "npm_dependency",
+      "symbol": "*"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
+      "to": "pg",
+      "type": "npm_dependency",
+      "symbol": "*"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
+      "to": "typescript",
+      "type": "npm_dependency",
+      "symbol": "*"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
+      "to": "vitest",
+      "type": "npm_dependency",
+      "symbol": "*"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
+      "to": "./auth",
+      "type": "import",
+      "symbol": "authenticate"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
+      "to": "./config",
+      "type": "import",
+      "symbol": "API_KEY"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
+      "to": "./db",
+      "type": "import",
+      "symbol": "query"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
+      "to": "./utils",
+      "type": "import",
+      "symbol": "log"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
+      "to": "./config",
+      "type": "import",
+      "symbol": "API_KEY"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
+      "to": "./utils",
+      "type": "import",
+      "symbol": "formatDate"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
+      "to": "./auth",
+      "type": "import",
+      "symbol": "validateSession"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
+      "to": "./utils",
+      "type": "import",
+      "symbol": "log"
+    },
+    {
+      "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\styles.css",
+      "to": "./theme.css",
+      "type": "css_import",
+      "symbol": "*"
+    }
+  ]
+}

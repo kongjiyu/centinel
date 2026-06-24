@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Play, Check, Eye, EyeOff, Zap, ScanEye } from 'lucide-react';
+import { Save, Play, Check, Eye, EyeOff, Zap, ScanEye, Activity, RefreshCw } from 'lucide-react';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
@@ -201,6 +201,202 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   );
 }
 
+// ── Token Usage Dashboard ─────────────────────────────────────────────────
+//
+// Renders aggregated token usage grouped by (provider, apiFormat, model).
+// Reads from /settings/ai/usage which returns:
+//   - totals: { input, output, cacheRead, cacheCreation, calls }
+//   - byGroup: per-(provider,apiFormat,model) subtotals
+//   - recent: last 50 call rows
+//
+// The panel is intentionally compact: a 3-up totals strip, a per-group
+// table, and a collapsible recent-calls list. All numbers are formatted
+// with thousands separators so the user can scan them at a glance.
+
+type UsageSummary = Awaited<ReturnType<typeof api.getAiUsage>>;
+type UsageScope = 'text' | 'vision';
+type UsageCallKind = 'review' | 'test' | 'dynamic';
+
+const SCOPE_LABEL: Record<UsageScope, string> = { text: 'Text', vision: 'Vision' };
+const CALL_KIND_LABEL: Record<UsageCallKind, string> = {
+  review: 'Static review',
+  test: 'Provider test',
+  dynamic: 'Dynamic session',
+};
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+function formatTimestamp(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function TokenUsagePanel() {
+  const [summary, setSummary] = useState<UsageSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [scopeFilter, setScopeFilter] = useState<UsageScope | 'all'>('all');
+  const [showRecent, setShowRecent] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try {
+      const filter = scopeFilter === 'all' ? undefined : { scope: scopeFilter };
+      const data = await api.getAiUsage(filter);
+      setSummary(data);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reload on mount, on filter change, and on manual refresh. The user
+  // navigates away and back to this page often, so always fetch fresh
+  // numbers rather than relying on a session cache.
+  useEffect(() => { void load(); }, [scopeFilter]);
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section-heading">
+        <div>
+          <span className="command-eyebrow">Usage Telemetry</span>
+          <h2>Token Usage</h2>
+        </div>
+        <Activity size={17} />
+      </div>
+      <p className="settings-section-copy">
+        Aggregated token usage across all configured providers. Tracks every AI call (static
+        review, dynamic session, and provider test).
+      </p>
+
+      <div className="usage-toolbar">
+        <div className="form-field">
+          <label>Scope</label>
+          <select
+            value={scopeFilter}
+            onChange={e => setScopeFilter(e.target.value as UsageScope | 'all')}
+          >
+            <option value="all">All</option>
+            <option value="text">Text only</option>
+            <option value="vision">Vision only</option>
+          </select>
+        </div>
+        <button className="btn-secondary" onClick={load} disabled={loading}>
+          <RefreshCw size={14} /> {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {loading && !summary ? (
+        <p className="card-empty">Loading usage data...</p>
+      ) : summary ? (
+        <>
+          <div className="usage-totals">
+            <div className="usage-stat">
+              <span className="usage-stat-label">Input tokens</span>
+              <span className="usage-stat-value">{formatTokenCount(summary.totals.input)}</span>
+            </div>
+            <div className="usage-stat">
+              <span className="usage-stat-label">Output tokens</span>
+              <span className="usage-stat-value">{formatTokenCount(summary.totals.output)}</span>
+            </div>
+            <div className="usage-stat">
+              <span className="usage-stat-label">Cache reads</span>
+              <span className="usage-stat-value">{formatTokenCount(summary.totals.cacheRead)}</span>
+            </div>
+            <div className="usage-stat">
+              <span className="usage-stat-label">Total calls</span>
+              <span className="usage-stat-value">{summary.totals.calls.toLocaleString()}</span>
+            </div>
+          </div>
+
+          {summary.byGroup.length === 0 ? (
+            <p className="card-empty">No usage recorded yet. Run a static review, dynamic session, or provider test to populate this dashboard.</p>
+          ) : (
+            <table className="usage-table">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Format</th>
+                  <th>Model</th>
+                  <th className="usage-num">Input</th>
+                  <th className="usage-num">Output</th>
+                  <th className="usage-num">Cache</th>
+                  <th className="usage-num">Calls</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.byGroup.map((g, idx) => (
+                  <tr key={`${g.provider}-${g.apiFormat}-${g.model}-${idx}`}>
+                    <td>{g.provider}</td>
+                    <td><code>{g.apiFormat}</code></td>
+                    <td><code>{g.model}</code></td>
+                    <td className="usage-num">{formatTokenCount(g.totalInput)}</td>
+                    <td className="usage-num">{formatTokenCount(g.totalOutput)}</td>
+                    <td className="usage-num">{formatTokenCount(g.totalCacheRead + g.totalCacheCreation)}</td>
+                    <td className="usage-num">{g.totalCalls.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {summary.recent.length > 0 && (
+            <div className="usage-recent">
+              <button
+                className="btn-link"
+                onClick={() => setShowRecent(v => !v)}
+                aria-expanded={showRecent}
+              >
+                {showRecent ? 'Hide' : 'Show'} recent calls ({summary.recent.length})
+              </button>
+              {showRecent && (
+                <table className="usage-table usage-recent-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Scope</th>
+                      <th>Kind</th>
+                      <th>Stage</th>
+                      <th>Model</th>
+                      <th className="usage-num">Input</th>
+                      <th className="usage-num">Output</th>
+                      <th className="usage-num">Cache</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.recent.map(r => (
+                      <tr key={r.id}>
+                        <td>{formatTimestamp(r.createdAt)}</td>
+                        <td>{SCOPE_LABEL[r.scope]}</td>
+                        <td>{CALL_KIND_LABEL[r.callKind]}</td>
+                        <td>{r.stage ?? '—'}{r.roundNumber !== null ? ` (r${r.roundNumber})` : ''}</td>
+                        <td><code>{r.model}</code></td>
+                        <td className="usage-num">{formatTokenCount(r.inputTokens)}</td>
+                        <td className="usage-num">{formatTokenCount(r.outputTokens)}</td>
+                        <td className="usage-num">{formatTokenCount(r.cacheReadTokens + r.cacheCreationTokens)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function SettingsScreen({ settings, onRefresh }: Props) {
   const textSetting = settings.find(s => s.id === 'text');
   const visionSetting = settings.find(s => s.id === 'vision');
@@ -236,6 +432,8 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
             <ProviderForm setting={visionSetting} onRefresh={onRefresh} />
           </section>
         )}
+
+        <TokenUsagePanel />
       </div>
     </div>
   );

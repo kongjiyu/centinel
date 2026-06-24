@@ -10,6 +10,13 @@ import {
   type DynamicSession,
   type DynamicSessionStatus,
 } from './dynamicSessions.js';
+import {
+  parseAnthropicToolTurn,
+  parseOpenAIToolTurn,
+  parseGoogleToolTurn,
+  type TokenUsage,
+} from './aiClient.js';
+import { recordTokenUsage, type CallKind } from './tokenUsage.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -23,6 +30,17 @@ type AgentAction =
   | { action: 'assert_visible'; text: string; reasoning: string }
   | { action: 'finish_success'; summary: string; reasoning: string }
   | { action: 'finish_failure'; summary: string; reasoning: string };
+
+// Shared shape returned by both callVisionModel and callVisionModelWithRetry.
+// `usage` is the parsed provider usage block; undefined when the provider
+// omitted it (e.g. some error envelopes). The call site records each call's
+// usage for the per-session cost dashboard.
+type VisionResult = {
+  action?: AgentAction;
+  error?: string;
+  rawText?: string;
+  usage?: TokenUsage;
+};
 
 type ActionTraceEntry = {
   step: number;
@@ -67,6 +85,7 @@ type DynamicDebugEvent = {
     | 'json_parse'
     | 'action_execute'
     | 'retry'
+    | 'token_usage'
     | 'session_end';
   step?: number;
   message: string;
@@ -323,12 +342,57 @@ export async function runDynamicSession(
       await addEvidence(session.projectId, session.id, 'ai_response', aiResponsePath, `Step ${step} AI response`);
       await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
 
+      // Record the vision call's usage (vision scope). Token failures are
+      // logged but never thrown — accounting is best-effort and must not
+      // break the session if the DB is briefly unavailable.
+      if (aiResult.usage) {
+        try {
+          await recordTokenUsage({
+            ...aiResult.usage,
+            scope: 'vision',
+            callKind: 'dynamic' as CallKind,
+            projectId: session.projectId,
+            sessionId: session.id,
+            stage: `step_${step}`,
+            roundNumber: null,
+            provider: visionSetting.provider as 'mimo' | 'gemini' | 'custom',
+            apiFormat: visionSetting.apiFormat as 'openai-compatible' | 'anthropic-compatible' | 'google-native',
+            model: visionSetting.model,
+          });
+        } catch (err) {
+          debugLog.log('warn', 'token_usage', `Failed to record vision usage: ${err}`, step);
+        }
+      }
+
       // If still no action after retry, try JSON repair
       if (!aiResult.action && aiResult.rawText) {
         debugLog.log('warn', 'json_parse', 'Attempting JSON repair', step);
         aiResult = await attemptJsonRepair(aiResult.rawText, visionSetting, debugLog, step);
         if (aiResult.action) {
           debugLog.log('info', 'json_parse', 'JSON repair successful', step);
+        }
+        // attemptJsonRepair uses the text provider — record under the text
+        // scope so the dashboard splits vision vs text usage correctly.
+        if (aiResult.usage) {
+          try {
+            const textSetting = await getRawAiSetting('text');
+            if (textSetting) {
+              await recordTokenUsage({
+                ...aiResult.usage,
+                scope: 'text',
+                callKind: 'dynamic' as CallKind,
+                projectId: session.projectId,
+                sessionId: session.id,
+                stage: `step_${step}_repair`,
+                roundNumber: null,
+                provider: textSetting.provider,
+                apiFormat: textSetting.apiFormat,
+                model: textSetting.model,
+              });
+            }
+          } catch (err) {
+            debugLog.log('warn', 'token_usage', `Failed to record repair usage: ${err}`, step);
+          }
         }
       }
 
@@ -498,7 +562,7 @@ async function callVisionModelWithRetry(
   prompt: string,
   debugLog: DebugLogger,
   step: number
-): Promise<{ action?: AgentAction; error?: string; rawText?: string }> {
+): Promise<VisionResult> {
   let lastError = '';
 
   for (let attempt = 1; attempt <= RETRY_POLICY.visionCallMaxAttempts; attempt++) {
@@ -533,7 +597,7 @@ async function attemptJsonRepair(
   setting: { apiKey: string; baseUrl: string; model: string; provider: string; apiFormat: string },
   debugLog: DebugLogger,
   step: number
-): Promise<{ action?: AgentAction; error?: string }> {
+): Promise<VisionResult> {
   const repairPrompt = `Convert the following response into exactly one valid JSON action object.
 Do not add explanation. Only output the JSON object.
 
@@ -601,7 +665,7 @@ async function executeActionWithRetry(
 async function callTextModel(
   setting: { apiKey: string; baseUrl: string; model: string; provider: string; apiFormat: string },
   prompt: string
-): Promise<{ action?: AgentAction; error?: string }> {
+): Promise<VisionResult> {
   let body: string;
   let headers: Record<string, string>;
   let fetchUrl = setting.baseUrl;
@@ -661,11 +725,19 @@ async function callTextModel(
       text = choices?.[0]?.message?.content ?? '';
     }
 
+    // Extract usage via the shared parsers. Returned on success and on
+    // "empty response" so the call site can always account for the round.
+    const usage = setting.apiFormat === 'anthropic-compatible'
+      ? parseAnthropicToolTurn(json).usage
+      : setting.apiFormat === 'openai-compatible'
+      ? parseOpenAIToolTurn(json).usage
+      : parseGoogleToolTurn(json).usage;
+
     if (!text) {
-      return { error: 'Empty response' };
+      return { error: 'Empty response', usage };
     }
 
-    return parseActionFromText(text);
+    return { ...parseActionFromText(text), usage };
   } catch (err) {
     return { error: String(err) };
   }
@@ -675,7 +747,7 @@ async function callVisionModel(
   setting: { apiKey: string; baseUrl: string; model: string; provider: string; apiFormat: string },
   screenshotPath: string,
   prompt: string
-): Promise<{ action?: AgentAction; error?: string; rawText?: string }> {
+): Promise<VisionResult> {
   const imageBuf = fs.readFileSync(screenshotPath);
   const base64 = imageBuf.toString('base64');
 
@@ -755,12 +827,22 @@ async function callVisionModel(
       text = choices?.[0]?.message?.content ?? '';
     }
 
+    // Extract usage via the shared parsers so token accounting is consistent
+    // with the static-review path. The returned usage is undefined when the
+    // provider omitted the block — that case is silently dropped from
+    // accounting (we don't want to inflate totals with zero rows).
+    const usage = setting.apiFormat === 'anthropic-compatible'
+      ? parseAnthropicToolTurn(json).usage
+      : setting.apiFormat === 'openai-compatible'
+      ? parseOpenAIToolTurn(json).usage
+      : parseGoogleToolTurn(json).usage;
+
     if (!text) {
-      return { error: 'Model returned empty response', rawText: '' };
+      return { error: 'Model returned empty response', rawText: '', usage };
     }
 
     const result = parseActionFromText(text);
-    return { ...result, rawText: text };
+    return { ...result, rawText: text, usage };
   } catch (err) {
     return { error: String(err) };
   }

@@ -1,10 +1,9 @@
 import { Modal } from './Modal';
 import { StaticReviewForm } from './StaticReviewForm';
-import type { ReviewType } from '../types';
 
 type Props = {
   projectId: string;
-  onSubmit: (data: { name: string; reviewType: ReviewType; instructions: string }) => Promise<void>;
+  onSubmit: (data: { name: string; instructions: string }) => Promise<void>;
   onClose: () => void;
 };
 

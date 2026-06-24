@@ -284,6 +284,40 @@ function initSchema(db: Database) {
     )
   `);
 
+  // Phase 7: AI Token Usage
+  //
+  // One row per AI call (text or vision, test or review). The provider
+  // reports its own usage block which we persist verbatim. Cost is not
+  // computed here — pricing varies wildly per provider, model, and contract;
+  // that's a dashboard concern. The `call_kind` column distinguishes the
+  // origin so the Settings page can show "5 review calls" vs "12 test calls"
+  // separately.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS token_usage (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      session_id TEXT,
+      scope TEXT NOT NULL,
+      call_kind TEXT NOT NULL DEFAULT 'review',
+      stage TEXT,
+      round_number INTEGER,
+      provider TEXT NOT NULL,
+      api_format TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )
+  `);
+  // Composite index: the Settings page filters by scope + groups by
+  // (provider, api_format, model). Sessions are paged in chronological
+  // order, so created_at covers both ad-hoc and per-session queries.
+  db.run(`CREATE INDEX IF NOT EXISTS idx_token_usage_scope ON token_usage(scope, created_at)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_token_usage_session ON token_usage(session_id, round_number)`);
+
   // Seed defaults if empty
   const stmt = db.prepare("SELECT COUNT(*) FROM ai_provider_settings WHERE id = 'text'");
   stmt.step();

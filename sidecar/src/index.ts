@@ -6,8 +6,9 @@ import fs from 'fs';
 import http from 'http';
 import { config as readEnv } from 'dotenv';
 import { listProjects, getProject, createProject, deleteProject } from './projects';
-import { getAiSettings, updateAiSetting, validateUpdateRequest } from './settings';
+import { getAiSettings, getRawAiSetting, updateAiSetting, validateUpdateRequest } from './settings';
 import { testAiProvider } from './aiClient';
+import { recordTokenUsage, getTokenUsageSummary } from './tokenUsage';
 import {
   createDynamicSession,
   listDynamicSessions,
@@ -289,7 +290,51 @@ const server = http.createServer(async (req, res) => {
       } catch {
         // Empty or malformed body — use the saved setting.
       }
-      return json(res, 200, await testAiProvider(id, id === 'vision' ? screenshotPath : undefined, overrides));
+      const result = await testAiProvider(id, id === 'vision' ? screenshotPath : undefined, overrides);
+      // Record test-call usage. Real tokens were spent on this round-trip,
+      // and the Settings page shows test vs review breakdown.
+      if (result.usage && result.status === 'pass') {
+        try {
+          const saved = await getRawAiSetting(id);
+          if (saved) {
+            await recordTokenUsage({
+              ...result.usage,
+              scope: id,
+              callKind: 'test',
+              projectId: null,
+              sessionId: null,
+              stage: null,
+              roundNumber: null,
+              provider: saved.provider,
+              apiFormat: saved.apiFormat,
+              model: saved.model,
+            });
+          }
+        } catch (err) {
+          console.error('[settings] failed to record test token usage:', err);
+        }
+      }
+      return json(res, 200, result);
+    }
+
+    // AI Token Usage summary (read-only). Returns aggregated totals + the
+    // most recent calls so the Settings page can render the dashboard
+    // without paging through the full row set. Supports optional filters
+    // via query string: ?scope=text|vision, ?callKind=review|test|dynamic,
+    // ?sessionId=<uuid>, ?projectId=<uuid>.
+    if (req.method === 'GET' && url === '/settings/ai/usage') {
+      const urlObj = new URL(url, 'http://localhost');
+      const scopeParam = urlObj.searchParams.get('scope');
+      const callKindParam = urlObj.searchParams.get('callKind');
+      const sessionId = urlObj.searchParams.get('sessionId') ?? undefined;
+      const projectId = urlObj.searchParams.get('projectId') ?? undefined;
+      const summary = await getTokenUsageSummary({
+        scope: scopeParam === 'text' || scopeParam === 'vision' ? scopeParam : undefined,
+        callKind: callKindParam === 'review' || callKindParam === 'test' || callKindParam === 'dynamic' ? callKindParam : undefined,
+        sessionId,
+        projectId,
+      });
+      return json(res, 200, summary);
     }
 
     // Projects
@@ -470,15 +515,9 @@ const server = http.createServer(async (req, res) => {
     if (ssMatch && req.method === 'POST') {
       const body = await parseJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
-      const reviewType = body.reviewType;
       const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : '';
 
       if (!name) return json(res, 400, { error: 'name is required' });
-
-      const VALID_REVIEW_TYPES = ['requirement_review', 'code_review', 'requirement_to_code_traceability', 'cross_artifact_consistency'];
-      if (typeof reviewType !== 'string' || !VALID_REVIEW_TYPES.includes(reviewType)) {
-        return json(res, 400, { error: `reviewType must be one of: ${VALID_REVIEW_TYPES.join(', ')}` });
-      }
 
       const activeSession = await getActiveStaticSession(ssMatch.projectId);
       if (activeSession) return json(res, 409, { error: 'A static review session is already running' });
@@ -488,7 +527,9 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: 'No artifacts found. Upload or import files first.' });
       }
 
-      // The agent picks which artifacts to inspect; the project workspace makes all of them available.
+      // Review-type and artifact selection are agent-driven from the instructions.
+      const reviewType = 'code_review';
+
       const session = await createStaticSession(
         ssMatch.projectId,
         name,
@@ -497,10 +538,37 @@ const server = http.createServer(async (req, res) => {
         instructions
       );
 
+      console.info(
+        `[review-session] queued id=${session.id} project=${session.projectId} artifacts=${allArtifacts.length}`
+      );
+      let lastProgressSignature = '';
       runStaticReview(session, allArtifacts, async (progress) => {
         await updateStaticSessionProgress(session.id, progress);
+        const activeStage = progress.stages.find(stage => stage.status === 'active');
+        const signature = `${progress.currentStage}:${activeStage?.thoughts.length ?? 0}`;
+        if (signature !== lastProgressSignature) {
+          lastProgressSignature = signature;
+          const latestThought = activeStage?.thoughts[activeStage.thoughts.length - 1];
+          console.info(
+            `[review-session] progress id=${session.id} stage=${progress.currentStage}` +
+              (latestThought ? ` thought=${JSON.stringify(latestThought)}` : '')
+          );
+        }
+      }).then(async () => {
+        const completed = await getStaticSession(session.projectId, session.id);
+        const aiFindings = await listStaticFindings(session.projectId, session.id);
+        // Rule-based findings are stored in a separate table — fetch them too
+        // so the completion log tells the truth about TOTAL findings, not just
+        // the AI-generated subset. Without this, "findings=0" looks like
+        // "clean code" even when rule-based pre-scan fired 60+ times.
+        const staticFindings = await getStaticFindings(session.projectId, session.id);
+        console.info(
+          `[review-session] completed id=${session.id} status=${completed?.status ?? 'unknown'} ` +
+          `ai_findings=${aiFindings.length} static_findings=${staticFindings.length} ` +
+          `total=${aiFindings.length + staticFindings.length}`
+        );
       }).catch(err => {
-        console.error('[static-review] error:', err);
+        console.error(`[review-session] failed id=${session.id}:`, err);
       });
 
       return json(res, 201, session);

@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { Finding, ReviewProgress, ReviewType, StaticSessionStatus } from '../types';
+import type { Finding, ReviewProgress, ReviewType, StaticSession, StaticSessionStatus } from '../types';
 
 export type ActiveReviewSnapshot = {
   id: string;
@@ -26,6 +26,7 @@ export type ActiveReviewState = {
 export type ActiveReviewControls = {
   setExpanded: (expanded: boolean) => void;
   setDismissed: (dismissed: boolean) => void;
+  trackSession: (session: StaticSession, projectName?: string) => void;
   retry: () => void;
 };
 

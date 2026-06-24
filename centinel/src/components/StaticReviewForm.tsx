@@ -1,46 +1,19 @@
 import { useState } from 'react';
-import type { ReviewType } from '../types';
-
-const REVIEW_TYPES: { value: ReviewType; label: string; description: string }[] = [
-  {
-    value: 'requirement_review',
-    label: 'Requirement Review',
-    description: 'Analyze requirement documents for unclear, incomplete, or ambiguous requirements.',
-  },
-  {
-    value: 'code_review',
-    label: 'Code Inspection',
-    description: 'Analyze source code for potential defects, maintainability issues, and risky logic.',
-  },
-  {
-    value: 'requirement_to_code_traceability',
-    label: 'Requirement-to-Code Traceability',
-    description: 'Map requirements to code implementations and identify missing coverage.',
-  },
-  {
-    value: 'cross_artifact_consistency',
-    label: 'Cross-Artifact Consistency',
-    description: 'Compare all artifacts for terminology mismatches, missing entities, and conflicting behavior.',
-  },
-];
 
 const MAX_INSTRUCTIONS_CHARS = 1000;
 
 type Props = {
   projectId: string;
-  onSubmit: (data: { name: string; reviewType: ReviewType; instructions: string }) => Promise<void>;
+  onSubmit: (data: { name: string; instructions: string }) => Promise<void>;
   onCancel: () => void;
 };
 
 export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
   void projectId;
   const [name, setName] = useState('');
-  const [reviewType, setReviewType] = useState<ReviewType>('requirement_review');
   const [instructions, setInstructions] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  const currentConfig = REVIEW_TYPES.find(r => r.value === reviewType)!;
 
   const charCount = instructions.length;
   const overLimit = charCount > MAX_INSTRUCTIONS_CHARS;
@@ -60,7 +33,6 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
     try {
       await onSubmit({
         name: name.trim(),
-        reviewType,
         instructions: instructions.trim(),
       });
     } catch (e) {
@@ -85,22 +57,12 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
       </div>
 
       <div className="form-field">
-        <label>Review Type</label>
-        <select value={reviewType} onChange={e => setReviewType(e.target.value as ReviewType)}>
-          {REVIEW_TYPES.map(rt => (
-            <option key={rt.value} value={rt.value}>{rt.label}</option>
-          ))}
-        </select>
-        <p className="form-hint">{currentConfig.description}</p>
-      </div>
-
-      <div className="form-field">
         <label>Instructions for the Agent</label>
         <div className="textarea-wrapper">
           <textarea
             value={instructions}
             onChange={e => setInstructions(e.target.value)}
-            placeholder="Tell the agent what to focus on, what to look for, or any extra context for this review. The agent will choose which artifacts to inspect from the project."
+            placeholder="Tell the agent what to focus on, what to look for, or any extra context for this review. The agent will choose which artifacts to inspect and what kind of review to run."
             rows={6}
             maxLength={MAX_INSTRUCTIONS_CHARS}
           />
