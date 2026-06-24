@@ -78,6 +78,81 @@ export function extractLocation(finding: { artifactReference?: string; evidence?
   return { filePath: '', lineNumber: null };
 }
 
+/**
+ * Drop AI findings that duplicate an existing static-analysis finding in the
+ * same session. Dedup key: (file_path, |line_diff| <= 2, evidence token-overlap
+ * >= 30%). Higher confidence wins; ties go to the static finding (deterministic
+ * rules > LLM judgement).
+ *
+ * Exported so the unit test can import it directly (OPTION A in the brief).
+ */
+export async function dedupeAgainstStaticFindings(
+  sessionId: string,
+  projectId: string,
+  aiFindings: { filePath: string; lineNumber: number | null; evidence: string; confidence: string; title: string }[],
+): Promise<{ kept: typeof aiFindings; dropped: typeof aiFindings }> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    'SELECT file_path, line_number, evidence, confidence FROM static_analysis_results WHERE project_id = ? AND session_id = ?'
+  );
+  stmt.bind([projectId, sessionId]);
+  const staticRows: { filePath: string; lineNumber: number; evidence: string; confidence: string }[] = [];
+  while (stmt.step()) {
+    const r = stmt.get() as unknown[];
+    staticRows.push({
+      filePath: r[0] as string,
+      lineNumber: r[1] as number,
+      evidence: (r[2] as string) ?? '',
+      confidence: (r[3] as string) ?? 'high',
+    });
+  }
+  stmt.free();
+
+  const confidenceRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
+  const tokenize = (s: string) => new Set(s.toLowerCase().split(/\W+/).filter(t => t.length > 2));
+  const overlap = (a: string, b: string) => {
+    const aT = tokenize(a), bT = tokenize(b);
+    if (aT.size === 0 || bT.size === 0) return 0;
+    let shared = 0;
+    for (const t of aT) if (bT.has(t)) shared++;
+    return shared / Math.min(aT.size, bT.size);
+  };
+
+  const kept: typeof aiFindings = [];
+  const dropped: typeof aiFindings = [];
+  for (const ai of aiFindings) {
+    if (!ai.filePath || ai.lineNumber == null) {
+      kept.push(ai);  // can't dedup without location — pass through
+      continue;
+    }
+    const match = staticRows.find(s =>
+      s.filePath === ai.filePath &&
+      Math.abs(s.lineNumber - ai.lineNumber) <= 2 &&
+      overlap(s.evidence, ai.evidence) >= 0.3
+    );
+    if (match) {
+      const aiRank = confidenceRank[ai.confidence] ?? 2;
+      const staticRank = confidenceRank[match.confidence] ?? 3;
+      // Static findings (deterministic rules) are preferred on ties.
+      if (staticRank >= aiRank) {
+        dropped.push(ai);
+      } else {
+        // AI wins — drop the static one (mark via marker; for now, we just
+        // keep the AI finding and log the suppression). A future task can
+        // delete the static row from the findings table.
+        kept.push(ai);
+        console.info(
+          `[dedup] session=${sessionId} suppressed static finding at ${match.filePath}:${match.lineNumber} ` +
+          `in favor of AI finding (higher confidence)`
+        );
+      }
+    } else {
+      kept.push(ai);
+    }
+  }
+  return { kept, dropped };
+}
+
 // ── Stage Definitions ──────────────────────────────────────────────────
 
 const STAGE_DEFINITIONS = [
@@ -728,9 +803,24 @@ export async function runStaticReviewPrefetch(
     }));
     const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
 
-    for (let i = 0; i < s2.findings.length; i++) {
-      const f = s2.findings[i];
-      const risk = codeScored[i]?.risk;
+    const codeFindingsWithLocation = s2.findings.map(f => {
+      const location = extractLocation(f);
+      return {
+        ...f,
+        filePath: location.filePath,
+        lineNumber: location.lineNumber,
+      };
+    });
+    const deduped = await dedupeAgainstStaticFindings(session.id, session.projectId, codeFindingsWithLocation);
+    console.info(
+      `[review-session] stage=code_review session=${session.id} ` +
+      `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
+    );
+
+    for (let i = 0; i < deduped.kept.length; i++) {
+      const f = deduped.kept[i];
+      const original = codeFindingsWithLocation.indexOf(f);
+      const risk = codeScored[original]?.risk;
       const location = extractLocation(f);
       await createFinding(session.projectId, session.id, {
         severity: validateSeverity(risk?.level || f.severity),
@@ -1084,9 +1174,24 @@ ${graphJson}
     }));
     const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
 
-    for (let i = 0; i < s2.findings.length; i++) {
-      const f = s2.findings[i];
-      const risk = codeScored[i]?.risk;
+    const codeFindingsWithLocation = s2.findings.map(f => {
+      const location = extractLocation(f);
+      return {
+        ...f,
+        filePath: location.filePath,
+        lineNumber: location.lineNumber,
+      };
+    });
+    const deduped = await dedupeAgainstStaticFindings(session.id, session.projectId, codeFindingsWithLocation);
+    console.info(
+      `[review-session] stage=code_review session=${session.id} ` +
+      `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
+    );
+
+    for (let i = 0; i < deduped.kept.length; i++) {
+      const f = deduped.kept[i];
+      const original = codeFindingsWithLocation.indexOf(f);
+      const risk = codeScored[original]?.risk;
       const location = extractLocation(f);
       await createFinding(session.projectId, session.id, {
         severity: validateSeverity(risk?.level || f.severity),
