@@ -145,7 +145,7 @@ export async function runStaticAnalysis(
       const title = `[${finding.ruleId}] ${finding.message}`.substring(0, 200);
       const recommendation = generateRuleRecommendation(finding.ruleId, finding.category);
       db.run(
-        'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           findingId,
           projectId,
@@ -162,6 +162,8 @@ export async function runStaticAnalysis(
           recommendation,
           'high',  // rule-based findings are deterministic
           0,
+          finding.filePath,
+          finding.lineNumber,
         ]
       );
     }
