@@ -968,3 +968,13 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Finding location (file:line) — renders above the evidence block */
+.command-mode .finding-location {
+  font-size: 0.85rem;
+  color: var(--command-cyan);
+  margin: 6px 0;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+}
+.command-mode .finding-location-path { color: var(--command-text); }
+.command-mode .finding-location-line { color: var(--command-warning); margin-left: 2px; }
