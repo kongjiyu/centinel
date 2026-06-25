@@ -97,6 +97,32 @@ export type StaticSession = {
   failureReason: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Latest review decision (P0-3). Embedded by GET /static-sessions/:id
+   * so the dashboard can show the verdict pill on the session row
+   * without a second round-trip. null when the team has never recorded
+   * a decision on this session.
+   */
+  currentDecision?: ReviewDecisionRecord | null;
+};
+
+/**
+ * Session-level review decision (P0-3). Distinct from per-finding
+ * `status`; this is the team's verdict on the review as a whole.
+ *   - approved: sign-off, the report can ship
+ *   - changes_requested: blocking, unresolved issues remain
+ *   - commented: non-blocking note, no verdict yet
+ */
+export type ReviewDecision = 'approved' | 'changes_requested' | 'commented';
+
+export type ReviewDecisionRecord = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  decision: ReviewDecision;
+  comment: string;
+  reviewer: string;
+  createdAt: string;
 };
 
 export type Finding = {

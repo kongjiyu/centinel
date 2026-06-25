@@ -161,6 +161,33 @@ function initSchema(db: Database) {
     )
   `);
 
+  // Phase 8: Review Decisions (P0-3)
+  //
+  // A session-level lifecycle event distinct from per-finding status.
+  //   - 'approved'        — the reviewer's overall sign-off; the report can ship
+  //   - 'changes_requested' — blocking; new findings or unresolved issues remain
+  //   - 'commented'       — non-blocking note, no verdict yet
+  // The most recent decision for a session is the "current" one; full history
+  // is preserved so the audit trail shows how the team got there.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS review_decisions (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      comment TEXT NOT NULL DEFAULT '',
+      reviewer TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES static_sessions(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+  // Index: list decisions for a session in reverse chronological order.
+  db.run(`CREATE INDEX IF NOT EXISTS idx_review_decisions_session ON review_decisions(session_id, created_at DESC)`);
+  // Index: list all decisions on a project (for the "review activity" feed
+  // if/when we surface one on the project dashboard).
+  db.run(`CREATE INDEX IF NOT EXISTS idx_review_decisions_project ON review_decisions(project_id, created_at DESC)`);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS ai_provider_settings (
       id TEXT PRIMARY KEY,

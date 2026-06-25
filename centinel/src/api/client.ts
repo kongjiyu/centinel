@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping } from '../types';
+import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -168,6 +168,21 @@ export const api = {
     }),
   listReviewArtifacts: (projectId: string, sessionId: string) =>
     request<ReviewArtifact[]>(`/projects/${projectId}/static-sessions/${sessionId}/artifacts`),
+
+  // Review Decisions (P0-3)
+  listReviewDecisions: (projectId: string, sessionId: string) =>
+    request<ReviewDecisionRecord[]>(
+      `/projects/${projectId}/static-sessions/${sessionId}/decisions`
+    ),
+  submitReviewDecision: (
+    projectId: string,
+    sessionId: string,
+    data: { decision: ReviewDecision; comment?: string; reviewer?: string }
+  ) =>
+    request<ReviewDecisionRecord>(
+      `/projects/${projectId}/static-sessions/${sessionId}/decision`,
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
 
   // Unified Findings
   listFindings: (projectId: string) =>

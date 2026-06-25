@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
-import type { Finding } from '../types';
+import type { Finding, ReviewDecisionRecord } from '../types';
+import { ReviewDecisionBar } from './ReviewDecisionBar';
+import { api } from '../api/client';
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'] as const;
 
@@ -9,8 +11,30 @@ export function ActiveSessionComplete({ projectId, sessionId, findings }: {
   sessionId: string;
   findings: Finding[];
 }) {
-  void projectId; void sessionId;
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['critical']));
+  // Owns the decision state so the verdict pill above the bar stays in sync
+  // after a submit without the parent having to refetch the whole session.
+  const [currentDecision, setCurrentDecision] = useState<ReviewDecisionRecord | null>(null);
+
+  // Fetch the latest decision on mount. The session GET also embeds it,
+  // but the bar is sometimes mounted before the parent refetches; this
+  // keeps it self-sufficient.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await api.getStaticSession(projectId, sessionId);
+        if (!cancelled) setCurrentDecision(session.currentDecision ?? null);
+      } catch {
+        // Non-fatal: bar still works, just no current pill.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, sessionId]);
+
+  const handleDecisionChange = useCallback((next: ReviewDecisionRecord) => {
+    setCurrentDecision(next);
+  }, []);
 
   const grouped = SEVERITY_ORDER.map(severity => ({
     severity,
@@ -66,6 +90,12 @@ export function ActiveSessionComplete({ projectId, sessionId, findings }: {
           </div>
         ))}
       </div>
+      <ReviewDecisionBar
+        projectId={projectId}
+        sessionId={sessionId}
+        currentDecision={currentDecision}
+        onChange={handleDecisionChange}
+      />
     </div>
   );
 }

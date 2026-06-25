@@ -978,3 +978,123 @@
 }
 .command-mode .finding-location-path { color: var(--command-text); }
 .command-mode .finding-location-line { color: var(--command-warning); margin-left: 2px; }
+
+/* Review decision bar (P0-3) — sits under a completed session's findings. */
+.command-mode .review-decision-bar {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--command-bg-elevated, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--command-line, rgba(255, 255, 255, 0.08));
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.command-mode .review-decision-bar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--command-text-dim, #888);
+  flex-wrap: wrap;
+}
+.command-mode .review-decision-bar-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+}
+.command-mode .review-decision-bar-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.command-mode .btn-decision {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--command-line, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--command-text, #ccc);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.command-mode .btn-decision:hover { background: rgba(255, 255, 255, 0.04); }
+.command-mode .btn-decision:disabled { opacity: 0.5; cursor: not-allowed; }
+.command-mode .btn-decision-approve { color: #6fbf7f; border-color: rgba(111, 191, 127, 0.34); }
+.command-mode .btn-decision-approve:hover { background: rgba(111, 191, 127, 0.08); }
+.command-mode .btn-decision-changes { color: #d9b45c; border-color: rgba(217, 180, 92, 0.34); }
+.command-mode .btn-decision-changes:hover { background: rgba(217, 180, 92, 0.08); }
+.command-mode .btn-decision-comment { color: var(--command-cyan, #6cb6c9); border-color: rgba(108, 182, 201, 0.34); }
+.command-mode .btn-decision-comment:hover { background: rgba(108, 182, 201, 0.08); }
+
+.command-mode .review-decision-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  border: 1px solid currentColor;
+}
+.command-mode .review-decision-pill-sm { font-size: 0.65rem; padding: 1px 6px; }
+.command-mode .review-decision-pill-approved { color: #6fbf7f; background: rgba(111, 191, 127, 0.08); }
+.command-mode .review-decision-pill-changes_requested { color: #d9b45c; background: rgba(217, 180, 92, 0.08); }
+.command-mode .review-decision-pill-commented { color: var(--command-cyan, #6cb6c9); background: rgba(108, 182, 201, 0.08); }
+
+.command-mode .review-decision-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.command-mode .review-decision-comment textarea {
+  width: 100%;
+  background: var(--command-bg, #111);
+  color: var(--command-text, #ccc);
+  border: 1px solid var(--command-line, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+.command-mode .review-decision-comment-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.command-mode .review-decision-history {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 0 0;
+  border-top: 1px dashed var(--command-line, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.command-mode .review-decision-history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--command-text-dim, #888);
+}
+.command-mode .decision-icon-approved { color: #6fbf7f; }
+.command-mode .decision-icon-changes_requested { color: #d9b45c; }
+.command-mode .decision-icon-commented { color: var(--command-cyan, #6cb6c9); }
+.command-mode .decision-text { flex: 1; }
+.command-mode .decision-reviewer { color: var(--command-text-dim, #888); }
+.command-mode .decision-comment-text { color: var(--command-text, #ccc); }
+.command-mode .decision-time { color: var(--command-text-dim, #888); font-size: 0.7rem; }
+
+.command-mode .review-decision-error {
+  color: #e57a78;
+  font-size: 0.8rem;
+  background: rgba(229, 122, 120, 0.08);
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+.command-mode .btn-history { padding: 2px 6px; font-size: 0.7rem; }

@@ -9,6 +9,7 @@ import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { ActiveSessionInline } from '../components/ActiveSessionInline';
 import { ActiveSessionComplete } from '../components/ActiveSessionComplete';
+import { ReviewDecisionPill } from '../components/ReviewDecisionBar';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
@@ -197,6 +198,9 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                       </div>
                       <div className="session-meta">
                         <StatusBadge label={s.status} />
+                        {s.status === 'success' && (
+                          <ReviewDecisionPill decision={s.currentDecision ?? null} />
+                        )}
                         <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
                       </div>
                     </div>

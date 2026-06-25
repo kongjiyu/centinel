@@ -43,6 +43,12 @@ import {
 } from './staticSessions';
 import { runStaticReview } from './staticReview';
 import { exportProjectReport, exportSessionReport, exportDynamicSessionReport } from './reportExport';
+import {
+  submitReviewDecision,
+  listReviewDecisions,
+  getCurrentDecision,
+  isValidDecision,
+} from './reviewDecisions';
 import { indexProject, getIndexedFiles, getFileSymbols, getDependencies, getDependents } from './repoIndex';
 import { retrieveContext, searchByKeyword, getRelatedFiles } from './contextRetrieval';
 import { runStaticAnalysis as runStaticEngine, getStaticFindings } from './staticEngine';
@@ -174,6 +180,16 @@ function matchDynamicSessionReportExport(url: string): { projectId: string; sess
 
 function matchReviewArtifacts(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/artifacts$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticDecisions(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/decisions$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticDecision(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/decision$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
 }
 
@@ -609,12 +625,51 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, await listReviewArtifacts(raMatch.projectId, raMatch.sessionId));
     }
 
-    // Static session - get
+    // Static session - get (with current decision embedded for the dashboard)
     const ssIdMatch = matchStaticSession(url);
     if (ssIdMatch && req.method === 'GET') {
       const session = await getStaticSession(ssIdMatch.projectId, ssIdMatch.sessionId);
       if (!session) return json(res, 404, { error: 'Session not found' });
-      return json(res, 200, session);
+      const currentDecision = await getCurrentDecision(ssIdMatch.sessionId);
+      return json(res, 200, { ...session, currentDecision });
+    }
+
+    // === Review Decisions (P0-3) ===
+    // Session-level lifecycle events: approve / request changes / comment.
+    // Distinct from per-finding status; the dashboard shows the latest
+    // decision as a status pill on the session row.
+
+    // List all decisions for a session (history, newest first)
+    const dsListMatch = matchStaticDecisions(url);
+    if (dsListMatch && req.method === 'GET') {
+      const session = await getStaticSession(dsListMatch.projectId, dsListMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      return json(res, 200, await listReviewDecisions(dsListMatch.sessionId));
+    }
+
+    // Submit a new decision for a session
+    const dsSubmitMatch = matchStaticDecision(url);
+    if (dsSubmitMatch && req.method === 'POST') {
+      const session = await getStaticSession(dsSubmitMatch.projectId, dsSubmitMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      // Decisions only make sense once a review has actually produced
+      // findings; gating on 'success' keeps the workflow honest. A team
+      // that wants to "pre-approve" can revisit this later.
+      if (session.status !== 'success') {
+        return json(res, 400, { error: 'Decisions can only be recorded on completed reviews' });
+      }
+      const body = await parseJsonBody(req);
+      if (!isValidDecision(body.decision)) {
+        return json(res, 400, { error: 'Invalid decision. Must be approved, changes_requested, or commented.' });
+      }
+      const comment = typeof body.comment === 'string' ? body.comment : '';
+      const reviewer = typeof body.reviewer === 'string' ? body.reviewer : '';
+      const record = await submitReviewDecision(
+        dsSubmitMatch.sessionId,
+        dsSubmitMatch.projectId,
+        { decision: body.decision, comment, reviewer }
+      );
+      return json(res, 201, record);
     }
 
     // === Unified Findings ===
