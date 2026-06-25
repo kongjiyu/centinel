@@ -107,12 +107,34 @@ export async function createTestDb(): Promise<Database> {
       remarks TEXT NOT NULL DEFAULT '',
       final_summary TEXT NOT NULL DEFAULT '',
       failure_reason TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
       base_ref TEXT NOT NULL DEFAULT '',
       head_ref TEXT NOT NULL DEFAULT '',
       changed_files_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+
+  // Test plan (Group 2c). The schema mirrors db.ts; if the real
+  // schema adds a column, this seed needs to match.
+  testDb.run(`
+    CREATE TABLE IF NOT EXISTS test_items (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      module TEXT NOT NULL,
+      component TEXT,
+      file_path TEXT NOT NULL DEFAULT '',
+      line_number INTEGER,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      rationale TEXT,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'proposed',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )
   `);
 

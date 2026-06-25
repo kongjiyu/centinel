@@ -39,6 +39,9 @@ function mapRepoIndexRow(row: unknown[]): RepoIndex {
     fileSize: (row[6] as number) ?? 0,
     symbolCount: (row[7] as number) ?? 0,
     indexedAt: row[8] as string,
+    // Mirrors repoIndex.mapRepoIndexRow: 10th column is the module
+    // grouping added in Group 2c for the test plan generator.
+    module: (row[9] as string) ?? '',
   };
 }
 
@@ -306,7 +309,7 @@ export async function getRelatedFiles(
     for (const dep of deps) {
       // Resolve the target file path to a file ID
       const fileStmt = db.prepare(
-        'SELECT id, project_id, file_path, parent_path, file_type, language, file_size, symbol_count, indexed_at FROM repo_index WHERE file_path = ? OR file_path LIKE ?'
+        'SELECT id, project_id, file_path, parent_path, file_type, language, file_size, symbol_count, indexed_at, module FROM repo_index WHERE file_path = ? OR file_path LIKE ?'
       );
       // Try exact match and also match as relative path (strip leading ./ etc.)
       const targetPath = dep.targetFilePath;

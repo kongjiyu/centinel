@@ -50,6 +50,14 @@ import {
   isValidDecision,
 } from './reviewDecisions';
 import { getChangedFiles } from './gitScope';
+import {
+  listTestItems,
+  getTestItem,
+  updateTestItemStatus,
+  listModuleRollups,
+  isValidStatus as isValidTestItemStatus,
+} from './testPlan';
+import { generateTestPlanForSession } from './testPlanGenerator';
 import { indexProject, getIndexedFiles, getFileSymbols, getDependencies, getDependents } from './repoIndex';
 import { retrieveContext, searchByKeyword, getRelatedFiles } from './contextRetrieval';
 import { runStaticAnalysis as runStaticEngine, getStaticFindings } from './staticEngine';
@@ -191,6 +199,26 @@ function matchStaticDecisions(url: string): { projectId: string; sessionId: stri
 
 function matchStaticDecision(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/decision$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchTestItems(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/test-items$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchTestItemRollups(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/test-items\/rollups$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchTestItem(url: string): { projectId: string; itemId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/test-items\/([^/]+)$/);
+  return m ? { projectId: m[1], itemId: m[2] } : null;
+}
+
+function matchRegeneratePlan(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/regenerate-plan$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
 }
 
@@ -699,6 +727,73 @@ const server = http.createServer(async (req, res) => {
         { decision: body.decision, comment, reviewer }
       );
       return json(res, 201, record);
+    }
+
+    // === Test Plan (Group 2c) ===
+    //
+    // The bridge from static review to dynamic testing. Test items are
+    // generated automatically when a review completes, and the
+    // dashboard reads them via these endpoints. The user can:
+    //   - GET /projects/:id/test-items            — list, filterable
+    //   - GET /projects/:id/test-items/rollups    — per-module counts
+    //   - GET /projects/:id/test-items/:iid       — single item
+    //   - PUT /projects/:id/test-items/:iid       — update status
+    //   - POST /projects/:id/static-sessions/:sid/regenerate-plan
+    //                                            — re-run the generator
+
+    // List test items, with optional module / status / session filters
+    const tiListMatch = matchTestItems(url);
+    if (tiListMatch && req.method === 'GET') {
+      const urlObj = new URL(url, 'http://localhost');
+      const module = urlObj.searchParams.get('module') ?? undefined;
+      const statusRaw = urlObj.searchParams.get('status') ?? undefined;
+      const sessionId = urlObj.searchParams.get('sessionId') ?? undefined;
+      const filters: { module?: string; status?: any; sessionId?: string } = {};
+      if (module) filters.module = module;
+      if (statusRaw && isValidTestItemStatus(statusRaw)) filters.status = statusRaw;
+      if (sessionId) filters.sessionId = sessionId;
+      return json(res, 200, await listTestItems(tiListMatch.projectId, filters));
+    }
+
+    // Per-module rollups (dashboard header counts)
+    const tiRollupsMatch = matchTestItemRollups(url);
+    if (tiRollupsMatch && req.method === 'GET') {
+      return json(res, 200, await listModuleRollups(tiRollupsMatch.projectId));
+    }
+
+    // Single test item
+    const tiMatch = matchTestItem(url);
+    if (tiMatch && req.method === 'GET') {
+      const item = await getTestItem(tiMatch.itemId);
+      if (!item) return json(res, 404, { error: 'Test item not found' });
+      return json(res, 200, item);
+    }
+    if (tiMatch && req.method === 'PUT') {
+      const body = await parseJsonBody(req);
+      if (!isValidTestItemStatus(body.status)) {
+        return json(res, 400, { error: 'Invalid status' });
+      }
+      const updated = await updateTestItemStatus(tiMatch.itemId, body.status);
+      if (!updated) return json(res, 404, { error: 'Test item not found' });
+      return json(res, 200, updated);
+    }
+
+    // Manual regenerator
+    const rgMatch = matchRegeneratePlan(url);
+    if (rgMatch && req.method === 'POST') {
+      const session = await getStaticSession(rgMatch.projectId, rgMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      // The plan is generated from completed findings; gating on
+      // 'success' matches the auto-generation trigger.
+      if (session.status !== 'success') {
+        return json(res, 400, { error: 'Plan can only be regenerated for completed reviews' });
+      }
+      try {
+        const result = await generateTestPlanForSession(rgMatch.sessionId, rgMatch.projectId);
+        return json(res, 200, result);
+      } catch (e) {
+        return json(res, 500, { error: `Plan generation failed: ${(e as Error).message}` });
+      }
     }
 
     // === Unified Findings ===

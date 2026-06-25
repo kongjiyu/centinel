@@ -371,7 +371,13 @@ function buildRequestBody(
   };
 }
 
-async function callAi(prompt: string, systemPrompt: string, ctx: CallContext = { stageIdx: -1 }, onUsage?: (usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number; totalTokens?: number }) => void): Promise<string> {
+/**
+ * Single-call AI wrapper used by every review stage. Exported so the
+ * test plan generator (Group 2c) and other one-off prompts can reuse
+ * the same auth / message-building / truncation path. Returns the
+ * raw response text — callers parse JSON themselves when needed.
+ */
+export async function callAi(prompt: string, systemPrompt: string, ctx: CallContext = { stageIdx: -1 }, onUsage?: (usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number; totalTokens?: number }) => void): Promise<string> {
   const setting = await getRawAiSetting('text');
   if (!setting) throw new Error('Text AI provider not configured');
   if (!setting.apiKey) throw new Error('Text AI API key not configured');
@@ -1005,6 +1011,25 @@ export async function runStaticReviewPrefetch(
     const totalAiFindings = s2.findings.length + s3.findings.length;
     const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifactContents.length} artifact(s).`;
     await updateStaticSessionStatus(session.id, 'success', summary, '');
+
+    // Group 2c: auto-generate the test plan from the findings. This
+    // runs after the session is marked 'success' so the dashboard can
+    // show "Test plan: 12 items proposed" right alongside the verdict.
+    // Failures are logged but don't fail the review — the user can
+    // always click "Regenerate plan" to retry, and the review itself
+    // is already committed.
+    try {
+      const { generateTestPlanForSession } = await import('./testPlanGenerator.js');
+      const plan = await generateTestPlanForSession(session.id, session.projectId);
+      console.info(
+        `[review-session] test-plan generated session=${session.id} ` +
+        `findings=${plan.findings} items=${plan.items} smoke=${plan.smoke}`
+      );
+    } catch (e) {
+      console.warn(
+        `[review-session] test-plan generation failed session=${session.id}: ${(e as Error).message}`
+      );
+    }
 
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);

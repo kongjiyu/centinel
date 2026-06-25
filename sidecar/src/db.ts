@@ -232,6 +232,80 @@ function initSchema(db: Database) {
   migrateCol('head_ref', "TEXT NOT NULL DEFAULT ''");
   migrateCol('changed_files_json', "TEXT NOT NULL DEFAULT '[]'");
 
+  // Test plan (Group 2c).
+  //
+  // A test plan is the bridge from the static review to the dynamic
+  // runner. For each module under the system, we generate:
+  //   - one test item per finding (rationale=the finding id), asking the
+  //     AI for 1-3 cases that would verify the fix
+  //   - one smoke test per module with zero findings (rationale='smoke')
+  //
+  // Items are append-only and survive finding deletion/dedup via the
+  // `rationale` text column (no hard FK). The `status` lifecycle mirrors
+  // a real test-management tool: proposed → accepted | rejected →
+  // in_progress → passed | failed.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS test_items (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      module TEXT NOT NULL,
+      component TEXT,
+      file_path TEXT NOT NULL DEFAULT '',
+      line_number INTEGER,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      rationale TEXT,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'proposed',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES static_sessions(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+  // Module-grouped reads are the common dashboard query (per-module card
+  // with status counts). Single-column index is enough.
+  db.run(`CREATE INDEX IF NOT EXISTS idx_test_items_module ON test_items(project_id, module, status)`);
+  // Session-level reads (regenerate, diff against parent) hit by session
+  // id alone. The module index already covers this if combined with the
+  // project_id; add a single-column index for the simple case.
+  db.run(`CREATE INDEX IF NOT EXISTS idx_test_items_session ON test_items(session_id, created_at)`);
+
+  // repo_index gets a `module` column derived from the first path segment
+  // under the workspace root. Back-fill empty for existing rows; the next
+  // call to indexProject will populate it.
+  migrateCol('module', "TEXT NOT NULL DEFAULT ''");
+  // Back-fill the module for any existing rows that were indexed before
+  // this column existed. We inline the same heuristic deriveModuleFromPath
+  // uses (in repoIndex.ts) to avoid pulling repoIndex into db.ts — that
+  // would create a circular import (repoIndex → db → repoIndex).
+  // Convention: first non-empty path segment after stripping src/ or lib/.
+  const moduleOf = (fp: string): string => {
+    if (!fp) return '(root)';
+    let p = fp.replace(/\\/g, '/').replace(/^\.\//, '');
+    if (p.startsWith('src/')) p = p.slice(4);
+    else if (p.startsWith('lib/')) p = p.slice(4);
+    const first = p.split('/').filter(Boolean)[0];
+    if (!first) return '(root)';
+    if (!p.includes('/')) return first.replace(/\.[^.]+$/, '');
+    return first;
+  };
+  try {
+    const stmt = db.prepare('SELECT id, file_path FROM repo_index WHERE module = ?');
+    stmt.bind(['']);
+    const pending: Array<[string, string]> = [];
+    while (stmt.step()) {
+      const row = stmt.get() as unknown[];
+      pending.push([row[0] as string, moduleOf(row[1] as string)]);
+    }
+    stmt.free();
+    for (const [id, mod] of pending) {
+      db.run('UPDATE repo_index SET module = ? WHERE id = ?', [mod, id]);
+    }
+  } catch { /* ignore — first run on an empty DB */ }
+
   // Migrate: add source column to artifacts if missing
   try { db.run("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'documents'"); } catch { /* already exists */ }
 
