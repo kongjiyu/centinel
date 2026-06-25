@@ -211,7 +211,13 @@ You must return your response as a JSON object with these fields:
 - thoughts: array of strings — your reasoning chain as you review each file
 - findings: array of findings, each with:
   - title: short descriptive title
-  - severity: one of "critical", "high", "medium", "low", "info"
+  - severity: string — REQUIRED, one of "critical", "high", "medium", "low", "info". Pick the level a code-reviewer would actually use to triage the finding, e.g.:
+    * "critical" — exploitable security flaw, data loss, or correctness bug that crashes production (e.g. SQL injection, missing auth check, null deref on hot path)
+    * "high" — likely bug, race condition, resource leak, or broken error path that will bite in normal operation
+    * "medium" — maintainability concern, missing validation, suboptimal pattern that will cost more later
+    * "low" — style nits, naming, minor refactor opportunities
+    * "info" — observations, suggestions, things to know about but not defects
+    The dashboard sorts and color-codes by this field; an unparseable or missing severity will be coerced to "medium" and the finding will be deprioritized.
   - category: one of "potential_bug", "missing_validation", "error_handling", "security_concern", "maintainability", "performance", "code_smell", "other"
   - artifactReference: which file and section the finding relates to
   - description: detailed explanation of the issue
@@ -245,7 +251,13 @@ You must return your response as a JSON object with these fields:
 - thoughts: array of strings — your reasoning chain as you trace each requirement
 - findings: array of findings, each with:
   - title: short descriptive title
-  - severity: one of "critical", "high", "medium", "low", "info"
+  - severity: string — REQUIRED, one of "critical", "high", "medium", "low", "info". Reflect the operational risk of the gap, e.g.:
+    * "critical" — a stated requirement has no implementation at all and it's a security or correctness requirement
+    * "high" — a core requirement is only partially implemented, or the implementation is in the wrong module
+    * "medium" — a secondary requirement is partially covered; tests or doc updates would close it
+    * "low" — naming or comment drift between spec and code, easy to align
+    * "info" — "well_covered" observations and nice-to-have notes
+    The dashboard sorts and color-codes by this field; an unparseable or missing severity will be coerced to "medium".
   - category: one of "missing_implementation", "partial_implementation", "unclear_mapping", "extra_implementation", "well_covered"
   - artifactReference: which requirement and/or code file the finding relates to
   - description: detailed explanation of the traceability relationship
