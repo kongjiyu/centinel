@@ -85,12 +85,23 @@ export function extractLocation(finding: { artifactReference?: string; evidence?
  * rules > LLM judgement).
  *
  * Exported so the unit test can import it directly (OPTION A in the brief).
+ *
+ * Generic over the caller-supplied finding type so the returned `kept` /
+ * `dropped` arrays preserve every field the caller attached (severity,
+ * description, recommendation, etc.). The function only reads filePath,
+ * lineNumber, evidence, confidence, and title from each item.
  */
-export async function dedupeAgainstStaticFindings(
+export async function dedupeAgainstStaticFindings<T extends {
+  filePath: string;
+  lineNumber: number | null;
+  evidence: string;
+  confidence: string;
+  title: string;
+}>(
   sessionId: string,
   projectId: string,
-  aiFindings: { filePath: string; lineNumber: number | null; evidence: string; confidence: string; title: string }[],
-): Promise<{ kept: typeof aiFindings; dropped: typeof aiFindings }> {
+  aiFindings: T[],
+): Promise<{ kept: T[]; dropped: T[] }> {
   const db = await getDb();
   const stmt = db.prepare(
     'SELECT file_path, line_number, evidence, confidence FROM static_analysis_results WHERE project_id = ? AND session_id = ?'
@@ -118,16 +129,20 @@ export async function dedupeAgainstStaticFindings(
     return shared / Math.min(aT.size, bT.size);
   };
 
-  const kept: typeof aiFindings = [];
-  const dropped: typeof aiFindings = [];
+  const kept: T[] = [];
+  const dropped: T[] = [];
   for (const ai of aiFindings) {
     if (!ai.filePath || ai.lineNumber == null) {
       kept.push(ai);  // can't dedup without location — pass through
       continue;
     }
+    // Bind the narrowed lineNumber to a local so the closure in .find() can
+    // see the non-null type. TS doesn't carry the narrowing through a
+    // lambda capture otherwise.
+    const aiLine = ai.lineNumber;
     const match = staticRows.find(s =>
       s.filePath === ai.filePath &&
-      Math.abs(s.lineNumber - ai.lineNumber) <= 2 &&
+      Math.abs(s.lineNumber - aiLine) <= 2 &&
       overlap(s.evidence, ai.evidence) >= 0.3
     );
     if (match) {

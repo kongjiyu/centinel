@@ -257,10 +257,17 @@ function initSchema(db: Database) {
       category TEXT NOT NULL,
       message TEXT NOT NULL,
       evidence TEXT,
+      confidence TEXT NOT NULL DEFAULT 'high',
       created_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id)
     )
   `);
+  // Migration: older databases (pre-noise-filter era) were created without
+  // the confidence column. dedupeAgainstStaticFindings reads it to rank
+  // static findings vs AI findings; without the column that query throws
+  // "no such column: confidence" mid-pipeline. Backfill with 'high' — static
+  // rules are deterministic so 'high' is the correct implicit value.
+  addColumnIfMissing(db, 'static_analysis_results', 'confidence', "TEXT NOT NULL DEFAULT 'high'");
 
   // Phase 6: Requirements
   db.run(`
@@ -345,4 +352,29 @@ export function saveDb() {
   if (!dbInstance || isTestMode) return;
   const data = dbInstance.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
+}
+
+/**
+ * Migration helper: add a column to a table if it doesn't already exist.
+ * CREATE TABLE IF NOT EXISTS won't add columns to a pre-existing table, so
+ * schema additions for already-deployed databases need an explicit ALTER.
+ * Safe to call on every startup — the PRAGMA check makes it a no-op when
+ * the column is already there.
+ */
+function addColumnIfMissing(
+  db: Database,
+  table: string,
+  column: string,
+  definition: string
+): void {
+  const infoStmt = db.prepare(`PRAGMA table_info(${table})`);
+  const existing = new Set<string>();
+  while (infoStmt.step()) {
+    const row = infoStmt.get() as unknown[];
+    // PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
+    existing.add(row[1] as string);
+  }
+  infoStmt.free();
+  if (existing.has(column)) return;
+  db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

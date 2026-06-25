@@ -23,7 +23,7 @@ async function setupTestDb() {
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, session_id TEXT,
     file_path TEXT NOT NULL, line_number INTEGER, rule_id TEXT NOT NULL,
     severity TEXT NOT NULL, category TEXT NOT NULL, message TEXT NOT NULL,
-    evidence TEXT, created_at TEXT NOT NULL
+    evidence TEXT, confidence TEXT NOT NULL DEFAULT 'high', created_at TEXT NOT NULL
   )`);
   // Mirrored into the unified findings table by runStaticAnalysis so the UI
   // can surface rule-based findings alongside AI findings. Must match db.ts.

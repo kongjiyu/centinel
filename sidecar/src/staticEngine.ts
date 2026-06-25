@@ -117,7 +117,7 @@ export async function runStaticAnalysis(
     for (const finding of allFindings) {
       const id = crypto.randomUUID();
       db.run(
-        'INSERT INTO static_analysis_results (id, project_id, session_id, file_path, line_number, rule_id, severity, category, message, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO static_analysis_results (id, project_id, session_id, file_path, line_number, rule_id, severity, category, message, evidence, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           id,
           projectId,
@@ -129,6 +129,10 @@ export async function runStaticAnalysis(
           finding.category,
           finding.message,
           finding.evidence,
+          // Static rules are deterministic — always 'high' confidence. The
+          // dedupe function compares this against AI findings' self-reported
+          // confidence; static wins on ties.
+          'high',
           now,
         ]
       );
