@@ -110,6 +110,8 @@ export async function createTestDb(): Promise<Database> {
       base_ref TEXT NOT NULL DEFAULT '',
       head_ref TEXT NOT NULL DEFAULT '',
       changed_files_json TEXT NOT NULL DEFAULT '[]',
+      parent_session_id TEXT NOT NULL DEFAULT '',
+      review_diff_json TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id)
@@ -209,8 +211,8 @@ export function insertTestStaticSession(
 ) {
   const now = new Date().toISOString();
   db.run(
-    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, 'Test Review', 'requirement_review', status, '{}', '{}', '', 'Test summary', '', now, now, '', '', '[]']
+    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, 'Test Review', 'requirement_review', status, '{}', '{}', '', 'Test summary', '', now, now, '', '', '[]', '', '']
   );
 }
 

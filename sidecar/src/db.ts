@@ -200,15 +200,22 @@ function initSchema(db: Database) {
     )
   `);
 
-  // Migrate: add columns to findings if they don't exist (existing DBs)
-  const migrateCol = (col: string, colDef: string) => {
-    try { db.run(`ALTER TABLE findings ADD COLUMN ${col} ${colDef}`); } catch { /* already exists */ }
+  // Migrate: add columns to a table if they don't exist (existing DBs).
+  //
+  // P1-5 note: this helper used to be hardcoded to `findings` — which
+  // silently corrupted earlier schema migrations whenever a caller
+  // wanted to add a column to a different table (the P0-4 diff-scope
+  // columns on static_sessions were being added to findings, not
+  // static_sessions). Refactored to take an explicit table name so
+  // the silent corruption can't recur.
+  const migrateCol = (table: string, col: string, colDef: string) => {
+    try { db.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${colDef}`); } catch { /* already exists */ }
   };
-  migrateCol('artifact_id', 'TEXT');
-  migrateCol('category', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('evidence_text', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('recommendation', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('confidence', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('findings', 'artifact_id', 'TEXT');
+  migrateCol('findings', 'category', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('findings', 'evidence_text', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('findings', 'recommendation', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('findings', 'confidence', "TEXT NOT NULL DEFAULT ''");
 
   // Migrate: add remarks column to static_sessions if missing
   try { db.run("ALTER TABLE static_sessions ADD COLUMN remarks TEXT NOT NULL DEFAULT ''"); } catch { /* already exists */ }
@@ -220,17 +227,33 @@ function initSchema(db: Database) {
   try { db.run("ALTER TABLE findings ADD COLUMN from_remarks INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
 
   // Migrate: add file_path + line_number to findings for precise location display
-  migrateCol('file_path', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('line_number', 'INTEGER');
+  migrateCol('findings', 'file_path', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('findings', 'line_number', 'INTEGER');
 
   // Migrate: add diff-scope columns to static_sessions (P0-4)
   // - base_ref / head_ref: the user-supplied git refs the review is scoped to
   // - changed_files_json: array of paths changed between those refs
   //   (JSON-encoded; small for any reasonable PR, no need for a join table)
   // All nullable: most existing reviews predate the feature and have no scope.
-  migrateCol('base_ref', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('head_ref', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('changed_files_json', "TEXT NOT NULL DEFAULT '[]'");
+  // P1-5 fix: these were previously added via migrateCol('findings', ...)
+  // which silently corrupted findings rather than static_sessions. The
+  // refactor above now lets us target the right table.
+  migrateCol('static_sessions', 'base_ref', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('static_sessions', 'head_ref', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('static_sessions', 'changed_files_json', "TEXT NOT NULL DEFAULT '[]'");
+
+  // P1-5: Re-review on push. Two new columns on static_sessions:
+  //   - parent_session_id: the session this one was generated from
+  //     (null for first-time reviews). Forms a chain — re-review
+  //     re-reviews land with their own parent, building an audit
+  //     trail of the "this PR has been reviewed N times" lineage.
+  //   - review_diff_json: cached result of the last diff computation
+  //     against the parent (or null until the user opens the diff
+  //     view). Caching avoids re-running the SQL aggregation on every
+  //     dashboard load.
+  migrateCol('static_sessions', 'parent_session_id', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('static_sessions', 'review_diff_json', "TEXT NOT NULL DEFAULT ''");
+  db.run(`CREATE INDEX IF NOT EXISTS idx_static_sessions_parent ON static_sessions(parent_session_id) WHERE parent_session_id != ''`);
 
   // Test plan (Group 2c).
   //
@@ -276,7 +299,7 @@ function initSchema(db: Database) {
   // repo_index gets a `module` column derived from the first path segment
   // under the workspace root. Back-fill empty for existing rows; the next
   // call to indexProject will populate it.
-  migrateCol('module', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('repo_index', 'module', "TEXT NOT NULL DEFAULT ''");
   // Back-fill the module for any existing rows that were indexed before
   // this column existed. We inline the same heuristic deriveModuleFromPath
   // uses (in repoIndex.ts) to avoid pulling repoIndex into db.ts — that
