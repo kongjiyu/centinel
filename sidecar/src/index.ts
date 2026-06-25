@@ -40,6 +40,8 @@ import {
   updateStaticSessionStatus,
   updateStaticSessionProgress,
   listReviewArtifacts,
+  carryoverFindings,
+  getSessionDiff,
 } from './staticSessions';
 import { runStaticReview } from './staticReview';
 import { exportProjectReport, exportSessionReport, exportDynamicSessionReport } from './reportExport';
@@ -220,6 +222,11 @@ function matchTestItem(url: string): { projectId: string; itemId: string } | nul
 function matchRegeneratePlan(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/regenerate-plan$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchSessionDiff(url: string): { projectId: string; childId: string; parentId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/diff\/([^/]+)$/);
+  return m ? { projectId: m[1], childId: m[2], parentId: m[3] } : null;
 }
 
 function matchRequirements(url: string): { projectId: string } | null {
@@ -600,6 +607,28 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // P1-5: optional re-review. When the user clicks 'Re-review' on
+      // a previous completed session, the UI sends parentSessionId.
+      // The new session carries a reference to the parent, and after
+      // it's created we copy the parent's open findings over with
+      // status='carryover' so the dashboard can show "what's still
+      // open from last time" alongside the fresh findings.
+      const parentSessionId = typeof body.parentSessionId === 'string' ? body.parentSessionId.trim() : '';
+      if (parentSessionId) {
+        const parent = await getStaticSession(ssMatch.projectId, parentSessionId);
+        if (!parent) {
+          return json(res, 400, { error: 'parentSessionId not found in this project' });
+        }
+        // Re-reviewing an already-incomplete parent would be weird
+        // (the carryover would pick up 'new' findings that haven't
+        // been triaged yet). Soft-warn but allow.
+        if (parent.status !== 'success') {
+          console.warn(
+            `[review-session] re-review target is not complete: parent=${parentSessionId} status=${parent.status}`
+          );
+        }
+      }
+
       const session = await createStaticSession({
         projectId: ssMatch.projectId,
         name,
@@ -609,7 +638,22 @@ const server = http.createServer(async (req, res) => {
         baseRef,
         headRef,
         changedFiles,
+        parentSessionId: parentSessionId || undefined,
       });
+
+      // Carry over the parent's open findings. This happens before
+      // the review runs so the carryover is visible from the start;
+      // the new review's findings get appended alongside.
+      if (parentSessionId) {
+        try {
+          const carried = await carryoverFindings(parentSessionId, session.id, ssMatch.projectId);
+          console.info(
+            `[review-session] carryover parent=${parentSessionId} child=${session.id} count=${carried}`
+          );
+        } catch (e) {
+          console.warn(`[review-session] carryover failed: ${(e as Error).message}`);
+        }
+      }
 
       console.info(
         `[review-session] queued id=${session.id} project=${session.projectId} artifacts=${allArtifacts.length}`
@@ -794,6 +838,15 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 500, { error: `Plan generation failed: ${(e as Error).message}` });
       }
+    }
+
+    // P1-5: session-to-session diff. Used by the "what changed since
+    // last review" view in the Re-review UI.
+    const diffMatch = matchSessionDiff(url);
+    if (diffMatch && req.method === 'GET') {
+      const diff = await getSessionDiff(diffMatch.projectId, diffMatch.childId, diffMatch.parentId);
+      if (!diff) return json(res, 404, { error: 'Session or parent not found' });
+      return json(res, 200, diff);
     }
 
     // === Unified Findings ===
