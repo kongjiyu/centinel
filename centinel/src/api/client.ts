@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision } from '../types';
+import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -186,6 +186,37 @@ export const api = {
     request<ReviewDecisionRecord>(
       `/projects/${projectId}/static-sessions/${sessionId}/decision`,
       { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  // Test Plan (Group 2c)
+  listTestItems: (
+    projectId: string,
+    filters: { module?: string; status?: TestItemStatus; sessionId?: string } = {}
+  ) => {
+    const params = new URLSearchParams();
+    if (filters.module) params.set('module', filters.module);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.sessionId) params.set('sessionId', filters.sessionId);
+    const qs = params.toString();
+    return request<TestItem[]>(
+      `/projects/${projectId}/test-items${qs ? '?' + qs : ''}`
+    );
+  },
+  listTestItemRollups: (projectId: string) =>
+    request<TestItemRollup[]>(`/projects/${projectId}/test-items/rollups`),
+  updateTestItemStatus: (
+    projectId: string,
+    itemId: string,
+    status: TestItemStatus
+  ) =>
+    request<TestItem>(`/projects/${projectId}/test-items/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+  regenerateTestPlan: (projectId: string, sessionId: string) =>
+    request<{ findings: number; items: number; smoke: number }>(
+      `/projects/${projectId}/static-sessions/${sessionId}/regenerate-plan`,
+      { method: 'POST' }
     ),
 
   // Unified Findings

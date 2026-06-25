@@ -134,6 +134,44 @@ export type ReviewDecisionRecord = {
   createdAt: string;
 };
 
+/**
+ * Test plan item (Group 2c). A single executable test derived from a
+ * static-review finding (rationale = the finding id) or generated as
+ * a smoke test for an unfinded module (rationale = 'smoke').
+ */
+export type TestItemKind = 'unit' | 'integration' | 'e2e' | 'smoke';
+export type TestItemStatus = 'proposed' | 'accepted' | 'rejected' | 'in_progress' | 'passed' | 'failed';
+
+export type TestItem = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  module: string;
+  component: string | null;
+  filePath: string;
+  lineNumber: number | null;
+  title: string;
+  description: string;
+  /** The finding id that drove this item, or 'smoke' / 'coverage_gap'. */
+  rationale: string | null;
+  kind: TestItemKind;
+  severity: string;
+  status: TestItemStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TestItemRollup = {
+  module: string;
+  total: number;
+  proposed: number;
+  accepted: number;
+  rejected: number;
+  inProgress: number;
+  passed: number;
+  failed: number;
+};
+
 export type Finding = {
   id: string;
   projectId: string;

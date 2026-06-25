@@ -10,6 +10,7 @@ import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { ActiveSessionInline } from '../components/ActiveSessionInline';
 import { ActiveSessionComplete } from '../components/ActiveSessionComplete';
 import { ReviewDecisionPill } from '../components/ReviewDecisionBar';
+import { TestPlanPanel } from '../components/TestPlanPanel';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
@@ -277,6 +278,21 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
               activeReviewState?.session.projectId === project.id
                 ? `${activeReviewState.session.id}:${activeReviewState.session.status}`
                 : undefined
+            }
+          />
+        </div>
+
+        {/* Test Plan (Group 2c) — module-grouped test items derived
+            from the static review. Mounts below findings so the
+            reviewer can scan defects and the test plan to address
+            them in one pass. */}
+        <div className="card detail-card test-plan-card">
+          <TestPlanPanel
+            projectId={project.id}
+            sessionId={
+              activeReviewState?.session.projectId === project.id
+                ? activeReviewState.session.id
+                : staticSessions.find(s => s.status === 'success')?.id
             }
           />
         </div>
