@@ -146,7 +146,10 @@ describe('staticReview', () => {
       expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-1', 'running', '', '');
     });
 
-    it('should fail when text AI provider is not configured and artifacts exist', async () => {
+    it('should mark session as failure when text AI provider is not configured and artifacts exist', async () => {
+      // Per-stage error recovery (B7): instead of throwing, the function
+      // resolves with the session marked 'failure' because every stage
+      // could not reach the AI provider.
       vi.mocked(getRawAiSetting).mockResolvedValue(null);
       vi.mocked(readArtifactContent).mockResolvedValue('Some content');
 
@@ -169,11 +172,12 @@ describe('staticReview', () => {
         contentHash: 'hash1', createdAt: new Date().toISOString(),
       };
 
-      await expect(runStaticReview(session, [artifact])).rejects.toThrow('Text AI provider not configured');
-      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-1', 'failure', '', expect.stringContaining('not configured'));
+      // Function resolves (no throw) but ends in 'failure' state.
+      await runStaticReview(session, [artifact]);
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-1', 'failure', expect.any(String), expect.stringContaining('not configured'));
     });
 
-    it('should fail when API key is missing and artifacts exist', async () => {
+    it('should mark session as failure when API key is missing and artifacts exist', async () => {
       vi.mocked(getRawAiSetting).mockResolvedValue({
         apiKey: '',
         baseUrl: 'https://api.example.com',
@@ -201,7 +205,8 @@ describe('staticReview', () => {
         contentHash: 'hash1', createdAt: new Date().toISOString(),
       };
 
-      await expect(runStaticReview(session, [artifact])).rejects.toThrow('API key not configured');
+      await runStaticReview(session, [artifact]);
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-1', 'failure', expect.any(String), expect.stringContaining('not configured'));
     });
 
     it('should succeed with 0 findings when artifacts cannot be read', async () => {
@@ -575,7 +580,14 @@ describe('staticReview', () => {
       expect(body.messages[1].role).toBe('user');
     });
 
-    it('should handle AI API HTTP error', async () => {
+    it('should handle AI API HTTP error with per-stage recovery (session ends in partial state when requirements stage is skipped)', async () => {
+      // Per-stage error recovery (B7): an HTTP error from the AI provider
+      // marks the current stage as failed and continues to the next stage.
+      // When the artifact is source_code (no requirement/design docs), Stage 3
+      // is a no-op that "succeeds" with empty results. So Stages 1, 2, 4 fail
+      // and the session ends in 'partial' (not 'failure' which requires all
+      // 4 stages to fail). The failure reason captures the first error so the
+      // dashboard can surface what went wrong.
       vi.mocked(getRawAiSetting).mockResolvedValue({
         apiKey: 'test-key',
         baseUrl: 'https://api.example.com',
@@ -604,8 +616,8 @@ describe('staticReview', () => {
         contentHash: 'hash1', createdAt: new Date().toISOString(),
       };
 
-      await expect(runStaticReview(session, [artifact])).rejects.toThrow('AI API error');
-      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-1', 'failure', '', expect.stringContaining('429'));
+      await runStaticReview(session, [artifact]);
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith('ss-1', 'partial', expect.any(String), '');
     });
 
     it('should truncate very large artifact content', async () => {
@@ -1084,6 +1096,39 @@ describe('staticReview', () => {
       );
       const hasTruncationNote = allThoughts.some((t) => /truncat/i.test(t));
       expect(hasTruncationNote).toBe(true);
+    });
+
+    // B7: Per-stage error recovery. When Stage 2's AI call fails, the
+    // session should NOT flip to 'failure' — Stages 1, 3, 4 should still
+    // run and the final status should be 'partial' (some succeeded, some
+    // failed). The user keeps the findings from the stages that worked.
+    it('marks session as partial when Stage 2 fails but Stages 1/3/4 succeed', async () => {
+      vi.mocked(getRawAiSetting).mockResolvedValue({
+        apiKey: 'k', baseUrl: 'https://api.example.com', model: 'm',
+        provider: 'mimo', apiFormat: 'anthropic-compatible',
+      });
+      vi.mocked(readArtifactContent).mockResolvedValue('// code');
+
+      // Stage 2 returns 500; Stages 1, 3, 4 succeed.
+      fetchSpy
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Server Error', text: async () => 'boom' } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(3)) } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(4)) } as Response);
+
+      const { runStaticReview } = await import('../../src/staticReview');
+      const req = defaultArtifact({ id: 'art-req', type: 'requirement', fileName: 'spec.md' });
+      await runStaticReview(defaultSession(), [req, defaultArtifact()]);
+
+      // Session ends in 'partial' (not 'success', not 'failure').
+      expect(updateStaticSessionStatus).toHaveBeenCalledWith(
+        'ss-e2e', 'partial', expect.any(String), ''
+      );
+      // Stage 3's finding still gets persisted even though Stage 2 failed.
+      const findingCalls = vi.mocked(createFinding).mock.calls;
+      const titles = findingCalls.map((c: any) => c[2].title);
+      expect(titles).toContain('Missing login requirement');
+      expect(titles).not.toContain('Null pointer risk'); // Stage 2's finding
     });
   });
 

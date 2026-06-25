@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getDb, saveDb } from './db.js';
 
-export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
+export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'partial' | 'failure' | 'cancelled';
 
 export type ReviewType =
   | 'requirement_review'
@@ -74,9 +74,10 @@ export type ReviewStageId =
 export type ReviewStageProgress = {
   id: ReviewStageId;
   label: string;
-  status: 'pending' | 'active' | 'done';
+  status: 'pending' | 'active' | 'done' | 'failed';
   thoughts: string[];
   summary?: string;
+  error?: string;
 };
 
 export type ReviewProgress = {

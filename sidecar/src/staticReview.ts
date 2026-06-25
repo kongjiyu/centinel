@@ -670,8 +670,9 @@ export async function runStaticReview(
  * recovery, parallel stages) a single seam to hook into.
  */
 class StageRunner {
-  private completedThoughts: string[][];
-  private completedSummaries: string[];
+  completedThoughts: string[][];
+  completedSummaries: string[];
+  stageErrors: (string | undefined)[];
 
   constructor(
     private session: StaticSession,
@@ -679,16 +680,31 @@ class StageRunner {
   ) {
     this.completedThoughts = STAGE_DEFINITIONS.map(() => []);
     this.completedSummaries = STAGE_DEFINITIONS.map(() => '');
+    this.stageErrors = STAGE_DEFINITIONS.map(() => undefined);
+  }
+
+  /** Returns the number of stages that ended in 'failed' state. Used by the
+   *  caller to decide between 'success' and 'partial' final status. */
+  failedCount(): number {
+    return this.stageErrors.filter((e) => e !== undefined).length;
+  }
+
+  /** Returns the IDs of failed stages, for logging/diagnostics. */
+  failedStageIds(): string[] {
+    return STAGE_DEFINITIONS
+      .filter((_, i) => this.stageErrors[i] !== undefined)
+      .map((def) => def.id);
   }
 
   /** Build the ReviewStageProgress[] for an emit. */
-  private buildStages(stageIdx: number, status: 'active' | 'done', thoughts: string[]): ReviewStageProgress[] {
+  private buildStages(stageIdx: number, status: 'active' | 'done' | 'failed', thoughts: string[]): ReviewStageProgress[] {
     return STAGE_DEFINITIONS.map((def, i) => ({
       id: def.id,
       label: def.label,
       status: i < stageIdx ? 'done' : i === stageIdx ? status : 'pending',
       thoughts: i === stageIdx ? thoughts : (i < stageIdx ? this.completedThoughts[i] : []),
       summary: i < stageIdx ? this.completedSummaries[i] : undefined,
+      error: i === stageIdx && status === 'failed' ? this.stageErrors[stageIdx] : undefined,
     }));
   }
 
@@ -706,7 +722,7 @@ class StageRunner {
 
   /** Mark a stage as active (no thoughts) or done (full thoughts). Persists
    *  the stage's completed state first so future emits include it. */
-  emit(stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string): void {
+  emit(stageIdx: number, status: 'active' | 'done' | 'failed', thoughts: string[], summary?: string): void {
     if (status === 'done') {
       this.completedThoughts[stageIdx] = thoughts;
       this.completedSummaries[stageIdx] = summary ?? '';
@@ -719,6 +735,19 @@ class StageRunner {
     };
     updateStaticSessionProgress(this.session.id, progress);
     this.onProgress?.(progress);
+  }
+
+  /** Mark a stage as failed with an error message. The error is stored in the
+   *  stage progress so the dashboard can surface what went wrong. */
+  markFailed(stageIdx: number, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    this.stageErrors[stageIdx] = message;
+    this.completedThoughts[stageIdx] = [`❌ ${message}`];
+    this.emit(stageIdx, 'failed', this.completedThoughts[stageIdx]);
+    console.warn(
+      `[review-session] stage=${STAGE_DEFINITIONS[stageIdx].id} session=${this.session.id} ` +
+      `failed: ${message}`
+    );
   }
 
   /** Persist a list of findings to the database with location extraction and
@@ -850,22 +879,28 @@ export async function runStaticReviewPrefetch(
       const setting = await getRawAiSetting('text');
       if (setting) s1Recorder.bindProvider(setting);
     }
-    const s1Response = await callAi(
-      CONTEXT_UNDERSTANDING_PROMPT.build(artifactContents, session.remarks),
-      CONTEXT_UNDERSTANDING_PROMPT.system,
-      { stageIdx: 0, onTruncate: emitThinking },
-      s1Recorder.handler
-    );
-    const s1 = parseStageResponse(s1Response);
-    console.info(
-      `[review-session] stage=understanding_context session=${session.id} ` +
-      `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
-      `raw_response_length=${s1Response.length}`
-    );
-    if (s1.thoughts.length === 0) {
-      console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
+    let s1: StageResponse = { thoughts: [], findings: [] };
+    let s1Response = '';
+    try {
+      s1Response = await callAi(
+        CONTEXT_UNDERSTANDING_PROMPT.build(artifactContents, session.remarks),
+        CONTEXT_UNDERSTANDING_PROMPT.system,
+        { stageIdx: 0, onTruncate: emitThinking },
+        s1Recorder.handler
+      );
+      s1 = parseStageResponse(s1Response);
+      console.info(
+        `[review-session] stage=understanding_context session=${session.id} ` +
+        `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
+        `raw_response_length=${s1Response.length}`
+      );
+      if (s1.thoughts.length === 0) {
+        console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
+      }
+      emit(0, 'done', s1.thoughts, (s1.projectSummary as string) || 'Context understood');
+    } catch (err) {
+      runner.markFailed(0, err);
     }
-    emit(0, 'done', s1.thoughts, (s1.projectSummary as string) || 'Context understood');
 
     // ── Stage 2: Code Review ──────────────────────────────────
     emit(1, 'active', []);
@@ -878,59 +913,63 @@ export async function runStaticReviewPrefetch(
       const setting = await getRawAiSetting('text');
       if (setting) s2Recorder.bindProvider(setting);
     }
+    let s2: StageResponse = { thoughts: [], findings: [] };
+    try {
+      const s2Response = await callAi(
+        CODE_REVIEW_PROMPT.build(codeToReview, {
+          projectSummary: (s1.projectSummary as string) || '',
+          artifactInventory: (s1.artifactInventory as { name: string; type: string; purpose: string }[]) || [],
+          userIntent: (s1.userIntent as string) || session.remarks,
+        }, session.remarks),
+        CODE_REVIEW_PROMPT.system,
+        { stageIdx: 1, onTruncate: emitThinking },
+        s2Recorder.handler
+      );
+      s2 = parseStageResponse(s2Response);
 
-    const s2Response = await callAi(
-      CODE_REVIEW_PROMPT.build(codeToReview, {
-        projectSummary: (s1.projectSummary as string) || '',
-        artifactInventory: (s1.artifactInventory as { name: string; type: string; purpose: string }[]) || [],
-        userIntent: (s1.userIntent as string) || session.remarks,
-      }, session.remarks),
-      CODE_REVIEW_PROMPT.system,
-      { stageIdx: 1, onTruncate: emitThinking },
-      s2Recorder.handler
-    );
-    const s2 = parseStageResponse(s2Response);
+      // Save code review findings
+      const codeRiskInputs: RiskInput[] = s2.findings.map(f => ({
+        severity: f.severity,
+        confidence: f.confidence || 'medium',
+        category: f.category || '',
+        filePath: f.artifactReference || '',
+      }));
+      const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
 
-    // Save code review findings
-    const codeRiskInputs: RiskInput[] = s2.findings.map(f => ({
-      severity: f.severity,
-      confidence: f.confidence || 'medium',
-      category: f.category || '',
-      filePath: f.artifactReference || '',
-    }));
-    const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
+      const codeFindingsWithLocation = s2.findings.map(f => {
+        const location = extractLocation(f);
+        return {
+          ...f,
+          filePath: location.filePath,
+          lineNumber: location.lineNumber,
+        };
+      });
+      const deduped = await dedupeAgainstStaticFindings(session.id, session.projectId, codeFindingsWithLocation);
+      console.info(
+        `[review-session] stage=code_review session=${session.id} ` +
+        `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
+      );
 
-    const codeFindingsWithLocation = s2.findings.map(f => {
-      const location = extractLocation(f);
-      return {
-        ...f,
-        filePath: location.filePath,
-        lineNumber: location.lineNumber,
-      };
-    });
-    const deduped = await dedupeAgainstStaticFindings(session.id, session.projectId, codeFindingsWithLocation);
-    console.info(
-      `[review-session] stage=code_review session=${session.id} ` +
-      `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
-    );
+      // NOTE: dedupeAgainstStaticFindings preserves array order (dropped items
+      // are removed from the tail, keeping relative order of kept items), and
+      // deduped.kept maps 1:1 to the head of codeScored. runner.saveFindings
+      // pairs them positionally — using indexOf() would be wrong because dedup
+      // reshapes the objects (adds filePath/lineNumber) so object identity
+      // never matches.
+      await runner.saveFindings(session, deduped.kept, codeScored);
 
-    // NOTE: dedupeAgainstStaticFindings preserves array order (dropped items
-    // are removed from the tail, keeping relative order of kept items), and
-    // deduped.kept maps 1:1 to the head of codeScored. runner.saveFindings
-    // pairs them positionally — using indexOf() would be wrong because dedup
-    // reshapes the objects (adds filePath/lineNumber) so object identity
-    // never matches.
-    await runner.saveFindings(session, deduped.kept, codeScored);
-
-    console.info(
-      `[review-session] stage=code_review session=${session.id} ` +
-      `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
-      `raw_response_length=${s2Response.length}`
-    );
-    if (s2.findings.length === 0 && s2.thoughts.length === 0) {
-      console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
+      console.info(
+        `[review-session] stage=code_review session=${session.id} ` +
+        `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
+        `raw_response_length=${s2Response.length}`
+      );
+      if (s2.findings.length === 0 && s2.thoughts.length === 0) {
+        console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
+      }
+      emit(1, 'done', s2.thoughts, `${s2.findings.length} code issue(s) found`);
+    } catch (err) {
+      runner.markFailed(1, err);
     }
-    emit(1, 'done', s2.thoughts, `${s2.findings.length} code issue(s) found`);
 
     // ── Stage 3: Requirement-to-Code Validation ───────────────
     emit(2, 'active', []);
@@ -942,50 +981,54 @@ export async function runStaticReviewPrefetch(
     let s3: StageResponse = { thoughts: ['No requirement documents found — skipping traceability analysis.'], findings: [] };
     let s3Response: string = '';  // hoisted so the post-stage log can reference it
 
-    if (reqArtifacts.length > 0) {
-      const s3Recorder = makeStageUsageRecorder('requirement_validation');
-      {
-        const setting = await getRawAiSetting('text');
-        if (setting) s3Recorder.bindProvider(setting);
+    try {
+      if (reqArtifacts.length > 0) {
+        const s3Recorder = makeStageUsageRecorder('requirement_validation');
+        {
+          const setting = await getRawAiSetting('text');
+          if (setting) s3Recorder.bindProvider(setting);
+        }
+        s3Response = await callAi(
+          TRACEABILITY_PROMPT.build(
+            reqArtifacts,
+            codeToReview,
+            {
+              projectSummary: (s1.projectSummary as string) || '',
+              userIntent: (s1.userIntent as string) || session.remarks,
+            },
+            (s2.codeQualitySummary as string) || '',
+            session.remarks
+          ),
+          TRACEABILITY_PROMPT.system,
+          { stageIdx: 2, onTruncate: emitThinking },
+          s3Recorder.handler
+        );
+        s3 = parseStageResponse(s3Response);
+
+        // Save traceability findings
+        const traceRiskInputs: RiskInput[] = s3.findings.map(f => ({
+          severity: f.severity,
+          confidence: f.confidence || 'medium',
+          category: f.category || '',
+          filePath: f.artifactReference || '',
+        }));
+        const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
+
+        await runner.saveFindings(session, s3.findings, traceScored);
       }
-      s3Response = await callAi(
-        TRACEABILITY_PROMPT.build(
-          reqArtifacts,
-          codeToReview,
-          {
-            projectSummary: (s1.projectSummary as string) || '',
-            userIntent: (s1.userIntent as string) || session.remarks,
-          },
-          (s2.codeQualitySummary as string) || '',
-          session.remarks
-        ),
-        TRACEABILITY_PROMPT.system,
-        { stageIdx: 2, onTruncate: emitThinking },
-        s3Recorder.handler
+
+      console.info(
+        `[review-session] stage=requirement_validation session=${session.id} ` +
+        `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
+        `raw_response_length=${s3Response.length}`
       );
-      s3 = parseStageResponse(s3Response);
-
-      // Save traceability findings
-      const traceRiskInputs: RiskInput[] = s3.findings.map(f => ({
-        severity: f.severity,
-        confidence: f.confidence || 'medium',
-        category: f.category || '',
-        filePath: f.artifactReference || '',
-      }));
-      const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
-
-      await runner.saveFindings(session, s3.findings, traceScored);
+      if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
+        console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
+      }
+      emit(2, 'done', s3.thoughts, `${s3.findings.length} traceability issue(s) found`);
+    } catch (err) {
+      runner.markFailed(2, err);
     }
-
-    console.info(
-      `[review-session] stage=requirement_validation session=${session.id} ` +
-      `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
-      `raw_response_length=${s3Response.length}`
-    );
-    if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
-      console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
-    }
-    emit(2, 'done', s3.thoughts, `${s3.findings.length} traceability issue(s) found`);
 
     // ── Stage 4: Summarize Findings ───────────────────────────
     emit(3, 'active', []);
@@ -998,68 +1041,104 @@ export async function runStaticReviewPrefetch(
       const setting = await getRawAiSetting('text');
       if (setting) s4Recorder.bindProvider(setting);
     }
+    let s4: StageResponse = { thoughts: [], findings: [] };
 
-    const s4Response = await callAi(
-      SUMMARY_PROMPT.build(
-        {
-          projectSummary: (s1.projectSummary as string) || '',
-          userIntent: (s1.userIntent as string) || session.remarks,
-        },
-        s2.findings,
-        s3.findings,
-        staticFindings,
-        session.remarks
-      ),
-      SUMMARY_PROMPT.system,
-      { stageIdx: 3, onTruncate: emitThinking },
-      s4Recorder.handler
-    );
-    const s4 = parseStageResponse(s4Response);
-
-    // Extract extra artifacts if present
-    if (s4.extra_artifacts && Array.isArray(s4.extra_artifacts)) {
-      extraArtifacts = s4.extra_artifacts.filter((f: any) =>
-        typeof f === 'object' && f !== null && f.title && f.content
+    try {
+      const s4Response = await callAi(
+        SUMMARY_PROMPT.build(
+          {
+            projectSummary: (s1.projectSummary as string) || '',
+            userIntent: (s1.userIntent as string) || session.remarks,
+          },
+          s2.findings,
+          s3.findings,
+          staticFindings,
+          session.remarks
+        ),
+        SUMMARY_PROMPT.system,
+        { stageIdx: 3, onTruncate: emitThinking },
+        s4Recorder.handler
       );
-    }
+      s4 = parseStageResponse(s4Response);
 
-    // Save extra artifacts
-    for (const ea of extraArtifacts) {
-      await createReviewArtifact(session.id, session.projectId, {
-        title: ea.title,
-        content: ea.content,
-        artifactType: ea.type || 'analysis',
-      });
-    }
+      // Extract extra artifacts if present
+      if (s4.extra_artifacts && Array.isArray(s4.extra_artifacts)) {
+        extraArtifacts = s4.extra_artifacts.filter((f: any) =>
+          typeof f === 'object' && f !== null && f.title && f.content
+        );
+      }
 
-    console.info(
-      `[review-session] stage=summarizing session=${session.id} ` +
-      `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
-      `raw_response_length=${s4Response.length}`
-    );
-    emit(3, 'done', s4.thoughts, 'Review complete');
+      // Save extra artifacts
+      for (const ea of extraArtifacts) {
+        await createReviewArtifact(session.id, session.projectId, {
+          title: ea.title,
+          content: ea.content,
+          artifactType: ea.type || 'analysis',
+        });
+      }
+
+      console.info(
+        `[review-session] stage=summarizing session=${session.id} ` +
+        `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
+        `raw_response_length=${s4Response.length}`
+      );
+      emit(3, 'done', s4.thoughts, 'Review complete');
+    } catch (err) {
+      runner.markFailed(3, err);
+    }
 
     const totalAiFindings = s2.findings.length + s3.findings.length;
     const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifactContents.length} artifact(s).`;
-    await updateStaticSessionStatus(session.id, 'success', summary, '');
+    // Decide final session status: 'success' if every stage completed, 'partial'
+    // if some stages failed but at least one produced findings, 'failure' if
+    // no AI stage produced anything usable. (Pre-flight failures like "AI not
+    // configured" are caught by the outer try and reported as 'failure'.)
+    const failedCount = runner.failedCount();
+    const finalStatus: 'success' | 'partial' | 'failure' =
+      failedCount === 0 ? 'success'
+        : failedCount < 4 ? 'partial'
+        : 'failure';
+    if (finalStatus === 'partial') {
+      console.warn(
+        `[review-session] session=${session.id} reached partial status — ` +
+        `failed stages: ${runner.failedStageIds().join(', ')}`
+      );
+    }
+    // For 'failure', include the first error message in the reason so the
+    // dashboard can surface the root cause (e.g. "API key not configured",
+    // "AI API error: HTTP 429") without the user having to dig through logs.
+    const failureReason = finalStatus === 'failure'
+      ? (() => {
+          const firstError = STAGE_DEFINITIONS
+            .map((_, i) => runner.stageErrors[i])
+            .find((e) => e !== undefined);
+          return firstError
+            ? `${runner.failedStageIds().join(', ')}: ${firstError}`
+            : runner.failedStageIds().join(', ');
+        })()
+      : '';
+    await updateStaticSessionStatus(session.id, finalStatus, summary, failureReason);
 
     // Group 2c: auto-generate the test plan from the findings. This
     // runs after the session is marked 'success' so the dashboard can
     // show "Test plan: 12 items proposed" right alongside the verdict.
     // Failures are logged but don't fail the review — the user can
     // always click "Regenerate plan" to retry, and the review itself
-    // is already committed.
-    try {
-      const { generateTestPlanForSession } = await import('./testPlanGenerator.js');
-      const plan = await generateTestPlanForSession(session.id, session.projectId);
-      console.info(
-        `[review-session] test-plan generated session=${session.id} ` +
-        `findings=${plan.findings} items=${plan.items} smoke=${plan.smoke}`
-      );
-    } catch (e) {
-      console.warn(
-        `[review-session] test-plan generation failed session=${session.id}: ${(e as Error).message}`
-      );
+    // is already committed. We skip this for 'partial' sessions with
+    // no findings to summarize, and for 'failure' sessions.
+    if (finalStatus !== 'failure' && (totalAiFindings + staticFindings.length) > 0) {
+      try {
+        const { generateTestPlanForSession } = await import('./testPlanGenerator.js');
+        const plan = await generateTestPlanForSession(session.id, session.projectId);
+        console.info(
+          `[review-session] test-plan generated session=${session.id} ` +
+          `findings=${plan.findings} items=${plan.items} smoke=${plan.smoke}`
+        );
+      } catch (e) {
+        console.warn(
+          `[review-session] test-plan generation failed session=${session.id}: ${(e as Error).message}`
+        );
+      }
     }
 
   } catch (err) {
@@ -1174,84 +1253,94 @@ ${graphJson}
     emit(0, 'active', []);
     emitThinking(0, `Indexing ${artifacts.length} artifact(s); model will fetch files on demand...`);
     const s1UserPrompt = `Analyze the following software artifacts to understand this project.${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Artifacts\n${artifacts.map(a => `- ${a.fileName} (${a.type})`).join('\n')}`;
-    const s1Response = await runStageWithTools(
-      0,
-      baseSystemPrefix + '\n\n' + CONTEXT_UNDERSTANDING_PROMPT.system,
-      s1UserPrompt,
-      session.projectId,
-      workspacePath,
-      setting,
-      (thought) => emitThinking(0, thought),
-      makeStageUsageRecorder('understanding_context')
-    );
-    const s1 = parseStageResponse(s1Response);
-    console.info(
-      `[review-session] stage=understanding_context session=${session.id} ` +
-      `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
-      `raw_response_length=${s1Response.length}`
-    );
-    if (s1.thoughts.length === 0) {
-      console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
+    let s1: StageResponse = { thoughts: [], findings: [] };
+    try {
+      const s1Response = await runStageWithTools(
+        0,
+        baseSystemPrefix + '\n\n' + CONTEXT_UNDERSTANDING_PROMPT.system,
+        s1UserPrompt,
+        session.projectId,
+        workspacePath,
+        setting,
+        (thought) => emitThinking(0, thought),
+        makeStageUsageRecorder('understanding_context')
+      );
+      s1 = parseStageResponse(s1Response);
+      console.info(
+        `[review-session] stage=understanding_context session=${session.id} ` +
+        `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
+        `raw_response_length=${s1Response.length}`
+      );
+      if (s1.thoughts.length === 0) {
+        console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
+      }
+      emit(0, 'done', s1.thoughts, (s1.projectSummary as string) || 'Context understood');
+    } catch (err) {
+      runner.markFailed(0, err);
     }
-    emit(0, 'done', s1.thoughts, (s1.projectSummary as string) || 'Context understood');
 
     // ── Stage 2: Code Review ──────────────────────────────────
     emit(1, 'active', []);
     const codeArtifactNames = artifacts.filter(a => a.type === 'source_code').map(a => a.fileName);
     emitThinking(1, `Reviewing ${codeArtifactNames.length || artifacts.length} file(s) via tools...`);
     const s2UserPrompt = `## Project Context\n${(s1.projectSummary as string) || ''}\n\nUser intent: ${(s1.userIntent as string) || session.remarks}${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Source Code to Review\nUse the tools to fetch the following files (or others you discover via search_symbols):\n${(codeArtifactNames.length > 0 ? codeArtifactNames : artifacts.map(a => a.fileName)).map(n => `- ${n}`).join('\n')}`;
-    const s2Response = await runStageWithTools(
-      1,
-      baseSystemPrefix + '\n\n' + CODE_REVIEW_PROMPT.system,
-      s2UserPrompt,
-      session.projectId,
-      workspacePath,
-      setting,
-      (thought) => emitThinking(1, thought),
-      makeStageUsageRecorder('code_review')
-    );
-    const s2 = parseStageResponse(s2Response);
+    let s2: StageResponse = { thoughts: [], findings: [] };
+    try {
+      const s2Response = await runStageWithTools(
+        1,
+        baseSystemPrefix + '\n\n' + CODE_REVIEW_PROMPT.system,
+        s2UserPrompt,
+        session.projectId,
+        workspacePath,
+        setting,
+        (thought) => emitThinking(1, thought),
+        makeStageUsageRecorder('code_review')
+      );
+      s2 = parseStageResponse(s2Response);
 
-    // Save code review findings
-    const codeRiskInputs: RiskInput[] = s2.findings.map(f => ({
-      severity: f.severity,
-      confidence: f.confidence || 'medium',
-      category: f.category || '',
-      filePath: f.artifactReference || '',
-    }));
-    const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
+      // Save code review findings
+      const codeRiskInputs: RiskInput[] = s2.findings.map(f => ({
+        severity: f.severity,
+        confidence: f.confidence || 'medium',
+        category: f.category || '',
+        filePath: f.artifactReference || '',
+      }));
+      const codeScored = scoreFindings(codeRiskInputs, artifacts.length);
 
-    const codeFindingsWithLocation = s2.findings.map(f => {
-      const location = extractLocation(f);
-      return {
-        ...f,
-        filePath: location.filePath,
-        lineNumber: location.lineNumber,
-      };
-    });
-    const deduped = await dedupeAgainstStaticFindings(session.id, session.projectId, codeFindingsWithLocation);
-    console.info(
-      `[review-session] stage=code_review session=${session.id} ` +
-      `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
-    );
+      const codeFindingsWithLocation = s2.findings.map(f => {
+        const location = extractLocation(f);
+        return {
+          ...f,
+          filePath: location.filePath,
+          lineNumber: location.lineNumber,
+        };
+      });
+      const deduped = await dedupeAgainstStaticFindings(session.id, session.projectId, codeFindingsWithLocation);
+      console.info(
+        `[review-session] stage=code_review session=${session.id} ` +
+        `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
+      );
 
-    // NOTE: dedupeAgainstStaticFindings preserves array order (dropped items
-    // are removed from the tail, keeping relative order of kept items), and
-    // deduped.kept maps 1:1 to the head of codeScored. runner.saveFindings
-    // pairs them positionally — using indexOf() would be wrong because dedup
-    // reshapes the objects (adds filePath/lineNumber) so object identity
-    // never matches.
-    await runner.saveFindings(session, deduped.kept, codeScored);
+      // NOTE: dedupeAgainstStaticFindings preserves array order (dropped items
+      // are removed from the tail, keeping relative order of kept items), and
+      // deduped.kept maps 1:1 to the head of codeScored. runner.saveFindings
+      // pairs them positionally — using indexOf() would be wrong because dedup
+      // reshapes the objects (adds filePath/lineNumber) so object identity
+      // never matches.
+      await runner.saveFindings(session, deduped.kept, codeScored);
 
-    console.info(
-      `[review-session] stage=code_review session=${session.id} ` +
-      `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
-      `raw_response_length=${s2Response.length}`
-    );
-    if (s2.findings.length === 0 && s2.thoughts.length === 0) {
-      console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
+      console.info(
+        `[review-session] stage=code_review session=${session.id} ` +
+        `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
+        `raw_response_length=${s2Response.length}`
+      );
+      if (s2.findings.length === 0 && s2.thoughts.length === 0) {
+        console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
+      }
+      emit(1, 'done', s2.thoughts, `${s2.findings.length} code issue(s) found`);
+    } catch (err) {
+      runner.markFailed(1, err);
     }
-    emit(1, 'done', s2.thoughts, `${s2.findings.length} code issue(s) found`);
 
     // ── Stage 3: Requirement-to-Code Validation ───────────────
     emit(2, 'active', []);
@@ -1262,94 +1351,153 @@ ${graphJson}
     let s3: StageResponse = { thoughts: ['No requirement documents found — skipping traceability analysis.'], findings: [] };
     let s3Response: string = '';  // hoisted so the post-stage log can reference it
 
-    if (reqArtifacts.length > 0) {
-      const s3UserPrompt = `## Project Context\n${(s1.projectSummary as string) || ''}\n\nUser intent: ${(s1.userIntent as string) || session.remarks}\n\n## Code Review Summary\n${(s2.codeQualitySummary as string) || ''}${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Requirements\n${reqArtifacts.map(a => `--- Requirement File: ${a.fileName} ---\n(use the tools to read this file)`).join('\n\n')}\n\n## Source Code\n${codeArtifactNames.map(n => `--- Code File: ${n} ---\n(use the tools to read this file)`).join('\n\n')}`;
-      s3Response = await runStageWithTools(
-        2,
-        baseSystemPrefix + '\n\n' + TRACEABILITY_PROMPT.system,
-        s3UserPrompt,
-        session.projectId,
-        workspacePath,
-        setting,
-        (thought) => emitThinking(2, thought),
-        makeStageUsageRecorder('requirement_validation')
+    try {
+      if (reqArtifacts.length > 0) {
+        const s3UserPrompt = `## Project Context\n${(s1.projectSummary as string) || ''}\n\nUser intent: ${(s1.userIntent as string) || session.remarks}\n\n## Code Review Summary\n${(s2.codeQualitySummary as string) || ''}${session.remarks ? `\n\n## User's Notes\n---\n${session.remarks}\n---` : ''}\n\n## Requirements\n${reqArtifacts.map(a => `--- Requirement File: ${a.fileName} ---\n(use the tools to read this file)`).join('\n\n')}\n\n## Source Code\n${codeArtifactNames.map(n => `--- Code File: ${n} ---\n(use the tools to read this file)`).join('\n\n')}`;
+        s3Response = await runStageWithTools(
+          2,
+          baseSystemPrefix + '\n\n' + TRACEABILITY_PROMPT.system,
+          s3UserPrompt,
+          session.projectId,
+          workspacePath,
+          setting,
+          (thought) => emitThinking(2, thought),
+          makeStageUsageRecorder('requirement_validation')
+        );
+        s3 = parseStageResponse(s3Response);
+
+        const traceRiskInputs: RiskInput[] = s3.findings.map(f => ({
+          severity: f.severity,
+          confidence: f.confidence || 'medium',
+          category: f.category || '',
+          filePath: f.artifactReference || '',
+        }));
+        const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
+
+        await runner.saveFindings(session, s3.findings, traceScored);
+      }
+
+      console.info(
+        `[review-session] stage=requirement_validation session=${session.id} ` +
+        `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
+        `raw_response_length=${s3Response.length}`
       );
-      s3 = parseStageResponse(s3Response);
-
-      const traceRiskInputs: RiskInput[] = s3.findings.map(f => ({
-        severity: f.severity,
-        confidence: f.confidence || 'medium',
-        category: f.category || '',
-        filePath: f.artifactReference || '',
-      }));
-      const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
-
-      await runner.saveFindings(session, s3.findings, traceScored);
+      if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
+        console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
+      }
+      emit(2, 'done', s3.thoughts, `${s3.findings.length} traceability issue(s) found`);
+    } catch (err) {
+      runner.markFailed(2, err);
     }
-
-    console.info(
-      `[review-session] stage=requirement_validation session=${session.id} ` +
-      `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
-      `raw_response_length=${s3Response.length}`
-    );
-    if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
-      console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
-    }
-    emit(2, 'done', s3.thoughts, `${s3.findings.length} traceability issue(s) found`);
 
     // ── Stage 4: Summarize Findings ───────────────────────────
     emit(3, 'active', []);
     emitThinking(3, `Consolidating findings and prioritizing recommendations...`);
     let extraArtifacts: { title: string; content: string; type: string }[] = [];
+    let s4: StageResponse = { thoughts: [], findings: [] };
 
-    const s4UserPrompt = SUMMARY_PROMPT.build(
-      {
-        projectSummary: (s1.projectSummary as string) || '',
-        userIntent: (s1.userIntent as string) || session.remarks,
-      },
-      s2.findings,
-      s3.findings,
-      staticFindings,
-      session.remarks
-    );
-    const s4Response = await runStageWithTools(
-      3,
-      baseSystemPrefix + '\n\n' + SUMMARY_PROMPT.system,
-      s4UserPrompt,
-      session.projectId,
-      workspacePath,
-      setting,
-      (thought) => emitThinking(3, thought),
-      makeStageUsageRecorder('summarizing')
-    );
-    const s4 = parseStageResponse(s4Response);
+    try {
+      const s4UserPrompt = SUMMARY_PROMPT.build(
+        {
+          projectSummary: (s1.projectSummary as string) || '',
+          userIntent: (s1.userIntent as string) || session.remarks,
+        },
+        s2.findings,
+        s3.findings,
+        staticFindings,
+        session.remarks
+      );
+      const s4Response = await runStageWithTools(
+        3,
+        baseSystemPrefix + '\n\n' + SUMMARY_PROMPT.system,
+        s4UserPrompt,
+        session.projectId,
+        workspacePath,
+        setting,
+        (thought) => emitThinking(3, thought),
+        makeStageUsageRecorder('summarizing')
+      );
+      s4 = parseStageResponse(s4Response);
 
-    if (s4.extra_artifacts && Array.isArray(s4.extra_artifacts)) {
-      extraArtifacts = (s4.extra_artifacts as unknown[]).filter((f: any) =>
-        typeof f === 'object' && f !== null && f.title && f.content
-      ) as { title: string; content: string; type: string }[];
+      if (s4.extra_artifacts && Array.isArray(s4.extra_artifacts)) {
+        extraArtifacts = (s4.extra_artifacts as unknown[]).filter((f: any) =>
+          typeof f === 'object' && f !== null && f.title && f.content
+        ) as { title: string; content: string; type: string }[];
+      }
+
+      for (const ea of extraArtifacts) {
+        await createReviewArtifact(session.id, session.projectId, {
+          title: ea.title,
+          content: ea.content,
+          artifactType: ea.type || 'analysis',
+        });
+      }
+
+      console.info(
+        `[review-session] stage=summarizing session=${session.id} ` +
+        `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
+        `raw_response_length=${s4Response.length}`
+      );
+      emit(3, 'done', s4.thoughts, 'Review complete');
+    } catch (err) {
+      runner.markFailed(3, err);
     }
-
-    for (const ea of extraArtifacts) {
-      await createReviewArtifact(session.id, session.projectId, {
-        title: ea.title,
-        content: ea.content,
-        artifactType: ea.type || 'analysis',
-      });
-    }
-
-    console.info(
-      `[review-session] stage=summarizing session=${session.id} ` +
-      `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
-      `raw_response_length=${s4Response.length}`
-    );
-    emit(3, 'done', s4.thoughts, 'Review complete');
 
     const totalAiFindings = s2.findings.length + s3.findings.length;
     const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifacts.length} artifact(s).`;
-    await updateStaticSessionStatus(session.id, 'success', summary, '');
+    // Decide final session status: 'success' if every stage completed, 'partial'
+    // if some stages failed but at least one produced findings, 'failure' if
+    // no AI stage produced anything usable. (Pre-flight failures like "AI not
+    // configured" are caught by the outer try and reported as 'failure'.)
+    const failedCount = runner.failedCount();
+    const finalStatus: 'success' | 'partial' | 'failure' =
+      failedCount === 0 ? 'success'
+        : failedCount < 4 ? 'partial'
+        : 'failure';
+    if (finalStatus === 'partial') {
+      console.warn(
+        `[review-session] session=${session.id} reached partial status — ` +
+        `failed stages: ${runner.failedStageIds().join(', ')}`
+      );
+    }
+    const failureReason = finalStatus === 'failure'
+      ? (() => {
+          const firstError = STAGE_DEFINITIONS
+            .map((_, i) => runner.stageErrors[i])
+            .find((e) => e !== undefined);
+          return firstError
+            ? `${runner.failedStageIds().join(', ')}: ${firstError}`
+            : runner.failedStageIds().join(', ');
+        })()
+      : '';
+    await updateStaticSessionStatus(session.id, finalStatus, summary, failureReason);
 
+    // Group 2c: auto-generate the test plan from the findings. This
+    // runs after the session is marked 'success' so the dashboard can
+    // show "Test plan: 12 items proposed" right alongside the verdict.
+    // Failures are logged but don't fail the review — the user can
+    // always click "Regenerate plan" to retry, and the review itself
+    // is already committed. Skip for 'partial'/'failure' with no
+    // findings to summarize.
+    if (finalStatus !== 'failure' && (totalAiFindings + staticFindings.length) > 0) {
+      try {
+        const { generateTestPlanForSession } = await import('./testPlanGenerator.js');
+        const plan = await generateTestPlanForSession(session.id, session.projectId);
+        console.info(
+          `[review-session] test-plan generated session=${session.id} ` +
+          `findings=${plan.findings} items=${plan.items} smoke=${plan.smoke}`
+        );
+      } catch (e) {
+        console.warn(
+          `[review-session] test-plan generation failed session=${session.id}: ${(e as Error).message}`
+        );
+      }
+    }
   } catch (err) {
+    // Pre-flight failures (AI not configured, missing workspace, etc.) and
+    // anything that escaped a per-stage try/catch lands here. The per-stage
+    // recovery path is responsible for the common AI errors; this catch is
+    // the last line of defense.
     const errorMsg = err instanceof Error ? err.message : String(err);
     await updateStaticSessionStatus(session.id, 'failure', '', errorMsg);
     throw err;
