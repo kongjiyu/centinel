@@ -106,6 +106,10 @@ export type StaticSession = {
    * head. Parsed with JSON.parse on the client when needed.
    */
   changedFilesJson: string;
+  /** P1-5: parent session id if this is a re-review. Empty otherwise. */
+  parentSessionId: string;
+  /** P1-5: cached diff against the parent; empty until computed. */
+  reviewDiffJson: string;
   /**
    * Latest review decision (P0-3). Embedded by GET /static-sessions/:id
    * so the dashboard can show the verdict pill on the session row
@@ -172,6 +176,33 @@ export type TestItemRollup = {
   failed: number;
 };
 
+/**
+ * P1-5: A single carryover item shown in the session diff view.
+ * Subset of the full Finding type — enough for the table render.
+ */
+export type SessionDiffItem = {
+  id: string;
+  title: string;
+  severity: string;
+  filePath: string;
+  lineNumber: number | null;
+};
+
+export type SessionDiff = {
+  parent: { id: string; createdAt: string; status: string };
+  child: { id: string; createdAt: string; status: string };
+  stillOpen: SessionDiffItem[];
+  fixed: SessionDiffItem[];
+  dismissed: SessionDiffItem[];
+  newFindings: SessionDiffItem[];
+  counts: {
+    stillOpen: number;
+    fixed: number;
+    dismissed: number;
+    newFindings: number;
+  };
+};
+
 export type Finding = {
   id: string;
   projectId: string;
@@ -180,7 +211,7 @@ export type Finding = {
   severity: string;
   title: string;
   description: string;
-  status: 'new' | 'accepted' | 'dismissed' | 'fixed';
+  status: 'new' | 'accepted' | 'dismissed' | 'fixed' | 'carryover';
   createdAt: string;
   artifactId: string | null;
   category: string;

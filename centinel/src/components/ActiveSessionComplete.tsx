@@ -1,20 +1,28 @@
 import { useState, useCallback, useEffect } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
-import type { Finding, ReviewDecisionRecord } from '../types';
+import { CheckCircle2, ChevronDown, ChevronRight, AlertTriangle, RotateCw } from 'lucide-react';
+import type { Finding, ReviewDecisionRecord, StaticSession } from '../types';
 import { ReviewDecisionBar } from './ReviewDecisionBar';
+import { SessionDiffView } from './SessionDiffView';
 import { api } from '../api/client';
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'] as const;
 
-export function ActiveSessionComplete({ projectId, sessionId, findings }: {
+export function ActiveSessionComplete({ projectId, sessionId, findings, parentSessionId }: {
   projectId: string;
   sessionId: string;
   findings: Finding[];
+  /** P1-5: the session this one was generated from, if any. When set,
+   *  the diff view renders below the findings so the reviewer can
+   *  see what changed since the parent review. */
+  parentSessionId?: string;
 }) {
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['critical']));
   // Owns the decision state so the verdict pill above the bar stays in sync
   // after a submit without the parent having to refetch the whole session.
   const [currentDecision, setCurrentDecision] = useState<ReviewDecisionRecord | null>(null);
+  // The full session record (we need createdAt for the diff header).
+  // Fetched lazily — only used when parentSessionId is set.
+  const [parent, setParent] = useState<StaticSession | null>(null);
 
   // Fetch the latest decision on mount. The session GET also embeds it,
   // but the bar is sometimes mounted before the parent refetches; this
@@ -31,6 +39,23 @@ export function ActiveSessionComplete({ projectId, sessionId, findings }: {
     })();
     return () => { cancelled = true; };
   }, [projectId, sessionId]);
+
+  // Fetch the parent session (for its createdAt in the diff header)
+  // only when a parent is referenced. Avoids an extra round-trip on
+  // first-time reviews.
+  useEffect(() => {
+    if (!parentSessionId) { setParent(null); return; }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const p = await api.getStaticSession(projectId, parentSessionId);
+        if (!cancelled) setParent(p);
+      } catch {
+        // Non-fatal: diff view just won't show the legend.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, parentSessionId]);
 
   const handleDecisionChange = useCallback((next: ReviewDecisionRecord) => {
     setCurrentDecision(next);
@@ -55,6 +80,11 @@ export function ActiveSessionComplete({ projectId, sessionId, findings }: {
       <div className="active-session-complete-summary">
         <CheckCircle2 size={12} className="success" />
         <span>{findings.length} finding{findings.length === 1 ? '' : 's'}</span>
+        {parentSessionId && (
+          <span className="re-review-badge" data-testid="re-review-badge">
+            <RotateCw size={11} /> Re-review of {parentSessionId.slice(0, 8)}
+          </span>
+        )}
         {SEVERITY_ORDER.map(sev => {
           const count = grouped.find(g => g.severity === sev)?.items.length ?? 0;
           if (count === 0) return null;
@@ -65,6 +95,14 @@ export function ActiveSessionComplete({ projectId, sessionId, findings }: {
           );
         })}
       </div>
+      {parentSessionId && parent && (
+        <SessionDiffView
+          projectId={projectId}
+          childId={sessionId}
+          parentId={parentSessionId}
+          parentCreatedAt={parent.createdAt}
+        />
+      )}
       <div className="active-session-complete-groups">
         {grouped.filter(g => g.items.length > 0).map(g => (
           <div key={g.severity} className="finding-group">
@@ -83,6 +121,9 @@ export function ActiveSessionComplete({ projectId, sessionId, findings }: {
                   <li key={f.id} className="finding-item">
                     {g.severity === 'critical' && <AlertTriangle size={12} className="severity-icon critical" />}
                     <span className="finding-title">{f.title}</span>
+                    {f.status === 'carryover' && (
+                      <span className="carryover-tag" title="Copied from the parent review">carryover</span>
+                    )}
                   </li>
                 ))}
               </ul>

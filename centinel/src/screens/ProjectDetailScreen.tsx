@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle, GitBranch } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle, GitBranch, RotateCw } from 'lucide-react';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
 import { ReviewModal } from '../components/ReviewModal';
@@ -95,7 +95,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
     } catch (e) { setError(String(e)); throw e; }
   };
 
-  const handleCreateStatic = async (data: { name: string; instructions: string; baseRef?: string; headRef?: string }) => {
+  const handleCreateStatic = async (data: { name: string; instructions: string; baseRef?: string; headRef?: string; parentSessionId?: string }) => {
     setError(null);
     try {
       const session = await api.createStaticSession(project.id, data);
@@ -104,6 +104,29 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
       activeReviewControls.trackSession(session, project.name);
       setShowStaticForm(false);
     } catch (e) { setError(String(e)); throw e; }
+  };
+
+  // P1-5: handler for the "Re-review" button on a completed session
+  // row. Pulled out of the JSX so the onClick stays small (and the
+  // window.prompt calls don't bloat the .tsx). The two prompts run
+  // sequentially because we use the parent's base/head refs as the
+  // defaults for the new review's scope.
+  const onReReviewClick = async (
+    e: React.MouseEvent<HTMLButtonElement>,
+    s: StaticSession
+  ) => {
+    e.stopPropagation();
+    const child = window.prompt('Re-review name', `Re-review of ${s.name}`);
+    if (!child) return;
+    const instructions = window.prompt('Instructions for the agent (optional)', s.remarks || '');
+    if (instructions === null) return;
+    await handleCreateStatic({
+      name: child.trim(),
+      instructions: instructions.trim(),
+      baseRef: s.baseRef,
+      headRef: s.headRef,
+      parentSessionId: s.id,
+    });
   };
 
   const handleExportReport = async () => {
@@ -211,6 +234,17 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                         {s.status === 'success' && (
                           <ReviewDecisionPill decision={s.currentDecision ?? null} />
                         )}
+                        {s.status === 'success' && !s.parentSessionId && (
+                          <button
+                            className="btn-ghost btn-re-review"
+                            onClick={(e) => { void onReReviewClick(e, s); }}
+                            data-testid="re-review-button"
+                            title="Start a new review that carries over unresolved findings from this one"
+                            type="button"
+                          >
+                            <RotateCw size={11} /> Re-review
+                          </button>
+                        )}
                         <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
                       </div>
                     </div>
@@ -222,6 +256,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                           projectId={project.id}
                           sessionId={s.id}
                           findings={findingsBySession[s.id] ?? []}
+                          parentSessionId={s.parentSessionId}
                         />
                       )
                     )}

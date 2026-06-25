@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus } from '../types';
+import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -153,6 +153,8 @@ export const api = {
     baseRef?: string;
     /** P0-4: head git ref. Leave empty for full-tree review. */
     headRef?: string;
+    /** P1-5: parent session id for a re-review. Empty for first-time reviews. */
+    parentSessionId?: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {
       method: 'POST',
@@ -217,6 +219,12 @@ export const api = {
     request<{ findings: number; items: number; smoke: number }>(
       `/projects/${projectId}/static-sessions/${sessionId}/regenerate-plan`,
       { method: 'POST' }
+    ),
+
+  // Re-review (P1-5)
+  getSessionDiff: (projectId: string, childId: string, parentId: string) =>
+    request<SessionDiff>(
+      `/projects/${projectId}/static-sessions/${childId}/diff/${parentId}`
     ),
 
   // Unified Findings
