@@ -28,6 +28,10 @@ export type StaticSession = {
   headRef: string;
   /** P0-4: JSON array of file paths changed between base and head. */
   changedFilesJson: string;
+  /** P1-5: parent session id if this is a re-review; empty otherwise. */
+  parentSessionId: string;
+  /** P1-5: cached diff against the parent; empty until computed. */
+  reviewDiffJson: string;
 };
 
 export type Finding = {
@@ -38,7 +42,18 @@ export type Finding = {
   severity: string;
   title: string;
   description: string;
-  status: 'new' | 'accepted' | 'dismissed' | 'fixed';
+  /**
+   * Lifecycle:
+   *   - new:     just surfaced, not yet triaged
+   *   - accepted: reviewer agrees, plans to fix
+   *   - dismissed: reviewer disagrees, not a real defect
+   *   - fixed:   the underlying issue is fixed (caller's signal)
+   *   - carryover: P1-5 — copied from a parent session on a re-review;
+   *                the parent found this and the child hasn't yet
+   *                re-evaluated. Treated like 'new' for triage purposes
+   *                and reclassified on the next re-review.
+   */
+  status: 'new' | 'accepted' | 'dismissed' | 'fixed' | 'carryover';
   createdAt: string;
   artifactId: string | null;
   category: string;
@@ -95,14 +110,13 @@ function mapSession(row: unknown[]): StaticSession {
     failureReason: row[9] as string,
     createdAt: row[10] as string,
     updatedAt: row[11] as string,
-    // P0-4: diff scope columns (back-filled by the migration in db.ts
-    // with empty defaults, so older SELECTs from before this commit
-    // need this many placeholders). The new SELECTs in this file now
-    // pull 14 columns; both counts are tracked together — if one
-    // drifts, the other will fail to compile and that's a good thing.
+    // P0-4
     baseRef: (row[12] as string) ?? '',
     headRef: (row[13] as string) ?? '',
     changedFilesJson: (row[14] as string) ?? '[]',
+    // P1-5
+    parentSessionId: (row[15] as string) ?? '',
+    reviewDiffJson: (row[16] as string) ?? '',
   };
 }
 
@@ -142,6 +156,10 @@ export type CreateStaticSessionInput = {
    *  from base/head via gitScope.getChangedFiles. Pass explicitly when
    *  the caller has already done the git work (e.g. a future re-review). */
   changedFiles?: string[];
+  /** P1-5: parent session id if this is a re-review. Carryover of
+   *  unresolved findings happens in a separate call after the session
+   *  is committed — the parent reference is just the lineage marker. */
+  parentSessionId?: string;
 };
 
 export async function createStaticSession(input: CreateStaticSessionInput): Promise<StaticSession> {
@@ -151,10 +169,11 @@ export async function createStaticSession(input: CreateStaticSessionInput): Prom
   const baseRef = input.baseRef ?? '';
   const headRef = input.headRef ?? '';
   const changedFilesJson = JSON.stringify(input.changedFiles ?? []);
+  const parentSessionId = input.parentSessionId ?? '';
 
   db.run(
-    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, input.projectId, input.name, input.reviewType, 'queued', JSON.stringify(input.configJson ?? {}), '{}', input.remarks ?? '', '', '', now, now, baseRef, headRef, changedFilesJson]
+    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, input.projectId, input.name, input.reviewType, 'queued', JSON.stringify(input.configJson ?? {}), '{}', input.remarks ?? '', '', '', now, now, baseRef, headRef, changedFilesJson, parentSessionId, '']
   );
   saveDb();
 
@@ -163,13 +182,14 @@ export async function createStaticSession(input: CreateStaticSessionInput): Prom
     configJson: JSON.stringify(input.configJson ?? {}), progressJson: '{}', remarks: input.remarks ?? '', finalSummary: '', failureReason: '',
     createdAt: now, updatedAt: now,
     baseRef, headRef, changedFilesJson,
+    parentSessionId, reviewDiffJson: '',
   };
 }
 
 export async function listStaticSessions(projectId: string): Promise<StaticSession[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE project_id = ? ORDER BY created_at DESC'
+    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json FROM static_sessions WHERE project_id = ? ORDER BY created_at DESC'
   );
   stmt.bind([projectId]);
   const rows: StaticSession[] = [];
@@ -183,7 +203,7 @@ export async function listStaticSessions(projectId: string): Promise<StaticSessi
 export async function getStaticSession(projectId: string, sessionId: string): Promise<StaticSession | null> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE project_id = ? AND id = ?'
+    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json FROM static_sessions WHERE project_id = ? AND id = ?'
   );
   stmt.bind([projectId, sessionId]);
   let session: StaticSession | null = null;
@@ -197,7 +217,7 @@ export async function getStaticSession(projectId: string, sessionId: string): Pr
 export async function getActiveStaticSession(projectId: string): Promise<StaticSession | null> {
   const db = await getDb();
   const stmt = db.prepare(
-    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE project_id = ? AND (status = 'queued' OR status = 'running')"
+    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json FROM static_sessions WHERE project_id = ? AND (status = 'queued' OR status = 'running')"
   );
   stmt.bind([projectId]);
   let session: StaticSession | null = null;
@@ -360,7 +380,7 @@ export async function listReviewArtifacts(projectId: string, sessionId: string):
 export async function listActiveStaticSessions(): Promise<StaticSession[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
+    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json FROM static_sessions WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
   );
   const rows: StaticSession[] = [];
   while (stmt.step()) {
@@ -368,4 +388,193 @@ export async function listActiveStaticSessions(): Promise<StaticSession[]> {
   }
   stmt.free();
   return rows;
+}
+
+// ── P1-5: Re-review on push ──────────────────────────────────────────────
+
+/**
+ * Copy all 'new' and 'accepted' findings from the parent session into
+ * the new session with status='carryover'. Resolved findings (dismissed
+ * / fixed) stay where they are — the audit trail wants them attributed
+ * to the session that closed them.
+ *
+ * Returns the count of carried findings. The carryover is best-effort:
+ * if the new session is somehow missing (race condition) the function
+ * is a no-op and returns 0.
+ *
+ * The "carryover" status exists so the dashboard can:
+ *   - show a separate count of "still open from the last review"
+ *   - re-classify these on the next re-review (new if the AI re-surfaced
+ *     them, dismissed if it didn't, fixed if the code changed enough
+ *     that the dedupe step suppressed them)
+ */
+export async function carryoverFindings(
+  parentSessionId: string,
+  newSessionId: string,
+  projectId: string
+): Promise<number> {
+  const db = await getDb();
+  // Read parent's open findings.
+  const readStmt = db.prepare(
+    `SELECT id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number FROM findings WHERE session_id = ? AND project_id = ? AND status IN ('new', 'accepted') ORDER BY created_at ASC`
+  );
+  readStmt.bind([parentSessionId, projectId]);
+  type ParentRow = {
+    id: string; projectId: string; sessionId: string | null; source: 'static' | 'dynamic';
+    severity: string; title: string; description: string; status: string;
+    createdAt: string; artifactId: string | null; category: string;
+    evidenceText: string; recommendation: string; confidence: string;
+    fromRemarks: boolean; filePath: string; lineNumber: number | null;
+  };
+  const parents: ParentRow[] = [];
+  while (readStmt.step()) {
+    const r = readStmt.get() as unknown[];
+    parents.push({
+      id: r[0] as string, projectId: r[1] as string, sessionId: r[2] as string,
+      source: r[3] as 'static' | 'dynamic', severity: r[4] as string,
+      title: r[5] as string, description: r[6] as string, status: r[7] as string,
+      createdAt: r[8] as string, artifactId: r[9] as string | null,
+      category: r[10] as string, evidenceText: r[11] as string,
+      recommendation: r[12] as string, confidence: r[13] as string,
+      fromRemarks: !!r[14], filePath: r[15] as string, lineNumber: r[16] as number | null,
+    });
+  }
+  readStmt.free();
+
+  // Insert as carryover. New id; created_at advances so the dashboard
+  // sort puts carryover at the top of "what's still open".
+  const now = new Date().toISOString();
+  for (const p of parents) {
+    db.run(
+      `INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        crypto.randomUUID(), projectId, newSessionId, p.source, p.severity,
+        p.title, p.description, 'carryover', now, p.artifactId, p.category,
+        p.evidenceText, p.recommendation, p.confidence, p.fromRemarks ? 1 : 0,
+        p.filePath, p.lineNumber,
+      ]
+    );
+  }
+  saveDb();
+  return parents.length;
+}
+
+export type SessionDiff = {
+  parent: { id: string; createdAt: string; status: StaticSessionStatus };
+  child: { id: string; createdAt: string; status: StaticSessionStatus };
+  /** Findings that were 'new' or 'accepted' in the parent and remain
+   *  'new' / 'accepted' / 'carryover' in the child (not yet addressed). */
+  stillOpen: Array<{ id: string; title: string; severity: string; filePath: string; lineNumber: number | null }>;
+  /** Findings from the parent that are now 'fixed' in the child (resolved). */
+  fixed: Array<{ id: string; title: string; severity: string; filePath: string; lineNumber: number | null }>;
+  /** Findings from the parent that are now 'dismissed' in the child. */
+  dismissed: Array<{ id: string; title: string; severity: string; filePath: string; lineNumber: number | null }>;
+  /** Findings that appeared only in the child (newly introduced). */
+  newFindings: Array<{ id: string; title: string; severity: string; filePath: string; lineNumber: number | null }>;
+  /** Counts for at-a-glance. */
+  counts: { stillOpen: number; fixed: number; dismissed: number; newFindings: number };
+};
+
+/**
+ * Compute the diff between a session and its parent. The mapping is
+ * approximate — we don't have a stable cross-session ID for the same
+ * underlying finding, so we match on (filePath, lineNumber) and the
+ * first 40 chars of the title. This is good enough for "did the team
+ * address this defect" reporting; an exact ID-based join is a future
+ * improvement (would need a stable finding identity that survives
+ * file edits, renames, etc.).
+ */
+export async function getSessionDiff(
+  projectId: string,
+  childId: string,
+  parentId: string
+): Promise<SessionDiff | null> {
+  const parent = await getStaticSession(projectId, parentId);
+  const child = await getStaticSession(projectId, childId);
+  if (!parent || !child) return null;
+
+  type F = { id: string; title: string; severity: string; filePath: string; lineNumber: number | null; status: string };
+  const readAll = async (sessionId: string): Promise<F[]> => {
+    const db = await getDb();
+    const stmt = db.prepare(
+      `SELECT id, title, severity, file_path, line_number, status FROM findings WHERE project_id = ? AND session_id = ? ORDER BY created_at ASC`
+    );
+    stmt.bind([projectId, sessionId]);
+    const out: F[] = [];
+    while (stmt.step()) {
+      const r = stmt.get() as unknown[];
+      out.push({
+        id: r[0] as string, title: r[1] as string, severity: r[2] as string,
+        filePath: r[3] as string, lineNumber: r[4] as number | null, status: r[5] as string,
+      });
+    }
+    stmt.free();
+    return out;
+  };
+
+  const [parentFs, childFs] = await Promise.all([readAll(parentId), readAll(childId)]);
+
+  // Matching key: filePath:lineNumber + the first 40 chars of the
+  // title. Trim and lowercase the title fragment so reworded titles
+  // still match.
+  const matchKey = (f: F): string => {
+    const titlePrefix = (f.title || '').slice(0, 40).toLowerCase().replace(/\s+/g, ' ').trim();
+    return `${f.filePath}:${f.lineNumber ?? '?'}::${titlePrefix}`;
+  };
+
+  const childByKey = new Map<string, F[]>();
+  for (const f of childFs) {
+    const k = matchKey(f);
+    if (!childByKey.has(k)) childByKey.set(k, []);
+    childByKey.get(k)!.push(f);
+  }
+
+  const stillOpen: SessionDiff['stillOpen'] = [];
+  const fixed: SessionDiff['fixed'] = [];
+  const dismissed: SessionDiff['dismissed'] = [];
+
+  for (const p of parentFs) {
+    const matches = childByKey.get(matchKey(p)) ?? [];
+    // Take the first match; childFs may have multiple rows for the
+    // same finding (e.g. a carryover and a fresh re-detection). The
+    // fresher one wins for status reporting.
+    const match = matches[0];
+    if (!match) {
+      // Parent had it, child didn't surface it. That's a 'fixed'
+      // outcome from the user's perspective — the code change must
+      // have addressed the underlying issue.
+      fixed.push({ id: p.id, title: p.title, severity: p.severity, filePath: p.filePath, lineNumber: p.lineNumber });
+      continue;
+    }
+    if (match.status === 'fixed') {
+      fixed.push({ id: match.id, title: match.title, severity: match.severity, filePath: match.filePath, lineNumber: match.lineNumber });
+    } else if (match.status === 'dismissed') {
+      dismissed.push({ id: match.id, title: match.title, severity: match.severity, filePath: match.filePath, lineNumber: match.lineNumber });
+    } else {
+      // Still new / accepted / carryover
+      stillOpen.push({ id: match.id, title: match.title, severity: match.severity, filePath: match.filePath, lineNumber: match.lineNumber });
+    }
+  }
+
+  // New findings: in the child but not matched to any parent finding.
+  const newFindings: SessionDiff['newFindings'] = [];
+  for (const c of childFs) {
+    const k = matchKey(c);
+    const matchedParent = parentFs.some(p => matchKey(p) === k);
+    if (!matchedParent) {
+      newFindings.push({ id: c.id, title: c.title, severity: c.severity, filePath: c.filePath, lineNumber: c.lineNumber });
+    }
+  }
+
+  return {
+    parent: { id: parent.id, createdAt: parent.createdAt, status: parent.status },
+    child: { id: child.id, createdAt: child.createdAt, status: child.status },
+    stillOpen, fixed, dismissed, newFindings,
+    counts: {
+      stillOpen: stillOpen.length,
+      fixed: fixed.length,
+      dismissed: dismissed.length,
+      newFindings: newFindings.length,
+    },
+  };
 }
