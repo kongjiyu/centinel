@@ -1098,3 +1098,48 @@
   border-radius: 3px;
 }
 .command-mode .btn-history { padding: 2px 6px; font-size: 0.7rem; }
+
+/* Diff scope (P0-4): form input + session row badge. */
+.command-mode .form-field-scope { gap: 6px; }
+.command-mode .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--command-text, #ccc);
+  cursor: pointer;
+}
+.command-mode .scope-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-left: 4px;
+  border-left: 2px solid var(--command-line, rgba(255, 255, 255, 0.08));
+}
+.command-mode .input-mono {
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 0.8rem;
+  flex: 1;
+  min-width: 140px;
+  background: var(--command-bg, #111);
+  color: var(--command-text, #ccc);
+  border: 1px solid var(--command-line, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+  padding: 4px 8px;
+}
+.command-mode .scope-separator { color: var(--command-text-dim, #888); }
+
+.command-mode .session-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  color: var(--command-cyan, #6cb6c9);
+  background: rgba(108, 182, 201, 0.08);
+  border: 1px solid rgba(108, 182, 201, 0.3);
+}

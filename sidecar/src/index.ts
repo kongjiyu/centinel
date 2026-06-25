@@ -49,6 +49,7 @@ import {
   getCurrentDecision,
   isValidDecision,
 } from './reviewDecisions';
+import { getChangedFiles } from './gitScope';
 import { indexProject, getIndexedFiles, getFileSymbols, getDependencies, getDependents } from './repoIndex';
 import { retrieveContext, searchByKeyword, getRelatedFiles } from './contextRetrieval';
 import { runStaticAnalysis as runStaticEngine, getStaticFindings } from './staticEngine';
@@ -546,13 +547,41 @@ const server = http.createServer(async (req, res) => {
       // Review-type and artifact selection are agent-driven from the instructions.
       const reviewType = 'code_review';
 
-      const session = await createStaticSession(
-        ssMatch.projectId,
+      // P0-4: diff scope. When both refs are provided, expand the changed
+      // file list and persist it on the session. Soft-failures (not a git
+      // repo, invalid ref) don't kill the session — they just leave the
+      // scope empty and the review runs on the full artifact set.
+      const baseRef = typeof body.baseRef === 'string' ? body.baseRef.trim() : '';
+      const headRef = typeof body.headRef === 'string' ? body.headRef.trim() : '';
+      let changedFiles: string[] | undefined = undefined;
+      if (baseRef && headRef) {
+        try {
+          const project = await getProject(ssMatch.projectId);
+          if (project) {
+            const scope = await getChangedFiles(project.workspacePath, baseRef, headRef);
+            changedFiles = scope.files;
+            console.info(
+              `[review-session] diff-scope project=${ssMatch.projectId} ` +
+              `base=${baseRef} head=${headRef} changed=${scope.files.length}`
+            );
+          }
+        } catch (e) {
+          console.warn(`[review-session] diff-scope lookup failed: ${(e as Error).message}`);
+          // Soft-fail: continue without scope. The reviewer can see in the
+          // UI that scope is empty and the review covered the whole tree.
+        }
+      }
+
+      const session = await createStaticSession({
+        projectId: ssMatch.projectId,
         name,
         reviewType,
-        { instructions },
-        instructions
-      );
+        configJson: { instructions },
+        remarks: instructions,
+        baseRef,
+        headRef,
+        changedFiles,
+      });
 
       console.info(
         `[review-session] queued id=${session.id} project=${session.projectId} artifacts=${allArtifacts.length}`

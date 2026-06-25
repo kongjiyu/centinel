@@ -97,6 +97,15 @@ export type StaticSession = {
   failureReason: string;
   createdAt: string;
   updatedAt: string;
+  /** P0-4: base git ref (e.g. 'main', 'origin/main'). Empty = no scope. */
+  baseRef: string;
+  /** P0-4: head git ref. Empty = no scope. */
+  headRef: string;
+  /**
+   * P0-4: JSON-encoded array of file paths changed between base and
+   * head. Parsed with JSON.parse on the client when needed.
+   */
+  changedFilesJson: string;
   /**
    * Latest review decision (P0-3). Embedded by GET /static-sessions/:id
    * so the dashboard can show the verdict pill on the session row

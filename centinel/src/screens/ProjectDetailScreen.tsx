@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle, GitBranch } from 'lucide-react';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
 import { ReviewModal } from '../components/ReviewModal';
@@ -94,7 +94,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
     } catch (e) { setError(String(e)); throw e; }
   };
 
-  const handleCreateStatic = async (data: { name: string; instructions: string }) => {
+  const handleCreateStatic = async (data: { name: string; instructions: string; baseRef?: string; headRef?: string }) => {
     setError(null);
     try {
       const session = await api.createStaticSession(project.id, data);
@@ -195,6 +195,15 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                       <div className="session-info-compact">
                         <span className="session-name">{s.name}</span>
                         <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
+                        {s.baseRef && s.headRef && (
+                          <span
+                            className="session-scope-badge"
+                            data-testid="session-scope-badge"
+                            title={`Scoped to files changed between ${s.baseRef} and ${s.headRef}`}
+                          >
+                            <GitBranch size={10} /> {s.baseRef} → {s.headRef}
+                          </span>
+                        )}
                       </div>
                       <div className="session-meta">
                         <StatusBadge label={s.status} />

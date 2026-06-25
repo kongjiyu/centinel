@@ -31,7 +31,7 @@ describe('staticSessions', () => {
 
   describe('createStaticSession', () => {
     it('should create a session with correct fields', async () => {
-      const session = await createStaticSession('proj-1', 'My Review', 'requirement_review', { instructions: 'Focus on security' });
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'My Review', reviewType: 'requirement_review', configJson: { instructions: 'Focus on security' } });
 
       expect(session.id).toBeDefined();
       expect(session.projectId).toBe('proj-1');
@@ -46,7 +46,7 @@ describe('staticSessions', () => {
     });
 
     it('should persist to database', async () => {
-      const session = await createStaticSession('proj-1', 'Persisted Review', 'code_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Persisted Review', reviewType: 'code_review', configJson: {} });
 
       const found = await getStaticSession('proj-1', session.id);
       expect(found).not.toBeNull();
@@ -57,7 +57,7 @@ describe('staticSessions', () => {
     it('should support all review types', async () => {
       const types = ['requirement_review', 'code_review', 'requirement_to_code_traceability', 'cross_artifact_consistency'] as const;
       for (const type of types) {
-        const session = await createStaticSession('proj-1', `Review ${type}`, type, {});
+        const session = await createStaticSession({ projectId: 'proj-1', name: `Review ${type}`, reviewType: type, configJson: {} });
         expect(session.reviewType).toBe(type);
       }
     });
@@ -70,9 +70,9 @@ describe('staticSessions', () => {
     });
 
     it('should return sessions ordered by created_at DESC', async () => {
-      await createStaticSession('proj-1', 'First', 'requirement_review', {});
+      await createStaticSession({ projectId: 'proj-1', name: 'First', reviewType: 'requirement_review', configJson: {} });
       await new Promise(resolve => setTimeout(resolve, 10));
-      await createStaticSession('proj-1', 'Second', 'code_review', {});
+      await createStaticSession({ projectId: 'proj-1', name: 'Second', reviewType: 'code_review', configJson: {} });
 
       const result = await listStaticSessions('proj-1');
       expect(result).toHaveLength(2);
@@ -82,8 +82,8 @@ describe('staticSessions', () => {
 
     it('should not return sessions from other projects', async () => {
       insertTestProject(db, 'proj-2');
-      await createStaticSession('proj-1', 'Project 1 Review', 'requirement_review', {});
-      await createStaticSession('proj-2', 'Project 2 Review', 'code_review', {});
+      await createStaticSession({ projectId: 'proj-1', name: 'Project 1 Review', reviewType: 'requirement_review', configJson: {} });
+      await createStaticSession({ projectId: 'proj-2', name: 'Project 2 Review', reviewType: 'code_review', configJson: {} });
 
       const result = await listStaticSessions('proj-1');
       expect(result).toHaveLength(1);
@@ -93,7 +93,7 @@ describe('staticSessions', () => {
 
   describe('getStaticSession', () => {
     it('should return session by project and session id', async () => {
-      const created = await createStaticSession('proj-1', 'My Review', 'requirement_review', { key: 'value' });
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'My Review', reviewType: 'requirement_review', configJson: { key: 'value' } });
 
       const result = await getStaticSession('proj-1', created.id);
       expect(result).not.toBeNull();
@@ -109,7 +109,7 @@ describe('staticSessions', () => {
 
     it('should return null when session exists but under different project', async () => {
       insertTestProject(db, 'proj-2');
-      const created = await createStaticSession('proj-1', 'My Review', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'My Review', reviewType: 'requirement_review', configJson: {} });
 
       const result = await getStaticSession('proj-2', created.id);
       expect(result).toBeNull();
@@ -118,7 +118,7 @@ describe('staticSessions', () => {
 
   describe('getActiveStaticSession', () => {
     it('should return queued session', async () => {
-      const created = await createStaticSession('proj-1', 'Queued', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Queued', reviewType: 'requirement_review', configJson: {} });
 
       const result = await getActiveStaticSession('proj-1');
       expect(result).not.toBeNull();
@@ -126,7 +126,7 @@ describe('staticSessions', () => {
     });
 
     it('should return running session', async () => {
-      const created = await createStaticSession('proj-1', 'Running', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Running', reviewType: 'requirement_review', configJson: {} });
       await updateStaticSessionStatus(created.id, 'running', '', '');
 
       const result = await getActiveStaticSession('proj-1');
@@ -135,7 +135,7 @@ describe('staticSessions', () => {
     });
 
     it('should return null when no active session exists', async () => {
-      const created = await createStaticSession('proj-1', 'Done', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Done', reviewType: 'requirement_review', configJson: {} });
       await updateStaticSessionStatus(created.id, 'success', 'Done', '');
 
       const result = await getActiveStaticSession('proj-1');
@@ -143,7 +143,7 @@ describe('staticSessions', () => {
     });
 
     it('should return null for cancelled sessions', async () => {
-      const created = await createStaticSession('proj-1', 'Cancelled', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Cancelled', reviewType: 'requirement_review', configJson: {} });
       await updateStaticSessionStatus(created.id, 'cancelled', '', 'User cancelled');
 
       const result = await getActiveStaticSession('proj-1');
@@ -153,7 +153,7 @@ describe('staticSessions', () => {
 
   describe('updateStaticSessionStatus', () => {
     it('should update status to success with summary', async () => {
-      const created = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       await updateStaticSessionStatus(created.id, 'success', 'All done', '');
 
       const result = await getStaticSession('proj-1', created.id);
@@ -163,7 +163,7 @@ describe('staticSessions', () => {
     });
 
     it('should update status to failure with reason', async () => {
-      const created = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       await updateStaticSessionStatus(created.id, 'failure', '', 'API error');
 
       const result = await getStaticSession('proj-1', created.id);
@@ -173,7 +173,7 @@ describe('staticSessions', () => {
     });
 
     it('should update the updated_at timestamp', async () => {
-      const created = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const originalUpdatedAt = created.updatedAt;
 
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -186,7 +186,7 @@ describe('staticSessions', () => {
 
   describe('createFinding', () => {
     it('should create a finding with all fields', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const finding = await createFinding('proj-1', session.id, {
         severity: 'high',
         title: 'Unclear requirement',
@@ -212,7 +212,7 @@ describe('staticSessions', () => {
     });
 
     it('should create finding with optional artifactId', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       insertTestArtifact(db, 'art-1', 'proj-1');
       const finding = await createFinding('proj-1', session.id, {
         severity: 'medium',
@@ -229,7 +229,7 @@ describe('staticSessions', () => {
     });
 
     it('should persist to database', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const finding = await createFinding('proj-1', session.id, {
         severity: 'low',
         title: 'Persisted',
@@ -248,8 +248,8 @@ describe('staticSessions', () => {
 
   describe('listStaticFindings', () => {
     it('should return findings for a specific session', async () => {
-      const session1 = await createStaticSession('proj-1', 'Review 1', 'requirement_review', {});
-      const session2 = await createStaticSession('proj-1', 'Review 2', 'code_review', {});
+      const session1 = await createStaticSession({ projectId: 'proj-1', name: 'Review 1', reviewType: 'requirement_review', configJson: {} });
+      const session2 = await createStaticSession({ projectId: 'proj-1', name: 'Review 2', reviewType: 'code_review', configJson: {} });
       await createFinding('proj-1', session1.id, {
         severity: 'high', title: 'Finding 1', description: 'Desc 1',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -265,7 +265,7 @@ describe('staticSessions', () => {
     });
 
     it('should return empty array when no findings exist', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const result = await listStaticFindings('proj-1', session.id);
       expect(result).toEqual([]);
     });
@@ -273,8 +273,8 @@ describe('staticSessions', () => {
 
   describe('listAllFindings', () => {
     it('should return all findings across sessions for a project', async () => {
-      const session1 = await createStaticSession('proj-1', 'Review 1', 'requirement_review', {});
-      const session2 = await createStaticSession('proj-1', 'Review 2', 'code_review', {});
+      const session1 = await createStaticSession({ projectId: 'proj-1', name: 'Review 1', reviewType: 'requirement_review', configJson: {} });
+      const session2 = await createStaticSession({ projectId: 'proj-1', name: 'Review 2', reviewType: 'code_review', configJson: {} });
       await createFinding('proj-1', session1.id, {
         severity: 'high', title: 'Finding 1', description: 'Desc 1',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -290,8 +290,8 @@ describe('staticSessions', () => {
 
     it('should not return findings from other projects', async () => {
       insertTestProject(db, 'proj-2');
-      const session1 = await createStaticSession('proj-1', 'Review 1', 'requirement_review', {});
-      const session2 = await createStaticSession('proj-2', 'Review 2', 'code_review', {});
+      const session1 = await createStaticSession({ projectId: 'proj-1', name: 'Review 1', reviewType: 'requirement_review', configJson: {} });
+      const session2 = await createStaticSession({ projectId: 'proj-2', name: 'Review 2', reviewType: 'code_review', configJson: {} });
       await createFinding('proj-1', session1.id, {
         severity: 'high', title: 'Finding 1', description: 'Desc 1',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -309,7 +309,7 @@ describe('staticSessions', () => {
 
   describe('updateFindingStatus', () => {
     it('should update finding status to accepted', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const finding = await createFinding('proj-1', session.id, {
         severity: 'high', title: 'Test', description: 'Desc',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -322,7 +322,7 @@ describe('staticSessions', () => {
     });
 
     it('should update finding status to dismissed', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const finding = await createFinding('proj-1', session.id, {
         severity: 'high', title: 'Test', description: 'Desc',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -335,7 +335,7 @@ describe('staticSessions', () => {
     });
 
     it('should update finding status to fixed', async () => {
-      const session = await createStaticSession('proj-1', 'Review', 'requirement_review', {});
+      const session = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
       const finding = await createFinding('proj-1', session.id, {
         severity: 'high', title: 'Test', description: 'Desc',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -350,9 +350,9 @@ describe('staticSessions', () => {
 
   describe('listActiveStaticSessions', () => {
     it('returns only queued and running sessions across all projects', async () => {
-      await createStaticSession('proj-1', 'A', 'requirement_review', {});
-      await createStaticSession('proj-2', 'B', 'code_review', {});
-      await createStaticSession('proj-1', 'Done', 'requirement_review', {});
+      await createStaticSession({ projectId: 'proj-1', name: 'A', reviewType: 'requirement_review', configJson: {} });
+      await createStaticSession({ projectId: 'proj-2', name: 'B', reviewType: 'code_review', configJson: {} });
+      await createStaticSession({ projectId: 'proj-1', name: 'Done', reviewType: 'requirement_review', configJson: {} });
       const doneId = (await listStaticSessions('proj-1')).find(s => s.name === 'Done')!.id;
       await updateStaticSessionStatus(doneId, 'success', '', '');
 
@@ -361,9 +361,9 @@ describe('staticSessions', () => {
     });
 
     it('orders active sessions by created_at DESC (newest first)', async () => {
-      await createStaticSession('proj-1', 'Older', 'requirement_review', {});
+      await createStaticSession({ projectId: 'proj-1', name: 'Older', reviewType: 'requirement_review', configJson: {} });
       await new Promise(resolve => setTimeout(resolve, 10));
-      await createStaticSession('proj-1', 'Newer', 'requirement_review', {});
+      await createStaticSession({ projectId: 'proj-1', name: 'Newer', reviewType: 'requirement_review', configJson: {} });
 
       const active = await listActiveStaticSessions();
       expect(active[0].name).toBe('Newer');

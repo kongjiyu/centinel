@@ -149,6 +149,10 @@ export const api = {
   createStaticSession: (projectId: string, data: {
     name: string;
     instructions: string;
+    /** P0-4: base git ref (e.g. 'main'). Leave empty for full-tree review. */
+    baseRef?: string;
+    /** P0-4: head git ref. Leave empty for full-tree review. */
+    headRef?: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {
       method: 'POST',

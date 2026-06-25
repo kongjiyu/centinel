@@ -223,6 +223,15 @@ function initSchema(db: Database) {
   migrateCol('file_path', "TEXT NOT NULL DEFAULT ''");
   migrateCol('line_number', 'INTEGER');
 
+  // Migrate: add diff-scope columns to static_sessions (P0-4)
+  // - base_ref / head_ref: the user-supplied git refs the review is scoped to
+  // - changed_files_json: array of paths changed between those refs
+  //   (JSON-encoded; small for any reasonable PR, no need for a join table)
+  // All nullable: most existing reviews predate the feature and have no scope.
+  migrateCol('base_ref', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('head_ref', "TEXT NOT NULL DEFAULT ''");
+  migrateCol('changed_files_json', "TEXT NOT NULL DEFAULT '[]'");
+
   // Migrate: add source column to artifacts if missing
   try { db.run("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'documents'"); } catch { /* already exists */ }
 

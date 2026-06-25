@@ -22,6 +22,12 @@ export type StaticSession = {
   failureReason: string;
   createdAt: string;
   updatedAt: string;
+  /** P0-4: base git ref (e.g. 'main', 'main..HEAD'). Empty = no scope. */
+  baseRef: string;
+  /** P0-4: head git ref. Empty = no scope. */
+  headRef: string;
+  /** P0-4: JSON array of file paths changed between base and head. */
+  changedFilesJson: string;
 };
 
 export type Finding = {
@@ -89,6 +95,14 @@ function mapSession(row: unknown[]): StaticSession {
     failureReason: row[9] as string,
     createdAt: row[10] as string,
     updatedAt: row[11] as string,
+    // P0-4: diff scope columns (back-filled by the migration in db.ts
+    // with empty defaults, so older SELECTs from before this commit
+    // need this many placeholders). The new SELECTs in this file now
+    // pull 14 columns; both counts are tracked together — if one
+    // drifts, the other will fail to compile and that's a good thing.
+    baseRef: (row[12] as string) ?? '',
+    headRef: (row[13] as string) ?? '',
+    changedFilesJson: (row[14] as string) ?? '[]',
   };
 }
 
@@ -114,34 +128,48 @@ function mapFinding(row: unknown[]): Finding {
   };
 }
 
-export async function createStaticSession(
-  projectId: string,
-  name: string,
-  reviewType: ReviewType,
-  configJson: Record<string, unknown> = {},
-  remarks: string = ''
-): Promise<StaticSession> {
+export type CreateStaticSessionInput = {
+  projectId: string;
+  name: string;
+  reviewType: ReviewType;
+  configJson?: Record<string, unknown>;
+  remarks?: string;
+  /** P0-4: base git ref for diff scope (e.g. 'main'). Empty = no scope. */
+  baseRef?: string;
+  /** P0-4: head git ref for diff scope. Empty = no scope. */
+  headRef?: string;
+  /** P0-4: precomputed list of changed files; if absent, recomputed
+   *  from base/head via gitScope.getChangedFiles. Pass explicitly when
+   *  the caller has already done the git work (e.g. a future re-review). */
+  changedFiles?: string[];
+};
+
+export async function createStaticSession(input: CreateStaticSessionInput): Promise<StaticSession> {
   const db = await getDb();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const baseRef = input.baseRef ?? '';
+  const headRef = input.headRef ?? '';
+  const changedFilesJson = JSON.stringify(input.changedFiles ?? []);
 
   db.run(
-    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, name, reviewType, 'queued', JSON.stringify(configJson), '{}', remarks, '', '', now, now]
+    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, input.projectId, input.name, input.reviewType, 'queued', JSON.stringify(input.configJson ?? {}), '{}', input.remarks ?? '', '', '', now, now, baseRef, headRef, changedFilesJson]
   );
   saveDb();
 
   return {
-    id, projectId, name, reviewType, status: 'queued',
-    configJson: JSON.stringify(configJson), progressJson: '{}', remarks, finalSummary: '', failureReason: '',
+    id, projectId: input.projectId, name: input.name, reviewType: input.reviewType, status: 'queued',
+    configJson: JSON.stringify(input.configJson ?? {}), progressJson: '{}', remarks: input.remarks ?? '', finalSummary: '', failureReason: '',
     createdAt: now, updatedAt: now,
+    baseRef, headRef, changedFilesJson,
   };
 }
 
 export async function listStaticSessions(projectId: string): Promise<StaticSession[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at FROM static_sessions WHERE project_id = ? ORDER BY created_at DESC'
+    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE project_id = ? ORDER BY created_at DESC'
   );
   stmt.bind([projectId]);
   const rows: StaticSession[] = [];
@@ -155,7 +183,7 @@ export async function listStaticSessions(projectId: string): Promise<StaticSessi
 export async function getStaticSession(projectId: string, sessionId: string): Promise<StaticSession | null> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at FROM static_sessions WHERE project_id = ? AND id = ?'
+    'SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE project_id = ? AND id = ?'
   );
   stmt.bind([projectId, sessionId]);
   let session: StaticSession | null = null;
@@ -169,7 +197,7 @@ export async function getStaticSession(projectId: string, sessionId: string): Pr
 export async function getActiveStaticSession(projectId: string): Promise<StaticSession | null> {
   const db = await getDb();
   const stmt = db.prepare(
-    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at FROM static_sessions WHERE project_id = ? AND (status = 'queued' OR status = 'running')"
+    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE project_id = ? AND (status = 'queued' OR status = 'running')"
   );
   stmt.bind([projectId]);
   let session: StaticSession | null = null;
@@ -332,7 +360,7 @@ export async function listReviewArtifacts(projectId: string, sessionId: string):
 export async function listActiveStaticSessions(): Promise<StaticSession[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at FROM static_sessions WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
+    "SELECT id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json FROM static_sessions WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
   );
   const rows: StaticSession[] = [];
   while (stmt.step()) {
