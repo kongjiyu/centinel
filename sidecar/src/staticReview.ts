@@ -661,6 +661,103 @@ export async function runStaticReview(
 }
 
 /**
+ * Per-stage orchestration helper used by both the prefetch and tool paths.
+ *
+ * Owns the per-stage state (thoughts, summaries), the progress emission, and
+ * the "save findings with location + risk" pattern that was duplicated four
+ * times across the two paths. Centralizing these primitives keeps the
+ * prefetch and tool paths symmetric and gives future work (per-stage error
+ * recovery, parallel stages) a single seam to hook into.
+ */
+class StageRunner {
+  private completedThoughts: string[][];
+  private completedSummaries: string[];
+
+  constructor(
+    private session: StaticSession,
+    private onProgress?: (progress: ReviewProgress) => void,
+  ) {
+    this.completedThoughts = STAGE_DEFINITIONS.map(() => []);
+    this.completedSummaries = STAGE_DEFINITIONS.map(() => '');
+  }
+
+  /** Build the ReviewStageProgress[] for an emit. */
+  private buildStages(stageIdx: number, status: 'active' | 'done', thoughts: string[]): ReviewStageProgress[] {
+    return STAGE_DEFINITIONS.map((def, i) => ({
+      id: def.id,
+      label: def.label,
+      status: i < stageIdx ? 'done' : i === stageIdx ? status : 'pending',
+      thoughts: i === stageIdx ? thoughts : (i < stageIdx ? this.completedThoughts[i] : []),
+      summary: i < stageIdx ? this.completedSummaries[i] : undefined,
+    }));
+  }
+
+  /** Mark a stage as active, with the given single thought on the current stage. */
+  emitThinking(stageIdx: number, thought: string): void {
+    const progress: ReviewProgress = {
+      currentStage: STAGE_DEFINITIONS[stageIdx].id,
+      stages: this.buildStages(stageIdx, 'active', [thought]),
+      startedAt: this.session.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    updateStaticSessionProgress(this.session.id, progress);
+    this.onProgress?.(progress);
+  }
+
+  /** Mark a stage as active (no thoughts) or done (full thoughts). Persists
+   *  the stage's completed state first so future emits include it. */
+  emit(stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string): void {
+    if (status === 'done') {
+      this.completedThoughts[stageIdx] = thoughts;
+      this.completedSummaries[stageIdx] = summary ?? '';
+    }
+    const progress: ReviewProgress = {
+      currentStage: STAGE_DEFINITIONS[stageIdx].id,
+      stages: this.buildStages(stageIdx, status, thoughts),
+      startedAt: this.session.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    updateStaticSessionProgress(this.session.id, progress);
+    this.onProgress?.(progress);
+  }
+
+  /** Persist a list of findings to the database with location extraction and
+   *  risk scoring. `scored[i]` corresponds positionally to `findings[i]`. */
+  async saveFindings(
+    session: StaticSession,
+    findings: Array<{
+      title: string;
+      severity: string;
+      category: string;
+      artifactReference: string;
+      description: string;
+      evidence: string;
+      recommendation: string;
+      confidence: string;
+    }>,
+    scored: Array<{ risk?: { level?: string } }>,
+  ): Promise<void> {
+    for (let i = 0; i < findings.length; i++) {
+      const f = findings[i];
+      const risk = scored[i]?.risk;
+      const location = extractLocation(f);
+      await createFinding(session.projectId, session.id, {
+        severity: validateSeverity(risk?.level || f.severity),
+        title: f.title,
+        description: f.description || '',
+        category: f.category || '',
+        evidenceText: f.evidence || '',
+        recommendation: f.recommendation || '',
+        confidence: validateConfidence(f.confidence),
+        artifactId: f.artifactReference || undefined,
+        filePath: location.filePath || undefined,
+        lineNumber: location.lineNumber ?? undefined,
+      });
+    }
+  }
+}
+
+/**
  * Legacy pre-fetch path. Concatenates all artifact content into the prompt
  * for each stage; cheap and effective for small projects, but blows past
  * provider context windows for large projects (see runStaticReview dispatcher).
@@ -676,8 +773,7 @@ export async function runStaticReviewPrefetch(
   onProgress?: (progress: ReviewProgress) => void,
   precomputedStaticFindings?: Finding[]
 ): Promise<void> {
-  const completedThoughts: string[][] = [[], [], [], []];
-  const completedSummaries: string[] = ['', '', '', ''];
+  const runner = new StageRunner(session, onProgress);
 
   // Per-stage usage recorders. The prefetch path makes one AI call per stage,
   // but we still use the same round-tracking machinery as the tool path so a
@@ -707,41 +803,11 @@ export async function runStaticReviewPrefetch(
     };
   };
 
-  const emitThinking = (stageIdx: number, thought: string) => {
-    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
-      id: def.id,
-      label: def.label,
-      status: i < stageIdx ? 'done' : i === stageIdx ? 'active' : 'pending',
-      thoughts: i === stageIdx ? [thought] : (i < stageIdx ? completedThoughts[i] : []),
-      summary: i < stageIdx ? completedSummaries[i] : undefined,
-    }));
-    const progress: ReviewProgress = {
-      currentStage: STAGE_DEFINITIONS[stageIdx].id,
-      stages,
-      startedAt: session.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    updateStaticSessionProgress(session.id, progress);
-    onProgress?.(progress);
-  };
-
-  const emit = (stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string) => {
-    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
-      id: def.id,
-      label: def.label,
-      status: i < stageIdx ? 'done' : i === stageIdx ? status : 'pending',
-      thoughts: i === stageIdx ? thoughts : (i < stageIdx ? completedThoughts[i] : []),
-      summary: i < stageIdx ? completedSummaries[i] : undefined,
-    }));
-    const progress: ReviewProgress = {
-      currentStage: STAGE_DEFINITIONS[stageIdx].id,
-      stages,
-      startedAt: session.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    updateStaticSessionProgress(session.id, progress);
-    onProgress?.(progress);
-  };
+  // emit() and emitThinking() come from the StageRunner — bound to local names
+  // so the call sites stay readable.
+  const emitThinking = (stageIdx: number, thought: string) => runner.emitThinking(stageIdx, thought);
+  const emit = (stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string) =>
+    runner.emit(stageIdx, status, thoughts, summary);
 
   try {
     await updateStaticSessionStatus(session.id, 'running', '', '');
@@ -791,8 +857,6 @@ export async function runStaticReviewPrefetch(
       s1Recorder.handler
     );
     const s1 = parseStageResponse(s1Response);
-    completedThoughts[0] = s1.thoughts;
-    completedSummaries[0] = (s1.projectSummary as string) || 'Context understood';
     console.info(
       `[review-session] stage=understanding_context session=${session.id} ` +
       `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
@@ -801,7 +865,7 @@ export async function runStaticReviewPrefetch(
     if (s1.thoughts.length === 0) {
       console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
     }
-    emit(0, 'done', s1.thoughts, completedSummaries[0]);
+    emit(0, 'done', s1.thoughts, (s1.projectSummary as string) || 'Context understood');
 
     // ── Stage 2: Code Review ──────────────────────────────────
     emit(1, 'active', []);
@@ -850,27 +914,14 @@ export async function runStaticReviewPrefetch(
       `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
     );
 
-    for (let i = 0; i < deduped.kept.length; i++) {
-      const f = deduped.kept[i];
-      const original = codeFindingsWithLocation.indexOf(f);
-      const risk = codeScored[original]?.risk;
-      const location = extractLocation(f);
-      await createFinding(session.projectId, session.id, {
-        severity: validateSeverity(risk?.level || f.severity),
-        title: f.title,
-        description: f.description || '',
-        category: f.category || '',
-        evidenceText: f.evidence || '',
-        recommendation: f.recommendation || '',
-        confidence: validateConfidence(f.confidence),
-        artifactId: f.artifactReference || undefined,
-        filePath: location.filePath || undefined,
-        lineNumber: location.lineNumber ?? undefined,
-      });
-    }
+    // NOTE: dedupeAgainstStaticFindings preserves array order (dropped items
+    // are removed from the tail, keeping relative order of kept items), and
+    // deduped.kept maps 1:1 to the head of codeScored. runner.saveFindings
+    // pairs them positionally — using indexOf() would be wrong because dedup
+    // reshapes the objects (adds filePath/lineNumber) so object identity
+    // never matches.
+    await runner.saveFindings(session, deduped.kept, codeScored);
 
-    completedThoughts[1] = s2.thoughts;
-    completedSummaries[1] = `${s2.findings.length} code issue(s) found`;
     console.info(
       `[review-session] stage=code_review session=${session.id} ` +
       `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
@@ -879,7 +930,7 @@ export async function runStaticReviewPrefetch(
     if (s2.findings.length === 0 && s2.thoughts.length === 0) {
       console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
     }
-    emit(1, 'done', s2.thoughts, completedSummaries[1]);
+    emit(1, 'done', s2.thoughts, `${s2.findings.length} code issue(s) found`);
 
     // ── Stage 3: Requirement-to-Code Validation ───────────────
     emit(2, 'active', []);
@@ -923,27 +974,9 @@ export async function runStaticReviewPrefetch(
       }));
       const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
 
-      for (let i = 0; i < s3.findings.length; i++) {
-        const f = s3.findings[i];
-        const risk = traceScored[i]?.risk;
-        const location = extractLocation(f);
-        await createFinding(session.projectId, session.id, {
-          severity: validateSeverity(risk?.level || f.severity),
-          title: f.title,
-          description: f.description || '',
-          category: f.category || '',
-          evidenceText: f.evidence || '',
-          recommendation: f.recommendation || '',
-          confidence: validateConfidence(f.confidence),
-          artifactId: f.artifactReference || undefined,
-          filePath: location.filePath || undefined,
-          lineNumber: location.lineNumber ?? undefined,
-        });
-      }
+      await runner.saveFindings(session, s3.findings, traceScored);
     }
 
-    completedThoughts[2] = s3.thoughts;
-    completedSummaries[2] = `${s3.findings.length} traceability issue(s) found`;
     console.info(
       `[review-session] stage=requirement_validation session=${session.id} ` +
       `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
@@ -952,7 +985,7 @@ export async function runStaticReviewPrefetch(
     if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
       console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
     }
-    emit(2, 'done', s3.thoughts, completedSummaries[2]);
+    emit(2, 'done', s3.thoughts, `${s3.findings.length} traceability issue(s) found`);
 
     // ── Stage 4: Summarize Findings ───────────────────────────
     emit(3, 'active', []);
@@ -999,8 +1032,6 @@ export async function runStaticReviewPrefetch(
       });
     }
 
-    completedThoughts[3] = s4.thoughts;
-    completedSummaries[3] = 'Review complete';
     console.info(
       `[review-session] stage=summarizing session=${session.id} ` +
       `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
@@ -1059,44 +1090,10 @@ export async function runStaticReviewWithTools(
   precomputedStaticFindings?: Finding[],
   precomputedWorkspacePath?: string
 ): Promise<void> {
-  const completedThoughts: string[][] = [[], [], [], []];
-  const completedSummaries: string[] = ['', '', '', ''];
-
-  const emitThinking = (stageIdx: number, thought: string) => {
-    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
-      id: def.id,
-      label: def.label,
-      status: i < stageIdx ? 'done' : i === stageIdx ? 'active' : 'pending',
-      thoughts: i === stageIdx ? [thought] : (i < stageIdx ? completedThoughts[i] : []),
-      summary: i < stageIdx ? completedSummaries[i] : undefined,
-    }));
-    const progress: ReviewProgress = {
-      currentStage: STAGE_DEFINITIONS[stageIdx].id,
-      stages,
-      startedAt: session.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    updateStaticSessionProgress(session.id, progress);
-    onProgress?.(progress);
-  };
-
-  const emit = (stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string) => {
-    const stages: ReviewStageProgress[] = STAGE_DEFINITIONS.map((def, i) => ({
-      id: def.id,
-      label: def.label,
-      status: i < stageIdx ? 'done' : i === stageIdx ? status : 'pending',
-      thoughts: i === stageIdx ? thoughts : (i < stageIdx ? completedThoughts[i] : []),
-      summary: i < stageIdx ? completedSummaries[i] : undefined,
-    }));
-    const progress: ReviewProgress = {
-      currentStage: STAGE_DEFINITIONS[stageIdx].id,
-      stages,
-      startedAt: session.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    updateStaticSessionProgress(session.id, progress);
-    onProgress?.(progress);
-  };
+  const runner = new StageRunner(session, onProgress);
+  const emitThinking = (stageIdx: number, thought: string) => runner.emitThinking(stageIdx, thought);
+  const emit = (stageIdx: number, status: 'active' | 'done', thoughts: string[], summary?: string) =>
+    runner.emit(stageIdx, status, thoughts, summary);
 
   try {
     await updateStaticSessionStatus(session.id, 'running', '', '');
@@ -1188,8 +1185,6 @@ ${graphJson}
       makeStageUsageRecorder('understanding_context')
     );
     const s1 = parseStageResponse(s1Response);
-    completedThoughts[0] = s1.thoughts;
-    completedSummaries[0] = (s1.projectSummary as string) || 'Context understood';
     console.info(
       `[review-session] stage=understanding_context session=${session.id} ` +
       `thoughts=${s1.thoughts.length} findings=${s1.findings.length} ` +
@@ -1198,7 +1193,7 @@ ${graphJson}
     if (s1.thoughts.length === 0) {
       console.warn(`[review-session] stage=understanding_context raw_response=${s1Response.substring(0, 500)}`);
     }
-    emit(0, 'done', s1.thoughts, completedSummaries[0]);
+    emit(0, 'done', s1.thoughts, (s1.projectSummary as string) || 'Context understood');
 
     // ── Stage 2: Code Review ──────────────────────────────────
     emit(1, 'active', []);
@@ -1240,27 +1235,14 @@ ${graphJson}
       `dedup kept=${deduped.kept.length} dropped=${deduped.dropped.length}`
     );
 
-    for (let i = 0; i < deduped.kept.length; i++) {
-      const f = deduped.kept[i];
-      const original = codeFindingsWithLocation.indexOf(f);
-      const risk = codeScored[original]?.risk;
-      const location = extractLocation(f);
-      await createFinding(session.projectId, session.id, {
-        severity: validateSeverity(risk?.level || f.severity),
-        title: f.title,
-        description: f.description || '',
-        category: f.category || '',
-        evidenceText: f.evidence || '',
-        recommendation: f.recommendation || '',
-        confidence: validateConfidence(f.confidence),
-        artifactId: f.artifactReference || undefined,
-        filePath: location.filePath || undefined,
-        lineNumber: location.lineNumber ?? undefined,
-      });
-    }
+    // NOTE: dedupeAgainstStaticFindings preserves array order (dropped items
+    // are removed from the tail, keeping relative order of kept items), and
+    // deduped.kept maps 1:1 to the head of codeScored. runner.saveFindings
+    // pairs them positionally — using indexOf() would be wrong because dedup
+    // reshapes the objects (adds filePath/lineNumber) so object identity
+    // never matches.
+    await runner.saveFindings(session, deduped.kept, codeScored);
 
-    completedThoughts[1] = s2.thoughts;
-    completedSummaries[1] = `${s2.findings.length} code issue(s) found`;
     console.info(
       `[review-session] stage=code_review session=${session.id} ` +
       `thoughts=${s2.thoughts.length} findings=${s2.findings.length} ` +
@@ -1269,7 +1251,7 @@ ${graphJson}
     if (s2.findings.length === 0 && s2.thoughts.length === 0) {
       console.warn(`[review-session] stage=code_review raw_response=${s2Response.substring(0, 500)}`);
     }
-    emit(1, 'done', s2.thoughts, completedSummaries[1]);
+    emit(1, 'done', s2.thoughts, `${s2.findings.length} code issue(s) found`);
 
     // ── Stage 3: Requirement-to-Code Validation ───────────────
     emit(2, 'active', []);
@@ -1302,27 +1284,9 @@ ${graphJson}
       }));
       const traceScored = scoreFindings(traceRiskInputs, artifacts.length);
 
-      for (let i = 0; i < s3.findings.length; i++) {
-        const f = s3.findings[i];
-        const risk = traceScored[i]?.risk;
-        const location = extractLocation(f);
-        await createFinding(session.projectId, session.id, {
-          severity: validateSeverity(risk?.level || f.severity),
-          title: f.title,
-          description: f.description || '',
-          category: f.category || '',
-          evidenceText: f.evidence || '',
-          recommendation: f.recommendation || '',
-          confidence: validateConfidence(f.confidence),
-          artifactId: f.artifactReference || undefined,
-          filePath: location.filePath || undefined,
-          lineNumber: location.lineNumber ?? undefined,
-        });
-      }
+      await runner.saveFindings(session, s3.findings, traceScored);
     }
 
-    completedThoughts[2] = s3.thoughts;
-    completedSummaries[2] = `${s3.findings.length} traceability issue(s) found`;
     console.info(
       `[review-session] stage=requirement_validation session=${session.id} ` +
       `thoughts=${s3.thoughts.length} findings=${s3.findings.length} ` +
@@ -1331,7 +1295,7 @@ ${graphJson}
     if (s3.findings.length === 0 && s3.thoughts.length === 0 && reqArtifacts.length > 0) {
       console.warn(`[review-session] stage=requirement_validation raw_response=${s3Response.substring(0, 500)}`);
     }
-    emit(2, 'done', s3.thoughts, completedSummaries[2]);
+    emit(2, 'done', s3.thoughts, `${s3.findings.length} traceability issue(s) found`);
 
     // ── Stage 4: Summarize Findings ───────────────────────────
     emit(3, 'active', []);
@@ -1374,8 +1338,6 @@ ${graphJson}
       });
     }
 
-    completedThoughts[3] = s4.thoughts;
-    completedSummaries[3] = 'Review complete';
     console.info(
       `[review-session] stage=summarizing session=${session.id} ` +
       `thoughts=${s4.thoughts.length} extra_artifacts=${extraArtifacts.length} ` +
