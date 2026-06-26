@@ -896,17 +896,25 @@
 
 .finding-item {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
-  padding: 6px 8px;
-  font-size: 10px;
+  gap: 4px;
+  padding: 8px 10px;
+  font-size: 11px;
   color: var(--command-text);
   border-bottom: 1px solid rgba(89, 180, 199, 0.08);
 }
 
 .finding-item:last-child { border-bottom: none; }
 
-.finding-title { min-width: 0; }
+.finding-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+}
+
+.finding-title { min-width: 0; word-wrap: break-word; }
 
 .command-mode .loading-screen,
 .command-mode .error-screen,
@@ -978,6 +986,20 @@
 }
 .command-mode .finding-location-path { color: var(--command-text); }
 .command-mode .finding-location-line { color: var(--command-warning); margin-left: 2px; }
+
+/* Inline variant — file:line rendered below the finding title. Indented
+   to align with the title text after the severity icon. */
+.command-mode .finding-location-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 18px;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 10px;
+  color: var(--command-text-muted, #7898a3);
+  word-break: break-all;
+}
+.command-mode .finding-location-icon { opacity: 0.7; flex-shrink: 0; }
 
 /* Review decision bar (P0-3) — sits under a completed session's findings. */
 .command-mode .review-decision-bar {
@@ -1102,12 +1124,59 @@
 /* Diff scope (P0-4): form input + session row badge. */
 .command-mode .form-field-scope { gap: 6px; }
 .command-mode .checkbox-label {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 0.85rem;
   color: var(--command-text, #ccc);
   cursor: pointer;
+  user-select: none;
+}
+/* Hide the native checkbox but keep it accessible. The visible
+   .checkbox-box span below is the styled replacement — the native
+   one varies too much between browsers (and renders as a tiny
+   "F"-like glyph on some Windows fonts). */
+.command-mode .checkbox-label input[type='checkbox'] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.command-mode .checkbox-box {
+  position: relative;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--command-line-strong, rgba(255, 255, 255, 0.18));
+  border-radius: 3px;
+  background: rgba(3, 15, 22, 0.64);
+  flex-shrink: 0;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.command-mode .checkbox-box::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--command-bg, #06131c);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.12s ease;
+}
+.command-mode .checkbox-label input[type='checkbox']:checked + .checkbox-box {
+  background: var(--command-cyan, #6cb6c9);
+  border-color: var(--command-cyan, #6cb6c9);
+}
+.command-mode .checkbox-label input[type='checkbox']:checked + .checkbox-box::after {
+  transform: rotate(45deg) scale(1);
+}
+.command-mode .checkbox-label input[type='checkbox']:focus-visible + .checkbox-box {
+  outline: 2px solid var(--command-cyan, #6cb6c9);
+  outline-offset: 2px;
 }
 .command-mode .scope-inputs {
   display: flex;

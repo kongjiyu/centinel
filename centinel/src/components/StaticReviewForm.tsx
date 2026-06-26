@@ -75,7 +75,7 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
           <textarea
             value={instructions}
             onChange={e => setInstructions(e.target.value)}
-            placeholder="Tell the agent what to focus on, what to look for, or any extra context for this review. The agent will choose which artifacts to inspect and what kind of review to run."
+            placeholder="What to focus on, or any extra context. Leave blank for a full review."
             rows={6}
             maxLength={MAX_INSTRUCTIONS_CHARS}
           />
@@ -83,7 +83,6 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
             {charCount}/{MAX_INSTRUCTIONS_CHARS}
           </span>
         </div>
-        <p className="form-hint">Leave blank to let the agent decide its own focus. All project artifacts will be made available.</p>
       </div>
 
       {/* P0-4: optional diff-scope. Collapsed by default to keep the form
@@ -97,10 +96,12 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
             onChange={e => setScopeEnabled(e.target.checked)}
             data-testid="scope-toggle"
           />
-          <GitBranch size={12} /> Scope review to changed files (git diff)
+          <span className="checkbox-box" aria-hidden="true" />
+          <span>Limit to changed files (git diff)</span>
         </label>
         {scopeEnabled && (
           <div className="scope-inputs">
+            <GitBranch size={12} />
             <input
               value={baseRef}
               onChange={e => setBaseRef(e.target.value)}
@@ -116,10 +117,6 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel }: Props) {
               data-testid="scope-head"
               className="input-mono"
             />
-            <p className="form-hint">
-              The review will only cover files changed between these refs. Useful for PR reviews.
-              Leave both empty (toggle off) to review the whole tree.
-            </p>
           </div>
         )}
       </div>

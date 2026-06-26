@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, AlertTriangle, RotateCw } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, AlertTriangle, MapPin, RotateCw } from 'lucide-react';
 import type { Finding, ReviewDecisionRecord, StaticSession } from '../types';
 import { ReviewDecisionBar } from './ReviewDecisionBar';
 import { SessionDiffView } from './SessionDiffView';
@@ -119,10 +119,21 @@ export function ActiveSessionComplete({ projectId, sessionId, findings, parentSe
               <ul className="finding-list">
                 {g.items.map(f => (
                   <li key={f.id} className="finding-item">
-                    {g.severity === 'critical' && <AlertTriangle size={12} className="severity-icon critical" />}
-                    <span className="finding-title">{f.title}</span>
-                    {f.status === 'carryover' && (
-                      <span className="carryover-tag" title="Copied from the parent review">carryover</span>
+                    <div className="finding-item-row">
+                      {g.severity === 'critical' && <AlertTriangle size={12} className="severity-icon critical" />}
+                      <span className="finding-title">{f.title}</span>
+                      {f.status === 'carryover' && (
+                        <span className="carryover-tag" title="Copied from the parent review">carryover</span>
+                      )}
+                    </div>
+                    {(f.filePath || f.lineNumber != null) && (
+                      <div className="finding-location finding-location-inline" data-testid="finding-location">
+                        <MapPin size={11} className="finding-location-icon" />
+                        <span className="finding-location-path">{f.filePath || '—'}</span>
+                        {f.lineNumber != null && (
+                          <span className="finding-location-line">:{f.lineNumber}</span>
+                        )}
+                      </div>
                     )}
                   </li>
                 ))}

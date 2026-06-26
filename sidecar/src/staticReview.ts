@@ -41,6 +41,10 @@ type StageFinding = {
   title: string;
   severity: string;
   category: string;
+  /** File this finding applies to, exactly as in the source-code header. '' = not file-specific. */
+  filePath: string;
+  /** 1-based line number, or null when not pinpointed. */
+  lineNumber: number | null;
   artifactReference: string;
   description: string;
   evidence: string;
@@ -219,7 +223,9 @@ You must return your response as a JSON object with these fields:
     * "info" — observations, suggestions, things to know about but not defects
     The dashboard sorts and color-codes by this field; an unparseable or missing severity will be coerced to "medium" and the finding will be deprioritized.
   - category: one of "potential_bug", "missing_validation", "error_handling", "security_concern", "maintainability", "performance", "code_smell", "other"
-  - artifactReference: which file and section the finding relates to
+  - filePath: string — the file this finding applies to, EXACTLY as shown in the "--- File: <name> ---" header above (e.g. "src/auth.ts"). Use "" if the finding is not tied to a specific file.
+  - lineNumber: number | null — the 1-based line number where the issue is. Use null if you can't pinpoint a single line (multi-line, cross-file, or conceptual).
+  - artifactReference: free-text reference for humans (e.g. "auth middleware, login flow")
   - description: detailed explanation of the issue
   - evidence: specific code snippet or pattern that demonstrates the issue
   - recommendation: concrete suggestion for fixing the issue
@@ -259,6 +265,8 @@ You must return your response as a JSON object with these fields:
     * "info" — "well_covered" observations and nice-to-have notes
     The dashboard sorts and color-codes by this field; an unparseable or missing severity will be coerced to "medium".
   - category: one of "missing_implementation", "partial_implementation", "unclear_mapping", "extra_implementation", "well_covered"
+  - filePath: string — for a finding that maps a requirement to a specific code file, the file path EXACTLY as shown in the "--- Code File: <name> ---" header above (e.g. "src/auth.ts"). Use "" if the finding is requirement-only or conceptual.
+  - lineNumber: number | null — the 1-based line number where the code under review lives. Use null if you can't pinpoint a single line.
   - artifactReference: which requirement and/or code file the finding relates to
   - description: detailed explanation of the traceability relationship
   - evidence: specific requirement text and corresponding code (or lack thereof)
@@ -668,8 +676,12 @@ export async function runStaticReview(
  * times across the two paths. Centralizing these primitives keeps the
  * prefetch and tool paths symmetric and gives future work (per-stage error
  * recovery, parallel stages) a single seam to hook into.
+ *
+ * Exported so the unit test for `saveFindings` (the location-resolution
+ * seam) can exercise it directly without spinning up the full review
+ * pipeline.
  */
-class StageRunner {
+export class StageRunner {
   completedThoughts: string[][];
   completedSummaries: string[];
   stageErrors: (string | undefined)[];
@@ -684,7 +696,7 @@ class StageRunner {
   }
 
   /** Returns the number of stages that ended in 'failed' state. Used by the
-   *  caller to decide between 'success' and 'partial' final status. */
+   *  caller to decide between 'success' and 'failure' final status. */
   failedCount(): number {
     return this.stageErrors.filter((e) => e !== undefined).length;
   }
@@ -751,25 +763,37 @@ class StageRunner {
   }
 
   /** Persist a list of findings to the database with location extraction and
-   *  risk scoring. `scored[i]` corresponds positionally to `findings[i]`. */
+   *  risk scoring. `scored[i]` corresponds positionally to `findings[i]`.
+   *  When the model supplies structured `filePath` / `lineNumber` fields
+   *  (the new prompt asks for them), we trust those over the regex
+   *  fallback in `extractLocation`. The regex still runs when both
+   *  structured fields are empty so older prompts / partial outputs
+   *  keep working. */
   async saveFindings(
     session: StaticSession,
-    findings: Array<{
-      title: string;
-      severity: string;
-      category: string;
-      artifactReference: string;
-      description: string;
-      evidence: string;
-      recommendation: string;
-      confidence: string;
-    }>,
+    findings: StageFinding[],
     scored: Array<{ risk?: { level?: string } }>,
   ): Promise<void> {
     for (let i = 0; i < findings.length; i++) {
       const f = findings[i];
       const risk = scored[i]?.risk;
-      const location = extractLocation(f);
+      // Prefer the structured fields the prompt now asks for. They
+      // cross-reference the "--- File: <name> ---" header exactly,
+      // which the regex can't do reliably.
+      const structuredPath = typeof f.filePath === 'string' ? f.filePath : '';
+      const structuredLine = typeof f.lineNumber === 'number' ? f.lineNumber : null;
+      let filePath: string | undefined = structuredPath || undefined;
+      let lineNumber: number | null | undefined = structuredPath ? structuredLine : undefined;
+      if (!filePath) {
+        const location = extractLocation(f);
+        if (location.filePath) {
+          filePath = location.filePath;
+          lineNumber = location.lineNumber;
+          console.warn(
+            `[review-session] session=${session.id} finding used regex fallback for location: "${f.title}"`
+          );
+        }
+      }
       await createFinding(session.projectId, session.id, {
         severity: validateSeverity(risk?.level || f.severity),
         title: f.title,
@@ -779,8 +803,8 @@ class StageRunner {
         recommendation: f.recommendation || '',
         confidence: validateConfidence(f.confidence),
         artifactId: f.artifactReference || undefined,
-        filePath: location.filePath || undefined,
-        lineNumber: location.lineNumber ?? undefined,
+        filePath,
+        lineNumber: lineNumber ?? undefined,
       });
     }
   }
@@ -1089,18 +1113,14 @@ export async function runStaticReviewPrefetch(
 
     const totalAiFindings = s2.findings.length + s3.findings.length;
     const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifactContents.length} artifact(s).`;
-    // Decide final session status: 'success' if every stage completed, 'partial'
-    // if some stages failed but at least one produced findings, 'failure' if
-    // no AI stage produced anything usable. (Pre-flight failures like "AI not
-    // configured" are caught by the outer try and reported as 'failure'.)
+    // Decide final session status: 'success' if every stage completed,
+    // 'failure' otherwise. (Pre-flight failures like "AI not configured"
+    // are caught by the outer try and reported as 'failure'.)
     const failedCount = runner.failedCount();
-    const finalStatus: 'success' | 'partial' | 'failure' =
-      failedCount === 0 ? 'success'
-        : failedCount < 4 ? 'partial'
-        : 'failure';
-    if (finalStatus === 'partial') {
+    const finalStatus: 'success' | 'failure' = failedCount === 0 ? 'success' : 'failure';
+    if (finalStatus === 'failure') {
       console.warn(
-        `[review-session] session=${session.id} reached partial status — ` +
+        `[review-session] session=${session.id} reached failure status — ` +
         `failed stages: ${runner.failedStageIds().join(', ')}`
       );
     }
@@ -1124,9 +1144,8 @@ export async function runStaticReviewPrefetch(
     // show "Test plan: 12 items proposed" right alongside the verdict.
     // Failures are logged but don't fail the review — the user can
     // always click "Regenerate plan" to retry, and the review itself
-    // is already committed. We skip this for 'partial' sessions with
-    // no findings to summarize, and for 'failure' sessions.
-    if (finalStatus !== 'failure' && (totalAiFindings + staticFindings.length) > 0) {
+    // is already committed. We skip this for 'failure' sessions.
+    if (finalStatus === 'success' && (totalAiFindings + staticFindings.length) > 0) {
       try {
         const { generateTestPlanForSession } = await import('./testPlanGenerator.js');
         const plan = await generateTestPlanForSession(session.id, session.projectId);
@@ -1445,18 +1464,14 @@ ${graphJson}
 
     const totalAiFindings = s2.findings.length + s3.findings.length;
     const summary = (s4.executiveSummary as string) || `Review completed. ${totalAiFindings} AI finding(s) + ${staticFindings.length} static finding(s) from ${artifacts.length} artifact(s).`;
-    // Decide final session status: 'success' if every stage completed, 'partial'
-    // if some stages failed but at least one produced findings, 'failure' if
-    // no AI stage produced anything usable. (Pre-flight failures like "AI not
-    // configured" are caught by the outer try and reported as 'failure'.)
+    // Decide final session status: 'success' if every stage completed,
+    // 'failure' otherwise. (Pre-flight failures like "AI not configured"
+    // are caught by the outer try and reported as 'failure'.)
     const failedCount = runner.failedCount();
-    const finalStatus: 'success' | 'partial' | 'failure' =
-      failedCount === 0 ? 'success'
-        : failedCount < 4 ? 'partial'
-        : 'failure';
-    if (finalStatus === 'partial') {
+    const finalStatus: 'success' | 'failure' = failedCount === 0 ? 'success' : 'failure';
+    if (finalStatus === 'failure') {
       console.warn(
-        `[review-session] session=${session.id} reached partial status — ` +
+        `[review-session] session=${session.id} reached failure status — ` +
         `failed stages: ${runner.failedStageIds().join(', ')}`
       );
     }
@@ -1477,9 +1492,8 @@ ${graphJson}
     // show "Test plan: 12 items proposed" right alongside the verdict.
     // Failures are logged but don't fail the review — the user can
     // always click "Regenerate plan" to retry, and the review itself
-    // is already committed. Skip for 'partial'/'failure' with no
-    // findings to summarize.
-    if (finalStatus !== 'failure' && (totalAiFindings + staticFindings.length) > 0) {
+    // is already committed. Skip for 'failure' sessions.
+    if (finalStatus === 'success' && (totalAiFindings + staticFindings.length) > 0) {
       try {
         const { generateTestPlanForSession } = await import('./testPlanGenerator.js');
         const plan = await generateTestPlanForSession(session.id, session.projectId);

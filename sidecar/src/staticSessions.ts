@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getDb, saveDb } from './db.js';
 
-export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'partial' | 'failure' | 'cancelled';
+export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
 
 export type ReviewType =
   | 'requirement_review'

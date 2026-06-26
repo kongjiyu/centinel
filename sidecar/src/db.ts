@@ -255,6 +255,13 @@ function initSchema(db: Database) {
   migrateCol('static_sessions', 'review_diff_json', "TEXT NOT NULL DEFAULT ''");
   db.run(`CREATE INDEX IF NOT EXISTS idx_static_sessions_parent ON static_sessions(parent_session_id) WHERE parent_session_id != ''`);
 
+  // Coalesce legacy 'partial' status rows to 'failure' so the typed
+  // StaticSessionStatus contract holds for data written before the
+  // status was simplified (the old "1–3 of 4 stages failed" branch
+  // now collapses to 'failure'). Idempotent — UPDATE on a
+  // non-matching status is a no-op.
+  db.run("UPDATE static_sessions SET status = 'failure' WHERE status = 'partial'");
+
   // Test plan (Group 2c).
   //
   // A test plan is the bridge from the static review to the dynamic

@@ -294,11 +294,11 @@ describe('staticReview E2E — full pipeline with synthetic-project fixture', ()
     expect(report.markdown).toMatch(/Static Analysis/i);    // Section header
   });
 
-  it('still produces a usable (partial) report when Stage 2 fails', async () => {
+  it('still produces a usable (failure-status) report when Stage 2 fails', async () => {
     // Stage 2's AI returns 500; Stages 1, 3, 4 succeed. The session ends
-    // in 'partial' but the report must still contain the Stage 3 finding
-    // and the static analysis results, because the per-stage error
-    // recovery (B7) keeps them.
+    // in 'failure' (1 of 4 stages failed) but the report must still
+    // contain the Stage 3 finding and the static analysis results,
+    // because the per-stage error recovery (B7) keeps them.
     fetchSpy
       .mockResolvedValueOnce({ ok: true, json: async () => wrap(stageResponse(1)) } as Response)
       .mockResolvedValueOnce({
@@ -347,11 +347,11 @@ describe('staticReview E2E — full pipeline with synthetic-project fixture', ()
 
     await runStaticReview(session, artifacts);
 
-    // Session ends in 'partial' — 1 of 4 stages failed.
+    // Session ends in 'failure' — 1 of 4 stages failed.
     const status = db.exec(
       "SELECT status FROM static_sessions WHERE id = 'ss-partial'"
     )[0].values[0][0];
-    expect(status).toBe('partial');
+    expect(status).toBe('failure');
 
     // Stage 3's finding still got persisted.
     const findings = await listStaticFindings('p-e2e', 'ss-partial');
