@@ -42,6 +42,5 @@ sidecar/artifacts/
 .playwright-cli/
 output/playwright/
 
-# Loopful workflow state
-.loopful/
-.claude/skills/loopful
+# Tests script and snapshots
+sidecar/__tests__

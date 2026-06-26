@@ -40,9 +40,26 @@ import {
   updateStaticSessionStatus,
   updateStaticSessionProgress,
   listReviewArtifacts,
+  carryoverFindings,
+  getSessionDiff,
 } from './staticSessions';
 import { runStaticReview } from './staticReview';
 import { exportProjectReport, exportSessionReport, exportDynamicSessionReport } from './reportExport';
+import {
+  submitReviewDecision,
+  listReviewDecisions,
+  getCurrentDecision,
+  isValidDecision,
+} from './reviewDecisions';
+import { getChangedFiles } from './gitScope';
+import {
+  listTestItems,
+  getTestItem,
+  updateTestItemStatus,
+  listModuleRollups,
+  isValidStatus as isValidTestItemStatus,
+} from './testPlan';
+import { generateTestPlanForSession } from './testPlanGenerator';
 import { indexProject, getIndexedFiles, getFileSymbols, getDependencies, getDependents } from './repoIndex';
 import { retrieveContext, searchByKeyword, getRelatedFiles } from './contextRetrieval';
 import { runStaticAnalysis as runStaticEngine, getStaticFindings } from './staticEngine';
@@ -175,6 +192,41 @@ function matchDynamicSessionReportExport(url: string): { projectId: string; sess
 function matchReviewArtifacts(url: string): { projectId: string; sessionId: string } | null {
   const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/artifacts$/);
   return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticDecisions(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/decisions$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchStaticDecision(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/decision$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchTestItems(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/test-items$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchTestItemRollups(url: string): { projectId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/test-items\/rollups$/);
+  return m ? { projectId: m[1] } : null;
+}
+
+function matchTestItem(url: string): { projectId: string; itemId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/test-items\/([^/]+)$/);
+  return m ? { projectId: m[1], itemId: m[2] } : null;
+}
+
+function matchRegeneratePlan(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/regenerate-plan$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
+function matchSessionDiff(url: string): { projectId: string; childId: string; parentId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/diff\/([^/]+)$/);
+  return m ? { projectId: m[1], childId: m[2], parentId: m[3] } : null;
 }
 
 function matchRequirements(url: string): { projectId: string } | null {
@@ -530,13 +582,78 @@ const server = http.createServer(async (req, res) => {
       // Review-type and artifact selection are agent-driven from the instructions.
       const reviewType = 'code_review';
 
-      const session = await createStaticSession(
-        ssMatch.projectId,
+      // P0-4: diff scope. When both refs are provided, expand the changed
+      // file list and persist it on the session. Soft-failures (not a git
+      // repo, invalid ref) don't kill the session — they just leave the
+      // scope empty and the review runs on the full artifact set.
+      const baseRef = typeof body.baseRef === 'string' ? body.baseRef.trim() : '';
+      const headRef = typeof body.headRef === 'string' ? body.headRef.trim() : '';
+      let changedFiles: string[] | undefined = undefined;
+      if (baseRef && headRef) {
+        try {
+          const project = await getProject(ssMatch.projectId);
+          if (project) {
+            const scope = await getChangedFiles(project.workspacePath, baseRef, headRef);
+            changedFiles = scope.files;
+            console.info(
+              `[review-session] diff-scope project=${ssMatch.projectId} ` +
+              `base=${baseRef} head=${headRef} changed=${scope.files.length}`
+            );
+          }
+        } catch (e) {
+          console.warn(`[review-session] diff-scope lookup failed: ${(e as Error).message}`);
+          // Soft-fail: continue without scope. The reviewer can see in the
+          // UI that scope is empty and the review covered the whole tree.
+        }
+      }
+
+      // P1-5: optional re-review. When the user clicks 'Re-review' on
+      // a previous completed session, the UI sends parentSessionId.
+      // The new session carries a reference to the parent, and after
+      // it's created we copy the parent's open findings over with
+      // status='carryover' so the dashboard can show "what's still
+      // open from last time" alongside the fresh findings.
+      const parentSessionId = typeof body.parentSessionId === 'string' ? body.parentSessionId.trim() : '';
+      if (parentSessionId) {
+        const parent = await getStaticSession(ssMatch.projectId, parentSessionId);
+        if (!parent) {
+          return json(res, 400, { error: 'parentSessionId not found in this project' });
+        }
+        // Re-reviewing an already-incomplete parent would be weird
+        // (the carryover would pick up 'new' findings that haven't
+        // been triaged yet). Soft-warn but allow.
+        if (parent.status !== 'success') {
+          console.warn(
+            `[review-session] re-review target is not complete: parent=${parentSessionId} status=${parent.status}`
+          );
+        }
+      }
+
+      const session = await createStaticSession({
+        projectId: ssMatch.projectId,
         name,
         reviewType,
-        { instructions },
-        instructions
-      );
+        configJson: { instructions },
+        remarks: instructions,
+        baseRef,
+        headRef,
+        changedFiles,
+        parentSessionId: parentSessionId || undefined,
+      });
+
+      // Carry over the parent's open findings. This happens before
+      // the review runs so the carryover is visible from the start;
+      // the new review's findings get appended alongside.
+      if (parentSessionId) {
+        try {
+          const carried = await carryoverFindings(parentSessionId, session.id, ssMatch.projectId);
+          console.info(
+            `[review-session] carryover parent=${parentSessionId} child=${session.id} count=${carried}`
+          );
+        } catch (e) {
+          console.warn(`[review-session] carryover failed: ${(e as Error).message}`);
+        }
+      }
 
       console.info(
         `[review-session] queued id=${session.id} project=${session.projectId} artifacts=${allArtifacts.length}`
@@ -609,12 +726,127 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, await listReviewArtifacts(raMatch.projectId, raMatch.sessionId));
     }
 
-    // Static session - get
+    // Static session - get (with current decision embedded for the dashboard)
     const ssIdMatch = matchStaticSession(url);
     if (ssIdMatch && req.method === 'GET') {
       const session = await getStaticSession(ssIdMatch.projectId, ssIdMatch.sessionId);
       if (!session) return json(res, 404, { error: 'Session not found' });
-      return json(res, 200, session);
+      const currentDecision = await getCurrentDecision(ssIdMatch.sessionId);
+      return json(res, 200, { ...session, currentDecision });
+    }
+
+    // === Review Decisions (P0-3) ===
+    // Session-level lifecycle events: approve / request changes / comment.
+    // Distinct from per-finding status; the dashboard shows the latest
+    // decision as a status pill on the session row.
+
+    // List all decisions for a session (history, newest first)
+    const dsListMatch = matchStaticDecisions(url);
+    if (dsListMatch && req.method === 'GET') {
+      const session = await getStaticSession(dsListMatch.projectId, dsListMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      return json(res, 200, await listReviewDecisions(dsListMatch.sessionId));
+    }
+
+    // Submit a new decision for a session
+    const dsSubmitMatch = matchStaticDecision(url);
+    if (dsSubmitMatch && req.method === 'POST') {
+      const session = await getStaticSession(dsSubmitMatch.projectId, dsSubmitMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      // Decisions only make sense once a review has actually produced
+      // findings; gating on 'success' keeps the workflow honest. A team
+      // that wants to "pre-approve" can revisit this later.
+      if (session.status !== 'success') {
+        return json(res, 400, { error: 'Decisions can only be recorded on completed reviews' });
+      }
+      const body = await parseJsonBody(req);
+      if (!isValidDecision(body.decision)) {
+        return json(res, 400, { error: 'Invalid decision. Must be approved, changes_requested, or commented.' });
+      }
+      const comment = typeof body.comment === 'string' ? body.comment : '';
+      const reviewer = typeof body.reviewer === 'string' ? body.reviewer : '';
+      const record = await submitReviewDecision(
+        dsSubmitMatch.sessionId,
+        dsSubmitMatch.projectId,
+        { decision: body.decision, comment, reviewer }
+      );
+      return json(res, 201, record);
+    }
+
+    // === Test Plan (Group 2c) ===
+    //
+    // The bridge from static review to dynamic testing. Test items are
+    // generated automatically when a review completes, and the
+    // dashboard reads them via these endpoints. The user can:
+    //   - GET /projects/:id/test-items            — list, filterable
+    //   - GET /projects/:id/test-items/rollups    — per-module counts
+    //   - GET /projects/:id/test-items/:iid       — single item
+    //   - PUT /projects/:id/test-items/:iid       — update status
+    //   - POST /projects/:id/static-sessions/:sid/regenerate-plan
+    //                                            — re-run the generator
+
+    // List test items, with optional module / status / session filters
+    const tiListMatch = matchTestItems(url);
+    if (tiListMatch && req.method === 'GET') {
+      const urlObj = new URL(url, 'http://localhost');
+      const module = urlObj.searchParams.get('module') ?? undefined;
+      const statusRaw = urlObj.searchParams.get('status') ?? undefined;
+      const sessionId = urlObj.searchParams.get('sessionId') ?? undefined;
+      const filters: { module?: string; status?: any; sessionId?: string } = {};
+      if (module) filters.module = module;
+      if (statusRaw && isValidTestItemStatus(statusRaw)) filters.status = statusRaw;
+      if (sessionId) filters.sessionId = sessionId;
+      return json(res, 200, await listTestItems(tiListMatch.projectId, filters));
+    }
+
+    // Per-module rollups (dashboard header counts)
+    const tiRollupsMatch = matchTestItemRollups(url);
+    if (tiRollupsMatch && req.method === 'GET') {
+      return json(res, 200, await listModuleRollups(tiRollupsMatch.projectId));
+    }
+
+    // Single test item
+    const tiMatch = matchTestItem(url);
+    if (tiMatch && req.method === 'GET') {
+      const item = await getTestItem(tiMatch.itemId);
+      if (!item) return json(res, 404, { error: 'Test item not found' });
+      return json(res, 200, item);
+    }
+    if (tiMatch && req.method === 'PUT') {
+      const body = await parseJsonBody(req);
+      if (!isValidTestItemStatus(body.status)) {
+        return json(res, 400, { error: 'Invalid status' });
+      }
+      const updated = await updateTestItemStatus(tiMatch.itemId, body.status);
+      if (!updated) return json(res, 404, { error: 'Test item not found' });
+      return json(res, 200, updated);
+    }
+
+    // Manual regenerator
+    const rgMatch = matchRegeneratePlan(url);
+    if (rgMatch && req.method === 'POST') {
+      const session = await getStaticSession(rgMatch.projectId, rgMatch.sessionId);
+      if (!session) return json(res, 404, { error: 'Session not found' });
+      // The plan is generated from completed findings; gating on
+      // 'success' matches the auto-generation trigger.
+      if (session.status !== 'success') {
+        return json(res, 400, { error: 'Plan can only be regenerated for completed reviews' });
+      }
+      try {
+        const result = await generateTestPlanForSession(rgMatch.sessionId, rgMatch.projectId);
+        return json(res, 200, result);
+      } catch (e) {
+        return json(res, 500, { error: `Plan generation failed: ${(e as Error).message}` });
+      }
+    }
+
+    // P1-5: session-to-session diff. Used by the "what changed since
+    // last review" view in the Re-review UI.
+    const diffMatch = matchSessionDiff(url);
+    if (diffMatch && req.method === 'GET') {
+      const diff = await getSessionDiff(diffMatch.projectId, diffMatch.childId, diffMatch.parentId);
+      if (!diff) return json(res, 404, { error: 'Session or parent not found' });
+      return json(res, 200, diff);
     }
 
     // === Unified Findings ===

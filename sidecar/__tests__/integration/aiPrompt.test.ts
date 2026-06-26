@@ -382,3 +382,43 @@ describeLive('AI Prompt Quality (live)', () => {
     }, TIMEOUT);
   });
 });
+
+// ─── Non-live regression guard ───────────────────────────────────────────────
+//
+// Reads the prompt source as text and asserts the structured-location
+// fields are still described. Runs whether or not AI_LIVE is set, so an
+// accidental prompt edit is caught by `pnpm test` without needing a
+// real API key.
+
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+describe('AI prompts — structured location fields present', () => {
+  const promptSource = fs.readFileSync(
+    fileURLToPath(new URL('../../src/staticReview.ts', import.meta.url)),
+    'utf8'
+  );
+
+  it('CODE_REVIEW_PROMPT asks for filePath and lineNumber in findings', () => {
+    // The `findings:` schema in CODE_REVIEW_PROMPT.system must list
+    // both new fields, or the model will keep emitting findings
+    // without structured location and we'll fall back to the regex.
+    const systemMatch = promptSource.match(
+      /const CODE_REVIEW_PROMPT = \{[\s\S]*?system: `([\s\S]*?)`,[\s\S]*?build:/
+    );
+    expect(systemMatch).not.toBeNull();
+    const system = systemMatch![1];
+    expect(system).toMatch(/filePath:\s*string/);
+    expect(system).toMatch(/lineNumber:\s*number\s*\|\s*null/);
+  });
+
+  it('TRACEABILITY_PROMPT asks for filePath and lineNumber in findings', () => {
+    const systemMatch = promptSource.match(
+      /const TRACEABILITY_PROMPT = \{[\s\S]*?system: `([\s\S]*?)`,[\s\S]*?build:/
+    );
+    expect(systemMatch).not.toBeNull();
+    const system = systemMatch![1];
+    expect(system).toMatch(/filePath:\s*string/);
+    expect(system).toMatch(/lineNumber:\s*number\s*\|\s*null/);
+  });
+});

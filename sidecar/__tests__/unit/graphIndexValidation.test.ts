@@ -67,7 +67,8 @@ async function setupTestDb() {
   db.run(`CREATE TABLE IF NOT EXISTS repo_index (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, file_path TEXT NOT NULL,
     parent_path TEXT, file_type TEXT, language TEXT, file_size INTEGER,
-    symbol_count INTEGER DEFAULT 0, indexed_at TEXT NOT NULL
+    symbol_count INTEGER DEFAULT 0, indexed_at TEXT NOT NULL,
+    module TEXT NOT NULL DEFAULT ''
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS code_symbols (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, file_id TEXT NOT NULL,
@@ -82,7 +83,7 @@ async function setupTestDb() {
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, session_id TEXT,
     file_path TEXT NOT NULL, line_number INTEGER, rule_id TEXT NOT NULL,
     severity TEXT NOT NULL, category TEXT NOT NULL, message TEXT NOT NULL,
-    evidence TEXT, created_at TEXT NOT NULL
+    evidence TEXT, confidence TEXT NOT NULL DEFAULT 'high', created_at TEXT NOT NULL
   )`);
 
   setTestDb(db);

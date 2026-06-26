@@ -117,7 +117,7 @@ export async function runStaticAnalysis(
     for (const finding of allFindings) {
       const id = crypto.randomUUID();
       db.run(
-        'INSERT INTO static_analysis_results (id, project_id, session_id, file_path, line_number, rule_id, severity, category, message, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO static_analysis_results (id, project_id, session_id, file_path, line_number, rule_id, severity, category, message, evidence, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           id,
           projectId,
@@ -129,6 +129,10 @@ export async function runStaticAnalysis(
           finding.category,
           finding.message,
           finding.evidence,
+          // Static rules are deterministic — always 'high' confidence. The
+          // dedupe function compares this against AI findings' self-reported
+          // confidence; static wins on ties.
+          'high',
           now,
         ]
       );
@@ -145,7 +149,7 @@ export async function runStaticAnalysis(
       const title = `[${finding.ruleId}] ${finding.message}`.substring(0, 200);
       const recommendation = generateRuleRecommendation(finding.ruleId, finding.category);
       db.run(
-        'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           findingId,
           projectId,
@@ -162,6 +166,8 @@ export async function runStaticAnalysis(
           recommendation,
           'high',  // rule-based findings are deterministic
           0,
+          finding.filePath,
+          finding.lineNumber,
         ]
       );
     }

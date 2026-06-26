@@ -97,6 +97,110 @@ export type StaticSession = {
   failureReason: string;
   createdAt: string;
   updatedAt: string;
+  /** P0-4: base git ref (e.g. 'main', 'origin/main'). Empty = no scope. */
+  baseRef: string;
+  /** P0-4: head git ref. Empty = no scope. */
+  headRef: string;
+  /**
+   * P0-4: JSON-encoded array of file paths changed between base and
+   * head. Parsed with JSON.parse on the client when needed.
+   */
+  changedFilesJson: string;
+  /** P1-5: parent session id if this is a re-review. Empty otherwise. */
+  parentSessionId: string;
+  /** P1-5: cached diff against the parent; empty until computed. */
+  reviewDiffJson: string;
+  /**
+   * Latest review decision (P0-3). Embedded by GET /static-sessions/:id
+   * so the dashboard can show the verdict pill on the session row
+   * without a second round-trip. null when the team has never recorded
+   * a decision on this session.
+   */
+  currentDecision?: ReviewDecisionRecord | null;
+};
+
+/**
+ * Session-level review decision (P0-3). Distinct from per-finding
+ * `status`; this is the team's verdict on the review as a whole.
+ *   - approved: sign-off, the report can ship
+ *   - changes_requested: blocking, unresolved issues remain
+ *   - commented: non-blocking note, no verdict yet
+ */
+export type ReviewDecision = 'approved' | 'changes_requested' | 'commented';
+
+export type ReviewDecisionRecord = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  decision: ReviewDecision;
+  comment: string;
+  reviewer: string;
+  createdAt: string;
+};
+
+/**
+ * Test plan item (Group 2c). A single executable test derived from a
+ * static-review finding (rationale = the finding id) or generated as
+ * a smoke test for an unfinded module (rationale = 'smoke').
+ */
+export type TestItemKind = 'unit' | 'integration' | 'e2e' | 'smoke';
+export type TestItemStatus = 'proposed' | 'accepted' | 'rejected' | 'in_progress' | 'passed' | 'failed';
+
+export type TestItem = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  module: string;
+  component: string | null;
+  filePath: string;
+  lineNumber: number | null;
+  title: string;
+  description: string;
+  /** The finding id that drove this item, or 'smoke' / 'coverage_gap'. */
+  rationale: string | null;
+  kind: TestItemKind;
+  severity: string;
+  status: TestItemStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TestItemRollup = {
+  module: string;
+  total: number;
+  proposed: number;
+  accepted: number;
+  rejected: number;
+  inProgress: number;
+  passed: number;
+  failed: number;
+};
+
+/**
+ * P1-5: A single carryover item shown in the session diff view.
+ * Subset of the full Finding type — enough for the table render.
+ */
+export type SessionDiffItem = {
+  id: string;
+  title: string;
+  severity: string;
+  filePath: string;
+  lineNumber: number | null;
+};
+
+export type SessionDiff = {
+  parent: { id: string; createdAt: string; status: string };
+  child: { id: string; createdAt: string; status: string };
+  stillOpen: SessionDiffItem[];
+  fixed: SessionDiffItem[];
+  dismissed: SessionDiffItem[];
+  newFindings: SessionDiffItem[];
+  counts: {
+    stillOpen: number;
+    fixed: number;
+    dismissed: number;
+    newFindings: number;
+  };
 };
 
 export type Finding = {
@@ -107,7 +211,7 @@ export type Finding = {
   severity: string;
   title: string;
   description: string;
-  status: 'new' | 'accepted' | 'dismissed' | 'fixed';
+  status: 'new' | 'accepted' | 'dismissed' | 'fixed' | 'carryover';
   createdAt: string;
   artifactId: string | null;
   category: string;
@@ -115,6 +219,8 @@ export type Finding = {
   recommendation: string;
   confidence: string;
   fromRemarks: boolean;
+  filePath: string;
+  lineNumber: number | null;
 };
 
 export type ReviewStageId =

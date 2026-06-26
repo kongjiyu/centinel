@@ -47,6 +47,8 @@ export async function createTestDb(): Promise<Database> {
       recommendation TEXT NOT NULL DEFAULT '',
       confidence TEXT NOT NULL DEFAULT '',
       from_remarks INTEGER NOT NULL DEFAULT 0,
+      file_path TEXT NOT NULL DEFAULT '',
+      line_number INTEGER,
       FOREIGN KEY (project_id) REFERENCES projects(id)
     )
   `);
@@ -105,9 +107,36 @@ export async function createTestDb(): Promise<Database> {
       remarks TEXT NOT NULL DEFAULT '',
       final_summary TEXT NOT NULL DEFAULT '',
       failure_reason TEXT NOT NULL DEFAULT '',
+      base_ref TEXT NOT NULL DEFAULT '',
+      head_ref TEXT NOT NULL DEFAULT '',
+      changed_files_json TEXT NOT NULL DEFAULT '[]',
+      parent_session_id TEXT NOT NULL DEFAULT '',
+      review_diff_json TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+
+  // Test plan (Group 2c). The schema mirrors db.ts; if the real
+  // schema adds a column, this seed needs to match.
+  testDb.run(`
+    CREATE TABLE IF NOT EXISTS test_items (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      module TEXT NOT NULL,
+      component TEXT,
+      file_path TEXT NOT NULL DEFAULT '',
+      line_number INTEGER,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      rationale TEXT,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'proposed',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )
   `);
 
@@ -182,8 +211,8 @@ export function insertTestStaticSession(
 ) {
   const now = new Date().toISOString();
   db.run(
-    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, 'Test Review', 'requirement_review', status, '{}', '{}', '', 'Test summary', '', now, now]
+    'INSERT INTO static_sessions (id, project_id, name, review_type, status, config_json, progress_json, remarks, final_summary, failure_reason, created_at, updated_at, base_ref, head_ref, changed_files_json, parent_session_id, review_diff_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, 'Test Review', 'requirement_review', status, '{}', '{}', '', 'Test summary', '', now, now, '', '', '[]', '', '']
   );
 }
 
@@ -191,11 +220,13 @@ export function insertTestFinding(
   db: Database,
   id: string = 'find-1',
   projectId: string = 'proj-1',
-  sessionId: string = 'ss-1'
+  sessionId: string = 'ss-1',
+  filePath: string = '',
+  lineNumber: number | null = null
 ) {
   const now = new Date().toISOString();
   db.run(
-    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, projectId, sessionId, 'static', 'high', 'Test Finding', 'A test finding description', 'new', now, null, 'unclear_requirement', 'Some evidence', 'Fix it', 'high', 0]
+    'INSERT INTO findings (id, project_id, session_id, source, severity, title, description, status, created_at, artifact_id, category, evidence_text, recommendation, confidence, from_remarks, file_path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, sessionId, 'static', 'high', 'Test Finding', 'A test finding description', 'new', now, null, 'unclear_requirement', 'Some evidence', 'Fix it', 'high', 0, filePath, lineNumber]
   );
 }

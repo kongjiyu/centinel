@@ -122,7 +122,13 @@ describe('API Integration', () => {
 
         if (ssMatch && req.method === 'POST') {
           const body = await parseBody();
-          const session = await createStaticSession(ssMatch[1], body.name as string, 'code_review', { instructions: body.instructions ?? '' });
+          const session = await createStaticSession({
+            projectId: ssMatch[1],
+            name: body.name as string,
+            reviewType: 'code_review',
+            configJson: { instructions: body.instructions ?? '' },
+            remarks: (body.instructions as string) ?? '',
+          });
           return json(201, session);
         }
 
@@ -334,7 +340,12 @@ describe('API Integration', () => {
     it('PUT /projects/:id/findings/:fid should update finding status', async () => {
       // Create a session and finding via direct DB for this test
       const { createStaticSession: createSS, createFinding: createF } = await import('../../src/staticSessions');
-      const session = await createSS('proj-1', 'Review', 'requirement_review', {});
+      const session = await createSS({
+        projectId: 'proj-1',
+        name: 'Review',
+        reviewType: 'requirement_review',
+        configJson: {},
+      });
       const finding = await createF('proj-1', session.id, {
         severity: 'high', title: 'Test', description: 'Desc',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',
@@ -351,7 +362,12 @@ describe('API Integration', () => {
 
     it('PUT should reject invalid status', async () => {
       const { createStaticSession: createSS, createFinding: createF } = await import('../../src/staticSessions');
-      const session = await createSS('proj-1', 'Review', 'requirement_review', {});
+      const session = await createSS({
+        projectId: 'proj-1',
+        name: 'Review',
+        reviewType: 'requirement_review',
+        configJson: {},
+      });
       const finding = await createF('proj-1', session.id, {
         severity: 'high', title: 'Test', description: 'Desc',
         category: 'test', evidenceText: '', recommendation: '', confidence: 'high',

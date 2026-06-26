@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping } from '../types';
+import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -149,6 +149,12 @@ export const api = {
   createStaticSession: (projectId: string, data: {
     name: string;
     instructions: string;
+    /** P0-4: base git ref (e.g. 'main'). Leave empty for full-tree review. */
+    baseRef?: string;
+    /** P0-4: head git ref. Leave empty for full-tree review. */
+    headRef?: string;
+    /** P1-5: parent session id for a re-review. Empty for first-time reviews. */
+    parentSessionId?: string;
   }) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions`, {
       method: 'POST',
@@ -168,6 +174,58 @@ export const api = {
     }),
   listReviewArtifacts: (projectId: string, sessionId: string) =>
     request<ReviewArtifact[]>(`/projects/${projectId}/static-sessions/${sessionId}/artifacts`),
+
+  // Review Decisions (P0-3)
+  listReviewDecisions: (projectId: string, sessionId: string) =>
+    request<ReviewDecisionRecord[]>(
+      `/projects/${projectId}/static-sessions/${sessionId}/decisions`
+    ),
+  submitReviewDecision: (
+    projectId: string,
+    sessionId: string,
+    data: { decision: ReviewDecision; comment?: string; reviewer?: string }
+  ) =>
+    request<ReviewDecisionRecord>(
+      `/projects/${projectId}/static-sessions/${sessionId}/decision`,
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  // Test Plan (Group 2c)
+  listTestItems: (
+    projectId: string,
+    filters: { module?: string; status?: TestItemStatus; sessionId?: string } = {}
+  ) => {
+    const params = new URLSearchParams();
+    if (filters.module) params.set('module', filters.module);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.sessionId) params.set('sessionId', filters.sessionId);
+    const qs = params.toString();
+    return request<TestItem[]>(
+      `/projects/${projectId}/test-items${qs ? '?' + qs : ''}`
+    );
+  },
+  listTestItemRollups: (projectId: string) =>
+    request<TestItemRollup[]>(`/projects/${projectId}/test-items/rollups`),
+  updateTestItemStatus: (
+    projectId: string,
+    itemId: string,
+    status: TestItemStatus
+  ) =>
+    request<TestItem>(`/projects/${projectId}/test-items/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+  regenerateTestPlan: (projectId: string, sessionId: string) =>
+    request<{ findings: number; items: number; smoke: number }>(
+      `/projects/${projectId}/static-sessions/${sessionId}/regenerate-plan`,
+      { method: 'POST' }
+    ),
+
+  // Re-review (P1-5)
+  getSessionDiff: (projectId: string, childId: string, parentId: string) =>
+    request<SessionDiff>(
+      `/projects/${projectId}/static-sessions/${childId}/diff/${parentId}`
+    ),
 
   // Unified Findings
   listFindings: (projectId: string) =>

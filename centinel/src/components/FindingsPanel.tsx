@@ -114,6 +114,16 @@ export function FindingsPanel({ projectId, refreshKey }: Props) {
                 <div className="finding-detail">
                   <p className="finding-description">{f.description}</p>
 
+                  {f.filePath && (
+                    <div className="finding-location">
+                      <strong>Location:</strong>{' '}
+                      <span className="finding-location-path">{f.filePath}</span>
+                      {f.lineNumber != null && (
+                        <span className="finding-location-line">:{f.lineNumber}</span>
+                      )}
+                    </div>
+                  )}
+
                   {f.evidenceText && (
                     <div className="finding-evidence">
                       <strong>Evidence:</strong>

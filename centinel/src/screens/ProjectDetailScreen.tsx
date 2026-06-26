@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, BarChart3, Search, AlertCircle, GitBranch, RotateCw } from 'lucide-react';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
 import { ReviewModal } from '../components/ReviewModal';
@@ -9,6 +9,8 @@ import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { ActiveSessionInline } from '../components/ActiveSessionInline';
 import { ActiveSessionComplete } from '../components/ActiveSessionComplete';
+import { ReviewDecisionPill } from '../components/ReviewDecisionBar';
+import { TestPlanPanel } from '../components/TestPlanPanel';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding } from '../types';
 
 type Props = { project: Project; onNavigate: (screen: Screen) => void };
@@ -93,7 +95,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
     } catch (e) { setError(String(e)); throw e; }
   };
 
-  const handleCreateStatic = async (data: { name: string; instructions: string }) => {
+  const handleCreateStatic = async (data: { name: string; instructions: string; baseRef?: string; headRef?: string; parentSessionId?: string }) => {
     setError(null);
     try {
       const session = await api.createStaticSession(project.id, data);
@@ -102,6 +104,29 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
       activeReviewControls.trackSession(session, project.name);
       setShowStaticForm(false);
     } catch (e) { setError(String(e)); throw e; }
+  };
+
+  // P1-5: handler for the "Re-review" button on a completed session
+  // row. Pulled out of the JSX so the onClick stays small (and the
+  // window.prompt calls don't bloat the .tsx). The two prompts run
+  // sequentially because we use the parent's base/head refs as the
+  // defaults for the new review's scope.
+  const onReReviewClick = async (
+    e: React.MouseEvent<HTMLButtonElement>,
+    s: StaticSession
+  ) => {
+    e.stopPropagation();
+    const child = window.prompt('Re-review name', `Re-review of ${s.name}`);
+    if (!child) return;
+    const instructions = window.prompt('Instructions for the agent (optional)', s.remarks || '');
+    if (instructions === null) return;
+    await handleCreateStatic({
+      name: child.trim(),
+      instructions: instructions.trim(),
+      baseRef: s.baseRef,
+      headRef: s.headRef,
+      parentSessionId: s.id,
+    });
   };
 
   const handleExportReport = async () => {
@@ -194,9 +219,32 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                       <div className="session-info-compact">
                         <span className="session-name">{s.name}</span>
                         <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
+                        {s.baseRef && s.headRef && (
+                          <span
+                            className="session-scope-badge"
+                            data-testid="session-scope-badge"
+                            title={`Scoped to files changed between ${s.baseRef} and ${s.headRef}`}
+                          >
+                            <GitBranch size={10} /> {s.baseRef} → {s.headRef}
+                          </span>
+                        )}
                       </div>
                       <div className="session-meta">
                         <StatusBadge label={s.status} />
+                        {s.status === 'success' && (
+                          <ReviewDecisionPill decision={s.currentDecision ?? null} />
+                        )}
+                        {s.status === 'success' && !s.parentSessionId && (
+                          <button
+                            className="btn-ghost btn-re-review"
+                            onClick={(e) => { void onReReviewClick(e, s); }}
+                            data-testid="re-review-button"
+                            title="Start a new review that carries over unresolved findings from this one"
+                            type="button"
+                          >
+                            <RotateCw size={11} /> Re-review
+                          </button>
+                        )}
                         <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
                       </div>
                     </div>
@@ -208,6 +256,7 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
                           projectId={project.id}
                           sessionId={s.id}
                           findings={findingsBySession[s.id] ?? []}
+                          parentSessionId={s.parentSessionId}
                         />
                       )
                     )}
@@ -264,6 +313,21 @@ export function ProjectDetailScreen({ project, onNavigate }: Props) {
               activeReviewState?.session.projectId === project.id
                 ? `${activeReviewState.session.id}:${activeReviewState.session.status}`
                 : undefined
+            }
+          />
+        </div>
+
+        {/* Test Plan (Group 2c) — module-grouped test items derived
+            from the static review. Mounts below findings so the
+            reviewer can scan defects and the test plan to address
+            them in one pass. */}
+        <div className="card detail-card test-plan-card">
+          <TestPlanPanel
+            projectId={project.id}
+            sessionId={
+              activeReviewState?.session.projectId === project.id
+                ? activeReviewState.session.id
+                : staticSessions.find(s => s.status === 'success')?.id
             }
           />
         </div>

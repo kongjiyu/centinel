@@ -24,6 +24,9 @@ export type RepoIndex = {
   fileSize: number;
   symbolCount: number;
   indexedAt: string;
+  /** Test-plan module grouping (Group 2c). First path segment after
+   *  stripping src/ or lib/. Populated at index time. */
+  module: string;
 };
 
 export type CodeSymbol = {
@@ -76,6 +79,39 @@ const EXT_TO_LANG: Record<string, string> = {
 function detectLanguage(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   return EXT_TO_LANG[ext] ?? 'unknown';
+}
+
+/**
+ * Group a file into a "module" by its first non-empty path segment
+ * (after stripping a leading src/ or lib/ prefix). This is the
+ * pragmatic default for the test plan generator — the bucket each
+ * file falls into, and the unit at which test items are organized.
+ *
+ * Examples (with the convention of dropping the leading `src/` or
+ * `lib/`):
+ *   src/auth/login.ts        -> "auth"
+ *   src/auth/oauth/google.ts -> "auth"  (not "auth/oauth")
+ *   lib/db/postgres.ts       -> "db"
+ *   test/foo/bar.ts          -> "test/foo"
+ *   README.md                -> "(root)"
+ *
+ * The convention is intentionally cheap: no config, no graph
+ * analysis. A future per-project override can layer on top.
+ */
+export function deriveModuleFromPath(filePath: string): string {
+  if (!filePath) return '(root)';
+  // Normalize: drop leading ./, treat both / and \ as separators
+  let p = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  // Drop a leading "src/" or "lib/" so the module name is the meaningful
+  // segment, not the boilerplate prefix.
+  if (p.startsWith('src/')) p = p.slice(4);
+  else if (p.startsWith('lib/')) p = p.slice(4);
+  const first = p.split('/').filter(Boolean)[0];
+  if (!first) return '(root)';
+  // Drop the extension off the segment if the file is directly at the
+  // root of the project (e.g. "README.md" -> "README").
+  if (!p.includes('/')) return first.replace(/\.[^.]+$/, '');
+  return first;
 }
 
 // ── Non-JS/TS Symbol Extractors ───────────────────────────────────────────
@@ -615,8 +651,8 @@ function insertRepoIndex(
   entry: RepoIndex
 ): void {
   db.run(
-    `INSERT INTO repo_index (id, project_id, file_path, parent_path, file_type, language, file_size, symbol_count, indexed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO repo_index (id, project_id, file_path, parent_path, file_type, language, file_size, symbol_count, indexed_at, module)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id,
       entry.projectId,
@@ -627,6 +663,11 @@ function insertRepoIndex(
       entry.fileSize,
       entry.symbolCount,
       entry.indexedAt,
+      // Module grouping for the test plan generator. Same heuristic
+      // everywhere: first non-empty path segment after stripping src/
+      // or lib/ prefix. Cheaper than a full graph analysis and matches
+      // the convention the dashboard already uses for code organization.
+      deriveModuleFromPath(entry.filePath),
     ]
   );
 }
@@ -683,6 +724,7 @@ function mapRepoIndexRow(row: unknown[]): RepoIndex {
     fileSize: (row[6] as number) ?? 0,
     symbolCount: (row[7] as number) ?? 0,
     indexedAt: row[8] as string,
+    module: (row[9] as string) ?? '',
   };
 }
 
@@ -784,6 +826,7 @@ export async function indexProject(
             fileSize,
             symbolCount: 0,
             indexedAt: now,
+            module: deriveModuleFromPath(artifact.filePath),
           };
           insertRepoIndex(db, repoEntry);
           wsFiles.push({ id: fileRecordId, path: artifact.filePath, type: ext.replace('.', ''), language: lang, size: fileSize, symbols: [] });
@@ -803,6 +846,7 @@ export async function indexProject(
           fileSize,
           symbolCount: symbols.length,
           indexedAt: now,
+          module: deriveModuleFromPath(artifact.filePath),
         };
         insertRepoIndex(db, repoEntry);
 
@@ -891,6 +935,7 @@ export async function indexProject(
           fileSize,
           symbolCount: symbols.length,
           indexedAt: now,
+          module: deriveModuleFromPath(artifact.filePath),
         };
         insertRepoIndex(db, repoEntry);
 
@@ -994,7 +1039,7 @@ export async function indexProject(
 export async function getIndexedFiles(projectId: string): Promise<RepoIndex[]> {
   const db = await getDb();
   const stmt = db.prepare(
-    'SELECT id, project_id, file_path, parent_path, file_type, language, file_size, symbol_count, indexed_at FROM repo_index WHERE project_id = ? ORDER BY file_path'
+    'SELECT id, project_id, file_path, parent_path, file_type, language, file_size, symbol_count, indexed_at, module FROM repo_index WHERE project_id = ? ORDER BY file_path'
   );
   stmt.bind([projectId]);
   const rows: RepoIndex[] = [];
