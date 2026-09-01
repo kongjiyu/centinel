@@ -1,6 +1,6 @@
 # Centinel FYP Project Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans before implementing this plan task-by-task. This document is the high-level FYP roadmap, not a single sprint task list.
+> **For agentic workers:** This is the high-level FYP roadmap, not a sprint task list. Before implementation, derive a bounded plan and confirm each roadmap item against the current code and requirements.
 
 **Goal:** Build Centinel as a complete FYP-grade desktop software quality assurance platform with static artifact review, dynamic web application testing, structured evidence, and report generation.
 

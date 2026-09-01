@@ -23,6 +23,11 @@ dist-srv
 *.sln
 *.sw?
 
+# Agent-local state
+.claude/
+.loopful/
+.superpowers/
+
 # Environment and secrets
 .env
 .env.local
