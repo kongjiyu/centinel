@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Play, X, Globe, Target, Hash } from 'lucide-react';
+import { Play, Globe, Target, Hash, SlidersHorizontal } from 'lucide-react';
+import { Select } from '../components/Select';
 
 type Props = {
   onSubmit: (data: {
@@ -36,29 +37,20 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
   };
 
   return (
-    <div className="panel dynamic-test-form animate-slide-up">
-      <div className="panel-header">
-        <h3>
-          <Play size={14} />
-          New Dynamic Test
-        </h3>
-        <button className="command-icon-button" onClick={onCancel} title="Close test form" aria-label="Close test form">
-          <X size={14} />
-        </button>
-      </div>
-
+    <div className="dynamic-test-form">
       <div className="form-field">
-        <label className="field-label-with-icon">
-          <Globe size={13} /> Target URL
+        <label className="field-label-with-icon" htmlFor="dynamic-target-url">
+          <Globe size={16} /> Website address
         </label>
-        <input value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="http://localhost:3000" />
+        <input id="dynamic-target-url" type="url" value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://example.com" />
       </div>
 
       <div className="form-field">
-        <label className="field-label-with-icon">
-          <Target size={13} /> Testing Goal
+        <label className="field-label-with-icon" htmlFor="dynamic-test-goal">
+          <Target size={16} /> Test goal
         </label>
         <textarea
+          id="dynamic-test-goal"
           value={goal}
           onChange={e => setGoal(e.target.value)}
           placeholder="Describe what you want to test, e.g. 'Verify invalid login shows error message'"
@@ -66,27 +58,42 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
         />
       </div>
 
-      <div className="form-row">
-        <div className="form-field">
-          <label>Mission Type</label>
-          <select value={missionType} onChange={e => setMissionType(e.target.value as 'user_journey' | 'smoke')}>
-            <option value="user_journey">User Journey</option>
-            <option value="smoke">Smoke Test</option>
-          </select>
-        </div>
-        <div className="form-field">
-          <label className="field-label-with-icon">
-            <Hash size={13} /> Max Steps
-          </label>
-          <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} min={1} max={50} />
-        </div>
+      <div className="form-field">
+        <label htmlFor="dynamic-test-type">Test type</label>
+        <Select
+          id="dynamic-test-type"
+          value={missionType}
+          onChange={value => setMissionType(value as 'user_journey' | 'smoke')}
+          options={[
+            { value: 'user_journey', label: 'User journey' },
+            { value: 'smoke', label: 'Smoke test' },
+          ]}
+        />
+        <p className="field-help">
+          {missionType === 'user_journey'
+            ? 'Follow a goal across several pages and interactions.'
+            : 'Check that the main page and critical controls work.'}
+        </p>
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      <details className="advanced-options">
+        <summary><SlidersHorizontal size={16} /> Advanced options</summary>
+        <div className="advanced-options-content">
+          <div className="form-field">
+            <label className="field-label-with-icon" htmlFor="dynamic-step-limit">
+              <Hash size={16} /> Step limit
+            </label>
+            <input id="dynamic-step-limit" type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} min={1} max={25} />
+            <p className="field-help">Stop the test after this many browser actions.</p>
+          </div>
+        </div>
+      </details>
+
+      {error && <p className="form-error" role="alert">{error}</p>}
 
       <div className="form-actions">
         <button className="btn-primary" onClick={handleSubmit} disabled={submitting}>
-          <Play size={14} /> {submitting ? 'Starting...' : 'Run Test'}
+          <Play size={16} /> {submitting ? 'Starting…' : 'Run test'}
         </button>
         <button className="btn-secondary" onClick={onCancel}>Cancel</button>
       </div>

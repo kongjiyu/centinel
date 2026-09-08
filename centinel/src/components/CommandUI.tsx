@@ -12,7 +12,19 @@ export function statusTone(status: string): StatusTone {
 }
 
 export function StatusBadge({ label, tone = statusTone(label.toLowerCase()) }: { label: string; tone?: StatusTone }) {
-  return <span className={`command-status command-status-${tone}`}>{label}</span>;
+  const normalized = label.toLowerCase().replace(/_/g, ' ');
+  const displayLabel: Record<string, string> = {
+    success: 'Completed',
+    passed: 'Completed',
+    done: 'Completed',
+    running: 'In progress',
+    queued: 'Queued',
+    failure: 'Failed',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+    blocked: 'Needs attention',
+  };
+  return <span className={`command-status command-status-${tone}`}>{displayLabel[normalized] ?? label}</span>;
 }
 
 type HeaderProps = {

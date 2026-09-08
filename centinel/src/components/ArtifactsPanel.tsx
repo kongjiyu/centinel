@@ -1,9 +1,31 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { open } from '@tauri-apps/api/dialog';
 import { readBinaryFile } from '@tauri-apps/api/fs';
 import { api } from '../api/client';
+import { Modal } from './Modal';
+import { ConfirmDialog } from './ConfirmDialog';
 import type { Artifact, ArtifactSource } from '../types';
-import { ChevronRight, File, Folder, RotateCw, X } from 'lucide-react';
+import { ChevronRight, Cloud, File, Folder, GitBranch, MessageSquare, Plus, RotateCw, X, Upload } from 'lucide-react';
+
+const SUPPORTED_EXTENSIONS = new Set([
+  'txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'json', 'yaml', 'yml',
+  'html', 'css', 'go', 'rb', 'php', 'rs', 'cpp', 'c', 'h',
+]);
+
+function extensionOf(fileName: string): string {
+  const match = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match?.[1] || '';
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
 
 const SOURCE_LABELS: Record<ArtifactSource, string> = {
   documents: 'Documents',
@@ -35,16 +57,25 @@ type Props = {
   projectId: string;
 };
 
+type DeleteTarget =
+  | { kind: 'document'; artifact: Artifact }
+  | { kind: 'repository'; group: RepoGroup };
+
 export function ArtifactsPanel({ projectId }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Build a tree structure from flat artifact list
   const buildTree = (artifacts: Artifact[], rootPath: string): TreeNode[] => {
@@ -102,8 +133,10 @@ export function ArtifactsPanel({ projectId }: Props) {
     try {
       const data = await api.listArtifacts(projectId);
       setArtifacts(data);
-    } catch {
-      // ignore
+      setError(null);
+    } catch (cause) {
+      setArtifacts([]);
+      setError(`Sources could not be loaded: ${String(cause)}`);
     } finally {
       setLoading(false);
     }
@@ -175,7 +208,7 @@ export function ArtifactsPanel({ projectId }: Props) {
     }
 
     const groups: RepoGroup[] = Array.from(rootMap.entries()).map(([rootPath, arts]) => {
-      const repoName = rootPath.split(/[/\\]/).pop() || rootPath;
+      const repoName = rootPath.split(/[/\\]/).pop() || 'Imported repository';
       return {
         repoName,
         repoPath: rootPath,
@@ -196,35 +229,90 @@ export function ArtifactsPanel({ projectId }: Props) {
     });
   };
 
-  // Upload: open file explorer, select multiple files
-  const handleUpload = async () => {
-    const selected = await open({
-      multiple: true,
-      title: 'Select files to upload',
-      filters: [{
-        name: 'Supported Files',
-        extensions: ['txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'json', 'yaml', 'yml', 'html', 'css', 'go', 'rb', 'php', 'rs', 'cpp', 'c', 'h'],
-      }],
-    });
-    if (!selected) return;
+  const finishUpload = async () => {
+    await loadArtifacts();
+    setShowImportDialog(false);
+  };
 
-    const paths = Array.isArray(selected) ? selected : [selected];
+  const uploadBrowserFiles = async (files: File[]) => {
+    const supported = files.filter(file => SUPPORTED_EXTENSIONS.has(extensionOf(file.name)));
+    const unsupported = files.filter(file => !SUPPORTED_EXTENSIONS.has(extensionOf(file.name)));
+    if (unsupported.length > 0) {
+      setError(`Unsupported source${unsupported.length === 1 ? '' : 's'} skipped: ${unsupported.map(file => file.name).join(', ')}`);
+    } else {
+      setError(null);
+    }
+    if (supported.length === 0) return;
+
     setUploading(true);
-    setError(null);
-
+    setUploadProgress({ current: 0, total: supported.length });
     try {
-      for (const filePath of paths) {
-        const fileName = filePath.split(/[/\\]/).pop() || filePath;
-        const fileData = await readBinaryFile(filePath);
-        const base64 = btoa(String.fromCharCode(...fileData));
-        await api.uploadArtifact(projectId, { fileName, content: base64 });
+      for (let index = 0; index < supported.length; index += 1) {
+        const file = supported[index];
+        await api.uploadArtifact(projectId, { fileName: file.name, content: await fileToBase64(file) });
+        setUploadProgress({ current: index + 1, total: supported.length });
       }
-      await loadArtifacts();
-      setShowImportDialog(false);
-    } catch (e) {
-      setError(String(e));
+      await finishUpload();
+    } catch (cause) {
+      setError(`Upload failed: ${String(cause)}`);
     } finally {
       setUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  // Upload: open the native file picker, select multiple files.
+  const handleUpload = async () => {
+    try {
+      const selected = await open({
+        multiple: true,
+        title: 'Select files to upload',
+        filters: [{ name: 'Supported Files', extensions: Array.from(SUPPORTED_EXTENSIONS) }],
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      setUploading(true);
+      setUploadProgress({ current: 0, total: paths.length });
+      setError(null);
+      for (let index = 0; index < paths.length; index += 1) {
+        const filePath = paths[index];
+        const fileName = filePath.split(/[/\\]/).pop() || filePath;
+        const fileData = await readBinaryFile(filePath);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let offset = 0; offset < fileData.length; offset += chunkSize) {
+          binary += String.fromCharCode(...fileData.slice(offset, offset + chunkSize));
+        }
+        await api.uploadArtifact(projectId, { fileName, content: btoa(binary) });
+        setUploadProgress({ current: index + 1, total: paths.length });
+      }
+      await finishUpload();
+    } catch (cause) {
+      setError(`Upload failed: ${String(cause)}`);
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const handleFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    await uploadBrowserFiles(files);
+  };
+
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragActive(false);
+    await uploadBrowserFiles(Array.from(event.dataTransfer.files || []));
+  };
+
+  const openFilePicker = () => fileInputRef.current?.click();
+
+  const handleDropzoneKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openFilePicker();
     }
   };
 
@@ -274,35 +362,29 @@ export function ArtifactsPanel({ projectId }: Props) {
     }
   };
 
-  // Drive: placeholder
-  const handleDrive = async () => {
-    const url = prompt('Enter a Google Drive share link:');
-    if (!url) return;
-    setError('Google Drive integration coming soon.');
-  };
-
-  const handleDeleteDoc = async (artifactId: string) => {
-    if (!confirm('Remove this source? This cannot be undone.')) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api.deleteArtifact(projectId, artifactId);
-      setArtifacts(prev => prev.filter(a => a.id !== artifactId));
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const handleDeleteRepo = async (repoName: string) => {
-    const group = repoGroups.find(g => g.repoName === repoName);
-    if (!group) return;
-    if (!confirm(`Remove "${repoName}" repository and all ${group.artifacts.length} files?`)) return;
-    try {
-      for (const a of group.artifacts) {
-        await api.deleteArtifact(projectId, a.id);
+      if (deleteTarget.kind === 'document') {
+        await api.deleteArtifact(projectId, deleteTarget.artifact.id);
+        setArtifacts(prev => prev.filter(a => a.id !== deleteTarget.artifact.id));
+      } else {
+        for (const artifact of deleteTarget.group.artifacts) {
+          await api.deleteArtifact(projectId, artifact.id);
+        }
+        setExpandedRepos(prev => {
+          const next = new Set(prev);
+          next.delete(deleteTarget.group.repoName);
+          return next;
+        });
+        setArtifacts(prev => prev.filter(a => !deleteTarget.group.artifacts.some(item => item.id === a.id)));
       }
-      setExpandedRepos(prev => { const n = new Set(prev); n.delete(repoName); return n; });
-      setArtifacts(prev => prev.filter(a => !group.artifacts.some(g => g.id === a.id)));
+      setDeleteTarget(null);
     } catch (e) {
       setError(String(e));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -313,20 +395,32 @@ export function ArtifactsPanel({ projectId }: Props) {
       <div className="panel-header">
         <h3>Sources</h3>
         <div className="panel-actions">
-          <button className="btn-primary" onClick={() => setShowImportDialog(true)}>
-            + Add Source
+          <button type="button" className="command-icon-button" onClick={() => setShowImportDialog(true)} aria-label="Add source" title="Add source">
+            <Plus size={18} aria-hidden="true" />
           </button>
         </div>
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <input ref={fileInputRef} className="visually-hidden" type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
 
       {artifacts.length === 0 ? (
-        <div className="artifacts-empty">
-          <p className="card-empty">No sources imported yet.</p>
-          <button className="btn-primary" onClick={() => setShowImportDialog(true)}>
-            Add Source
-          </button>
+        <div
+          className={`artifacts-empty artifacts-empty-dropzone${dragActive ? ' is-dragging' : ''}`}
+          role="button"
+          tabIndex={0}
+          onClick={openFilePicker}
+          onKeyDown={handleDropzoneKeyDown}
+          onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
+          onDragOver={event => { event.preventDefault(); setDragActive(true); }}
+          onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
+          onDrop={event => { void handleDrop(event); }}
+          aria-label="Add source files"
+        >
+          <Upload size={28} aria-hidden="true" />
+          <strong>{uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Drop source files here'}</strong>
+          <p>or press Enter to choose supported files from your computer.</p>
+          <small>Supported: text, Markdown, code, JSON, YAML, and HTML files.</small>
         </div>
       ) : (
         <div className="artifact-list">
@@ -338,7 +432,7 @@ export function ArtifactsPanel({ projectId }: Props) {
                 <span className="artifact-name">{a.fileName}</span>
               </div>
               <div className="artifact-meta">
-                <button className="btn-delete-icon" onClick={() => handleDeleteDoc(a.id)} title="Remove">×</button>
+                <button className="btn-delete-icon" onClick={() => setDeleteTarget({ kind: 'document', artifact: a })} title="Remove" aria-label={`Remove ${a.fileName}`}>×</button>
               </div>
             </div>
           ))}
@@ -348,16 +442,23 @@ export function ArtifactsPanel({ projectId }: Props) {
             const isExpanded = expandedRepos.has(group.repoName);
             return (
               <div key={group.repoName} className="artifact-repo-group">
-                <div className="artifact-row artifact-repo-header" onClick={() => toggleRepo(group.repoName)}>
-                  <div className="artifact-info">
+                <div className="artifact-row artifact-repo-header">
+                  <button
+                    type="button"
+                    className="artifact-repo-toggle"
+                    onClick={() => toggleRepo(group.repoName)}
+                    aria-expanded={isExpanded}
+                  >
+                    <span className="artifact-info">
                     <span className="badge badge-repository">Repository</span>
                     <span className="artifact-name">{group.repoName}</span>
                     <span className="artifact-file-count">{group.artifacts.length} files</span>
                     {indexing && <RotateCw className="indexing-spinner" size={13} aria-label="Indexing repository" />}
                     <ChevronRight className={`artifact-expand-icon ${isExpanded ? 'expanded' : ''}`} size={14} />
-                  </div>
+                    </span>
+                  </button>
                   <div className="artifact-meta">
-                    <button className="btn-delete-icon" onClick={(e) => { e.stopPropagation(); handleDeleteRepo(group.repoName); }} title="Remove repository" aria-label="Remove repository"><X size={13} /></button>
+                    <button className="btn-delete-icon" onClick={() => setDeleteTarget({ kind: 'repository', group })} title="Remove repository" aria-label={`Remove ${group.repoName} repository`}><X size={13} /></button>
                   </div>
                 </div>
                 {isExpanded && (
@@ -370,12 +471,12 @@ export function ArtifactsPanel({ projectId }: Props) {
                           const isFolderOpen = expandedFolders.has(nodePath);
                           return (
                             <div key={nodePath}>
-                              <div className="artifact-repo-folder" style={{ paddingLeft: 12 + depth * 16 }} onClick={() => toggleFolder(nodePath)}>
+                              <button type="button" className="artifact-repo-folder" style={{ paddingLeft: 12 + depth * 16 }} onClick={() => toggleFolder(nodePath)} aria-expanded={isFolderOpen}>
                                 <ChevronRight className={`artifact-expand-icon ${isFolderOpen ? 'expanded' : ''}`} size={12} />
                                 <Folder size={14} />
                                 <span className="artifact-file-name">{node.name}</span>
                                 <span className="artifact-file-count">{node.children?.length}</span>
-                              </div>
+                              </button>
                               {isFolderOpen && node.children?.map(child => renderNode(child, depth + 1, nodePath))}
                             </div>
                           );
@@ -400,55 +501,75 @@ export function ArtifactsPanel({ projectId }: Props) {
 
       {/* Import Sources Dialog */}
       {showImportDialog && (
-        <div className="import-dialog-overlay" onClick={() => setShowImportDialog(false)}>
-          <div className="import-dialog" onClick={e => e.stopPropagation()}>
-            <div className="import-dialog-header">
-              <h3>ADD SOURCES</h3>
-              <button className="import-dialog-close" onClick={() => setShowImportDialog(false)}>×</button>
-            </div>
-
-            <div className="import-dialog-body">
-              <div className="import-dropzone">
+        <Modal isOpen={showImportDialog} onClose={() => setShowImportDialog(false)} title="Add sources" width={780}>
+          <div className="import-dialog-body">
+              <div
+                className={`import-dropzone${dragActive ? ' is-dragging' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={openFilePicker}
+                onKeyDown={handleDropzoneKeyDown}
+                onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
+                onDragOver={event => { event.preventDefault(); setDragActive(true); }}
+                onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
+                onDrop={event => { void handleDrop(event); }}
+                aria-label="Drop source files to upload"
+              >
                 <div className="import-dropzone-content">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2"/>
-                    <line x1="12" y1="8" x2="12" y2="16"/>
-                    <line x1="8" y1="12" x2="16" y2="12"/>
-                  </svg>
-                  <p>Drag sources here</p>
+                  <Upload size={32} aria-hidden="true" />
+                  <strong>{uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Drop sources here'}</strong>
+                  <p>Click to choose files or drag them into this area.</p>
                 </div>
               </div>
 
               <div className="import-options">
                 <button className="import-option" onClick={handleUpload} disabled={uploading}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
+                  <Upload size={24} aria-hidden="true" />
                   <span>Upload</span>
+                  <small>Available</small>
                 </button>
 
                 <button className="import-option" onClick={handleRepository} disabled={importing}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
-                  </svg>
+                  <Folder size={24} aria-hidden="true" />
                   <span>Repository</span>
+                  <small>Available</small>
                 </button>
 
-                <button className="import-option" onClick={handleDrive}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                    <path d="M2 17l10 5 10-5"/>
-                    <path d="M2 12l10 5 10-5"/>
-                  </svg>
-                  <span>Drive</span>
+                <button className="import-option" type="button" disabled aria-describedby="connector-source-note">
+                  <GitBranch size={24} aria-hidden="true" />
+                  <span>GitHub</span>
+                  <small>Unavailable</small>
                 </button>
+
+                <button className="import-option" type="button" disabled aria-describedby="connector-source-note">
+                  <Cloud size={24} aria-hidden="true" />
+                  <span>Google Drive</span>
+                  <small>Unavailable</small>
+                </button>
+
+                <button className="import-option" type="button" disabled aria-describedby="connector-source-note">
+                  <MessageSquare size={24} aria-hidden="true" />
+                  <span>Slack</span>
+                  <small>Unavailable</small>
+                </button>
+
               </div>
-            </div>
+              <p id="connector-source-note" className="import-dialog-note">Local upload and repository import are available now. GitHub, Google Drive, and Slack connectors are not connected in this build.</p>
           </div>
-        </div>
+        </Modal>
       )}
+
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        title={deleteTarget?.kind === 'repository' ? 'Remove repository?' : 'Remove source?'}
+        description={deleteTarget?.kind === 'repository'
+          ? `Remove ${deleteTarget.group.repoName} and its ${deleteTarget.group.artifacts.length} indexed files from this project?`
+          : `Remove ${deleteTarget?.artifact.fileName ?? 'this source'} from this project?`}
+        confirmLabel={deleteTarget?.kind === 'repository' ? 'Remove repository' : 'Remove source'}
+        onConfirm={handleDelete}
+        onClose={() => setDeleteTarget(null)}
+        busy={deleting}
+      />
     </div>
   );
 }

@@ -118,7 +118,7 @@ export function TestPlanPanel({ projectId, sessionId }: Props) {
         <div className="test-plan-panel-header">
           <h3><ClipboardList size={14} /> Test Plan</h3>
         </div>
-        <p className="card-empty">No test items yet. Run a static review to generate one.</p>
+        <p className="card-empty">No test items yet. Run a Review activity to generate one.</p>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import './command.css';
+import './workspace.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
@@ -9,6 +10,8 @@ import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { RequirementsScreen } from './screens/RequirementsScreen';
 import { EvidenceBrowser } from './screens/EvidenceBrowser';
+import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
+import { ReviewEntryScreen } from './screens/ReviewEntryScreen';
 import { api } from './api/client';
 import type { Project, AiProviderSetting, Screen } from './types';
 import { ActiveReviewProvider } from './hooks/useActiveReview';
@@ -44,9 +47,11 @@ function App() {
     loadData();
   }, [loadData]);
 
-  const handleCreateProject = async (name: string, description: string, workspacePath: string) => {
+  const handleCreateProject = async (name: string, description: string, workspacePath: string, navigateAfter = true) => {
     const project = await api.createProject(name, description, workspacePath);
     setProjects(prev => [project, ...prev]);
+    if (navigateAfter) setScreen({ name: 'project-detail', projectId: project.id });
+    return project;
   };
 
   const handleDeleteProject = async (id: string) => {
@@ -87,6 +92,7 @@ function App() {
       <AppShell
         screen={screen}
         onNavigate={setScreen}
+        projects={projects}
         aiSettings={aiSettings}
         sidecarOnline={sidecarOnline}
       >
@@ -94,21 +100,25 @@ function App() {
           <DashboardScreen
             projects={projects}
             aiSettings={aiSettings}
-            sidecarOnline={sidecarOnline}
             onNavigate={setScreen}
           />
         )}
         {screen.name === 'projects' && (
           <ProjectsScreen
             projects={projects}
+            initialSearch={screen.search}
+            initialStateFilter={screen.stateFilter}
+            initialActivityFilter={screen.activityFilter}
             onNavigate={setScreen}
-            onCreate={handleCreateProject}
+            onCreate={async (name, description, workspacePath) => { await handleCreateProject(name, description, workspacePath); }}
             onDelete={handleDeleteProject}
           />
         )}
         {screen.name === 'project-detail' && currentProject && (
           <ProjectDetailScreen
             project={currentProject}
+            initialAction={screen.initialAction}
+            initialStaticSessionId={screen.initialStaticSessionId}
             onNavigate={setScreen}
           />
         )}
@@ -117,6 +127,21 @@ function App() {
             projectId={screen.projectId}
             sessionId={screen.sessionId}
             onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'review-activity' && (
+          <ReviewActivityScreen
+            projectId={screen.projectId}
+            sessionId={screen.sessionId}
+            onNavigate={setScreen}
+          />
+        )}
+        {screen.name === 'review-entry' && (
+          <ReviewEntryScreen
+            projects={projects}
+            initialProjectId={screen.projectId}
+            onNavigate={setScreen}
+            onCreateProject={(name, description, workspacePath) => handleCreateProject(name, description, workspacePath, false)}
           />
         )}
         {screen.name === 'evidence-browser' && (

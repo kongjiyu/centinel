@@ -1,5 +1,5 @@
 /**
- * ReviewProgressView.test.tsx — Component tests for the 4-stage progress bar.
+ * ReviewProgressView.test.tsx — Component tests for the Review progress bar.
  *
  * The progress view is the user-facing surface of the B7 per-stage error
  * recovery (Task 9): when a stage fails, the user needs to see WHICH stage
@@ -38,10 +38,10 @@ describe('ReviewProgressView', () => {
   it('renders all 4 stages in order with their labels', () => {
     const progress = makeProgress(['done', 'done', 'active', 'pending']);
     render(<ReviewProgressView progress={progress} />);
-    expect(screen.getByText('Understanding Context')).toBeInTheDocument();
-    expect(screen.getByText('Code Review')).toBeInTheDocument();
-    expect(screen.getByText('Requirement Validation')).toBeInTheDocument();
-    expect(screen.getByText('Summarize Findings')).toBeInTheDocument();
+    expect(screen.getByText('Source readiness check')).toBeInTheDocument();
+    expect(screen.getByText('Facts gathering')).toBeInTheDocument();
+    expect(screen.getByText('Connecting facts')).toBeInTheDocument();
+    expect(screen.getByText('Reviewing')).toBeInTheDocument();
   });
 
   it('renders the active stage with a spinner indicator', () => {
@@ -66,7 +66,7 @@ describe('ReviewProgressView', () => {
     // see at a glance which stage broke.
     const progress = makeProgress(['done', 'failed', 'pending', 'pending']);
     const { container } = render(<ReviewProgressView progress={progress} />);
-    const failedRow = container.querySelector('.stage.stage-failed');
+    const failedRow = container.querySelector<HTMLElement>('.stage.stage-failed');
     expect(failedRow).not.toBeNull();
     // The code-review stage (the failed one) should not show its summary
     // because the stage didn't complete.

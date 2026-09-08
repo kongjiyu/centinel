@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Save, Play, Check, Eye, EyeOff, Zap, ScanEye, Activity, RefreshCw } from 'lucide-react';
+import { Save, Play, Check, Eye, EyeOff, Zap, ScanEye, Activity, RefreshCw, GitBranch } from 'lucide-react';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
+import { Select } from '../components/Select';
 
 type ProviderPreset = {
   id: string;
@@ -121,24 +122,17 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
       </div>
 
       <div className="form-field">
-        <label>Provider</label>
-        <select value={selectedPresetId} onChange={e => handlePresetChange(e.target.value)}>
-          <optgroup label="MiMo">
-            {PROVIDER_PRESETS.filter(p => p.provider === 'mimo').map(p => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Google">
-            {PROVIDER_PRESETS.filter(p => p.provider === 'gemini').map(p => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Custom">
-            {PROVIDER_PRESETS.filter(p => p.provider === 'custom').map(p => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </optgroup>
-        </select>
+        <label htmlFor={`provider-${setting.id}`}>Provider</label>
+        <Select
+          id={`provider-${setting.id}`}
+          value={selectedPresetId}
+          onChange={handlePresetChange}
+          groups={[
+            { label: 'MiMo', options: PROVIDER_PRESETS.filter(p => p.provider === 'mimo').map(p => ({ value: p.id, label: p.label })) },
+            { label: 'Google', options: PROVIDER_PRESETS.filter(p => p.provider === 'gemini').map(p => ({ value: p.id, label: p.label })) },
+            { label: 'Custom', options: PROVIDER_PRESETS.filter(p => p.provider === 'custom').map(p => ({ value: p.id, label: p.label })) },
+          ]}
+        />
       </div>
 
       <div className="form-field">
@@ -219,9 +213,9 @@ type UsageCallKind = 'review' | 'test' | 'dynamic';
 
 const SCOPE_LABEL: Record<UsageScope, string> = { text: 'Text', vision: 'Vision' };
 const CALL_KIND_LABEL: Record<UsageCallKind, string> = {
-  review: 'Static review',
+  review: 'Review',
   test: 'Provider test',
-  dynamic: 'Dynamic session',
+  dynamic: 'Dynamic Testing activity',
 };
 
 function formatTokenCount(n: number): string {
@@ -267,27 +261,25 @@ function TokenUsagePanel() {
     <section className="settings-section">
       <div className="settings-section-heading">
         <div>
-          <span className="command-eyebrow">Usage Telemetry</span>
+          <span className="command-eyebrow">Usage</span>
           <h2>Token Usage</h2>
         </div>
         <Activity size={17} />
       </div>
       <p className="settings-section-copy">
         Aggregated token usage across all configured providers. Tracks every AI call (static
-        review, dynamic session, and provider test).
+        Review, Dynamic Testing, and provider test).
       </p>
 
       <div className="usage-toolbar">
         <div className="form-field">
-          <label>Scope</label>
-          <select
+          <label htmlFor="usage-scope">Scope</label>
+          <Select
+            id="usage-scope"
             value={scopeFilter}
-            onChange={e => setScopeFilter(e.target.value as UsageScope | 'all')}
-          >
-            <option value="all">All</option>
-            <option value="text">Text only</option>
-            <option value="vision">Vision only</option>
-          </select>
+            onChange={value => setScopeFilter(value as UsageScope | 'all')}
+            options={[{ value: 'all', label: 'All' }, { value: 'text', label: 'Text only' }, { value: 'vision', label: 'Vision only' }]}
+          />
         </div>
         <button className="btn-secondary" onClick={load} disabled={loading}>
           <RefreshCw size={14} /> {loading ? 'Refreshing...' : 'Refresh'}
@@ -320,7 +312,7 @@ function TokenUsagePanel() {
           </div>
 
           {summary.byGroup.length === 0 ? (
-            <p className="card-empty">No usage recorded yet. Run a static review, dynamic session, or provider test to populate this dashboard.</p>
+            <p className="card-empty">No usage recorded yet. Run a Review, Dynamic Testing activity, or provider test to populate this dashboard.</p>
           ) : (
             <table className="usage-table">
               <thead>
@@ -404,9 +396,9 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
   return (
     <div className="screen settings-screen animate-fade-in">
       <CommandPageHeader
-        eyebrow="Provider Control"
-        title="AI Settings"
-        description="Configure text generation and multimodal vision endpoints. Credentials remain in the local SQLite store."
+        eyebrow="Workspace"
+        title="Settings"
+        description="Configure Text AI, Vision AI, and usage reporting."
         meta={<><span>{settings.filter(s => s.hasApiKey).length}/{settings.length} providers configured</span><span>Local credential storage</span></>}
       />
 
@@ -414,10 +406,10 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
         {textSetting && (
           <section className="settings-section">
             <div className="settings-section-heading">
-              <div><span className="command-eyebrow">Analysis Channel</span><h2>Text Generation</h2></div>
+              <div><span className="command-eyebrow">Text AI</span><h2>Text AI</h2></div>
               <Zap size={17} />
             </div>
-            <p className="settings-section-copy">Static analysis, code review, and requirement traceability.</p>
+            <p className="settings-section-copy">Review analysis, code review, and requirement traceability.</p>
             <ProviderForm setting={textSetting} onRefresh={onRefresh} />
           </section>
         )}
@@ -425,13 +417,28 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
         {visionSetting && (
           <section className="settings-section">
             <div className="settings-section-heading">
-              <div><span className="command-eyebrow">Observation Channel</span><h2>Multimodal Vision</h2></div>
+              <div><span className="command-eyebrow">Vision AI</span><h2>Vision AI</h2></div>
               <Eye size={17} />
             </div>
-            <p className="settings-section-copy">Dynamic testing and screenshot-based interaction analysis.</p>
+            <p className="settings-section-copy">Dynamic Testing and screenshot-based interaction analysis.</p>
             <ProviderForm setting={visionSetting} onRefresh={onRefresh} />
           </section>
         )}
+
+        <section className="settings-section settings-connectors">
+          <div className="settings-section-heading">
+            <div><span className="command-eyebrow">Sources</span><h2>Source connections</h2></div>
+            <GitBranch size={17} />
+          </div>
+          <p className="settings-section-copy">Source connections are not configurable from Settings in this build.</p>
+          <div className="capability-unavailable settings-capability-boundary" role="status">
+            <GitBranch size={22} aria-hidden="true" />
+            <div>
+              <strong>Use a project&apos;s Source section</strong>
+              <p>For supported local or repository input, open a project and manage its sources there.</p>
+            </div>
+          </div>
+        </section>
 
         <TokenUsagePanel />
       </div>

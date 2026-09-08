@@ -1,326 +1,331 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  FolderOpen, CheckCircle2, Circle, ArrowRight,
-  Zap, Eye, BarChart3, Shield, Play, Settings, TrendingUp,
-  Activity, ExternalLink
+  AlertCircle,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Code2,
+  FileEdit,
+  FileCheck2,
+  FileWarning,
+  FolderCog,
+  FolderOpen,
+  MonitorX,
+  MonitorPlay,
+  RefreshCw,
+  Settings,
 } from 'lucide-react';
-import { api } from '../api/client';
-import type { Project, AiProviderSetting, DynamicSession, Screen } from '../types';
+import { ReviewIllustration } from '../components/HomeIllustrations';
+import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
+import { Select } from '../components/Select';
+import {
+  formatActivityTime,
+  matchesActivityFilter,
+  timestamp,
+  useProjectSummaries,
+  type ActivityTypeFilter,
+  type ProjectAction,
+} from '../hooks/useProjectSummaries';
+import type { AiProviderSetting, Project, Screen } from '../types';
+import './DashboardScreen.css';
 
 type Props = {
   projects: Project[];
   aiSettings: AiProviderSetting[];
-  sidecarOnline: boolean;
   onNavigate: (screen: Screen) => void;
 };
 
-export function DashboardScreen({ projects, aiSettings, sidecarOnline, onNavigate }: Props) {
-  const [latestDynamic, setLatestDynamic] = useState<DynamicSession | null>(null);
-  const textOk = aiSettings.some(s => s.id === 'text' && s.hasApiKey);
-  const visionOk = aiSettings.some(s => s.id === 'vision' && s.hasApiKey);
+type Recommendation = {
+  id: string;
+  title: string;
+  summary: string;
+  actionLabel: string;
+  tone: 'static' | 'dynamic' | 'setup' | 'project';
+  Icon: typeof Code2;
+  onClick: () => void;
+};
+
+function greetingFor(date: Date): string {
+  const hour = date.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function actionPriority(action: ProjectAction): number {
+  if (action.tone === 'danger') return 4;
+  if (action.action === 'Resolve' || action.state.includes('blocked')) return 3;
+  if (action.action === 'Review') return 2;
+  return 1;
+}
+
+function actionIconFor(action: ProjectAction): typeof Code2 {
+  if (action.module === 'Dynamic Testing') return MonitorX;
+  if (action.state === 'Changes required') return FileEdit;
+  if (action.state === 'Review required') return FileCheck2;
+  if (action.state === 'Setup required') return FolderCog;
+  return FileWarning;
+}
+
+export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
+  const { summaries, loading, unavailable, reload } = useProjectSummaries(projects);
+  const [recommendationIndex, setRecommendationIndex] = useState(0);
+  const [activityFilter, setActivityFilter] = useState<ActivityTypeFilter>('all');
+
+  const latestProject = useMemo(
+    () => [...projects].sort((a, b) => timestamp(b.updatedAt || b.createdAt) - timestamp(a.updatedAt || a.createdAt))[0],
+    [projects],
+  );
+
+  const allActions = useMemo(() => summaries
+    .map(summary => summary.action)
+    .filter((action): action is ProjectAction => Boolean(action))
+    .sort((a, b) => actionPriority(b) - actionPriority(a) || timestamp(b.updatedAt) - timestamp(a.updatedAt)), [summaries]);
+  const visibleActions = allActions.slice(0, 3);
+
+  const recentProjects = useMemo(() => summaries
+    .filter(summary => matchesActivityFilter(summary, activityFilter))
+    .slice(0, 4), [activityFilter, summaries]);
+
+  const hasTextSetting = aiSettings.some(setting => setting.id === 'text' && setting.hasApiKey);
+  const hasVisionSetting = aiSettings.some(setting => setting.id === 'vision' && setting.hasApiKey);
+  const needsInitialSetup = !hasTextSetting || !hasVisionSetting;
+  const greeting = useMemo(() => greetingFor(new Date()), []);
+
+  const openProjectFlow = (initialAction: 'static' | 'dynamic') => {
+    if (latestProject) {
+      onNavigate(initialAction === 'static'
+        ? { name: 'review-entry', projectId: latestProject.id }
+        : { name: 'project-detail', projectId: latestProject.id, initialAction });
+    } else {
+      onNavigate({ name: 'projects' });
+    }
+  };
+
+  const recommendations: Recommendation[] = [];
+  if (!latestProject) {
+    recommendations.push({
+      id: 'create-project',
+      title: 'Create your first project',
+      summary: 'Start a workspace for sources, reviews, and browser tests.',
+      actionLabel: 'Create project',
+      tone: 'project',
+      Icon: FolderOpen,
+      onClick: () => onNavigate({ name: 'projects' }),
+    });
+  } else {
+    if (needsInitialSetup) {
+      recommendations.push({
+        id: 'setup',
+        title: 'Complete provider setup',
+        actionLabel: 'Open settings',
+        tone: 'setup',
+        Icon: Settings,
+        summary: `Connect the services needed before reviewing ${latestProject.name}.`,
+        onClick: () => onNavigate({ name: 'settings' }),
+      });
+    }
+
+    recommendations.push({
+      id: 'review',
+      title: 'Review current sources',
+      summary: `Check consistency and traceability in ${latestProject.name}.`,
+      actionLabel: 'Open Review',
+      tone: 'static',
+      Icon: Code2,
+      onClick: () => openProjectFlow('static'),
+    });
+
+    recommendations.push({
+      id: 'dynamic',
+      title: 'Verify a live workflow',
+      summary: `Run Dynamic Testing for ${latestProject.name}.`,
+      actionLabel: 'Start test',
+      tone: 'dynamic',
+      Icon: MonitorPlay,
+      onClick: () => openProjectFlow('dynamic'),
+    });
+
+    recommendations.push({
+      id: 'project',
+      title: 'Continue the latest project',
+      summary: latestProject.name,
+      actionLabel: 'Open project',
+      tone: 'project',
+      Icon: FolderOpen,
+      onClick: () => onNavigate({ name: 'project-detail', projectId: latestProject.id }),
+    });
+  }
 
   useEffect(() => {
-    let cancelled = false;
+    setRecommendationIndex(index => Math.min(index, Math.max(recommendations.length - 1, 0)));
+  }, [recommendations.length]);
 
-    const loadLatestDynamic = async () => {
-      if (projects.length === 0) {
-        setLatestDynamic(null);
-        return;
-      }
+  const openAction = (action: ProjectAction) => {
+    if (action.module === 'Dynamic Testing' && action.sessionId && action.action === 'Inspect') {
+      onNavigate({ name: 'dynamic-session', projectId: action.project.id, sessionId: action.sessionId });
+      return;
+    }
+    if (action.module === 'Review' && action.sessionId) {
+      onNavigate({ name: 'review-activity', projectId: action.project.id, sessionId: action.sessionId });
+      return;
+    }
+    onNavigate({ name: 'project-detail', projectId: action.project.id, initialStaticSessionId: action.sessionId });
+  };
 
-      const sessionGroups = await Promise.all(
-        projects.map(project => api.listDynamicSessions(project.id).catch(() => []))
-      );
-      const latest = sessionGroups
-        .flat()
-        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] ?? null;
-
-      if (!cancelled) setLatestDynamic(latest);
-    };
-
-    void loadLatestDynamic();
-    return () => { cancelled = true; };
-  }, [projects]);
-
-  const dynamicValidated = latestDynamic?.status === 'success';
-  const dynamicRunning = latestDynamic?.status === 'running' || latestDynamic?.status === 'queued';
-  const dynamicFailed = latestDynamic?.status === 'failure' || latestDynamic?.status === 'blocked';
-  const operational = sidecarOnline && textOk && visionOk;
-
-  const readiness = [
-    { label: 'Project created', done: projects.length > 0, icon: FolderOpen },
-    { label: 'Text AI configured', done: textOk, icon: Zap },
-    { label: 'Vision AI configured', done: visionOk, icon: Eye },
-    { label: 'Static review available', done: false, icon: BarChart3 },
-    { label: 'Dynamic test validated', done: dynamicValidated, icon: Play },
-    { label: 'Report exported', done: false, icon: Shield },
-  ];
-
-  const completedCount = readiness.filter(r => r.done).length;
-  const allReady = readiness.every(r => r.done);
-  const dynamicTitle = dynamicValidated
-    ? 'Dynamic Test Validated'
-    : dynamicRunning
-      ? 'Dynamic Test Running'
-      : dynamicFailed
-        ? 'Dynamic Test Requires Review'
-        : 'Dynamic Test Not Yet Validated';
-  const dynamicSubtitle = latestDynamic
-    ? latestDynamic.finalSummary || latestDynamic.goal
-    : 'Run a dynamic test to validate an end-to-end user journey.';
-  const dynamicStages = [
-    { label: 'Prepare', detail: projects.length > 0 ? 'Ready' : 'Waiting', done: projects.length > 0 },
-    { label: 'Vision', detail: visionOk ? 'Ready' : 'Missing', done: visionOk },
-    { label: 'Execute', detail: latestDynamic ? 'Recorded' : 'Pending', done: Boolean(latestDynamic) },
-    { label: 'Validate', detail: dynamicValidated ? 'Passed' : dynamicFailed ? 'Review' : dynamicRunning ? 'Running' : 'Waiting', done: dynamicValidated },
-    { label: 'Complete', detail: dynamicValidated && latestDynamic ? new Date(latestDynamic.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Pending', done: dynamicValidated },
-  ];
+  const recommendation = recommendations[recommendationIndex] ?? recommendations[0];
+  const RecommendationIcon = recommendation.Icon;
 
   return (
-    <div className="screen dashboard-console animate-fade-in">
-      {/* Hero Header */}
-      <div className="dashboard-hero">
-        <div className="hero-content">
-          <div className="hero-badge">
-            <Shield size={12} />
-            <span>QA Workstation</span>
-          </div>
-          <h1 className="hero-title">Centinel Dashboard</h1>
-          <p className="hero-subtitle">
-            AI-powered software quality assurance platform for autonomous testing and validation.
-          </p>
+    <div className="screen dashboard-home">
+      <div className="home-background-art" aria-hidden="true"><ReviewIllustration /></div>
+      <header className="home-header">
+        <div>
+          <h1>{greeting}</h1>
+          <p>Start with what needs attention, then continue the latest project work.</p>
         </div>
-        <div className={`hero-operational ${operational ? 'online' : 'attention'}`}>
-          <span className="hero-operational-dot" />
-          <span>{operational ? 'Operational' : 'Attention'}</span>
-          <span className="hero-operational-meta">{completedCount}/{readiness.length} ready</span>
-        </div>
-        <div className="hero-decoration">
-          <div className="hero-ring ring-1" />
-          <div className="hero-ring ring-2" />
-          <div className="hero-ring ring-3" />
-        </div>
-      </div>
+      </header>
 
-      {/* Operational Stats */}
-      <div className="dashboard-stats stagger-children">
-        <div className="stat-card">
-          <div className="stat-icon">
-            <FolderOpen size={22} />
-          </div>
-          <div className="stat-content">
-            <span className="stat-value">{projects.length}</span>
-            <span className="stat-label">Projects</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon text">
-            <Zap size={22} />
-          </div>
-          <div className="stat-content">
-            <span className={`stat-value ${textOk ? 'ok' : 'err'}`}>
-              {textOk ? 'Ready' : '—'}
-            </span>
-            <span className="stat-label">Text AI</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon vision">
-            <Eye size={22} />
-          </div>
-          <div className="stat-content">
-            <span className={`stat-value ${visionOk ? 'ok' : 'err'}`}>
-              {visionOk ? 'Ready' : '—'}
-            </span>
-            <span className="stat-label">Vision AI</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon readiness">
-            <TrendingUp size={22} />
-          </div>
-          <div className="stat-content">
-            <span className="stat-value">{completedCount}/{readiness.length}</span>
-            <span className="stat-label">Readiness</span>
-          </div>
-        </div>
-      </div>
-
-      <section className={`dynamic-validation-strip ${dynamicValidated ? 'validated' : dynamicFailed ? 'failed' : dynamicRunning ? 'running' : 'idle'}`}>
-        <div className="dynamic-validation-summary">
-          <div className="dynamic-validation-mark">
-            {dynamicValidated ? <CheckCircle2 size={25} /> : <Activity size={25} />}
-          </div>
-          <div className="dynamic-validation-copy">
-            <h2>{dynamicTitle}</h2>
-            <p>{dynamicSubtitle}</p>
-            {latestDynamic && (
-              <span>{new Date(latestDynamic.updatedAt).toLocaleString()}</span>
-            )}
-          </div>
-        </div>
-        <div className="dynamic-validation-track">
-          {dynamicStages.map((stage, index) => (
-            <div key={stage.label} className={`validation-stage ${stage.done ? 'done' : ''} ${index === 3 && dynamicRunning ? 'active' : ''}`}>
-              <span className="validation-node">
-                {stage.done ? <CheckCircle2 size={13} /> : <Circle size={9} fill="currentColor" />}
-              </span>
-              <strong>{stage.label}</strong>
-              <small>{stage.detail}</small>
+      <div className="home-top-grid">
+        <section className="home-panel highlights-panel" aria-labelledby="action-required-title">
+          <div className="home-section-heading">
+            <div>
+              <h2 id="action-required-title">Action required</h2>
             </div>
-          ))}
+          </div>
+
+          {loading && summaries.length === 0 ? (
+            <div className="home-message" role="status">Loading required actions…</div>
+          ) : visibleActions.length > 0 ? (
+            <>
+              <div className="action-required-list">
+                {visibleActions.map(action => {
+                  const ActionIcon = actionIconFor(action);
+                  return (
+                    <article key={action.id} className={`action-required-item action-required-${action.tone}`}>
+                      <header className="action-required-header">
+                        <span className="action-required-icon" aria-hidden="true">
+                          <ActionIcon size={18} strokeWidth={1.8} />
+                        </span>
+                        <div className="action-required-context">
+                          <strong>{action.project.name}</strong>
+                          <span aria-hidden="true">·</span>
+                          <span>{action.module}</span>
+                          <span aria-hidden="true">·</span>
+                          <time dateTime={action.updatedAt}>{formatActivityTime(action.updatedAt)}</time>
+                        </div>
+                        <button
+                          type="button"
+                          className={`action-required-button action-required-button-${action.tone}`}
+                          onClick={() => openAction(action)}
+                          aria-label={`${action.action} ${action.project.name}: ${action.state}`}
+                        >
+                          {action.action}
+                          <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+                        </button>
+                      </header>
+                      <div className="action-required-body">
+                        <h3>{action.state}</h3>
+                        <p>{action.reason}</p>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+              {allActions.length > visibleActions.length && (
+                <div className="action-required-overflow">
+                  <span>{allActions.length - visibleActions.length} more {allActions.length - visibleActions.length === 1 ? 'project needs' : 'projects need'} attention</span>
+                  <button type="button" onClick={() => onNavigate({ name: 'projects', stateFilter: 'needs_attention' })}>
+                    View affected projects <ArrowRight size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </>
+          ) : unavailable ? (
+            <div className="home-message home-message-error" role="alert">
+              <AlertCircle size={20} aria-hidden="true" />
+              <span>Required actions are unavailable.</span>
+              <button className="home-inline-action" onClick={reload}><RefreshCw size={14} aria-hidden="true" /> Retry</button>
+            </div>
+          ) : (
+            <div className="home-message"><FileCheck2 size={22} aria-hidden="true" /><span>Nothing needs your attention.</span></div>
+          )}
+        </section>
+
+        <section className="quick-actions-panel" aria-labelledby="recommendations-title">
+          <div className={`recommendation-visual recommendation-${recommendation.tone}`}>
+            <div className="recommendation-heading">
+              <div>
+                <h2 id="recommendations-title">Recommendations</h2>
+              </div>
+              {recommendations.length > 1 && (
+                <div className="recommendation-controls">
+                  <span className="recommendation-position" aria-live="polite">{recommendationIndex + 1} of {recommendations.length}</span>
+                  <button type="button" className="recommendation-nav" aria-label="Previous recommendation" onClick={() => setRecommendationIndex(index => (index - 1 + recommendations.length) % recommendations.length)}>
+                    <ChevronLeft size={17} aria-hidden="true" />
+                  </button>
+                  <button type="button" className="recommendation-nav" aria-label="Next recommendation" onClick={() => setRecommendationIndex(index => (index + 1) % recommendations.length)}>
+                    <ChevronRight size={17} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="recommendation-summary">
+              <span className="recommendation-icon" aria-hidden="true"><RecommendationIcon size={24} strokeWidth={1.8} /></span>
+              <div>
+                <h3>{recommendation.title}</h3>
+                <p>{recommendation.summary}</p>
+              </div>
+            </div>
+            <button type="button" className="recommendation-action" onClick={recommendation.onClick} aria-label={`${recommendation.actionLabel}: ${recommendation.summary}`}>
+              {recommendation.actionLabel}<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <img className="recommendation-watermark" src="/assets/centinel-shield.svg" alt="" aria-hidden="true" />
+          </div>
+        </section>
+      </div>
+
+      <section className="home-panel recent-projects-panel" aria-labelledby="recent-projects-title">
+        <div className="recent-projects-header">
+          <div className="recent-projects-title-group">
+            <div>
+              <div className="recent-projects-title-row">
+                <h2 id="recent-projects-title">Recent projects</h2>
+                <button type="button" className="view-more-projects" onClick={() => onNavigate({ name: 'projects', activityFilter })}>
+                  View more
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="recent-projects-controls">
+            <label className="activity-type-filter">
+              <span className="visually-hidden">Activity type</span>
+              <span className="activity-type-select">
+                <Select
+                  aria-label="Activity type"
+                  value={activityFilter}
+                  onChange={value => setActivityFilter(value as ActivityTypeFilter)}
+                  options={[{ value: 'all', label: 'All activity' }, { value: 'review', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]}
+                />
+              </span>
+            </label>
+          </div>
         </div>
-        {latestDynamic && (
-          <button
-            className="dynamic-validation-link"
-            onClick={() => onNavigate({ name: 'dynamic-session', projectId: latestDynamic.projectId, sessionId: latestDynamic.id })}
-            aria-label={`Open dynamic test ${latestDynamic.name}`}
-          >
-            <ExternalLink size={15} />
-          </button>
+
+        {loading && summaries.length === 0 ? (
+          <div className="home-message" role="status">Loading projects…</div>
+        ) : recentProjects.length > 0 ? (
+          <ProjectSummaryTable summaries={recentProjects} onNavigate={onNavigate} ariaLabel="Recent projects" />
+        ) : unavailable ? (
+          <div className="home-message home-message-error" role="alert">
+            <AlertCircle size={20} aria-hidden="true" />
+            <span>Recent projects are unavailable.</span>
+            <button className="home-inline-action" onClick={reload}><RefreshCw size={14} aria-hidden="true" /> Retry</button>
+          </div>
+        ) : (
+          <div className="home-message"><span>No recent projects match the current filter.</span></div>
         )}
       </section>
-
-      {/* Two-column layout */}
-      <div className="dashboard-columns stagger-children">
-        {/* Left: Readiness */}
-        <div className="panel">
-          <div className="panel-header">
-            <h3>System Readiness</h3>
-            <span className="readiness-progress">{completedCount}/{readiness.length}</span>
-          </div>
-          <div className="readiness-list">
-            {readiness.map((item, i) => {
-              const Icon = item.icon;
-              return (
-                <div key={i} className="readiness-item" style={{ animationDelay: `${i * 60}ms` }}>
-                  <div className={`readiness-icon ${item.done ? 'done' : 'pending'}`}>
-                    <Icon size={14} />
-                  </div>
-                  <span className={`readiness-label ${item.done ? 'done' : 'pending'}`}>
-                    {item.label}
-                  </span>
-                  {item.done ? (
-                    <CheckCircle2 size={14} className="readiness-status done" />
-                  ) : (
-                    <Circle size={14} className="readiness-status pending" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {!allReady && (
-            <div className="panel-footer">
-              <span className="readiness-hint">
-                {completedCount === 0
-                  ? 'Get started by creating a project and configuring AI providers.'
-                  : `${readiness.length - completedCount} step${readiness.length - completedCount > 1 ? 's' : ''} remaining. Configure in Settings.`}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Right: Quick Actions */}
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Quick Actions</h3>
-          </div>
-          <div className="quick-actions">
-            <button className="quick-action" onClick={() => onNavigate({ name: 'projects' })}>
-              <div className="quick-action-icon projects">
-                <FolderOpen size={16} />
-              </div>
-              <div className="quick-action-text">
-                <span className="quick-action-title">View Projects</span>
-                <span className="quick-action-desc">Browse and manage your test projects</span>
-              </div>
-              <ArrowRight size={14} className="quick-action-arrow" />
-            </button>
-            <button className="quick-action" onClick={() => onNavigate({ name: 'settings' })}>
-              <div className="quick-action-icon settings">
-                <Settings size={16} />
-              </div>
-              <div className="quick-action-text">
-                <span className="quick-action-title">AI Settings</span>
-                <span className="quick-action-desc">Configure text and vision AI providers</span>
-              </div>
-              <ArrowRight size={14} className="quick-action-arrow" />
-            </button>
-            <button className="quick-action" onClick={() => onNavigate({ name: 'projects' })}>
-              <div className="quick-action-icon dynamic">
-                <Play size={16} />
-              </div>
-              <div className="quick-action-text">
-                <span className="quick-action-title">Run Dynamic Test</span>
-                <span className="quick-action-desc">Start an autonomous UI test session</span>
-              </div>
-              <ArrowRight size={14} className="quick-action-arrow" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Projects */}
-      {projects.length > 0 && (
-        <div className="panel recent-projects-panel">
-          <div className="panel-header">
-            <h3>Recent Projects</h3>
-            <button className="btn-link" onClick={() => onNavigate({ name: 'projects' })}>
-              View all →
-            </button>
-          </div>
-          <div className="project-list stagger-children">
-            {projects.slice(0, 5).map(p => (
-              <div
-                key={p.id}
-                className="project-row"
-                onClick={() => onNavigate({ name: 'project-detail', projectId: p.id })}
-              >
-                <div className="project-icon">
-                  <FolderOpen size={16} />
-                </div>
-                <div className="project-info">
-                  <span className="project-name">{p.name}</span>
-                  {p.description && (
-                    <span className="project-desc">{p.description}</span>
-                  )}
-                </div>
-                <span className="project-date">
-                  {new Date(p.createdAt).toLocaleDateString()}
-                </span>
-                <ArrowRight size={14} style={{ color: 'var(--text-faint)' }} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {projects.length === 0 && (
-        <div className="empty-state animate-fade-in">
-          <div className="empty-state-icon">
-            <FolderOpen size={48} strokeWidth={1} />
-          </div>
-          <h3>No projects yet</h3>
-          <p>Create your first project to start testing with AI-powered analysis.</p>
-          <button className="btn-primary" onClick={() => onNavigate({ name: 'projects' })}>
-            Create Project
-          </button>
-        </div>
-      )}
-
-      <footer className="dashboard-telemetry" aria-label="Dashboard telemetry">
-        <div className="telemetry-identity">
-          <span className="telemetry-code">SYS-CN</span>
-          <span>{projects.length} project{projects.length === 1 ? '' : 's'}</span>
-          <span>{completedCount}/{readiness.length} readiness checks</span>
-        </div>
-        <div className="telemetry-bars" aria-hidden="true">
-          {readiness.map((item, index) => (
-            <span key={item.label} className={item.done ? 'active' : ''} style={{ height: `${8 + (index % 3) * 4}px` }} />
-          ))}
-        </div>
-      </footer>
     </div>
   );
 }

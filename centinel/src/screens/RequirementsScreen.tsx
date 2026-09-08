@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Edit, ChevronDown, ChevronUp, Link, FileText, Activity } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandEmptyState, CommandPageHeader, IconButton, StatusBadge, type StatusTone } from '../components/CommandUI';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Select } from '../components/Select';
 import type { Requirement, RequirementMapping, Artifact, Screen } from '../types';
 
 type Props = { projectId: string; onNavigate: (screen: Screen) => void };
@@ -29,6 +31,8 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
   const [mapFileId, setMapFileId] = useState('');
   const [mapCoverage, setMapCoverage] = useState('unknown');
   const [mapConfidence, setMapConfidence] = useState(0);
+  const [requirementToDelete, setRequirementToDelete] = useState<Requirement | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadData = useCallback(async () => {
     try { const [reqs, arts] = await Promise.all([api.listRequirements(projectId), api.listArtifacts(projectId)]); setRequirements(reqs); setArtifacts(arts); setError(null); }
@@ -54,9 +58,15 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
     catch (e) { setError(String(e)); }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this requirement?')) return;
-    try { await api.deleteRequirement(projectId, id); loadData(); } catch (e) { setError(String(e)); }
+  const handleDelete = async () => {
+    if (!requirementToDelete) return;
+    setDeleting(true);
+    try {
+      await api.deleteRequirement(projectId, requirementToDelete.id);
+      setRequirementToDelete(null);
+      await loadData();
+    } catch (e) { setError(String(e)); }
+    finally { setDeleting(false); }
   };
 
   const handleEdit = (req: Requirement) => { setEditing(req); setFormTitle(req.title); setFormDesc(req.description); setFormCategory(req.category); setFormPriority(req.priority); setShowForm(true); };
@@ -92,21 +102,21 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
   return (
     <div className="screen command-requirements animate-fade-in">
       <CommandPageHeader
-        eyebrow="Traceability Registry"
+        eyebrow="Review"
         title="Requirements"
-        description="Maintain requirements and link them to imported source artifacts with explicit coverage evidence."
+        description="Maintain requirements and link them to source files with clear coverage."
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-        meta={<><span>{requirements.length} requirements</span><span>{artifacts.length} artifacts available</span></>}
+        meta={<><span>{requirements.length} requirements</span><span>{artifacts.length} source files available</span></>}
         actions={!showForm ? (
           <button className="btn-primary" onClick={() => { resetForm(); setShowForm(true); }}>
-            <Plus size={14} /> Add Requirement
+            <Plus size={16} /> Add requirement
           </button>
         ) : undefined}
       />
 
       {showForm && (
         <div className="form-card requirement-form animate-slide-up">
-          <h3>{editing ? 'Edit Requirement' : 'New Requirement'}</h3>
+          <h3>{editing ? 'Edit requirement' : 'New requirement'}</h3>
           <div className="form-field">
             <label>Title</label>
             <input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="Requirement title" />
@@ -117,16 +127,22 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
           </div>
           <div className="form-row">
             <div className="form-field">
-              <label>Category</label>
-              <select value={formCategory} onChange={e => setFormCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-              </select>
+              <label htmlFor="requirement-category">Category</label>
+              <Select
+                id="requirement-category"
+                value={formCategory}
+                onChange={setFormCategory}
+                options={CATEGORIES.map(c => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) }))}
+              />
             </div>
             <div className="form-field">
-              <label>Priority</label>
-              <select value={formPriority} onChange={e => setFormPriority(e.target.value)}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-              </select>
+              <label htmlFor="requirement-priority">Priority</label>
+              <Select
+                id="requirement-priority"
+                value={formPriority}
+                onChange={setFormPriority}
+                options={PRIORITIES.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
+              />
             </div>
           </div>
           {error && <p className="form-error">{error}</p>}
@@ -140,24 +156,25 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
       {!showForm && error && <p className="form-error">{error}</p>}
 
       {requirements.length === 0 ? (
-        <CommandEmptyState icon={FileText} title="No requirements yet" description="Add a requirement to begin traceability mapping against imported artifacts." />
+        <CommandEmptyState icon={FileText} title="No requirements yet" description="Add a requirement to map coverage against your source files." />
       ) : (
         <div className="requirements-list stagger-children">
           {requirements.map(req => (
             <div key={req.id} className="requirement-row">
-              <div className="requirement-summary" onClick={() => toggleExpand(req.id)} role="button" tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleExpand(req.id); } }}>
-                <div className="requirement-primary">
-                  <span className="requirement-title">{req.title}</span>
-                  <span className="requirement-excerpt">{req.description || 'No description'}</span>
-                </div>
-                <StatusBadge label={req.priority} tone={priorityTone(req.priority)} />
-                {req.category && <span className="finding-category">{req.category}</span>}
-                <div className="requirement-actions" onClick={e => e.stopPropagation()}>
+              <div className="requirement-summary">
+                <button type="button" className="requirement-summary-main" onClick={() => void toggleExpand(req.id)} aria-expanded={expandedId === req.id}>
+                  <span className="requirement-primary">
+                    <span className="requirement-title">{req.title}</span>
+                    <span className="requirement-excerpt">{req.description || 'No description'}</span>
+                  </span>
+                  <StatusBadge label={req.priority} tone={priorityTone(req.priority)} />
+                  {req.category && <span className="finding-category">{req.category}</span>}
+                  {expandedId === req.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+                <div className="requirement-actions">
                   <IconButton icon={Edit} label="Edit requirement" onClick={() => handleEdit(req)} />
-                  <IconButton icon={Trash2} label="Delete requirement" tone="danger" onClick={() => handleDelete(req.id)} />
+                  <IconButton icon={Trash2} label="Delete requirement" tone="danger" onClick={() => setRequirementToDelete(req)} />
                 </div>
-                {expandedId === req.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </div>
 
               {expandedId === req.id && (
@@ -165,9 +182,9 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
                   {req.description && <p className="requirement-description">{req.description}</p>}
 
                   <div className="requirement-mapping-header">
-                    <h4><Link size={12} /> Code Mappings</h4>
+                    <h4><Link size={12} /> Code mappings</h4>
                     <button className="btn-secondary" onClick={() => setShowMapForm(showMapForm === req.id ? null : req.id)}>
-                      {showMapForm === req.id ? 'Cancel' : 'Link to Code'}
+                      {showMapForm === req.id ? 'Cancel' : 'Link to code'}
                     </button>
                   </div>
 
@@ -175,17 +192,23 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
                     <div className="requirement-map-form">
                       <div className="form-row">
                         <div className="form-field">
-                          <label>Artifact File</label>
-                          <select value={mapFileId} onChange={e => setMapFileId(e.target.value)}>
-                            <option value="">-- Select artifact --</option>
-                            {artifacts.map(a => <option key={a.id} value={a.id}>{a.fileName}</option>)}
-                          </select>
+                          <label htmlFor={`requirement-map-file-${req.id}`}>Source file</label>
+                          <Select
+                            id={`requirement-map-file-${req.id}`}
+                            value={mapFileId}
+                            onChange={setMapFileId}
+                            placeholder="Select source file"
+                            options={artifacts.map(a => ({ value: a.id, label: a.fileName }))}
+                          />
                         </div>
                         <div className="form-field">
-                          <label>Coverage</label>
-                          <select value={mapCoverage} onChange={e => setMapCoverage(e.target.value)}>
-                            {COVERAGE_STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                          </select>
+                          <label htmlFor={`requirement-map-coverage-${req.id}`}>Coverage</label>
+                          <Select
+                            id={`requirement-map-coverage-${req.id}`}
+                            value={mapCoverage}
+                            onChange={setMapCoverage}
+                            options={COVERAGE_STATUSES.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+                          />
                         </div>
                         <div className="form-field">
                           <label>Confidence (0-1)</label>
@@ -193,7 +216,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
                         </div>
                       </div>
                       <div className="form-actions">
-                        <button className="btn-primary" onClick={() => handleMap(req.id)}>Add Mapping</button>
+                        <button className="btn-primary" onClick={() => handleMap(req.id)}>Add mapping</button>
                       </div>
                     </div>
                   )}
@@ -220,6 +243,16 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={requirementToDelete !== null}
+        title="Delete requirement?"
+        description={`Delete ${requirementToDelete?.title ?? 'this requirement'} and remove it from this project?`}
+        confirmLabel="Delete requirement"
+        onConfirm={handleDelete}
+        onClose={() => setRequirementToDelete(null)}
+        busy={deleting}
+      />
     </div>
   );
 }

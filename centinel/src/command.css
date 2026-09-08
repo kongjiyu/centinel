@@ -320,7 +320,7 @@
 .command-mode button:focus-visible,
 .command-mode [role='button']:focus-visible,
 .command-mode input:focus-visible,
-.command-mode select:focus-visible,
+.command-mode .select-trigger:focus-visible,
 .command-mode textarea:focus-visible { outline: 2px solid var(--command-cyan); outline-offset: 2px; }
 
 .command-mode .card,
@@ -351,8 +351,8 @@
 .command-mode .form-field label { color: var(--command-muted); font-size: 11px; }
 .command-mode .form-field input,
 .command-mode .form-field textarea,
-.command-mode .form-field select,
-.command-mode .findings-filters select {
+.command-mode .form-field .select-trigger,
+.command-mode .findings-filters .select-trigger {
   background: rgba(3, 15, 22, 0.64);
   border: 1px solid var(--command-line);
   border-radius: 3px;
@@ -360,7 +360,8 @@
 }
 .command-mode .form-field input:disabled,
 .command-mode .form-field textarea:disabled,
-.command-mode .form-field select:disabled,
+.command-mode .form-field .select-trigger:disabled,
+.command-mode .form-field .select-trigger[data-disabled],
 .command-mode .readonly-field { background: rgba(76, 108, 119, 0.09); color: var(--command-muted); }
 .command-mode .form-error { color: var(--command-danger); }
 .command-mode .form-success { background: rgba(155, 221, 99, 0.07); border: 1px solid rgba(155, 221, 99, 0.25); color: var(--command-success); }

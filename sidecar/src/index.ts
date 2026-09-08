@@ -555,7 +555,14 @@ const server = http.createServer(async (req, res) => {
     // List static sessions
     const ssMatch = matchStaticSessions(url);
     if (ssMatch && req.method === 'GET') {
-      return json(res, 200, await listStaticSessions(ssMatch.projectId));
+      const sessions = await listStaticSessions(ssMatch.projectId);
+      const sessionsWithDecisions = await Promise.all(
+        sessions.map(async session => ({
+          ...session,
+          currentDecision: await getCurrentDecision(session.id),
+        }))
+      );
+      return json(res, 200, sessionsWithDecisions);
     }
 
     // List active static sessions across all projects (for toast polling)

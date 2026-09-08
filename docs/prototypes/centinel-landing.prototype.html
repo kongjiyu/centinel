@@ -1,0 +1,359 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway visual exploration, not production UI.
+  Question: Can Centinel Home feel visual and trustworthy without a verbose,
+  AI-looking dashboard?
+  Run from the repository root: python -m http.server 4173
+  Open: http://localhost:4173/docs/prototypes/centinel-landing.prototype.html
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Centinel — Home prototype</title>
+    <style>
+      :root {
+        --canvas: #f4f8f1;
+        --surface: #ffffff;
+        --surface-soft: #edf4e9;
+        --surface-strong: #dcebd5;
+        --border: #d4e0cf;
+        --border-strong: #b8cfaf;
+        --ink: #20352a;
+        --ink-muted: #617164;
+        --ink-subtle: #7b887d;
+        --forest: #2f6d45;
+        --forest-hover: #245a37;
+        --forest-soft: #e0efe0;
+        --leaf: #78a76e;
+        --amber: #a66312;
+        --amber-soft: #fff3db;
+        --red: #b42318;
+        --red-soft: #fff0ee;
+        --focus: #397953;
+        --radius-sm: 8px;
+        --radius-md: 14px;
+        --sidebar-width: 236px;
+        --shadow-float: 0 12px 28px rgba(36, 65, 45, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      html {
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      body { min-width: 320px; margin: 0; }
+      h1, h2, h3, p { margin: 0; }
+      button { font: inherit; }
+      button, a { -webkit-tap-highlight-color: transparent; }
+      :focus-visible { outline: 3px solid rgba(57, 121, 83, 0.35); outline-offset: 2px; }
+
+      .skip-link {
+        position: fixed; z-index: 30; top: 8px; left: 8px;
+        transform: translateY(-160%); border-radius: var(--radius-sm);
+        background: var(--ink); color: white; padding: 10px 12px; text-decoration: none;
+      }
+      .skip-link:focus { transform: translateY(0); }
+
+      .shell {
+        display: grid;
+        min-height: 100vh;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      }
+
+      .sidebar {
+        position: sticky; top: 0; display: flex; height: 100vh;
+        flex-direction: column; border-right: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.83); padding: 22px 12px 16px;
+      }
+      .brand { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 10px; }
+      .brand img { width: 30px; height: 30px; }
+      .brand strong { display: block; font-size: 17px; letter-spacing: -0.025em; }
+      .brand span { display: block; margin-top: 1px; color: var(--ink-subtle); font-size: 12px; }
+      .nav-group { margin-top: 30px; }
+      .nav-caption {
+        display: block; color: var(--ink-subtle); font-size: 11px; font-weight: 700;
+        letter-spacing: 0.055em; padding: 0 12px 8px; text-transform: uppercase;
+      }
+      .nav { display: grid; gap: 4px; }
+      .nav-button {
+        display: flex; width: 100%; min-height: 42px; align-items: center; gap: 10px;
+        border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted);
+        cursor: pointer; padding: 0 12px; text-align: left;
+        transition-property: background-color, color; transition-duration: 120ms; transition-timing-function: ease-out;
+      }
+      .nav-button:hover { background: var(--surface-soft); color: var(--ink); }
+      .nav-button[aria-current="page"] { background: var(--forest-soft); color: var(--forest); font-weight: 700; }
+      .icon { width: 19px; height: 19px; flex: none; stroke-width: 1.8; }
+      .sidebar-footer { margin-top: auto; border-top: 1px solid var(--border); padding: 16px 10px 0; }
+      .ready { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 12px; }
+      .ready i { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--leaf); }
+
+      .mobilebar { display: none; }
+      .main { min-width: 0; padding: 30px clamp(18px, 3vw, 44px) 90px; }
+      .content { max-width: 1360px; margin: 0 auto; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 34px; }
+      .topbar-note { color: var(--ink-muted); font-size: 13px; }
+      .prototype {
+        display: inline-flex; min-height: 28px; align-items: center; gap: 6px; border: 1px solid var(--border);
+        border-radius: 999px; background: rgba(255,255,255,.8); color: var(--ink-muted); font-size: 12px; font-weight: 650; padding: 0 10px;
+      }
+      .prototype .icon { width: 14px; height: 14px; color: var(--forest); }
+
+      .heading-row { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 24px; }
+      h1 { font-size: clamp(28px, 3.2vw, 38px); letter-spacing: -0.045em; line-height: 1.08; text-wrap: balance; }
+      h2 { font-size: 16px; letter-spacing: -0.015em; line-height: 1.3; }
+      h3 { font-size: 14px; letter-spacing: -0.01em; line-height: 1.35; }
+      .button {
+        display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 8px;
+        border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 700; padding: 0 14px;
+        transition-property: background-color, border-color, color, scale; transition-duration: 150ms; transition-timing-function: ease-out;
+      }
+      .button:active { scale: .96; }
+      .button .icon { width: 17px; height: 17px; stroke-width: 2; }
+      .primary { background: var(--forest); color: white; }
+      .primary:hover { background: var(--forest-hover); }
+      .secondary { border-color: var(--border-strong); background: var(--surface); color: var(--ink); }
+      .secondary:hover { background: var(--surface-soft); }
+
+      .top-grid { display: grid; grid-template-columns: minmax(320px, .86fr) minmax(460px, 1.45fr); gap: 24px; margin-bottom: 24px; }
+      .queue-card {
+        display: flex; min-height: 270px; flex-direction: column; justify-content: space-between;
+        border-radius: var(--radius-md); background: var(--forest); color: white; overflow: hidden; padding: 24px;
+      }
+      .queue-label { display: inline-flex; align-items: center; gap: 7px; color: #dbeedb; font-size: 12px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
+      .queue-label .icon { width: 16px; height: 16px; }
+      .queue-count { margin-top: 18px; font-size: 64px; font-variant-numeric: tabular-nums; font-weight: 750; letter-spacing: -0.07em; line-height: .9; }
+      .queue-card h2 { margin-top: 9px; color: white; font-size: 19px; }
+      .queue-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 24px; }
+      .queue-meta { color: #dbeedb; font-size: 12px; }
+      .queue-card .button { background: white; color: var(--forest); }
+      .queue-card .button:hover { background: var(--surface-soft); }
+
+      .evidence-card { position: relative; min-height: 270px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: #e8f1e4; }
+      .evidence-card img { display: block; width: 100%; height: 100%; min-height: 270px; object-fit: cover; object-position: center top; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; }
+      .evidence-overlay {
+        position: absolute; right: 16px; bottom: 16px; left: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        border: 1px solid rgba(255,255,255,.62); border-radius: 11px; background: rgba(255,255,255,.92); box-shadow: 0 8px 18px rgba(25,52,35,.15); padding: 11px 12px;
+        backdrop-filter: blur(8px);
+      }
+      .evidence-overlay strong { display: block; font-size: 13px; }
+      .evidence-overlay span { display: block; margin-top: 2px; color: var(--ink-muted); font-size: 12px; }
+      .badge { display: inline-flex; min-height: 24px; align-items: center; gap: 5px; border-radius: 999px; font-size: 11px; font-weight: 700; padding: 0 8px; white-space: nowrap; }
+      .badge-green { background: var(--forest-soft); color: var(--forest); }
+      .badge-amber { background: var(--amber-soft); color: var(--amber); }
+      .badge .icon { width: 13px; height: 13px; stroke-width: 2; }
+
+      .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.38fr) minmax(310px, .72fr); gap: 24px; }
+      .panel { border: 1px solid var(--border); border-radius: var(--radius-md); background: rgba(255,255,255,.9); overflow: hidden; }
+      .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 17px 20px; }
+      .quiet-button { display: inline-flex; min-height: 32px; align-items: center; gap: 5px; border: 0; border-radius: 6px; background: transparent; color: var(--forest); cursor: pointer; font-size: 13px; font-weight: 700; padding: 0 6px; }
+      .quiet-button:hover { background: var(--forest-soft); }
+      .quiet-button .icon { width: 15px; height: 15px; stroke-width: 2; }
+
+      .timeline { padding: 2px 20px 10px; }
+      .timeline-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 14px 0; }
+      .timeline-item:last-child { border-bottom: 0; }
+      .timeline-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--forest-soft); color: var(--forest); }
+      .timeline-icon.alert { background: var(--amber-soft); color: var(--amber); }
+      .timeline-icon .icon { width: 18px; height: 18px; }
+      .timeline-copy { min-width: 0; }
+      .timeline-copy strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+      .timeline-copy span { display: block; margin-top: 2px; color: var(--ink-muted); font-size: 12px; }
+      .timeline-time { color: var(--ink-subtle); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+      .project-list { padding: 6px 20px 12px; }
+      .project { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); padding: 13px 0; }
+      .project:last-child { border-bottom: 0; }
+      .project-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--surface-strong); color: var(--forest); font-weight: 800; }
+      .project strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+      .project span { display: block; margin-top: 2px; color: var(--ink-muted); font-size: 12px; }
+
+      .gallery-panel { margin-top: 24px; }
+      .gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 16px 20px 20px; }
+      .evidence-thumb { position: relative; display: block; min-width: 0; aspect-ratio: 16 / 8; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); cursor: pointer; padding: 0; }
+      .evidence-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; transition-property: scale; transition-duration: 150ms; transition-timing-function: ease-out; }
+      .evidence-thumb:hover img { scale: 1.025; }
+      .evidence-thumb:active img { scale: .98; }
+      .evidence-thumb span { position: absolute; right: 8px; bottom: 8px; left: 8px; overflow: hidden; border-radius: 6px; background: rgba(255,255,255,.92); color: var(--ink); font-size: 11px; font-weight: 700; padding: 6px 7px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+
+      .toast { position: fixed; z-index: 20; right: 24px; bottom: 24px; max-width: calc(100vw - 32px); transform: translateY(16px); border-radius: 10px; background: var(--ink); box-shadow: var(--shadow-float); color: white; font-size: 13px; opacity: 0; padding: 12px 14px; pointer-events: none; transition-property: opacity, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
+      .toast.show { transform: translateY(0); opacity: 1; }
+
+      @media (max-width: 1060px) {
+        :root { --sidebar-width: 72px; }
+        .sidebar { padding-inline: 10px; }
+        .brand { justify-content: center; padding: 0; }
+        .brand-copy, .nav-caption, .nav-button span, .ready span { display: none; }
+        .nav-button { justify-content: center; padding: 0; }
+        .nav-button .icon { width: 21px; height: 21px; }
+        .ready { justify-content: center; }
+      }
+
+      @media (max-width: 900px) {
+        .top-grid, .workspace-grid { grid-template-columns: 1fr; }
+        .evidence-card { min-height: 300px; }
+      }
+
+      @media (max-width: 640px) {
+        .shell { display: block; }
+        .sidebar { display: none; }
+        .mobilebar { position: sticky; z-index: 10; top: 0; display: flex; height: 58px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.94); padding: 0 16px; backdrop-filter: blur(8px); }
+        .mobile-brand { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 750; }
+        .mobile-brand img { width: 26px; height: 26px; }
+        .mobile-menu { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); }
+        .main { padding: 22px 16px 90px; }
+        .topbar { margin-bottom: 28px; }
+        .topbar-note { font-size: 12px; }
+        .prototype-copy { font-size: 0; }
+        .prototype-copy::after { content: "Sample"; font-size: 12px; }
+        .heading-row { align-items: flex-start; flex-direction: column; margin-bottom: 20px; }
+        .top-grid { gap: 16px; }
+        .queue-card { min-height: 224px; padding: 20px; }
+        .queue-count { font-size: 56px; }
+        .evidence-card, .evidence-card img { min-height: 224px; }
+        .gallery { grid-template-columns: 1fr; padding: 14px 16px 16px; }
+        .panel-header { padding: 16px; }
+        .timeline, .project-list { padding-right: 16px; padding-left: 16px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+      <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" stroke-linejoin="round"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" stroke-linejoin="round"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.2 2.2-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56v.1h-3.12v-.1a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.2-2.2.06-.06A1.7 1.7 0 0 0 6.72 15a1.7 1.7 0 0 0-1.56-1.04h-.1v-3.12h.1A1.7 1.7 0 0 0 6.72 9.8a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.2-2.2.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.04-1.56v-.1h3.12v.1a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.2 2.2-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.1v3.12h-.1A1.7 1.7 0 0 0 19.4 15Z" stroke-linejoin="round"/></symbol>
+      <symbol id="i-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5a3 3 0 0 1 6 0M9 11h6M9 15h4" stroke-linecap="round"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" stroke-linecap="round"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12h14m-6-6 6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z" stroke-linejoin="round"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8Z" stroke-linejoin="round"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round"/></symbol>
+    </svg>
+
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="mobilebar">
+      <div class="mobile-brand"><img src="../../centinel/public/assets/centinel-shield.svg" alt="" /><span>Centinel</span></div>
+      <button class="mobile-menu" type="button" aria-label="Open navigation" data-prototype-action><svg class="icon" aria-hidden="true"><use href="#i-menu"></use></svg></button>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <img src="../../centinel/public/assets/centinel-shield.svg" alt="" />
+          <div class="brand-copy"><strong>Centinel</strong><span>Quality workspace</span></div>
+        </div>
+        <section class="nav-group">
+          <span class="nav-caption">Workspace</span>
+          <nav class="nav">
+            <button class="nav-button" type="button" aria-current="page" data-prototype-action><svg class="icon" aria-hidden="true"><use href="#i-home"></use></svg><span>Home</span></button>
+            <button class="nav-button" type="button" data-prototype-action><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg><span>Projects</span></button>
+          </nav>
+        </section>
+        <section class="nav-group">
+          <span class="nav-caption">Preferences</span>
+          <nav class="nav"><button class="nav-button" type="button" data-prototype-action><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg><span>Settings</span></button></nav>
+        </section>
+        <footer class="sidebar-footer"><div class="ready"><i aria-hidden="true"></i><span>Services ready</span></div></footer>
+      </aside>
+
+      <main class="main" id="main-content">
+        <div class="content">
+          <div class="topbar">
+            <span class="topbar-note">Tuesday, 1 September</span>
+            <span class="prototype"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg><span class="prototype-copy">Prototype · sample data</span></span>
+          </div>
+
+          <header class="heading-row">
+            <h1>Good morning, Alex.</h1>
+            <button class="button secondary" type="button" data-prototype-action><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>Open projects</button>
+          </header>
+
+          <section class="top-grid" aria-label="Priority work and evidence">
+            <article class="queue-card">
+              <div>
+                <span class="queue-label"><svg class="icon" aria-hidden="true"><use href="#i-clipboard"></use></svg>Review queue</span>
+                <div class="queue-count">2</div>
+                <h2>Items need your decision</h2>
+              </div>
+              <div class="queue-actions">
+                <span class="queue-meta">1 static · 1 dynamic</span>
+                <button class="button" type="button" data-prototype-action>Open queue <svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg></button>
+              </div>
+            </article>
+
+            <article class="evidence-card" aria-labelledby="evidence-title">
+              <img src="../e2e-debug-6-after-submit.png" alt="Dynamic test run screen showing a login validation test in progress" />
+              <div class="evidence-overlay">
+                <div><strong id="evidence-title">Latest evidence</strong><span>Login validation</span></div>
+                <span class="badge badge-green"><svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>Captured</span>
+              </div>
+            </article>
+          </section>
+
+          <div class="workspace-grid">
+            <section class="panel" aria-labelledby="today-title">
+              <header class="panel-header"><h2 id="today-title">Today</h2><button class="quiet-button" type="button" data-prototype-action>View all <svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg></button></header>
+              <div class="timeline">
+                <article class="timeline-item">
+                  <div class="timeline-icon alert" aria-hidden="true"><svg class="icon"><use href="#i-clipboard"></use></svg></div>
+                  <div class="timeline-copy"><strong>Customer Portal review</strong><span>8 findings ready</span></div>
+                  <span class="badge badge-amber">Review</span>
+                </article>
+                <article class="timeline-item">
+                  <div class="timeline-icon" aria-hidden="true"><svg class="icon"><use href="#i-globe"></use></svg></div>
+                  <div class="timeline-copy"><strong>Storefront login test</strong><span>Evidence captured</span></div>
+                  <span class="badge badge-green">Done</span>
+                </article>
+                <article class="timeline-item">
+                  <div class="timeline-icon" aria-hidden="true"><svg class="icon"><use href="#i-folder"></use></svg></div>
+                  <div class="timeline-copy"><strong>Billing Portal</strong><span>Sources updated</span></div>
+                  <time class="timeline-time">09:40</time>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel" aria-labelledby="projects-title">
+              <header class="panel-header"><h2 id="projects-title">Projects</h2><button class="quiet-button" type="button" data-prototype-action>Open <svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg></button></header>
+              <div class="project-list">
+                <article class="project"><span class="project-mark">C</span><div><strong>Customer Portal</strong><span>8 findings</span></div><span class="badge badge-amber">Review</span></article>
+                <article class="project"><span class="project-mark">S</span><div><strong>Storefront</strong><span>Test run complete</span></div><span class="badge badge-green">Done</span></article>
+                <article class="project"><span class="project-mark">B</span><div><strong>Billing Portal</strong><span>42 sources</span></div><span class="badge badge-green">Ready</span></article>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel gallery-panel" aria-labelledby="gallery-title">
+            <header class="panel-header"><h2 id="gallery-title">Evidence gallery</h2><span class="topbar-note">Recent captures</span></header>
+            <div class="gallery">
+              <button class="evidence-thumb" type="button" data-prototype-action><img loading="lazy" src="../e2e-debug-6-after-submit.png" alt="Dynamic test run after a login form was submitted" /><span>Login validation</span></button>
+              <button class="evidence-thumb" type="button" data-prototype-action><img loading="lazy" src="../e2e-debug-4-dynamic-form.png" alt="Dynamic test setup form" /><span>New test setup</span></button>
+              <button class="evidence-thumb" type="button" data-prototype-action><img loading="lazy" src="../e2e-debug-3-project-detail.png" alt="Project details with static and dynamic testing sections" /><span>Project review</span></button>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">Prototype only — this action is not connected yet.</div>
+    <script>
+      const toast = document.getElementById("toast");
+      let toastTimer;
+      document.querySelectorAll("[data-prototype-action]").forEach((element) => {
+        element.addEventListener("click", () => {
+          toast.classList.add("show");
+          window.clearTimeout(toastTimer);
+          toastTimer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+        });
+      });
+    </script>
+  </body>
+</html>

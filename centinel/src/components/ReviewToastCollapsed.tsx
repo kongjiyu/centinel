@@ -21,7 +21,7 @@ export function ReviewToastCollapsed({ snapshot, onClick }: {
   const currentStageId = active?.id ?? snapshot.progress.currentStage;
 
   return (
-    <div className="review-toast-collapsed" onClick={onClick} role="button" tabIndex={0}>
+    <button type="button" className="review-toast-collapsed" onClick={onClick} aria-label={`Open review progress for ${snapshot.name}`}>
       <div className="review-toast-header">
         <Loader size={14} className="spin" />
         <span className="review-toast-title">{snapshot.name}</span>
@@ -39,6 +39,6 @@ export function ReviewToastCollapsed({ snapshot, onClick }: {
         {stageLabel(currentStageId)}
         {active && active.thoughts.length > 0 ? ` · ${active.thoughts[active.thoughts.length - 1]}` : '…'}
       </div>
-    </div>
+    </button>
   );
 }

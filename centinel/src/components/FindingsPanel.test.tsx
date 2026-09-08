@@ -75,9 +75,9 @@ describe('FindingsPanel', () => {
       expect(screen.getByText('Null pointer risk in auth.ts')).toBeInTheDocument();
     });
     // The severity badge and source badge are siblings in the header.
-    const row = screen.getByText('Null pointer risk in auth.ts').closest('.finding-row')!;
+    const row = screen.getByText('Null pointer risk in auth.ts').closest<HTMLElement>('.finding-row')!;
     expect(within(row).getByText('high')).toBeInTheDocument();
-    expect(within(row).getByText('static')).toBeInTheDocument();
+    expect(within(row).getByText('Review')).toBeInTheDocument();
   });
 
   it('sorts findings by severity (critical → info)', async () => {
@@ -90,7 +90,7 @@ describe('FindingsPanel', () => {
     await waitFor(() => screen.getByText('Critical one'));
     // The 1-indexed finding-index badges reflect sort order. Critical
     // first means its row shows "1" in the index column.
-    const rows = screen.getAllByRole('generic', { name: '' }).filter((el) =>
+    const rows = screen.getAllByRole('generic', { name: '' }).filter((el): el is HTMLElement =>
       el.className.includes('finding-row')
     );
     // Robust check: the first row's title is the critical one.
@@ -107,7 +107,8 @@ describe('FindingsPanel', () => {
     render(<FindingsPanel projectId="p-1" />);
     await waitFor(() => screen.getByText('Null pointer risk in auth.ts'));
 
-    await user.selectOptions(screen.getByDisplayValue('All Sources'), 'dynamic');
+    await user.click(screen.getByRole('combobox', { name: 'Source' }));
+    await user.click(screen.getByRole('option', { name: 'Dynamic Testing' }));
 
     // After filtering, the static finding should be gone.
     expect(screen.queryByText('Null pointer risk in auth.ts')).not.toBeInTheDocument();

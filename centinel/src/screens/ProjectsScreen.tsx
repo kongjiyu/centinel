@@ -1,135 +1,178 @@
-import { useState } from 'react';
-import { open } from '@tauri-apps/api/dialog';
-import { FolderOpen, Plus, Trash2, Folder, ArrowRight } from 'lucide-react';
-import { CommandEmptyState, CommandPageHeader, IconButton } from '../components/CommandUI';
+import { useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react';
+import { CommandEmptyState, CommandPageHeader } from '../components/CommandUI';
+import { ProjectCreateModal } from '../components/ProjectCreateModal';
+import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
+import { Select } from '../components/Select';
+import {
+  matchesActivityFilter,
+  matchesProjectSearch,
+  matchesStateFilter,
+  useProjectSummaries,
+  type ActivityTypeFilter,
+  type ProjectStateFilter,
+} from '../hooks/useProjectSummaries';
 import type { Project, Screen } from '../types';
+import './ProjectsScreen.css';
 
 type Props = {
   projects: Project[];
   onNavigate: (screen: Screen) => void;
   onCreate: (name: string, description: string, workspacePath: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  initialSearch?: string;
+  initialStateFilter?: ProjectStateFilter;
+  initialActivityFilter?: ActivityTypeFilter;
 };
 
-export function ProjectsScreen({ projects, onNavigate, onCreate, onDelete }: Props) {
+const PROJECTS_PER_PAGE = 5;
+
+export function ProjectsScreen({
+  projects,
+  onNavigate,
+  onCreate,
+  initialSearch = '',
+  initialStateFilter = 'all',
+  initialActivityFilter = 'all',
+}: Props) {
   const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [workspacePath, setWorkspacePath] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const [stateFilter, setStateFilter] = useState<ProjectStateFilter>(initialStateFilter);
+  const [activityFilter, setActivityFilter] = useState<ActivityTypeFilter>(initialActivityFilter);
+  const [page, setPage] = useState(1);
+  const { summaries, loading: summariesLoading, unavailable, reload } = useProjectSummaries(projects);
 
-  const handleChooseFolder = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: 'Choose project workspace',
-    });
-    if (typeof selected === 'string') {
-      setWorkspacePath(selected);
-    }
-  };
-
-  const handleCreate = async () => {
-    setError(null);
-    if (!name.trim()) { setError('Project name is required'); return; }
-    if (name.trim().length > 80) { setError('Name must be 80 characters or less'); return; }
-    if (description.trim().length > 500) { setError('Description must be 500 characters or less'); return; }
-    if (!workspacePath) { setError('Workspace folder is required'); return; }
-    setCreating(true);
-    try {
-      await onCreate(name.trim(), description.trim(), workspacePath);
-      setName(''); setDescription(''); setWorkspacePath(''); setShowForm(false);
-    } catch (e) { setError(String(e)); }
-    finally { setCreating(false); }
-  };
-
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!confirm('Remove this project from Centinel? Local files will be kept.')) return;
-    await onDelete(id);
-  };
-
-  const canCreate = name.trim() && workspacePath;
+  const filteredSummaries = useMemo(() => summaries.filter(summary =>
+    matchesProjectSearch(summary, searchQuery) &&
+    matchesStateFilter(summary, stateFilter) &&
+    matchesActivityFilter(summary, activityFilter)), [activityFilter, searchQuery, stateFilter, summaries]);
+  const hasActiveFilters = Boolean(searchQuery.trim()) || stateFilter !== 'all' || activityFilter !== 'all';
+  const pageCount = Math.max(1, Math.ceil(filteredSummaries.length / PROJECTS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * PROJECTS_PER_PAGE;
+  const pageSummaries = filteredSummaries.slice(pageStart, pageStart + PROJECTS_PER_PAGE);
 
   return (
     <div className="screen command-projects animate-fade-in">
       <CommandPageHeader
-        eyebrow="Workspace Registry"
+        eyebrow="Workspace"
         title="Projects"
-        description="Manage local workspaces and enter their static and dynamic testing operations."
-        meta={<span>{projects.length} registered project{projects.length === 1 ? '' : 's'}</span>}
+        description="Browse saved workspaces and open the next task."
         actions={(
-          <button className={showForm ? 'btn-secondary' : 'btn-primary'} onClick={() => setShowForm(!showForm)}>
+          <button className="btn-primary" onClick={() => setShowForm(true)}>
             <Plus size={14} />
-            {showForm ? 'Cancel' : 'New Project'}
+            New project
           </button>
         )}
       />
-
-      {showForm && (
-        <div className="form-card animate-slide-up">
-          <div className="form-field">
-            <label>Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Project name" maxLength={80} />
-          </div>
-          <div className="form-field">
-            <label>Description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description" maxLength={500} rows={3} />
-          </div>
-          <div className="form-field">
-            <label>Workspace Folder</label>
-            <div className="workspace-picker">
-              <input value={workspacePath} readOnly placeholder="No folder selected" className="workspace-input" />
-              <button className="btn-secondary" onClick={handleChooseFolder}>
-                <Folder size={14} />
-                Choose Folder
-              </button>
-            </div>
-          </div>
-          {error && <p className="form-error">{error}</p>}
-          <div className="form-actions">
-            <button className="btn-primary" onClick={handleCreate} disabled={creating || !canCreate}>
-              {creating ? 'Creating...' : 'Create Project'}
-            </button>
-          </div>
-        </div>
-      )}
 
       {projects.length === 0 && !showForm && (
         <CommandEmptyState
           icon={FolderOpen}
           title="No projects yet"
-          description="Register a local workspace to begin static review and autonomous UI testing."
-          action={<button className="btn-primary" onClick={() => setShowForm(true)}><Plus size={14} /> Create Project</button>}
+          description="A project is required before you can start Review or Dynamic Testing."
+          action={<button className="btn-primary" onClick={() => setShowForm(true)}><Plus size={16} /> Create project</button>}
         />
       )}
 
       {projects.length > 0 && (
-        <div className="project-list stagger-children">
-          {projects.map(p => (
-            <div
-              key={p.id}
-              className="project-row"
-              onClick={() => onNavigate({ name: 'project-detail', projectId: p.id })}
-            >
-              <div className="project-icon">
-                <FolderOpen size={16} />
-              </div>
-              <div className="project-info">
-                <span className="project-name">{p.name}</span>
-                {p.description && <span className="project-desc">{p.description}</span>}
-                <span className="project-workspace">{p.workspacePath}</span>
-              </div>
-              <div className="project-meta">
-                <span className="project-date">{new Date(p.createdAt).toLocaleDateString()}</span>
-                <IconButton icon={Trash2} label="Delete project" tone="danger" onClick={e => handleDelete(e, p.id)} />
-              </div>
-              <ArrowRight size={14} className="project-row-arrow" />
+        <section className="projects-directory" aria-labelledby="projects-directory-title">
+          <div className="projects-directory-heading">
+            <div>
+              <h2 id="projects-directory-title">All projects</h2>
             </div>
-          ))}
-        </div>
+          </div>
+
+          <div className="project-filters" role="search" aria-label="Project directory filters">
+            <label className="project-filter-search" htmlFor="project-directory-search">
+              <span>Find projects</span>
+              <span className="project-search-control">
+                <Search size={16} strokeWidth={1.8} aria-hidden="true" />
+                <input
+                  id="project-directory-search"
+                  type="search"
+                  value={searchQuery}
+                  onChange={event => { setSearchQuery(event.target.value); setPage(1); }}
+                  placeholder="Name, description, or latest activity"
+                />
+              </span>
+            </label>
+            <label htmlFor="project-state-filter">
+              <span>Current state</span>
+              <Select id="project-state-filter" value={stateFilter} onChange={value => { setStateFilter(value as ProjectStateFilter); setPage(1); }} options={[{ value: 'all', label: 'All states' }, { value: 'needs_attention', label: 'Needs attention' }, { value: 'in_progress', label: 'In progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'no_activity', label: 'No activity' }]} />
+            </label>
+            <label htmlFor="project-activity-filter">
+              <span>Activity type</span>
+              <Select id="project-activity-filter" value={activityFilter} onChange={value => { setActivityFilter(value as ActivityTypeFilter); setPage(1); }} options={[{ value: 'all', label: 'All activity' }, { value: 'review', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]} />
+            </label>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="project-clear-filters"
+                onClick={() => { setSearchQuery(''); setStateFilter('all'); setActivityFilter('all'); setPage(1); }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {unavailable && (
+            <div className="projects-data-warning" role="status">
+              <span>Some project activity could not be loaded.</span>
+              <button type="button" onClick={reload}><RefreshCw size={14} aria-hidden="true" /> Retry</button>
+            </div>
+          )}
+
+          {summariesLoading && summaries.length === 0 ? (
+            <div className="projects-directory-message" role="status">Loading projects…</div>
+          ) : filteredSummaries.length > 0 ? (
+            <>
+              <ProjectSummaryTable
+                summaries={pageSummaries}
+                onNavigate={onNavigate}
+                ariaLabel="Projects"
+              />
+              <nav className="project-pagination" aria-label="Project pages">
+                <span aria-live="polite">
+                  {pageStart + 1}–{Math.min(pageStart + PROJECTS_PER_PAGE, filteredSummaries.length)} of {filteredSummaries.length}
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setPage(value => Math.max(1, value - 1))}
+                    disabled={currentPage === 1}
+                    aria-label="Previous project page"
+                  >
+                    <ChevronLeft size={17} aria-hidden="true" />
+                  </button>
+                  <strong>Page {currentPage} of {pageCount}</strong>
+                  <button
+                    type="button"
+                    onClick={() => setPage(value => Math.min(pageCount, value + 1))}
+                    disabled={currentPage === pageCount}
+                    aria-label="Next project page"
+                  >
+                    <ChevronRight size={17} aria-hidden="true" />
+                  </button>
+                </div>
+              </nav>
+            </>
+          ) : (
+            <div className="projects-directory-message">
+              <strong>No projects match these filters.</strong>
+              <span>Change or clear the filters to see the full directory.</span>
+            </div>
+          )}
+        </section>
       )}
+
+      <ProjectCreateModal
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        onCreate={onCreate}
+        onCreated={() => { setShowForm(false); void reload(); }}
+      />
+
     </div>
   );
 }

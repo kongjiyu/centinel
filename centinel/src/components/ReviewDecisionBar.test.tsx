@@ -25,6 +25,7 @@ vi.mock('../api/client', () => ({
 
 const baseDecision: ReviewDecisionRecord = {
   id: 'd-1',
+  projectId: 'p-1',
   sessionId: 's-1',
   decision: 'approved',
   comment: 'LGTM',

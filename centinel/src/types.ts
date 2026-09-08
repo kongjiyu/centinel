@@ -80,7 +80,7 @@ export type Artifact = {
   createdAt: string;
 };
 
-export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'cancelled';
+export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'blocked' | 'cancelled';
 
 export type ReviewType = 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
 
@@ -209,10 +209,14 @@ export type Finding = {
   sessionId: string | null;
   source: 'static' | 'dynamic';
   severity: string;
+  /** Optional independent remediation priority when supplied by the service. */
+  priority?: string;
   title: string;
   description: string;
   status: 'new' | 'accepted' | 'dismissed' | 'fixed' | 'carryover';
   createdAt: string;
+  /** Optional service-provided modification time. Older responses only expose createdAt. */
+  updatedAt?: string;
   artifactId: string | null;
   category: string;
   evidenceText: string;
@@ -227,12 +231,14 @@ export type ReviewStageId =
   | 'understanding_context'
   | 'code_review'
   | 'requirement_validation'
-  | 'summarizing';
+  | 'summarizing'
+  | 'risk_assessment'
+  | 'awaiting_approval';
 
 export type ReviewStageProgress = {
   id: ReviewStageId;
   label: string;
-  status: 'pending' | 'active' | 'done';
+  status: 'pending' | 'active' | 'done' | 'failed';
   thoughts: string[];
   summary?: string;
 };
@@ -256,8 +262,20 @@ export type ReviewArtifact = {
 
 export type Screen =
   | { name: 'dashboard' }
-  | { name: 'projects' }
-  | { name: 'project-detail'; projectId: string }
+  | {
+      name: 'projects';
+      search?: string;
+      stateFilter?: 'all' | 'needs_attention' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
+      activityFilter?: 'all' | 'review' | 'dynamic';
+    }
+  | {
+      name: 'project-detail';
+      projectId: string;
+      initialAction?: 'static' | 'dynamic';
+      initialStaticSessionId?: string;
+    }
+  | { name: 'review-entry'; projectId?: string }
+  | { name: 'review-activity'; projectId: string; sessionId: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }

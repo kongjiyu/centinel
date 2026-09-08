@@ -1202,7 +1202,7 @@ body {
   font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
   position: relative;
 }
 
@@ -1918,7 +1918,7 @@ body {
   font-size: 13px;
   color: var(--text);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
   text-align: left;
   width: 100%;
 }
@@ -2030,7 +2030,7 @@ body {
   padding: 12px 16px;
   background: var(--surface);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
 .project-row:hover {
@@ -2112,7 +2112,7 @@ body {
 
 .form-field input,
 .form-field textarea,
-.form-field select {
+.form-field .select-trigger {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -2126,7 +2126,7 @@ body {
 
 .form-field input:focus,
 .form-field textarea:focus,
-.form-field select:focus {
+.form-field .select-trigger:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-muted);
@@ -2235,16 +2235,6 @@ body {
   background-color: var(--surface-muted) !important;
   color: var(--text-muted) !important;
   cursor: not-allowed;
-}
-
-select optgroup {
-  font-weight: 600;
-  font-style: normal;
-}
-
-select option {
-  font-weight: normal;
-  padding-left: 8px;
 }
 
 /* Test result */
@@ -3533,7 +3523,7 @@ select option {
   margin-bottom: 12px;
 }
 
-.findings-filters select {
+.findings-filters .select-trigger {
   padding: 6px 10px;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
@@ -3544,7 +3534,7 @@ select option {
   cursor: pointer;
 }
 
-.findings-filters select:focus {
+.findings-filters .select-trigger:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(13,148,136,0.15);
@@ -3989,6 +3979,8 @@ select option {
 }
 
 .modal {
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
   background: var(--surface);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-lg);
