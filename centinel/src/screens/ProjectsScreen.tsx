@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react';
 import { CommandEmptyState, CommandPageHeader } from '../components/CommandUI';
 import { ProjectCreateModal } from '../components/ProjectCreateModal';
 import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
 import { Select } from '../components/Select';
+import { usePinnedProjects } from '../hooks/usePinnedProjects';
 import {
   matchesActivityFilter,
   matchesProjectSearch,
@@ -23,6 +24,7 @@ type Props = {
   initialSearch?: string;
   initialStateFilter?: ProjectStateFilter;
   initialActivityFilter?: ActivityTypeFilter;
+  initialCreate?: boolean;
 };
 
 const PROJECTS_PER_PAGE = 5;
@@ -34,13 +36,19 @@ export function ProjectsScreen({
   initialSearch = '',
   initialStateFilter = 'all',
   initialActivityFilter = 'all',
+  initialCreate = false,
 }: Props) {
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(initialCreate);
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [stateFilter, setStateFilter] = useState<ProjectStateFilter>(initialStateFilter);
   const [activityFilter, setActivityFilter] = useState<ActivityTypeFilter>(initialActivityFilter);
   const [page, setPage] = useState(1);
   const { summaries, loading: summariesLoading, unavailable, reload } = useProjectSummaries(projects);
+  const { isPinned, togglePin } = usePinnedProjects(projects);
+
+  useEffect(() => {
+    if (initialCreate) setShowForm(true);
+  }, [initialCreate]);
 
   const filteredSummaries = useMemo(() => summaries.filter(summary =>
     matchesProjectSearch(summary, searchQuery) &&
@@ -130,6 +138,8 @@ export function ProjectsScreen({
               <ProjectSummaryTable
                 summaries={pageSummaries}
                 onNavigate={onNavigate}
+                isPinned={isPinned}
+                onTogglePin={togglePin}
                 ariaLabel="Projects"
               />
               <nav className="project-pagination" aria-label="Project pages">

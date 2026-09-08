@@ -1,4 +1,4 @@
-import { ChevronRight, FileCheck2, MonitorPlay, Trash2 } from 'lucide-react';
+import { ChevronRight, FileCheck2, MonitorPlay, Pin, Trash2 } from 'lucide-react';
 import {
   formatActivityTime,
   getProjectState,
@@ -11,9 +11,14 @@ type Props = {
   summaries: ProjectSummary[];
   onNavigate: (screen: Screen) => void;
   onDelete?: (summary: ProjectSummary) => void;
+  /** Directory-only local pin affordance. Dashboard rows never render it. */
+  isPinned?: (projectId: string) => boolean;
+  onTogglePin?: (projectId: string) => void;
   showWorkspacePath?: boolean;
   showDescription?: boolean;
   ariaLabel: string;
+  /** Dashboard rows intentionally omit the directory's action column. */
+  variant?: 'directory' | 'dashboard';
 };
 
 function openSummary(summary: ProjectSummary, onNavigate: Props['onNavigate']) {
@@ -31,25 +36,29 @@ export function ProjectSummaryTable({
   summaries,
   onNavigate,
   onDelete,
+  isPinned,
+  onTogglePin,
   showWorkspacePath = false,
   showDescription = false,
   ariaLabel,
+  variant = 'directory',
 }: Props) {
+  const isDashboardVariant = variant === 'dashboard';
   return (
     <div className="project-summary-table-shell">
-      <table className="project-summary-table" aria-label={ariaLabel}>
+      <table className={`project-summary-table${isDashboardVariant ? ' project-summary-table-dashboard' : ''}`} aria-label={ariaLabel}>
         <colgroup>
           <col className="project-summary-col-project" />
           <col className="project-summary-col-activity" />
           <col className="project-summary-col-state" />
-          <col className="project-summary-col-action" />
+          {!isDashboardVariant && <col className="project-summary-col-action" />}
         </colgroup>
-        <thead>
+        <thead className={isDashboardVariant ? 'project-summary-table-head-dashboard' : undefined}>
           <tr>
             <th scope="col">Project</th>
             <th scope="col">Latest activity</th>
             <th scope="col">Current state</th>
-            <th scope="col"><span className="visually-hidden">Actions</span></th>
+            {!isDashboardVariant && <th scope="col"><span className="visually-hidden">Actions</span></th>}
           </tr>
         </thead>
         <tbody>
@@ -106,26 +115,40 @@ export function ProjectSummaryTable({
                 <td data-label="Current state">
                   <span className={`project-state-tag project-state-${state.tone}`}>{state.label}</span>
                 </td>
-                <td className="project-summary-actions">
-                  <button
-                    type="button"
-                    className="project-summary-open"
-                    onClick={() => openSummary(summary, onNavigate)}
-                    aria-label={`${actionLabel} for ${summary.project.name}`}
-                  >
-                    <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                  {onDelete && (
+                {!isDashboardVariant && (
+                  <td className="project-summary-actions">
                     <button
                       type="button"
-                      className="project-summary-delete"
-                      onClick={() => onDelete(summary)}
-                      aria-label={`Remove ${summary.project.name}`}
+                      className="project-summary-open"
+                      onClick={() => openSummary(summary, onNavigate)}
+                      aria-label={`${actionLabel} for ${summary.project.name}`}
                     >
-                      <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
+                      <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
                     </button>
-                  )}
-                </td>
+                    {onTogglePin && (
+                      <button
+                        type="button"
+                        className={`project-summary-pin${isPinned?.(summary.project.id) ? ' is-pinned' : ''}`}
+                        onClick={() => onTogglePin(summary.project.id)}
+                        aria-label={`${isPinned?.(summary.project.id) ? 'Unpin' : 'Pin'} ${summary.project.name}`}
+                        aria-pressed={Boolean(isPinned?.(summary.project.id))}
+                        title={isPinned?.(summary.project.id) ? 'Unpin project' : 'Pin project'}
+                      >
+                        <Pin size={16} strokeWidth={1.8} fill={isPinned?.(summary.project.id) ? 'currentColor' : 'none'} aria-hidden="true" />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        className="project-summary-delete"
+                        onClick={() => onDelete(summary)}
+                        aria-label={`Remove ${summary.project.name}`}
+                      >
+                        <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             );
           })}

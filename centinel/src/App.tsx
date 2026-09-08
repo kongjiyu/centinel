@@ -93,8 +93,6 @@ function App() {
         screen={screen}
         onNavigate={setScreen}
         projects={projects}
-        aiSettings={aiSettings}
-        sidecarOnline={sidecarOnline}
       >
         {screen.name === 'dashboard' && (
           <DashboardScreen
@@ -109,6 +107,7 @@ function App() {
             initialSearch={screen.search}
             initialStateFilter={screen.stateFilter}
             initialActivityFilter={screen.activityFilter}
+            initialCreate={screen.initialCreate}
             onNavigate={setScreen}
             onCreate={async (name, description, workspacePath) => { await handleCreateProject(name, description, workspacePath); }}
             onDelete={handleDeleteProject}

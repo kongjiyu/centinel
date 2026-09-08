@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
-import { FileCheck2, FolderOpen, House, MonitorPlay, Settings, Circle } from 'lucide-react';
-import type { Project, Screen, AiProviderSetting } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, FileCheck2, FolderOpen, House, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Settings } from 'lucide-react';
+import type { Project, Screen } from '../types';
 import { Modal } from './Modal';
 import { Select } from './Select';
+import { PageBreadcrumbs } from './PageBreadcrumbs';
+import { WindowHeader } from './WindowHeader';
+import { usePinnedProjects } from '../hooks/usePinnedProjects';
 
 type ModuleAction = 'static' | 'dynamic';
 
@@ -10,18 +13,31 @@ type Props = {
   screen: Screen;
   onNavigate: (screen: Screen) => void;
   projects: Project[];
-  aiSettings: AiProviderSetting[];
-  sidecarOnline: boolean;
   children: React.ReactNode;
 };
 
-export function AppShell({ screen, onNavigate, projects, aiSettings, sidecarOnline, children }: Props) {
+const PINS_EXPANDED_STORAGE_KEY = 'centinel:pins-expanded';
+const PINS_CONTENT_ID = 'sidebar-pins-content';
+
+function readPinsExpanded(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const value = window.localStorage.getItem(PINS_EXPANDED_STORAGE_KEY);
+    return value === null ? true : value === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function AppShell({ screen, onNavigate, projects, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [pendingModuleAction, setPendingModuleAction] = useState<ModuleAction | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState('');
-
-  const textOk = aiSettings.some(s => s.id === 'text' && s.hasApiKey);
-  const visionOk = aiSettings.some(s => s.id === 'vision' && s.hasApiKey);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [pinsExpanded, setPinsExpanded] = useState(readPinsExpanded);
+  const mainContentRef = useRef<HTMLElement | null>(null);
+  const { pinnedProjects } = usePinnedProjects(projects);
+  const screenKey = JSON.stringify(screen);
 
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
   useEffect(() => {
@@ -29,6 +45,20 @@ export function AppShell({ screen, onNavigate, projects, aiSettings, sidecarOnli
       setSelectedProjectId(projects[0]?.id ?? '');
     }
   }, [pendingModuleAction, projects, selectedProjectId]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PINS_EXPANDED_STORAGE_KEY, String(pinsExpanded));
+    } catch {
+      // A restricted browser or private webview may not allow preferences.
+    }
+  }, [pinsExpanded]);
+
+  useEffect(() => {
+    if (!mainContentRef.current) return;
+    mainContentRef.current.scrollTop = 0;
+    mainContentRef.current.scrollLeft = 0;
+  }, [screenKey]);
 
   const openModule = (initialAction: 'static' | 'dynamic') => {
     const contextualProject = 'projectId' in screen
@@ -61,96 +91,143 @@ export function AppShell({ screen, onNavigate, projects, aiSettings, sidecarOnli
     onNavigate({ name: 'project-detail', projectId: selectedProject.id, initialAction });
   };
 
-  const projectsActive = screen.name === 'projects' ||
-    (screen.name === 'project-detail' && !screen.initialAction) ||
-    screen.name === 'evidence-browser';
   const staticActive = screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-entry' ||
     (screen.name === 'project-detail' && screen.initialAction === 'static');
   const dynamicActive = screen.name === 'dynamic-session' ||
     (screen.name === 'project-detail' && screen.initialAction === 'dynamic');
+  const projectsActive = screen.name === 'projects' || screen.name === 'evidence-browser' ||
+    (screen.name === 'project-detail' && !screen.initialAction);
 
   return (
-    <div className={`app-shell command-mode workspace-mode ${screen.name === 'dashboard' ? 'dashboard-mode' : ''}`}>
+    <div className={`app-shell has-window-chrome command-mode workspace-mode ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <img src="/assets/centinel-shield.svg" alt="" className="sidebar-logo-mark" />
-          <span className="sidebar-title">CENTINEL</span>
-        </div>
-
-        <nav className="sidebar-nav">
-          <button
-            className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
-            onClick={() => nav('dashboard')}
-            aria-label="Home"
-            title="Home"
-          >
-            <House size={18} />
-            <span>Home</span>
-          </button>
-          <button
-            className={`nav-item ${projectsActive ? 'active' : ''}`}
-            onClick={() => nav('projects')}
-            aria-label="Projects"
-            title="Projects"
-          >
-            <FolderOpen size={18} />
-            <span>Projects</span>
-          </button>
-          <button
-            className={`nav-item ${staticActive ? 'active' : ''}`}
-            onClick={() => openModule('static')}
-            aria-label="Review"
-            title="Review"
-          >
-            <FileCheck2 size={18} />
-            <span>Review</span>
-          </button>
-          <button
-            className={`nav-item ${dynamicActive ? 'active' : ''}`}
-            onClick={() => openModule('dynamic')}
-            aria-label="Dynamic Testing"
-            title="Dynamic Testing"
-          >
-            <MonitorPlay size={18} />
-            <span>Dynamic Testing</span>
-          </button>
-          <button
-            className={`nav-item ${isActive(['settings']) ? 'active' : ''}`}
-            onClick={() => nav('settings')}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <Settings size={18} />
-            <span>Settings</span>
-          </button>
-        </nav>
-
-        <div className="sidebar-footer">
-          <div className="status-block" aria-label="Services status">
-            <div className="status-row">
-              <Circle
-                size={8}
-                className={`status-dot ${sidecarOnline ? 'online' : 'offline'}`}
-                fill="currentColor"
-              />
-              <span className="status-label">Services ready</span>
-              <span className={`status-value ${sidecarOnline && textOk && visionOk ? 'ok' : 'err'}`}>
-                {sidecarOnline && textOk && visionOk ? 'Ready' : 'Setup required'}
-              </span>
-            </div>
-            {(!sidecarOnline || !textOk || !visionOk) && (
-              <button className="sidebar-status-action" onClick={() => nav('settings')}>
-                Open Settings
+      <WindowHeader />
+      <div className="app-shell-workspace">
+        <aside className="sidebar">
+          <div className="sidebar-panel">
+            <header className="sidebar-header">
+              <button
+                type="button"
+                className="sidebar-toggle"
+                aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-expanded={!sidebarCollapsed}
+                title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                onClick={() => setSidebarCollapsed(value => !value)}
+              >
+                <span className="sidebar-toggle-icon" aria-hidden="true">
+                  {sidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={1.7} /> : <PanelLeftClose size={18} strokeWidth={1.7} />}
+                </span>
               </button>
-            )}
-          </div>
-        </div>
-      </aside>
+            </header>
+            <nav className="sidebar-nav" aria-label="Primary navigation">
+            <div className="sidebar-nav-group">
+              <div className="sidebar-category">Product</div>
+              <button
+                className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
+                onClick={() => nav('dashboard')}
+                aria-label="Home"
+                title="Home"
+              >
+                <House size={18} aria-hidden="true" />
+                <span>Home</span>
+              </button>
+              <button
+                className={`nav-item ${projectsActive ? 'active' : ''}`}
+                onClick={() => nav('projects')}
+                aria-label="Projects"
+                title="Projects"
+              >
+                <FolderOpen size={18} aria-hidden="true" />
+                <span>Projects</span>
+              </button>
+            </div>
 
-      <main className="main-content" id="main-content" tabIndex={-1}>
-        {children}
-      </main>
+            <div className="sidebar-nav-group">
+              <div className="sidebar-category">Activities</div>
+              <button
+                className={`nav-item ${staticActive ? 'active' : ''}`}
+                onClick={() => openModule('static')}
+                aria-label="Review"
+                title="Review"
+              >
+                <FileCheck2 size={18} aria-hidden="true" />
+                <span>Review</span>
+              </button>
+              <button
+                className={`nav-item ${dynamicActive ? 'active' : ''}`}
+                onClick={() => openModule('dynamic')}
+                aria-label="Dynamic Testing"
+                title="Dynamic Testing"
+              >
+                <MonitorPlay size={18} aria-hidden="true" />
+                <span>Dynamic Testing</span>
+              </button>
+            </div>
+
+            <div className="sidebar-nav-group">
+              <div className="sidebar-category">Settings</div>
+              <button
+                className={`nav-item ${isActive(['settings']) ? 'active' : ''}`}
+                onClick={() => nav('settings')}
+                aria-label="Settings"
+                title="Settings"
+              >
+                <Settings size={18} aria-hidden="true" />
+                <span>Settings</span>
+              </button>
+            </div>
+
+            <div className="sidebar-nav-group sidebar-pins-group">
+              <button
+                type="button"
+                className="sidebar-pins-toggle"
+                aria-expanded={pinsExpanded}
+                aria-controls={PINS_CONTENT_ID}
+                aria-label={pinsExpanded ? 'Collapse Pinned' : 'Expand Pinned'}
+                title={pinsExpanded ? 'Collapse Pinned' : 'Expand Pinned'}
+                onClick={() => setPinsExpanded(value => !value)}
+              >
+                <span className="sidebar-pinned-collapsed-icon" aria-hidden="true">
+                  <Pin size={18} strokeWidth={1.7} />
+                </span>
+                <span>Pinned</span>
+                {pinsExpanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+              </button>
+              <div id={PINS_CONTENT_ID} className="sidebar-pins-content" hidden={!pinsExpanded}>
+                {pinnedProjects.length > 0 ? pinnedProjects.map(project => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className={`nav-item sidebar-pin-item ${screen.name === 'project-detail' && screen.projectId === project.id ? 'active' : ''}`}
+                    onClick={() => onNavigate({ name: 'project-detail', projectId: project.id })}
+                    aria-label={`Open ${project.name} overview`}
+                    title={project.name}
+                  >
+                    <FolderOpen size={17} aria-hidden="true" />
+                    <span>{project.name}</span>
+                  </button>
+                )) : (
+                  <div className="sidebar-pins-empty">
+                    <span>No pinned projects</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            </nav>
+          </div>
+        </aside>
+
+        <section className="page-content-container" aria-label="Page content">
+          <PageBreadcrumbs
+            screen={screen}
+            projects={projects}
+            onNavigate={onNavigate}
+          />
+          <main ref={mainContentRef} className="main-content" id="main-content" tabIndex={-1}>
+            {children}
+          </main>
+        </section>
+      </div>
 
       {pendingModuleAction !== null && (
         <div className="workspace-project-launch">

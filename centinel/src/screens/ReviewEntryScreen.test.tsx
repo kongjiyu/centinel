@@ -80,6 +80,8 @@ describe('ReviewEntryScreen', () => {
     );
 
     expect(await screen.findByLabelText('Review name')).toBeInTheDocument();
+    expect(screen.getByRole('form', { name: 'Start review' })).toBeInTheDocument();
+    expect(screen.queryByText('Start with a clear objective')).not.toBeInTheDocument();
     expect(screen.getByText('Repository or source code')).toBeInTheDocument();
     expect(screen.getByText('Available')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Review name'), 'Release review');
@@ -89,6 +91,11 @@ describe('ReviewEntryScreen', () => {
     await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledWith(project.id, {
       name: 'Release review',
       instructions: 'Check traceability',
+      reviewMode: 'regular',
+      reviewer: 'Project owner',
+      pullRequest: undefined,
+      baseRef: undefined,
+      headRef: undefined,
     }));
     expect(trackSession).toHaveBeenCalledWith(session, project.name);
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: session.id });

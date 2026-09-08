@@ -17,6 +17,7 @@ vi.mock('../api/client', () => ({
 
 describe('Project creation', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     folderPicker.mockReset();
     vi.mocked(api.listStaticSessions).mockResolvedValue([]);
     vi.mocked(api.listDynamicSessions).mockResolvedValue([]);
@@ -117,6 +118,7 @@ describe('Project directory', () => {
   };
 
   beforeEach(() => {
+    window.localStorage.clear();
     vi.mocked(api.listStaticSessions).mockImplementation(async projectId => projectId === 'review-project' ? [review] : []);
     vi.mocked(api.listDynamicSessions).mockImplementation(async projectId => projectId === 'dynamic-project' ? [test] : []);
     vi.mocked(api.listArtifacts).mockImplementation(async projectId => [{
@@ -157,6 +159,21 @@ describe('Project directory', () => {
     await user.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(await screen.findByRole('table', { name: 'Projects' })).toHaveTextContent('Release review');
     expect(screen.getByRole('table', { name: 'Projects' })).toHaveTextContent('Checkout regression');
+  });
+
+  it('pins and unpins projects from the full directory with a local preference', async () => {
+    const user = userEvent.setup();
+    render(<ProjectsScreen projects={projects} onCreate={vi.fn()} onDelete={vi.fn()} onNavigate={vi.fn()} />);
+
+    const pinButton = await screen.findByRole('button', { name: 'Pin Release review' });
+    expect(pinButton).toHaveAttribute('aria-pressed', 'false');
+    await user.click(pinButton);
+    expect(screen.getByRole('button', { name: 'Unpin Release review' })).toHaveAttribute('aria-pressed', 'true');
+    expect(window.localStorage.getItem('centinel:pinned-project-ids')).toBe(JSON.stringify(['review-project']));
+
+    await user.click(screen.getByRole('button', { name: 'Unpin Release review' }));
+    expect(screen.getByRole('button', { name: 'Pin Release review' })).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('centinel:pinned-project-ids')).toBe(JSON.stringify([]));
   });
 
   it('limits the directory to five rows per page without descriptions or removal controls', async () => {

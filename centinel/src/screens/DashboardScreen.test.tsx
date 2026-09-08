@@ -138,10 +138,15 @@ describe('DashboardScreen', () => {
     );
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Test failed' })).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: /good (morning|afternoon|evening)/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /good (morning|afternoon|evening)/i })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Action required' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Recommendations' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Recent projects' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Quick actions' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create project' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dynamic Testing' })).toBeInTheDocument();
+    expect(document.querySelector('.home-right-rail')).toContainElement(screen.getByRole('button', { name: 'Create project' }));
     expect(screen.getAllByText('Website refresh').length).toBeGreaterThan(0);
     expect(screen.getByText('Checkout could not be completed.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /inspect/i })).toBeInTheDocument();
@@ -161,8 +166,11 @@ describe('DashboardScreen', () => {
       projectId: project.id,
     });
 
-    await user.click(screen.getByRole('button', { name: 'Next recommendation' }));
-    await user.click(screen.getByRole('button', { name: 'Next recommendation' }));
+    const nextRecommendation = screen.getByRole('button', { name: 'Next recommendation' });
+    await user.click(nextRecommendation);
+    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    await user.click(nextRecommendation);
+    expect(screen.getByText('3 of 3')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /open project: website refresh/i }));
     expect(onNavigate).toHaveBeenCalledWith({
       name: 'project-detail',
@@ -170,12 +178,14 @@ describe('DashboardScreen', () => {
     });
   });
 
-  it('shows recent projects as a comparable table with explicit activity navigation', async () => {
+  it('shows dashboard recent projects without directory actions and opens overview by row', async () => {
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
     render(
       <DashboardScreen
         projects={[project]}
         aiSettings={settings}
-        onNavigate={() => {}}
+        onNavigate={onNavigate}
       />,
     );
 
@@ -187,10 +197,27 @@ describe('DashboardScreen', () => {
     expect(projectRow).not.toHaveTextContent(/\d+ dynamic/);
     expect(within(projectRow).getByText('Release review').closest('.project-activity-message')).toBeNull();
     expect(within(projectRow).getByText('Release review').closest('.project-activity-stack')).not.toBeNull();
-    expect(within(projectRow).getByRole('button', { name: /open review for website refresh/i })).toBeInTheDocument();
+    expect(within(projectRow).queryByRole('button')).not.toBeInTheDocument();
+    await user.click(projectRow);
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'project-detail', projectId: project.id });
   });
 
-  it('keeps four varied project states comparable and carries the activity filter to Projects', async () => {
+  it('wraps recommendation navigation and supports keyboard project activation', async () => {
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    render(<DashboardScreen projects={[project]} aiSettings={settings} onNavigate={onNavigate} />);
+
+    const previousRecommendation = await screen.findByRole('button', { name: 'Previous recommendation' });
+    await user.click(previousRecommendation);
+    expect(screen.getByText('3 of 3')).toBeInTheDocument();
+
+    const projectRow = screen.getByRole('row', { name: /website refresh/i });
+    projectRow.focus();
+    await user.keyboard('{Enter}');
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'project-detail', projectId: project.id });
+  });
+
+  it('keeps four varied project states comparable and opens an unfiltered Projects directory', async () => {
     const projects: Project[] = [
       { ...project, id: 'completed', name: 'Completed release', description: 'Approved review', updatedAt: '2026-09-04T10:00:00.000Z' },
       { ...project, id: 'running', name: 'Checkout journey', description: 'Live browser verification', updatedAt: '2026-09-03T10:00:00.000Z' },
@@ -252,12 +279,9 @@ describe('DashboardScreen', () => {
     expect(within(table).getByText('No activity')).toBeInTheDocument();
     expect(within(table).getAllByRole('row')).toHaveLength(5);
 
-    await user.click(screen.getByRole('combobox', { name: 'Activity type' }));
-    await user.click(screen.getByRole('option', { name: 'Dynamic Testing' }));
-    expect(within(table).getAllByRole('row')).toHaveLength(3);
-    expect(within(table).queryByText('Completed release')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /view more/i }));
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'projects', activityFilter: 'dynamic' });
+    expect(screen.queryByRole('combobox', { name: 'Activity type' })).not.toBeInTheDocument();
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'projects' });
   });
 
   it('opens the exact Static review that needs a decision', async () => {

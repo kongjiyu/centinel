@@ -149,6 +149,9 @@ export const api = {
   createStaticSession: (projectId: string, data: {
     name: string;
     instructions: string;
+    reviewMode?: 'regular' | 'pull-request';
+    reviewer?: string;
+    pullRequest?: string;
     /** P0-4: base git ref (e.g. 'main'). Leave empty for full-tree review. */
     baseRef?: string;
     /** P0-4: head git ref. Leave empty for full-tree review. */

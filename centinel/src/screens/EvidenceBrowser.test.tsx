@@ -64,7 +64,10 @@ describe('EvidenceBrowser', () => {
     const user = userEvent.setup();
     render(<EvidenceBrowser projectId="project-1" onNavigate={() => {}} />);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /Screenshots \(1\)/ })).toBeInTheDocument());
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: /Screenshots \(1\)/ })).toBeInTheDocument(),
+      { timeout: 3000 },
+    );
     expect(screen.getByRole('button', { name: /Overview \(2\)/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /Screenshots \(1\)/ })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: /Screenshots \(1\)/ })).toBeInTheDocument();

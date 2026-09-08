@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AlertCircle, GitBranch } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -8,6 +8,9 @@ export type StaticReviewFormData = {
   name: string;
   /** Kept as `instructions` for the existing create-session contract. */
   instructions: string;
+  reviewMode: 'regular' | 'pull-request';
+  reviewer: string;
+  pullRequest?: string;
   baseRef?: string;
   headRef?: string;
 };
@@ -41,19 +44,23 @@ export function StaticReviewForm({
   const [baseRef, setBaseRef] = useState('');
   const [headRef, setHeadRef] = useState('');
   const [scopeEnabled, setScopeEnabled] = useState(false);
+  const [reviewMode, setReviewMode] = useState<'regular' | 'pull-request'>('regular');
+  const [pullRequest, setPullRequest] = useState('');
+  const [reviewer, setReviewer] = useState('Project owner');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
 
   const charCount = objective.length;
   const overLimit = charCount > MAX_INSTRUCTIONS_CHARS;
-  const scopeIncomplete = scopeEnabled && (!baseRef.trim() || !headRef.trim());
+  const scopeIncomplete = (scopeEnabled || reviewMode === 'pull-request') && (!baseRef.trim() || !headRef.trim());
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
   }, [error]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setError(null);
     if (!name.trim()) {
       setError('Review name is required.');
@@ -68,7 +75,7 @@ export function StaticReviewForm({
       return;
     }
     if (scopeIncomplete) {
-      setError('Both base and head refs are required when changed-file scope is enabled.');
+      setError('Both base and head refs are required for a pull request or changed-file scope.');
       return;
     }
 
@@ -79,8 +86,11 @@ export function StaticReviewForm({
         // The API still calls this field `instructions`; the UI deliberately
         // uses the user-facing term objective.
         instructions: objective.trim(),
-        baseRef: scopeEnabled ? baseRef.trim() : undefined,
-        headRef: scopeEnabled ? headRef.trim() : undefined,
+        reviewMode,
+        reviewer,
+        pullRequest: reviewMode === 'pull-request' ? pullRequest.trim() : undefined,
+        baseRef: (scopeEnabled || reviewMode === 'pull-request') ? baseRef.trim() : undefined,
+        headRef: (scopeEnabled || reviewMode === 'pull-request') ? headRef.trim() : undefined,
       });
     } catch (cause) {
       setError(String(cause));
@@ -90,11 +100,11 @@ export function StaticReviewForm({
   };
 
   return (
-    <div className="form-card static-review-form">
+    <form className="form-card static-review-form" aria-label="Start review" onSubmit={event => { void handleSubmit(event); }}>
       <section className="review-form-section" aria-labelledby="review-details-heading">
         <div className="review-form-section-heading">
           <h3 id="review-details-heading">Review details</h3>
-          <p>Describe the evidence Centinel should examine and the question this review should answer.</p>
+          <p>Give this review a recognizable name.</p>
         </div>
 
         <div className="form-field">
@@ -112,8 +122,45 @@ export function StaticReviewForm({
           />
         </div>
 
-        {beforeObjective}
+        <fieldset className="review-type-fieldset">
+          <legend>Review type <span className="field-required" aria-hidden="true">*</span></legend>
+          <div className="review-type-options">
+            <label className="review-type-option">
+              <input type="radio" name="review-mode" value="regular" checked={reviewMode === 'regular'} onChange={() => setReviewMode('regular')} />
+              <span><strong>Regular review</strong><small>Review the selected project or a manual changed-file scope.</small></span>
+            </label>
+            <label className="review-type-option">
+              <input type="radio" name="review-mode" value="pull-request" checked={reviewMode === 'pull-request'} onChange={() => setReviewMode('pull-request')} />
+              <span><strong>Pull request review</strong><small>Record a pull request and compare its base and head refs.</small></span>
+            </label>
+          </div>
+        </fieldset>
 
+        {reviewMode === 'pull-request' && (
+          <div className="review-pr-details">
+            <div className="form-field">
+              <label htmlFor="review-pull-request">Pull request</label>
+              <input id="review-pull-request" value={pullRequest} onChange={event => setPullRequest(event.target.value)} placeholder="For example, #184 or a pull request URL" />
+            </div>
+            <div className="scope-inputs review-required-scope">
+              <GitBranch size={14} aria-hidden="true" />
+              <label className="visually-hidden" htmlFor="scope-base">Base ref</label>
+              <input id="scope-base" value={baseRef} onChange={event => setBaseRef(event.target.value)} placeholder="Base ref, for example main" aria-label="Base ref" className="input-mono" />
+              <span className="scope-separator" aria-hidden="true">→</span>
+              <label className="visually-hidden" htmlFor="scope-head">Head ref</label>
+              <input id="scope-head" value={headRef} onChange={event => setHeadRef(event.target.value)} placeholder="Head ref, for example feature/checkout" aria-label="Head ref" className="input-mono" />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {beforeObjective}
+
+      <section className="review-form-section" aria-labelledby="review-objective-heading">
+        <div className="review-form-section-heading">
+          <h3 id="review-objective-heading">Objective</h3>
+          <p>Describe the evidence Centinel should examine and the question this review should answer.</p>
+        </div>
         <div className="form-field">
           <label htmlFor="static-review-instructions">Review objective <span className="field-required" aria-hidden="true">*</span></label>
           <div className="textarea-wrapper">
@@ -161,7 +208,7 @@ export function StaticReviewForm({
           </div>
         )}
 
-        <details className="advanced-options static-review-advanced">
+        {reviewMode === 'regular' && <details className="advanced-options static-review-advanced">
           <summary>Advanced options</summary>
           <div className="advanced-options-content">
             <div className="form-field form-field-scope">
@@ -204,7 +251,7 @@ export function StaticReviewForm({
               )}
             </div>
           </div>
-        </details>
+        </details>}
       </section>
 
       <section className="review-form-section review-human-review" aria-labelledby="human-review-heading">
@@ -212,7 +259,13 @@ export function StaticReviewForm({
           <h3 id="human-review-heading">Human review</h3>
           <p>The reviewer owns the final activity decision; approval does not automatically resolve findings.</p>
         </div>
-        <p className="review-unavailable-note">Reviewer assignment is not available in local single-user mode. The final reviewer identity will be shown only when the service supplies it.</p>
+        <div className="form-field">
+          <label htmlFor="reviewer-assignment">Assigned reviewer</label>
+          <select id="reviewer-assignment" value={reviewer} onChange={event => setReviewer(event.target.value)}>
+            <option value="Project owner">Project owner (default)</option>
+          </select>
+          <p className="field-help">No reviewer-role collaborator is registered for this project, so the project owner is assigned by default.</p>
+        </div>
       </section>
 
       {error && (
@@ -223,11 +276,11 @@ export function StaticReviewForm({
       {submitDisabledReason && <p className="form-hint review-submit-hint" role="status">{submitDisabledReason}</p>}
 
       <div className="form-actions review-form-actions">
-        <button className="btn-primary review-start-button" onClick={() => void handleSubmit()} disabled={submitting || submitDisabled}>
+        <button type="submit" className="btn-primary review-start-button" disabled={submitting || submitDisabled}>
           {submitting ? 'Starting review…' : 'Start review'}
         </button>
-        <button className="btn-secondary" onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={submitting}>Cancel</button>
       </div>
-    </div>
+    </form>
   );
 }

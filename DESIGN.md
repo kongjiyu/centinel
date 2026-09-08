@@ -6,7 +6,7 @@
 >
 > Primary audience: office teams and non-technical reviewers, with progressive disclosure for QA and engineering detail
 >
-> Last revised: 2026-09-01
+> Last revised: 2026-09-08
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
@@ -29,9 +29,23 @@ The approved refinement keeps the interface neutral-first: white and light-grey 
 
 - Dashboard **Action required** items use one semantic container with a quiet light-grey header. The header contains the icon, project/module/time context, and a compact action control; the body contains only the required-action title and concise reason.
 - **Recommendations** show one recommendation at a time in one white, non-nested surface. Each recommendation identifies the context and next action; no step-by-step workflow or rationale sub-card is rendered.
-- **Recent projects** and the Projects directory reuse one Project / Latest activity / Current state / Actions table. Rows use intentional padding and natural content height, keep missing activity aligned, and preserve the dashboard's four-row limit and activity filter.
-- Projects uses a compact toolbar attached to the table, with search and Current state/activity filters. The directory keeps five-row pagination and the project-only New project flow; project creation opens a labelled, focus-managed modal.
+- **Recent projects** and the Projects directory reuse one Project / Latest activity / Current state / Actions table. The dashboard presentation is intentionally simpler: it has no activity filter, visually hides the table headers while retaining them for assistive technology, removes the action column and dashboard row dividers, keeps missing activity aligned, and preserves the dashboard's four-row limit. The full Projects directory keeps visible headers, filters, pagination, and explicit row actions.
+- Projects uses a compact toolbar attached to the table, with search and Current state/activity filters. The directory keeps five-row pagination, directory-only local pin controls, and the project-only New project flow; project creation opens a labelled, focus-managed modal.
 - All user-facing select fields use the shared React-library-backed `Select` primitive. It provides an accessible combobox, keyboard navigation, Escape handling, visible focus, disabled state, portal layering, and narrow-viewport sizing. Native `<select>` elements are not used in `centinel/src`.
+
+### Dashboard and desktop shell refinement (September 2026)
+
+The latest dashboard and shell requirements supersede the earlier Home table/filter contract above. The visual system, neutral-first tokens, Lucide-only icon rule, WCAG 2.1 AA target, and responsive breakpoints remain authoritative.
+
+- Home's Recent projects section has no activity-type filter. **View more** is aligned to the far right of the section header and opens the unfiltered Projects directory.
+- Dashboard Recent projects keeps Project, Latest activity, and Current state data, but does not show a visible header row, trailing action buttons, row dividers, or right-arrow/chevron glyphs. Rows remain hoverable, focusable, and operable with Enter or Space to open the project overview. Current state is the rightmost, right-aligned column. These presentation rules do not change the Projects directory.
+- The dashboard right rail starts with a bare Quick actions grid above Recommendations. It has no enclosing panel or visible heading: Create project spans the grid's full 12-column row; Review and Dynamic Testing each span six columns at desktop widths and stack below 720 px. Actions use visible labels, Lucide icons, and no right-arrow glyphs.
+- Dashboard content controls do not render `>`/right-arrow affordances. Breadcrumb separators are the intentional exception and are decorative to assistive technology.
+- The application shell renders a light custom desktop title bar with a restrained 14–16 px Centinel mark, functional File/Edit/View/Help menus, and working minimize, maximize/restore, and close controls. It is followed by one white workspace split into a navigation-panel container and a page-content container. The navigation panel has its own header with the sidebar collapse/expand control and an independently scrolling body; the page-content container has a rounded top-left corner, its own breadcrumb header, and an independently scrolling body.
+- The sidebar has no product brand/logo block or service-readiness footer. Its labelled groups are Dashboard (Home), Activities (Review and Dynamic Testing), Settings (Settings), and a lightweight **Pinned** disclosure for locally persisted project shortcuts.
+- **Pinned** is a local desktop preference, not shared project state. Pin/unpin controls appear in the full Projects directory; stale project IDs are removed and the empty state is the subdued text **No pinned projects** without an additional navigation action.
+- Settings keeps four visible content headings: **App Version**, **Model Provider**, **Usage**, and **Connections**. Provider credentials remain one cohesive API-key flow; usage exposes only real `getAiUsage` values: a processed-token total, total requests, Input, Output, Cache creation, and Cache reads. App Version reads the running application version, checks the published GitHub release, and offers **Open update** only when a newer release exists. It never claims an in-app installer while the Tauri updater is inactive and unsigned. Connection values are shown only when the running application can retrieve them; unavailable capabilities are labelled explicitly.
+- The approved refinement removes the Home greeting block, keeps the dashboard right rail deterministic with a fixed desktop recommendation height, removes the visible Navigation label and shell divider lines, and uses a semantic page-width Review form rather than a nested setup card. These are presentation refinements only; existing navigation and service contracts remain unchanged.
 
 ## 1. Product experience
 
@@ -87,13 +101,13 @@ Backend-specific statuses may remain in data contracts, but presentation compone
 
 ### Global navigation
 
-The persistent application shell contains:
+The persistent application shell provides these grouped destinations:
 
-- **Home** — required actions, quick starts, and recent activity.
-- **Projects** — create, find, open, and remove projects.
-- **Review** — open the Review start flow or its most relevant project context.
-- **Dynamic testing** — open the Dynamic testing start flow or its most relevant project context.
-- **Settings** — AI providers, connection checks, and usage.
+- **Dashboard / Home** — required actions, quick starts, and recent activity.
+- **Activities / Review** — open the Review start flow or its most relevant project context.
+- **Activities / Dynamic testing** — open the Dynamic testing start flow or its most relevant project context.
+- **Settings / Settings** — versions, model-provider credentials and usage, and connection boundaries.
+- **Pinned** — expand or collapse locally pinned project shortcuts. The exhaustive Projects directory remains reachable from Home actions and breadcrumbs.
 
 Integrations belong inside Settings. Authentication, authorization, storage, verification frameworks, and integration services are implementation details and do not appear as navigation labels.
 
@@ -343,26 +357,29 @@ Use concentric radii: an outer container radius equals the inner radius plus the
 ### Application shell
 
 - Expanded sidebar: 232 px. Collapsed sidebar: 72 px.
-- The sidebar contains brand, global navigation, and a compact connection state. It does not contain decorative instrumentation.
+- The sidebar contains grouped navigation only. Product identity belongs in the title bar, and connection/provider state belongs in Settings; the sidebar has no brand block or service footer.
 - Main content scrolls independently; the sidebar remains stable.
+- A light 44 px desktop title bar appears at the top of the shell with a restrained 14–16 px Centinel mark, functional File/Edit/View/Help menus, and working minimize, maximize/restore, and close controls. Unsupported commands are not exposed; browser/Vitest fallbacks remain safe when the Tauri bridge is unavailable.
+- The workspace is split into a navigation-panel container and a page-content container. The navigation panel has a compact header with a right-aligned, real sidebar collapse/expand control and an independently scrolling navigation body. The page-content container has a visible rounded top-left corner and its own header containing the semantic, route-aware `Home > …` trail. Ancestor crumbs are actionable, the current crumb is plain text with `aria-current="page"`, and separators are decorative.
+- The title bar and each container header remain fixed above their independently scrolling bodies. Page content must reserve space for the title bar and breadcrumb header and cannot be hidden behind them.
 - Page header includes breadcrumb, title, optional description, and at most one primary action.
 
 ### Home dashboard
 
-Home is an action-oriented workspace, not a reporting dashboard. Open with a time-aware greeting such as **Good morning** and one short orientation line. Include a person's name only when it comes from a real authenticated profile; never invent identity data.
+Home is an action-oriented workspace, not a reporting dashboard. Start directly with the work and actions that need attention; do not render a time-aware greeting or orientation message above them.
 
 The first row uses a 12-column grid at desktop widths:
 
 - **Action required** occupies eight columns on the left. It shows up to three projects that require a human action, ordered by urgency and then most recent update. Each item is a clearly separated container with a quiet light-grey header containing its representative semantic icon, project, module, updated time, and compact action control, plus a body with only the required-action title and concise reason. When more projects need attention, a single footer routes to Projects with **Needs attention** already selected.
-- **Recommendations** occupies four columns on the right and shows one recommendation at a time inside a single white surface. The heading, pager, recommendation title, concise summary, and next action belong to that surface; no step-by-step workflow or rationale sub-card is rendered. A restrained green Centinel shield watermark and forest-green CTA aligned to the trailing edge provide attention without another nested card. The panel and Action required section use natural content height at every breakpoint. Pager controls appear only when more than one recommendation is available.
+- **Recommendations** occupies the right rail below Quick actions and shows one recommendation at a time inside a single white surface. The heading, compact previous/next chevron pager, `N of M` position text, recommendation title, concise summary, and next action belong to that surface; no step-by-step workflow or rationale sub-card is rendered. A restrained green Centinel shield watermark is inset within the top-right area and the forest-green CTA aligns to the trailing edge. Every recommendation type uses the same fixed desktop height so paging does not shift surrounding content; narrow layouts return to content-driven height. Pager controls appear only when more than one recommendation is available and wrap deterministically.
 
 Only these actionable states belong in Action required: review required, changes required, a blocked or failed test, and setup required. Do not include completed, ready, running, or passive warning states. Do not lead with an approval count.
 
 Each action row follows a reason-first scan path: compact semantic status icon; project, module, and updated-time context; dominant plain-language state; a plain explanatory message; and one contextual action. Use the short actions **Review**, **Resolve**, **Inspect**, and **Set up**. Do not place a decorative illustration inside each row; use one large, transparent illustration as a restrained page-level background element.
 
-The second and final row is **Recent projects**, capped at four rows. It uses a predictable table sequence: **Project**, **Latest activity**, **Current state**, and explicit actions. The dashboard omits project descriptions to prioritize project-name scanning; the full Projects directory retains them. Latest activity is an unboxed semantic stack with the module/type, activity name, and timestamp. Current state uses a compact rounded-rectangle semantic text tag based on the project's next-action state. Testing counts are omitted because they do not help users choose the next action. The activity filter uses the shared library-backed `Select` primitive; its current value is the visible affordance while its accessible label remains available to assistive technology. Each row is hoverable and keyboard-operable to open the project overview; its trailing action is an icon-only affordance. **View more** sits beside the Recent projects heading as a text-only button and routes to the full directory with the active filter.
+The second and final row is **Recent projects**, capped at four rows. It uses a predictable table sequence: **Project**, **Latest activity**, and **Current state** on the dashboard; the full Projects directory also exposes explicit actions. The dashboard omits project descriptions to prioritize project-name scanning and visually hides the table header while retaining its semantics for assistive technology. Latest activity is an unboxed semantic stack with the module/type, activity name, and timestamp. Current state uses a compact rounded-rectangle semantic text tag based on the project's next-action state and is pinned to the far right. Testing counts are omitted because they do not help users choose the next action. Dashboard rows have no action column or dividers, remain hoverable and keyboard-operable to open the project overview, and **View more** is aligned to the far right of the section heading and opens the unfiltered directory.
 
-Dashboard filtering is limited to one activity filter. **View more** carries that filter into the exhaustive Projects directory. Projects reuses the same table component and adds search across project name, description, and latest activity, plus **Current state** and activity filters. State groups are **Needs attention**, **In progress**, **Completed**, **Cancelled**, and **No activity**. Workspace path and New project remain directory-only concerns; project removal is not presented in either project-summary table.
+Dashboard does not filter Recent projects. Projects reuses the same table component and adds search across project name, description, and latest activity, plus **Current state** and activity filters. State groups are **Needs attention**, **In progress**, **Completed**, **Cancelled**, and **No activity**. Workspace path, pinning, and New project remain directory-only concerns; project removal is not presented in either project-summary table.
 
 All values come from persisted application data. Omit a value or show a concise empty state when it is unavailable; never manufacture a dashboard metric.
 

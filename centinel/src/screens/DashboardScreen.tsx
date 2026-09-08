@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  ArrowRight,
   ChevronLeft,
   ChevronRight,
   Code2,
@@ -17,13 +16,10 @@ import {
 } from 'lucide-react';
 import { ReviewIllustration } from '../components/HomeIllustrations';
 import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
-import { Select } from '../components/Select';
 import {
   formatActivityTime,
-  matchesActivityFilter,
   timestamp,
   useProjectSummaries,
-  type ActivityTypeFilter,
   type ProjectAction,
 } from '../hooks/useProjectSummaries';
 import type { AiProviderSetting, Project, Screen } from '../types';
@@ -45,13 +41,6 @@ type Recommendation = {
   onClick: () => void;
 };
 
-function greetingFor(date: Date): string {
-  const hour = date.getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
-}
-
 function actionPriority(action: ProjectAction): number {
   if (action.tone === 'danger') return 4;
   if (action.action === 'Resolve' || action.state.includes('blocked')) return 3;
@@ -70,7 +59,6 @@ function actionIconFor(action: ProjectAction): typeof Code2 {
 export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
   const { summaries, loading, unavailable, reload } = useProjectSummaries(projects);
   const [recommendationIndex, setRecommendationIndex] = useState(0);
-  const [activityFilter, setActivityFilter] = useState<ActivityTypeFilter>('all');
 
   const latestProject = useMemo(
     () => [...projects].sort((a, b) => timestamp(b.updatedAt || b.createdAt) - timestamp(a.updatedAt || a.createdAt))[0],
@@ -83,14 +71,11 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
     .sort((a, b) => actionPriority(b) - actionPriority(a) || timestamp(b.updatedAt) - timestamp(a.updatedAt)), [summaries]);
   const visibleActions = allActions.slice(0, 3);
 
-  const recentProjects = useMemo(() => summaries
-    .filter(summary => matchesActivityFilter(summary, activityFilter))
-    .slice(0, 4), [activityFilter, summaries]);
+  const recentProjects = useMemo(() => summaries.slice(0, 4), [summaries]);
 
   const hasTextSetting = aiSettings.some(setting => setting.id === 'text' && setting.hasApiKey);
   const hasVisionSetting = aiSettings.some(setting => setting.id === 'vision' && setting.hasApiKey);
   const needsInitialSetup = !hasTextSetting || !hasVisionSetting;
-  const greeting = useMemo(() => greetingFor(new Date()), []);
 
   const openProjectFlow = (initialAction: 'static' | 'dynamic') => {
     if (latestProject) {
@@ -179,12 +164,6 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
   return (
     <div className="screen dashboard-home">
       <div className="home-background-art" aria-hidden="true"><ReviewIllustration /></div>
-      <header className="home-header">
-        <div>
-          <h1>{greeting}</h1>
-          <p>Start with what needs attention, then continue the latest project work.</p>
-        </div>
-      </header>
 
       <div className="home-top-grid">
         <section className="home-panel highlights-panel" aria-labelledby="action-required-title">
@@ -221,7 +200,6 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
                           aria-label={`${action.action} ${action.project.name}: ${action.state}`}
                         >
                           {action.action}
-                          <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
                         </button>
                       </header>
                       <div className="action-required-body">
@@ -236,7 +214,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
                 <div className="action-required-overflow">
                   <span>{allActions.length - visibleActions.length} more {allActions.length - visibleActions.length === 1 ? 'project needs' : 'projects need'} attention</span>
                   <button type="button" onClick={() => onNavigate({ name: 'projects', stateFilter: 'needs_attention' })}>
-                    View affected projects <ArrowRight size={15} aria-hidden="true" />
+                    View affected projects
                   </button>
                 </div>
               )}
@@ -252,37 +230,67 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
           )}
         </section>
 
-        <section className="quick-actions-panel" aria-labelledby="recommendations-title">
-          <div className={`recommendation-visual recommendation-${recommendation.tone}`}>
-            <div className="recommendation-heading">
-              <div>
-                <h2 id="recommendations-title">Recommendations</h2>
-              </div>
-              {recommendations.length > 1 && (
-                <div className="recommendation-controls">
-                  <span className="recommendation-position" aria-live="polite">{recommendationIndex + 1} of {recommendations.length}</span>
-                  <button type="button" className="recommendation-nav" aria-label="Previous recommendation" onClick={() => setRecommendationIndex(index => (index - 1 + recommendations.length) % recommendations.length)}>
-                    <ChevronLeft size={17} aria-hidden="true" />
-                  </button>
-                  <button type="button" className="recommendation-nav" aria-label="Next recommendation" onClick={() => setRecommendationIndex(index => (index + 1) % recommendations.length)}>
-                    <ChevronRight size={17} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="recommendation-summary">
-              <span className="recommendation-icon" aria-hidden="true"><RecommendationIcon size={24} strokeWidth={1.8} /></span>
-              <div>
-                <h3>{recommendation.title}</h3>
-                <p>{recommendation.summary}</p>
-              </div>
-            </div>
-            <button type="button" className="recommendation-action" onClick={recommendation.onClick} aria-label={`${recommendation.actionLabel}: ${recommendation.summary}`}>
-              {recommendation.actionLabel}<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+        <div className="home-right-rail">
+          <div className="quick-actions-grid" aria-label="Quick actions">
+          <button
+            type="button"
+            className="quick-action quick-action-create"
+            onClick={() => onNavigate({ name: 'projects', initialCreate: true })}
+          >
+            <span>Create project</span>
+          </button>
+            <button type="button" className="quick-action quick-action-secondary" onClick={() => openProjectFlow('static')}>
+              <FileCheck2 size={18} strokeWidth={1.8} aria-hidden="true" />
+              <span>Review</span>
             </button>
-            <img className="recommendation-watermark" src="/assets/centinel-shield.svg" alt="" aria-hidden="true" />
+            <button type="button" className="quick-action quick-action-secondary" onClick={() => openProjectFlow('dynamic')}>
+              <MonitorPlay size={18} strokeWidth={1.8} aria-hidden="true" />
+              <span>Dynamic Testing</span>
+            </button>
           </div>
-        </section>
+
+          <section className="home-panel recommendations-panel" aria-labelledby="recommendations-title">
+            <div className={`recommendation-visual recommendation-${recommendation.tone}`}>
+              <div className="recommendation-heading">
+                <div>
+                  <h2 id="recommendations-title">Recommendations</h2>
+                </div>
+                {recommendations.length > 1 && (
+                  <div className="recommendation-controls">
+                    <span className="recommendation-position" aria-live="polite">{recommendationIndex + 1} of {recommendations.length}</span>
+                    <button
+                      type="button"
+                      className="recommendation-nav"
+                      aria-label="Previous recommendation"
+                      onClick={() => setRecommendationIndex(index => (index - 1 + recommendations.length) % recommendations.length)}
+                    >
+                      <ChevronLeft size={17} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="recommendation-nav"
+                      aria-label="Next recommendation"
+                      onClick={() => setRecommendationIndex(index => (index + 1) % recommendations.length)}
+                    >
+                      <ChevronRight size={17} aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="recommendation-summary">
+                <span className="recommendation-icon" aria-hidden="true"><RecommendationIcon size={24} strokeWidth={1.8} /></span>
+                <div>
+                  <h3>{recommendation.title}</h3>
+                  <p>{recommendation.summary}</p>
+                </div>
+              </div>
+              <button type="button" className="recommendation-action" onClick={recommendation.onClick} aria-label={`${recommendation.actionLabel}: ${recommendation.summary}`}>
+                {recommendation.actionLabel}
+              </button>
+              <img className="recommendation-watermark" src="/assets/centinel-shield.svg" alt="" aria-hidden="true" />
+            </div>
+          </section>
+        </div>
       </div>
 
       <section className="home-panel recent-projects-panel" aria-labelledby="recent-projects-title">
@@ -291,31 +299,18 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
             <div>
               <div className="recent-projects-title-row">
                 <h2 id="recent-projects-title">Recent projects</h2>
-                <button type="button" className="view-more-projects" onClick={() => onNavigate({ name: 'projects', activityFilter })}>
-                  View more
-                </button>
               </div>
             </div>
           </div>
-          <div className="recent-projects-controls">
-            <label className="activity-type-filter">
-              <span className="visually-hidden">Activity type</span>
-              <span className="activity-type-select">
-                <Select
-                  aria-label="Activity type"
-                  value={activityFilter}
-                  onChange={value => setActivityFilter(value as ActivityTypeFilter)}
-                  options={[{ value: 'all', label: 'All activity' }, { value: 'review', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]}
-                />
-              </span>
-            </label>
-          </div>
+          <button type="button" className="view-more-projects" onClick={() => onNavigate({ name: 'projects' })}>
+            View more
+          </button>
         </div>
 
         {loading && summaries.length === 0 ? (
           <div className="home-message" role="status">Loading projects…</div>
         ) : recentProjects.length > 0 ? (
-          <ProjectSummaryTable summaries={recentProjects} onNavigate={onNavigate} ariaLabel="Recent projects" />
+          <ProjectSummaryTable summaries={recentProjects} onNavigate={onNavigate} variant="dashboard" ariaLabel="Recent projects" />
         ) : unavailable ? (
           <div className="home-message home-message-error" role="alert">
             <AlertCircle size={20} aria-hidden="true" />
@@ -323,7 +318,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
             <button className="home-inline-action" onClick={reload}><RefreshCw size={14} aria-hidden="true" /> Retry</button>
           </div>
         ) : (
-          <div className="home-message"><span>No recent projects match the current filter.</span></div>
+          <div className="home-message"><span>No recent projects yet.</span></div>
         )}
       </section>
     </div>

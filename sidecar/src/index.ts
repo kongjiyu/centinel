@@ -575,6 +575,9 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : '';
+      const reviewMode = body.reviewMode === 'pull-request' ? 'pull-request' : 'regular';
+      const reviewer = typeof body.reviewer === 'string' ? body.reviewer.trim() : 'Project owner';
+      const pullRequest = typeof body.pullRequest === 'string' ? body.pullRequest.trim() : '';
 
       if (!name) return json(res, 400, { error: 'name is required' });
 
@@ -640,7 +643,7 @@ const server = http.createServer(async (req, res) => {
         projectId: ssMatch.projectId,
         name,
         reviewType,
-        configJson: { instructions },
+        configJson: { instructions, reviewMode, reviewer, pullRequest },
         remarks: instructions,
         baseRef,
         headRef,

@@ -267,6 +267,8 @@ export type Screen =
       search?: string;
       stateFilter?: 'all' | 'needs_attention' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
       activityFilter?: 'all' | 'review' | 'dynamic';
+      /** Open the directory's existing project-creation modal on entry. */
+      initialCreate?: boolean;
     }
   | {
       name: 'project-detail';

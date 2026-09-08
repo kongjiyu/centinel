@@ -43,32 +43,7 @@
   width: 232px;
   background: var(--color-surface);
   color: var(--color-text-muted);
-  border-right: 1px solid var(--color-border);
-}
-
-.app-shell.dashboard-mode .sidebar-brand {
-  min-height: 72px;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.app-shell.dashboard-mode .sidebar-brand::after {
-  background: var(--color-border);
-  opacity: 1;
-}
-
-.app-shell.dashboard-mode .sidebar-logo-mark {
-  width: 32px;
-  height: 32px;
-  filter: none;
-}
-
-.app-shell.dashboard-mode .sidebar-title {
-  color: var(--color-primary);
-  font-family: var(--font-ui);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  border-right: 0;
 }
 
 .app-shell.dashboard-mode .sidebar-nav {
@@ -113,66 +88,6 @@
 
 .app-shell.dashboard-mode .nav-item.active svg {
   color: var(--color-primary);
-}
-
-.app-shell.dashboard-mode .sidebar-footer {
-  padding: 16px 20px 18px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-
-.app-shell.dashboard-mode .status-block {
-  gap: 8px;
-}
-
-.app-shell.dashboard-mode .status-row {
-  min-height: 24px;
-  color: var(--color-text-muted);
-}
-
-.app-shell.dashboard-mode .status-label,
-.app-shell.dashboard-mode .status-value {
-  font-size: 12px;
-}
-
-.app-shell.dashboard-mode .status-label {
-  color: var(--color-text-muted);
-}
-
-.app-shell.dashboard-mode .status-value {
-  color: var(--color-text);
-}
-
-.app-shell.dashboard-mode .status-value.ok,
-.app-shell.dashboard-mode .status-dot.online {
-  color: var(--color-success);
-}
-
-.app-shell.dashboard-mode .status-value.err,
-.app-shell.dashboard-mode .status-dot.offline {
-  color: var(--color-warning);
-}
-
-.app-shell.dashboard-mode .status-dot.online {
-  filter: none;
-}
-
-.app-shell.dashboard-mode .sidebar-status-action {
-  min-height: 32px;
-  align-self: flex-start;
-  padding: 5px 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-primary);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.app-shell.dashboard-mode .sidebar-status-action:hover {
-  color: var(--color-primary-hover);
-  text-decoration: underline;
 }
 
 .app-shell.dashboard-mode .main-content {
@@ -244,32 +159,6 @@
   border: 0;
 }
 
-.home-header {
-  display: flex;
-  min-height: 64px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 20px;
-}
-
-.home-header h1 {
-  color: var(--color-text);
-  font-size: 32px;
-  font-weight: 650;
-  line-height: 40px;
-  letter-spacing: -0.035em;
-  text-wrap: balance;
-}
-
-.home-header p {
-  margin-top: 4px;
-  color: var(--color-text-muted);
-  font-size: 14px;
-  line-height: 21px;
-  text-wrap: pretty;
-}
-
 .home-top-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -290,11 +179,6 @@
 
 .highlights-panel {
   grid-column: span 8;
-}
-
-.quick-actions-panel {
-  grid-column: span 4;
-  min-width: 0;
 }
 
 .home-section-heading,
@@ -791,50 +675,11 @@
     display: none;
   }
 
-  .app-shell.dashboard-mode .sidebar {
-    width: 72px;
-  }
-
-  .app-shell.dashboard-mode .sidebar-brand {
-    justify-content: center;
-    padding: 16px 12px;
-  }
-
-  .app-shell.dashboard-mode .sidebar-title,
-  .app-shell.dashboard-mode .nav-item span,
-  .app-shell.dashboard-mode .status-label,
-  .app-shell.dashboard-mode .status-value {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
-  .app-shell.dashboard-mode .sidebar-nav {
-    padding: 12px 8px;
-  }
-
-  .app-shell.dashboard-mode .nav-item {
-    justify-content: center;
-    padding: 11px 8px;
-  }
-
-  .app-shell.dashboard-mode .sidebar-footer {
-    padding: 12px 8px;
-  }
-
-  .app-shell.dashboard-mode .status-row {
-    justify-content: center;
-  }
-
   .home-top-grid {
     align-items: start;
   }
 
-  .highlights-panel,
-  .quick-actions-panel {
+  .highlights-panel {
     width: 100%;
     height: auto;
     grid-column: 1 / -1;
@@ -848,15 +693,6 @@
 @media (max-width: 720px) {
   .app-shell.dashboard-mode .main-content {
     padding: 16px;
-  }
-
-  .home-header {
-    margin-bottom: 16px;
-  }
-
-  .home-header h1 {
-    font-size: 22px;
-    line-height: 30px;
   }
 
   .home-panel {
@@ -904,17 +740,8 @@
 }
 
 @media (max-width: 480px) {
-  .app-shell.dashboard-mode .sidebar {
-    width: 64px;
-  }
-
   .app-shell.dashboard-mode .main-content {
     padding: 12px;
-  }
-
-  .home-header h1 {
-    font-size: 21px;
-    line-height: 28px;
   }
 
   .home-panel {
@@ -1012,5 +839,201 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Updated Home composition
+
+   Action required owns the left column. Quick actions and one recommendation
+   share a deterministic right rail so recommendation changes never stretch
+   the left column or introduce dead grid space.
+   ------------------------------------------------------------------------- */
+.home-top-grid {
+  align-items: start;
+}
+
+.highlights-panel {
+  grid-column: span 8;
+  grid-row: auto;
+}
+
+.home-right-rail {
+  display: flex;
+  grid-column: span 4;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.recommendations-panel {
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  min-width: 0;
+  gap: 10px;
+}
+
+.quick-action {
+  display: flex;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font: 650 13px/20px inherit;
+  text-align: left;
+  transition-property: background-color, border-color, color, transform;
+  transition-duration: var(--duration-home-standard), var(--duration-home-standard), var(--duration-home-standard), var(--duration-home-fast);
+  transition-timing-function: var(--ease-home-standard);
+}
+
+.quick-action-create {
+  grid-column: 1 / -1;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.quick-action-secondary {
+  grid-column: span 6;
+}
+
+.quick-action:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface-selected);
+  color: var(--color-primary);
+}
+
+.quick-action-create:hover {
+  border-color: var(--color-primary-hover);
+  background: var(--color-primary-hover);
+  color: var(--color-surface);
+}
+
+.quick-action:active {
+  transform: scale(0.96);
+}
+
+.quick-action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.recommendation-visual {
+  height: 280px;
+  box-sizing: border-box;
+}
+
+.recommendation-summary {
+  margin-block: auto;
+}
+
+.recommendation-action {
+  margin-top: 0;
+}
+
+.recommendation-watermark {
+  top: 8px;
+  right: 16px;
+}
+
+.recent-projects-header {
+  align-items: center;
+}
+
+.recent-projects-header > .view-more-projects {
+  margin-left: auto;
+}
+
+.project-summary-table-dashboard .project-summary-table-head-dashboard {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.project-summary-table-dashboard td {
+  padding: 12px 16px;
+  border-top: 0;
+}
+
+.project-summary-table-dashboard .project-summary-identity strong {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.project-summary-table-dashboard td:last-child {
+  text-align: right;
+}
+
+.project-summary-table-dashboard td:last-child .project-state-tag {
+  margin-left: auto;
+}
+
+.project-summary-table-dashboard .project-summary-row:hover {
+  background: var(--color-surface-hover);
+}
+
+@media (max-width: 960px) {
+  .highlights-panel {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .home-right-rail {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .home-right-rail {
+    gap: 16px;
+  }
+
+  .quick-actions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-action-create,
+  .quick-action-secondary {
+    grid-column: 1;
+    min-height: 52px;
+  }
+
+  .recommendation-visual {
+    height: auto;
+    min-height: 0;
+  }
+
+  .recommendation-summary {
+    margin: 18px 0 20px;
+  }
+
+  .project-summary-table.project-summary-table-dashboard thead {
+    position: absolute;
+    display: table-header-group;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
 }

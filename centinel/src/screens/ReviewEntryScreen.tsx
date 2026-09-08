@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, FileText, HelpCircle, Plus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, HelpCircle, Plus } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader } from '../components/CommandUI';
 import { ProjectCreateModal } from '../components/ProjectCreateModal';
@@ -224,26 +224,15 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
         onBack={() => onNavigate({ name: 'dashboard' })}
       />
 
-      <section className="review-entry-surface" aria-labelledby="new-review-form-title">
-        <div className="review-entry-heading">
-          <div>
-            <span className="command-eyebrow">Review setup</span>
-            <h2 id="new-review-form-title">Start with a clear objective</h2>
-            <p>Centinel reviews the selected project&apos;s active sources without asking you to upload them here.</p>
-          </div>
-          <FileText size={20} aria-hidden="true" />
-        </div>
-
-        <StaticReviewForm
-          projectId={selectedProject?.id ?? ''}
-          onSubmit={handleCreateReview}
-          onCancel={() => onNavigate({ name: 'dashboard' })}
-          staleSourceCount={staleSourceCount}
-          submitDisabled={sourceBlocked}
-          submitDisabledReason={sourceBlockingMessage}
-          beforeObjective={projectField}
-        />
-      </section>
+      <StaticReviewForm
+        projectId={selectedProject?.id ?? ''}
+        onSubmit={handleCreateReview}
+        onCancel={() => onNavigate({ name: 'dashboard' })}
+        staleSourceCount={staleSourceCount}
+        submitDisabled={sourceBlocked}
+        submitDisabledReason={sourceBlockingMessage}
+        beforeObjective={projectField}
+      />
 
       <ProjectCreateModal
         isOpen={showProjectModal}

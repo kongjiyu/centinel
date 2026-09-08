@@ -105,31 +105,6 @@
   border-right: 1px solid var(--workspace-border);
 }
 
-.workspace-mode:not(.dashboard-mode) .sidebar-brand {
-  min-height: 72px;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--workspace-border);
-}
-
-.workspace-mode:not(.dashboard-mode) .sidebar-brand::after {
-  background: var(--workspace-border);
-  opacity: 1;
-}
-
-.workspace-mode:not(.dashboard-mode) .sidebar-logo-mark {
-  width: 32px;
-  height: 32px;
-  filter: none;
-}
-
-.workspace-mode:not(.dashboard-mode) .sidebar-title {
-  color: var(--workspace-primary);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
 .workspace-mode:not(.dashboard-mode) .sidebar-nav {
   padding: 16px 12px;
 }
@@ -171,54 +146,6 @@
 
 .workspace-mode:not(.dashboard-mode) .nav-item.active svg {
   color: var(--workspace-primary);
-}
-
-.workspace-mode:not(.dashboard-mode) .sidebar-footer {
-  padding: 16px 20px 18px;
-  border-top: 1px solid var(--workspace-border);
-  background: var(--workspace-surface);
-}
-
-.workspace-mode:not(.dashboard-mode) .status-row {
-  min-height: 24px;
-  color: var(--workspace-text-muted);
-}
-
-.workspace-mode:not(.dashboard-mode) .status-label {
-  color: var(--workspace-text-muted);
-  font-size: 12px;
-}
-
-.workspace-mode:not(.dashboard-mode) .status-value {
-  color: var(--workspace-text);
-  font-size: 12px;
-}
-
-.workspace-mode:not(.dashboard-mode) .status-value.ok,
-.workspace-mode:not(.dashboard-mode) .status-dot.online {
-  color: var(--workspace-success);
-}
-
-.workspace-mode:not(.dashboard-mode) .status-value.err,
-.workspace-mode:not(.dashboard-mode) .status-dot.offline {
-  color: var(--workspace-warning);
-}
-
-.workspace-mode:not(.dashboard-mode) .sidebar-status-action {
-  min-height: 32px;
-  align-self: flex-start;
-  padding: 5px 0;
-  border: 0;
-  background: transparent;
-  color: var(--workspace-primary);
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.workspace-mode:not(.dashboard-mode) .sidebar-status-action:hover {
-  color: var(--workspace-primary-hover);
-  text-decoration: underline;
 }
 
 .workspace-mode:not(.dashboard-mode) .main-content {
@@ -713,10 +640,7 @@
 
 @media (max-width: 720px) {
   .workspace-mode:not(.dashboard-mode) .sidebar { width: 72px; }
-  .workspace-mode:not(.dashboard-mode) .sidebar-title,
   .workspace-mode:not(.dashboard-mode) .nav-item span,
-  .workspace-mode:not(.dashboard-mode) .sidebar-footer { display: none; }
-  .workspace-mode:not(.dashboard-mode) .sidebar-brand,
   .workspace-mode:not(.dashboard-mode) .nav-item { justify-content: center; }
   .workspace-mode:not(.dashboard-mode) .nav-item { padding-inline: 0; }
   .workspace-mode:not(.dashboard-mode) .main-content { padding: 16px; }
@@ -2383,5 +2307,1880 @@
   .workspace-mode:not(.dashboard-mode) button.finding-header .finding-status,
   .workspace-mode:not(.dashboard-mode) button.finding-header time {
     display: none;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Shared desktop shell chrome
+
+   AppShell keeps the title bar and location bar outside the scrollable
+   workspace. The explicit shell class gives these rules enough specificity
+   to replace the legacy command-center shell without changing screen-level
+   behavior on older routes.
+   ------------------------------------------------------------------------- */
+.app-shell.has-window-chrome {
+  --shell-canvas: #f2f3f3;
+  --shell-surface: #ffffff;
+  --shell-surface-subtle: #f5f6f5;
+  --shell-surface-hover: #f8fbf7;
+  --shell-selected: #edf4ee;
+  --shell-border: #d9ddda;
+  --shell-border-strong: #bcc3bf;
+  --shell-text: #171a18;
+  --shell-text-muted: #505651;
+  --shell-text-subtle: #6b716d;
+  --shell-primary: #28623c;
+  --shell-primary-hover: #1f4f30;
+  --shell-focus: #2f6f44;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--shell-canvas);
+  color: var(--shell-text);
+  font-family: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+}
+
+.app-shell.has-window-chrome .window-header {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex: 0 0 44px;
+  min-width: 0;
+  height: 44px;
+  align-items: center;
+  border-bottom: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+  color: var(--shell-text);
+  user-select: none;
+}
+
+.app-shell.has-window-chrome .window-header-brand,
+.app-shell.has-window-chrome .window-header-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-shell.has-window-chrome .window-header-brand {
+  display: flex;
+  flex: 0 0 auto;
+  height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  color: var(--shell-text);
+  cursor: default;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.app-shell.has-window-chrome .window-header-brand img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.app-shell.has-window-chrome .window-header-menus {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+}
+
+.app-shell.has-window-chrome .window-menu {
+  position: relative;
+  height: 44px;
+}
+
+.app-shell.has-window-chrome .window-menu-trigger {
+  min-width: 44px;
+  height: 36px;
+  margin: 4px 0;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .window-menu-trigger:hover,
+.app-shell.has-window-chrome .window-menu-trigger[aria-expanded='true'] {
+  border-color: var(--shell-border);
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .window-menu-popup {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 50;
+  display: grid;
+  min-width: 168px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--shell-border);
+  border-radius: 8px;
+  background: var(--shell-surface);
+  box-shadow: 0 8px 24px rgba(23, 32, 51, 0.12);
+}
+
+.app-shell.has-window-chrome .window-menu-item {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .window-menu-item:hover,
+.app-shell.has-window-chrome .window-menu-item:focus-visible {
+  background: var(--shell-surface-selected, var(--shell-selected));
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .window-header-drag-region {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 16px;
+  cursor: default;
+}
+
+.app-shell.has-window-chrome .window-header-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: stretch;
+  height: 44px;
+}
+
+.app-shell.has-window-chrome .window-control {
+  display: grid;
+  width: 46px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+}
+
+.app-shell.has-window-chrome .window-control:hover {
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .window-control-close:hover {
+  background: #b42318;
+  color: #ffffff;
+}
+
+.app-shell.has-window-chrome .window-control:focus-visible,
+.app-shell.has-window-chrome .window-menu-trigger:focus-visible,
+.app-shell.has-window-chrome .window-menu-item:focus-visible,
+.app-shell.has-window-chrome .window-about button:focus-visible {
+  outline: 2px solid var(--shell-focus);
+  outline-offset: -2px;
+}
+
+.app-shell.has-window-chrome .window-about {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgba(23, 32, 26, 0.38);
+}
+
+.app-shell.has-window-chrome .window-about-card {
+  width: min(420px, 100%);
+  padding: 24px;
+  border: 1px solid var(--shell-border);
+  border-radius: 12px;
+  background: var(--shell-surface);
+  box-shadow: 0 20px 48px rgba(23, 32, 51, 0.18);
+}
+
+.app-shell.has-window-chrome .window-about-card h2 {
+  margin: 0;
+  color: var(--shell-text);
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.app-shell.has-window-chrome .window-about-card p {
+  margin: 8px 0 18px;
+  color: var(--shell-text-muted);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.app-shell.has-window-chrome .page-breadcrumb-bar {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex: 0 0 48px;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome .sidebar-toggle {
+  display: grid;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+}
+
+.app-shell.has-window-chrome .sidebar-toggle:hover {
+  border-color: var(--shell-border);
+  background: var(--shell-surface-subtle);
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .sidebar-toggle:focus-visible,
+.app-shell.has-window-chrome .page-breadcrumb-link:focus-visible,
+.app-shell.has-window-chrome .sidebar-nav button:focus-visible {
+  outline: 2px solid var(--shell-focus);
+  outline-offset: 2px;
+}
+
+.app-shell.has-window-chrome .page-breadcrumbs {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.app-shell.has-window-chrome .page-breadcrumbs ol {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-shell.has-window-chrome .page-breadcrumbs li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--shell-text-subtle);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .page-breadcrumb-link,
+.app-shell.has-window-chrome .page-breadcrumb-current {
+  display: block;
+  max-width: min(360px, 45vw);
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .page-breadcrumb-link {
+  color: var(--shell-primary);
+  text-decoration: none;
+}
+
+.app-shell.has-window-chrome .page-breadcrumb-link:hover {
+  color: var(--shell-primary-hover);
+  text-decoration: underline;
+}
+
+.app-shell.has-window-chrome .page-breadcrumb-current {
+  color: var(--shell-text);
+  font-weight: 650;
+}
+
+.app-shell.has-window-chrome .page-breadcrumb-separator {
+  color: var(--shell-text-subtle);
+  font-size: 14px;
+}
+
+.app-shell.has-window-chrome .app-shell-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+div.app-shell.has-window-chrome .sidebar {
+  display: flex;
+  flex: 0 0 232px;
+  width: 232px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--shell-surface);
+  color: var(--shell-text-muted);
+  border-right: 1px solid var(--shell-border);
+  transition: width 150ms cubic-bezier(0.2, 0, 0, 1), flex-basis 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+div.app-shell.has-window-chrome .sidebar-nav {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: min-content;
+  gap: 4px;
+  padding: 16px 12px 20px;
+  overflow: visible;
+}
+
+.app-shell.has-window-chrome .sidebar-nav-group {
+  display: grid;
+  gap: 2px;
+}
+
+.app-shell.has-window-chrome .sidebar-nav-group + .sidebar-nav-group {
+  margin-top: 12px;
+}
+
+.app-shell.has-window-chrome .sidebar-category {
+  min-height: 20px;
+  padding: 0 12px 4px;
+  color: var(--shell-text-subtle);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+div.app-shell.has-window-chrome .nav-item,
+.app-shell.has-window-chrome .sidebar-pins-toggle {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1), border-color 150ms cubic-bezier(0.2, 0, 0, 1), color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+div.app-shell.has-window-chrome .nav-item:hover,
+.app-shell.has-window-chrome .sidebar-pins-toggle:hover {
+  border-color: var(--shell-border);
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text);
+}
+
+div.app-shell.has-window-chrome .nav-item.active,
+.app-shell.has-window-chrome .sidebar-pins-toggle[aria-expanded='true'] {
+  border-color: var(--shell-border-strong);
+  background: var(--shell-selected);
+  color: var(--shell-primary);
+  font-weight: 650;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-toggle {
+  justify-content: flex-start;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-toggle[aria-expanded='true'] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--shell-text);
+  font-weight: 500;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-toggle[aria-expanded='true']:hover {
+  border-color: var(--shell-border);
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .sidebar-pinned-collapsed-icon {
+  display: none;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-toggle > svg:last-child {
+  margin-left: auto;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-content {
+  display: grid;
+  gap: 2px;
+  margin-top: 2px;
+  padding-left: 12px;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-content[hidden] {
+  display: none;
+}
+
+.app-shell.has-window-chrome .sidebar-pin-item {
+  min-height: 38px;
+  padding-block: 8px;
+  font-size: 12px;
+}
+
+.app-shell.has-window-chrome .sidebar-pin-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-empty {
+  display: grid;
+  gap: 4px;
+  padding: 6px 12px 8px;
+  color: var(--shell-text-subtle);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-empty button {
+  justify-self: start;
+  min-height: 32px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--shell-primary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 17px;
+}
+
+.app-shell.has-window-chrome .sidebar-pins-empty button:hover {
+  color: var(--shell-primary-hover);
+  text-decoration: underline;
+}
+
+div.app-shell.has-window-chrome .main-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 32px;
+  background: var(--shell-canvas);
+  background-image: none;
+  scrollbar-color: var(--shell-border-strong) transparent;
+}
+
+div.app-shell.has-window-chrome .main-content::before {
+  display: none;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar {
+  flex-basis: 72px;
+  width: 72px;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-nav {
+  padding-inline: 8px;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-category,
+div.app-shell.has-window-chrome.sidebar-collapsed .nav-item span,
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle span,
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-nav-group + .sidebar-nav-group {
+  margin-top: 8px;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .nav-item,
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle > svg:last-child {
+  display: none;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-content {
+  padding-left: 0;
+}
+
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pin-item {
+  min-height: 40px;
+}
+
+.settings-version-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 720px;
+  margin: 16px 0 0;
+}
+
+.settings-version-list > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--workspace-border, var(--shell-border));
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--workspace-surface-subtle, var(--shell-surface-subtle));
+}
+
+.settings-version-list dt {
+  color: var(--workspace-text-subtle, var(--shell-text-subtle));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+}
+
+.settings-version-list dd {
+  margin: 0;
+  color: var(--workspace-text, var(--shell-text));
+  font-family: var(--font-technical, 'Cascadia Mono', monospace);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.app-shell.has-window-chrome .settings-provider-section {
+  min-height: 0;
+}
+
+.app-shell.has-window-chrome .settings-subsection {
+  min-height: 0;
+  margin-top: 24px;
+  padding-top: 20px;
+  padding-right: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  border: 0;
+  border-top: 1px solid var(--shell-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell.has-window-chrome .settings-subsection-heading {
+  min-height: 34px;
+}
+
+.app-shell.has-window-chrome .settings-subsection-heading h3,
+.app-shell.has-window-chrome .settings-usage-panel h3 {
+  margin: 0;
+  color: var(--workspace-text, var(--shell-text));
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 24px;
+}
+
+.app-shell.has-window-chrome .settings-provider-forms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.app-shell.has-window-chrome .settings-provider-group {
+  min-width: 0;
+}
+
+.app-shell.has-window-chrome .settings-provider-description {
+  min-height: 38px;
+  margin: 0 0 8px;
+  color: var(--workspace-text-muted, var(--shell-text-muted));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .provider-form {
+  margin: 0;
+}
+
+.app-shell.has-window-chrome .provider-form-header h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--workspace-primary, var(--shell-primary));
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 21px;
+}
+
+.app-shell.has-window-chrome .settings-usage-panel {
+  min-width: 0;
+}
+
+.app-shell.has-window-chrome .settings-usage-panel .settings-section-copy {
+  margin-top: 8px;
+}
+
+@media (max-width: 960px) {
+  div.app-shell.has-window-chrome .main-content { padding: 24px; }
+  .app-shell.has-window-chrome .settings-provider-forms { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .app-shell.has-window-chrome .window-header-brand { padding-inline: 10px; }
+  .app-shell.has-window-chrome .window-header-brand span { display: none; }
+  .app-shell.has-window-chrome .window-menu-trigger { min-width: 40px; padding-inline: 7px; }
+  .app-shell.has-window-chrome .window-control { width: 44px; }
+  .app-shell.has-window-chrome .page-breadcrumb-bar { padding-inline: 8px; }
+  .app-shell.has-window-chrome .sidebar-toggle { flex-basis: 44px; width: 44px; height: 44px; }
+  div.app-shell.has-window-chrome .sidebar { flex-basis: 72px; width: 72px; }
+  div.app-shell.has-window-chrome .sidebar-nav { padding: 12px 8px 16px; }
+  div.app-shell.has-window-chrome .sidebar-category,
+  div.app-shell.has-window-chrome .nav-item span,
+  div.app-shell.has-window-chrome .sidebar-pins-toggle span,
+  div.app-shell.has-window-chrome .sidebar-pins-empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  div.app-shell.has-window-chrome .nav-item,
+  div.app-shell.has-window-chrome .sidebar-pins-toggle { justify-content: center; min-height: 44px; padding-inline: 0; }
+  div.app-shell.has-window-chrome .sidebar-pins-toggle > svg:last-child { display: none; }
+  div.app-shell.has-window-chrome .sidebar-pins-content { padding-left: 0; }
+  div.app-shell.has-window-chrome .main-content { padding: 16px; }
+  .app-shell.has-window-chrome .page-breadcrumb-link,
+  .app-shell.has-window-chrome .page-breadcrumb-current { max-width: 52vw; }
+  .settings-version-list { grid-template-columns: 1fr; }
+  .app-shell.has-window-chrome .settings-subsection { margin-top: 20px; padding-top: 16px; }
+}
+
+@media (max-width: 360px) {
+  /* Keep every title-bar control reachable on very narrow webview sizes. */
+  .app-shell.has-window-chrome .window-header-brand { padding-inline: 4px; }
+  .app-shell.has-window-chrome .window-menu-trigger { min-width: 32px; padding-inline: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell.has-window-chrome *,
+  .app-shell.has-window-chrome *::before,
+  .app-shell.has-window-chrome *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Refined desktop shell split
+
+   The title bar belongs to the outer application window. Below it, the
+   navigation rail and page surface are siblings: each keeps its own header,
+   while the navigation body and page body scroll independently.
+   ------------------------------------------------------------------------- */
+.app-shell.has-window-chrome {
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome .window-header-brand img {
+  width: 16px;
+  height: 16px;
+}
+
+.app-shell.has-window-chrome .app-shell-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--shell-surface);
+}
+
+div.app-shell.has-window-chrome .sidebar {
+  flex: 0 0 232px;
+  width: 232px;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome .sidebar-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  width: 100%;
+}
+
+.app-shell.has-window-chrome .sidebar-header {
+  display: flex;
+  flex: 0 0 48px;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .sidebar-header-title {
+  overflow: hidden;
+  color: var(--shell-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .sidebar-header .sidebar-toggle {
+  display: grid;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--shell-radius-control, 8px);
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+}
+
+.app-shell.has-window-chrome .sidebar-header .sidebar-toggle:hover {
+  border-color: var(--shell-border);
+  background: var(--shell-surface-subtle);
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .sidebar-header .sidebar-toggle:focus-visible {
+  outline: 2px solid var(--shell-focus);
+  outline-offset: 2px;
+}
+
+.app-shell.has-window-chrome .sidebar-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--shell-border-strong) transparent;
+}
+
+.app-shell.has-window-chrome .page-content-container {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px 0 0;
+  background: var(--shell-canvas);
+}
+
+.app-shell.has-window-chrome .page-content-container > .page-breadcrumb-bar {
+  flex: 0 0 48px;
+  min-width: 0;
+  height: 48px;
+  border-bottom: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+}
+
+div.app-shell.has-window-chrome .page-content-container > .main-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 32px;
+  background: var(--shell-canvas);
+  scrollbar-color: var(--shell-border-strong) transparent;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-header {
+  justify-content: center;
+  padding-inline: 8px;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-header-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-header .sidebar-toggle {
+  flex-basis: 44px;
+  width: 44px;
+  height: 44px;
+}
+
+@media (max-width: 960px) {
+  div.app-shell.has-window-chrome .sidebar {
+    flex-basis: 232px;
+    width: 232px;
+  }
+
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar {
+    flex-basis: 72px;
+    width: 72px;
+  }
+
+  div.app-shell.has-window-chrome .main-content {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell.has-window-chrome .window-header-brand {
+    padding-inline: 10px;
+  }
+
+  .app-shell.has-window-chrome .window-header-brand span {
+    display: none;
+  }
+
+  .app-shell.has-window-chrome .window-menu-trigger {
+    min-width: 40px;
+    padding-inline: 7px;
+  }
+
+  .app-shell.has-window-chrome .window-control {
+    width: 44px;
+  }
+
+  div.app-shell.has-window-chrome .sidebar {
+    flex-basis: 232px;
+    width: 232px;
+  }
+
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar {
+    flex-basis: 72px;
+    width: 72px;
+  }
+
+  div.app-shell.has-window-chrome .sidebar-nav {
+    padding: 12px 8px 16px;
+  }
+
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-category,
+  div.app-shell.has-window-chrome.sidebar-collapsed .nav-item span,
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle span,
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-empty {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  div.app-shell.has-window-chrome.sidebar-collapsed .nav-item,
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle {
+    justify-content: center;
+    min-height: 44px;
+    padding-inline: 0;
+  }
+
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle > svg:last-child {
+    display: none;
+  }
+
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-content {
+    padding-left: 0;
+  }
+
+  div.app-shell.has-window-chrome .main-content {
+    padding: 16px;
+  }
+}
+
+/* Settings: one provider flow with a calm hierarchy and honest usage data. */
+.app-shell.has-window-chrome .settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
+.app-shell.has-window-chrome .settings-layout > .settings-section {
+  min-height: 0;
+  margin: 0;
+  padding: 24px;
+}
+
+.app-shell.has-window-chrome .settings-provider-section {
+  min-width: 0;
+}
+
+.app-shell.has-window-chrome .settings-subsection {
+  min-width: 0;
+}
+
+.app-shell.has-window-chrome .settings-provider-forms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.app-shell.has-window-chrome .settings-provider-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  align-items: start;
+}
+
+.app-shell.has-window-chrome .settings-provider-group + .settings-provider-group {
+  padding-top: 24px;
+  border-top: 1px solid var(--shell-border);
+}
+
+.app-shell.has-window-chrome .settings-provider-description {
+  min-height: 0;
+  margin: 4px 0 0;
+  color: var(--shell-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+
+.app-shell.has-window-chrome .provider-form {
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  background: var(--shell-surface-subtle);
+  box-shadow: none;
+}
+
+.app-shell.has-window-chrome .provider-form-header {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.app-shell.has-window-chrome .provider-form-header h4 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-shell.has-window-chrome .provider-form .form-field {
+  margin-bottom: 16px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-field label {
+  margin-bottom: 6px;
+  color: var(--shell-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-field input,
+.app-shell.has-window-chrome .provider-form .form-field .select-trigger {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--shell-surface);
+  color: var(--shell-text);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-field input:focus,
+.app-shell.has-window-chrome .provider-form .form-field .select-trigger:focus {
+  border-color: var(--shell-primary);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(47, 111, 68, 0.24));
+  outline: none;
+}
+
+.app-shell.has-window-chrome .provider-form .form-field input:disabled {
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text-muted);
+  cursor: not-allowed;
+}
+
+.app-shell.has-window-chrome .api-key-field {
+  position: relative;
+}
+
+.app-shell.has-window-chrome .api-key-field input {
+  padding-right: 56px;
+}
+
+.app-shell.has-window-chrome .api-key-field .command-icon-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell.has-window-chrome .provider-endpoint-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(140px, 0.65fr);
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.app-shell.has-window-chrome .provider-endpoint-fields.is-custom {
+  border: 0;
+  background: transparent;
+}
+
+.app-shell.has-window-chrome .provider-form .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-actions button {
+  min-height: 40px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-actions svg,
+.app-shell.has-window-chrome .provider-form .form-success svg,
+.app-shell.has-window-chrome .provider-form .test-result svg {
+  flex: 0 0 auto;
+}
+
+.app-shell.has-window-chrome .provider-form .form-error,
+.app-shell.has-window-chrome .provider-form .form-success {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--workspace-radius-control, 8px);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-error {
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  background: var(--workspace-danger-subtle, #fff1f0);
+  color: var(--workspace-danger, #b42318);
+}
+
+.app-shell.has-window-chrome .provider-form .form-success {
+  border: 1px solid rgba(4, 120, 87, 0.24);
+  background: var(--workspace-success-subtle, #ecfdf5);
+  color: var(--workspace-success, #047857);
+}
+
+.app-shell.has-window-chrome .provider-form .test-result {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--workspace-radius-control, 8px);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.app-shell.has-window-chrome .settings-usage-panel {
+  min-width: 0;
+}
+
+.app-shell.has-window-chrome .settings-usage-panel .settings-section-copy {
+  margin-top: 8px;
+}
+
+.app-shell.has-window-chrome .usage-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.app-shell.has-window-chrome .usage-toolbar .form-field {
+  min-width: 180px;
+  margin: 0;
+}
+
+.app-shell.has-window-chrome .usage-toolbar .form-field label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--shell-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+}
+
+.app-shell.has-window-chrome .usage-toolbar .select-trigger {
+  box-sizing: border-box;
+  min-height: 40px;
+  min-width: 180px;
+  padding: 9px 12px;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--shell-surface);
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .usage-toolbar > button {
+  min-height: 40px;
+}
+
+.app-shell.has-window-chrome .usage-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  margin-top: 8px;
+  padding: 20px;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--workspace-radius-panel, 12px);
+  background: var(--shell-surface-subtle);
+}
+
+.app-shell.has-window-chrome .usage-total,
+.app-shell.has-window-chrome .usage-request-summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.app-shell.has-window-chrome .usage-stat-label {
+  color: var(--shell-text-subtle);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .usage-total-value {
+  color: var(--shell-text);
+  font-size: clamp(28px, 3.8vw, 42px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell.has-window-chrome .usage-total-note {
+  color: var(--shell-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .usage-request-summary {
+  min-width: 148px;
+  padding-left: 20px;
+  border-left: 1px solid var(--shell-border);
+}
+
+.app-shell.has-window-chrome .usage-request-value {
+  color: var(--shell-primary);
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell.has-window-chrome .usage-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 24px;
+}
+
+.app-shell.has-window-chrome .usage-metric {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 14px 16px;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome .usage-metric dt {
+  overflow: hidden;
+  color: var(--shell-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .usage-metric dd {
+  margin: 0;
+  color: var(--shell-text);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell.has-window-chrome .usage-overview {
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.app-shell.has-window-chrome .usage-table-heading {
+  display: flex;
+  min-height: 34px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.app-shell.has-window-chrome .usage-table-heading h4,
+.app-shell.has-window-chrome .usage-recent-header h4 {
+  margin: 0;
+  color: var(--shell-text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 22px;
+}
+
+.app-shell.has-window-chrome .usage-table-heading p,
+.app-shell.has-window-chrome .usage-recent-header p {
+  margin: 3px 0 0;
+  color: var(--shell-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .usage-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--workspace-radius-panel, 12px);
+  background: var(--shell-surface);
+}
+
+.workspace-mode:not(.dashboard-mode) .usage-table {
+  display: table;
+  width: 100%;
+  min-width: 760px;
+  margin: 0;
+  border-collapse: collapse;
+  overflow: visible;
+  font-size: 13px;
+}
+
+.workspace-mode:not(.dashboard-mode) .usage-table th,
+.workspace-mode:not(.dashboard-mode) .usage-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--shell-border);
+  color: var(--shell-text);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.workspace-mode:not(.dashboard-mode) .usage-table th {
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.workspace-mode:not(.dashboard-mode) .usage-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.workspace-mode:not(.dashboard-mode) .usage-table td code {
+  color: var(--shell-primary);
+  font-size: 12px;
+}
+
+.workspace-mode:not(.dashboard-mode) .usage-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell.has-window-chrome .usage-recent {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--shell-border);
+}
+
+.app-shell.has-window-chrome .usage-recent-header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.app-shell.has-window-chrome .usage-recent-header .btn-link {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: var(--workspace-radius-control, 8px);
+  color: var(--shell-primary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .usage-recent-header .btn-link:hover {
+  border-color: var(--shell-primary);
+  background: var(--shell-surface-hover);
+  text-decoration: none;
+}
+
+.app-shell.has-window-chrome .usage-recent-empty {
+  margin: 0;
+  padding: 12px 0;
+  color: var(--shell-text-subtle);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 960px) {
+  .app-shell.has-window-chrome .settings-provider-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell.has-window-chrome .usage-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell.has-window-chrome .settings-layout > .settings-section {
+    padding: 16px;
+  }
+
+  .app-shell.has-window-chrome .settings-provider-group,
+  .app-shell.has-window-chrome .provider-endpoint-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell.has-window-chrome .settings-provider-group + .settings-provider-group {
+    padding-top: 20px;
+  }
+
+  .app-shell.has-window-chrome .provider-form {
+    padding: 16px;
+  }
+
+  .app-shell.has-window-chrome .usage-summary {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+
+  .app-shell.has-window-chrome .usage-request-summary {
+    min-width: 0;
+    padding-top: 12px;
+    padding-left: 0;
+    border-top: 1px solid var(--shell-border);
+    border-left: 0;
+  }
+
+  .app-shell.has-window-chrome .usage-metric-strip {
+    gap: 8px;
+  }
+
+  .app-shell.has-window-chrome .usage-metric {
+    padding: 12px;
+  }
+
+  .app-shell.has-window-chrome .usage-recent-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* The expanded Pinned disclosure is text plus chevron. When the rail is
+   collapsed, keep a compact pin glyph as the discoverable, tooltip-backed
+   representation without reintroducing a leading icon in the full label. */
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pinned-collapsed-icon {
+  display: grid;
+  position: static;
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  place-items: center;
+  clip: auto;
+}
+
+/* Approved shell refinement: keep one continuous workspace canvas. The title
+   bar and panel headers remain structural regions, but their hairlines are
+   removed so the navigation and page surfaces read as one calm workspace. */
+.app-shell.has-window-chrome .window-header {
+  border-bottom: 0;
+}
+
+div.app-shell.has-window-chrome .sidebar {
+  border-right: 0;
+}
+
+.app-shell.has-window-chrome .sidebar-header {
+  justify-content: flex-end;
+  border-bottom: 0;
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-header {
+  justify-content: center;
+}
+
+.app-shell.has-window-chrome .page-content-container {
+  background: var(--shell-canvas);
+}
+
+.app-shell.has-window-chrome .page-content-container > .page-breadcrumb-bar {
+  border-bottom: 0;
+  background: var(--shell-canvas);
+}
+
+/* Settings is a reading flow, not a stack of nested cards. Keep borders on
+   editable fields and data tables, while top-level sections use spacing only. */
+.app-shell.has-window-chrome .settings-layout {
+  gap: 40px;
+}
+
+.app-shell.has-window-chrome .settings-layout > .settings-section {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell.has-window-chrome .settings-section-heading {
+  min-height: 0;
+  margin-bottom: 16px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.app-shell.has-window-chrome .settings-section-heading h2 {
+  margin: 0;
+  color: var(--shell-text);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 26px;
+}
+
+.app-shell.has-window-chrome .settings-section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-shell.has-window-chrome .settings-section-title-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text-muted);
+}
+
+.app-shell.has-window-chrome .settings-provider-forms {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 0;
+}
+
+.app-shell.has-window-chrome .app-version-row {
+  display: grid;
+  grid-template-columns: 5fr 5fr 2fr;
+  min-width: 0;
+  align-items: center;
+  gap: 20px;
+}
+
+.app-shell.has-window-chrome .settings-version-list {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  max-width: none;
+}
+
+.app-shell.has-window-chrome .app-version-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.app-shell.has-window-chrome .app-update-message {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.app-shell.has-window-chrome .app-update-message {
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .app-update-error {
+  color: var(--workspace-danger, #b42318);
+}
+
+.app-shell.has-window-chrome .app-update-available {
+  color: var(--shell-primary);
+  font-weight: 600;
+}
+
+/* Settings refinement: four calm, independently scannable containers. */
+.app-shell.has-window-chrome .settings-layout {
+  gap: 20px;
+}
+
+.app-shell.has-window-chrome .settings-layout > .settings-section {
+  padding: 24px;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--workspace-radius-panel, 12px);
+  background: var(--shell-surface);
+  box-shadow: none;
+}
+
+.app-shell.has-window-chrome .settings-layout > .settings-section:hover {
+  border-color: var(--shell-border-strong);
+}
+
+.app-shell.has-window-chrome .settings-section-heading {
+  margin-bottom: 20px;
+}
+
+.app-shell.has-window-chrome .settings-provider-forms {
+  display: block;
+}
+
+.app-shell.has-window-chrome .provider-form {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.app-shell.has-window-chrome .provider-form-header {
+  margin-bottom: 20px;
+}
+
+.app-shell.has-window-chrome .provider-form .form-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.app-shell.has-window-chrome .provider-connectivity-button {
+  display: grid;
+  width: 40px;
+  min-height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--shell-surface);
+  color: var(--shell-text-muted);
+  cursor: pointer;
+}
+
+.app-shell.has-window-chrome .provider-connectivity-button:hover:not(:disabled) {
+  border-color: var(--shell-primary);
+  background: var(--shell-surface-hover);
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .provider-connectivity-button:focus-visible {
+  outline: 2px solid var(--shell-focus);
+  outline-offset: 2px;
+}
+
+.app-shell.has-window-chrome .usage-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.app-shell.has-window-chrome .usage-pagination span {
+  min-width: 88px;
+  color: var(--shell-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.app-shell.has-window-chrome .usage-pagination button {
+  min-height: 40px;
+}
+
+.app-shell.has-window-chrome .settings-usage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.app-shell.has-window-chrome .usage-sync-button {
+  display: grid;
+  width: 40px;
+  min-height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius-control, 8px);
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+  transition: border-color 150ms cubic-bezier(0.2, 0, 0, 1), box-shadow 150ms cubic-bezier(0.2, 0, 0, 1), color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.app-shell.has-window-chrome .usage-sync-button:hover:not(:disabled) {
+  border-color: var(--shell-border-strong);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--shell-text) 12%, transparent);
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .usage-sync-button:focus-visible {
+  border-color: var(--shell-primary);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(47, 111, 68, 0.24));
+  outline: none;
+}
+
+.app-shell.has-window-chrome .usage-sync-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.app-shell.has-window-chrome .usage-sync-button .is-spinning {
+  animation: workspace-spin 800ms linear infinite;
+}
+
+.app-shell.has-window-chrome .connection-list {
+  display: grid;
+  gap: 0;
+}
+
+.app-shell.has-window-chrome .connection-option {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  color: var(--shell-text);
+}
+
+.app-shell.has-window-chrome .connection-option + .connection-option {
+  border-top: 1px solid var(--shell-border);
+}
+
+.app-shell.has-window-chrome .connection-brand-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--shell-border);
+  border-radius: 12px;
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome .connection-brand-icon img {
+  width: 24px;
+  height: 24px;
+}
+
+.app-shell.has-window-chrome .connection-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-shell.has-window-chrome .connection-copy strong {
+  display: block;
+  color: var(--shell-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.app-shell.has-window-chrome .connection-copy p {
+  margin: 2px 0 0;
+  color: var(--shell-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.app-shell.has-window-chrome .connection-action {
+  display: grid;
+  width: 40px;
+  min-height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius-control, 8px);
+  background: transparent;
+  color: var(--shell-text-muted);
+  cursor: pointer;
+}
+
+.app-shell.has-window-chrome .connection-action:hover {
+  border-color: var(--shell-border-strong);
+  background: var(--shell-surface-hover);
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .connection-action:focus-visible {
+  border-color: var(--shell-primary);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(47, 111, 68, 0.24));
+  outline: none;
+}
+
+.connection-dialog-copy {
+  margin: 0;
+  color: var(--shell-text-muted);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.connection-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+/* The visible Pinned disclosure uses the same leading Lucide pin as the
+   collapsed rail, preserving a single icon language across both states. */
+.app-shell.has-window-chrome .sidebar-pinned-collapsed-icon {
+  display: grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+}
+
+
+.app-shell.has-window-chrome .settings-provider-group + .settings-provider-group,
+.app-shell.has-window-chrome .provider-form-header,
+.app-shell.has-window-chrome .usage-recent {
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.app-shell.has-window-chrome .provider-form-header {
+  padding-bottom: 0;
+}
+
+.app-shell.has-window-chrome .usage-recent {
+  padding-top: 0;
+}
+
+@media (max-width: 960px) {
+  .app-shell.has-window-chrome .settings-provider-forms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  div.app-shell.has-window-chrome .sidebar,
+  div.app-shell.has-window-chrome.sidebar-collapsed .sidebar {
+    flex-basis: 72px;
+    width: 72px;
+  }
+
+  .app-shell.has-window-chrome .sidebar-header,
+  .app-shell.has-window-chrome.sidebar-collapsed .sidebar-header {
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .app-shell.has-window-chrome .sidebar-pinned-collapsed-icon {
+    display: grid;
+    place-items: center;
+  }
+
+  .app-shell.has-window-chrome .app-version-row {
+    align-items: stretch;
+    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell.has-window-chrome .app-version-actions {
+    justify-content: flex-start;
+  }
+
+  .app-shell.has-window-chrome .settings-version-list {
+    grid-column: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell.has-window-chrome .settings-layout > .settings-section {
+    padding: 16px;
+  }
+
+  .app-shell.has-window-chrome .usage-pagination {
+    justify-content: space-between;
   }
 }
