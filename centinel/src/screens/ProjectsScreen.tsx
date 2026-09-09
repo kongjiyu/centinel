@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react';
 import { CommandEmptyState, CommandPageHeader } from '../components/CommandUI';
-import { ProjectCreateModal } from '../components/ProjectCreateModal';
+import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
 import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
 import { Select } from '../components/Select';
 import { usePinnedProjects } from '../hooks/usePinnedProjects';
 import {
-  matchesActivityFilter,
   matchesProjectSearch,
   matchesStateFilter,
   useProjectSummaries,
-  type ActivityTypeFilter,
   type ProjectStateFilter,
 } from '../hooks/useProjectSummaries';
 import type { Project, Screen } from '../types';
@@ -19,11 +17,10 @@ import './ProjectsScreen.css';
 type Props = {
   projects: Project[];
   onNavigate: (screen: Screen) => void;
-  onCreate: (name: string, description: string, workspacePath: string) => Promise<void>;
+  onCreate: (name: string, description: string, workspacePath: string, source: ProjectCreateSource) => Promise<Project | void>;
   onDelete: (id: string) => Promise<void>;
   initialSearch?: string;
   initialStateFilter?: ProjectStateFilter;
-  initialActivityFilter?: ActivityTypeFilter;
   initialCreate?: boolean;
 };
 
@@ -35,13 +32,11 @@ export function ProjectsScreen({
   onCreate,
   initialSearch = '',
   initialStateFilter = 'all',
-  initialActivityFilter = 'all',
   initialCreate = false,
 }: Props) {
   const [showForm, setShowForm] = useState(initialCreate);
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [stateFilter, setStateFilter] = useState<ProjectStateFilter>(initialStateFilter);
-  const [activityFilter, setActivityFilter] = useState<ActivityTypeFilter>(initialActivityFilter);
   const [page, setPage] = useState(1);
   const { summaries, loading: summariesLoading, unavailable, reload } = useProjectSummaries(projects);
   const { isPinned, togglePin } = usePinnedProjects(projects);
@@ -52,9 +47,8 @@ export function ProjectsScreen({
 
   const filteredSummaries = useMemo(() => summaries.filter(summary =>
     matchesProjectSearch(summary, searchQuery) &&
-    matchesStateFilter(summary, stateFilter) &&
-    matchesActivityFilter(summary, activityFilter)), [activityFilter, searchQuery, stateFilter, summaries]);
-  const hasActiveFilters = Boolean(searchQuery.trim()) || stateFilter !== 'all' || activityFilter !== 'all';
+    matchesStateFilter(summary, stateFilter)), [searchQuery, stateFilter, summaries]);
+  const hasActiveFilters = Boolean(searchQuery.trim()) || stateFilter !== 'all';
   const pageCount = Math.max(1, Math.ceil(filteredSummaries.length / PROJECTS_PER_PAGE));
   const currentPage = Math.min(page, pageCount);
   const pageStart = (currentPage - 1) * PROJECTS_PER_PAGE;
@@ -93,7 +87,7 @@ export function ProjectsScreen({
 
           <div className="project-filters" role="search" aria-label="Project directory filters">
             <label className="project-filter-search" htmlFor="project-directory-search">
-              <span>Find projects</span>
+              <span className="visually-hidden">Search your projects</span>
               <span className="project-search-control">
                 <Search size={16} strokeWidth={1.8} aria-hidden="true" />
                 <input
@@ -101,7 +95,7 @@ export function ProjectsScreen({
                   type="search"
                   value={searchQuery}
                   onChange={event => { setSearchQuery(event.target.value); setPage(1); }}
-                  placeholder="Name, description, or latest activity"
+                  placeholder="Search your projects"
                 />
               </span>
             </label>
@@ -109,15 +103,11 @@ export function ProjectsScreen({
               <span>Current state</span>
               <Select id="project-state-filter" value={stateFilter} onChange={value => { setStateFilter(value as ProjectStateFilter); setPage(1); }} options={[{ value: 'all', label: 'All states' }, { value: 'needs_attention', label: 'Needs attention' }, { value: 'in_progress', label: 'In progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'no_activity', label: 'No activity' }]} />
             </label>
-            <label htmlFor="project-activity-filter">
-              <span>Activity type</span>
-              <Select id="project-activity-filter" value={activityFilter} onChange={value => { setActivityFilter(value as ActivityTypeFilter); setPage(1); }} options={[{ value: 'all', label: 'All activity' }, { value: 'review', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]} />
-            </label>
             {hasActiveFilters && (
               <button
                 type="button"
                 className="project-clear-filters"
-                onClick={() => { setSearchQuery(''); setStateFilter('all'); setActivityFilter('all'); setPage(1); }}
+                onClick={() => { setSearchQuery(''); setStateFilter('all'); setPage(1); }}
               >
                 Clear filters
               </button>
@@ -141,6 +131,7 @@ export function ProjectsScreen({
                 isPinned={isPinned}
                 onTogglePin={togglePin}
                 ariaLabel="Projects"
+                variant="directory-recent"
               />
               <nav className="project-pagination" aria-label="Project pages">
                 <span aria-live="polite">

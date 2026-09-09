@@ -146,7 +146,13 @@ describe('DashboardScreen', () => {
     expect(screen.getByRole('button', { name: 'Create project' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Review' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dynamic Testing' })).toBeInTheDocument();
-    expect(document.querySelector('.home-right-rail')).toContainElement(screen.getByRole('button', { name: 'Create project' }));
+    const rightRail = document.querySelector('.home-right-rail');
+    const recommendations = document.querySelector('.recommendations-panel');
+    const quickActions = document.querySelector('.quick-actions-grid');
+    expect(rightRail).toContainElement(screen.getByRole('button', { name: 'Create project' }));
+    expect(recommendations).not.toBeNull();
+    expect(quickActions).not.toBeNull();
+    expect(recommendations!.compareDocumentPosition(quickActions!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByText('Website refresh').length).toBeGreaterThan(0);
     expect(screen.getByText('Checkout could not be completed.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /inspect/i })).toBeInTheDocument();

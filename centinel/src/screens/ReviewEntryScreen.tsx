@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, HelpCircle, Plus } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader } from '../components/CommandUI';
-import { ProjectCreateModal } from '../components/ProjectCreateModal';
+import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
 import { StaticReviewForm, type StaticReviewFormData } from '../components/StaticReviewForm';
 import { Select } from '../components/Select';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
@@ -13,7 +13,7 @@ type Props = {
   projects: Project[];
   initialProjectId?: string;
   onNavigate: (screen: Screen) => void;
-  onCreateProject: (name: string, description: string, workspacePath: string) => Promise<Project | void>;
+  onCreateProject: (name: string, description: string, workspacePath: string, source: ProjectCreateSource) => Promise<Project | void>;
 };
 
 const CURRENCY_INTERVAL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -61,7 +61,7 @@ function InheritedProjectContext({
   ];
 
   return (
-    <section className="review-form-section review-project-context-section" aria-labelledby="inherited-project-context-heading">
+    <div className="review-inherited-context" aria-labelledby="inherited-project-context-heading">
       <div className="review-form-section-heading review-project-context-heading">
         <div>
           <h3 id="inherited-project-context-heading">Inherited project context</h3>
@@ -87,8 +87,17 @@ function InheritedProjectContext({
       )}
       {state === 'error' && <p className="review-entry-source-error" role="alert"><AlertCircle size={15} aria-hidden="true" /> Sources could not be checked. Open the project Source tab and try again.</p>}
       {state === 'empty' && projectSelected && <p className="review-entry-context-empty">No active project sources are available. Add a source in the project Source tab before starting.</p>}
-    </section>
+    </div>
   );
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
 }
 
 export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCreateProject }: Props) {
@@ -98,6 +107,8 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
   const [loadingSources, setLoadingSources] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [showProjectModal, setShowProjectModal] = useState(false);
+  const [reviewDocuments, setReviewDocuments] = useState<File[]>([]);
+  const [saveReviewDocuments, setSaveReviewDocuments] = useState(false);
   const { controls: activeReviewControls } = useActiveReviewState();
 
   useEffect(() => {
@@ -153,7 +164,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       : artifacts.length === 0
         ? 'empty'
         : 'ready';
-  const sourceBlocked = !selectedProject || loadingSources || Boolean(sourceError) || artifacts.length === 0 || Boolean(activeSession);
+  const sourceBlocked = !selectedProject || loadingSources || Boolean(sourceError) || (artifacts.length === 0 && reviewDocuments.length === 0) || Boolean(activeSession);
   const sourceBlockingMessage = !selectedProject
     ? 'Create or select a project before starting this review.'
     : loadingSources
@@ -162,7 +173,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
         ? 'Sources could not be checked. Open the project Source tab, then try again.'
         : activeSession
           ? 'A review is already in progress for this project. Open its activity before starting another review.'
-        : artifacts.length === 0
+        : artifacts.length === 0 && reviewDocuments.length === 0
           ? 'Add at least one active source in the project Source tab before starting this review.'
           : undefined;
 
@@ -171,10 +182,25 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
     if (loadingSources) throw new Error('Sources are still loading. Try again in a moment.');
     if (sourceError) throw new Error('Sources could not be checked. Open the project Source tab and try again.');
     if (activeSession) throw new Error('A review is already in progress for this project.');
-    if (artifacts.length === 0) throw new Error('Add at least one active source before starting a review.');
-    const session = await api.createStaticSession(selectedProject.id, data);
-    activeReviewControls.trackSession(session, selectedProject.name);
-    onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id });
+    if (artifacts.length === 0 && reviewDocuments.length === 0) throw new Error('Add at least one active source before starting a review.');
+    const uploaded = [] as Artifact[];
+    try {
+      for (const file of reviewDocuments) {
+        uploaded.push(await api.uploadArtifact(selectedProject.id, { fileName: file.name, content: await fileToBase64(file) }));
+      }
+      const session = await api.createStaticSession(selectedProject.id, {
+        ...data,
+        temporaryArtifactIds: !saveReviewDocuments && uploaded.length > 0
+          ? uploaded.map(artifact => artifact.id)
+          : undefined,
+      });
+      if (saveReviewDocuments && uploaded.length > 0) setArtifacts(current => [...current, ...uploaded]);
+      activeReviewControls.trackSession(session, selectedProject.name);
+      onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id });
+    } catch (cause) {
+      if (!saveReviewDocuments) await Promise.allSettled(uploaded.map(artifact => api.deleteArtifact(selectedProject.id, artifact.id)));
+      throw cause;
+    }
   };
 
   const handleProjectCreated = (project: Project) => {
@@ -212,16 +238,21 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
         </button>
       </div>
       {projectContext}
+      <div className="review-document-source form-field">
+        <label htmlFor="review-document-source">Optional document sources</label>
+        <input id="review-document-source" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => setReviewDocuments(Array.from(event.target.files ?? []))} />
+        <p className="field-help">{reviewDocuments.length > 0 ? `${reviewDocuments.length} document${reviewDocuments.length === 1 ? '' : 's'} selected for this review.` : 'Add documents that are relevant only to this review.'}</p>
+        <label className="checkbox-label review-save-source"><input type="checkbox" checked={saveReviewDocuments} onChange={event => setSaveReviewDocuments(event.target.checked)} /><span className="checkbox-box" aria-hidden="true" /><span>Save these documents to the project sources</span></label>
+      </div>
     </section>
   );
 
   return (
     <div className="screen command-review-entry review-entry-screen">
       <CommandPageHeader
-        eyebrow="Review / New review"
-        title="Start review"
+        eyebrow="Review workspace"
+        title="Start your review"
         description="Configure the objective, project context, and code scope for this review."
-        onBack={() => onNavigate({ name: 'dashboard' })}
       />
 
       <StaticReviewForm
@@ -231,7 +262,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
         staleSourceCount={staleSourceCount}
         submitDisabled={sourceBlocked}
         submitDisabledReason={sourceBlockingMessage}
-        beforeObjective={projectField}
+        projectContext={projectField}
       />
 
       <ProjectCreateModal

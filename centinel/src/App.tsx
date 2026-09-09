@@ -6,6 +6,7 @@ import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
 import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
+import type { ProjectCreateSource } from './components/ProjectCreateModal';
 import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { RequirementsScreen } from './screens/RequirementsScreen';
@@ -47,8 +48,8 @@ function App() {
     loadData();
   }, [loadData]);
 
-  const handleCreateProject = async (name: string, description: string, workspacePath: string, navigateAfter = true) => {
-    const project = await api.createProject(name, description, workspacePath);
+  const handleCreateProject = async (name: string, description: string, workspacePath: string, source: ProjectCreateSource, navigateAfter = true) => {
+    const project = await api.createProject(name, description, workspacePath, source);
     setProjects(prev => [project, ...prev]);
     if (navigateAfter) setScreen({ name: 'project-detail', projectId: project.id });
     return project;
@@ -106,19 +107,19 @@ function App() {
             projects={projects}
             initialSearch={screen.search}
             initialStateFilter={screen.stateFilter}
-            initialActivityFilter={screen.activityFilter}
             initialCreate={screen.initialCreate}
             onNavigate={setScreen}
-            onCreate={async (name, description, workspacePath) => { await handleCreateProject(name, description, workspacePath); }}
+            onCreate={async (name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source)}
             onDelete={handleDeleteProject}
           />
         )}
         {screen.name === 'project-detail' && currentProject && (
-          <ProjectDetailScreen
+         <ProjectDetailScreen
             project={currentProject}
             initialAction={screen.initialAction}
             initialStaticSessionId={screen.initialStaticSessionId}
             onNavigate={setScreen}
+            onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}
           />
         )}
         {screen.name === 'dynamic-session' && (
@@ -140,7 +141,7 @@ function App() {
             projects={projects}
             initialProjectId={screen.projectId}
             onNavigate={setScreen}
-            onCreateProject={(name, description, workspacePath) => handleCreateProject(name, description, workspacePath, false)}
+            onCreateProject={(name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source, false)}
           />
         )}
         {screen.name === 'evidence-browser' && (

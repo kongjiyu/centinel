@@ -7,10 +7,12 @@ import { ConfirmDialog } from './ConfirmDialog';
 import type { Artifact, ArtifactSource } from '../types';
 import { ChevronRight, Cloud, File, Folder, GitBranch, MessageSquare, Plus, RotateCw, X, Upload } from 'lucide-react';
 
-const SUPPORTED_EXTENSIONS = new Set([
+const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'json', 'yaml', 'yml',
-  'html', 'css', 'go', 'rb', 'php', 'rs', 'cpp', 'c', 'h',
+  'html', 'css', 'go', 'rb', 'php', 'rs', 'cpp', 'c', 'h', 'xml', 'toml', 'ini',
 ]);
+const PREVIEW_EXTENSIONS = new Set([...TEXT_EXTENSIONS, 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+const SUPPORTED_EXTENSIONS = PREVIEW_EXTENSIONS;
 
 function extensionOf(fileName: string): string {
   const match = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -61,6 +63,43 @@ type DeleteTarget =
   | { kind: 'document'; artifact: Artifact }
   | { kind: 'repository'; group: RepoGroup };
 
+type PreviewState = {
+  artifact: Artifact;
+  kind: 'text' | 'pdf' | 'image';
+  content: string | null;
+  error: string | null;
+  loading: boolean;
+};
+
+function artifactKind(fileName: string): PreviewState['kind'] | null {
+  const extension = extensionOf(fileName);
+  if (TEXT_EXTENSIONS.has(extension)) return 'text';
+  if (extension === 'pdf') return 'pdf';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) return 'image';
+  return null;
+}
+
+function mimeType(fileName: string): string {
+  const extension = extensionOf(fileName);
+  const values: Record<string, string> = {
+    txt: 'text/plain', md: 'text/markdown', js: 'text/javascript', ts: 'text/typescript',
+    jsx: 'text/javascript', tsx: 'text/typescript', json: 'application/json', yaml: 'text/yaml',
+    yml: 'text/yaml', html: 'text/html', css: 'text/css', xml: 'application/xml', toml: 'text/plain',
+    ini: 'text/plain', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  };
+  return values[extension] || 'application/octet-stream';
+}
+
+function toDataUrl(bytes: Uint8Array, type: string): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return `data:${type};base64,${btoa(binary)}`;
+}
+
 export function ArtifactsPanel({ projectId }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +114,9 @@ export function ArtifactsPanel({ projectId }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [sourceContentsOpen, setSourceContentsOpen] = useState(false);
+  const [sourceContentsGroup, setSourceContentsGroup] = useState<RepoGroup | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Build a tree structure from flat artifact list
@@ -232,6 +274,23 @@ export function ArtifactsPanel({ projectId }: Props) {
   const finishUpload = async () => {
     await loadArtifacts();
     setShowImportDialog(false);
+  };
+
+  const openPreview = async (artifact: Artifact) => {
+    const kind = artifactKind(artifact.fileName);
+    if (!kind) return;
+    setPreview({ artifact, kind, content: null, error: null, loading: true });
+    try {
+      const bytes = await readBinaryFile(artifact.filePath);
+      const value = kind === 'text'
+        ? new TextDecoder().decode(bytes)
+        : toDataUrl(bytes, mimeType(artifact.fileName));
+      setPreview(current => current?.artifact.id === artifact.id ? { ...current, content: value, loading: false } : current);
+    } catch (cause) {
+      setPreview(current => current?.artifact.id === artifact.id
+        ? { ...current, error: `This file could not be previewed. ${String(cause)}`, loading: false }
+        : current);
+    }
   };
 
   const uploadBrowserFiles = async (files: File[]) => {
@@ -395,6 +454,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       <div className="panel-header">
         <h3>Sources</h3>
         <div className="panel-actions">
+          {artifacts.length > 0 && <button type="button" className="btn-secondary source-browse-button" onClick={() => { setSourceContentsGroup(null); setSourceContentsOpen(true); }}>Browse contents</button>}
           <button type="button" className="command-icon-button" onClick={() => setShowImportDialog(true)} aria-label="Add source" title="Add source">
             <Plus size={18} aria-hidden="true" />
           </button>
@@ -420,7 +480,7 @@ export function ArtifactsPanel({ projectId }: Props) {
           <Upload size={28} aria-hidden="true" />
           <strong>{uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Drop source files here'}</strong>
           <p>or press Enter to choose supported files from your computer.</p>
-          <small>Supported: text, Markdown, code, JSON, YAML, and HTML files.</small>
+          <small>Supported: text, Markdown, code, PDF, and image files.</small>
         </div>
       ) : (
         <div className="artifact-list">
@@ -432,6 +492,7 @@ export function ArtifactsPanel({ projectId }: Props) {
                 <span className="artifact-name">{a.fileName}</span>
               </div>
               <div className="artifact-meta">
+                {artifactKind(a.fileName) && <button type="button" className="artifact-preview-button" onClick={() => void openPreview(a)}>Preview</button>}
                 <button className="btn-delete-icon" onClick={() => setDeleteTarget({ kind: 'document', artifact: a })} title="Remove" aria-label={`Remove ${a.fileName}`}>×</button>
               </div>
             </div>
@@ -458,6 +519,7 @@ export function ArtifactsPanel({ projectId }: Props) {
                     </span>
                   </button>
                   <div className="artifact-meta">
+                    <button type="button" className="artifact-preview-button" onClick={() => { setSourceContentsGroup(group); setSourceContentsOpen(true); }}>Open contents</button>
                     <button className="btn-delete-icon" onClick={() => setDeleteTarget({ kind: 'repository', group })} title="Remove repository" aria-label={`Remove ${group.repoName} repository`}><X size={13} /></button>
                   </div>
                 </div>
@@ -486,6 +548,7 @@ export function ArtifactsPanel({ projectId }: Props) {
                             <File className="artifact-file-icon" size={14} />
                             <span className="artifact-file-name">{node.name}</span>
                             <span className={`badge badge-${node.artifact!.type.replace('_', '-')}`}>{node.artifact!.type.replace(/_/g, ' ')}</span>
+                            {artifactKind(node.artifact!.fileName) && <button type="button" className="artifact-preview-button" onClick={() => void openPreview(node.artifact!)}>Preview</button>}
                           </div>
                         );
                       };
@@ -555,6 +618,43 @@ export function ArtifactsPanel({ projectId }: Props) {
 
               </div>
               <p id="connector-source-note" className="import-dialog-note">Local upload and repository import are available now. GitHub, Google Drive, and Slack connectors are not connected in this build.</p>
+          </div>
+        </Modal>
+      )}
+
+      {sourceContentsOpen && (
+        <Modal
+          isOpen={sourceContentsOpen}
+          onClose={() => { setSourceContentsOpen(false); setSourceContentsGroup(null); }}
+          title={sourceContentsGroup ? `${sourceContentsGroup.repoName} contents` : 'Source contents'}
+          width={820}
+        >
+          <div className="source-contents-dialog">
+            <p className="modal-intro">Open a supported file to inspect its current local contents.</p>
+            <div className="source-contents-list">
+              {(sourceContentsGroup?.artifacts ?? artifacts).map(artifact => (
+                <div key={artifact.id} className="source-contents-row">
+                  <div><strong>{artifact.fileName}</strong><small>{artifact.originalPath || artifact.filePath}</small></div>
+                  <span className={`badge ${SOURCE_COLORS[artifact.source]}`}>{SOURCE_LABELS[artifact.source]}</span>
+                  {artifactKind(artifact.fileName)
+                    ? <button type="button" className="btn-secondary" onClick={() => void openPreview(artifact)}>Preview</button>
+                    : <span className="source-preview-unavailable">Preview unavailable</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {preview && (
+        <Modal isOpen onClose={() => setPreview(null)} title={`Preview ${preview.artifact.fileName}`} width={980}>
+          <div className="artifact-preview-dialog">
+            <p className="modal-intro"><span className="project-workspace">{preview.artifact.filePath}</span></p>
+            {preview.loading && <div className="panel-loading" role="status">Loading preview…</div>}
+            {preview.error && <p className="form-error" role="alert">{preview.error}</p>}
+            {!preview.loading && !preview.error && preview.content && preview.kind === 'text' && <pre className="artifact-text-preview"><code>{preview.content}</code></pre>}
+            {!preview.loading && !preview.error && preview.content && preview.kind === 'image' && <div className="artifact-image-preview"><img src={preview.content} alt={`Preview of ${preview.artifact.fileName}`} /></div>}
+            {!preview.loading && !preview.error && preview.content && preview.kind === 'pdf' && <iframe className="artifact-pdf-preview" src={preview.content} title={`Preview of ${preview.artifact.fileName}`} />}
           </div>
         </Modal>
       )}

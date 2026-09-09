@@ -1,4 +1,4 @@
-import type { Project, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
+import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -18,13 +18,27 @@ export const api = {
   // Projects
   projects: () => request<Project[]>('/projects'),
   project: (id: string) => request<Project>(`/projects/${id}`),
-  createProject: (name: string, description: string, workspacePath: string) =>
+  createProject: (name: string, description: string, workspacePath: string, source?: { type: 'local-repository' } | { type: 'github'; repoUrl: string }) =>
     request<Project>('/projects', {
       method: 'POST',
-      body: JSON.stringify({ name, description, workspacePath }),
+      body: JSON.stringify({ name, description, workspacePath, source }),
     }),
   deleteProject: (id: string) =>
     request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
+  updateProject: (id: string, data: { name: string; description: string; workspacePath: string }) =>
+    request<Project>(`/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  getCollaborationStatus: (id: string) =>
+    request<CollaborationStatus>(`/projects/${id}/collaborators/status`),
+  searchCollaborators: (id: string, email: string) =>
+    request<CollaboratorSearchResult>(`/projects/${id}/collaborators/search?email=${encodeURIComponent(email)}`),
+  inviteCollaborator: (id: string, username: string) =>
+    request<CollaboratorInviteResult>(`/projects/${id}/collaborators/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }),
 
   // AI Settings
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
@@ -156,6 +170,7 @@ export const api = {
     baseRef?: string;
     /** P0-4: head git ref. Leave empty for full-tree review. */
     headRef?: string;
+    temporaryArtifactIds?: string[];
     /** P1-5: parent session id for a re-review. Empty for first-time reviews. */
     parentSessionId?: string;
   }) =>

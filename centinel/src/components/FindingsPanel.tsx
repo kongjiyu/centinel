@@ -7,6 +7,9 @@ import { Select } from './Select';
 type Props = {
   projectId: string;
   refreshKey?: string;
+  /** Project Detail uses numbered pages; other consumers retain the existing "show more" behavior. */
+  presentation?: 'default' | 'project';
+  pageSize?: number;
 };
 
 const FINDINGS_BATCH_SIZE = 50;
@@ -29,7 +32,7 @@ function updatedTime(finding: Finding) {
   return finding.updatedAt || finding.createdAt;
 }
 
-export function FindingsPanel({ projectId, refreshKey }: Props) {
+export function FindingsPanel({ projectId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -41,7 +44,9 @@ export function FindingsPanel({ projectId, refreshKey }: Props) {
   const [filterPriority, setFilterPriority] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(FINDINGS_BATCH_SIZE);
+  const [page, setPage] = useState(0);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const loadFindings = useCallback(async () => {
     setLoading(true);
@@ -57,9 +62,12 @@ export function FindingsPanel({ projectId, refreshKey }: Props) {
   }, [projectId]);
 
   useEffect(() => { void loadFindings(); }, [loadFindings, refreshKey]);
-  useEffect(() => { setVisibleCount(FINDINGS_BATCH_SIZE); }, [filterSource, filterSeverity, filterStatus, filterPriority, searchQuery]);
+  useEffect(() => {
+    setVisibleCount(FINDINGS_BATCH_SIZE);
+    setPage(0);
+  }, [filterSource, filterSeverity, filterStatus, filterPriority, searchQuery]);
 
-  const hasPriorityFilter = findings.some(finding => Boolean(finding.priority));
+  const hasPriorityFilter = presentation === 'project' || findings.some(finding => Boolean(finding.priority));
   const priorityOptions = useMemo(() => Array.from(new Set(findings.map(finding => finding.priority).filter(Boolean) as string[])).sort((a, b) => (SEVERITY_ORDER[a] ?? 99) - (SEVERITY_ORDER[b] ?? 99)), [findings]);
   const hasFilters = Boolean(searchQuery.trim()) || filterSource !== 'all' || filterSeverity !== 'all' || filterStatus !== 'all' || filterPriority !== 'all';
 
@@ -90,6 +98,21 @@ export function FindingsPanel({ projectId, refreshKey }: Props) {
       .sort((a, b) => (SEVERITY_ORDER[a.severity.toLowerCase()] ?? 99) - (SEVERITY_ORDER[b.severity.toLowerCase()] ?? 99) || Date.parse(updatedTime(b)) - Date.parse(updatedTime(a)) || a.title.localeCompare(b.title));
   }, [filterPriority, filterSeverity, filterSource, filterStatus, findings, searchQuery]);
 
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const pagedFindings = presentation === 'project'
+    ? sorted.slice(page * pageSize, page * pageSize + pageSize)
+    : sorted.slice(0, visibleCount);
+
+  useEffect(() => {
+    setPage(current => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+
+  useEffect(() => {
+    if (presentation === 'project' && selectedId && !sorted.some(finding => finding.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [presentation, selectedId, sorted]);
+
   const clearFilters = () => {
     setSearchQuery('');
     setFilterSource('all');
@@ -100,6 +123,111 @@ export function FindingsPanel({ projectId, refreshKey }: Props) {
   };
 
   if (loading) return <div className="panel-loading" role="status">Loading findings...</div>;
+
+  if (presentation === 'project') {
+    const selectedFinding = sorted.find(finding => finding.id === selectedId) ?? null;
+    const pageStart = page * pageSize;
+    const pageEnd = Math.min(pageStart + pageSize, sorted.length);
+
+    return (
+      <div className="findings-panel findings-panel-project">
+        <div className="panel-header findings-project-header">
+          <h3>Findings</h3>
+          <strong className="findings-project-total">{findings.length} total</strong>
+        </div>
+
+        {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void loadFindings()}>Retry</button></div>}
+        {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
+
+        {findings.length > 0 && (
+          <div className="findings-filters" role="search" aria-label="Finding filters">
+            <label className="finding-filter-search">
+              <span>Search findings</span>
+              <span className="finding-search-control"><Search size={15} aria-hidden="true" /><input type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Title, source, or location" /></span>
+            </label>
+            <label className="finding-filter-field" htmlFor="finding-source-filter"><span>Source</span><Select id="finding-source-filter" aria-label="Source" value={filterSource} onChange={value => setFilterSource(value as 'all' | 'static' | 'dynamic')} options={[{ value: 'all', label: 'All sources' }, { value: 'static', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]} /></label>
+            <label className="finding-filter-field" htmlFor="finding-severity-filter"><span>Severity</span><Select id="finding-severity-filter" aria-label="Severity" value={filterSeverity} onChange={setFilterSeverity} options={[{ value: 'all', label: 'All severities' }, { value: 'critical', label: 'Critical' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low' }, { value: 'info', label: 'Info' }]} /></label>
+            <label className="finding-filter-field" htmlFor="finding-status-filter"><span>Status</span><Select id="finding-status-filter" aria-label="Status" value={filterStatus} onChange={setFilterStatus} options={[{ value: 'all', label: 'All statuses' }, { value: 'new', label: 'New' }, { value: 'carryover', label: 'Carryover' }, { value: 'accepted', label: 'Accepted' }, { value: 'dismissed', label: 'Dismissed' }, { value: 'fixed', label: 'Fixed' }]} /></label>
+            <label className="finding-filter-field" htmlFor="finding-priority-filter"><span>Priority</span><Select id="finding-priority-filter" aria-label="Priority" value={filterPriority} onChange={setFilterPriority} options={[{ value: 'all', label: 'All priorities' }, ...priorityOptions.map(priority => ({ value: priority, label: priority.charAt(0).toUpperCase() + priority.slice(1) }))]} /></label>
+            {hasFilters && <button type="button" className="findings-clear-filters" onClick={clearFilters}>Clear filters</button>}
+          </div>
+        )}
+
+        {sorted.length === 0 ? (
+          <div className="findings-empty-state">
+            <p className="card-empty">{findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p>
+            {findings.length > 0 && hasFilters && <button type="button" className="btn-secondary" onClick={clearFilters}>Clear filters</button>}
+          </div>
+        ) : (
+          <div className="project-findings-workspace">
+            <section className="project-findings-table-region" aria-label="Findings table">
+              <table className="project-findings-table">
+                <thead>
+                  <tr><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Description</th><th scope="col">Status</th></tr>
+                </thead>
+                <tbody>
+                  {pagedFindings.map(finding => (
+                    <tr
+                      key={finding.id}
+                      tabIndex={0}
+                      aria-selected={selectedId === finding.id}
+                      className={selectedId === finding.id ? 'selected' : undefined}
+                      onClick={() => setSelectedId(finding.id)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedId(finding.id);
+                        }
+                      }}
+                    >
+                      <td><span className="project-finding-priority">{finding.priority || '—'}</span></td>
+                      <td><SeverityBadge severity={finding.severity} /></td>
+                      <td><span className="project-finding-description"><strong>{finding.title}</strong><small>{finding.filePath || finding.description || 'No location supplied'}</small></span></td>
+                      <td><span className={`finding-status finding-status-${finding.status}`}>{statusLabel(finding.status)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="findings-result-summary" aria-live="polite">Showing {pageStart + 1}–{pageEnd} of {sorted.length} matching finding{sorted.length === 1 ? '' : 's'} ({findings.length} total)</p>
+              {pageCount > 1 && <div className="findings-pagination" aria-label="Finding pages">
+                <button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={page === 0}>Previous</button>
+                <span>Page {page + 1} of {pageCount}</span>
+                <button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1}>Next</button>
+              </div>}
+            </section>
+
+            <aside className="project-finding-details" aria-label="Finding details">
+              {selectedFinding ? (
+                <>
+                  <div className="project-finding-details-header">
+                    <span className={`badge badge-severity-${selectedFinding.severity.toLowerCase()}`}>{selectedFinding.severity}</span>
+                    <span className={`finding-status finding-status-${selectedFinding.status}`}>{statusLabel(selectedFinding.status)}</span>
+                  </div>
+                  <h4>{selectedFinding.title}</h4>
+                  <dl className="project-finding-facts">
+                    <div><dt>Priority</dt><dd>{selectedFinding.priority || 'Not set'}</dd></div>
+                    <div><dt>Source</dt><dd>{sourceLabel(selectedFinding.source)}</dd></div>
+                    {selectedFinding.filePath && <div><dt>Location</dt><dd className="finding-location-path">{selectedFinding.filePath}{selectedFinding.lineNumber != null ? `:${selectedFinding.lineNumber}` : ''}</dd></div>}
+                  </dl>
+                  <section><h5>Description</h5><p>{selectedFinding.description || 'No description was supplied.'}</p></section>
+                  {selectedFinding.evidenceText && <section><h5>Evidence</h5><pre>{selectedFinding.evidenceText}</pre></section>}
+                  {selectedFinding.recommendation && <section><h5>Recommendation</h5><p>{selectedFinding.recommendation}</p></section>}
+                  {selectedFinding.confidence && <p className="project-finding-confidence">Confidence: {selectedFinding.confidence}</p>}
+                  <div className="finding-actions" aria-label="Finding actions">
+                    {selectedFinding.status !== 'accepted' && <button className="btn-accept" disabled={updatingId === selectedFinding.id} onClick={() => void handleUpdateStatus(selectedFinding.id, 'accepted')}>Accept</button>}
+                    {selectedFinding.status !== 'dismissed' && <button className="btn-dismiss" disabled={updatingId === selectedFinding.id} onClick={() => void handleUpdateStatus(selectedFinding.id, 'dismissed')}>Dismiss</button>}
+                    {selectedFinding.status !== 'fixed' && <button className="btn-fix" disabled={updatingId === selectedFinding.id} onClick={() => void handleUpdateStatus(selectedFinding.id, 'fixed')}>{updatingId === selectedFinding.id ? 'Updating…' : 'Mark fixed'}</button>}
+                  </div>
+                </>
+              ) : (
+                <div className="project-finding-details-empty">Select Finding to review the details</div>
+              )}
+            </aside>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="findings-panel">
@@ -137,7 +265,7 @@ export function FindingsPanel({ projectId, refreshKey }: Props) {
         <>
           <p className="findings-result-summary" aria-live="polite">Showing {Math.min(visibleCount, sorted.length)} of {sorted.length} matching finding{sorted.length === 1 ? '' : 's'} ({findings.length} total)</p>
           <div className="findings-list">
-            {sorted.slice(0, visibleCount).map(finding => {
+            {pagedFindings.map(finding => {
               const expanded = expandedId === finding.id;
               const detailId = `finding-detail-${finding.id}`;
               return (

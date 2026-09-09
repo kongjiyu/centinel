@@ -231,24 +231,6 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
         </section>
 
         <div className="home-right-rail">
-          <div className="quick-actions-grid" aria-label="Quick actions">
-          <button
-            type="button"
-            className="quick-action quick-action-create"
-            onClick={() => onNavigate({ name: 'projects', initialCreate: true })}
-          >
-            <span>Create project</span>
-          </button>
-            <button type="button" className="quick-action quick-action-secondary" onClick={() => openProjectFlow('static')}>
-              <FileCheck2 size={18} strokeWidth={1.8} aria-hidden="true" />
-              <span>Review</span>
-            </button>
-            <button type="button" className="quick-action quick-action-secondary" onClick={() => openProjectFlow('dynamic')}>
-              <MonitorPlay size={18} strokeWidth={1.8} aria-hidden="true" />
-              <span>Dynamic Testing</span>
-            </button>
-          </div>
-
           <section className="home-panel recommendations-panel" aria-labelledby="recommendations-title">
             <div className={`recommendation-visual recommendation-${recommendation.tone}`}>
               <div className="recommendation-heading">
@@ -290,6 +272,24 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
               <img className="recommendation-watermark" src="/assets/centinel-shield.svg" alt="" aria-hidden="true" />
             </div>
           </section>
+
+          <div className="quick-actions-grid" aria-label="Quick actions">
+            <button
+              type="button"
+              className="quick-action quick-action-create"
+              onClick={() => onNavigate({ name: 'projects', initialCreate: true })}
+            >
+              <span>Create project</span>
+            </button>
+            <button type="button" className="quick-action quick-action-secondary" onClick={() => openProjectFlow('static')}>
+              <FileCheck2 size={18} strokeWidth={1.8} aria-hidden="true" />
+              <span>Review</span>
+            </button>
+            <button type="button" className="quick-action quick-action-secondary" onClick={() => openProjectFlow('dynamic')}>
+              <MonitorPlay size={18} strokeWidth={1.8} aria-hidden="true" />
+              <span>Dynamic Testing</span>
+            </button>
+          </div>
         </div>
       </div>
 

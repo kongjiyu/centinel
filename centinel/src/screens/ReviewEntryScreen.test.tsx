@@ -15,6 +15,8 @@ vi.mock('../api/client', () => ({
     listArtifacts: vi.fn(),
     listActiveStaticSessions: vi.fn(),
     createStaticSession: vi.fn(),
+    uploadArtifact: vi.fn(),
+    deleteArtifact: vi.fn(),
   },
 }));
 vi.mock('../context/ActiveReviewContext', () => ({
@@ -96,6 +98,9 @@ describe('ReviewEntryScreen', () => {
       pullRequest: undefined,
       baseRef: undefined,
       headRef: undefined,
+      scopeMode: 'ai',
+      selectedDirectories: undefined,
+      temporaryArtifactIds: undefined,
     }));
     expect(trackSession).toHaveBeenCalledWith(session, project.name);
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: session.id });
@@ -120,11 +125,11 @@ describe('ReviewEntryScreen', () => {
     expect(screen.getByText('Create or select a project before starting this review.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create project' }));
     await user.type(screen.getByLabelText('Project name *'), 'New project');
-    await user.click(screen.getByRole('button', { name: 'Choose folder' }));
+    await user.click(screen.getByRole('button', { name: 'Choose repository' }));
     const dialog = screen.getByRole('dialog', { name: 'Create project' });
     await user.click(within(dialog).getByRole('button', { name: 'Create project' }));
 
-    await waitFor(() => expect(onCreateProject).toHaveBeenCalledWith('New project', '', 'C:/work/new-project'));
+    await waitFor(() => expect(onCreateProject).toHaveBeenCalledWith('New project', '', 'C:/work/new-project', { type: 'local-repository' }));
     expect(await screen.findByRole('combobox', { name: 'Project' })).toHaveTextContent('New project');
     expect(screen.queryByText('Create or select a project before starting this review.')).not.toBeInTheDocument();
   });
@@ -147,6 +152,47 @@ describe('ReviewEntryScreen', () => {
     expect(error).toHaveTextContent('Review objective is required');
     expect(document.activeElement).toBe(error);
     expect(api.createStaticSession).not.toHaveBeenCalled();
+  });
+
+  it('uploads optional review documents without saving them as project sources', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(File.prototype, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue(new TextEncoder().encode('release notes').buffer),
+    });
+    vi.mocked(api.uploadArtifact).mockResolvedValueOnce({
+      id: 'temporary-document',
+      projectId: project.id,
+      type: 'other',
+      source: 'documents',
+      fileName: 'notes.txt',
+      filePath: 'C:/work/website-refresh/artifacts/notes.txt',
+      originalPath: null,
+      contentHash: 'notes-hash',
+      createdAt: project.createdAt,
+    });
+    render(
+      <ReviewEntryScreen
+        projects={[project]}
+        onNavigate={vi.fn()}
+        onCreateProject={vi.fn()}
+      />,
+    );
+
+    await screen.findByLabelText('Review name');
+    await user.type(screen.getByLabelText('Review name'), 'Document review');
+    await user.type(screen.getByLabelText('Review objective'), 'Check the attached notes.');
+    await user.upload(screen.getByLabelText('Optional document sources'), new File(['release notes'], 'notes.txt', { type: 'text/plain' }));
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+
+    await waitFor(() => expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, {
+      fileName: 'notes.txt',
+      content: expect.any(String),
+    }));
+    expect(api.createStaticSession).toHaveBeenCalledWith(project.id, expect.objectContaining({
+      temporaryArtifactIds: ['temporary-document'],
+    }));
+    expect(api.deleteArtifact).not.toHaveBeenCalled();
   });
 
   it('retains the objective after a service error', async () => {

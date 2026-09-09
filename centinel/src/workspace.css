@@ -3788,9 +3788,31 @@ div.app-shell.has-window-chrome .sidebar {
 }
 
 .app-shell.has-window-chrome .page-content-container > .page-breadcrumb-bar {
-  border-bottom: 0;
+  border-bottom: 1px solid var(--shell-border);
   background: var(--shell-canvas);
 }
+
+.app-shell.has-window-chrome .page-content-container > .main-content {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.app-shell.has-window-chrome .usage-sort-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: inherit;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+}
+
+.app-shell.has-window-chrome .usage-sort-button:hover { color: var(--shell-primary); }
+.app-shell.has-window-chrome .usage-sort-button:focus-visible { outline: 2px solid var(--shell-focus); outline-offset: 3px; }
 
 /* Settings is a reading flow, not a stack of nested cards. Keep borders on
    editable fields and data tables, while top-level sections use spacing only. */
@@ -4019,20 +4041,25 @@ div.app-shell.has-window-chrome .sidebar {
 
 .app-shell.has-window-chrome .connection-list {
   display: grid;
-  gap: 0;
+  gap: 12px;
 }
 
 .app-shell.has-window-chrome .connection-option {
   display: flex;
-  min-height: 72px;
+  min-height: 84px;
   align-items: center;
   gap: 14px;
-  padding: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--shell-surface-subtle);
   color: var(--shell-text);
+  transition: border-color 150ms cubic-bezier(0.2, 0, 0, 1), box-shadow 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.app-shell.has-window-chrome .connection-option + .connection-option {
-  border-top: 1px solid var(--shell-border);
+.app-shell.has-window-chrome .connection-option:hover {
+  border-color: var(--shell-border-strong);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--shell-text) 7%, transparent);
 }
 
 .app-shell.has-window-chrome .connection-brand-icon {

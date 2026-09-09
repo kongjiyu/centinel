@@ -7,6 +7,33 @@ export type Project = {
   updatedAt: string;
 };
 
+export type CollaborationStatus = {
+  available: boolean;
+  repository: { owner: string; repo: string; remoteUrl: string } | null;
+  reason?: 'missing_remote' | 'missing_token' | 'unsupported_remote' | 'project_not_found';
+  message?: string;
+};
+
+export type CollaboratorMatch = {
+  id: number;
+  login: string;
+  avatarUrl: string;
+  htmlUrl: string;
+  type: string;
+};
+
+export type CollaboratorSearchResult = {
+  email: string;
+  repository: { owner: string; repo: string; remoteUrl: string };
+  matches: CollaboratorMatch[];
+};
+
+export type CollaboratorInviteResult = {
+  username: string;
+  repository: { owner: string; repo: string; remoteUrl: string };
+  status: 'invited' | 'already_collaborator';
+};
+
 export type AiProvider = 'mimo' | 'gemini' | 'custom';
 export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native';
 

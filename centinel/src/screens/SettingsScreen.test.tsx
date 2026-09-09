@@ -146,6 +146,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
   });
 
   it('renders the usage hierarchy from real totals and keeps the call log separate', async () => {
+    const user = userEvent.setup();
     vi.mocked(api.getAiUsage).mockResolvedValue({
       totals: { input: 1000, output: 200, cacheRead: 300, cacheCreation: 400, calls: 5 },
       byGroup: [{
@@ -181,7 +182,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
     await waitFor(() => expect(screen.getByText('Tokens processed')).toBeInTheDocument());
-    expect(document.querySelector('.usage-total-value')).toHaveTextContent(/1[.,]900/);
+    expect(document.querySelector('.usage-total-value')).toHaveTextContent('1, 900');
     expect(screen.getByText('Total requests')).toBeInTheDocument();
     expect(screen.getByText('5', { selector: 'strong' })).toHaveClass('usage-request-value');
     expect(screen.getByText('Cache creation')).toBeInTheDocument();
@@ -194,10 +195,29 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.queryByText('Cost')).not.toBeInTheDocument();
     expect(screen.queryByText('Success rate')).not.toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Recent AI calls' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Recent calls' })).not.toBeInTheDocument();
 
-    await screen.getByRole('button', { name: 'Show log (1)' }).click();
-    expect(screen.getByRole('table', { name: 'Recent AI calls' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show log (1)' }));
+    const recentCalls = screen.getByRole('table', { name: 'Recent AI calls' });
+    expect(recentCalls).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Recent calls' })).toBeInTheDocument();
     expect(screen.getByText('analysis (r1)')).toBeInTheDocument();
+    expect(within(recentCalls).queryByRole('columnheader', { name: 'Scope' })).not.toBeInTheDocument();
+    await user.click(within(recentCalls).getByRole('button', { name: 'Time' }));
+    expect(within(recentCalls).getByRole('columnheader', { name: 'Time' })).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('compacts usage totals longer than six digits', async () => {
+    vi.mocked(api.getAiUsage).mockResolvedValue({
+      totals: { input: 1_000_000, output: 200_000, cacheRead: 30_000, cacheCreation: 4_567, calls: 123_456 },
+      byGroup: [],
+      recent: [],
+    });
+
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    await waitFor(() => expect(document.querySelector('.usage-total-value')).toHaveTextContent('1.23M'));
+    expect(screen.getByText('123, 456', { selector: 'strong' })).toBeInTheDocument();
   });
 
   it('paginates the recent call log in groups of five', async () => {

@@ -14,6 +14,8 @@
   width: 27%;
 }
 
+.project-summary-col-pin { width: 48px; }
+
 .project-summary-col-activity {
   width: auto;
 }
@@ -47,6 +49,11 @@
   font-size: 13px;
   line-height: 19px;
   vertical-align: middle;
+}
+
+.project-summary-pin-cell {
+  width: 48px;
+  padding-right: 8px !important;
 }
 
 .project-summary-row {
@@ -222,6 +229,19 @@
   transition-timing-function: var(--ease-home-standard, cubic-bezier(0.2, 0, 0, 1));
 }
 
+.project-summary-pin-cell .project-summary-pin {
+  width: 32px;
+  min-height: 32px;
+  flex-basis: 32px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.project-summary-pin-cell .project-summary-pin:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
 .project-summary-open {
   width: 40px;
   flex: 0 0 40px;
@@ -319,6 +339,19 @@
     border-top: 1px solid var(--color-border);
   }
 
+  .project-summary-table td.project-summary-pin-cell {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    width: auto;
+    padding: 0 !important;
+  }
+
+  .project-summary-table td.project-summary-pin-cell + td {
+    grid-column: 1 / -1;
+    padding-left: 42px;
+  }
+
   .project-summary-table tr:first-child {
     padding-top: 4px;
     border-top: 0;
@@ -339,6 +372,19 @@
   .project-summary-table td:first-child,
   .project-summary-table td:nth-child(2) {
     grid-column: 1 / -1;
+  }
+
+  .project-summary-table td.project-summary-pin-cell {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    width: auto;
+    padding: 0 !important;
+  }
+
+  .project-summary-table td.project-summary-pin-cell + td {
+    grid-column: 1 / -1;
+    padding-left: 42px;
   }
 
   .project-summary-table td[data-label]::before {
@@ -437,7 +483,15 @@
 }
 
 .project-summary-table.project-summary-table-dashboard .project-summary-row:hover td {
-  background: var(--color-surface-hover);
+  background: var(--color-surface-selected);
+}
+
+.project-summary-table.project-summary-table-dashboard .project-summary-row:hover td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.project-summary-table.project-summary-table-dashboard .project-summary-row:hover td:last-child {
+  border-radius: 0 6px 6px 0;
 }
 
 .project-summary-table.project-summary-table-dashboard .project-summary-row:focus-visible td:first-child {

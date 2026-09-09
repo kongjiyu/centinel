@@ -5,11 +5,57 @@
 .project-create-modal-form .workspace-picker .btn-secondary { flex: 0 0 auto; }
 .project-create-modal-form .field-help { margin: 6px 0 0; }
 
+.project-source-choice {
+  margin: 4px 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.project-source-choice legend {
+  margin-bottom: 8px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.project-source-choice > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-source-choice label {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  min-height: 80px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.project-source-choice label.is-selected {
+  border-color: var(--color-primary);
+  background: var(--color-surface-selected);
+}
+
+.project-source-choice input { margin-top: 3px; accent-color: var(--color-primary); }
+.project-source-choice svg { margin-top: 1px; color: var(--color-primary); }
+.project-source-choice span { display: grid; gap: 3px; }
+.project-source-choice strong { color: var(--color-text); font-size: 13px; }
+.project-source-choice small { color: var(--color-text-muted); font-size: 12px; line-height: 17px; }
+
 .projects-directory {
   padding: 20px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
   background: var(--color-surface);
+}
+
+.command-projects .command-page-header {
+  align-items: center;
 }
 
 .projects-directory-heading {
@@ -45,7 +91,7 @@
 
 .project-filters {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 180px 180px auto;
+  grid-template-columns: minmax(240px, 1fr) 180px auto;
   align-items: end;
   gap: 12px;
   margin-bottom: 0;
@@ -173,7 +219,7 @@
   justify-content: space-between;
   gap: 16px;
   padding-top: 12px;
-  border-top: 1px solid var(--color-border);
+  border-top: 0;
   color: var(--color-text-muted);
   font-size: 12px;
   line-height: 18px;
@@ -243,6 +289,7 @@
   .project-filters .select-trigger,
   .project-clear-filters { min-height: 44px; }
   .project-pagination button { width: 44px; height: 44px; }
+  .project-source-choice > div { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {

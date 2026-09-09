@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { api } from '../api/client';
 import type { Artifact } from '../types';
+import { readBinaryFile } from '@tauri-apps/api/fs';
 
 const filePicker = vi.hoisted(() => vi.fn());
 
@@ -70,5 +71,25 @@ describe('ArtifactsPanel', () => {
     render(<ArtifactsPanel projectId="p-1" />);
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Sources could not be loaded'));
     expect(screen.getByText('Drop source files here')).toBeInTheDocument();
+  });
+
+  it('opens source contents in a modal and previews supported text files', async () => {
+    const user = userEvent.setup();
+    const documentArtifact: Artifact = {
+      id: 'a-doc', projectId: 'p-1', type: 'requirement', source: 'documents', fileName: 'requirements.md',
+      filePath: 'C:/work/artifacts/a-doc_requirements.md', originalPath: null, contentHash: 'doc', createdAt: '2026-09-07T10:00:00.000Z',
+    };
+    vi.mocked(api.listArtifacts).mockResolvedValue([documentArtifact]);
+    vi.mocked(readBinaryFile).mockResolvedValue(new TextEncoder().encode('# Requirements'));
+    render(<ArtifactsPanel projectId="p-1" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Browse contents' }));
+    const sourceDialog = screen.getByRole('dialog', { name: 'Source contents' });
+    expect(sourceDialog).toHaveTextContent('requirements.md');
+    await user.click(within(sourceDialog).getByRole('button', { name: 'Preview' }));
+
+    const previewDialog = await screen.findByRole('dialog', { name: 'Preview requirements.md' });
+    expect(await within(previewDialog).findByText('# Requirements')).toBeInTheDocument();
+    expect(readBinaryFile).toHaveBeenCalledWith(documentArtifact.filePath);
   });
 });

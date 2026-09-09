@@ -156,4 +156,41 @@ describe('FindingsPanel', () => {
     expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /mark fixed/i })).toBeInTheDocument();
   });
+
+  it('supports numbered pages for the Project Detail presentation', async () => {
+    const findings = Array.from({ length: 6 }, (_, index) => ({
+      ...baseFinding,
+      id: `f-page-${index}`,
+      title: `Paged finding ${index + 1}`,
+      severity: index === 0 ? 'critical' : 'low',
+    }));
+    vi.mocked(api.listFindings).mockResolvedValue(findings);
+    const user = userEvent.setup();
+    render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
+
+    await waitFor(() => expect(screen.getByText('Paged finding 1')).toBeInTheDocument());
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+    expect(screen.queryByText('Paged finding 6')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Paged finding 6')).toBeInTheDocument();
+  });
+
+  it('uses the Project Detail master-detail table and supports keyboard row selection', async () => {
+    vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, priority: 'high', title: 'Keyboard-selectable finding' }]);
+    const user = userEvent.setup();
+    render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
+
+    expect(await screen.findByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Severity' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    expect(screen.getByText('Select Finding to review the details')).toBeInTheDocument();
+
+    const row = screen.getByRole('row', { name: /Keyboard-selectable finding/i });
+    row.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
+    expect(screen.getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
+  });
 });

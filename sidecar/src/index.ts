@@ -5,7 +5,17 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import http from 'http';
 import { config as readEnv } from 'dotenv';
-import { listProjects, getProject, createProject, deleteProject } from './projects';
+import {
+  listProjects,
+  getProject,
+  createProject,
+  updateProject,
+  deleteProject,
+  getCollaborationStatus,
+  searchGithubUsers,
+  inviteGithubCollaborator,
+  CollaborationError,
+} from './projects';
 import { getAiSettings, getRawAiSetting, updateAiSetting, validateUpdateRequest } from './settings';
 import { testAiProvider } from './aiClient';
 import { recordTokenUsage, getTokenUsageSummary } from './tokenUsage';
@@ -102,6 +112,21 @@ function json(res: http.ServerResponse, status: number, data: unknown) {
 // Route matchers
 function matchProjectId(url: string): string | null {
   const m = url.match(/^\/projects\/([a-f0-9-]+)$/);
+  return m ? m[1] : null;
+}
+
+function matchCollaborationStatus(url: string): string | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/collaborators\/status$/);
+  return m ? m[1] : null;
+}
+
+function matchCollaboratorSearch(url: string): string | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/collaborators\/search$/);
+  return m ? m[1] : null;
+}
+
+function matchCollaboratorInvite(url: string): string | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/collaborators\/invite$/);
   return m ? m[1] : null;
 }
 
@@ -399,11 +424,29 @@ const server = http.createServer(async (req, res) => {
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const description = typeof body.description === 'string' ? body.description.trim() : '';
       const workspacePath = typeof body.workspacePath === 'string' ? body.workspacePath.trim() : '';
+      const source = body.source && typeof body.source === 'object' ? body.source as Record<string, unknown> : null;
+      const sourceType = source?.type === 'github' ? 'github' : 'local-repository';
+      const repoUrl = typeof source?.repoUrl === 'string' ? source.repoUrl.trim() : '';
       if (!name) return json(res, 400, { error: 'Project name is required' });
       if (name.length > 80) return json(res, 400, { error: 'Project name must be 80 characters or less' });
       if (description.length > 500) return json(res, 400, { error: 'Description must be 500 characters or less' });
-      if (!workspacePath) return json(res, 400, { error: 'Workspace path is required' });
-      return json(res, 201, await createProject(name, description, workspacePath));
+      if (sourceType === 'local-repository' && !workspacePath) return json(res, 400, { error: 'Workspace path is required' });
+      if (sourceType === 'github' && !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?\/?$/i.test(repoUrl)) {
+        return json(res, 400, { error: 'A valid GitHub repository URL is required' });
+      }
+      try {
+        const project = await createProject(name, description, workspacePath, sourceType === 'github' ? { type: 'github', repoUrl } : { type: 'local-repository' });
+        const result = await importArtifactsFromRepo(project.id, project.workspacePath);
+        indexStatus.set(project.id, { status: 'indexing', fileCount: result.imported.length });
+        indexProject(project.id, result.imported).then(() => {
+          indexStatus.set(project.id, { status: 'done', fileCount: result.imported.length });
+        }).catch(error => {
+          indexStatus.set(project.id, { status: 'error', fileCount: 0, error: String(error) });
+        });
+        return json(res, 201, project);
+      } catch (error) {
+        return json(res, 400, { error: String(error) });
+      }
     }
 
     // Dynamic sessions - list
@@ -479,12 +522,65 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, session);
     }
 
-    // Project get
+    // GitHub collaboration status and search. These routes only return
+    // repository metadata and user handles; the configured token remains in
+    // the sidecar process and is never included in a response or log.
+    const collaborationStatusProjectId = matchCollaborationStatus(url);
+    if (collaborationStatusProjectId && req.method === 'GET') {
+      const project = await getProject(collaborationStatusProjectId);
+      if (!project) return json(res, 404, { error: 'Project not found' });
+      return json(res, 200, await getCollaborationStatus(collaborationStatusProjectId));
+    }
+
+    const collaboratorSearchProjectId = matchCollaboratorSearch(url);
+    if (collaboratorSearchProjectId && req.method === 'GET') {
+      const email = new URL(url, `http://${HOST}:${PORT}`).searchParams.get('email')?.trim() ?? '';
+      if (!email) return json(res, 400, { error: 'email is required' });
+      try {
+        return json(res, 200, await searchGithubUsers(collaboratorSearchProjectId, email));
+      } catch (cause) {
+        if (cause instanceof CollaborationError) return json(res, cause.httpStatus, { error: cause.message, code: cause.code });
+        return json(res, 502, { error: 'GitHub search failed' });
+      }
+    }
+
+    const collaboratorInviteProjectId = matchCollaboratorInvite(url);
+    if (collaboratorInviteProjectId && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const username = typeof body.username === 'string' ? body.username.trim() : '';
+      if (!username) return json(res, 400, { error: 'username is required' });
+      try {
+        return json(res, 201, await inviteGithubCollaborator(collaboratorInviteProjectId, username));
+      } catch (cause) {
+        if (cause instanceof CollaborationError) return json(res, cause.httpStatus, { error: cause.message, code: cause.code });
+        return json(res, 502, { error: 'GitHub invitation failed' });
+      }
+    }
+
+    // Project get/update/delete
     const projectId = matchProjectId(url);
     if (projectId && req.method === 'GET') {
       const project = await getProject(projectId);
       if (!project) return json(res, 404, { error: 'Project not found' });
       return json(res, 200, project);
+    }
+
+    if (projectId && req.method === 'PUT') {
+      const body = await parseJsonBody(req);
+      const name = body.name === undefined ? undefined : typeof body.name === 'string' ? body.name.trim() : '';
+      const description = body.description === undefined ? undefined : typeof body.description === 'string' ? body.description.trim() : '';
+      const workspacePath = body.workspacePath === undefined ? undefined : typeof body.workspacePath === 'string' ? body.workspacePath.trim() : '';
+      if (name !== undefined && !name) return json(res, 400, { error: 'Project name is required' });
+      if (name !== undefined && name.length > 80) return json(res, 400, { error: 'Project name must be 80 characters or less' });
+      if (description !== undefined && description.length > 500) return json(res, 400, { error: 'Description must be 500 characters or less' });
+      if (workspacePath !== undefined && !workspacePath) return json(res, 400, { error: 'Workspace path is required' });
+      try {
+        const updated = await updateProject(projectId, { name, description, workspacePath });
+        if (!updated) return json(res, 404, { error: 'Project not found' });
+        return json(res, 200, updated);
+      } catch (cause) {
+        return json(res, 400, { error: cause instanceof Error ? cause.message : 'Project could not be updated' });
+      }
     }
 
     // Project delete
@@ -578,6 +674,9 @@ const server = http.createServer(async (req, res) => {
       const reviewMode = body.reviewMode === 'pull-request' ? 'pull-request' : 'regular';
       const reviewer = typeof body.reviewer === 'string' ? body.reviewer.trim() : 'Project owner';
       const pullRequest = typeof body.pullRequest === 'string' ? body.pullRequest.trim() : '';
+      const temporaryArtifactIds = Array.isArray(body.temporaryArtifactIds)
+        ? body.temporaryArtifactIds.filter((value): value is string => typeof value === 'string')
+        : [];
 
       if (!name) return json(res, 400, { error: 'name is required' });
 
@@ -588,6 +687,7 @@ const server = http.createServer(async (req, res) => {
       if (allArtifacts.length === 0) {
         return json(res, 400, { error: 'No artifacts found. Upload or import files first.' });
       }
+      const temporaryArtifacts = allArtifacts.filter(artifact => temporaryArtifactIds.includes(artifact.id));
 
       // Review-type and artifact selection are agent-driven from the instructions.
       const reviewType = 'code_review';
@@ -696,6 +796,8 @@ const server = http.createServer(async (req, res) => {
         );
       }).catch(err => {
         console.error(`[review-session] failed id=${session.id}:`, err);
+      }).finally(async () => {
+        await Promise.allSettled(temporaryArtifacts.map(artifact => deleteArtifact(artifact.id)));
       });
 
       return json(res, 201, session);

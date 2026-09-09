@@ -13,6 +13,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { getChangedFiles, GitScopeError } from '../../src/gitScope.js';
+import { parseGithubRemote } from '../../src/projects.js';
 
 function makeRepo(): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'centinel-gitscope-'));
@@ -100,5 +101,17 @@ describe('gitScope.getChangedFiles', () => {
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
+  });
+});
+
+describe('GitHub collaboration remote parsing', () => {
+  it('derives owner and repository from HTTPS and SSH remotes', () => {
+    expect(parseGithubRemote('https://github.com/acme/centinel.git')).toMatchObject({ owner: 'acme', repo: 'centinel' });
+    expect(parseGithubRemote('git@github.com:acme/centinel.git')).toMatchObject({ owner: 'acme', repo: 'centinel' });
+  });
+
+  it('rejects empty and non-GitHub remotes', () => {
+    expect(parseGithubRemote('')).toBeNull();
+    expect(parseGithubRemote('https://git.example.com/acme/centinel.git')).toBeNull();
   });
 });

@@ -47,7 +47,7 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
       return trail;
     }
     case 'review-entry':
-      return [home, { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } }, { label: 'Start review' }];
+      return [home, { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } }, { label: 'Start your review' }];
     case 'review-activity':
       return [
         home,

@@ -33,12 +33,12 @@ describe('Project creation', () => {
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
     await user.type(screen.getByLabelText(/Description/), 'Payment verification');
     expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Choose folder' }));
+    await user.click(screen.getByRole('button', { name: 'Choose repository' }));
     await user.click(screen.getByRole('button', { name: 'Create project' }));
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Banking', 'Payment verification', 'C:\\Projects\\banking'));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Banking', 'Payment verification', 'C:\\Projects\\banking', { type: 'local-repository' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage unavailable');
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
-    expect(screen.getByLabelText('Workspace folder *')).toHaveValue('C:\\Projects\\banking');
+    expect(screen.getByLabelText('Local repository *')).toHaveValue('C:\\Projects\\banking');
   });
 
   it('reports folder-picker failures without discarding the project name', async () => {
@@ -47,9 +47,27 @@ describe('Project creation', () => {
     render(<ProjectsScreen projects={[]} onCreate={vi.fn()} onDelete={vi.fn()} onNavigate={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'New project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
-    await user.click(screen.getByRole('button', { name: 'Choose folder' }));
+    await user.click(screen.getByRole('button', { name: 'Choose repository' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('folder picker could not open');
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
+  });
+
+  it('creates a GitHub-backed project in the Centinel default workspace', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'New project' }));
+    await user.type(screen.getByLabelText('Project name *'), 'Remote project');
+    await user.click(screen.getByRole('radio', { name: /GitHub/ }));
+    await user.type(screen.getByLabelText('GitHub repository URL *'), 'https://github.com/example/remote-project');
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Remote project', '', '', {
+      type: 'github',
+      repoUrl: 'https://github.com/example/remote-project',
+    }));
+    expect(folderPicker).not.toHaveBeenCalled();
   });
 });
 
@@ -143,7 +161,6 @@ describe('Project directory', () => {
         onDelete={vi.fn()}
         onNavigate={vi.fn()}
         initialStateFilter="needs_attention"
-        initialActivityFilter="dynamic"
       />,
     );
 
@@ -152,9 +169,9 @@ describe('Project directory', () => {
     expect(table).toHaveTextContent('Test blocked');
     expect(table).not.toHaveTextContent('Release review');
     expect(screen.getByRole('combobox', { name: 'Current state' })).toHaveTextContent('Needs attention');
-    expect(screen.getByRole('combobox', { name: 'Activity type' })).toHaveTextContent('Dynamic Testing');
+    expect(screen.queryByRole('combobox', { name: 'Activity type' })).not.toBeInTheDocument();
 
-    await user.type(screen.getByRole('searchbox', { name: 'Find projects' }), 'missing project');
+    await user.type(screen.getByRole('searchbox', { name: 'Search your projects' }), 'missing project');
     expect(screen.getByText('No projects match these filters.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(await screen.findByRole('table', { name: 'Projects' })).toHaveTextContent('Release review');

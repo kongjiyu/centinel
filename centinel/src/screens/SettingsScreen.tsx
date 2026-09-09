@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { open as openExternal } from '@tauri-apps/api/shell';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
@@ -351,6 +351,8 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
 
 type UsageSummary = Awaited<ReturnType<typeof api.getAiUsage>>;
 type UsageCallKind = 'review' | 'test' | 'dynamic';
+type RecentCall = UsageSummary['recent'][number];
+type RecentSortKey = 'time' | 'kind' | 'stage' | 'model' | 'input' | 'output' | 'cache';
 
 const CALL_KIND_LABEL: Record<UsageCallKind, string> = {
   review: 'Review',
@@ -359,13 +361,27 @@ const CALL_KIND_LABEL: Record<UsageCallKind, string> = {
 };
 
 function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
+  return formatUsageNumber(n);
 }
 
 function formatWholeNumber(n: number): string {
-  return Math.max(0, n).toLocaleString();
+  return formatUsageNumber(n);
+}
+
+function formatUsageNumber(n: number): string {
+  const value = Math.max(0, Math.round(n));
+  if (value <= 999_999) return value.toLocaleString('en-US').replace(/,/g, ', ');
+
+  const units = [
+    { value: 1_000_000_000_000, suffix: 'T' },
+    { value: 1_000_000_000, suffix: 'B' },
+    { value: 1_000_000, suffix: 'M' },
+    { value: 1_000, suffix: 'K' },
+  ];
+  const unit = units.find(candidate => value >= candidate.value) ?? units[units.length - 1];
+  const scaled = value / unit.value;
+  const precision = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  return `${scaled.toFixed(precision).replace(/\.0+$|(?<=\.[0-9])0+$/g, '')}${unit.suffix}`;
 }
 
 function totalTokensForGroup(group: UsageSummary['byGroup'][number]): number {
@@ -386,6 +402,7 @@ function TokenUsagePanel() {
   const [error, setError] = useState<string | null>(null);
   const [showRecent, setShowRecent] = useState(false);
   const [recentPage, setRecentPage] = useState(0);
+  const [recentSort, setRecentSort] = useState<{ key: RecentSortKey; direction: 'asc' | 'desc' }>({ key: 'time', direction: 'desc' });
   const recentPageSize = 5;
 
   const load = async () => {
@@ -406,8 +423,42 @@ function TokenUsagePanel() {
   // numbers rather than relying on a session cache.
   useEffect(() => { void load(); }, []);
 
-  const recentPageCount = summary ? Math.max(1, Math.ceil(summary.recent.length / recentPageSize)) : 1;
-  const recentCalls = summary?.recent.slice(recentPage * recentPageSize, (recentPage + 1) * recentPageSize) ?? [];
+  const sortedRecentCalls = useMemo(() => {
+    const records = [...(summary?.recent ?? [])];
+    const valueFor = (record: RecentCall): string | number => {
+      switch (recentSort.key) {
+        case 'time': return Date.parse(record.createdAt) || 0;
+        case 'kind': return CALL_KIND_LABEL[record.callKind];
+        case 'stage': return `${record.stage ?? ''}:${record.roundNumber ?? ''}`;
+        case 'model': return record.model;
+        case 'input': return record.inputTokens;
+        case 'output': return record.outputTokens;
+        case 'cache': return record.cacheReadTokens + record.cacheCreationTokens;
+      }
+    };
+    return records.sort((a, b) => {
+      const left = valueFor(a);
+      const right = valueFor(b);
+      const comparison = typeof left === 'number' && typeof right === 'number'
+        ? left - right
+        : String(left).localeCompare(String(right));
+      return recentSort.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [recentSort, summary]);
+  const recentPageCount = Math.max(1, Math.ceil(sortedRecentCalls.length / recentPageSize));
+  const recentCalls = sortedRecentCalls.slice(recentPage * recentPageSize, (recentPage + 1) * recentPageSize);
+  const toggleRecentSort = (key: RecentSortKey) => {
+    setRecentSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }));
+    setRecentPage(0);
+  };
+  const recentHeader = (label: string, key: RecentSortKey, numeric = false) => {
+    const active = recentSort.key === key;
+    return <th scope="col" className={numeric ? 'usage-num' : undefined} aria-sort={active ? (recentSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" className="usage-sort-button" onClick={() => toggleRecentSort(key)}>
+        {label}<ArrowDownUp size={13} aria-hidden="true" />
+      </button>
+    </th>;
+  };
 
   return (
     <div className="settings-usage-panel">
@@ -496,9 +547,9 @@ function TokenUsagePanel() {
             </section>
           )}
 
-          <section className="usage-recent" aria-labelledby="usage-recent-title">
+          <section className="usage-recent" aria-label="AI call log">
             <div className="usage-recent-header">
-              <h4 id="usage-recent-title">Recent calls</h4>
+              {showRecent && <h4 id="usage-recent-title">Recent calls</h4>}
               <button
                 type="button"
                 className="btn-link"
@@ -517,21 +568,19 @@ function TokenUsagePanel() {
                 <table className="usage-table usage-recent-table" aria-label="Recent AI calls">
                   <thead>
                     <tr>
-                      <th scope="col">Time</th>
-                      <th scope="col">Scope</th>
-                      <th scope="col">Kind</th>
-                      <th scope="col">Stage</th>
-                      <th scope="col">Model</th>
-                      <th scope="col" className="usage-num">Input</th>
-                      <th scope="col" className="usage-num">Output</th>
-                      <th scope="col" className="usage-num">Cache</th>
+                      {recentHeader('Time', 'time')}
+                      {recentHeader('Kind', 'kind')}
+                      {recentHeader('Stage', 'stage')}
+                      {recentHeader('Model', 'model')}
+                      {recentHeader('Input', 'input', true)}
+                      {recentHeader('Output', 'output', true)}
+                      {recentHeader('Cache', 'cache', true)}
                     </tr>
                   </thead>
                   <tbody>
                     {recentCalls.map(r => (
                       <tr key={r.id}>
                         <td>{formatTimestamp(r.createdAt)}</td>
-                        <td>{r.scope === 'text' ? 'Text' : 'Vision'}</td>
                         <td>{CALL_KIND_LABEL[r.callKind]}</td>
                         <td>{r.stage ?? '—'}{r.roundNumber !== null ? ` (r${r.roundNumber})` : ''}</td>
                         <td><code>{r.model}</code></td>
