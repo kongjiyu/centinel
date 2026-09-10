@@ -402,11 +402,18 @@ function ReviewActivityContent({
   actions: React.ReactNode;
 }) {
   const progress = parseReviewProgress(session.progressJson);
+  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
+  const objectiveText = objective || 'No objective was persisted for this review.';
+  const objectiveNeedsDisclosure = objectiveText.length > 280;
+  const visibleObjective = objectiveNeedsDisclosure && !objectiveExpanded
+    ? `${objectiveText.slice(0, 280).trimEnd()}…`
+    : objectiveText;
   return (
     <div className="review-activity-body">
       <section className="review-objective" aria-label="Review objective">
         <div className="review-objective-heading"><span>Objective</span><span className="review-objective-scope">Review scope</span></div>
-        <p>{objective || 'No objective was persisted for this review.'}</p>
+        <p>{visibleObjective}</p>
+        {objectiveNeedsDisclosure && <button type="button" className="review-objective-toggle" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(value => !value)}>{objectiveExpanded ? 'Show less' : 'Show more'}</button>}
         {supportiveDocuments.length > 0 && (
           <div className="review-source-tags" role="group" aria-label="Supportive documents">
             {supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}

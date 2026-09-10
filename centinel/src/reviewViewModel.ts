@@ -173,7 +173,9 @@ export function normalizeReviewStages(progress: ReviewProgress | null): ReviewAc
     label: STAGE_LABELS[stage.id] ?? stage.label,
     status: stage.status,
     summary: safeStageSummary(stage),
-    updatedAt: progress.updatedAt,
+    updatedAt: typeof (stage as ReviewStageProgress & { updatedAt?: unknown }).updatedAt === 'string'
+      ? (stage as ReviewStageProgress & { updatedAt: string }).updatedAt
+      : undefined,
     details: readDetails(stage),
   }));
 }

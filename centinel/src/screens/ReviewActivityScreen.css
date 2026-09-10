@@ -135,6 +135,21 @@
   white-space: pre-wrap;
 }
 
+.review-objective-toggle {
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.review-objective-toggle:hover,
+.review-objective-toggle:focus-visible { text-decoration: underline; }
+
 .review-source-tags {
   display: flex;
   align-items: center;

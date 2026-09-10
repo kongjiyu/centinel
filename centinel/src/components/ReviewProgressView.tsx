@@ -32,7 +32,6 @@ export function ReviewProgressView({ progress }: Props) {
   }
 
   const stages = normalizeReviewStages(progress);
-  const updatedAt = formatReviewTimestamp(progress.updatedAt);
   const activeStage = stages.find(stage => stage.status === 'active');
   const liveText = activeStage
     ? `${activeStage.label}: ${activeStage.summary || 'In progress.'}`
@@ -54,7 +53,7 @@ export function ReviewProgressView({ progress }: Props) {
                 <div className="review-activity-message-heading">
                   <div className="review-activity-message-meta">
                     <span className="activity-actor"><CircleDot size={12} aria-hidden="true" />Centinel</span>
-                    {(stageTime || updatedAt) && <time dateTime={stage.updatedAt || progress.updatedAt}>Updated {stageTime || updatedAt}</time>}
+                    {stageTime && <time dateTime={stage.updatedAt}>Updated {stageTime}</time>}
                   </div>
                   <div className="review-activity-stage-title">
                     <span className="stage-label">{stage.label}</span>
