@@ -1,6 +1,6 @@
 import { AlertCircle, Check, CircleDot } from 'lucide-react';
 import type { ReviewProgress } from '../types';
-import { formatReviewTimestamp, normalizeReviewStages } from '../reviewViewModel';
+import { formatReviewTimestamp, normalizeReviewStages, truncateReviewSourceName } from '../reviewViewModel';
 
 type Props = {
   progress: ReviewProgress | null;
@@ -67,13 +67,13 @@ export function ReviewProgressView({ progress }: Props) {
               {stage.details.activity.map((item, itemIndex) => (
                 <div className="review-reasoning" key={`${item}-${itemIndex}`}>
                   <p>{item}</p>
-                  {stage.details.evidence.length > 0 && (
-                    <div className="review-source-tags" role="group" aria-label={`Sources for ${stage.label}`}>
-                      {stage.details.evidence.map(source => <span className="review-source-tag" key={source} title={source} aria-label={source}>{source.length > 15 ? `${source.slice(0, 15)}…` : source}</span>)}
-                    </div>
-                  )}
                 </div>
               ))}
+              {stage.details.evidence.length > 0 && (
+                <div className="review-source-tags" role="group" aria-label={`Sources for ${stage.label}`}>
+                  {stage.details.evidence.map(source => <span className="review-source-tag" key={source} title={source} aria-label={source}>{truncateReviewSourceName(source)}</span>)}
+                </div>
+              )}
               {stage.details.assessment && <div className="review-reasoning"><p>{stage.details.assessment}</p></div>}
               {stage.details.outcome && <p className="stage-outcome">{stage.details.outcome}</p>}
             </li>

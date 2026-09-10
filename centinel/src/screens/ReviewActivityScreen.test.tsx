@@ -72,6 +72,7 @@ const finding: Finding = {
   sessionId: baseSession.id,
   source: 'static',
   severity: 'high',
+  priority: 'High',
   title: 'Checkout requirement is not represented',
   description: 'The reviewed implementation does not expose the requirement in the available evidence.',
   status: 'new',
@@ -210,5 +211,8 @@ describe('ReviewActivityScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Findings' }));
     expect(screen.getByRole('table', { name: 'Review findings' })).toBeInTheDocument();
     expect(screen.getAllByRole('columnheader')).toHaveLength(4);
+    expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
+    expect(screen.getAllByRole('cell', { name: 'High' })).toHaveLength(2);
   });
 });

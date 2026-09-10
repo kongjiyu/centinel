@@ -202,6 +202,10 @@ export function formatReviewTimestamp(value: string | undefined): string | null 
   return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : null;
 }
 
+export function truncateReviewSourceName(value: string, maxLength = 15): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+}
+
 export function findingStatusLabel(status: Finding['status']): string {
   const labels: Record<Finding['status'], string> = {
     new: 'New',

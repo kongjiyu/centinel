@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronRight, Download, FileCheck2, GitBranch, History, MessageSquare, Paperclip, Send, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, FileCheck2, GitBranch, History, MessageSquare, Paperclip, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewProgressView } from '../components/ReviewProgressView';
@@ -9,6 +9,7 @@ import {
   formatReviewTimestamp,
   parseReviewConfig,
   parseReviewProgress,
+  truncateReviewSourceName,
   type ReviewLifecycleState,
 } from '../reviewViewModel';
 import type { Finding, Project, ReviewDecisionRecord, Screen, StaticSession } from '../types';
@@ -56,10 +57,6 @@ function supportiveDocuments(config: Record<string, unknown>): SupportiveDocumen
   });
 }
 
-function truncatedSourceName(name: string): string {
-  return name.length > 15 ? `${name.slice(0, 15)}…` : name;
-}
-
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -74,13 +71,21 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props) {
+  const resultTabStorageKey = `centinel:review-result-tab:${projectId}:${sessionId}`;
   const [project, setProject] = useState<Project | null>(null);
   const [session, setSession] = useState<StaticSession | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [findingsError, setFindingsError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<ReviewDecisionRecord[]>([]);
   const [decisionsError, setDecisionsError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('Overview');
+  const [tab, setTab] = useState<Tab>(() => {
+    try {
+      const stored = window.sessionStorage.getItem(resultTabStorageKey) as Tab | null;
+      return stored && TABS.includes(stored) ? stored : 'Overview';
+    } catch {
+      return 'Overview';
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [decisionIntent, setDecisionIntent] = useState<DecisionIntent | null>(null);
@@ -242,6 +247,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
 
   const changeTab = (next: Tab, focus = false) => {
     setTab(next);
+    try { window.sessionStorage.setItem(resultTabStorageKey, next); } catch { /* storage is optional */ }
     if (focus) window.requestAnimationFrame(() => tabRefs.current[next]?.focus());
   };
 
@@ -403,7 +409,7 @@ function ReviewActivityContent({
         <p>{objective || 'No objective was persisted for this review.'}</p>
         {supportiveDocuments.length > 0 && (
           <div className="review-source-tags" role="group" aria-label="Supportive documents">
-            {supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncatedSourceName(document.name)}</span>)}
+            {supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}
           </div>
         )}
       </section>
@@ -455,58 +461,17 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
   return (
     <aside className="review-feedback-composer" aria-label="Review feedback">
       <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
-        <label className="visually-hidden" htmlFor="review-feedback-message">Feedback</label>
+        <label className="review-feedback-label" htmlFor="review-feedback-message">Feedback</label>
         <textarea id="review-feedback-message" rows={2} value={value} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
-        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncatedSourceName(file.name)}<button type="button" aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
+        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncateReviewSourceName(file.name)}<button type="button" aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
         <div className="review-feedback-controls">
           <label className="review-attach-button" htmlFor="review-feedback-attachments"><Paperclip size={16} aria-hidden="true" />Attach supportive documents</label>
           <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />
-          <button className="btn-primary" type="submit" disabled={submitting || (!value.trim() && files.length === 0)}><Send size={15} aria-hidden="true" />{submitting ? 'Sending…' : 'Send feedback'}</button>
+          <button className="btn-primary review-feedback-send" type="submit" disabled={submitting || (!value.trim() && files.length === 0)}><Send size={15} aria-hidden="true" />{submitting ? 'Sending…' : 'Send feedback'}</button>
         </div>
         {notice && <p className="review-feedback-notice" role="status">{notice}</p>}
       </form>
     </aside>
-  );
-}
-
-function CandidateFindingList({ findings, error }: { findings: Finding[]; error: string | null }) {
-  return (
-    <section className="review-candidate-section" aria-labelledby="candidate-findings-heading">
-      <div className="review-section-heading">
-        <div>
-          <h2 id="candidate-findings-heading">Candidate findings</h2>
-          <p>Automated observations remain candidates until a supported adjudication workflow exists.</p>
-        </div>
-        {!error && <span>{findings.length} returned</span>}
-      </div>
-      {error ? (
-        <p className="review-history-unavailable" role="status">Candidate findings could not be loaded for this activity.</p>
-      ) : findings.length === 0 ? (
-        <p className="review-activity-empty">No candidate findings are available for this activity.</p>
-      ) : (
-        <div className="review-candidate-list">{findings.map(finding => <CandidateFindingCard key={finding.id} finding={finding} />)}</div>
-      )}
-    </section>
-  );
-}
-
-function CandidateFindingCard({ finding }: { finding: Finding }) {
-  const location = finding.filePath ? `${finding.filePath}${finding.lineNumber == null ? '' : `:${finding.lineNumber}`}` : null;
-  const hasEvidence = Boolean(finding.evidenceText || location);
-  return (
-    <article className="review-candidate-card">
-      <div className="review-candidate-card-main">
-        <div className="review-candidate-card-labels"><span className="review-candidate-label">Candidate finding</span><StatusBadge label={severityLabel(finding.severity)} /><span className="review-finding-state">Finding status: {findingStatusLabel(finding.status)}</span></div>
-        <h3>{finding.title}</h3>
-        <p>{finding.description || finding.recommendation || 'No description was supplied.'}</p>
-        {finding.category && <span className="review-finding-category">{finding.category}</span>}
-        {location && <span className="review-finding-location mono">{location}</span>}
-      </div>
-      <details className="review-candidate-details">
-        <summary><ChevronRight size={14} aria-hidden="true" /><span>View full evidence</span></summary>
-        <FindingEvidence finding={finding} hasEvidence={hasEvidence} />
-      </details>
-    </article>
   );
 }
 
@@ -692,20 +657,25 @@ function ReviewResultOverview({
 function FindingList({ findings, error }: { findings: Finding[]; error: string | null }) {
   if (error) return <p className="review-history-unavailable" role="status">Findings could not be loaded for this result.</p>;
   if (findings.length === 0) return <div className="command-empty-state"><FileCheck2 size={30} aria-hidden="true" /><h2>No reported findings</h2><p>The completed review did not return any findings.</p></div>;
+  const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const orderedFindings = [...findings].sort((left, right) => {
+    const severityDifference = (severityRank[left.severity.toLowerCase()] ?? 4) - (severityRank[right.severity.toLowerCase()] ?? 4);
+    if (severityDifference !== 0) return severityDifference;
+    return Date.parse(right.updatedAt || right.createdAt) - Date.parse(left.updatedAt || left.createdAt);
+  });
   return (
     <section className="review-finding-list" aria-labelledby="result-findings-heading">
       <div className="review-section-heading"><div><h2 id="result-findings-heading">Findings</h2><p>Reported observations remain separate from the activity decision.</p></div><span>{findings.length} reported</span></div>
       <div className="review-result-table-wrap">
         <table className="review-result-findings-table">
           <caption className="visually-hidden">Review findings</caption>
-          <thead><tr><th scope="col">Severity</th><th scope="col">Finding</th><th scope="col">Status</th><th scope="col">Location</th></tr></thead>
-          <tbody>{findings.map(finding => {
-            const location = finding.filePath ? `${finding.filePath}${finding.lineNumber == null ? '' : `:${finding.lineNumber}`}` : 'Not supplied';
+          <thead><tr><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Description</th><th scope="col">Status</th></tr></thead>
+          <tbody>{orderedFindings.map(finding => {
             return <tr key={finding.id}>
+              <td>{finding.priority || 'Not set'}</td>
               <td><StatusBadge label={severityLabel(finding.severity)} /></td>
-              <td><details className="review-result-finding-details"><summary>{finding.title}</summary><div className="review-result-finding-detail-body"><p>{finding.description || 'No description was supplied.'}</p><FindingEvidence finding={finding} hasEvidence={Boolean(finding.evidenceText || finding.filePath)} /></div></details></td>
+              <td><div className="review-result-finding-description"><strong>{finding.title}</strong><span>{finding.description || 'No description was supplied.'}</span></div><details className="review-result-finding-details"><summary>View evidence</summary><div className="review-result-finding-detail-body"><FindingEvidence finding={finding} hasEvidence={Boolean(finding.evidenceText || finding.filePath)} /></div></details></td>
               <td><span className="review-finding-state">{findingStatusLabel(finding.status)}</span></td>
-              <td className="mono review-result-location">{location}</td>
             </tr>;
           })}</tbody>
         </table>
@@ -723,5 +693,5 @@ function HistoryPanel({ progress, decisions, error }: { progress: string; decisi
 }
 
 function DecisionRecord({ decision }: { decision: ReviewDecisionRecord }) {
-  return <article className="review-human-history-record"><MessageSquare size={14} aria-hidden="true" /><div><strong>{decisionLabel(decision.decision)}</strong><p>{decision.comment || 'No written rationale was supplied.'}</p><span>{decision.reviewer || 'Reviewer not supplied'} · {formatReviewTimestamp(decision.createdAt) || 'Time not supplied'}</span></div></article>;
+  return <article className="review-human-history-record"><MessageSquare size={14} aria-hidden="true" /><div><strong>{decisionLabel(decision.decision)}</strong><p>{decision.comment || 'No written rationale was supplied.'}</p>{decision.attachments && decision.attachments.length > 0 && <div className="review-source-tags" role="group" aria-label="Feedback attachments">{decision.attachments.map(attachment => <span className="review-source-tag" key={attachment.id} title={attachment.fileName} aria-label={attachment.fileName}>{truncateReviewSourceName(attachment.fileName)}</span>)}</div>}<span>{decision.reviewer || 'Reviewer not supplied'} · {formatReviewTimestamp(decision.createdAt) || 'Time not supplied'}</span></div></article>;
 }
