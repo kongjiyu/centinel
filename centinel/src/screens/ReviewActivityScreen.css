@@ -3,8 +3,20 @@
   max-width: 1440px;
   box-sizing: border-box;
   margin: 0 auto;
-  padding-bottom: 160px;
-  scroll-padding-bottom: 280px;
+  padding-bottom: 220px;
+  scroll-padding-bottom: 260px;
+}
+
+/* The review screen sits inside the scrollable main-content rail. These
+   values keep the fixed composer aligned with that rail rather than spanning
+   beneath the navigation sidebar. */
+.app-shell.has-window-chrome .review-activity-screen {
+  --review-sidebar-width: 232px;
+  --review-main-padding: 32px;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .review-activity-screen {
+  --review-sidebar-width: 72px;
 }
 
 .review-activity-meta {
@@ -441,7 +453,7 @@
 
 .review-decision-panel {
   position: sticky;
-  z-index: 20;
+  z-index: 40;
   bottom: 12px;
   margin: 18px auto 0;
   max-width: 920px;
@@ -454,12 +466,15 @@
 }
 
 .review-feedback-composer {
-  position: sticky;
+  position: fixed;
   z-index: 30;
   bottom: 0;
-  width: 100%;
+  left: calc(var(--review-sidebar-width, 232px) + var(--review-main-padding, 32px));
+  right: var(--review-main-padding, 32px);
+  width: auto;
+  max-width: 1440px;
   box-sizing: border-box;
-  margin-top: 16px;
+  margin: 0 auto;
   padding: 12px 16px;
   border: 1px solid var(--workspace-border-strong);
   border-radius: var(--workspace-radius-panel);
@@ -667,6 +682,11 @@
 }
 
 @media (max-width: 720px) {
+  .app-shell.has-window-chrome .review-activity-screen { --review-sidebar-width: 72px; --review-main-padding: 16px; }
   .review-attach-button { min-height: 44px; }
   .review-feedback-files button { width: 44px; height: 44px; }
+}
+
+@media (min-width: 721px) and (max-width: 1200px) {
+  .app-shell.has-window-chrome .review-activity-screen { --review-main-padding: 24px; }
 }
