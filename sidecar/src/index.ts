@@ -677,6 +677,14 @@ const server = http.createServer(async (req, res) => {
       const temporaryArtifactIds = Array.isArray(body.temporaryArtifactIds)
         ? body.temporaryArtifactIds.filter((value): value is string => typeof value === 'string')
         : [];
+      const suppliedSupportiveDocuments = Array.isArray(body.supportiveDocuments)
+        ? body.supportiveDocuments.filter((document): document is { id?: string; name: string } => Boolean(
+          document && typeof document === 'object' && typeof document.name === 'string' && document.name.trim()
+        )).map(document => ({
+          ...(typeof document.id === 'string' ? { id: document.id } : {}),
+          name: document.name.trim(),
+        }))
+        : [];
 
       if (!name) return json(res, 400, { error: 'name is required' });
 
@@ -688,6 +696,9 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: 'No artifacts found. Upload or import files first.' });
       }
       const temporaryArtifacts = allArtifacts.filter(artifact => temporaryArtifactIds.includes(artifact.id));
+      const supportiveDocuments = suppliedSupportiveDocuments.length > 0
+        ? suppliedSupportiveDocuments
+        : temporaryArtifacts.map(artifact => ({ id: artifact.id, name: artifact.fileName }));
 
       // Review-type and artifact selection are agent-driven from the instructions.
       const reviewType = 'code_review';
@@ -743,7 +754,7 @@ const server = http.createServer(async (req, res) => {
         projectId: ssMatch.projectId,
         name,
         reviewType,
-        configJson: { instructions, reviewMode, reviewer, pullRequest },
+        configJson: { instructions, reviewMode, reviewer, pullRequest, supportiveDocuments },
         remarks: instructions,
         baseRef,
         headRef,
@@ -865,22 +876,30 @@ const server = http.createServer(async (req, res) => {
     if (dsSubmitMatch && req.method === 'POST') {
       const session = await getStaticSession(dsSubmitMatch.projectId, dsSubmitMatch.sessionId);
       if (!session) return json(res, 404, { error: 'Session not found' });
-      // Decisions only make sense once a review has actually produced
-      // findings; gating on 'success' keeps the workflow honest. A team
-      // that wants to "pre-approve" can revisit this later.
-      if (session.status !== 'success') {
-        return json(res, 400, { error: 'Decisions can only be recorded on completed reviews' });
-      }
       const body = await parseJsonBody(req);
       if (!isValidDecision(body.decision)) {
         return json(res, 400, { error: 'Invalid decision. Must be approved, changes_requested, or commented.' });
       }
+      // Feedback is an append-only activity record and may be added while a
+      // review is running. Lifecycle decisions still require a completed
+      // review so users cannot approve work that has not produced a result.
+      if (body.decision !== 'commented' && session.status !== 'success') {
+        return json(res, 400, { error: 'Approval decisions can only be recorded on completed reviews' });
+      }
       const comment = typeof body.comment === 'string' ? body.comment : '';
       const reviewer = typeof body.reviewer === 'string' ? body.reviewer : '';
+      const attachments = Array.isArray(body.attachments)
+        ? body.attachments.filter((attachment): attachment is { fileName: string; mimeType: string; content: string } => Boolean(
+          attachment && typeof attachment === 'object'
+          && typeof attachment.fileName === 'string'
+          && typeof attachment.mimeType === 'string'
+          && typeof attachment.content === 'string'
+        ))
+        : [];
       const record = await submitReviewDecision(
         dsSubmitMatch.sessionId,
         dsSubmitMatch.projectId,
-        { decision: body.decision, comment, reviewer }
+        { decision: body.decision, comment, reviewer, attachments }
       );
       return json(res, 201, record);
     }

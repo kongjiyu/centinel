@@ -171,6 +171,7 @@ export const api = {
     /** P0-4: head git ref. Leave empty for full-tree review. */
     headRef?: string;
     temporaryArtifactIds?: string[];
+    supportiveDocuments?: Array<{ id?: string; name: string }>;
     /** P1-5: parent session id for a re-review. Empty for first-time reviews. */
     parentSessionId?: string;
   }) =>
@@ -201,7 +202,12 @@ export const api = {
   submitReviewDecision: (
     projectId: string,
     sessionId: string,
-    data: { decision: ReviewDecision; comment?: string; reviewer?: string }
+    data: {
+      decision: ReviewDecision;
+      comment?: string;
+      reviewer?: string;
+      attachments?: Array<{ fileName: string; mimeType: string; content: string }>;
+    }
   ) =>
     request<ReviewDecisionRecord>(
       `/projects/${projectId}/static-sessions/${sessionId}/decision`,

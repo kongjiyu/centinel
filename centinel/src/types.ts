@@ -163,6 +163,14 @@ export type ReviewDecisionRecord = {
   comment: string;
   reviewer: string;
   createdAt: string;
+  attachments?: ReviewDecisionAttachment[];
+};
+
+export type ReviewDecisionAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  createdAt: string;
 };
 
 /**

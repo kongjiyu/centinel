@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronRight, Download, FileCheck2, GitBranch, History, MessageSquare, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, Download, FileCheck2, GitBranch, History, MessageSquare, Paperclip, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewProgressView } from '../components/ReviewProgressView';
@@ -20,10 +20,11 @@ type Props = {
   onNavigate: (screen: Screen) => void;
 };
 
-type Tab = 'Overview' | 'Findings' | 'Traceability' | 'Risk Assessment' | 'History';
+type Tab = 'Overview' | 'Findings' | 'Traceability' | 'History';
 type DecisionIntent = 'approved' | 'changes_requested';
+type SupportiveDocument = { id: string; name: string };
 
-const TABS: Tab[] = ['Overview', 'Findings', 'Traceability', 'Risk Assessment', 'History'];
+const TABS: Tab[] = ['Overview', 'Findings', 'Traceability', 'History'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 
 function stateTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
@@ -44,6 +45,34 @@ function decisionLabel(decision: ReviewDecisionRecord['decision']): string {
   return 'Comment';
 }
 
+function supportiveDocuments(config: Record<string, unknown>): SupportiveDocument[] {
+  if (!Array.isArray(config.supportiveDocuments)) return [];
+  return config.supportiveDocuments.flatMap((value, index) => {
+    if (!value || typeof value !== 'object') return [];
+    const record = value as Record<string, unknown>;
+    const name = typeof record.name === 'string' ? record.name.trim() : '';
+    if (!name) return [];
+    return [{ id: typeof record.id === 'string' ? record.id : `supportive-document-${index}`, name }];
+  });
+}
+
+function truncatedSourceName(name: string): string {
+  return name.length > 15 ? `${name.slice(0, 15)}…` : name;
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`));
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const separator = result.indexOf(',');
+      resolve(separator >= 0 ? result.slice(separator + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props) {
   const [project, setProject] = useState<Project | null>(null);
   const [session, setSession] = useState<StaticSession | null>(null);
@@ -55,7 +84,11 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [decisionIntent, setDecisionIntent] = useState<DecisionIntent | null>(null);
-  const [feedback, setFeedback] = useState('');
+  const [decisionFeedback, setDecisionFeedback] = useState('');
+  const [composerFeedback, setComposerFeedback] = useState('');
+  const [composerFiles, setComposerFiles] = useState<File[]>([]);
+  const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<DecisionIntent | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -103,7 +136,10 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     return () => window.clearInterval(interval);
   }, [load, session?.status]);
 
-  const currentDecision = session?.currentDecision ?? decisions[0] ?? null;
+  const embeddedDecision = session?.currentDecision;
+  const currentDecision = embeddedDecision && embeddedDecision.decision !== 'commented'
+    ? embeddedDecision
+    : decisions.find(decision => decision.decision !== 'commented') ?? null;
   const viewModel = session
     ? createReviewActivityViewModel(session, findings, decisions, currentDecision)
     : null;
@@ -112,6 +148,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const canDecide = state === 'Pending to Review' && !currentDecision && !submitting;
   const canCancel = Boolean(session && (session.status === 'queued' || session.status === 'running')) && !cancelling;
   const objective = viewModel?.objective ?? null;
+  const objectiveDocuments = supportiveDocuments(config);
   const reviewer = currentDecision?.reviewer || (typeof config.reviewer === 'string' && config.reviewer.trim() ? config.reviewer.trim() : null);
 
   const severityCounts = useMemo(() => SEVERITIES.map(severity => ({
@@ -122,13 +159,13 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const openDecisionPanel = (decision: DecisionIntent) => {
     if (!canDecide) return;
     setDecisionIntent(decision);
-    setFeedback('');
+    setDecisionFeedback('');
     setError(null);
   };
 
   const submitDecision = async () => {
     if (!session || !decisionIntent || !canDecide) return;
-    if (decisionIntent === 'changes_requested' && !feedback.trim()) {
+    if (decisionIntent === 'changes_requested' && !decisionFeedback.trim()) {
       setError('Add feedback before requesting changes to this review.');
       return;
     }
@@ -137,15 +174,41 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     try {
       await api.submitReviewDecision(projectId, session.id, {
         decision: decisionIntent,
-        comment: feedback.trim() || undefined,
+        comment: decisionFeedback.trim() || undefined,
       });
       setDecisionIntent(null);
-      setFeedback('');
+      setDecisionFeedback('');
       await load();
     } catch (cause) {
       setError(String(cause));
     } finally {
       setSubmitting(null);
+    }
+  };
+
+  const sendFeedback = async () => {
+    if (!session || sendingFeedback || (!composerFeedback.trim() && composerFiles.length === 0)) return;
+    setSendingFeedback(true);
+    setFeedbackNotice(null);
+    try {
+      const attachments = await Promise.all(composerFiles.map(async file => ({
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        content: await fileToBase64(file),
+      })));
+      await api.submitReviewDecision(projectId, session.id, {
+        decision: 'commented',
+        comment: composerFeedback.trim(),
+        attachments,
+      });
+      setComposerFeedback('');
+      setComposerFiles([]);
+      setFeedbackNotice('Feedback added to this review.');
+      await load({ silent: true });
+    } catch (cause) {
+      setFeedbackNotice(`Feedback could not be sent: ${String(cause)}`);
+    } finally {
+      setSendingFeedback(false);
     }
   };
 
@@ -198,8 +261,8 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   if (loading) return <div className="screen review-activity-screen"><p className="command-loading" role="status">Loading review activity…</p></div>;
   if (!session || !viewModel) return <div className="screen review-activity-screen"><div className="command-inline-alert" role="alert"><AlertCircle size={16} aria-hidden="true" /> {error || 'Review activity could not be loaded.'}</div></div>;
 
-  const actionArea = (
-    <div className="review-activity-actions" aria-label="Review actions">
+  const activityActions = (
+    <section className="review-activity-actions" aria-label="Review decision actions">
       {canCancel && (
         <button className="btn-secondary" type="button" onClick={() => void cancelReview()} disabled={!canCancel}>
           <X size={15} aria-hidden="true" /> {cancelling ? 'Cancelling…' : 'Cancel review'}
@@ -220,7 +283,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           <Download size={15} aria-hidden="true" /> {exporting ? 'Exporting…' : 'Export review report'}
         </button>
       )}
-    </div>
+    </section>
   );
 
   return (
@@ -235,7 +298,6 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
             : 'Follow the evidence-led activity conversation as Centinel processes the project sources.'}
         status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-        actions={actionArea}
         meta={(
           <span className="review-activity-meta">
             <GitBranch size={13} aria-hidden="true" />
@@ -260,6 +322,8 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           objective={objective}
           reviewer={reviewer}
           severityCounts={severityCounts}
+          exporting={exporting}
+          onExport={() => void exportReport()}
           tab={tab}
           onTabChange={changeTab}
           onTabKeyDown={handleTabKeyDown}
@@ -274,6 +338,21 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           decisions={decisions}
           decisionsError={decisionsError}
           currentDecision={currentDecision}
+          objective={objective}
+          supportiveDocuments={objectiveDocuments}
+          actions={activityActions}
+        />
+      )}
+
+      {state !== 'Completed' && (
+        <FeedbackComposer
+          value={composerFeedback}
+          files={composerFiles}
+          submitting={sendingFeedback}
+          notice={feedbackNotice}
+          onChange={setComposerFeedback}
+          onFilesChange={setComposerFiles}
+          onSubmit={() => void sendFeedback()}
         />
       )}
 
@@ -282,11 +361,11 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           intent={decisionIntent}
           reviewName={session.name}
           targetLabel={viewModel.targetLabel}
-          feedback={feedback}
+          feedback={decisionFeedback}
           submitting={submitting === decisionIntent}
-          onFeedbackChange={setFeedback}
+          onFeedbackChange={setDecisionFeedback}
           onSubmit={() => void submitDecision()}
-          onCancel={() => { setDecisionIntent(null); setFeedback(''); }}
+          onCancel={() => { setDecisionIntent(null); setDecisionFeedback(''); }}
         />
       )}
     </div>
@@ -301,6 +380,9 @@ function ReviewActivityContent({
   decisions,
   decisionsError,
   currentDecision,
+  objective,
+  supportiveDocuments,
+  actions,
 }: {
   session: StaticSession;
   state: ReviewLifecycleState;
@@ -309,17 +391,31 @@ function ReviewActivityContent({
   decisions: ReviewDecisionRecord[];
   decisionsError: string | null;
   currentDecision: ReviewDecisionRecord | null;
+  objective: string | null;
+  supportiveDocuments: SupportiveDocument[];
+  actions: React.ReactNode;
 }) {
   const progress = parseReviewProgress(session.progressJson);
   return (
-    <section className="review-activity-surface" aria-label="Review activity conversation">
+    <div className="review-activity-body">
+      <section className="review-objective" aria-label="Review objective">
+        <div className="review-objective-heading"><span>Objective</span><span className="review-objective-scope">Review scope</span></div>
+        <p>{objective || 'No objective was persisted for this review.'}</p>
+        {supportiveDocuments.length > 0 && (
+          <div className="review-source-tags" role="group" aria-label="Supportive documents">
+            {supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncatedSourceName(document.name)}</span>)}
+          </div>
+        )}
+      </section>
+
+      <section className="review-activity-surface" aria-label="Review activity conversation">
       <div className="review-activity-surface-heading">
         <div>
           <span className="command-eyebrow">Centinel activity</span>
           <h2>{state === 'Pending to Review' ? 'Evidence ready for human review' : 'Review activity'}</h2>
           <p>{state === 'Pending to Review'
             ? 'The automated activity is complete. Review candidate findings before recording an activity decision.'
-            : 'Stages are shown in order. Activity details are collapsed until you need the supporting record.'}</p>
+            : 'Stages are shown in order. Each stage summarizes the recorded activity and supporting sources.'}</p>
         </div>
         {progress?.updatedAt && <time dateTime={progress.updatedAt}>Updated {formatReviewTimestamp(progress.updatedAt)}</time>}
       </div>
@@ -330,8 +426,6 @@ function ReviewActivityContent({
       {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{session.failureReason || 'Centinel could not complete this activity.'}</p></div></div>}
       {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
 
-      <CandidateFindingList findings={findings} error={findingsError} />
-
       {currentDecision && (
         <div className="review-decision-recorded" role="status">
           <History size={15} aria-hidden="true" />
@@ -341,7 +435,37 @@ function ReviewActivityContent({
 
       {decisionsError && <p className="review-history-unavailable" role="status">Decision history could not be loaded. The activity data above remains available.</p>}
       {decisions.length > 0 && <DecisionHistoryPreview decisions={decisions} />}
-    </section>
+      {findingsError && <p className="review-history-unavailable" role="status">Candidate findings could not be loaded. Review activity remains available.</p>}
+      {findings.length > 0 && <p className="review-activity-findings-note">{findings.length} candidate finding{findings.length === 1 ? '' : 's'} will be available in the completed result.</p>}
+      </section>
+      {actions}
+    </div>
+  );
+}
+
+function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesChange, onSubmit }: {
+  value: string;
+  files: File[];
+  submitting: boolean;
+  notice: string | null;
+  onChange: (value: string) => void;
+  onFilesChange: (files: File[]) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <aside className="review-feedback-composer" aria-label="Review feedback">
+      <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
+        <label className="visually-hidden" htmlFor="review-feedback-message">Feedback</label>
+        <textarea id="review-feedback-message" rows={2} value={value} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
+        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncatedSourceName(file.name)}<button type="button" aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
+        <div className="review-feedback-controls">
+          <label className="review-attach-button" htmlFor="review-feedback-attachments"><Paperclip size={16} aria-hidden="true" />Attach supportive documents</label>
+          <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />
+          <button className="btn-primary" type="submit" disabled={submitting || (!value.trim() && files.length === 0)}><Send size={15} aria-hidden="true" />{submitting ? 'Sending…' : 'Send feedback'}</button>
+        </div>
+        {notice && <p className="review-feedback-notice" role="status">{notice}</p>}
+      </form>
+    </aside>
   );
 }
 
@@ -471,6 +595,8 @@ function ReviewResult({
   objective,
   reviewer,
   severityCounts,
+  exporting,
+  onExport,
   tab,
   onTabChange,
   onTabKeyDown,
@@ -485,6 +611,8 @@ function ReviewResult({
   objective: string | null;
   reviewer: string | null;
   severityCounts: { severity: string; count: number }[];
+  exporting: boolean;
+  onExport: () => void;
   tab: Tab;
   onTabChange: (tab: Tab, focus?: boolean) => void;
   onTabKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>, tab: Tab) => void;
@@ -516,10 +644,9 @@ function ReviewResult({
       </nav>
 
       <div id={panelId} role="tabpanel" tabIndex={0} aria-labelledby={`review-result-tab-${tab.toLowerCase().replace(/\s+/g, '-')}`} className="review-result-panel">
-        {tab === 'Overview' && <ReviewResultOverview session={session} findings={findings} findingsError={findingsError} decisionsError={decisionsError} currentDecision={currentDecision} objective={objective} reviewer={reviewer} severityCounts={severityCounts} />}
+        {tab === 'Overview' && <ReviewResultOverview session={session} findings={findings} findingsError={findingsError} decisionsError={decisionsError} currentDecision={currentDecision} objective={objective} reviewer={reviewer} severityCounts={severityCounts} exporting={exporting} onExport={onExport} />}
         {tab === 'Findings' && <FindingList findings={findings} error={findingsError} />}
         {tab === 'Traceability' && <Traceability findings={findings} />}
-        {tab === 'Risk Assessment' && <RiskAssessment findings={findings} />}
         {tab === 'History' && <HistoryPanel progress={session.progressJson} decisions={decisions} error={decisionsError} />}
       </div>
     </section>
@@ -535,6 +662,8 @@ function ReviewResultOverview({
   objective,
   reviewer,
   severityCounts,
+  exporting,
+  onExport,
 }: {
   session: StaticSession;
   findings: Finding[];
@@ -544,11 +673,13 @@ function ReviewResultOverview({
   objective: string | null;
   reviewer: string | null;
   severityCounts: { severity: string; count: number }[];
+  exporting: boolean;
+  onExport: () => void;
 }) {
   return (
     <div className="review-overview-grid">
       <section className="review-overview-main">
-        <div className="review-overview-copy"><h2>Completion summary</h2><p>{session.finalSummary || 'The automated activity completed and the review was approved by a human reviewer.'}</p><p className="review-evidence-limit">The available result contains session findings and activity history. Structured traceability, risk dimensions, immutable snapshot metadata, and per-finding adjudication were not supplied by the current service.</p></div>
+        <div className="review-overview-copy"><div className="review-overview-heading"><h2>Completion summary</h2><button className="btn-secondary" type="button" onClick={onExport} disabled={exporting}><Download size={15} aria-hidden="true" />{exporting ? 'Exporting…' : 'Export review report'}</button></div><p>{session.finalSummary || 'The automated activity completed and the review was approved by a human reviewer.'}</p><p className="review-evidence-limit">The available result contains session findings and activity history. Structured traceability, immutable snapshot metadata, and per-finding adjudication were not supplied by the current service.</p></div>
         {!findingsError && <div className="review-severity-grid" aria-label="Reported findings by severity"><div className="review-severity-total"><strong>{findings.length}</strong><span>Reported findings</span></div>{severityCounts.map(item => <div key={item.severity}><strong>{item.count}</strong><span>{severityLabel(item.severity)} severity</span></div>)}</div>}
         {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
         <div className="review-overview-copy"><h2>Review objective</h2><p>{objective || 'No objective was persisted for this review.'}</p></div>
@@ -561,15 +692,30 @@ function ReviewResultOverview({
 function FindingList({ findings, error }: { findings: Finding[]; error: string | null }) {
   if (error) return <p className="review-history-unavailable" role="status">Findings could not be loaded for this result.</p>;
   if (findings.length === 0) return <div className="command-empty-state"><FileCheck2 size={30} aria-hidden="true" /><h2>No reported findings</h2><p>The completed review did not return any findings.</p></div>;
-  return <section className="review-finding-list"><div className="review-section-heading"><div><h2>Candidate findings</h2><p>These remain separate from the approved activity decision.</p></div><span>{findings.length} reported</span></div>{findings.map(finding => <CandidateFindingCard key={finding.id} finding={finding} />)}</section>;
+  return (
+    <section className="review-finding-list" aria-labelledby="result-findings-heading">
+      <div className="review-section-heading"><div><h2 id="result-findings-heading">Findings</h2><p>Reported observations remain separate from the activity decision.</p></div><span>{findings.length} reported</span></div>
+      <div className="review-result-table-wrap">
+        <table className="review-result-findings-table">
+          <caption className="visually-hidden">Review findings</caption>
+          <thead><tr><th scope="col">Severity</th><th scope="col">Finding</th><th scope="col">Status</th><th scope="col">Location</th></tr></thead>
+          <tbody>{findings.map(finding => {
+            const location = finding.filePath ? `${finding.filePath}${finding.lineNumber == null ? '' : `:${finding.lineNumber}`}` : 'Not supplied';
+            return <tr key={finding.id}>
+              <td><StatusBadge label={severityLabel(finding.severity)} /></td>
+              <td><details className="review-result-finding-details"><summary>{finding.title}</summary><div className="review-result-finding-detail-body"><p>{finding.description || 'No description was supplied.'}</p><FindingEvidence finding={finding} hasEvidence={Boolean(finding.evidenceText || finding.filePath)} /></div></details></td>
+              <td><span className="review-finding-state">{findingStatusLabel(finding.status)}</span></td>
+              <td className="mono review-result-location">{location}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 function Traceability({ findings }: { findings: Finding[] }) {
-  return <section className="review-traceability"><div className="review-section-heading"><div><h2>Traceability</h2><p>Current service data does not include structured requirement relationships; these rows are evidence-limited.</p></div></div>{findings.map(finding => <div key={finding.id} className="traceability-row"><span className="review-traceability-state">Evidence limited</span><span>{finding.title}</span><span className="mono">{finding.filePath || 'Implementation location not supplied'}</span></div>)}{findings.length === 0 && <p className="review-activity-empty">No traceability evidence is available for this review.</p>}</section>;
-}
-
-function RiskAssessment({ findings }: { findings: Finding[] }) {
-  return <section className="review-risk"><div className="review-section-heading"><div><h2>Reported findings by severity</h2><p>Severity describes reported impact. Fix priority is shown only when the service supplies it.</p></div></div>{findings.map(finding => <div key={finding.id} className="risk-row"><div><span className="mono">{finding.id}</span><h3>{finding.title}</h3></div><div className="risk-values"><span><small>Severity</small>{severityLabel(finding.severity)}</span><span><small>Fix priority</small>{finding.priority ? severityLabel(finding.priority) : 'Not supplied'}</span></div></div>)}{findings.length === 0 && <p className="review-activity-empty">No findings require a severity summary.</p>}</section>;
+  return <section className="review-traceability"><div className="review-section-heading"><div><h2>Traceability</h2><p>Structured requirement relationships are not supplied by this review service.</p></div></div><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>Traceability is unavailable for this result. Findings and source evidence remain available in the Findings tab.</span></div></section>;
 }
 
 function HistoryPanel({ progress, decisions, error }: { progress: string; decisions: ReviewDecisionRecord[]; error: string | null }) {

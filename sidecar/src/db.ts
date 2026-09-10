@@ -182,6 +182,22 @@ function initSchema(db: Database) {
       FOREIGN KEY (project_id) REFERENCES projects(id)
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS review_decision_attachments (
+      id TEXT PRIMARY KEY,
+      decision_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      content_base64 TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (decision_id) REFERENCES review_decisions(id),
+      FOREIGN KEY (session_id) REFERENCES static_sessions(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_review_decision_attachments_decision ON review_decision_attachments(decision_id, created_at ASC)');
   // Index: list decisions for a session in reverse chronological order.
   db.run(`CREATE INDEX IF NOT EXISTS idx_review_decisions_session ON review_decisions(session_id, created_at DESC)`);
   // Index: list all decisions on a project (for the "review activity" feed

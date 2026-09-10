@@ -1,4 +1,4 @@
-import { AlertCircle, Check, ChevronDown, CircleDot } from 'lucide-react';
+import { AlertCircle, Check, CircleDot } from 'lucide-react';
 import type { ReviewProgress } from '../types';
 import { formatReviewTimestamp, normalizeReviewStages } from '../reviewViewModel';
 
@@ -41,12 +41,8 @@ export function ReviewProgressView({ progress }: Props) {
   return (
     <div className="review-progress" aria-label="Centinel activity timeline">
       {liveText && <p className="review-activity-live" aria-live="polite">{liveText}</p>}
-      <ol className="review-activity-timeline">
+      <ol className="review-activity-timeline" aria-label="Centinel review stages">
         {stages.map((stage, index) => {
-          const detailsAvailable = stage.details.activity.length > 0
-            || stage.details.evidence.length > 0
-            || Boolean(stage.details.assessment)
-            || Boolean(stage.details.outcome);
           const stageTime = formatReviewTimestamp(stage.updatedAt);
           return (
             <li key={`${stage.id}-${index}`} className={`stage stage-${stage.status}`}>
@@ -68,28 +64,18 @@ export function ReviewProgressView({ progress }: Props) {
               </div>
 
               {stage.summary && <p className="stage-summary">{stage.summary}</p>}
-
-              {detailsAvailable && (
-                <details className="activity-details">
-                  <summary><ChevronDown size={14} aria-hidden="true" /><span>View activity details</span></summary>
-                  <div className="activity-details-body">
-                    {stage.details.activity.length > 0 && (
-                      <div className="activity-detail-group">
-                        <h4>Activity</h4>
-                        <ul>{stage.details.activity.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{item}</li>)}</ul>
-                      </div>
-                    )}
-                    {stage.details.evidence.length > 0 && (
-                      <div className="activity-detail-group">
-                        <h4>Evidence examined</h4>
-                        <ul>{stage.details.evidence.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{item}</li>)}</ul>
-                      </div>
-                    )}
-                    {stage.details.assessment && <div className="activity-detail-group"><h4>Assessment</h4><p>{stage.details.assessment}</p></div>}
-                    {stage.details.outcome && <div className="activity-detail-group"><h4>Outcome</h4><p>{stage.details.outcome}</p></div>}
-                  </div>
-                </details>
-              )}
+              {stage.details.activity.map((item, itemIndex) => (
+                <div className="review-reasoning" key={`${item}-${itemIndex}`}>
+                  <p>{item}</p>
+                  {stage.details.evidence.length > 0 && (
+                    <div className="review-source-tags" role="group" aria-label={`Sources for ${stage.label}`}>
+                      {stage.details.evidence.map(source => <span className="review-source-tag" key={source} title={source} aria-label={source}>{source.length > 15 ? `${source.slice(0, 15)}…` : source}</span>)}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {stage.details.assessment && <div className="review-reasoning"><p>{stage.details.assessment}</p></div>}
+              {stage.details.outcome && <p className="stage-outcome">{stage.details.outcome}</p>}
             </li>
           );
         })}

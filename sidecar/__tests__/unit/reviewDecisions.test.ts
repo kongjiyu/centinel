@@ -52,6 +52,13 @@ function seedSession(db: Awaited<ReturnType<typeof makeDb>>, projectId: string, 
       reviewer TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS review_decision_attachments (
+      id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL, file_name TEXT NOT NULL, mime_type TEXT NOT NULL,
+      content_base64 TEXT NOT NULL, created_at TEXT NOT NULL
+    )
+  `);
   const now = new Date().toISOString();
   db.run(
     'INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)',
@@ -153,6 +160,22 @@ describe('reviewDecisions', () => {
     });
     expect(r.comment).toBe('look at line 42');
     expect(r.reviewer).toBe('alice');
+  });
+
+  it('persists supportive documents with feedback without making a comment the current decision', async () => {
+    const db = await makeDb();
+    seedSession(db, 'p1', 's1');
+    setTestDb(db);
+
+    const feedback = await submitReviewDecision('s1', 'p1', {
+      decision: 'commented',
+      comment: 'Review the attached release notes.',
+      attachments: [{ fileName: 'release-notes.md', mimeType: 'text/markdown', content: 'c3VwcG9ydA==' }],
+    });
+
+    expect(feedback.attachments).toEqual([expect.objectContaining({ fileName: 'release-notes.md', mimeType: 'text/markdown' })]);
+    expect(await getCurrentDecision('s1')).toBeNull();
+    expect((await listReviewDecisions('s1'))[0].attachments).toEqual(feedback.attachments);
   });
 
   it('listReviewDecisions honors the limit', async () => {

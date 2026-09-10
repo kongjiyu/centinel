@@ -130,7 +130,7 @@ function stringArray(value: unknown): string[] {
 
 function readDetails(stage: ReviewStageProgress): SafeActivityDetails {
   // Older payloads only have `thoughts`. They are treated as auditable
-  // activity strings and remain collapsed; they are never called reasoning.
+  // activity strings; they are never presented as private chain-of-thought.
   const raw = stage as unknown as Record<string, unknown>;
   const evidence = stringArray(raw.evidence ?? raw.evidenceExamined ?? raw.sources);
   const assessment = typeof raw.assessment === 'string' && raw.assessment.trim()
