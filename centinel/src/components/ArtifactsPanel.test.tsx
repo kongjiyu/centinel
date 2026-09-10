@@ -7,9 +7,11 @@ import type { Artifact } from '../types';
 import { readBinaryFile } from '@tauri-apps/api/fs';
 
 const filePicker = vi.hoisted(() => vi.fn());
+const externalOpen = vi.hoisted(() => vi.fn());
 
 vi.mock('@tauri-apps/api/dialog', () => ({ open: filePicker }));
 vi.mock('@tauri-apps/api/fs', () => ({ readBinaryFile: vi.fn() }));
+vi.mock('@tauri-apps/api/shell', () => ({ open: externalOpen }));
 vi.mock('../api/client', () => ({
   api: {
     listArtifacts: vi.fn(),
@@ -36,6 +38,8 @@ describe('ArtifactsPanel', () => {
     vi.clearAllMocks();
     vi.mocked(api.uploadArtifact).mockResolvedValue({} as Artifact);
     vi.mocked(api.listArtifacts).mockResolvedValue([]);
+    vi.mocked(api.deleteArtifact).mockResolvedValue({ ok: true });
+    vi.mocked(externalOpen).mockResolvedValue(undefined);
   });
 
   it('offers a keyboard/click empty drop target and reports unsupported files', async () => {
@@ -53,27 +57,20 @@ describe('ArtifactsPanel', () => {
     expect(input).toBeInTheDocument();
   });
 
-  it('renders repository folders as keyboard-operable disclosures', async () => {
+  it('shows the five source categories and keeps disconnected connectors unavailable', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
     render(<ArtifactsPanel projectId="p-1" />);
-
-    const repository = await screen.findByRole('button', { name: /Repository.*src.*2 files/i });
-    await user.click(repository);
-    const folder = screen.getByRole('button', { name: /components/i });
-    expect(screen.queryByText('Button.tsx')).not.toBeInTheDocument();
-    await user.click(folder);
-    expect(screen.getByText('Button.tsx')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /^Add source$/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Add source' });
+    expect(within(dialog).getByRole('button', { name: /Documents/ })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /Repository/ })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /GitHub/ })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: /Google Drive/ })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: /Slack/ })).toBeDisabled();
+    expect(within(dialog).getByText(/remain unavailable/i)).toBeInTheDocument();
   });
 
-  it('keeps a real load failure visible instead of implying an empty project', async () => {
-    vi.mocked(api.listArtifacts).mockRejectedValue(new Error('sidecar unavailable'));
-    render(<ArtifactsPanel projectId="p-1" />);
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Sources could not be loaded'));
-    expect(screen.getByText('Drop source files here')).toBeInTheDocument();
-  });
-
-  it('opens source contents in a modal and previews supported text files', async () => {
+  it('opens a document in the detail view with Markdown Preview and Original modes', async () => {
     const user = userEvent.setup();
     const documentArtifact: Artifact = {
       id: 'a-doc', projectId: 'p-1', type: 'requirement', source: 'documents', fileName: 'requirements.md',
@@ -83,13 +80,61 @@ describe('ArtifactsPanel', () => {
     vi.mocked(readBinaryFile).mockResolvedValue(new TextEncoder().encode('# Requirements'));
     render(<ArtifactsPanel projectId="p-1" />);
 
-    await user.click(await screen.findByRole('button', { name: 'Browse contents' }));
-    const sourceDialog = screen.getByRole('dialog', { name: 'Source contents' });
-    expect(sourceDialog).toHaveTextContent('requirements.md');
-    await user.click(within(sourceDialog).getByRole('button', { name: 'Preview' }));
-
-    const previewDialog = await screen.findByRole('dialog', { name: 'Preview requirements.md' });
-    expect(await within(previewDialog).findByText('# Requirements')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(screen.getByRole('button', { name: /Back to sources/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'requirements.md' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Requirements' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Original' }));
+    expect(screen.getByText('# Requirements')).toBeInTheDocument();
     expect(readBinaryFile).toHaveBeenCalledWith(documentArtifact.filePath);
+  });
+
+  it('opens a repository explorer, traverses directories, and previews a selected file', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
+    vi.mocked(readBinaryFile).mockResolvedValue(new TextEncoder().encode('export const button = true;'));
+    render(<ArtifactsPanel projectId="p-1" />);
+
+    expect(await screen.findByText('repo')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(screen.getByRole('heading', { name: 'repo' })).toBeInTheDocument();
+    expect(screen.getByRole('tree', { name: 'Repository directory tree' })).toBeInTheDocument();
+    await user.click(screen.getByRole('treeitem', { name: /src 2 files/ }));
+    await user.click(screen.getByRole('treeitem', { name: /components/ }));
+    await user.click(screen.getByRole('treeitem', { name: /Button\.tsx/ }));
+    expect(await screen.findByText('export const button = true;')).toBeInTheDocument();
+  });
+
+  it('does not invent a repository location when imported paths are relative', async () => {
+    vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts.map((artifact, index) => ({
+      ...artifact,
+      originalPath: index === 0 ? 'README.md' : 'src/components/Button.tsx',
+    })));
+    render(<ArtifactsPanel projectId="p-1" />);
+
+    expect(await screen.findByText('Imported repository')).toBeInTheDocument();
+    expect(screen.getByText('Repository location unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
+  });
+
+  it('shows unsupported preview text and opens a real external/local location only when present', async () => {
+    const user = userEvent.setup();
+    const artifact: Artifact = {
+      id: 'a-bin', projectId: 'p-1', type: 'other', source: 'documents', fileName: 'archive.bin',
+      filePath: 'C:/work/archive.bin', originalPath: null, contentHash: 'bin', createdAt: '2026-09-07T10:00:00.000Z',
+    };
+    vi.mocked(api.listArtifacts).mockResolvedValue([artifact]);
+    render(<ArtifactsPanel projectId="p-1" />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(screen.getByText(/Preview not available/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Preview' })).toBeInTheDocument();
+  });
+
+  it('keeps a real load failure visible instead of implying an empty project', async () => {
+    vi.mocked(api.listArtifacts).mockRejectedValue(new Error('sidecar unavailable'));
+    render(<ArtifactsPanel projectId="p-1" />);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Sources could not be loaded'));
+    expect(screen.getByText('Drop source files here')).toBeInTheDocument();
   });
 });

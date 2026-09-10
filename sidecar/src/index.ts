@@ -12,6 +12,7 @@ import {
   updateProject,
   deleteProject,
   getCollaborationStatus,
+  listGithubPullRequests,
   searchGithubUsers,
   inviteGithubCollaborator,
   CollaborationError,
@@ -60,6 +61,7 @@ import {
   listReviewDecisions,
   getCurrentDecision,
   isValidDecision,
+  reviewDecisionSubmissionError,
   type ReviewDecisionAttachmentInput,
 } from './reviewDecisions';
 import { getChangedFiles } from './gitScope';
@@ -128,6 +130,11 @@ function matchCollaboratorSearch(url: string): string | null {
 
 function matchCollaboratorInvite(url: string): string | null {
   const m = url.match(/^\/projects\/([a-f0-9-]+)\/collaborators\/invite$/);
+  return m ? m[1] : null;
+}
+
+function matchPullRequests(url: string): string | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/github\/pull-requests$/);
   return m ? m[1] : null;
 }
 
@@ -558,6 +565,16 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    const pullRequestProjectId = matchPullRequests(url);
+    if (pullRequestProjectId && req.method === 'GET') {
+      try {
+        return json(res, 200, await listGithubPullRequests(pullRequestProjectId));
+      } catch (cause) {
+        if (cause instanceof CollaborationError) return json(res, cause.httpStatus, { error: cause.message, code: cause.code });
+        return json(res, 502, { error: 'GitHub pull request lookup failed' });
+      }
+    }
+
     // Project get/update/delete
     const projectId = matchProjectId(url);
     if (projectId && req.method === 'GET') {
@@ -672,7 +689,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const instructions = typeof body.instructions === 'string' ? body.instructions.trim() : '';
-      const reviewMode = body.reviewMode === 'pull-request' ? 'pull-request' : 'regular';
+      const reviewMode = body.reviewMode === 'pull-request' || body.reviewMode === 'changed-files' ? body.reviewMode : 'regular';
       const reviewer = typeof body.reviewer === 'string' ? body.reviewer.trim() : 'Project owner';
       const pullRequest = typeof body.pullRequest === 'string' ? body.pullRequest.trim() : '';
       const temporaryArtifactIds = Array.isArray(body.temporaryArtifactIds)
@@ -787,10 +804,9 @@ const server = http.createServer(async (req, res) => {
         const signature = `${progress.currentStage}:${activeStage?.thoughts.length ?? 0}`;
         if (signature !== lastProgressSignature) {
           lastProgressSignature = signature;
-          const latestThought = activeStage?.thoughts[activeStage.thoughts.length - 1];
           console.info(
             `[review-session] progress id=${session.id} stage=${progress.currentStage}` +
-              (latestThought ? ` thought=${JSON.stringify(latestThought)}` : '')
+              ` activities=${activeStage?.thoughts.length ?? 0}`
           );
         }
       }).then(async () => {
@@ -881,12 +897,8 @@ const server = http.createServer(async (req, res) => {
       if (!isValidDecision(body.decision)) {
         return json(res, 400, { error: 'Invalid decision. Must be approved, changes_requested, or commented.' });
       }
-      // Feedback is an append-only activity record and may be added while a
-      // review is running. Lifecycle decisions still require a completed
-      // review so users cannot approve work that has not produced a result.
-      if (body.decision !== 'commented' && session.status !== 'success') {
-        return json(res, 400, { error: 'Approval decisions can only be recorded on completed reviews' });
-      }
+      const transitionError = reviewDecisionSubmissionError(body.decision, session.status);
+      if (transitionError) return json(res, 400, { error: transitionError });
       const comment = typeof body.comment === 'string' ? body.comment : '';
       const reviewer = typeof body.reviewer === 'string' ? body.reviewer : '';
       const attachments: ReviewDecisionAttachmentInput[] = Array.isArray(body.attachments)

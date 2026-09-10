@@ -14,10 +14,24 @@ import type {
  * capabilities from a missing field.
  */
 export type ReviewLifecycleState =
+  | 'Queued'
   | 'In progress'
-  | 'Pending to Review'
+  | 'Need Approval'
   | 'Completed'
   | 'Blocked'
+  | 'Cancelled'
+  | 'Failed';
+
+/**
+ * The user-facing lifecycle used by project rollups.  Keep execution status,
+ * review decisions, and finding status separate in the data model, but derive
+ * one label whenever a session is shown as an activity summary.
+ */
+export type ProjectActivityLifecycle =
+  | 'Queued'
+  | 'In progress'
+  | 'Need Approval'
+  | 'Completed'
   | 'Cancelled'
   | 'Failed';
 
@@ -98,13 +112,57 @@ export function reviewLifecycleState(
   currentDecision: ReviewDecisionRecord | null = session.currentDecision ?? null,
 ): ReviewLifecycleState {
   if (currentDecision?.decision === 'approved') return 'Completed';
-  if (session.status === 'running' || session.status === 'queued') return 'In progress';
+  if (session.status === 'queued') return 'Queued';
+  if (session.status === 'running') return 'In progress';
   if (session.status === 'blocked') return 'Blocked';
   if (session.status === 'failure') return 'Failed';
   if (session.status === 'cancelled') return 'Cancelled';
   // A rejected/commented activity is still the same activity and must not be
   // described as automatically reprocessing. It remains available for review.
-  return 'Pending to Review';
+  return 'Need Approval';
+}
+
+/**
+ * Map an activity into the stable language used in Project Detail, Projects,
+ * Dashboard, and Review Activity. Dynamic sessions do not have an approval
+ * decision, so their successful state is completed; static sessions require
+ * an explicit approval before they become completed.
+ */
+export function projectActivityLifecycle(
+  session: { status: string; currentDecision?: ReviewDecisionRecord | null; reviewType?: string },
+  kind?: 'review' | 'dynamic',
+): ProjectActivityLifecycle {
+  const isReview = kind === 'review' || (kind === undefined && 'reviewType' in session);
+  if (isReview) {
+    if (session.currentDecision?.decision === 'approved') return 'Completed';
+    if (session.status === 'queued') return 'Queued';
+    if (session.status === 'running') return 'In progress';
+    if (session.status === 'cancelled') return 'Cancelled';
+    if (session.status === 'failure' || session.status === 'blocked') return 'Failed';
+    // A successful review without an approved decision (including requested
+    // changes) remains in the approval workspace.
+    return 'Need Approval';
+  }
+
+  switch (session.status) {
+    case 'queued': return 'Queued';
+    case 'running': return 'In progress';
+    case 'success': return 'Completed';
+    case 'cancelled': return 'Cancelled';
+    case 'failure':
+    case 'blocked':
+      return 'Failed';
+    default:
+      return 'Failed';
+  }
+}
+
+export function projectActivityLifecycleTone(state: ProjectActivityLifecycle): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
+  if (state === 'Completed') return 'success';
+  if (state === 'In progress' || state === 'Queued') return 'running';
+  if (state === 'Need Approval') return 'warning';
+  if (state === 'Failed') return 'danger';
+  return 'neutral';
 }
 
 export function reviewTargetLabel(session: StaticSession): string {

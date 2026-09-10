@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { projectActivityLifecycle, type ProjectActivityLifecycle } from '../reviewViewModel';
 import type { Artifact, DynamicSession, Project, StaticSession } from '../types';
 
 export type ActivityTypeFilter = 'all' | 'review' | 'dynamic';
-export type ProjectStateFilter = 'all' | 'needs_attention' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
+export type ProjectStateFilter = 'all' | 'needs_attention' | 'needs_approval' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
 
 export type ProjectActivity = {
   id: string;
@@ -22,6 +23,7 @@ export type ProjectAction = {
   reason: string;
   updatedAt: string;
   sessionId?: string;
+  sessionName?: string;
 };
 
 export type ProjectSummary = {
@@ -50,13 +52,12 @@ export function timestamp(value: string | undefined): number {
 export function formatActivityTime(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'Time unavailable';
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(parsed);
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(parsed);
+  const year = parsed.getFullYear();
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  return `${day} ${month} ${year} ${hour}:${minute}`;
 }
 
 export function statusLabel(status: string): string {
@@ -95,12 +96,13 @@ function getStaticAction(project: Project, sessions: StaticSession[], artifacts:
         id: `review-failure:${session.id}`,
         project,
         module: 'Review',
-        state: session.status === 'blocked' ? 'Review blocked' : 'Review failed',
+        state: 'Failed',
         action: 'Inspect',
         tone: 'danger',
         reason: session.failureReason || `${session.name} stopped before Centinel could produce a result.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
+        sessionName: session.name,
       });
       return;
     }
@@ -118,6 +120,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], artifacts:
         reason: session.currentDecision.comment || `${session.name} has requested changes that still need a response.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
+        sessionName: session.name,
       });
       return;
     }
@@ -133,6 +136,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], artifacts:
         reason: `${session.name} finished without a review decision.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
+        sessionName: session.name,
       });
     }
   });
@@ -166,12 +170,13 @@ function getDynamicAction(project: Project, sessions: DynamicSession[], unavaila
     id: `dynamic:${session.id}`,
     project,
     module: 'Dynamic Testing',
-    state: session.status === 'blocked' ? 'Test blocked' : 'Test failed',
+    state: 'Failed',
     action: 'Inspect',
     tone: session.status === 'blocked' ? 'warning' : 'danger',
     reason: session.failureReason || `${session.name} ended before its test goal could be verified.`,
     updatedAt: sessionUpdatedAt(session),
     sessionId: session.id,
+    sessionName: session.name,
   };
 }
 
@@ -215,6 +220,9 @@ function buildSummary(
 
 export function getProjectState(summary: ProjectSummary): ProjectState {
   if (summary.action) {
+    if (summary.action.id.startsWith('review-decision:') || summary.action.id.startsWith('review-changes:')) {
+      return { group: 'needs_approval', label: 'Need Approval', tone: 'warning' };
+    }
     return {
       group: 'needs_attention',
       label: summary.action.state,
@@ -227,17 +235,19 @@ export function getProjectState(summary: ProjectSummary): ProjectState {
   if (!summary.latestActivity) {
     return { group: 'no_activity', label: 'No activity', tone: 'neutral' };
   }
-  if (summary.latestActivity.session.status === 'cancelled') {
-    return { group: 'cancelled', label: 'Cancelled', tone: 'neutral' };
+  const lifecycle = projectActivityLifecycle(
+    summary.latestActivity.session,
+    summary.latestActivity.kind,
+  ) as ProjectActivityLifecycle;
+  if (lifecycle === 'Need Approval') {
+    return { group: 'needs_approval', label: lifecycle, tone: 'warning' };
   }
-  if (summary.latestActivity.session.status === 'success') {
-    return { group: 'completed', label: 'Completed', tone: 'success' };
+  if (lifecycle === 'In progress' || lifecycle === 'Queued') {
+    return { group: 'in_progress', label: lifecycle, tone: 'info' };
   }
-  return {
-    group: 'needs_attention',
-    label: statusLabel(summary.latestActivity.session.status),
-    tone: summary.latestActivity.session.status === 'failure' ? 'danger' : 'warning',
-  };
+  if (lifecycle === 'Completed') return { group: 'completed', label: lifecycle, tone: 'success' };
+  if (lifecycle === 'Cancelled') return { group: 'cancelled', label: lifecycle, tone: 'neutral' };
+  return { group: 'needs_attention', label: lifecycle, tone: 'danger' };
 }
 
 export function sortProjectSummaries(summaries: ProjectSummary[]): ProjectSummary[] {

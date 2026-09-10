@@ -101,7 +101,7 @@ export function ProjectsScreen({
             </label>
             <label htmlFor="project-state-filter">
               <span>Current state</span>
-              <Select id="project-state-filter" value={stateFilter} onChange={value => { setStateFilter(value as ProjectStateFilter); setPage(1); }} options={[{ value: 'all', label: 'All states' }, { value: 'needs_attention', label: 'Needs attention' }, { value: 'in_progress', label: 'In progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'no_activity', label: 'No activity' }]} />
+              <Select id="project-state-filter" value={stateFilter} onChange={value => { setStateFilter(value as ProjectStateFilter); setPage(1); }} options={[{ value: 'all', label: 'All states' }, { value: 'needs_attention', label: 'Failed' }, { value: 'needs_approval', label: 'Need Approval' }, { value: 'in_progress', label: 'In progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'no_activity', label: 'No activity' }]} />
             </label>
             {hasActiveFilters && (
               <button

@@ -307,7 +307,7 @@ export type Screen =
   | {
       name: 'projects';
       search?: string;
-      stateFilter?: 'all' | 'needs_attention' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
+      stateFilter?: 'all' | 'needs_attention' | 'needs_approval' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
       activityFilter?: 'all' | 'review' | 'dynamic';
       /** Open the directory's existing project-creation modal on entry. */
       initialCreate?: boolean;
@@ -319,7 +319,7 @@ export type Screen =
       initialStaticSessionId?: string;
     }
   | { name: 'review-entry'; projectId?: string }
-  | { name: 'review-activity'; projectId: string; sessionId: string }
+  | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }

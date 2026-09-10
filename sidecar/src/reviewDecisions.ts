@@ -57,6 +57,27 @@ export function isValidDecision(value: unknown): value is ReviewDecision {
   return typeof value === 'string' && VALID_DECISIONS.has(value as ReviewDecision);
 }
 
+/**
+ * Validate when a decision-like event may be appended. Human feedback is
+ * deliberately gated while the automated run is queued or active so the
+ * audit trail cannot imply that the worker consumed a message it never saw.
+ */
+export function reviewDecisionSubmissionError(
+  decision: ReviewDecision,
+  sessionStatus: string,
+): string | null {
+  if (decision === 'commented') {
+    if (sessionStatus === 'queued' || sessionStatus === 'running') {
+      return 'Feedback can only be added after review reasoning has stopped.';
+    }
+    return null;
+  }
+  if (sessionStatus !== 'success') {
+    return 'Approval decisions can only be recorded on completed reviews.';
+  }
+  return null;
+}
+
 function mapRow(row: unknown[]): ReviewDecisionRecord {
   return {
     id: row[0] as string,

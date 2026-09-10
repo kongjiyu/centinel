@@ -1,17 +1,33 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { open } from '@tauri-apps/api/dialog';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { open as pickPath } from '@tauri-apps/api/dialog';
 import { readBinaryFile } from '@tauri-apps/api/fs';
+import { open as openLocation } from '@tauri-apps/api/shell';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import {
+  ArrowLeft,
+  ChevronRight,
+  Cloud,
+  File,
+  Folder,
+  GitBranch,
+  MessageSquare,
+  Plus,
+  RotateCw,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { api } from '../api/client';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { Artifact, ArtifactSource } from '../types';
-import { ChevronRight, Cloud, File, Folder, GitBranch, MessageSquare, Plus, RotateCw, X, Upload } from 'lucide-react';
 
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'json', 'yaml', 'yml',
   'html', 'css', 'go', 'rb', 'php', 'rs', 'cpp', 'c', 'h', 'xml', 'toml', 'ini',
 ]);
-const PREVIEW_EXTENSIONS = new Set([...TEXT_EXTENSIONS, 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+const PREVIEW_EXTENSIONS = new Set([...TEXT_EXTENSIONS, 'pdf', ...IMAGE_EXTENSIONS]);
 const SUPPORTED_EXTENSIONS = PREVIEW_EXTENSIONS;
 
 function extensionOf(fileName: string): string {
@@ -19,7 +35,7 @@ function extensionOf(fileName: string): string {
   return match?.[1] || '';
 }
 
-async function fileToBase64(file: File): Promise<string> {
+async function fileToBase64(file: globalThis.File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = '';
   const chunkSize = 0x8000;
@@ -32,7 +48,7 @@ async function fileToBase64(file: File): Promise<string> {
 const SOURCE_LABELS: Record<ArtifactSource, string> = {
   documents: 'Documents',
   repository: 'Repository',
-  drive: 'Drive',
+  drive: 'Google Drive',
 };
 
 const SOURCE_COLORS: Record<ArtifactSource, string> = {
@@ -60,22 +76,30 @@ type Props = {
 };
 
 type DeleteTarget =
-  | { kind: 'document'; artifact: Artifact }
+  | { kind: 'artifact'; artifact: Artifact }
   | { kind: 'repository'; group: RepoGroup };
+
+type PreviewKind = 'text' | 'pdf' | 'image';
 
 type PreviewState = {
   artifact: Artifact;
-  kind: 'text' | 'pdf' | 'image';
+  kind: PreviewKind | null;
   content: string | null;
   error: string | null;
   loading: boolean;
 };
 
-function artifactKind(fileName: string): PreviewState['kind'] | null {
+type SourceView =
+  | { kind: 'document'; artifact: Artifact }
+  | { kind: 'repository'; group: RepoGroup };
+
+type MarkdownMode = 'preview' | 'original';
+
+function artifactKind(fileName: string): PreviewKind | null {
   const extension = extensionOf(fileName);
   if (TEXT_EXTENSIONS.has(extension)) return 'text';
   if (extension === 'pdf') return 'pdf';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) return 'image';
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image';
   return null;
 }
 
@@ -100,6 +124,143 @@ function toDataUrl(bytes: Uint8Array, type: string): string {
   return `data:${type};base64,${btoa(binary)}`;
 }
 
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '');
+}
+
+function pathParts(path: string): string[] {
+  return normalizePath(path).split('/').filter(Boolean);
+}
+
+/**
+ * Artifact records do not yet carry a repository id. Use their persisted
+ * common ancestor rather than a fixed path depth so a Windows repository at
+ * C:/Users/name/Projects/repo is not incorrectly displayed as "Users".
+ */
+function commonRepositoryRoot(artifacts: Artifact[]): string {
+  const paths = artifacts
+    .map(artifact => normalizePath(artifact.originalPath || artifact.filePath || artifact.fileName))
+    .filter(Boolean);
+  if (paths.length === 0) return 'Repository';
+  const directories = paths.map(path => path.split('/').filter(Boolean).slice(0, -1));
+  const first = directories[0];
+  let commonLength = first.length;
+  for (const directory of directories.slice(1)) {
+    commonLength = Math.min(commonLength, directory.length);
+    let index = 0;
+    while (index < commonLength && first[index].toLowerCase() === directory[index].toLowerCase()) index += 1;
+    commonLength = index;
+  }
+  let common = first.slice(0, commonLength);
+  if (common.length === 0 || (common.length === 1 && /^[A-Za-z]:$/.test(common[0]))) return '';
+  const conventionalContainer = common[common.length - 1]?.toLowerCase();
+  if (['src', 'app', 'lib', 'docs', 'test', 'tests'].includes(conventionalContainer) && common.length > 1) {
+    common = common.slice(0, -1);
+  }
+  const prefix = paths[0].startsWith('/') ? '/' : '';
+  return `${prefix}${common.join('/')}`;
+}
+
+function displayLocation(artifact: Artifact): string {
+  return artifact.originalPath || artifact.filePath || 'Location unavailable';
+}
+
+function validLocation(artifact: Artifact): string | null {
+  const value = (artifact.originalPath || artifact.filePath || '').trim();
+  return value || null;
+}
+
+function buildTree(artifacts: Artifact[], rootPath: string): TreeNode[] {
+  const root: TreeNode[] = [];
+  const normalizedRoot = normalizePath(rootPath);
+
+  for (const artifact of artifacts) {
+    const fullPath = artifact.originalPath || artifact.filePath || artifact.fileName;
+    const normalizedFull = normalizePath(fullPath);
+    let relative = normalizedFull;
+    if (normalizedFull.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`)) {
+      relative = normalizedFull.slice(normalizedRoot.length + 1);
+    } else if (normalizedFull.toLowerCase() === normalizedRoot.toLowerCase()) {
+      relative = artifact.fileName;
+    }
+    const parts = relative.split('/').filter(Boolean);
+    if (parts.length === 0) parts.push(artifact.fileName);
+    let current = root;
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      const directoryName = parts[index];
+      let directory = current.find(node => node.isDir && node.name.toLowerCase() === directoryName.toLowerCase());
+      if (!directory) {
+        directory = { name: directoryName, isDir: true, children: [] };
+        current.push(directory);
+      }
+      current = directory.children!;
+    }
+    current.push({ name: parts[parts.length - 1], isDir: false, artifact });
+  }
+
+  const sortTree = (nodes: TreeNode[]) => {
+    nodes.sort((left, right) => {
+      if (left.isDir !== right.isDir) return left.isDir ? -1 : 1;
+      return left.name.localeCompare(right.name);
+    });
+    nodes.forEach(node => { if (node.children) sortTree(node.children); });
+  };
+  sortTree(root);
+  return root;
+}
+
+function getNodesAtPath(nodes: TreeNode[], directoryPath: string): TreeNode[] {
+  if (!directoryPath) return nodes;
+  let current = nodes;
+  for (const part of directoryPath.split('/').filter(Boolean)) {
+    const directory = current.find(node => node.isDir && node.name === part);
+    if (!directory?.children) return [];
+    current = directory.children;
+  }
+  return current;
+}
+
+function countFiles(node: TreeNode): number {
+  if (!node.isDir) return 1;
+  return (node.children || []).reduce((total, child) => total + countFiles(child), 0);
+}
+
+function PreviewPane({
+  preview,
+  markdownMode,
+  onMarkdownModeChange,
+}: {
+  preview: PreviewState | null;
+  markdownMode: MarkdownMode;
+  onMarkdownModeChange: (mode: MarkdownMode) => void;
+}) {
+  if (!preview) return <p className="source-preview-empty">Select a file to preview it.</p>;
+  if (preview.loading) return <div className="panel-loading" role="status">Loading preview…</div>;
+  if (preview.error) return <p className="form-error" role="alert">{preview.error}</p>;
+  if (!preview.kind) return <p className="source-preview-unavailable">Preview not available</p>;
+  if (!preview.content) return <p className="source-preview-empty">Preview not available.</p>;
+
+  const isMarkdown = extensionOf(preview.artifact.fileName) === 'md';
+  return (
+    <div className="source-preview-content">
+      {isMarkdown && (
+        <div className="source-preview-mode" role="group" aria-label="Markdown preview mode">
+          <button type="button" className={markdownMode === 'preview' ? 'active' : ''} aria-pressed={markdownMode === 'preview'} onClick={() => onMarkdownModeChange('preview')}>Preview</button>
+          <button type="button" className={markdownMode === 'original' ? 'active' : ''} aria-pressed={markdownMode === 'original'} onClick={() => onMarkdownModeChange('original')}>Original</button>
+        </div>
+      )}
+      {preview.kind === 'text' && isMarkdown && markdownMode === 'preview' && (
+        <article className="artifact-markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.content}</ReactMarkdown></article>
+      )}
+      {preview.kind === 'text' && (!isMarkdown || markdownMode === 'original') && (
+        <pre className="artifact-text-preview"><code>{preview.content}</code></pre>
+      )}
+      {preview.kind === 'image' && <div className="artifact-image-preview"><img src={preview.content} alt={`Preview of ${preview.artifact.fileName}`} /></div>}
+      {preview.kind === 'pdf' && <iframe className="artifact-pdf-preview" src={preview.content} title={`Preview of ${preview.artifact.fileName}`} />}
+    </div>
+  );
+}
+
 export function ArtifactsPanel({ projectId }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,69 +270,19 @@ export function ArtifactsPanel({ projectId }: Props) {
   const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
-  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [sourceContentsOpen, setSourceContentsOpen] = useState(false);
-  const [sourceContentsGroup, setSourceContentsGroup] = useState<RepoGroup | null>(null);
+  const [sourceView, setSourceView] = useState<SourceView | null>(null);
+  const [repoDirectory, setRepoDirectory] = useState('');
+  const [selectedRepoArtifact, setSelectedRepoArtifact] = useState<Artifact | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [markdownMode, setMarkdownMode] = useState<MarkdownMode>('preview');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Build a tree structure from flat artifact list
-  const buildTree = (artifacts: Artifact[], rootPath: string): TreeNode[] => {
-    const root: TreeNode[] = [];
-    // Normalize path separators for comparison
-    const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
-    const normRoot = normalize(rootPath);
-
-    for (const a of artifacts) {
-      // Get relative path from repo root
-      const fullPath = a.originalPath || a.fileName;
-      const normFull = normalize(fullPath);
-      // Strip root path prefix (case-insensitive)
-      let relPath = normFull.startsWith(normRoot)
-        ? fullPath.substring(rootPath.length)
-        : fullPath;
-      relPath = relPath.replace(/^[/\\]/, '');
-      const parts = relPath.split(/[/\\]/).filter(Boolean);
-
-      let current = root;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const dirName = parts[i];
-        let existing = current.find(n => n.name === dirName && n.isDir);
-        if (!existing) {
-          existing = { name: dirName, isDir: true, children: [] };
-          current.push(existing);
-        }
-        current = existing.children!;
-      }
-      current.push({ name: parts[parts.length - 1], isDir: false, artifact: a });
-    }
-
-    // Sort: dirs first, then files, both alphabetical
-    const sortTree = (nodes: TreeNode[]) => {
-      nodes.sort((a, b) => {
-        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-      nodes.forEach(n => { if (n.children) sortTree(n.children); });
-    };
-    sortTree(root);
-    return root;
-  };
-
-  const toggleFolder = (path: string) => {
-    setExpandedFolders(prev => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  };
+  const lastSourceTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const loadArtifacts = useCallback(async () => {
+    setLoading(true);
     try {
       const data = await api.listArtifacts(projectId);
       setArtifacts(data);
@@ -184,125 +295,97 @@ export function ArtifactsPanel({ projectId }: Props) {
     }
   }, [projectId]);
 
-  useEffect(() => {
-    loadArtifacts();
-  }, [loadArtifacts]);
+  useEffect(() => { void loadArtifacts(); }, [loadArtifacts]);
 
-  // Find common ancestor path for a set of file paths
-  const findCommonRoot = (paths: string[]): string => {
-    if (paths.length === 0) return '';
-    if (paths.length === 1) {
-      // Single file: use its parent dir
-      return paths[0].split(/[/\\]/).slice(0, -1).join('/');
-    }
-    // Split all paths into segments
-    const split = paths.map(p => p.split(/[/\\]/));
-    const minLen = Math.min(...split.map(s => s.length));
-    const common: string[] = [];
-    for (let i = 0; i < minLen; i++) {
-      const seg = split[0][i];
-      if (split.every(s => s[i] === seg)) {
-        common.push(seg);
-      } else {
-        break;
-      }
-    }
-    return common.join('/');
-  };
-
-  // Group artifacts: documents as individual items, repos as grouped
-  const { docArtifacts, repoGroups } = useMemo(() => {
+  const { docArtifacts, repoGroups, driveArtifacts } = useMemo(() => {
     const docs: Artifact[] = [];
-    const repoArtifacts: Artifact[] = [];
-
-    for (const a of artifacts) {
-      const isRepo = a.source === 'repository' || (a.originalPath && a.originalPath.length > 0);
-      if (isRepo) {
-        repoArtifacts.push(a);
+    const repositories: Artifact[] = [];
+    const drive: Artifact[] = [];
+    artifacts.forEach(artifact => {
+      if (artifact.source === 'repository') {
+        repositories.push(artifact);
+      } else if (artifact.source === 'drive') {
+        drive.push(artifact);
       } else {
-        docs.push(a);
+        docs.push(artifact);
       }
-    }
-
-    // Group repo artifacts by common root path
-    const rootMap = new Map<string, Artifact[]>();
-    for (const a of repoArtifacts) {
-      // Find the root by checking which existing group this belongs to
-      let matched = false;
-      for (const [root, group] of rootMap) {
-        const allPaths = [...group.map(g => g.originalPath || ''), a.originalPath || ''];
-        const common = findCommonRoot(allPaths);
-        // If common root is at least as deep as the existing root, it belongs here
-        if (common.length >= root.length && common.startsWith(root.split(/[/\\]/).slice(0, -1).join('/'))) {
-          rootMap.delete(root);
-          rootMap.set(common, [...group, a]);
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        // Start a new group with this artifact's parent dir as initial root
-        const parentDir = a.originalPath
-          ? a.originalPath.split(/[/\\]/).slice(0, -1).join('/')
-          : a.fileName;
-        rootMap.set(parentDir, [a]);
-      }
-    }
-
-    const groups: RepoGroup[] = Array.from(rootMap.entries()).map(([rootPath, arts]) => {
-      const repoName = rootPath.split(/[/\\]/).pop() || 'Imported repository';
-      return {
-        repoName,
-        repoPath: rootPath,
-        rootPath,
-        artifacts: arts,
-      };
     });
-
-    return { docArtifacts: docs, repoGroups: groups };
+    const groups: RepoGroup[] = repositories.length > 0 ? (() => {
+      const rootPath = commonRepositoryRoot(repositories);
+      const parts = pathParts(rootPath);
+      const repoName = parts[parts.length - 1] || 'Imported repository';
+      return [{ repoName, repoPath: rootPath, rootPath, artifacts: repositories }];
+    })() : [];
+    return { docArtifacts: docs, repoGroups: groups, driveArtifacts: drive };
   }, [artifacts]);
-
-  const toggleRepo = (repoName: string) => {
-    setExpandedRepos(prev => {
-      const next = new Set(prev);
-      if (next.has(repoName)) next.delete(repoName);
-      else next.add(repoName);
-      return next;
-    });
-  };
 
   const finishUpload = async () => {
     await loadArtifacts();
     setShowImportDialog(false);
   };
 
-  const openPreview = async (artifact: Artifact) => {
+  const openPreview = useCallback(async (artifact: Artifact) => {
     const kind = artifactKind(artifact.fileName);
+    setPreview({ artifact, kind, content: null, error: null, loading: Boolean(kind) });
     if (!kind) return;
-    setPreview({ artifact, kind, content: null, error: null, loading: true });
     try {
       const bytes = await readBinaryFile(artifact.filePath);
-      const value = kind === 'text'
-        ? new TextDecoder().decode(bytes)
-        : toDataUrl(bytes, mimeType(artifact.fileName));
-      setPreview(current => current?.artifact.id === artifact.id ? { ...current, content: value, loading: false } : current);
+      const content = kind === 'text' ? new TextDecoder().decode(bytes) : toDataUrl(bytes, mimeType(artifact.fileName));
+      setPreview(current => current?.artifact.id === artifact.id ? { ...current, content, loading: false } : current);
     } catch (cause) {
       setPreview(current => current?.artifact.id === artifact.id
         ? { ...current, error: `This file could not be previewed. ${String(cause)}`, loading: false }
         : current);
     }
+  }, []);
+
+  const rememberTrigger = (event: React.MouseEvent<HTMLButtonElement>) => {
+    lastSourceTriggerRef.current = event.currentTarget;
   };
 
-  const uploadBrowserFiles = async (files: File[]) => {
+  const openDocument = (artifact: Artifact, event?: React.MouseEvent<HTMLButtonElement>) => {
+    if (event) rememberTrigger(event);
+    setSourceView({ kind: 'document', artifact });
+    setSelectedRepoArtifact(null);
+    setRepoDirectory('');
+    setMarkdownMode('preview');
+    void openPreview(artifact);
+  };
+
+  const openRepository = (group: RepoGroup, event?: React.MouseEvent<HTMLButtonElement>) => {
+    if (event) rememberTrigger(event);
+    setSourceView({ kind: 'repository', group });
+    setRepoDirectory('');
+    setSelectedRepoArtifact(null);
+    setPreview(null);
+  };
+
+  const goBackToSources = () => {
+    setSourceView(null);
+    setRepoDirectory('');
+    setSelectedRepoArtifact(null);
+    setPreview(null);
+    window.requestAnimationFrame(() => lastSourceTriggerRef.current?.focus());
+  };
+
+  const handleOpenWith = async (artifact: Artifact) => {
+    const location = validLocation(artifact);
+    if (!location) {
+      setError(`No real location is available for ${artifact.fileName}.`);
+      return;
+    }
+    try {
+      await openLocation(location);
+    } catch (cause) {
+      setError(`The location could not be opened. ${String(cause)}`);
+    }
+  };
+
+  const uploadBrowserFiles = async (files: globalThis.File[]) => {
     const supported = files.filter(file => SUPPORTED_EXTENSIONS.has(extensionOf(file.name)));
     const unsupported = files.filter(file => !SUPPORTED_EXTENSIONS.has(extensionOf(file.name)));
-    if (unsupported.length > 0) {
-      setError(`Unsupported source${unsupported.length === 1 ? '' : 's'} skipped: ${unsupported.map(file => file.name).join(', ')}`);
-    } else {
-      setError(null);
-    }
+    setError(unsupported.length > 0 ? `Unsupported source${unsupported.length === 1 ? '' : 's'} skipped: ${unsupported.map(file => file.name).join(', ')}` : null);
     if (supported.length === 0) return;
-
     setUploading(true);
     setUploadProgress({ current: 0, total: supported.length });
     try {
@@ -320,10 +403,9 @@ export function ArtifactsPanel({ projectId }: Props) {
     }
   };
 
-  // Upload: open the native file picker, select multiple files.
   const handleUpload = async () => {
     try {
-      const selected = await open({
+      const selected = await pickPath({
         multiple: true,
         title: 'Select files to upload',
         filters: [{ name: 'Supported Files', extensions: Array.from(SUPPORTED_EXTENSIONS) }],
@@ -339,9 +421,7 @@ export function ArtifactsPanel({ projectId }: Props) {
         const fileData = await readBinaryFile(filePath);
         let binary = '';
         const chunkSize = 0x8000;
-        for (let offset = 0; offset < fileData.length; offset += chunkSize) {
-          binary += String.fromCharCode(...fileData.slice(offset, offset + chunkSize));
-        }
+        for (let offset = 0; offset < fileData.length; offset += chunkSize) binary += String.fromCharCode(...fileData.slice(offset, offset + chunkSize));
         await api.uploadArtifact(projectId, { fileName, content: btoa(binary) });
         setUploadProgress({ current: index + 1, total: paths.length });
       }
@@ -375,47 +455,34 @@ export function ArtifactsPanel({ projectId }: Props) {
     }
   };
 
-  // Repository: open folder picker, import all files
   const handleRepository = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: 'Select a repository folder',
-    });
-    if (!selected) return;
-
+    const selected = await pickPath({ directory: true, multiple: false, title: 'Select a repository folder' });
+    if (!selected || Array.isArray(selected)) return;
     setImporting(true);
     setError(null);
-
     try {
-      await api.importRepoArtifacts(projectId, selected as string);
+      await api.importRepoArtifacts(projectId, selected);
       await loadArtifacts();
       setShowImportDialog(false);
-
-      // Poll indexing status in background
       setIndexing(true);
       let attempts = 0;
-      const maxAttempts = 60; // 60 seconds max
       const poll = async () => {
         try {
           const status = await api.getIndexStatus(projectId);
-          if (status.status === 'done' || status.status === 'error' || attempts >= maxAttempts) {
+          if (status.status === 'done' || status.status === 'error' || attempts >= 60) {
             setIndexing(false);
-            if (status.status === 'error') {
-              setError(`Indexing failed: ${status.error}`);
-            }
+            if (status.status === 'error') setError(`Indexing failed: ${status.error}`);
             return;
           }
-          attempts++;
-          setTimeout(poll, 1000);
+          attempts += 1;
+          window.setTimeout(() => { void poll(); }, 1000);
         } catch {
           setIndexing(false);
         }
       };
-      // Start polling after a short delay
-      setTimeout(poll, 500);
-    } catch (e) {
-      setError(String(e));
+      window.setTimeout(() => { void poll(); }, 500);
+    } catch (cause) {
+      setError(String(cause));
     } finally {
       setImporting(false);
     }
@@ -425,236 +492,193 @@ export function ArtifactsPanel({ projectId }: Props) {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      if (deleteTarget.kind === 'document') {
-        await api.deleteArtifact(projectId, deleteTarget.artifact.id);
-        setArtifacts(prev => prev.filter(a => a.id !== deleteTarget.artifact.id));
-      } else {
-        for (const artifact of deleteTarget.group.artifacts) {
-          await api.deleteArtifact(projectId, artifact.id);
-        }
-        setExpandedRepos(prev => {
-          const next = new Set(prev);
-          next.delete(deleteTarget.group.repoName);
-          return next;
-        });
-        setArtifacts(prev => prev.filter(a => !deleteTarget.group.artifacts.some(item => item.id === a.id)));
+      const deletedIds = deleteTarget.kind === 'artifact'
+        ? [deleteTarget.artifact.id]
+        : deleteTarget.group.artifacts.map(artifact => artifact.id);
+      for (const artifactId of deletedIds) await api.deleteArtifact(projectId, artifactId);
+      setArtifacts(previous => previous.filter(artifact => !deletedIds.includes(artifact.id)));
+      if (sourceView && (deleteTarget.kind === 'artifact'
+        ? sourceView.kind === 'document' && sourceView.artifact.id === deleteTarget.artifact.id
+        : sourceView.kind === 'repository' && sourceView.group.repoName === deleteTarget.group.repoName)) {
+        goBackToSources();
       }
       setDeleteTarget(null);
-    } catch (e) {
-      setError(String(e));
+    } catch (cause) {
+      setError(String(cause));
     } finally {
       setDeleting(false);
     }
   };
 
-  if (loading) return <div className="panel-loading">Loading sources...</div>;
+  const renderDropzone = (className: string, label: string) => (
+    <div
+      className={`${className}${dragActive ? ' is-dragging' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={openFilePicker}
+      onKeyDown={handleDropzoneKeyDown}
+      onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
+      onDragOver={event => { event.preventDefault(); setDragActive(true); }}
+      onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
+      onDrop={event => { void handleDrop(event); }}
+      aria-label={label}
+    >
+      <Upload size={28} aria-hidden="true" />
+      <strong>{uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Drop source files here'}</strong>
+      <p>or press Enter to choose supported files from your computer.</p>
+      <small>Supported: text, Markdown, code, PDF, and image files.</small>
+    </div>
+  );
+
+  const renderSourceRow = (artifact: Artifact) => {
+    const isDrive = artifact.source === 'drive';
+    const canOpen = Boolean(validLocation(artifact));
+    const openSource = () => { if (isDrive) void handleOpenWith(artifact); else openDocument(artifact); };
+    return (
+      <div key={artifact.id} className="source-directory-row" role="listitem" tabIndex={0} onClick={openSource} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSource(); } }}>
+        <span className={`badge ${SOURCE_COLORS[artifact.source]}`}>{SOURCE_LABELS[artifact.source]}</span>
+        <div className="source-directory-main">
+          <strong>{artifact.fileName}</strong>
+          <span>{displayLocation(artifact)}</span>
+        </div>
+        <div className="source-directory-meta"><span>{artifact.type.replace(/_/g, ' ')}</span></div>
+        <div className="source-directory-actions">
+          <button type="button" className="btn-secondary" onClick={event => { event.stopPropagation(); openSource(); }} disabled={isDrive && !canOpen}>Open</button>
+          <button type="button" className="source-remove-button" aria-label={`Remove ${artifact.fileName}`} title={`Remove ${artifact.fileName}`} onClick={event => { event.stopPropagation(); setDeleteTarget({ kind: 'artifact', artifact }); }}><Trash2 size={16} aria-hidden="true" /></button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRepositoryRow = (group: RepoGroup) => (
+    <div key={group.repoName} className="source-directory-row source-directory-repository" role="listitem" tabIndex={0} onClick={() => openRepository(group)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openRepository(group); } }}>
+      <span className="badge badge-repository">Repository</span>
+      <div className="source-directory-main">
+        <strong>{group.repoName}</strong>
+        <span>{group.rootPath || 'Repository location unavailable'}</span>
+      </div>
+      <div className="source-directory-meta"><span>{group.artifacts.length} file{group.artifacts.length === 1 ? '' : 's'}</span>{indexing && <span className="source-indexing" role="status"><RotateCw size={12} aria-hidden="true" /> Indexing…</span>}</div>
+      <div className="source-directory-actions">
+        <button type="button" className="btn-secondary" onClick={event => { event.stopPropagation(); openRepository(group, event); }}>Open</button>
+        <button type="button" className="source-remove-button" aria-label={`Remove ${group.repoName} repository`} title={`Remove ${group.repoName} repository`} onClick={event => { event.stopPropagation(); setDeleteTarget({ kind: 'repository', group }); }}><Trash2 size={16} aria-hidden="true" /></button>
+      </div>
+    </div>
+  );
+
+  const repositoryTree = sourceView?.kind === 'repository' ? buildTree(sourceView.group.artifacts, sourceView.group.rootPath) : [];
+  const repositoryNodes = getNodesAtPath(repositoryTree, repoDirectory);
+  const selectedArtifact = sourceView?.kind === 'repository' ? selectedRepoArtifact : sourceView?.artifact;
+
+  const renderRepositoryDetail = (group: RepoGroup) => {
+    const parts = repoDirectory.split('/').filter(Boolean);
+    return (
+      <div className="source-detail-view source-repository-detail">
+        <div className="source-detail-header">
+          <button type="button" className="btn-back" onClick={goBackToSources}><ArrowLeft size={16} aria-hidden="true" /> Back to sources</button>
+          <div><span className="badge badge-repository">Repository</span><h3>{group.repoName}</h3><p>{group.rootPath || 'Repository location unavailable'}</p>{indexing && <p className="source-indexing" role="status"><RotateCw size={12} aria-hidden="true" /> Indexing repository…</p>}</div>
+          <button type="button" className="source-detail-remove btn-secondary" onClick={() => setDeleteTarget({ kind: 'repository', group })}><Trash2 size={15} aria-hidden="true" /> Remove</button>
+        </div>
+        <div className="source-repository-layout">
+          <section className="source-tree-panel" aria-labelledby="source-tree-heading">
+            <div className="source-tree-heading"><h4 id="source-tree-heading">Repository files</h4><span>{group.artifacts.length} files</span></div>
+            <nav className="source-tree-breadcrumbs" aria-label="Repository directory">
+              <button type="button" className={!repoDirectory ? 'active' : ''} onClick={() => { setRepoDirectory(''); setSelectedRepoArtifact(null); setPreview(null); }}>Root</button>
+              {parts.map((part, index) => {
+                const path = parts.slice(0, index + 1).join('/');
+                return <span key={path}><ChevronRight size={13} aria-hidden="true" /><button type="button" className={repoDirectory === path ? 'active' : ''} onClick={() => { setRepoDirectory(path); setSelectedRepoArtifact(null); setPreview(null); }}>{part}</button></span>;
+              })}
+            </nav>
+            {repoDirectory && <button type="button" className="source-tree-parent" onClick={() => { const next = parts.slice(0, -1).join('/'); setRepoDirectory(next); setSelectedRepoArtifact(null); setPreview(null); }}><ArrowLeft size={14} aria-hidden="true" /> Parent directory</button>}
+            <div className="source-tree" role="tree" aria-label="Repository directory tree">
+              {repositoryNodes.length === 0 && <p className="source-preview-empty">This directory is empty.</p>}
+              {repositoryNodes.map(node => {
+                const nodePath = repoDirectory ? `${repoDirectory}/${node.name}` : node.name;
+                if (node.isDir) return <button key={nodePath} type="button" className="source-tree-node source-tree-directory" role="treeitem" aria-expanded="false" onClick={() => { setRepoDirectory(nodePath); setSelectedRepoArtifact(null); setPreview(null); }}><ChevronRight size={15} aria-hidden="true" /><Folder size={16} aria-hidden="true" /><span>{node.name}</span><small>{countFiles(node)} file{countFiles(node) === 1 ? '' : 's'}</small></button>;
+                return <button key={nodePath} type="button" className={`source-tree-node source-tree-file${selectedRepoArtifact?.id === node.artifact?.id ? ' selected' : ''}`} role="treeitem" aria-pressed={selectedRepoArtifact?.id === node.artifact?.id} onClick={() => { setSelectedRepoArtifact(node.artifact!); setMarkdownMode('preview'); void openPreview(node.artifact!); }}><File size={16} aria-hidden="true" /><span>{node.name}</span><small>{node.artifact?.type.replace(/_/g, ' ')}</small></button>;
+              })}
+            </div>
+          </section>
+          <section className="source-preview-panel" aria-labelledby="source-preview-heading">
+            <div className="source-preview-heading"><h4 id="source-preview-heading">{selectedArtifact ? selectedArtifact.fileName : 'File preview'}</h4></div>
+            {selectedArtifact && <p className="source-preview-location">{displayLocation(selectedArtifact)}</p>}
+            <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} />
+          </section>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDocumentDetail = (artifact: Artifact) => (
+    <div className="source-detail-view source-document-detail">
+      <div className="source-detail-header">
+        <button type="button" className="btn-back" onClick={goBackToSources}><ArrowLeft size={16} aria-hidden="true" /> Back to sources</button>
+        <div><span className={`badge ${SOURCE_COLORS[artifact.source]}`}>{SOURCE_LABELS[artifact.source]}</span><h3>{artifact.fileName}</h3><p>{displayLocation(artifact)}</p></div>
+        <div className="source-detail-actions">
+          <button type="button" className="source-remove-button" aria-label={`Remove ${artifact.fileName}`} title={`Remove ${artifact.fileName}`} onClick={() => setDeleteTarget({ kind: 'artifact', artifact })}><Trash2 size={16} aria-hidden="true" /></button>
+        </div>
+      </div>
+      <dl className="source-metadata">
+        <div><dt>Category</dt><dd>{artifact.type.replace(/_/g, ' ')}</dd></div>
+        <div><dt>Location</dt><dd className="source-technical-text">{displayLocation(artifact)}</dd></div>
+        <div><dt>Added</dt><dd>{new Date(artifact.createdAt).toLocaleString()}</dd></div>
+      </dl>
+      <section className="source-preview-panel source-document-preview" aria-labelledby="source-preview-heading">
+        <div className="source-preview-heading"><h4 id="source-preview-heading">Preview</h4></div>
+        <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} />
+      </section>
+    </div>
+  );
+
+  if (loading) return <div className="panel-loading" role="status">Loading sources...</div>;
+
+  if (sourceView) {
+    return (
+      <div className="artifacts-panel source-detail-shell">
+        <input ref={fileInputRef} className="visually-hidden" type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {sourceView.kind === 'document' ? renderDocumentDetail(sourceView.artifact) : renderRepositoryDetail(sourceView.group)}
+        <ConfirmDialog
+          isOpen={deleteTarget !== null}
+          title={deleteTarget?.kind === 'repository' ? 'Remove repository?' : 'Remove source?'}
+          description={deleteTarget?.kind === 'repository' ? `Remove ${deleteTarget.group.repoName} and its ${deleteTarget.group.artifacts.length} indexed files from this project?` : `Remove ${deleteTarget?.artifact.fileName ?? 'this source'} from this project?`}
+          confirmLabel={deleteTarget?.kind === 'repository' ? 'Remove repository' : 'Remove source'}
+          onConfirm={handleDelete}
+          onClose={() => setDeleteTarget(null)}
+          busy={deleting}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="artifacts-panel">
-      <div className="panel-header">
-        <h3>Sources</h3>
-        <div className="panel-actions">
-          {artifacts.length > 0 && <button type="button" className="btn-secondary source-browse-button" onClick={() => { setSourceContentsGroup(null); setSourceContentsOpen(true); }}>Browse contents</button>}
-          <button type="button" className="command-icon-button" onClick={() => setShowImportDialog(true)} aria-label="Add source" title="Add source">
-            <Plus size={18} aria-hidden="true" />
-          </button>
-        </div>
+      <div className="panel-header source-directory-header">
+        <div><h3><Folder size={18} aria-hidden="true" /> Sources</h3></div>
+        <button type="button" className="btn-secondary" onClick={() => setShowImportDialog(true)}><Plus size={17} aria-hidden="true" /> Add source</button>
       </div>
-
       {error && <p className="form-error" role="alert">{error}</p>}
       <input ref={fileInputRef} className="visually-hidden" type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
 
-      {artifacts.length === 0 ? (
-        <div
-          className={`artifacts-empty artifacts-empty-dropzone${dragActive ? ' is-dragging' : ''}`}
-          role="button"
-          tabIndex={0}
-          onClick={openFilePicker}
-          onKeyDown={handleDropzoneKeyDown}
-          onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
-          onDragOver={event => { event.preventDefault(); setDragActive(true); }}
-          onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
-          onDrop={event => { void handleDrop(event); }}
-          aria-label="Add source files"
-        >
-          <Upload size={28} aria-hidden="true" />
-          <strong>{uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Drop source files here'}</strong>
-          <p>or press Enter to choose supported files from your computer.</p>
-          <small>Supported: text, Markdown, code, PDF, and image files.</small>
-        </div>
-      ) : (
-        <div className="artifact-list">
-          {/* Document items (individual) */}
-          {docArtifacts.map(a => (
-            <div key={a.id} className="artifact-row">
-              <div className="artifact-info">
-                <span className={`badge ${SOURCE_COLORS[a.source]}`}>{SOURCE_LABELS[a.source]}</span>
-                <span className="artifact-name">{a.fileName}</span>
-              </div>
-              <div className="artifact-meta">
-                {artifactKind(a.fileName) && <button type="button" className="artifact-preview-button" onClick={() => void openPreview(a)}>Preview</button>}
-                <button className="btn-delete-icon" onClick={() => setDeleteTarget({ kind: 'document', artifact: a })} title="Remove" aria-label={`Remove ${a.fileName}`}>×</button>
-              </div>
-            </div>
-          ))}
-
-          {/* Repository groups (expandable) */}
-          {repoGroups.map(group => {
-            const isExpanded = expandedRepos.has(group.repoName);
-            return (
-              <div key={group.repoName} className="artifact-repo-group">
-                <div className="artifact-row artifact-repo-header">
-                  <button
-                    type="button"
-                    className="artifact-repo-toggle"
-                    onClick={() => toggleRepo(group.repoName)}
-                    aria-expanded={isExpanded}
-                  >
-                    <span className="artifact-info">
-                    <span className="badge badge-repository">Repository</span>
-                    <span className="artifact-name">{group.repoName}</span>
-                    <span className="artifact-file-count">{group.artifacts.length} files</span>
-                    {indexing && <RotateCw className="indexing-spinner" size={13} aria-label="Indexing repository" />}
-                    <ChevronRight className={`artifact-expand-icon ${isExpanded ? 'expanded' : ''}`} size={14} />
-                    </span>
-                  </button>
-                  <div className="artifact-meta">
-                    <button type="button" className="artifact-preview-button" onClick={() => { setSourceContentsGroup(group); setSourceContentsOpen(true); }}>Open contents</button>
-                    <button className="btn-delete-icon" onClick={() => setDeleteTarget({ kind: 'repository', group })} title="Remove repository" aria-label={`Remove ${group.repoName} repository`}><X size={13} /></button>
-                  </div>
-                </div>
-                {isExpanded && (
-                  <div className="artifact-repo-files">
-                    {(() => {
-                      const tree = buildTree(group.artifacts, group.rootPath);
-                      const renderNode = (node: TreeNode, depth: number, parentPath: string) => {
-                        const nodePath = parentPath ? `${parentPath}/${node.name}` : node.name;
-                        if (node.isDir) {
-                          const isFolderOpen = expandedFolders.has(nodePath);
-                          return (
-                            <div key={nodePath}>
-                              <button type="button" className="artifact-repo-folder" style={{ paddingLeft: 12 + depth * 16 }} onClick={() => toggleFolder(nodePath)} aria-expanded={isFolderOpen}>
-                                <ChevronRight className={`artifact-expand-icon ${isFolderOpen ? 'expanded' : ''}`} size={12} />
-                                <Folder size={14} />
-                                <span className="artifact-file-name">{node.name}</span>
-                                <span className="artifact-file-count">{node.children?.length}</span>
-                              </button>
-                              {isFolderOpen && node.children?.map(child => renderNode(child, depth + 1, nodePath))}
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={nodePath} className="artifact-repo-file-row" style={{ paddingLeft: 12 + depth * 16 }}>
-                            <File className="artifact-file-icon" size={14} />
-                            <span className="artifact-file-name">{node.name}</span>
-                            <span className={`badge badge-${node.artifact!.type.replace('_', '-')}`}>{node.artifact!.type.replace(/_/g, ' ')}</span>
-                            {artifactKind(node.artifact!.fileName) && <button type="button" className="artifact-preview-button" onClick={() => void openPreview(node.artifact!)}>Preview</button>}
-                          </div>
-                        );
-                      };
-                      return tree.map(node => renderNode(node, 0, ''));
-                    })()}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {artifacts.length === 0 ? renderDropzone('artifacts-empty artifacts-empty-dropzone', 'Add source files') : (
+        <div className="source-directory" role="list" aria-label="Project sources">
+          {docArtifacts.map(renderSourceRow)}
+          {repoGroups.map(renderRepositoryRow)}
+          {driveArtifacts.map(renderSourceRow)}
         </div>
       )}
 
-      {/* Import Sources Dialog */}
       {showImportDialog && (
-        <Modal isOpen={showImportDialog} onClose={() => setShowImportDialog(false)} title="Add sources" width={780}>
+        <Modal isOpen={showImportDialog} onClose={() => setShowImportDialog(false)} title="Add source" width={780}>
           <div className="import-dialog-body">
-              <div
-                className={`import-dropzone${dragActive ? ' is-dragging' : ''}`}
-                role="button"
-                tabIndex={0}
-                onClick={openFilePicker}
-                onKeyDown={handleDropzoneKeyDown}
-                onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
-                onDragOver={event => { event.preventDefault(); setDragActive(true); }}
-                onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
-                onDrop={event => { void handleDrop(event); }}
-                aria-label="Drop source files to upload"
-              >
-                <div className="import-dropzone-content">
-                  <Upload size={32} aria-hidden="true" />
-                  <strong>{uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Drop sources here'}</strong>
-                  <p>Click to choose files or drag them into this area.</p>
-                </div>
-              </div>
-
-              <div className="import-options">
-                <button className="import-option" onClick={handleUpload} disabled={uploading}>
-                  <Upload size={24} aria-hidden="true" />
-                  <span>Upload</span>
-                  <small>Available</small>
-                </button>
-
-                <button className="import-option" onClick={handleRepository} disabled={importing}>
-                  <Folder size={24} aria-hidden="true" />
-                  <span>Repository</span>
-                  <small>Available</small>
-                </button>
-
-                <button className="import-option" type="button" disabled aria-describedby="connector-source-note">
-                  <GitBranch size={24} aria-hidden="true" />
-                  <span>GitHub</span>
-                  <small>Unavailable</small>
-                </button>
-
-                <button className="import-option" type="button" disabled aria-describedby="connector-source-note">
-                  <Cloud size={24} aria-hidden="true" />
-                  <span>Google Drive</span>
-                  <small>Unavailable</small>
-                </button>
-
-                <button className="import-option" type="button" disabled aria-describedby="connector-source-note">
-                  <MessageSquare size={24} aria-hidden="true" />
-                  <span>Slack</span>
-                  <small>Unavailable</small>
-                </button>
-
-              </div>
-              <p id="connector-source-note" className="import-dialog-note">Local upload and repository import are available now. GitHub, Google Drive, and Slack connectors are not connected in this build.</p>
-          </div>
-        </Modal>
-      )}
-
-      {sourceContentsOpen && (
-        <Modal
-          isOpen={sourceContentsOpen}
-          onClose={() => { setSourceContentsOpen(false); setSourceContentsGroup(null); }}
-          title={sourceContentsGroup ? `${sourceContentsGroup.repoName} contents` : 'Source contents'}
-          width={820}
-        >
-          <div className="source-contents-dialog">
-            <p className="modal-intro">Open a supported file to inspect its current local contents.</p>
-            <div className="source-contents-list">
-              {(sourceContentsGroup?.artifacts ?? artifacts).map(artifact => (
-                <div key={artifact.id} className="source-contents-row">
-                  <div><strong>{artifact.fileName}</strong><small>{artifact.originalPath || artifact.filePath}</small></div>
-                  <span className={`badge ${SOURCE_COLORS[artifact.source]}`}>{SOURCE_LABELS[artifact.source]}</span>
-                  {artifactKind(artifact.fileName)
-                    ? <button type="button" className="btn-secondary" onClick={() => void openPreview(artifact)}>Preview</button>
-                    : <span className="source-preview-unavailable">Preview unavailable</span>}
-                </div>
-              ))}
+            {renderDropzone('import-dropzone', 'Drop source files to upload')}
+            <div className="import-options" role="list" aria-label="Source categories">
+              <button type="button" className="import-option" onClick={() => void handleUpload()} disabled={uploading}><Upload size={24} aria-hidden="true" /><span>Documents</span><small>{uploading ? 'Uploading…' : 'Available'}</small></button>
+              <button type="button" className="import-option" onClick={() => void handleRepository()} disabled={importing}><Folder size={24} aria-hidden="true" /><span>Repository</span><small>{importing ? 'Importing…' : 'Available'}</small></button>
+              <button type="button" className="import-option" disabled aria-describedby="connector-source-note"><GitBranch size={24} aria-hidden="true" /><span>GitHub</span><small>Unavailable</small></button>
+              <button type="button" className="import-option" disabled aria-describedby="connector-source-note"><Cloud size={24} aria-hidden="true" /><span>Google Drive</span><small>Unavailable</small></button>
+              <button type="button" className="import-option" disabled aria-describedby="connector-source-note"><MessageSquare size={24} aria-hidden="true" /><span>Slack</span><small>Unavailable</small></button>
             </div>
-          </div>
-        </Modal>
-      )}
-
-      {preview && (
-        <Modal isOpen onClose={() => setPreview(null)} title={`Preview ${preview.artifact.fileName}`} width={980}>
-          <div className="artifact-preview-dialog">
-            <p className="modal-intro"><span className="project-workspace">{preview.artifact.filePath}</span></p>
-            {preview.loading && <div className="panel-loading" role="status">Loading preview…</div>}
-            {preview.error && <p className="form-error" role="alert">{preview.error}</p>}
-            {!preview.loading && !preview.error && preview.content && preview.kind === 'text' && <pre className="artifact-text-preview"><code>{preview.content}</code></pre>}
-            {!preview.loading && !preview.error && preview.content && preview.kind === 'image' && <div className="artifact-image-preview"><img src={preview.content} alt={`Preview of ${preview.artifact.fileName}`} /></div>}
-            {!preview.loading && !preview.error && preview.content && preview.kind === 'pdf' && <iframe className="artifact-pdf-preview" src={preview.content} title={`Preview of ${preview.artifact.fileName}`} />}
+            <p id="connector-source-note" className="import-dialog-note">Local documents and repository import are available now. GitHub, Google Drive, and Slack remain unavailable until a connected location is returned by the application.</p>
           </div>
         </Modal>
       )}
@@ -662,9 +686,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       <ConfirmDialog
         isOpen={deleteTarget !== null}
         title={deleteTarget?.kind === 'repository' ? 'Remove repository?' : 'Remove source?'}
-        description={deleteTarget?.kind === 'repository'
-          ? `Remove ${deleteTarget.group.repoName} and its ${deleteTarget.group.artifacts.length} indexed files from this project?`
-          : `Remove ${deleteTarget?.artifact.fileName ?? 'this source'} from this project?`}
+        description={deleteTarget?.kind === 'repository' ? `Remove ${deleteTarget.group.repoName} and its ${deleteTarget.group.artifacts.length} indexed files from this project?` : `Remove ${deleteTarget?.artifact.fileName ?? 'this source'} from this project?`}
         confirmLabel={deleteTarget?.kind === 'repository' ? 'Remove repository' : 'Remove source'}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}

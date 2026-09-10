@@ -110,75 +110,86 @@ function setup(session: StaticSession = baseSession, decisions: ReviewDecisionRe
 describe('ReviewActivityScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     setup();
   });
 
-  it('renders a sticky objective and the review stages as a conversation', async () => {
+  it('renders the 9/3 information panel and simplified review stages while running', async () => {
     const running = { ...baseSession, status: 'running' as const };
     setup(running);
     render(<ReviewActivityScreen projectId={project.id} sessionId={running.id} onNavigate={vi.fn()} />);
 
     expect(await screen.findByRole('heading', { name: 'Review activity' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Review objective' })).toHaveTextContent('Check traceability');
+    expect(screen.getByRole('complementary', { name: 'Review information' })).toHaveTextContent('Check traceability');
     expect(screen.getByRole('group', { name: 'Supportive documents' })).toHaveTextContent('checkout-requir…');
-    expect(screen.getByRole('list', { name: 'Centinel review stages' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Review stages' })).toBeInTheDocument();
     expect(screen.getByText('Loaded project sources')).toBeInTheDocument();
     expect(screen.queryByTestId('review-decision-approve')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-decision-reject')).not.toBeInTheDocument();
     expect(screen.queryByText('Candidate findings')).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Feedback' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Write feedback about this review' })).not.toBeInTheDocument();
   });
 
-  it('records feedback from the fixed composer without changing review state', async () => {
-    const user = userEvent.setup();
+  it('only exposes cancel while the review is running', async () => {
     const running = { ...baseSession, status: 'running' as const };
     setup(running);
     render(<ReviewActivityScreen projectId={project.id} sessionId={running.id} onNavigate={vi.fn()} />);
 
     await screen.findByRole('heading', { name: 'Review activity' });
-    await user.type(screen.getByRole('textbox', { name: 'Feedback' }), 'Please verify the empty state.');
-    await user.click(screen.getByRole('button', { name: 'Send feedback' }));
-    expect(api.submitReviewDecision).toHaveBeenCalledWith(project.id, running.id, {
-      decision: 'commented',
-      comment: 'Please verify the empty state.',
-      attachments: [],
-    });
+    expect(screen.getByRole('button', { name: 'Cancel review' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument();
+    expect(api.submitReviewDecision).not.toHaveBeenCalled();
   });
 
   it('submits attached supportive documents with review feedback', async () => {
     const user = userEvent.setup();
-    const running = { ...baseSession, status: 'running' as const };
-    setup(running);
-    render(<ReviewActivityScreen projectId={project.id} sessionId={running.id} onNavigate={vi.fn()} />);
+    const approvalSession = baseSession;
+    setup(approvalSession);
+    render(<ReviewActivityScreen projectId={project.id} sessionId={approvalSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review activity' });
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    await user.click(screen.getByRole('tab', { name: 'Activity' }));
     const document = new File(['support'], 'release-notes.md', { type: 'text/markdown' });
     await user.upload(screen.getByLabelText('Attach supportive documents'), document);
     expect(within(screen.getByRole('group', { name: 'Attached supportive documents' })).getByRole('button', { name: 'Remove release-notes.md' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Send feedback' }));
 
-    await waitFor(() => expect(api.submitReviewDecision).toHaveBeenCalledWith(project.id, running.id, {
+    await waitFor(() => expect(api.submitReviewDecision).toHaveBeenCalledWith(project.id, approvalSession.id, {
         decision: 'commented',
         comment: '',
         attachments: [{ fileName: 'release-notes.md', mimeType: 'text/markdown', content: 'c3VwcG9ydA==' }],
       }));
   });
 
-  it('opens direct review decisions from the activity action region, not the header', async () => {
+  it('opens direct review decisions from the header action region', async () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Evidence ready for human review' });
+    await screen.findByRole('heading', { name: 'Review Overview' });
     const actions = screen.getByRole('region', { name: 'Review decision actions' });
     await user.click(within(actions).getByRole('button', { name: 'Approve review' }));
     expect(screen.getByRole('complementary', { name: 'Approve review' })).toBeInTheDocument();
+  });
+
+  it('keeps decision actions available while the reviewer inspects evidence tabs', async () => {
+    const user = userEvent.setup();
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    await user.click(screen.getByRole('tab', { name: 'Findings' }));
+    expect(screen.getByRole('table', { name: 'Review findings' })).toBeInTheDocument();
+    expect(screen.getByTestId('review-decision-approve')).toBeEnabled();
+
+    await user.click(screen.getByRole('tab', { name: 'Traceability' }));
+    expect(screen.getByRole('heading', { name: 'Traceability' })).toBeInTheDocument();
+    expect(screen.getByTestId('review-decision-approve')).toBeEnabled();
   });
 
   it('requires feedback for request-changes and does not claim automatic reprocessing', async () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Evidence ready for human review' });
+    await screen.findByRole('heading', { name: 'Review Overview' });
     await user.click(screen.getByTestId('review-decision-reject'));
     const panel = screen.getByRole('complementary', { name: 'Request changes' });
     await user.click(within(panel).getByRole('button', { name: 'Request changes' }));
@@ -187,13 +198,15 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByText(/does not resolve, dismiss, or automatically reprocess/i)).toBeInTheDocument();
   });
 
-  it('uses accessible result tabs and exports through the existing session API', async () => {
+  it('uses accessible result tabs and the shared project findings workspace', async () => {
     const user = userEvent.setup();
     const completed = { ...baseSession, currentDecision: approvedDecision };
     setup(completed, [approvedDecision]);
     render(<ReviewActivityScreen projectId={project.id} sessionId={completed.id} onNavigate={vi.fn()} />);
 
-    expect(await screen.findByRole('heading', { name: 'Review completed' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Review Overview' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Review objective' })).not.toBeInTheDocument();
+    expect(screen.getByText('Assigned reviewer')).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(4);
     expect(screen.queryByRole('tab', { name: 'Risk Assessment' })).not.toBeInTheDocument();
@@ -204,15 +217,13 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', tabs[1].id);
 
     await user.click(tabs[0]);
-    await user.click(screen.getByRole('button', { name: 'Export review report' }));
-    expect(api.exportSessionReport).toHaveBeenCalledWith(project.id, completed.id);
-    expect(await screen.findByText(/Report saved to C:\/reports\/review\.md/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export review report' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: 'Findings' }));
     expect(screen.getByRole('table', { name: 'Review findings' })).toBeInTheDocument();
     expect(screen.getAllByRole('columnheader')).toHaveLength(4);
     expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
-    expect(screen.getAllByRole('cell', { name: 'High' })).toHaveLength(2);
+    expect(screen.getByRole('cell', { name: 'High' })).toBeInTheDocument();
   });
 });

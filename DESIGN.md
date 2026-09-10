@@ -23,6 +23,18 @@ The latest user-approved requirements supersede conflicting terminology and navi
 - Source currency confirmation is distinct from version approval: incoming versions do not need approval. Default currency interval is 90 days since last confirmation; deprecated documents are excluded from new reviews. Durable governance, roles, and iteration behavior require service support and are not simulated in production UI.
 - Implementation plan: [docs/REVIEW_UI_IMPLEMENTATION_PLAN.md](docs/REVIEW_UI_IMPLEMENTATION_PLAN.md).
 
+### Evidence-led approval workflow amendment (10 September 2026)
+
+The following later decisions supersede conflicting Review navigation, lifecycle, and presentation rules above. The complete product and implementation contract is recorded in [docs/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md](docs/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md).
+
+- A technically successful review that has not been approved is **Need Approval**, not Completed. **Completed** is reserved for an approved review. Failed and blocked work remains visibly **Needs attention** even though it is outside the happy-path state list.
+- The Need Approval workspace exposes **Activity**, **Findings**, and **Traceability** before the reviewer can approve or request changes. Approval is blocked when the findings request fails or the effective scope is not trustworthy.
+- Review Result is rendered only for an approved review. Its header-adjacent tabs are **Overview**, **Findings**, **Traceability**, and **History**. It reuses the shared findings workspace rather than a reduced result-only table.
+- Review Activity uses an 8/4 Activity/Objective layout on desktop. Stage content is presented as calm activity paragraphs with source tags; repeated actor labels, checkpoint rails, per-stage completion pills, duplicated timestamps, raw transport failures, and raw model chain-of-thought are not product content.
+- While automated reasoning is queued or running, the only workflow action is Stop/Cancel. Feedback becomes available after reasoning stops and is recorded chronologically as a human message. The UI must not imply that AI reasoning continued unless the service actually executes and persists a subsequent iteration.
+- Project tabs are **Overview, Assessment, Findings, Source, Collaborators, Settings**. Assessment owns honest, source-separated Review and Dynamic Testing risk information; it does not invent an aggregate risk score.
+- One shared lifecycle mapper must be used by Review Activity, Project Recent activity, Projects, and Dashboard summaries. Execution status, human decision, and individual finding status remain separate concepts.
+
 ### Dashboard, Projects, and Review entry refinement (September 2026)
 
 The approved refinement keeps the interface neutral-first: white and light-grey surfaces and black/neutral text carry most of the hierarchy. Centinel green is reserved for primary actions, active selection, focus, success, and restrained hover feedback; semantic warning and danger colors remain limited to the state they communicate.

@@ -1,12 +1,20 @@
 .review-entry-screen {
   width: 100%;
   max-width: 1120px;
+  box-sizing: border-box;
   margin: 0 auto;
+}
+
+.review-entry-screen > .command-page-header,
+.review-entry-screen > .static-review-form {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
 }
 
 .workspace-mode:not(.dashboard-mode) .review-entry-screen .static-review-form {
   width: 100%;
-  max-width: 1120px;
+  max-width: none;
   margin: 0;
   padding: 0;
   background: transparent;
@@ -48,7 +56,7 @@
    inventory remains a visually quieter nested context block. */
 .workspace-mode:not(.dashboard-mode) .review-entry-screen .static-review-form {
   gap: 0;
-  max-width: 1120px;
+  max-width: none;
   padding: 20px;
   border: 1px solid var(--workspace-border);
   border-radius: var(--workspace-radius-panel, 12px);
@@ -114,6 +122,18 @@
 
 .review-entry-project-field .select-trigger { width: 100%; }
 
+.review-project-selection-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.review-project-selection-row .review-project-source-status {
+  margin: 0;
+  white-space: nowrap;
+}
+
 .review-entry-create-link {
   display: inline-flex;
   min-height: 36px;
@@ -135,12 +155,21 @@
   text-decoration: underline;
 }
 
-.review-inherited-context {
-  margin-top: 18px;
-  padding: 18px;
-  border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-control);
-  background: var(--workspace-surface-subtle);
+.review-project-source-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 19px;
+}
+
+.review-project-source-status.is-complete { color: var(--workspace-success); }
+.review-project-source-status.is-insufficient { color: var(--workspace-danger); }
+
+@media (max-width: 720px) {
+  .review-project-selection-row { grid-template-columns: 1fr; gap: 8px; }
 }
 
 .review-objective-field,
@@ -161,10 +190,6 @@
   border-radius: var(--workspace-radius-control);
   background: var(--workspace-surface);
   color: var(--workspace-text-muted);
-}
-
-.review-save-source {
-  margin-top: 10px;
 }
 
 .review-scope-fieldset {
@@ -239,78 +264,6 @@
 .review-changed-scope .scope-inputs {
   width: 100%;
 }
-
-.review-project-context-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.review-project-context-heading h3 { font-size: 14px; }
-.review-project-context-heading p { font-size: 12px; line-height: 18px; }
-
-.review-entry-source-action {
-  min-height: 36px;
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.review-context-list {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.review-context-list li {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 0;
-  border-top: 1px solid var(--workspace-border);
-  color: var(--workspace-text);
-  font-size: 13px;
-  line-height: 19px;
-}
-
-.review-context-list li > span:first-child { min-width: 0; }
-
-.review-context-status {
-  display: inline-flex;
-  min-width: 112px;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-  flex: 0 0 auto;
-  color: var(--workspace-text-muted);
-  font-size: 12px;
-  font-weight: 650;
-  text-align: right;
-}
-
-.review-context-status-available { color: var(--workspace-success); }
-.review-context-status-unknown { color: var(--workspace-warning); }
-.review-context-status-unavailable { color: var(--workspace-text-subtle); }
-
-.review-entry-context-empty,
-.review-entry-source-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin: 10px 0 0;
-  color: var(--workspace-text-muted);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.review-entry-source-error { color: var(--workspace-danger); }
-
-.review-entry-source-error svg { flex: 0 0 auto; margin-top: 2px; }
 
 .review-entry-screen .field-required { color: var(--workspace-danger); }
 
@@ -420,10 +373,6 @@
 
   .workspace-mode:not(.dashboard-mode) .review-entry-screen .static-review-form { padding: 16px; }
 
-  .review-project-context-heading { flex-direction: column; }
-  .review-entry-source-action { width: 100%; }
-  .review-context-list li { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .review-context-status { justify-content: flex-start; text-align: left; }
   .review-type-options,
   .review-scope-options { grid-template-columns: 1fr; }
 }

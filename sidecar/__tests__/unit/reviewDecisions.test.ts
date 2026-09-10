@@ -18,6 +18,7 @@ import {
   getCurrentDecision,
   listReviewDecisions,
   isValidDecision,
+  reviewDecisionSubmissionError,
 } from '../../src/reviewDecisions.js';
 
 function makeDb() {
@@ -160,6 +161,20 @@ describe('reviewDecisions', () => {
     });
     expect(r.comment).toBe('look at line 42');
     expect(r.reviewer).toBe('alice');
+  });
+
+  it('gates feedback until automated reasoning has stopped', () => {
+    expect(reviewDecisionSubmissionError('commented', 'queued')).toMatch(/after review reasoning has stopped/i);
+    expect(reviewDecisionSubmissionError('commented', 'running')).toMatch(/after review reasoning has stopped/i);
+    expect(reviewDecisionSubmissionError('commented', 'success')).toBeNull();
+    expect(reviewDecisionSubmissionError('commented', 'failure')).toBeNull();
+    expect(reviewDecisionSubmissionError('commented', 'cancelled')).toBeNull();
+  });
+
+  it('only allows lifecycle decisions after successful execution', () => {
+    expect(reviewDecisionSubmissionError('approved', 'running')).toMatch(/completed reviews/i);
+    expect(reviewDecisionSubmissionError('changes_requested', 'failure')).toMatch(/completed reviews/i);
+    expect(reviewDecisionSubmissionError('approved', 'success')).toBeNull();
   });
 
   it('persists supportive documents with feedback without making a comment the current decision', async () => {

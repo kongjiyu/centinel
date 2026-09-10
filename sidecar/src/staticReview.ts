@@ -186,12 +186,12 @@ const STAGE_DEFINITIONS = [
 const CONTEXT_UNDERSTANDING_PROMPT = {
   system: `You are a project analyst. Your job is to understand a software project by reading its artifacts.
 
-IMPORTANT: As you analyze each artifact, explain your observations step by step in the "thoughts" array. What do you see? What role does each file play? What patterns emerge? What is the user asking about?
+IMPORTANT: In the legacy "thoughts" array, return only concise, auditable activity summaries: actions taken, evidence examined, and conclusions reached. Do not reveal private chain-of-thought, hidden reasoning, secrets, or raw prompts.
 
 Do NOT produce findings. This stage is purely about understanding.
 
 You must return your response as a JSON object with these fields:
-- thoughts: array of strings — your reasoning chain as you analyze each artifact
+- thoughts: array of strings — concise activity summaries for the audit record
 - projectSummary: string — one-paragraph summary of the project
 - artifactInventory: array of { name, type, purpose } for each artifact
 - userIntent: string — what the user is asking for based on their notes
@@ -209,10 +209,10 @@ Return ONLY the JSON object, no other text.`,
 const CODE_REVIEW_PROMPT = {
   system: `You are a senior software engineer performing code review. You have the project context from a prior analysis stage.
 
-IMPORTANT: As you read each source file, explain what you observe in the "thoughts" array. What patterns do you see? What looks correct? What concerns arise? Think out loud before producing findings.
+IMPORTANT: In the legacy "thoughts" array, return only concise, auditable activity summaries: files examined, checks performed, evidence found, and conclusions reached. Do not reveal private chain-of-thought, hidden reasoning, secrets, or raw prompts.
 
 You must return your response as a JSON object with these fields:
-- thoughts: array of strings — your reasoning chain as you review each file
+- thoughts: array of strings — concise activity summaries for the audit record
 - findings: array of findings, each with:
   - title: short descriptive title
   - severity: string — REQUIRED, one of "critical", "high", "medium", "low", "info". Pick the level a code-reviewer would actually use to triage the finding, e.g.:
@@ -251,10 +251,10 @@ Return ONLY the JSON object, no other text.`,
 const TRACEABILITY_PROMPT = {
   system: `You are a software quality analyst specializing in requirement-to-code traceability. You have the project context and code review results from prior stages.
 
-IMPORTANT: For each requirement, trace it to the codebase step by step. Explain your reasoning in the "thoughts" array. Which files implement it? Is the implementation complete? What's missing?
+IMPORTANT: For each requirement, record only concise, auditable traceability summaries in the legacy "thoughts" array: evidence inspected, mapping outcome, and any gap found. Do not reveal private chain-of-thought, hidden reasoning, secrets, or raw prompts.
 
 You must return your response as a JSON object with these fields:
-- thoughts: array of strings — your reasoning chain as you trace each requirement
+- thoughts: array of strings — concise traceability activity summaries for the audit record
 - findings: array of findings, each with:
   - title: short descriptive title
   - severity: string — REQUIRED, one of "critical", "high", "medium", "low", "info". Reflect the operational risk of the gap, e.g.:
@@ -296,10 +296,10 @@ Return ONLY the JSON object, no other text.`,
 const SUMMARY_PROMPT = {
   system: `You are a QA lead consolidating findings from a multi-stage review. You have all prior analysis results.
 
-IMPORTANT: Explain your prioritization reasoning in the "thoughts" array. Why is one finding more critical than another? How do findings relate to each other? How do they connect to the user's original concerns?
+IMPORTANT: In the legacy "thoughts" array, return only concise, auditable consolidation summaries: inputs considered, prioritization outcome, and links to the user's stated objective. Do not reveal private chain-of-thought, hidden reasoning, secrets, or raw prompts.
 
 You must return your response as a JSON object with these fields:
-- thoughts: array of strings — your reasoning as you consolidate and prioritize
+- thoughts: array of strings — concise consolidation activity summaries for the audit record
 - executiveSummary: string — 2-3 paragraph summary of the review
 - totalFindings: object with { critical, high, medium, low, info } counts
 - topConcerns: array of strings — the most important issues

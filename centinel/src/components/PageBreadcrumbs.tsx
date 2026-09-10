@@ -31,49 +31,50 @@ function breadcrumbHref(screen: Screen): string {
 
 /** Build the shell's semantic route trail without coupling it to a router. */
 export function getBreadcrumbItems(screen: Screen, projects: Project[]): BreadcrumbItem[] {
-  const home: BreadcrumbItem = { label: 'Home', target: { name: 'dashboard' } };
+  const product: BreadcrumbItem = { label: 'Product', target: { name: 'dashboard' } };
   const projectsItem: BreadcrumbItem = { label: 'Projects', target: { name: 'projects' } };
 
   switch (screen.name) {
     case 'dashboard':
-      return [home, { label: 'Dashboard' }];
+      return [product, { label: 'Home' }];
     case 'projects':
-      return [home, { label: 'Projects' }];
+      return [product, { label: 'Projects' }];
     case 'project-detail': {
       const project = projectLabel(projects, screen.projectId);
-      const trail: BreadcrumbItem[] = [home, projectsItem, { label: project }];
+      const trail: BreadcrumbItem[] = [product, projectsItem, { label: project }];
       if (screen.initialAction === 'static') trail.push({ label: 'Review setup' });
       if (screen.initialAction === 'dynamic') trail.push({ label: 'Dynamic Testing setup' });
       return trail;
     }
     case 'review-entry':
-      return [home, { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } }, { label: 'Start your review' }];
+      return [{ label: 'Activities' }, { label: 'Review' }];
     case 'review-activity':
       return [
-        home,
+        product,
+        projectsItem,
         { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } },
-        { label: 'Review activity' },
+        { label: screen.reviewName || 'Review' },
       ];
     case 'dynamic-session':
       return [
-        home,
+        product,
         { label: 'Dynamic Testing', target: { name: 'project-detail', projectId: screen.projectId, initialAction: 'dynamic' } },
         { label: 'Test run' },
       ];
     case 'evidence-browser':
       return [
-        home,
+        product,
         { label: 'Dynamic Testing', target: { name: 'project-detail', projectId: screen.projectId, initialAction: 'dynamic' } },
         { label: 'Evidence' },
       ];
     case 'requirements':
       return [
-        home,
+        product,
         { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } },
         { label: 'Requirements' },
       ];
     case 'settings':
-      return [home, { label: 'Settings' }];
+      return [{ label: 'Settings' }];
   }
 }
 

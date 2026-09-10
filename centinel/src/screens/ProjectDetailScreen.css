@@ -109,10 +109,14 @@
 
 .command-project-detail .project-activity-filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px 160px;
+  grid-template-columns: minmax(280px, 1fr) minmax(190px, .55fr) minmax(180px, .5fr);
   gap: 10px;
   margin: 0 0 4px;
-  padding: 0 12px 12px;
+  padding: 0 0 12px;
+}
+
+.command-project-detail .project-activity-search {
+  grid-column: 1;
 }
 
 .command-project-detail .project-activity-filters label {
@@ -386,13 +390,15 @@
 .command-project-detail .project-overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  grid-auto-rows: 360px;
   gap: 16px;
   align-items: stretch;
 }
 
 .command-project-detail .project-overview-grid .detail-card {
   display: flex;
-  min-height: 320px;
+  min-height: 0;
+  height: 100%;
   flex-direction: column;
   margin-bottom: 0;
 }
@@ -444,6 +450,31 @@
   text-wrap: pretty;
 }
 
+.command-project-detail .project-attention-copy p > span:not(.project-attention-detail-expanded) {
+  overflow-wrap: anywhere;
+}
+
+.command-project-detail .project-attention-see-more {
+  margin: 0 0 0 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.command-project-detail .project-attention-see-more:hover,
+.command-project-detail .project-attention-see-more:focus-visible {
+  color: var(--workspace-primary-hover);
+  text-decoration: underline;
+}
+
+.command-project-detail .project-attention-detail-expanded {
+  overflow-wrap: anywhere;
+}
+
 .command-project-detail .project-overview-empty {
   display: grid;
   flex: 1;
@@ -472,6 +503,19 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+
+.command-project-detail .project-pagination {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) auto minmax(112px, 1fr);
+}
+
+.command-project-detail .project-pagination-slot {
+  display: flex;
+}
+
+.command-project-detail .project-pagination-slot-start { justify-content: flex-start; }
+.command-project-detail .project-pagination-slot-end { justify-content: flex-end; }
+.command-project-detail .project-pagination-label { text-align: center; }
 
 .command-project-detail .project-readiness-list {
   display: grid;
@@ -542,8 +586,100 @@
   overflow: hidden;
 }
 
+.command-project-detail .project-risk-card {
+  margin-top: 16px;
+}
+
+.command-project-detail .project-risk-summary {
+  margin: 4px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.command-project-detail .project-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.command-project-detail .project-risk-source {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.command-project-detail .project-risk-source strong {
+  color: var(--workspace-text);
+  font-size: 13px;
+}
+
+.command-project-detail .project-risk-source span {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.command-project-detail .project-activity-header {
+  align-items: center;
+}
+
+.command-project-detail .project-activity-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 18px;
+}
+
+.command-project-detail .project-activity-type-toggle {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.command-project-detail .project-activity-type-toggle button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: calc(var(--workspace-radius-control) - 2px);
+  background: transparent;
+  color: var(--workspace-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.command-project-detail .project-activity-type-toggle button:hover,
+.command-project-detail .project-activity-type-toggle button:focus-visible,
+.command-project-detail .project-activity-type-toggle button.active {
+  background: var(--workspace-surface-selected);
+  color: var(--workspace-primary);
+}
+
+.command-project-detail .project-activity-type-toggle button:focus-visible {
+  outline: 2px solid var(--workspace-focus);
+  outline-offset: 1px;
+}
+
 .command-project-detail .project-activity-filters {
-  grid-template-columns: minmax(180px, 1fr) minmax(150px, .65fr) minmax(150px, .65fr) minmax(140px, .55fr);
+  grid-template-columns: minmax(260px, 1fr) minmax(190px, .55fr) minmax(180px, .5fr);
+  align-items: end;
   margin-top: 14px;
   padding: 0 0 12px;
 }
@@ -853,8 +989,13 @@
     grid-template-columns: 1fr;
   }
 
+  .command-project-detail .project-overview-grid {
+    grid-auto-rows: auto;
+  }
+
   .command-project-detail .project-overview-grid .detail-card {
     min-height: 280px;
+    height: auto;
   }
 }
 
@@ -882,6 +1023,17 @@
 
   .command-project-detail .project-activity-row .command-status {
     grid-column: 2;
+  }
+
+  .command-project-detail .project-activity-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .command-project-detail .project-activity-type-toggle {
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .command-project-detail .project-attention-row,
@@ -1004,7 +1156,7 @@
 }
 
 .command-project-detail .project-activity-row {
-  grid-template-columns: minmax(0, 8fr) minmax(130px, 2fr) minmax(110px, 2fr) 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 2fr) 18px;
   margin-top: 4px;
   padding: 10px 12px;
   border-radius: var(--workspace-radius-control);
@@ -1015,12 +1167,101 @@
   background: var(--workspace-surface-hover);
 }
 
-/* The project findings surface is deliberately a master-detail workspace:
-   bordered table rows on the left, and a raised white review panel on the
-   right. The shared FindingsPanel keeps its previous list presentation for
-   review activity screens. */
+.command-project-detail .project-activity-main strong {
+  display: block;
+}
+
+.command-project-detail .project-activity-main time {
+  color: var(--workspace-text-subtle);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-project-detail .project-activity-pagination {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.command-project-detail .project-pagination-range,
+.command-project-detail .project-pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-project-detail .project-pagination-controls { margin-left: auto; }
+
+.command-project-detail .project-pagination-controls .btn-secondary {
+  display: grid;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  place-items: center;
+}
+
+.command-project-detail .sources-card .source-directory-header {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.command-project-detail .sources-card .source-directory-header h3,
+.command-project-detail .project-finding-title-status h4 {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 26px;
+}
+
+.command-project-detail .sources-card .source-directory-header h3,
+.command-project-detail .findings-project-header h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.command-project-detail .sources-card .source-directory-header h3 svg,
+.command-project-detail .findings-project-header h3 svg {
+  flex: 0 0 auto;
+  color: var(--workspace-text);
+}
+
+.command-project-detail .source-directory-row > .badge,
+.command-project-detail .source-detail-header .badge {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* The project findings surface is deliberately a two-section master-detail
+   workspace: the list/filter surface owns the left 7/12 columns, while the
+   independent detail surface owns the right 5/12 columns. The shared
+   FindingsPanel keeps its previous list presentation for review activity
+   screens. */
+.command-project-detail .project-findings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 5fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.command-project-detail .project-findings-layout > .findings-card,
+.command-project-detail .project-findings-layout > .project-finding-details {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
 .command-project-detail .findings-panel-project {
   min-height: 0;
+  height: 100%;
 }
 
 .command-project-detail .findings-panel-project .findings-project-header {
@@ -1048,16 +1289,10 @@
 }
 
 .command-project-detail .findings-panel-project .findings-filters {
+  grid-template-columns: minmax(150px, 1.5fr) repeat(3, minmax(0, 1fr));
   margin: 18px 0 16px;
   padding: 0;
   border-bottom: 0;
-}
-
-.command-project-detail .project-findings-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 8fr) minmax(300px, 4fr);
-  gap: 20px;
-  align-items: start;
 }
 
 .command-project-detail .project-findings-table-region {
@@ -1165,13 +1400,6 @@
   color: var(--workspace-text-muted);
   font-size: 12px;
   text-transform: capitalize;
-}
-
-.command-project-detail .project-findings-table-region > .findings-result-summary {
-  margin: 12px 0 0;
-  color: var(--workspace-text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 .command-project-detail .project-findings-table-region > .findings-pagination {
@@ -1308,6 +1536,10 @@
   gap: 16px;
 }
 
+.command-project-detail .project-settings-header {
+  align-items: center;
+}
+
 .command-project-detail .project-settings-section-header h3 {
   margin-bottom: 0;
 }
@@ -1335,6 +1567,21 @@
 .command-project-detail .project-settings-form input {
   width: 100%;
   box-sizing: border-box;
+}
+
+.command-project-detail .project-settings-readonly-description {
+  min-height: 94px;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius-control);
+  background: transparent;
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 19px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .command-project-detail .project-settings-form input:disabled,
@@ -1371,6 +1618,8 @@
 
 .command-project-detail .project-settings-facts dd {
   margin: 0;
+  padding-right: 10px;
+  padding-left: 10px;
   color: var(--workspace-text);
 }
 
@@ -1397,6 +1646,63 @@
   margin: 0;
   color: var(--workspace-text);
   font-weight: 500;
+}
+
+.command-project-detail .project-configuration-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.command-project-detail .project-configuration-info {
+  position: relative;
+  display: inline-flex;
+}
+
+.command-project-detail .project-settings-note {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(320px, calc(100vw - 64px));
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow-menu);
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.command-project-detail .project-configuration-heading h3 {
+  margin: 0;
+}
+
+.command-project-detail .project-settings-info-button,
+.collaborator-info-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--workspace-border);
+  border-radius: 50%;
+  background: var(--workspace-surface);
+  color: var(--workspace-text-muted);
+  cursor: pointer;
+}
+
+.command-project-detail .project-settings-info-button:hover,
+.command-project-detail .project-settings-info-button:focus-visible,
+.collaborator-info-button:hover,
+.collaborator-info-button:focus-visible {
+  border-color: var(--workspace-primary);
+  color: var(--workspace-primary);
 }
 
 .command-project-detail .project-settings-section .project-danger-zone {
@@ -1444,6 +1750,76 @@
   gap: 16px;
 }
 
+.command-project-detail .project-collaboration-actions {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  gap: 10px;
+}
+
+.command-project-detail .project-collaboration-search {
+  display: grid;
+  min-width: 240px;
+  gap: 5px;
+  color: var(--workspace-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.command-project-detail .project-collaboration-search-control {
+  position: relative;
+  display: block;
+}
+
+.command-project-detail .project-collaboration-search-control input {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 9px 34px 9px 10px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.command-project-detail .project-collaboration-search-control svg {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  color: var(--workspace-text-subtle);
+  pointer-events: none;
+}
+
+.command-project-detail .project-collaboration-empty {
+  display: grid;
+  min-height: 260px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--workspace-text-muted);
+  text-align: center;
+}
+
+.command-project-detail .project-collaboration-empty svg {
+  color: var(--workspace-text-subtle);
+}
+
+.command-project-detail .project-collaboration-empty strong {
+  color: var(--workspace-text);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.command-project-detail .project-collaboration-empty p {
+  max-width: 520px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  text-wrap: pretty;
+}
+
 .command-project-detail .project-collaboration-status {
   margin: 20px 0 0;
   color: var(--workspace-text-muted);
@@ -1477,6 +1853,48 @@
   font-size: 12px;
 }
 
+.collaborator-repository-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collaborator-repository-info {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.collaborator-repository-tooltip {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(300px, calc(100vw - 64px));
+  padding: 9px 10px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow-menu);
+  color: var(--workspace-text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.collaborator-sync-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.collaborator-sync-hint {
+  color: var(--workspace-text-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .collaborator-search-form {
   display: grid;
   gap: 6px;
@@ -1502,7 +1920,7 @@
 .collaborator-email-control svg {
   position: absolute;
   top: 11px;
-  left: 10px;
+  right: 10px;
   color: var(--workspace-text-subtle);
   pointer-events: none;
 }
@@ -1511,12 +1929,19 @@
   width: 100%;
   min-height: 40px;
   box-sizing: border-box;
-  padding: 9px 10px 9px 34px;
+  padding: 9px 34px 9px 10px;
   border: 1px solid var(--workspace-border-strong);
   border-radius: var(--workspace-radius-control);
   background: var(--workspace-surface);
   color: var(--workspace-text);
   font: inherit;
+}
+
+.collaborator-dialog-status {
+  margin: 4px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .collaborator-dialog-unavailable,
@@ -1647,7 +2072,7 @@
 }
 
 @media (max-width: 960px) {
-  .command-project-detail .project-findings-workspace {
+  .command-project-detail .project-findings-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1680,22 +2105,521 @@
     overflow-x: auto;
   }
 
-  .command-project-detail .project-settings-section-header,
   .command-project-detail .project-collaboration-header {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .command-project-detail .project-settings-actions {
+  .command-project-detail .project-collaboration-actions {
     width: 100%;
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .command-project-detail .project-settings-actions button,
+  .command-project-detail .project-collaboration-search {
+    min-width: 0;
+  }
+
   .command-project-detail .project-collaboration-header button {
     flex: 1;
   }
 
+  .command-project-detail .project-collaboration-actions > button {
+    width: 100%;
+  }
+
   .collaborator-search-row {
     grid-template-columns: 1fr;
+  }
+
+  .collaborator-sync-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* Project detail interaction polish. These overrides stay screen-scoped so
+   the shared findings list and form primitives keep their existing contracts. */
+.command-project-detail .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.command-project-detail .project-attention-row {
+  padding-inline: 16px;
+  padding-block: 10px;
+}
+
+.command-project-detail .project-attention-copy p {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  white-space: nowrap;
+  text-wrap: nowrap;
+}
+
+.command-project-detail .project-attention-copy p > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-project-detail .project-attention-see-more {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.command-project-detail .project-pagination-footer {
+  min-height: 56px;
+  flex: 0 0 56px;
+  box-sizing: border-box;
+  margin-top: auto;
+  padding: 12px 16px 4px;
+}
+
+.command-project-detail .project-pagination-footer .project-pagination {
+  min-height: 40px;
+  margin-top: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.command-project-detail .project-pagination-footer .project-pagination-slot {
+  min-width: 112px;
+}
+
+.command-project-detail .project-pagination-footer .btn-secondary {
+  min-width: 104px;
+}
+
+.command-project-detail .project-readiness-list li {
+  padding-left: 16px;
+}
+
+.command-project-detail .project-activity-type-toggle {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+.command-project-detail .project-activity-type-toggle button {
+  color: var(--workspace-text-subtle);
+}
+
+.command-project-detail .project-activity-type-toggle button:hover {
+  background: var(--workspace-surface-subtle);
+  color: var(--workspace-text);
+}
+
+.command-project-detail .project-activity-type-toggle button.active {
+  background: var(--workspace-primary-subtle);
+  color: var(--workspace-primary);
+}
+
+.command-project-detail .project-attention-dialog {
+  display: grid;
+  gap: 20px;
+}
+
+.command-project-detail .project-attention-dialog > p {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.command-project-detail .project-workspace-picker {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.command-project-detail .project-workspace-picker input {
+  padding-right: 48px;
+  cursor: pointer;
+}
+
+.command-project-detail .project-workspace-picker-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--workspace-radius-control) - 2px);
+  background: transparent;
+  color: var(--workspace-text-muted);
+  cursor: pointer;
+}
+
+.command-project-detail .project-workspace-picker-button:hover:not(:disabled),
+.command-project-detail .project-workspace-picker-button:focus-visible {
+  background: var(--workspace-surface-selected);
+  color: var(--workspace-primary);
+}
+
+.command-project-detail .project-workspace-picker-button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.command-project-detail .project-settings-readonly-workspace {
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--workspace-text);
+  font-family: var(--font-technical);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.command-project-detail .project-configuration-collections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.command-project-detail .project-value-collection {
+  min-width: 0;
+}
+
+.command-project-detail .project-value-collection-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.command-project-detail .project-value-collection-heading h4 {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.command-project-detail .project-value-add {
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.command-project-detail .project-value-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-project-detail .project-value-collection-readonly > h4 {
+  margin: 0 0 10px;
+  color: var(--workspace-text);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.command-project-detail .project-value-readonly-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--workspace-text);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.command-project-detail .project-value-readonly-list li {
+  padding-left: 2px;
+}
+
+.command-project-detail .project-value-row {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+  color: var(--workspace-text);
+  font-size: 13px;
+}
+
+.command-project-detail .project-value-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-project-detail .project-value-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.command-project-detail .project-value-icon-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: calc(var(--workspace-radius-control) - 2px);
+  background: transparent;
+  color: var(--workspace-text-muted);
+  cursor: pointer;
+}
+
+.command-project-detail .project-value-icon-button:hover:not(:disabled),
+.command-project-detail .project-value-icon-button:focus-visible {
+  border-color: var(--workspace-border-strong);
+  background: var(--workspace-surface);
+  color: var(--workspace-primary);
+}
+
+.command-project-detail .project-value-icon-button.project-value-remove:hover:not(:disabled),
+.command-project-detail .project-value-icon-button.project-value-remove:focus-visible {
+  color: var(--workspace-danger);
+}
+
+.command-project-detail .project-value-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.command-project-detail .project-value-editor {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.command-project-detail .project-value-editor input {
+  min-width: 0;
+  flex: 1;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.command-project-detail .project-value-row-editing {
+  padding: 4px;
+}
+
+.command-project-detail .project-value-add-editor {
+  margin-top: 8px;
+}
+
+.command-project-detail .project-value-add-editor button {
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+.command-project-detail .project-value-validation {
+  margin: 8px 0 0;
+  color: var(--workspace-danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.command-project-detail .project-collaboration-search-row {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.command-project-detail .project-collaboration-search {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.command-project-detail .project-collaboration-search-control {
+  display: block;
+  width: 100%;
+}
+
+.command-project-detail .findings-filter-shell {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 16px;
+}
+
+.command-project-detail .findings-panel-project .findings-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.command-project-detail .findings-panel-project .finding-filter-search {
+  display: block;
+}
+
+.command-project-detail .findings-filter-toggle {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  color: var(--workspace-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.command-project-detail .findings-filter-toggle:hover,
+.command-project-detail .findings-filter-toggle:focus-visible,
+.command-project-detail .findings-filter-toggle[aria-expanded='true'] {
+  border-color: var(--workspace-primary);
+  background: var(--workspace-surface-selected);
+  color: var(--workspace-primary);
+}
+
+.command-project-detail .findings-filter-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: var(--workspace-radius-pill);
+  background: var(--workspace-primary);
+  color: var(--workspace-surface);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-project-detail .findings-filter-search .finding-search-control input {
+  min-height: 36px;
+}
+
+.command-project-detail .findings-active-filters {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.command-project-detail .findings-active-filter {
+  display: inline-flex;
+  min-height: 30px;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-pill);
+  background: var(--workspace-surface-selected);
+  color: var(--workspace-primary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.command-project-detail .findings-active-filter span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-project-detail .findings-active-filter:hover,
+.command-project-detail .findings-active-filter:focus-visible {
+  border-color: var(--workspace-primary);
+  background: var(--workspace-primary-subtle);
+}
+
+.command-project-detail .findings-active-filters .findings-clear-filters {
+  min-height: 30px;
+  margin-left: 2px;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.command-project-detail .findings-active-filters .findings-clear-filters:hover,
+.command-project-detail .findings-active-filters .findings-clear-filters:focus-visible {
+  color: var(--workspace-primary);
+  text-decoration: underline;
+}
+
+.command-project-detail .findings-filter-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.command-project-detail .findings-filter-options .finding-filter-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .command-project-detail .findings-panel-project .findings-filters,
+  .command-project-detail .findings-filter-options {
+    grid-template-columns: 1fr;
+  }
+
+  .command-project-detail .findings-filter-toggle {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .command-project-detail .project-configuration-collections {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .command-project-detail .project-value-collection-heading {
+    align-items: flex-start;
   }
 }

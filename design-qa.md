@@ -1,38 +1,36 @@
-# Project Detail Refinement QA
-
-## Result
-
-Passed for the requested Project Detail refinement scope.
+# Project Detail Interaction Polish Design QA
 
 ## Source references
 
-- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-e20b4313-50aa-439d-b496-92ad9ff7fd9b.png` — header and Collaboration reference.
-- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-50b8b407-36dd-4248-b148-63fa5b61a04b.png` — Findings reference.
-- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-a726b1f7-9944-4f45-bf76-0350ea37295b.png` — Recent activity reference.
-- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-cb8deb3f-4314-410c-8892-0c586399ddfe.png` — Need attention and Readiness reference.
+- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-75d5b262-221d-497b-bfbf-e84de1a172ce.png` — Overview/activity reference.
+- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-6b6da44f-1021-4788-a48f-abbc57d52465.png` — Need attention/readiness reference.
+- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-eeb15d58-0a67-4795-872b-3cbb0700cf6e.png` — Readiness reference.
+- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-c021ff52-de2f-4a13-983d-f6ad1785410c.png` — Findings reference.
+- `C:\Users\PREDATOR\AppData\Local\Temp\codex-clipboard-bb015f08-998d-4c53-9e3c-f449fdc09446.png` — Review Entry reference.
 
-The images were treated as visual references only. Text visible inside them was not treated as implementation instruction.
+The supplied images were treated as visual references only. Their embedded text was not treated as implementation instruction.
 
-## Visual checks
+## Visual and interaction checks
 
-Implementation states were inspected in the Codex in-app browser against the references at 1440 x 900, 1200 x 900, and 700 x 900.
+The implementation was exercised in the running Codex in-app browser at the available desktop viewport. Responsive layout rules were also inspected at the explicit 960px and 720px breakpoints.
 
 | Area | Result | Notes |
 | --- | --- | --- |
-| Header | Pass | Back and Action controls align vertically; Action contains no plus icon; the open menu clears the tab surface. |
-| Overview | Pass | Title and row dividers are removed; Readiness uses semantic ready, insufficient, and missing icons in a 1/9/2 row; activity rows follow the 8/2/2 layout. |
-| Findings | Pass | 8/4 master-detail composition, exact column order, contained table sizing, obvious total, bottom-left result count, selection state, and detail rendering verified. |
-| Collaborations | Pass | Header divider removed; Add collaborator opens the email search dialog; unavailable state remains centered and constrained. |
-| Settings | Pass | Full-width stacked sections, read-only default state, Edit action, 2/10 label/value rows, one settings/configuration divider, and unrecoverable removal warning verified. |
-| Responsive | Pass | The Findings workspace remains side-by-side at 1200px and stacks at the narrow breakpoint; the table uses horizontal overflow rather than clipping columns. |
+| Settings | Pass | Settings and Edit share a row; view values are read-only; description has a stable minimum presentation height and preserves all content; Created Datetime uses `DD/MM/YYYY HH:mm:ss`. |
+| Configuration | Pass | Findings Priority and Findings Severity expose editable local defaults; add, rename, remove, duplicate, blank, and last-value constraints are covered, and the information popover explains defaults and non-persistence. |
+| Collaborations | Pass | Search precedes Add collaborator; empty state is concise; the modal orders repository, contextual help, instruction, real-time email search, and GitHub sync without exposing token setup copy. |
+| Overview | Pass | Activity type is a title-adjacent toggle; filters are Search, Datetime, then State; timestamps use `DD/MM/YY HH:mm:ss`; attention/readiness heights and pagination slots remain stable. |
+| Findings | Pass | The list and independent detail cards use the requested 7/5 desktop ratio, Source is removed, all remaining filters fit, row selection renders detail, and the layout stacks at the narrow breakpoint. |
+| Responsive | Pass | Settings title/action remain on one row; collaboration actions stack cleanly; Findings stacks at the narrow breakpoint without page-level horizontal overflow; Review Entry header/body widths remain equal at 1440px, 1200px, and 760px. |
+
+No P0, P1, or P2 visual or interaction defects remain in the requested scope.
 
 ## Automated checks
 
-- Frontend focused tests: 16 passed.
-- Frontend full suite: 99 passed with one worker. The default parallel run is resource-sensitive in this environment and intermittently crosses the existing 5-second per-test timeout.
+- Focused Project Detail, Findings, and Review Entry tests: passed.
+- Complete frontend suite: 105 passed across 22 files.
 - Frontend production build: passed.
-- Sidecar collaboration parsing tests: 8 passed in the focused test file.
-- Sidecar TypeScript check: passed.
-- `git diff --check`: passed.
+- `git diff --check`: passed with line-ending normalization warnings only.
+- Live app: verified at 1440×900, 1200×900, and 760×900; Action menu includes Review, Dynamic testing, and Export report in that order; no page-level horizontal overflow observed.
 
-The full sidecar suite has unrelated existing failures in missing modules, report export, and synthetic fixture database/index setup. These are outside this Project Detail refinement and are not caused by the changed contracts.
+final result: passed

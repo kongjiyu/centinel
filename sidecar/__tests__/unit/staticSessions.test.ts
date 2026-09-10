@@ -8,6 +8,7 @@ import {
   getActiveStaticSession,
   listActiveStaticSessions,
   updateStaticSessionStatus,
+  updateStaticSessionProgress,
   createFinding,
   listStaticFindings,
   listAllFindings,
@@ -181,6 +182,35 @@ describe('staticSessions', () => {
 
       const result = await getStaticSession('proj-1', created.id);
       expect(result!.updatedAt).not.toBe(originalUpdatedAt);
+    });
+
+    it('keeps cancellation terminal when a worker finishes later', async () => {
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
+      await updateStaticSessionStatus(created.id, 'running', '', '');
+      await updateStaticSessionStatus(created.id, 'cancelled', '', 'Cancelled by user');
+
+      await updateStaticSessionStatus(created.id, 'success', 'Late result', '');
+      await updateStaticSessionStatus(created.id, 'failure', '', 'Late failure');
+
+      const result = await getStaticSession('proj-1', created.id);
+      expect(result!.status).toBe('cancelled');
+      expect(result!.finalSummary).toBe('');
+      expect(result!.failureReason).toBe('Cancelled by user');
+    });
+
+    it('ignores progress updates after cancellation', async () => {
+      const created = await createStaticSession({ projectId: 'proj-1', name: 'Review', reviewType: 'requirement_review', configJson: {} });
+      await updateStaticSessionStatus(created.id, 'cancelled', '', 'Cancelled by user');
+      await updateStaticSessionProgress(created.id, {
+        currentStage: 'understanding_context',
+        stages: [],
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const result = await getStaticSession('proj-1', created.id);
+      expect(result!.progressJson).toBe('{}');
+      expect(result!.status).toBe('cancelled');
     });
   });
 

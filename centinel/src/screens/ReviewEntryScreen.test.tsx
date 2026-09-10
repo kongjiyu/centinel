@@ -70,7 +70,7 @@ describe('ReviewEntryScreen', () => {
     vi.mocked(api.createStaticSession).mockResolvedValue(session);
   });
 
-  it('uses the selected project, shows inherited context, and opens Review activity', async () => {
+  it('uses the selected project, shows its compact source status, and opens Review activity', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     render(
@@ -84,10 +84,14 @@ describe('ReviewEntryScreen', () => {
     expect(await screen.findByLabelText('Review name')).toBeInTheDocument();
     expect(screen.getByRole('form', { name: 'Start review' })).toBeInTheDocument();
     expect(screen.queryByText('Start with a clear objective')).not.toBeInTheDocument();
-    expect(screen.getByText('Repository or source code')).toBeInTheDocument();
-    expect(screen.getByText('Available')).toBeInTheDocument();
+    expect(await screen.findByText('Complete source')).toBeInTheDocument();
+    expect(screen.queryByText('Inherited project context')).not.toBeInTheDocument();
+    const objective = screen.getByLabelText('Review objective');
+    const supportiveDocuments = screen.getByLabelText('Supportive Documents (Optional)');
+    expect(objective.compareDocumentPosition(supportiveDocuments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText('Save these documents to the project sources')).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Review name'), 'Release review');
-    await user.type(screen.getByLabelText('Review objective'), 'Check traceability');
+    await user.type(objective, 'Check traceability');
     await user.click(screen.getByRole('button', { name: 'Start review' }));
 
     await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledWith(project.id, {
@@ -96,14 +100,26 @@ describe('ReviewEntryScreen', () => {
       reviewMode: 'regular',
       reviewer: 'Project owner',
       pullRequest: undefined,
-      baseRef: undefined,
-      headRef: undefined,
-      scopeMode: 'ai',
-      selectedDirectories: undefined,
       temporaryArtifactIds: undefined,
     }));
     expect(trackSession).toHaveBeenCalledWith(session, project.name);
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: session.id });
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: session.id, reviewName: session.name });
+  });
+
+  it('keeps the Review header and form on the same border-box width', () => {
+    render(
+      <ReviewEntryScreen
+        projects={[project]}
+        onNavigate={vi.fn()}
+        onCreateProject={vi.fn()}
+      />,
+    );
+
+    const header = screen.getByRole('heading', { name: 'Start your review' }).closest('header');
+    const form = screen.getByRole('form', { name: 'Start review' });
+    expect(header).not.toBeNull();
+    expect(form).toHaveClass('static-review-form');
+    expect(form.closest('.review-entry-screen')).toContainElement(header);
   });
 
   it('treats project creation as the prerequisite and selects the new project', async () => {
@@ -182,7 +198,7 @@ describe('ReviewEntryScreen', () => {
     await screen.findByLabelText('Review name');
     await user.type(screen.getByLabelText('Review name'), 'Document review');
     await user.type(screen.getByLabelText('Review objective'), 'Check the attached notes.');
-    await user.upload(screen.getByLabelText('Optional document sources'), new File(['release notes'], 'notes.txt', { type: 'text/plain' }));
+    await user.upload(screen.getByLabelText('Supportive Documents (Optional)'), new File(['release notes'], 'notes.txt', { type: 'text/plain' }));
     await user.click(screen.getByRole('button', { name: 'Start review' }));
 
     await waitFor(() => expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, {
@@ -240,7 +256,7 @@ describe('ReviewEntryScreen', () => {
       />,
     );
 
-    expect(await screen.findByText('Available')).toBeInTheDocument();
+    expect(await screen.findByText('Complete source')).toBeInTheDocument();
     expect(screen.queryByText(/Sources could not be checked/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start review' })).toBeEnabled();
   });

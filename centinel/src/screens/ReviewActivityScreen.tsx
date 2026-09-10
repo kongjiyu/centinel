@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Download, FileCheck2, GitBranch, History, MessageSquare, Paperclip, Send, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, Paperclip, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewProgressView } from '../components/ReviewProgressView';
+import { FindingsPanel } from '../components/FindingsPanel';
+import { Modal } from '../components/Modal';
 import {
   createReviewActivityViewModel,
-  findingStatusLabel,
   formatReviewTimestamp,
   parseReviewConfig,
   parseReviewProgress,
@@ -21,23 +22,19 @@ type Props = {
   onNavigate: (screen: Screen) => void;
 };
 
-type Tab = 'Overview' | 'Findings' | 'Traceability' | 'History';
+type Tab = 'Activity' | 'Overview' | 'Findings' | 'Traceability';
 type DecisionIntent = 'approved' | 'changes_requested';
 type SupportiveDocument = { id: string; name: string };
 
-const TABS: Tab[] = ['Overview', 'Findings', 'Traceability', 'History'];
+const REVIEW_DETAIL_TABS: Tab[] = ['Overview', 'Findings', 'Traceability', 'Activity'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 
 function stateTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
   if (state === 'Completed') return 'success';
-  if (state === 'In progress') return 'running';
-  if (state === 'Pending to Review' || state === 'Blocked') return 'warning';
+  if (state === 'In progress' || state === 'Queued') return 'running';
+  if (state === 'Need Approval' || state === 'Blocked') return 'warning';
   if (state === 'Failed') return 'danger';
   return 'neutral';
-}
-
-function severityLabel(value: string) {
-  return value ? value.charAt(0).toUpperCase() + value.slice(1).toLowerCase() : 'Unrated';
 }
 
 function decisionLabel(decision: ReviewDecisionRecord['decision']): string {
@@ -81,7 +78,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [tab, setTab] = useState<Tab>(() => {
     try {
       const stored = window.sessionStorage.getItem(resultTabStorageKey) as Tab | null;
-      return stored && TABS.includes(stored) ? stored : 'Overview';
+      return stored && REVIEW_DETAIL_TABS.includes(stored) ? stored : 'Overview';
     } catch {
       return 'Overview';
     }
@@ -96,8 +93,6 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<DecisionIntent | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportNotice, setExportNotice] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement>>>({});
 
   const load = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -150,11 +145,29 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     : null;
   const state = viewModel?.state ?? 'In progress';
   const config = session ? parseReviewConfig(session) : {};
-  const canDecide = state === 'Pending to Review' && !currentDecision && !submitting;
+  const canDecide = state === 'Need Approval' && !currentDecision && !submitting && !findingsError;
   const canCancel = Boolean(session && (session.status === 'queued' || session.status === 'running')) && !cancelling;
   const objective = viewModel?.objective ?? null;
   const objectiveDocuments = supportiveDocuments(config);
   const reviewer = currentDecision?.reviewer || (typeof config.reviewer === 'string' && config.reviewer.trim() ? config.reviewer.trim() : null);
+  const handleFindingsLoadState = useCallback((nextFindings: Finding[], nextError: string | null) => {
+    setFindings(nextFindings);
+    setFindingsError(nextError);
+  }, []);
+
+  const availableTabs = REVIEW_DETAIL_TABS;
+
+  useEffect(() => {
+    if (!availableTabs.includes(tab)) changeTab(availableTabs[0]);
+  // `changeTab` is intentionally stable for this small state correction.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  useEffect(() => {
+    if (session && (state === 'In progress' || state === 'Queued')) changeTab('Activity');
+  // New and active runs always open on their live activity view.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, state]);
 
   const severityCounts = useMemo(() => SEVERITIES.map(severity => ({
     severity,
@@ -184,6 +197,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       setDecisionIntent(null);
       setDecisionFeedback('');
       await load();
+      if (decisionIntent === 'changes_requested') changeTab('Activity');
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -231,20 +245,6 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     }
   };
 
-  const exportReport = async () => {
-    if (!session || exporting) return;
-    setExporting(true);
-    setExportNotice(null);
-    try {
-      const result = await api.exportSessionReport(projectId, session.id);
-      setExportNotice({ tone: 'success', text: `Report saved to ${result.reportPath}` });
-    } catch (cause) {
-      setExportNotice({ tone: 'danger', text: `Export failed: ${String(cause)}` });
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const changeTab = (next: Tab, focus = false) => {
     setTab(next);
     try { window.sessionStorage.setItem(resultTabStorageKey, next); } catch { /* storage is optional */ }
@@ -252,29 +252,25 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   };
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, current: Tab) => {
-    const index = TABS.indexOf(current);
+    const tabs = REVIEW_DETAIL_TABS;
+    const index = tabs.indexOf(current);
     let nextIndex = index;
-    if (event.key === 'ArrowRight') nextIndex = (index + 1) % TABS.length;
-    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + TABS.length) % TABS.length;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
     if (event.key === 'Home') nextIndex = 0;
-    if (event.key === 'End') nextIndex = TABS.length - 1;
+    if (event.key === 'End') nextIndex = tabs.length - 1;
     if (nextIndex !== index) {
       event.preventDefault();
-      changeTab(TABS[nextIndex], true);
+      changeTab(tabs[nextIndex], true);
     }
   };
 
   if (loading) return <div className="screen review-activity-screen"><p className="command-loading" role="status">Loading review activity…</p></div>;
   if (!session || !viewModel) return <div className="screen review-activity-screen"><div className="command-inline-alert" role="alert"><AlertCircle size={16} aria-hidden="true" /> {error || 'Review activity could not be loaded.'}</div></div>;
 
-  const activityActions = (
+  const headerActions = (
     <section className="review-activity-actions" aria-label="Review decision actions">
-      {canCancel && (
-        <button className="btn-secondary" type="button" onClick={() => void cancelReview()} disabled={!canCancel}>
-          <X size={15} aria-hidden="true" /> {cancelling ? 'Cancelling…' : 'Cancel review'}
-        </button>
-      )}
-      {state === 'Pending to Review' && !currentDecision && (
+      {state === 'Need Approval' && !currentDecision && (
         <>
           <button data-testid="review-decision-reject" className="btn-secondary review-reject-button" type="button" onClick={() => openDecisionPanel('changes_requested')} disabled={!canDecide}>
             <MessageSquare size={15} aria-hidden="true" /> Request changes
@@ -284,11 +280,6 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           </button>
         </>
       )}
-      {state === 'Completed' && (
-        <button className="btn-primary" type="button" onClick={() => void exportReport()} disabled={exporting}>
-          <Download size={15} aria-hidden="true" /> {exporting ? 'Exporting…' : 'Export review report'}
-        </button>
-      )}
     </section>
   );
 
@@ -297,45 +288,15 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       <CommandPageHeader
         eyebrow={`Review / ${project?.name || 'Project'}`}
         title={session.name}
-        description={state === 'Completed'
-          ? 'Review completed from the recorded project scope. Findings remain separate from the activity decision.'
-          : state === 'Pending to Review'
-            ? 'Inspect the evidence and record one activity-level decision when you are ready.'
-            : 'Follow the evidence-led activity conversation as Centinel processes the project sources.'}
         status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-        meta={(
-          <span className="review-activity-meta">
-            <GitBranch size={13} aria-hidden="true" />
-            <span>Scope</span>
-            <span className="mono">{viewModel.targetLabel}</span>
-            {session.baseRef && session.headRef && <span className="review-meta-note">Manual refs; immutable snapshot not supplied</span>}
-          </span>
-        )}
+        actions={state === 'Need Approval' && !currentDecision ? headerActions : state === 'Failed' ? <button type="button" className="btn-primary" onClick={() => onNavigate({ name: 'review-entry', projectId })}><History size={16} aria-hidden="true" /> Rerun review</button> : undefined}
       />
 
       {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
-      {exportNotice && <div className={`review-export-notice review-export-notice-${exportNotice.tone}`} role={exportNotice.tone === 'danger' ? 'alert' : 'status'}><span>{exportNotice.text}</span><button type="button" aria-label="Dismiss export message" onClick={() => setExportNotice(null)}>Dismiss</button></div>}
+      <ReviewTabs tabs={REVIEW_DETAIL_TABS} tab={tab} onTabChange={changeTab} onTabKeyDown={handleTabKeyDown} tabRefs={tabRefs} label="Review detail sections" />
 
-      {state === 'Completed' ? (
-        <ReviewResult
-          session={session}
-          findings={findings}
-          findingsError={findingsError}
-          decisions={decisions}
-          decisionsError={decisionsError}
-          currentDecision={currentDecision}
-          objective={objective}
-          reviewer={reviewer}
-          severityCounts={severityCounts}
-          exporting={exporting}
-          onExport={() => void exportReport()}
-          tab={tab}
-          onTabChange={changeTab}
-          onTabKeyDown={handleTabKeyDown}
-          tabRefs={tabRefs}
-        />
-      ) : (
+      {tab === 'Activity' ? (
         <ReviewActivityContent
           session={session}
           state={state}
@@ -346,11 +307,35 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           currentDecision={currentDecision}
           objective={objective}
           supportiveDocuments={objectiveDocuments}
-          actions={activityActions}
+        />
+      ) : (
+        <ReviewResult
+          session={session}
+          state={state}
+          findings={findings}
+          findingsError={findingsError}
+          decisions={decisions}
+          decisionsError={decisionsError}
+          currentDecision={currentDecision}
+          reviewer={reviewer}
+          severityCounts={severityCounts}
+          tab={tab}
+          onTabChange={changeTab}
+          onTabKeyDown={handleTabKeyDown}
+          tabRefs={tabRefs}
+          onFindingsLoadState={handleFindingsLoadState}
         />
       )}
 
-      {state !== 'Completed' && (
+      {canCancel && (
+        <div className="review-decision-dock">
+          <button className="btn-secondary" type="button" onClick={() => void cancelReview()} disabled={!canCancel}>
+            <X size={15} aria-hidden="true" /> {cancelling ? 'Cancelling…' : 'Cancel review'}
+          </button>
+        </div>
+      )}
+
+      {state === 'Need Approval' && tab === 'Activity' && (
         <FeedbackComposer
           value={composerFeedback}
           files={composerFiles}
@@ -362,7 +347,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         />
       )}
 
-      {decisionIntent && state === 'Pending to Review' && !currentDecision && (
+      {decisionIntent && state === 'Need Approval' && !currentDecision && (
         <ReviewDecisionPanel
           intent={decisionIntent}
           reviewName={session.name}
@@ -378,6 +363,40 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   );
 }
 
+function ReviewTabs({
+  tabs,
+  tab,
+  onTabChange,
+  onTabKeyDown,
+  tabRefs,
+  label,
+}: {
+  tabs: Tab[];
+  tab: Tab;
+  onTabChange: (tab: Tab, focus?: boolean) => void;
+  onTabKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>, tab: Tab) => void;
+  tabRefs: React.MutableRefObject<Partial<Record<Tab, HTMLButtonElement>>>;
+  label: string;
+}) {
+  return (
+    <nav className="review-result-tabs review-activity-tabs" role="tablist" aria-label={label}>
+      {tabs.map(item => (
+        <button
+          key={item}
+          id={`review-result-tab-${item.toLowerCase()}`}
+          role="tab"
+          aria-selected={tab === item}
+          tabIndex={tab === item ? 0 : -1}
+          ref={element => { if (element) tabRefs.current[item] = element; }}
+          type="button"
+          onClick={() => onTabChange(item)}
+          onKeyDown={event => onTabKeyDown(event, item)}
+        >{item}</button>
+      ))}
+    </nav>
+  );
+}
+
 function ReviewActivityContent({
   session,
   state,
@@ -388,7 +407,6 @@ function ReviewActivityContent({
   currentDecision,
   objective,
   supportiveDocuments,
-  actions,
 }: {
   session: StaticSession;
   state: ReviewLifecycleState;
@@ -399,59 +417,43 @@ function ReviewActivityContent({
   currentDecision: ReviewDecisionRecord | null;
   objective: string | null;
   supportiveDocuments: SupportiveDocument[];
-  actions: React.ReactNode;
 }) {
   const progress = parseReviewProgress(session.progressJson);
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
   const objectiveText = objective || 'No objective was persisted for this review.';
   const objectiveNeedsDisclosure = objectiveText.length > 280;
-  const visibleObjective = objectiveNeedsDisclosure && !objectiveExpanded
-    ? `${objectiveText.slice(0, 280).trimEnd()}…`
-    : objectiveText;
   return (
     <div className="review-activity-body">
-      <section className="review-objective" aria-label="Review objective">
-        <div className="review-objective-heading"><span>Objective</span><span className="review-objective-scope">Review scope</span></div>
-        <p>{visibleObjective}</p>
-        {objectiveNeedsDisclosure && <button type="button" className="review-objective-toggle" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(value => !value)}>{objectiveExpanded ? 'Show less' : 'Show more'}</button>}
+      <section className="review-activity-surface" aria-label="Review activity conversation">
+        <div className="review-activity-surface-heading">
+          <h2>{state === 'Need Approval' ? 'Review activity' : 'Review activity'}</h2>
+        </div>
+        <ReviewProgressView progress={progress} />
+        {state === 'Blocked' && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>Review needs attention</strong><p>{session.failureReason || 'A required source or service needs attention before processing can continue.'}</p></div></div>}
+        {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{session.failureReason || 'Centinel could not complete this activity.'}</p></div></div>}
+        {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
+        {currentDecision && (
+          <div className="review-decision-recorded" role="status">
+            <History size={15} aria-hidden="true" />
+            <div><strong>{decisionLabel(currentDecision.decision)}</strong><p>{currentDecision.comment || 'No written rationale was supplied.'} This activity decision is recorded separately from finding status; request changes does not automatically reprocess this review.</p></div>
+          </div>
+        )}
+        {decisionsError && <p className="review-history-unavailable" role="status">Decision history could not be loaded. The activity data above remains available.</p>}
+        {decisions.length > 0 && <DecisionHistoryPreview decisions={decisions} />}
+        {findingsError && <p className="review-history-unavailable" role="status">Findings could not be loaded. Decisions are disabled until the evidence can be reloaded.</p>}
+      </section>
+      <aside className="review-objective" aria-label="Review information">
+        <div className="review-objective-heading"><h2>Information</h2>{objectiveNeedsDisclosure && <button type="button" className="command-icon-button" aria-label="Expand review objective" title="Expand review objective" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(true)}><Expand size={16} aria-hidden="true" /></button>}</div>
+        <ReviewInformation session={session} objective={objectiveText} />
         {supportiveDocuments.length > 0 && (
           <div className="review-source-tags" role="group" aria-label="Supportive documents">
             {supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}
           </div>
         )}
-      </section>
-
-      <section className="review-activity-surface" aria-label="Review activity conversation">
-      <div className="review-activity-surface-heading">
-        <div>
-          <span className="command-eyebrow">Centinel activity</span>
-          <h2>{state === 'Pending to Review' ? 'Evidence ready for human review' : 'Review activity'}</h2>
-          <p>{state === 'Pending to Review'
-            ? 'The automated activity is complete. Review candidate findings before recording an activity decision.'
-            : 'Stages are shown in order. Each stage summarizes the recorded activity and supporting sources.'}</p>
-        </div>
-        {progress?.updatedAt && <time dateTime={progress.updatedAt}>Updated {formatReviewTimestamp(progress.updatedAt)}</time>}
-      </div>
-
-      <ReviewProgressView progress={progress} />
-
-      {state === 'Blocked' && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>Review blocked</strong><p>{session.failureReason || 'A required source or service needs attention before processing can continue.'}</p></div></div>}
-      {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{session.failureReason || 'Centinel could not complete this activity.'}</p></div></div>}
-      {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
-
-      {currentDecision && (
-        <div className="review-decision-recorded" role="status">
-          <History size={15} aria-hidden="true" />
-          <div><strong>{decisionLabel(currentDecision.decision)}</strong><p>{currentDecision.comment || 'No written rationale was supplied.'} This activity decision is recorded separately from finding status; rejection does not automatically reprocess this review.</p></div>
-        </div>
-      )}
-
-      {decisionsError && <p className="review-history-unavailable" role="status">Decision history could not be loaded. The activity data above remains available.</p>}
-      {decisions.length > 0 && <DecisionHistoryPreview decisions={decisions} />}
-      {findingsError && <p className="review-history-unavailable" role="status">Candidate findings could not be loaded. Review activity remains available.</p>}
-      {findings.length > 0 && <p className="review-activity-findings-note">{findings.length} candidate finding{findings.length === 1 ? '' : 's'} will be available in the completed result.</p>}
-      </section>
-      {actions}
+      </aside>
+      <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
+        <div className="review-objective-dialog-content"><p>{objectiveText}</p>{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>
+      </Modal>
     </div>
   );
 }
@@ -465,32 +467,49 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
   onFilesChange: (files: File[]) => void;
   onSubmit: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <aside className="review-feedback-composer" aria-label="Review feedback">
+    <aside className={`review-feedback-composer${expanded ? ' is-expanded' : ''}`} aria-label="Review feedback">
       <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
-        <label className="review-feedback-label" htmlFor="review-feedback-message">Feedback</label>
-        <textarea id="review-feedback-message" rows={2} value={value} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
-        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncateReviewSourceName(file.name)}<button type="button" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
-        <div className="review-feedback-controls">
-          <label className="review-attach-button" htmlFor="review-feedback-attachments"><Paperclip size={16} aria-hidden="true" />Attach supportive documents</label>
-          <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />
-          <button className="btn-primary review-feedback-send" type="submit" disabled={submitting || (!value.trim() && files.length === 0)}><Send size={15} aria-hidden="true" />{submitting ? 'Sending…' : 'Send feedback'}</button>
+        <label className="visually-hidden" htmlFor="review-feedback-message">Write feedback about this review</label>
+        <div className="review-feedback-entry"><textarea id="review-feedback-message" rows={expanded ? 3 : 1} value={value} onFocus={() => setExpanded(true)} onBlur={() => { if (!value.trim() && files.length === 0) setExpanded(false); }} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
+          <div className="review-feedback-controls">
+            <label className="review-attach-button" htmlFor="review-feedback-attachments" title="Attach supportive documents"><Paperclip size={17} aria-hidden="true" /><span className="visually-hidden">Attach supportive documents</span></label>
+            <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />
+            <button className="btn-primary review-feedback-send" type="submit" aria-label={submitting ? 'Sending feedback' : 'Send feedback'} title={submitting ? 'Sending feedback' : 'Send feedback'} disabled={submitting || (!value.trim() && files.length === 0)}><Send size={19} aria-hidden="true" /></button>
+          </div>
         </div>
+        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncateReviewSourceName(file.name)}<button type="button" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
         {notice && <p className="review-feedback-notice" role="status">{notice}</p>}
       </form>
     </aside>
   );
 }
 
-function FindingEvidence({ finding, hasEvidence }: { finding: Finding; hasEvidence: boolean }) {
-  return (
-    <div className="review-finding-evidence">
-      <section><h4>Finding description</h4><p>{finding.description || 'Not supplied.'}</p></section>
-      <section><h4>Evidence examined</h4><p>{hasEvidence ? (finding.evidenceText || finding.filePath || 'Location evidence supplied.') : 'Evidence was not supplied by the service.'}</p></section>
-      <section><h4>Recommendation</h4><p>{finding.recommendation || 'Not supplied.'}</p></section>
-      {finding.confidence && <section><h4>Confidence and provenance</h4><p>{finding.confidence} · {finding.source === 'static' ? 'Review source' : 'Dynamic source'}</p></section>}
-    </div>
-  );
+function ReviewInformation({ session, objective }: { session: StaticSession; objective: string }) {
+  const config = parseReviewConfig(session);
+  const progress = parseReviewProgress(session.progressJson);
+  const pullRequest = typeof config.pullRequest === 'string' ? config.pullRequest.trim() : '';
+  const reviewMode = typeof config.reviewMode === 'string' ? config.reviewMode : '';
+  const reviewScope = pullRequest ? 'Pull Request (PR Review)' : reviewMode === 'changed-files' ? 'Change File Review' : 'Full Scope Review';
+  const startedAt = progress?.startedAt;
+  const finishedAt = progress?.updatedAt || session.updatedAt;
+  const durationMs = startedAt && finishedAt ? Date.parse(finishedAt) - Date.parse(startedAt) : NaN;
+  const duration = Number.isFinite(durationMs) && durationMs >= 0 ? `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs % 60000) / 1000)}s` : 'In progress';
+  return <dl className="review-information-list">
+    <div><dt>Objective</dt><dd>{objective}</dd></div>
+    <div><dt>Review scope</dt><dd>{reviewScope}</dd></div>
+    <div><dt>Duration</dt><dd>{duration}</dd></div>
+  </dl>;
+}
+
+function ReviewWaitingPanel({ tab }: { tab: Tab }) {
+  const title = tab === 'Overview' ? 'Review overview' : tab;
+  return <section className="review-waiting-panel" role="status">
+    <h2>{title}</h2>
+    <p>—</p>
+    <span>This section will be available when the review has produced evidence.</span>
+  </section>;
 }
 
 function DecisionHistoryPreview({ decisions }: { decisions: ReviewDecisionRecord[] }) {
@@ -559,67 +578,44 @@ function ReviewDecisionPanel({
 
 function ReviewResult({
   session,
+  state,
   findings,
   findingsError,
   decisions,
   decisionsError,
   currentDecision,
-  objective,
   reviewer,
   severityCounts,
-  exporting,
-  onExport,
   tab,
   onTabChange,
   onTabKeyDown,
   tabRefs,
+  onFindingsLoadState,
 }: {
   session: StaticSession;
+  state: ReviewLifecycleState;
   findings: Finding[];
   findingsError: string | null;
   decisions: ReviewDecisionRecord[];
   decisionsError: string | null;
   currentDecision: ReviewDecisionRecord | null;
-  objective: string | null;
   reviewer: string | null;
   severityCounts: { severity: string; count: number }[];
-  exporting: boolean;
-  onExport: () => void;
   tab: Tab;
   onTabChange: (tab: Tab, focus?: boolean) => void;
   onTabKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>, tab: Tab) => void;
   tabRefs: React.MutableRefObject<Partial<Record<Tab, HTMLButtonElement>>>;
+  onFindingsLoadState: (findings: Finding[], error: string | null) => void;
 }) {
   const panelId = `review-result-panel-${tab.toLowerCase().replace(/\s+/g, '-')}`;
+  const waitingForResult = state === 'In progress' || state === 'Queued';
   return (
-    <section className="review-result-surface" aria-label="Completed review result">
-      <div className="review-completion-summary">
-        <div className="review-completion-icon"><CheckCircle2 size={22} aria-hidden="true" /></div>
-        <div><span className="command-eyebrow">Completed result</span><h2>Review completed</h2><p>The recorded review covers <strong className="mono">{session.baseRef && session.headRef ? `${session.baseRef} → ${session.headRef}` : 'the full project scope'}</strong>. The result describes the available evidence; it is not a whole-product pass or fail.</p></div>
-      </div>
-
-      <nav className="review-result-tabs" role="tablist" aria-label="Completed review sections">
-        {TABS.map(item => (
-          <button
-            key={item}
-            id={`review-result-tab-${item.toLowerCase().replace(/\s+/g, '-')}`}
-            role="tab"
-            aria-selected={tab === item}
-            aria-controls={`review-result-panel-${item.toLowerCase().replace(/\s+/g, '-')}`}
-            tabIndex={tab === item ? 0 : -1}
-            ref={element => { if (element) tabRefs.current[item] = element; }}
-            type="button"
-            onClick={() => onTabChange(item)}
-            onKeyDown={event => onTabKeyDown(event, item)}
-          >{item}</button>
-        ))}
-      </nav>
-
+    <section className="review-detail-panel command-project-detail" aria-label="Review detail">
       <div id={panelId} role="tabpanel" tabIndex={0} aria-labelledby={`review-result-tab-${tab.toLowerCase().replace(/\s+/g, '-')}`} className="review-result-panel">
-        {tab === 'Overview' && <ReviewResultOverview session={session} findings={findings} findingsError={findingsError} decisionsError={decisionsError} currentDecision={currentDecision} objective={objective} reviewer={reviewer} severityCounts={severityCounts} exporting={exporting} onExport={onExport} />}
-        {tab === 'Findings' && <FindingList findings={findings} error={findingsError} />}
-        {tab === 'Traceability' && <Traceability findings={findings} />}
-        {tab === 'History' && <HistoryPanel progress={session.progressJson} decisions={decisions} error={decisionsError} />}
+        {waitingForResult && <ReviewWaitingPanel tab={tab} />}
+        {!waitingForResult && tab === 'Overview' && <ReviewResultOverview session={session} findings={findings} findingsError={findingsError} decisionsError={decisionsError} currentDecision={currentDecision} reviewer={reviewer} severityCounts={severityCounts} state={state} />}
+        {!waitingForResult && tab === 'Findings' && <FindingsPanel projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} onLoadStateChange={onFindingsLoadState} />}
+        {!waitingForResult && tab === 'Traceability' && <Traceability findings={findings} />}
       </div>
     </section>
   );
@@ -631,63 +627,42 @@ function ReviewResultOverview({
   findingsError,
   decisionsError,
   currentDecision,
-  objective,
   reviewer,
   severityCounts,
-  exporting,
-  onExport,
+  state,
 }: {
   session: StaticSession;
   findings: Finding[];
   findingsError: string | null;
   decisionsError: string | null;
   currentDecision: ReviewDecisionRecord | null;
-  objective: string | null;
   reviewer: string | null;
   severityCounts: { severity: string; count: number }[];
-  exporting: boolean;
-  onExport: () => void;
+  state: ReviewLifecycleState;
 }) {
+  const criticalCount = findings.filter(finding => finding.severity.toLowerCase() === 'critical').length;
+  const highPriorityCount = findings.filter(finding => finding.priority?.toLowerCase() === 'high').length;
+  const progress = parseReviewProgress(session.progressJson);
+  const completedAt = progress?.updatedAt || session.updatedAt;
+  const startedAt = progress?.startedAt;
+  const durationMs = startedAt && completedAt ? Date.parse(completedAt) - Date.parse(startedAt) : NaN;
+  const duration = Number.isFinite(durationMs) && durationMs >= 0
+    ? `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs % 60000) / 1000)}s`
+    : 'Not supplied';
+  const config = parseReviewConfig(session);
+  const reviewMode = typeof config.reviewMode === 'string' ? config.reviewMode : '';
+  const pullRequest = typeof config.pullRequest === 'string' ? config.pullRequest : '';
+  const reviewScope = pullRequest ? 'Pull Request (PR Review)' : reviewMode === 'changed-files' ? 'Change File Review' : 'Full Scope Review';
   return (
     <div className="review-overview-grid">
-      <section className="review-overview-main">
-        <div className="review-overview-copy"><div className="review-overview-heading"><h2>Completion summary</h2><button className="btn-secondary" type="button" onClick={onExport} disabled={exporting}><Download size={15} aria-hidden="true" />{exporting ? 'Exporting…' : 'Export review report'}</button></div><p>{session.finalSummary || 'The automated activity completed and the review was approved by a human reviewer.'}</p><p className="review-evidence-limit">The available result contains session findings and activity history. Structured traceability, immutable snapshot metadata, and per-finding adjudication were not supplied by the current service.</p></div>
-        {!findingsError && <div className="review-severity-grid" aria-label="Reported findings by severity"><div className="review-severity-total"><strong>{findings.length}</strong><span>Reported findings</span></div>{severityCounts.map(item => <div key={item.severity}><strong>{item.count}</strong><span>{severityLabel(item.severity)} severity</span></div>)}</div>}
+      <section className="review-overview-main review-overview-card">
+        <div className="review-overview-copy"><div className="review-overview-heading"><div className="review-overview-title"><h2>Review Overview</h2></div><StatusBadge label={state} tone={stateTone(state)} /></div></div>
+        {!findingsError && <div className="review-severity-grid" aria-label="Review metrics"><div className="review-severity-total"><strong>{findings.length}</strong><span>Reported findings</span></div><div><strong>{criticalCount}</strong><span>Critical severity</span></div><div><strong>{highPriorityCount}</strong><span>High priority</span></div></div>}
+        <div className="review-overview-copy review-overview-summary"><h3>Summary</h3><p>{session.finalSummary || 'The automated activity completed and the review was approved by a human reviewer.'}</p></div>
         {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
-        <div className="review-overview-copy"><h2>Review objective</h2><p>{objective || 'No objective was persisted for this review.'}</p></div>
       </section>
-      <aside className="review-overview-rail"><h2>Review decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Scope</dt><dd className="mono">{session.baseRef && session.headRef ? `${session.baseRef} → ${session.headRef}` : 'Full project scope'}</dd></div><div><dt>Completed</dt><dd>{currentDecision ? formatReviewTimestamp(currentDecision.createdAt) : 'Not supplied'}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
+      <aside className="review-overview-rail review-decision-card"><h2>Decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : 'Not supplied'}</dd></div><div><dt>Assigned reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>Completed</dt><dd>{completedAt ? formatReviewTimestamp(completedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
     </div>
-  );
-}
-
-function FindingList({ findings, error }: { findings: Finding[]; error: string | null }) {
-  if (error) return <p className="review-history-unavailable" role="status">Findings could not be loaded for this result.</p>;
-  if (findings.length === 0) return <div className="command-empty-state"><FileCheck2 size={30} aria-hidden="true" /><h2>No reported findings</h2><p>The completed review did not return any findings.</p></div>;
-  const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  const orderedFindings = [...findings].sort((left, right) => {
-    const severityDifference = (severityRank[left.severity.toLowerCase()] ?? 4) - (severityRank[right.severity.toLowerCase()] ?? 4);
-    if (severityDifference !== 0) return severityDifference;
-    return Date.parse(right.updatedAt || right.createdAt) - Date.parse(left.updatedAt || left.createdAt);
-  });
-  return (
-    <section className="review-finding-list" aria-labelledby="result-findings-heading">
-      <div className="review-section-heading"><div><h2 id="result-findings-heading">Findings</h2><p>Reported observations remain separate from the activity decision.</p></div><span>{findings.length} reported</span></div>
-      <div className="review-result-table-wrap">
-        <table className="review-result-findings-table">
-          <caption className="visually-hidden">Review findings</caption>
-          <thead><tr><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Description</th><th scope="col">Status</th></tr></thead>
-          <tbody>{orderedFindings.map(finding => {
-            return <tr key={finding.id}>
-              <td>{finding.priority || 'Not set'}</td>
-              <td><StatusBadge label={severityLabel(finding.severity)} /></td>
-              <td><div className="review-result-finding-description"><strong>{finding.title}</strong><span>{finding.description || 'No description was supplied.'}</span>{(finding.source || finding.filePath) && <span className="review-result-finding-context">{finding.source === 'static' ? 'Review source' : 'Dynamic source'}{finding.filePath ? ` · ${finding.filePath}${finding.lineNumber ? `:${finding.lineNumber}` : ''}` : ''}</span>}</div><details className="review-result-finding-details"><summary>View evidence</summary><div className="review-result-finding-detail-body"><FindingEvidence finding={finding} hasEvidence={Boolean(finding.evidenceText || finding.filePath)} /></div></details></td>
-              <td><span className="review-finding-state">{findingStatusLabel(finding.status)}</span></td>
-            </tr>;
-          })}</tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 

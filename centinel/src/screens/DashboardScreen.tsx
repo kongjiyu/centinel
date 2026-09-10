@@ -152,7 +152,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
       return;
     }
     if (action.module === 'Review' && action.sessionId) {
-      onNavigate({ name: 'review-activity', projectId: action.project.id, sessionId: action.sessionId });
+      onNavigate({ name: 'review-activity', projectId: action.project.id, sessionId: action.sessionId, reviewName: action.sessionName });
       return;
     }
     onNavigate({ name: 'project-detail', projectId: action.project.id, initialStaticSessionId: action.sessionId });

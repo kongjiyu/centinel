@@ -39,6 +39,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username }),
     }),
+  listGithubPullRequests: (id: string) =>
+    request<{ repository: { owner: string; repo: string; remoteUrl: string }; pullRequests: Array<{ number: number; title: string; state: 'open' | 'closed'; htmlUrl: string; headRef: string; baseRef: string }> }>(
+      `/projects/${id}/github/pull-requests`,
+    ),
 
   // AI Settings
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
@@ -163,7 +167,7 @@ export const api = {
   createStaticSession: (projectId: string, data: {
     name: string;
     instructions: string;
-    reviewMode?: 'regular' | 'pull-request';
+    reviewMode?: 'regular' | 'pull-request' | 'changed-files';
     reviewer?: string;
     pullRequest?: string;
     /** P0-4: base git ref (e.g. 'main'). Leave empty for full-tree review. */

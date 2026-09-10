@@ -53,6 +53,15 @@ export type GithubInviteResult = {
   status: 'invited' | 'already_collaborator';
 };
 
+export type GithubPullRequest = {
+  number: number;
+  title: string;
+  state: 'open' | 'closed';
+  htmlUrl: string;
+  headRef: string;
+  baseRef: string;
+};
+
 /**
  * Errors returned by the collaboration boundary are intentionally generic.
  * In particular, never include the configured GitHub token in a message or
@@ -296,6 +305,48 @@ function githubHeaders(token: string): Record<string, string> {
     'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'Centinel',
   };
+}
+
+/** Return the repository pull requests that can be selected for a PR review. */
+export async function listGithubPullRequests(projectId: string): Promise<{ repository: GithubRepository; pullRequests: GithubPullRequest[] }> {
+  const project = await getProject(projectId);
+  if (!project) throw new CollaborationError('Project not found.', 'project_not_found', 404);
+  const repository = await getGithubRepository(project);
+  if (!repository) {
+    throw new CollaborationError('A GitHub origin remote is required before selecting a pull request.', 'missing_remote', 400);
+  }
+  const token = githubToken();
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/pulls?state=all&per_page=30&sort=updated&direction=desc`,
+      { headers: token ? githubHeaders(token) : { Accept: 'application/vnd.github+json', 'User-Agent': 'Centinel' } },
+    );
+  } catch {
+    throw new CollaborationError('GitHub could not be reached. Try again later.', 'github_request_failed', 502);
+  }
+  if (!response.ok) {
+    throw new CollaborationError('GitHub could not load pull requests for this repository.', 'github_request_failed', 502);
+  }
+  let body: Array<Record<string, unknown>> = [];
+  try {
+    body = await response.json() as Array<Record<string, unknown>>;
+  } catch {
+    throw new CollaborationError('GitHub returned an invalid pull request response.', 'github_request_failed', 502);
+  }
+  const pullRequests = body.flatMap(item => {
+    const number = typeof item.number === 'number' ? item.number : null;
+    const title = typeof item.title === 'string' ? item.title : '';
+    const state = item.state === 'closed' ? 'closed' : 'open';
+    const htmlUrl = typeof item.html_url === 'string' ? item.html_url : '';
+    const head = item.head && typeof item.head === 'object' ? item.head as Record<string, unknown> : {};
+    const base = item.base && typeof item.base === 'object' ? item.base as Record<string, unknown> : {};
+    const headRef = typeof head.ref === 'string' ? head.ref : '';
+    const baseRef = typeof base.ref === 'string' ? base.ref : '';
+    if (number === null || !title) return [];
+    return [{ number, title, state: state as 'open' | 'closed', htmlUrl, headRef, baseRef }];
+  });
+  return { repository, pullRequests };
 }
 
 export async function searchGithubUsers(projectId: string, email: string): Promise<GithubSearchResult> {

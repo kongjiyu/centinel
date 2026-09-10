@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, HelpCircle, Plus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CircleX, Plus } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader } from '../components/CommandUI';
 import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
@@ -18,77 +18,10 @@ type Props = {
 
 const CURRENCY_INTERVAL_MS = 90 * 24 * 60 * 60 * 1000;
 
-type ContextStatus = 'available' | 'unavailable' | 'unknown';
-
 function isStale(artifact: Artifact): boolean {
   if (artifact.source !== 'documents' && artifact.source !== 'drive') return false;
   const timestamp = Date.parse(artifact.createdAt);
   return Number.isFinite(timestamp) && Date.now() - timestamp > CURRENCY_INTERVAL_MS;
-}
-
-function inheritedStatus(
-  artifacts: Artifact[],
-  types: Artifact['type'][],
-  state: 'ready' | 'loading' | 'error' | 'empty',
-): ContextStatus {
-  if (state === 'loading' || state === 'error') return 'unknown';
-  return artifacts.some(artifact => types.includes(artifact.type)) ? 'available' : 'unavailable';
-}
-
-function ContextStatusLabel({ status }: { status: ContextStatus }) {
-  if (status === 'available') return <span className="review-context-status review-context-status-available"><CheckCircle2 size={14} aria-hidden="true" />Available</span>;
-  if (status === 'unknown') return <span className="review-context-status review-context-status-unknown"><HelpCircle size={14} aria-hidden="true" />Could not be checked</span>;
-  return <span className="review-context-status review-context-status-unavailable">Not available</span>;
-}
-
-function InheritedProjectContext({
-  artifacts,
-  state,
-  projectSelected,
-  onOpenSources,
-}: {
-  artifacts: Artifact[];
-  state: 'ready' | 'loading' | 'error' | 'empty';
-  projectSelected: boolean;
-  onOpenSources: () => void;
-}) {
-  const status = projectSelected ? state : 'empty';
-  const items = [
-    { label: 'Repository or source code', types: ['source_code'] as Artifact['type'][] },
-    { label: 'Requirements specification', types: ['requirement'] as Artifact['type'][] },
-    { label: 'Coding standard', types: ['coding_standard'] as Artifact['type'][] },
-    { label: 'Design or supporting documents', types: ['design', 'other'] as Artifact['type'][] },
-  ];
-
-  return (
-    <div className="review-inherited-context" aria-labelledby="inherited-project-context-heading">
-      <div className="review-form-section-heading review-project-context-heading">
-        <div>
-          <h3 id="inherited-project-context-heading">Inherited project context</h3>
-          <p>These sources are inherited from the selected project and managed from its Source tab.</p>
-        </div>
-        {projectSelected && (
-          <button type="button" className="review-entry-source-action btn-secondary" onClick={onOpenSources}>
-            Open project sources
-          </button>
-        )}
-      </div>
-      {!projectSelected ? (
-        <p className="review-entry-context-empty">Select a project to check its inherited source context.</p>
-      ) : (
-        <ul className="review-context-list">
-          {items.map(item => (
-            <li key={item.label}>
-              <span>{item.label}</span>
-              <ContextStatusLabel status={inheritedStatus(artifacts, item.types, status)} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {state === 'error' && <p className="review-entry-source-error" role="alert"><AlertCircle size={15} aria-hidden="true" /> Sources could not be checked. Open the project Source tab and try again.</p>}
-      {state === 'empty' && projectSelected && <p className="review-entry-context-empty">No active project sources are available. Add a source in the project Source tab before starting.</p>}
-    </div>
-  );
 }
 
 async function fileToBase64(file: File): Promise<string> {
@@ -108,7 +41,6 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [reviewDocuments, setReviewDocuments] = useState<File[]>([]);
-  const [saveReviewDocuments, setSaveReviewDocuments] = useState(false);
   const { controls: activeReviewControls } = useActiveReviewState();
 
   useEffect(() => {
@@ -190,15 +122,17 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       }
       const session = await api.createStaticSession(selectedProject.id, {
         ...data,
-        temporaryArtifactIds: !saveReviewDocuments && uploaded.length > 0
+        temporaryArtifactIds: uploaded.length > 0
           ? uploaded.map(artifact => artifact.id)
           : undefined,
+        supportiveDocuments: reviewDocuments.length > 0
+          ? reviewDocuments.map((file, index) => ({ id: uploaded[index]?.id, name: file.name }))
+          : undefined,
       });
-      if (saveReviewDocuments && uploaded.length > 0) setArtifacts(current => [...current, ...uploaded]);
       activeReviewControls.trackSession(session, selectedProject.name);
-      onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id });
+      onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id, reviewName: session.name });
     } catch (cause) {
-      if (!saveReviewDocuments) await Promise.allSettled(uploaded.map(artifact => api.deleteArtifact(selectedProject.id, artifact.id)));
+      await Promise.allSettled(uploaded.map(artifact => api.deleteArtifact(selectedProject.id, artifact.id)));
       throw cause;
     }
   };
@@ -208,15 +142,6 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
     setShowProjectModal(false);
   };
 
-  const projectContext = (
-    <InheritedProjectContext
-      artifacts={artifacts}
-      state={sourceState}
-      projectSelected={Boolean(selectedProject)}
-      onOpenSources={() => selectedProject && onNavigate({ name: 'project-detail', projectId: selectedProject.id })}
-    />
-  );
-
   const projectField = (
     <section className="review-form-section review-project-select-section" aria-labelledby="project-context-heading">
       <div className="review-form-section-heading">
@@ -225,26 +150,30 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       </div>
       <div className="review-entry-project-field form-field">
         <label htmlFor="review-entry-project">Project <span className="field-required" aria-hidden="true">*</span></label>
-        <Select
-          id="review-entry-project"
-          value={selectedProjectId}
-          onChange={setSelectedProjectId}
-          disabled={projects.length === 0}
-          placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'}
-          options={projects.map(project => ({ value: project.id, label: project.name }))}
-        />
+        <div className="review-project-selection-row"><Select
+            id="review-entry-project"
+            value={selectedProjectId}
+            onChange={setSelectedProjectId}
+            disabled={projects.length === 0}
+            placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'}
+            options={projects.map(project => ({ value: project.id, label: project.name }))}
+          />
+          <p className={`review-project-source-status${selectedProject && sourceState === 'ready' && artifacts.length > 0 ? ' is-complete' : ' is-insufficient'}`} role="status">
+            {selectedProject && sourceState === 'ready' && artifacts.length > 0 ? <><CheckCircle2 size={16} aria-hidden="true" />Complete source</> : <><CircleX size={16} aria-hidden="true" />Insufficient source</>}
+          </p>
+        </div>
         <button type="button" className="review-entry-create-link" onClick={() => setShowProjectModal(true)}>
           <Plus size={14} aria-hidden="true" /> Create project
         </button>
       </div>
-      {projectContext}
-      <div className="review-document-source form-field">
-        <label htmlFor="review-document-source">Optional document sources</label>
-        <input id="review-document-source" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => setReviewDocuments(Array.from(event.target.files ?? []))} />
-        <p className="field-help">{reviewDocuments.length > 0 ? `${reviewDocuments.length} document${reviewDocuments.length === 1 ? '' : 's'} selected for this review.` : 'Add documents that are relevant only to this review.'}</p>
-        <label className="checkbox-label review-save-source"><input type="checkbox" checked={saveReviewDocuments} onChange={event => setSaveReviewDocuments(event.target.checked)} /><span className="checkbox-box" aria-hidden="true" /><span>Save these documents to the project sources</span></label>
-      </div>
     </section>
+  );
+
+  const supportiveDocuments = (
+    <div className="review-document-source form-field">
+      <label htmlFor="review-document-source">Supportive Documents (Optional)</label>
+      <input id="review-document-source" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => setReviewDocuments(Array.from(event.target.files ?? []))} />
+    </div>
   );
 
   return (
@@ -252,7 +181,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       <CommandPageHeader
         eyebrow="Review workspace"
         title="Start your review"
-        description="Configure the objective, project context, and code scope for this review."
+        description="Configure the objective, project context, and review scope."
       />
 
       <StaticReviewForm
@@ -263,6 +192,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
         submitDisabled={sourceBlocked}
         submitDisabledReason={sourceBlockingMessage}
         projectContext={projectField}
+        supportiveDocuments={supportiveDocuments}
       />
 
       <ProjectCreateModal
