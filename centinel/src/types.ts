@@ -173,6 +173,13 @@ export type ReviewDecisionAttachment = {
   createdAt: string;
 };
 
+/** Payload accepted when adding a supportive document to review feedback. */
+export type ReviewDecisionAttachmentInput = {
+  fileName: string;
+  mimeType: string;
+  content: string;
+};
+
 /**
  * Test plan item (Group 2c). A single executable test derived from a
  * static-review finding (rationale = the finding id) or generated as

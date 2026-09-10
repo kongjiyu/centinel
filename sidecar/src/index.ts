@@ -60,6 +60,7 @@ import {
   listReviewDecisions,
   getCurrentDecision,
   isValidDecision,
+  type ReviewDecisionAttachmentInput,
 } from './reviewDecisions';
 import { getChangedFiles } from './gitScope';
 import {
@@ -888,8 +889,8 @@ const server = http.createServer(async (req, res) => {
       }
       const comment = typeof body.comment === 'string' ? body.comment : '';
       const reviewer = typeof body.reviewer === 'string' ? body.reviewer : '';
-      const attachments = Array.isArray(body.attachments)
-        ? body.attachments.filter((attachment): attachment is { fileName: string; mimeType: string; content: string } => Boolean(
+      const attachments: ReviewDecisionAttachmentInput[] = Array.isArray(body.attachments)
+        ? body.attachments.filter((attachment): attachment is ReviewDecisionAttachmentInput => Boolean(
           attachment && typeof attachment === 'object'
           && typeof attachment.fileName === 'string'
           && typeof attachment.mimeType === 'string'

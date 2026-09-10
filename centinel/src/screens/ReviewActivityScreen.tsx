@@ -211,7 +211,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       setFeedbackNotice('Feedback added to this review.');
       await load({ silent: true });
     } catch (cause) {
-      setFeedbackNotice(`Feedback could not be sent: ${String(cause)}`);
+      setFeedbackNotice(`Feedback could not be sent. Your draft and attachments are still here; check the file type or size and try again. ${String(cause)}`);
     } finally {
       setSendingFeedback(false);
     }
@@ -470,7 +470,7 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
       <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
         <label className="review-feedback-label" htmlFor="review-feedback-message">Feedback</label>
         <textarea id="review-feedback-message" rows={2} value={value} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
-        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncateReviewSourceName(file.name)}<button type="button" aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
+        {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncateReviewSourceName(file.name)}<button type="button" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
         <div className="review-feedback-controls">
           <label className="review-attach-button" htmlFor="review-feedback-attachments"><Paperclip size={16} aria-hidden="true" />Attach supportive documents</label>
           <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />
@@ -681,7 +681,7 @@ function FindingList({ findings, error }: { findings: Finding[]; error: string |
             return <tr key={finding.id}>
               <td>{finding.priority || 'Not set'}</td>
               <td><StatusBadge label={severityLabel(finding.severity)} /></td>
-              <td><div className="review-result-finding-description"><strong>{finding.title}</strong><span>{finding.description || 'No description was supplied.'}</span></div><details className="review-result-finding-details"><summary>View evidence</summary><div className="review-result-finding-detail-body"><FindingEvidence finding={finding} hasEvidence={Boolean(finding.evidenceText || finding.filePath)} /></div></details></td>
+              <td><div className="review-result-finding-description"><strong>{finding.title}</strong><span>{finding.description || 'No description was supplied.'}</span>{(finding.source || finding.filePath) && <span className="review-result-finding-context">{finding.source === 'static' ? 'Review source' : 'Dynamic source'}{finding.filePath ? ` · ${finding.filePath}${finding.lineNumber ? `:${finding.lineNumber}` : ''}` : ''}</span>}</div><details className="review-result-finding-details"><summary>View evidence</summary><div className="review-result-finding-detail-body"><FindingEvidence finding={finding} hasEvidence={Boolean(finding.evidenceText || finding.filePath)} /></div></details></td>
               <td><span className="review-finding-state">{findingStatusLabel(finding.status)}</span></td>
             </tr>;
           })}</tbody>

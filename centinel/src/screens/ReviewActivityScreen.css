@@ -516,6 +516,9 @@
   cursor: pointer;
 }
 
+.review-feedback-files button:hover,
+.review-feedback-files button:focus-visible { background: var(--workspace-surface-hover); color: var(--workspace-text); }
+
 .review-feedback-controls { justify-content: space-between; }
 .review-feedback-send { min-width: 144px; }
 .review-attach-button {
@@ -611,6 +614,7 @@
 .review-result-finding-description { display: grid; gap: 3px; min-width: 0; }
 .review-result-finding-description strong { color: var(--workspace-text); font-weight: 650; }
 .review-result-finding-description span { color: var(--workspace-text-muted); }
+.review-result-finding-context { color: var(--workspace-text-subtle) !important; font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .review-result-finding-details { margin-top: 8px; }
 .review-result-finding-details summary { color: var(--workspace-primary); font-size: 12px; font-weight: 650; cursor: pointer; }
 .review-result-finding-details summary::marker { color: var(--workspace-primary); }
@@ -661,4 +665,5 @@
   .review-feedback-composer { bottom: 0; border-radius: var(--workspace-radius-panel) var(--workspace-radius-panel) 0 0; }
   .review-attach-button { min-height: 44px; }
   .review-feedback-controls .btn-primary { width: auto; min-width: 144px; min-height: 44px; }
+  .review-feedback-files button { width: 44px; height: 44px; }
 }

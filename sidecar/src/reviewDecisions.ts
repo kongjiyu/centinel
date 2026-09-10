@@ -30,6 +30,12 @@ export type ReviewDecisionAttachment = {
   createdAt: string;
 };
 
+export type ReviewDecisionAttachmentInput = {
+  fileName: string;
+  mimeType: string;
+  content: string;
+};
+
 export type ReviewDecisionRecord = {
   id: string;
   sessionId: string;
@@ -86,7 +92,7 @@ export type SubmitDecisionInput = {
   decision: ReviewDecision;
   comment?: string;
   reviewer?: string;
-  attachments?: Array<{ fileName: string; mimeType: string; content: string }>;
+  attachments?: ReviewDecisionAttachmentInput[];
 };
 
 const MAX_ATTACHMENTS = 5;

@@ -1,4 +1,4 @@
-import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
+import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -206,7 +206,7 @@ export const api = {
       decision: ReviewDecision;
       comment?: string;
       reviewer?: string;
-      attachments?: Array<{ fileName: string; mimeType: string; content: string }>;
+      attachments?: ReviewDecisionAttachmentInput[];
     }
   ) =>
     request<ReviewDecisionRecord>(
