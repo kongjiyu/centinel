@@ -819,7 +819,7 @@
 .review-result-surface .project-findings-layout,
 .review-approval-findings .project-findings-layout {
   display: grid;
-  grid-template-columns: minmax(0, 9fr) minmax(280px, 3fr);
+  grid-template-columns: minmax(0, 8fr) minmax(320px, 4fr);
   align-items: start;
   gap: 16px;
 }
@@ -1067,34 +1067,35 @@
 .review-activity-body { grid-template-columns: minmax(0, 1fr) !important; }
 .review-activity-surface { grid-column: 1 / -1; }
 
-.review-traceability > .review-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-.review-traceability > .review-section-heading h2 { display: inline-flex; align-items: center; gap: 8px; }
-.review-traceability-total { flex: 0 0 auto; color: var(--workspace-text); font-size: 16px; line-height: 24px; }
-.review-traceability-layout { display: grid; grid-template-columns: minmax(0, 9fr) minmax(280px, 3fr); gap: 16px; align-items: start; }
+.review-traceability-layout { display: grid; grid-template-columns: minmax(0, 7fr) minmax(360px, 5fr); gap: 16px; align-items: start; }
 .review-traceability-table-card, .review-traceability-detail { min-width: 0; padding: 20px 24px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-panel); background: var(--workspace-surface); box-shadow: var(--workspace-shadow-panel); }
+.review-traceability-table-heading { display: flex; align-items: center; min-height: 28px; margin-bottom: 16px; }
+.review-traceability-table-heading h2 { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--workspace-text); font-size: 18px; font-weight: 650; line-height: 26px; }
+.review-traceability-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(148px, .35fr); gap: 12px; margin-bottom: 16px; }
+.review-traceability-search { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid var(--workspace-border-strong); border-radius: var(--workspace-radius-control); background: var(--workspace-surface); color: var(--workspace-text-muted); }
+.review-traceability-search:focus-within { border-color: var(--workspace-focus); box-shadow: 0 0 0 2px rgba(47, 111, 68, .16); }
+.review-traceability-search input { width: 100%; min-width: 0; height: 38px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--workspace-text); font: inherit; font-size: 13px; }
+.review-traceability-state { min-width: 0; }
 .review-traceability-table-wrap { overflow-x: auto; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); }
-.review-traceability-table { width: 100%; min-width: 980px; table-layout: fixed; border-spacing: 0; border-collapse: separate; background: var(--workspace-surface); }
+.review-traceability-table { width: 100%; min-width: 620px; table-layout: fixed; border-spacing: 0; border-collapse: separate; background: var(--workspace-surface); }
 .review-traceability-table th, .review-traceability-table td { padding: 12px 14px; border-bottom: 1px solid var(--workspace-border); text-align: left; vertical-align: top; }
 .review-traceability-table th { background: var(--workspace-surface-subtle); color: var(--workspace-text-muted); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .review-traceability-table td { color: var(--workspace-text); font-size: 12px; line-height: 19px; }
 .review-traceability-table tbody tr:last-child td { border-bottom: 0; }
 .review-traceability-table tbody tr { cursor: pointer; }
 .review-traceability-table tbody tr:hover, .review-traceability-table tbody tr.selected { background: var(--workspace-surface-hover); }
-.review-traceability-table th:first-child, .review-traceability-table td:first-child { width: 11%; }
-.review-traceability-table th:nth-child(2), .review-traceability-table td:nth-child(2) { width: 28%; }
+.review-traceability-table th:first-child, .review-traceability-table td:first-child { width: 18%; }
+.review-traceability-table th:nth-child(2), .review-traceability-table td:nth-child(2) { width: 62%; }
 .review-traceability-table th:nth-child(3), .review-traceability-table td:nth-child(3) { width: 20%; }
-.review-traceability-table th:nth-child(4), .review-traceability-table td:nth-child(4) { width: 25%; }
-.review-traceability-table th:nth-child(5), .review-traceability-table td:nth-child(5) { width: 16%; }
 .review-traceability-table .finding-id-label,
 .review-traceability-detail .finding-id-label { color: var(--workspace-text-muted); font-family: var(--font-technical); font-size: 11px; font-weight: 650; }
-.traceability-requirement-link em { color: var(--workspace-primary); font-size: 11px; font-style: normal; font-weight: 600; }
 .traceability-requirement-link, .traceability-finding-link, .traceability-detail-finding { display: grid; gap: 3px; width: 100%; padding: 0; border: 0; background: transparent; color: var(--workspace-primary); font: inherit; text-align: left; cursor: pointer; }
 .traceability-requirement-link strong { color: var(--workspace-text); font-weight: 650; }
 .traceability-requirement-link span { color: var(--workspace-text-subtle); font-size: 11px; }
 .traceability-finding-link { display: block; overflow: hidden; color: var(--workspace-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .traceability-requirement-link:hover strong, .traceability-finding-link:hover, .traceability-detail-finding:hover { text-decoration: underline; }
-.traceability-source-list, .traceability-finding-links, .traceability-detail-list { display: grid; gap: 5px; min-width: 0; }
-.traceability-source-chip { display: block; overflow: hidden; color: var(--workspace-text-muted); font-family: var(--font-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.traceability-detail-list { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.traceability-source-tag { display: inline-flex; max-width: 100%; align-items: center; padding: 3px 8px; border: 1px solid var(--workspace-border); border-radius: 999px; background: var(--workspace-surface-subtle); color: var(--workspace-text-muted); font-family: var(--font-technical); font-size: 11px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .traceability-muted { color: var(--workspace-text-subtle); font-size: 11px; }
 .traceability-state-badge { display: inline-flex; min-height: 22px; align-items: center; padding: 2px 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; font-weight: 650; line-height: 16px; white-space: nowrap; }
 .traceability-state-complete { color: var(--workspace-success); background: var(--workspace-success-subtle); }
@@ -1104,16 +1105,20 @@
 .review-traceability-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .review-traceability-detail-heading h3 { margin: 3px 0 0; color: var(--workspace-text); font-size: 16px; line-height: 22px; }
 .review-traceability-detail-description { margin: 0; color: var(--workspace-text-muted); font-size: 13px; line-height: 20px; white-space: pre-wrap; }
-.review-traceability-status-list { display: grid; gap: 10px; margin: 0; padding: 14px 0; border-top: 1px solid var(--workspace-border); border-bottom: 1px solid var(--workspace-border); }
-.review-traceability-status-list > div { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
-.review-traceability-status-list dt { color: var(--workspace-text-subtle); font-size: 12px; }
-.review-traceability-status-list dd { margin: 0; }
 .review-traceability-detail section { display: grid; gap: 8px; }
 .review-traceability-detail section h4 { margin: 0; color: var(--workspace-text); font-size: 13px; line-height: 20px; }
 .review-traceability-detail-list span, .traceability-detail-finding { color: var(--workspace-text-muted); font-size: 12px; line-height: 19px; overflow-wrap: anywhere; }
 .review-traceability-detail-empty { align-self: center; color: var(--workspace-text-muted); font-size: 13px; }
+.review-traceability-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; color: var(--workspace-text-muted); font-size: 12px; }
+.review-traceability-pagination > span:last-child { display: inline-flex; align-items: center; gap: 10px; color: var(--workspace-text); }
+.review-traceability-pagination .btn-secondary { min-height: 34px; padding: 6px 11px; }
 
 @media (max-width: 900px) {
   .review-traceability-layout { grid-template-columns: 1fr; }
   .review-traceability-detail { min-height: 0; }
+}
+
+@media (max-width: 640px) {
+  .review-traceability-toolbar { grid-template-columns: 1fr; }
+  .review-traceability-pagination { align-items: flex-start; flex-direction: column; }
 }

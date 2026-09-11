@@ -182,19 +182,6 @@
   font-weight: 600;
 }
 
-.project-activity-see-more {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-primary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 650;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
 
 .project-activity-empty {
   justify-content: center;

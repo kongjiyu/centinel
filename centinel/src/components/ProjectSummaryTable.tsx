@@ -123,9 +123,6 @@ export function ProjectSummaryTable({
                         <span>{isDynamic ? 'Dynamic testing' : 'Review'}</span>
                         <span className="project-activity-separator" aria-hidden="true">·</span>
                         <time dateTime={activity.updatedAt}>{formatActivityTime(activity.updatedAt)}</time>
-                        {showsDirectoryControls
-                          ? <button type="button" className="project-activity-see-more" onClick={event => { event.stopPropagation(); openSummary(summary, onNavigate); }} aria-label={`See more about ${activity.session.name}`}>… See more</button>
-                          : <span className="project-activity-see-more">… See more</span>}
                       </div>
                     </div>
                   ) : (

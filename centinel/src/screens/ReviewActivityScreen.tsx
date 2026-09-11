@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, Paperclip, Send, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, Paperclip, Search, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewProgressView } from '../components/ReviewProgressView';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { Modal } from '../components/Modal';
+import { Select } from '../components/Select';
 import {
   createReviewActivityViewModel,
   formatReviewTimestamp,
@@ -758,43 +759,56 @@ function Traceability({
 }) {
   const records = useMemo(() => traceabilityRecords(requirements, mappings, artifacts, findings), [artifacts, findings, mappings, requirements]);
   const [selectedRequirementId, setSelectedRequirementId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [stateFilter, setStateFilter] = useState<'all' | TraceabilityState>('all');
+  const [page, setPage] = useState(0);
+  const pageSize = 5;
+  const filteredRecords = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return records.filter(record => {
+      const matchesQuery = !normalizedQuery || `${record.requirement.id} ${record.requirement.title} ${record.requirement.description} ${record.requirement.category}`.toLowerCase().includes(normalizedQuery);
+      return matchesQuery && (stateFilter === 'all' || record.state === stateFilter);
+    });
+  }, [query, records, stateFilter]);
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pagedRecords = filteredRecords.slice(safePage * pageSize, safePage * pageSize + pageSize);
   const selectedRecord = records.find(record => record.requirement.id === selectedRequirementId) ?? records[0] ?? null;
+  const selectRecord = (requirementId: string) => setSelectedRequirementId(requirementId);
 
   return (
     <section className="review-traceability" aria-labelledby="review-traceability-heading">
-      <div className="review-section-heading">
-        <div>
-          <h2 id="review-traceability-heading"><FileCheck2 size={18} aria-hidden="true" /> Traceability</h2>
-          <p>Each requirement is linked to its mapped source evidence and related findings.</p>
-        </div>
-        <strong className="review-traceability-total">{records.length} requirements</strong>
-      </div>
       <div className="review-traceability-layout">
         <div className="review-traceability-table-card">
+          <div className="review-traceability-table-heading"><h2 id="review-traceability-heading"><FileCheck2 size={18} aria-hidden="true" /> Traceability</h2></div>
+          <div className="review-traceability-toolbar" role="search" aria-label="Traceability filters">
+            <label className="review-traceability-search"><span className="visually-hidden">Search traceability</span><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search traceability" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} placeholder="Requirement ID or name" /></label>
+            <label className="review-traceability-state"><span className="visually-hidden">Traceability state</span><Select aria-label="Traceability state" value={stateFilter} onChange={value => { setStateFilter(value as 'all' | TraceabilityState); setPage(0); }} options={[{ value: 'all', label: 'All states' }, { value: 'complete', label: 'Complete' }, { value: 'incomplete', label: 'Incomplete' }, { value: 'missing', label: 'Missing' }]} /></label>
+          </div>
           <div className="review-traceability-table-wrap">
             <table className="review-traceability-table" aria-label="Traceability matrix">
-              <thead><tr><th scope="col">ID</th><th scope="col">Requirement</th><th scope="col">Source</th><th scope="col">Findings</th><th scope="col">State</th></tr></thead>
+              <thead><tr><th scope="col">ID</th><th scope="col">Requirement</th><th scope="col">State</th></tr></thead>
               <tbody>
-                {records.length === 0 ? (
-                  <tr><td colSpan={5}><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>No requirement mappings are available for this review yet. Add requirements and map their source evidence to populate this matrix.</span></div></td></tr>
-                ) : records.map(record => (
-                  <tr key={record.requirement.id} tabIndex={0} aria-selected={selectedRecord?.requirement.id === record.requirement.id} className={selectedRecord?.requirement.id === record.requirement.id ? 'selected' : undefined} onClick={() => setSelectedRequirementId(record.requirement.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedRequirementId(record.requirement.id); } }}>
+                {filteredRecords.length === 0 ? (
+                  <tr><td colSpan={3}><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>{records.length === 0 ? 'No requirement mappings are available for this review yet. Add requirements and map their source evidence to populate this matrix.' : 'No traceability items match the current filters.'}</span></div></td></tr>
+                ) : pagedRecords.map(record => (
+                  <tr key={record.requirement.id} tabIndex={0} aria-selected={selectedRecord?.requirement.id === record.requirement.id} className={selectedRecord?.requirement.id === record.requirement.id ? 'selected' : undefined} onClick={() => selectRecord(record.requirement.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectRecord(record.requirement.id); } }}>
                     <td><span className="finding-id-label" title={entityIdTitle('Requirement ID:', record.requirement.id)}>{formatEntityId(record.requirement.id)}</span></td>
-                    <td><button type="button" className="traceability-requirement-link" onClick={event => { event.stopPropagation(); setSelectedRequirementId(record.requirement.id); }}><strong>{record.requirement.title}</strong><span>{record.requirement.category || 'Requirement'}</span><em>… See more</em></button></td>
-                    <td><div className="traceability-source-list">{record.sources.length > 0 ? record.sources.map(source => <span key={source.id} className="traceability-source-chip" title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>) : <span className="traceability-muted">No mapped source</span>}</div></td>
-                    <td><div className="traceability-finding-links">{record.findings.length > 0 ? record.findings.map(finding => <button key={finding.id} type="button" className="traceability-finding-link" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={event => { event.stopPropagation(); onOpenFinding(finding.id); }}>{formatEntityId(finding.id)}</button>) : <span className="traceability-muted">No linked findings</span>}</div></td>
+                    <td><button type="button" className="traceability-requirement-link" onClick={event => { event.stopPropagation(); selectRecord(record.requirement.id); }}><strong>{record.requirement.title}</strong><span>{formatEntityId(record.requirement.id)} · {record.requirement.category || 'Requirement'}</span></button></td>
                     <td><TraceabilityStateBadge state={record.state} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {filteredRecords.length > 0 && <nav className="review-traceability-pagination" aria-label="Traceability pages"><span>{safePage * pageSize + 1}–{Math.min((safePage + 1) * pageSize, filteredRecords.length)} of {filteredRecords.length}</span><span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={safePage === 0}>Previous</button><span>Page {safePage + 1} of {pageCount}</span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={safePage >= pageCount - 1}>Next</button></span></nav>}
         </div>
         <aside className="review-traceability-detail" aria-label="Traceability details">
           {selectedRecord ? <>
             <div className="review-traceability-detail-heading"><div><span className="command-eyebrow">Requirement</span><h3>{selectedRecord.requirement.title}</h3><span className="finding-id-label" title={entityIdTitle('Requirement ID:', selectedRecord.requirement.id)}>{formatEntityId(selectedRecord.requirement.id)}</span></div><TraceabilityStateBadge state={selectedRecord.state} /></div>
-            <p className="review-traceability-detail-description">{selectedRecord.requirement.description || 'No requirement description was supplied.'}</p>
-            <section><h4>Sources</h4>{selectedRecord.sources.length > 0 ? <div className="traceability-detail-list">{selectedRecord.sources.map(source => <span key={source.id} title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>)}</div> : <p className="traceability-muted">No mapped source evidence.</p>}</section>
+            <section><h4>Requirement sentence</h4><p className="review-traceability-detail-description">{selectedRecord.requirement.description || 'No requirement description was supplied.'}</p></section>
+            <section><h4>Requirement reference</h4>{selectedRecord.sources.filter(source => source.type !== 'source_code').length > 0 ? <div className="traceability-detail-list">{selectedRecord.sources.filter(source => source.type !== 'source_code').map(source => <span key={source.id} className="traceability-source-tag" title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>)}</div> : <p className="traceability-muted">No requirement reference is linked.</p>}</section>
+            <section><h4>Implementation reference</h4>{selectedRecord.sources.filter(source => source.type === 'source_code').length > 0 ? <div className="traceability-detail-list">{selectedRecord.sources.filter(source => source.type === 'source_code').map(source => <span key={source.id} className="traceability-source-tag" title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>)}</div> : <p className="traceability-muted">No implementation evidence is linked.</p>}</section>
             <section><h4>Linked findings</h4>{selectedRecord.findings.length > 0 ? <div className="traceability-detail-list">{selectedRecord.findings.map(finding => <button key={finding.id} type="button" className="traceability-detail-finding" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={() => onOpenFinding(finding.id)}>{formatEntityId(finding.id)}</button>)}</div> : <p className="traceability-muted">No findings are linked to this requirement.</p>}</section>
           </> : <div className="review-traceability-detail-empty">Select a requirement to review its evidence links.</div>}
         </aside>

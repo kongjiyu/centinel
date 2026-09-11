@@ -274,7 +274,8 @@ describe('ReviewActivityScreen', () => {
     expect(within(table).queryByRole('columnheader', { name: 'Completeness' })).not.toBeInTheDocument();
     expect(within(table).queryByRole('columnheader', { name: 'Correctness' })).not.toBeInTheDocument();
     expect(within(table).queryByRole('columnheader', { name: 'Consistency' })).not.toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: 'Findings' })).not.toBeInTheDocument();
     expect(within(table).getByText('Complete')).toBeInTheDocument();
-    expect(within(table).getByRole('button', { name: 'Open finding #finding-1: Checkout requirement is not represented' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open finding #finding-1: Checkout requirement is not represented' })).toBeInTheDocument();
   });
 });
