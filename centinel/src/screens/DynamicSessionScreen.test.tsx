@@ -84,4 +84,15 @@ describe('DynamicSessionScreen', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(screen.getByText(/saved run and evidence have not been changed/i)).toBeInTheDocument();
   });
+
+  it('shows verifiable progress and recent activity while a test is running', async () => {
+    vi.mocked(api.getDynamicSession).mockResolvedValue({ ...session, status: 'running', finalSummary: '', failureReason: '' });
+    render(<DynamicSessionScreen projectId="project-1" sessionId={session.id} onNavigate={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Testing the website' })).toBeInTheDocument());
+    expect(screen.getByText('1 of up to 15')).toBeInTheDocument();
+    expect(screen.getByText('Clicked Pay now')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export report' })).not.toBeInTheDocument();
+  });
 });

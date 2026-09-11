@@ -116,15 +116,17 @@ export function ProjectSummaryTable({
                 <td data-label="Latest activity">
                   {activity ? (
                     <div className={`project-activity-stack project-activity-${activity.kind}`}>
-                      <strong>{activity.session.name} <time dateTime={activity.updatedAt}>done at {formatActivityTime(activity.updatedAt)}</time></strong>
+                      <strong title={activity.session.name}>{activity.session.name}</strong>
                       <div className="project-activity-meta">
                         <ActivityIcon size={14} strokeWidth={1.8} aria-hidden="true" />
-                        {isDynamic ? 'Dynamic Testing' : 'Review'}
+                        <span>{isDynamic ? 'Dynamic testing' : 'Review'}</span>
+                        <span className="project-activity-separator" aria-hidden="true">·</span>
+                        <time dateTime={activity.updatedAt}>{formatActivityTime(activity.updatedAt)}</time>
                       </div>
                     </div>
                   ) : (
                     <div className="project-activity-stack project-activity-empty">
-                      <span>No Review or Dynamic Testing activity yet</span>
+                      <span>No review or dynamic testing activity yet</span>
                     </div>
                   )}
                 </td>

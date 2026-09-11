@@ -14,12 +14,14 @@ import { RequirementsScreen } from './screens/RequirementsScreen';
 import { EvidenceBrowser } from './screens/EvidenceBrowser';
 import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
 import { ReviewEntryScreen } from './screens/ReviewEntryScreen';
+import { AuthScreen } from './screens/AuthScreen';
 import { api } from './api/client';
 import type { Project, AiProviderSetting, Screen } from './types';
 import { ActiveReviewProvider } from './hooks/useActiveReview';
 import { ReviewToast } from './components/ReviewToast';
 
 function App() {
+  const [entryMode, setEntryMode] = useState<'auth' | 'workspace'>('auth');
   const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
   const [projects, setProjects] = useState<Project[]>([]);
   const [aiSettings, setAiSettings] = useState<AiProviderSetting[]>([]);
@@ -48,6 +50,10 @@ function App() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  if (entryMode === 'auth') {
+    return <AuthScreen onSignIn={() => setEntryMode('workspace')} />;
+  }
 
   const handleCreateProject = async (name: string, description: string, workspacePath: string, source: ProjectCreateSource, navigateAfter = true) => {
     const project = await api.createProject(name, description, workspacePath, source);

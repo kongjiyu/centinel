@@ -3800,8 +3800,19 @@ div.app-shell.has-window-chrome .page-content-container > .main-content {
 }
 
 .workspace-mode:not(.dashboard-mode) .usage-table td code {
-  color: var(--shell-primary);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--shell-border);
+  border-radius: 4px;
+  background: var(--shell-surface-subtle);
+  color: var(--shell-text);
   font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .workspace-mode:not(.dashboard-mode) .usage-num {

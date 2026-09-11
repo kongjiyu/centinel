@@ -904,7 +904,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
               isOpen={showDynamicForm}
               onClose={() => { setShowDynamicForm(false); setError(null); }}
               title="New test"
-              width={520}
+              width={640}
             >
               <DynamicTestForm
                 onSubmit={handleCreateDynamic}
@@ -1057,7 +1057,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           isOpen={showDynamicForm}
           onClose={() => { setShowDynamicForm(false); setError(null); }}
           title="New test"
-          width={520}
+          width={640}
         >
           <DynamicTestForm
             onSubmit={handleCreateDynamic}

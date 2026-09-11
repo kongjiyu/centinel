@@ -1,0 +1,229 @@
+.dynamic-test-form {
+  display: grid;
+  gap: 16px;
+}
+
+.dynamic-automation-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--workspace-info) 28%, var(--workspace-border));
+  border-radius: var(--workspace-radius-control);
+  background: color-mix(in srgb, var(--workspace-info) 6%, var(--workspace-surface));
+}
+
+.dynamic-automation-icon,
+.dynamic-type-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--workspace-info);
+}
+
+.dynamic-automation-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--workspace-info) 11%, var(--workspace-surface));
+}
+
+.dynamic-automation-note strong {
+  color: var(--workspace-text);
+  font-size: 13px;
+}
+
+.dynamic-automation-note p {
+  margin: 3px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dynamic-test-form .form-field {
+  margin: 0;
+}
+
+.dynamic-test-form .field-label-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--workspace-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dynamic-test-form .field-label-with-icon svg {
+  color: var(--workspace-info);
+}
+
+.dynamic-test-form input[type='url'],
+.dynamic-test-form input[type='number'],
+.dynamic-test-form textarea {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  box-shadow: var(--workspace-shadow-control);
+}
+
+.dynamic-test-form input[type='url'],
+.dynamic-test-form input[type='number'] {
+  min-height: 42px;
+  padding: 9px 11px;
+}
+
+.dynamic-test-form textarea {
+  min-height: 92px;
+  padding: 10px 11px;
+  line-height: 21px;
+  resize: vertical;
+}
+
+.dynamic-test-form input:focus,
+.dynamic-test-form textarea:focus {
+  border-color: var(--workspace-focus);
+  outline: 2px solid color-mix(in srgb, var(--workspace-focus) 22%, transparent);
+  outline-offset: 1px;
+}
+
+.dynamic-test-form .field-help {
+  margin: 6px 0 0;
+  color: var(--workspace-text-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dynamic-test-type {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dynamic-test-type legend {
+  margin-bottom: 9px;
+  color: var(--workspace-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dynamic-type-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dynamic-type-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px 28px minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 82px;
+  padding: 13px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  cursor: pointer;
+  transition: background-color var(--workspace-standard) var(--workspace-ease), border-color var(--workspace-standard) var(--workspace-ease);
+}
+
+.dynamic-type-option:hover {
+  background: var(--workspace-surface-hover);
+}
+
+.dynamic-type-option:has(input:checked) {
+  border-color: var(--workspace-info);
+  background: color-mix(in srgb, var(--workspace-info) 7%, var(--workspace-surface));
+}
+
+.dynamic-type-option input {
+  margin: 3px 0 0;
+  accent-color: var(--workspace-info);
+}
+
+.dynamic-type-option > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.dynamic-type-option strong {
+  color: var(--workspace-text);
+  font-size: 13px;
+}
+
+.dynamic-type-option small {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.dynamic-test-form .advanced-options {
+  margin: 0;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.dynamic-test-form .advanced-options summary {
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--workspace-text-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dynamic-test-form .advanced-options-content {
+  padding: 0 12px 12px;
+}
+
+.dynamic-test-form .advanced-options-content .form-field {
+  max-width: 220px;
+}
+
+.dynamic-test-form .form-error {
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--workspace-danger);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-danger-subtle);
+  color: var(--workspace-danger);
+  font-size: 13px;
+}
+
+.dynamic-form-actions {
+  position: sticky;
+  z-index: 2;
+  bottom: -20px;
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0 -20px -20px;
+  padding: 14px 20px 20px;
+  border-top: 1px solid var(--workspace-border);
+  background: var(--workspace-surface);
+}
+
+@media (max-width: 720px) {
+  .dynamic-type-options { grid-template-columns: 1fr; }
+  .dynamic-type-option { min-height: 80px; }
+  .dynamic-form-actions { flex-direction: column; }
+  .dynamic-form-actions button { width: 100%; min-height: 44px; }
+}
+
+@media (max-height: 760px) and (min-width: 721px) {
+  .dynamic-test-form { gap: 8px; }
+  .dynamic-automation-note { padding: 10px 12px; }
+  .dynamic-automation-icon { width: 28px; height: 28px; }
+  .dynamic-automation-note > div { line-height: 17px; }
+  .dynamic-automation-note strong { margin-right: 4px; }
+  .dynamic-automation-note p { display: inline; margin: 0; line-height: 17px; }
+  .dynamic-test-form .field-help { display: none; }
+  .workspace-mode:not(.dashboard-mode) .dynamic-test-form textarea { height: 68px; min-height: 68px; }
+  .dynamic-type-option { min-height: 68px; padding: 10px; }
+  .dynamic-test-form .advanced-options summary { min-height: 38px; padding-block: 8px; }
+  .dynamic-form-actions { padding-top: 10px; }
+}
