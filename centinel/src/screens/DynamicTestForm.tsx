@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Play, Globe, Target, Hash, SlidersHorizontal } from 'lucide-react';
-import { Select } from '../components/Select';
+import { Play, Globe, Target, Hash, SlidersHorizontal, Route, Zap, ShieldCheck } from 'lucide-react';
+import './DynamicTestForm.css';
 
 type Props = {
   onSubmit: (data: {
@@ -20,7 +20,8 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     setError(null);
     if (!targetUrl.trim()) { setError('Target URL is required'); return; }
     try { new URL(targetUrl); } catch { setError('Invalid URL'); return; }
@@ -37,15 +38,24 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
   };
 
   return (
-    <div className="dynamic-test-form">
-      <div className="form-field">
+    <form className="dynamic-test-form" onSubmit={handleSubmit}>
+      <div className="dynamic-automation-note">
+        <span className="dynamic-automation-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
+        <div>
+          <strong>Automatic browser test</strong>
+          <p>Centinel will navigate the website, capture visual evidence, and produce a result without pausing for approval at each step.</p>
+        </div>
+      </div>
+
+      <div className="form-field dynamic-primary-field">
         <label className="field-label-with-icon" htmlFor="dynamic-target-url">
           <Globe size={16} /> Website address
         </label>
-        <input id="dynamic-target-url" type="url" value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://example.com" />
+        <input id="dynamic-target-url" type="url" value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://your-website.example" autoComplete="url" />
+        <p className="field-help">Enter the page where the autonomous test should begin.</p>
       </div>
 
-      <div className="form-field">
+      <div className="form-field dynamic-primary-field">
         <label className="field-label-with-icon" htmlFor="dynamic-test-goal">
           <Target size={16} /> Test goal
         </label>
@@ -53,28 +63,45 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
           id="dynamic-test-goal"
           value={goal}
           onChange={e => setGoal(e.target.value)}
-          placeholder="Describe what you want to test, e.g. 'Verify invalid login shows error message'"
-          rows={3}
+          placeholder="For example: Verify that a new user can create an account and reach the dashboard"
+          rows={2}
         />
+        <p className="field-help">Describe the outcome a real user should be able to achieve.</p>
       </div>
 
-      <div className="form-field">
-        <label htmlFor="dynamic-test-type">Test type</label>
-        <Select
-          id="dynamic-test-type"
-          value={missionType}
-          onChange={value => setMissionType(value as 'user_journey' | 'smoke')}
-          options={[
-            { value: 'user_journey', label: 'User journey' },
-            { value: 'smoke', label: 'Smoke test' },
-          ]}
-        />
-        <p className="field-help">
-          {missionType === 'user_journey'
-            ? 'Follow a goal across several pages and interactions.'
-            : 'Check that the main page and critical controls work.'}
-        </p>
-      </div>
+      <fieldset className="dynamic-test-type">
+        <legend>Test type</legend>
+        <div className="dynamic-type-options">
+          <label className="dynamic-type-option">
+            <input
+              type="radio"
+              name="dynamic-test-type"
+              value="user_journey"
+              checked={missionType === 'user_journey'}
+              onChange={() => setMissionType('user_journey')}
+            />
+            <span className="dynamic-type-icon"><Route size={18} aria-hidden="true" /></span>
+            <span>
+              <strong>User journey</strong>
+              <small>Follow one goal across multiple pages and interactions.</small>
+            </span>
+          </label>
+          <label className="dynamic-type-option">
+            <input
+              type="radio"
+              name="dynamic-test-type"
+              value="smoke"
+              checked={missionType === 'smoke'}
+              onChange={() => setMissionType('smoke')}
+            />
+            <span className="dynamic-type-icon"><Zap size={18} aria-hidden="true" /></span>
+            <span>
+              <strong>Smoke test</strong>
+              <small>Check that the starting page and its critical controls work.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
 
       <details className="advanced-options">
         <summary><SlidersHorizontal size={16} /> Advanced options</summary>
@@ -91,12 +118,12 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
 
       {error && <p className="form-error" role="alert">{error}</p>}
 
-      <div className="form-actions">
-        <button className="btn-primary" onClick={handleSubmit} disabled={submitting}>
+      <div className="form-actions dynamic-form-actions">
+        <button type="submit" className="btn-primary" disabled={submitting}>
           <Play size={16} /> {submitting ? 'Starting…' : 'Run test'}
         </button>
-        <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
       </div>
-    </div>
+    </form>
   );
 }

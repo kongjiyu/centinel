@@ -50,4 +50,24 @@ describe('DynamicTestForm', () => {
     expect(screen.getByLabelText('Website address')).toHaveValue('https://example.com');
     expect(screen.getByLabelText('Test goal')).toHaveValue('Verify the home page loads');
   });
+
+  it('explains autonomous execution and supports a smoke-test setup', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(<DynamicTestForm onSubmit={onSubmit} onCancel={vi.fn()} />);
+    expect(screen.getByText(/without pausing for approval at each step/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Website address'), 'https://example.com');
+    await user.type(screen.getByLabelText('Test goal'), 'Check critical controls');
+    await user.click(screen.getByRole('radio', { name: /Smoke test/ }));
+    await user.click(screen.getByRole('button', { name: 'Run test' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      targetUrl: 'https://example.com',
+      goal: 'Check critical controls',
+      missionType: 'smoke',
+      maxSteps: 15,
+    }));
+  });
 });

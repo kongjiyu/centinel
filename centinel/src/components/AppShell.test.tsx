@@ -38,6 +38,27 @@ function renderShell(screenState: Screen, onNavigate: (screen: Screen) => void, 
 describe('AppShell module launch', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    Reflect.deleteProperty(window, '__TAURI_IPC__');
+  });
+
+  it('uses operating-system window chrome inside Tauri', () => {
+    Object.defineProperty(window, '__TAURI_IPC__', {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    const { container } = renderShell({ name: 'dashboard' }, vi.fn());
+
+    expect(container.querySelector('.app-shell')).toHaveClass('native-window-chrome');
+    expect(screen.queryByRole('button', { name: 'Minimize window' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close window' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the preview header outside Tauri', () => {
+    const { container } = renderShell({ name: 'dashboard' }, vi.fn());
+
+    expect(container.querySelector('.app-shell')).toHaveClass('browser-window-chrome');
+    expect(screen.getByRole('button', { name: 'Minimize window' })).toBeInTheDocument();
   });
 
   it('opens the dedicated Review entry flow from global navigation', async () => {

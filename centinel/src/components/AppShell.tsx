@@ -29,6 +29,10 @@ function readPinsExpanded(): boolean {
   }
 }
 
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_IPC__' in window;
+}
+
 export function AppShell({ screen, onNavigate, projects, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [pendingModuleAction, setPendingModuleAction] = useState<ModuleAction | null>(null);
@@ -38,6 +42,7 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
   const mainContentRef = useRef<HTMLElement | null>(null);
   const { pinnedProjects } = usePinnedProjects(projects);
   const screenKey = JSON.stringify(screen);
+  const nativeWindowChrome = isTauriRuntime();
 
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
   useEffect(() => {
@@ -99,9 +104,9 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
     (screen.name === 'project-detail' && !screen.initialAction);
 
   return (
-    <div className={`app-shell has-window-chrome command-mode workspace-mode ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`app-shell has-window-chrome command-mode workspace-mode ${nativeWindowChrome ? 'native-window-chrome' : 'browser-window-chrome'} ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <WindowHeader />
+      {!nativeWindowChrome && <WindowHeader />}
       <div className="app-shell-workspace">
         <aside className="sidebar">
           <div className="sidebar-panel">

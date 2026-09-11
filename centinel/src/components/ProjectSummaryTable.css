@@ -43,6 +43,7 @@
 }
 
 .project-summary-table td {
+  overflow: hidden;
   padding: 16px 16px 16px 0;
   border-top: 1px solid var(--color-border);
   color: var(--color-text-muted);
@@ -129,6 +130,8 @@
 
 .project-activity-meta {
   display: flex;
+  max-width: 100%;
+  min-width: 0;
   align-items: center;
   gap: 5px;
   color: var(--activity-accent);
@@ -138,6 +141,8 @@
 }
 
 .project-activity-stack strong {
+  display: block;
+  width: 100%;
   overflow: hidden;
   color: var(--color-text);
   font-size: 14px;
@@ -147,11 +152,18 @@
   white-space: nowrap;
 }
 
-.project-activity-stack strong time {
+.project-activity-meta time {
+  overflow: hidden;
   color: var(--color-text-subtle);
   font-size: 12px;
   font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.project-activity-separator {
+  color: var(--color-text-subtle);
 }
 
 .project-activity-stack time {
@@ -370,6 +382,7 @@
 
   .project-summary-table td {
     display: block;
+    overflow: visible;
     width: auto;
     height: auto;
     padding: 0;

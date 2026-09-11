@@ -75,11 +75,16 @@
     },
     "windows": [
       {
-        "decorations": false,
+        "decorations": true,
         "fullscreen": false,
         "height": 700,
+        "hiddenTitle": false,
+        "minHeight": 520,
+        "minWidth": 620,
         "resizable": true,
+        "theme": "Light",
         "title": "Centinel",
+        "titleBarStyle": "Visible",
         "width": 900
       }
     ]
