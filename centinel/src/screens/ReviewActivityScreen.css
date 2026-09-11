@@ -1080,9 +1080,14 @@
 .review-traceability-table tbody tr:last-child td { border-bottom: 0; }
 .review-traceability-table tbody tr { cursor: pointer; }
 .review-traceability-table tbody tr:hover, .review-traceability-table tbody tr.selected { background: var(--workspace-surface-hover); }
-.review-traceability-table th:first-child, .review-traceability-table td:first-child { width: 22%; }
-.review-traceability-table th:nth-child(2), .review-traceability-table td:nth-child(2) { width: 18%; }
-.review-traceability-table th:nth-child(3), .review-traceability-table td:nth-child(3) { width: 24%; }
+.review-traceability-table th:first-child, .review-traceability-table td:first-child { width: 11%; }
+.review-traceability-table th:nth-child(2), .review-traceability-table td:nth-child(2) { width: 28%; }
+.review-traceability-table th:nth-child(3), .review-traceability-table td:nth-child(3) { width: 20%; }
+.review-traceability-table th:nth-child(4), .review-traceability-table td:nth-child(4) { width: 25%; }
+.review-traceability-table th:nth-child(5), .review-traceability-table td:nth-child(5) { width: 16%; }
+.review-traceability-table .finding-id-label,
+.review-traceability-detail .finding-id-label { color: var(--workspace-text-muted); font-family: var(--font-technical); font-size: 11px; font-weight: 650; }
+.traceability-requirement-link em { color: var(--workspace-primary); font-size: 11px; font-style: normal; font-weight: 600; }
 .traceability-requirement-link, .traceability-finding-link, .traceability-detail-finding { display: grid; gap: 3px; width: 100%; padding: 0; border: 0; background: transparent; color: var(--workspace-primary); font: inherit; text-align: left; cursor: pointer; }
 .traceability-requirement-link strong { color: var(--workspace-text); font-weight: 650; }
 .traceability-requirement-link span { color: var(--workspace-text-subtle); font-size: 11px; }

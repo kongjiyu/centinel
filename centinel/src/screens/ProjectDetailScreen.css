@@ -1444,17 +1444,34 @@
 
 .command-project-detail .project-findings-table th:nth-child(2),
 .command-project-detail .project-findings-table td:nth-child(2) {
-  width: 14%;
+  width: 10%;
+}
+
+.command-project-detail .project-activity-id {
+  color: var(--workspace-text-muted);
+  font-family: var(--font-technical);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.command-project-detail .project-activity-see-more {
+  color: var(--workspace-primary);
+  font-weight: 600;
 }
 
 .command-project-detail .project-findings-table th:nth-child(3),
 .command-project-detail .project-findings-table td:nth-child(3) {
-  width: 58%;
+  width: 13%;
 }
 
 .command-project-detail .project-findings-table th:nth-child(4),
 .command-project-detail .project-findings-table td:nth-child(4) {
-  width: 17%;
+  width: 50%;
+}
+
+.command-project-detail .project-findings-table th:nth-child(5),
+.command-project-detail .project-findings-table td:nth-child(5) {
+  width: 16%;
 }
 
 .command-project-detail .project-findings-table th {
@@ -1521,6 +1538,24 @@
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.command-project-detail .project-finding-description .finding-see-more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-primary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.command-project-detail .project-finding-description .finding-see-more:hover,
+.command-project-detail .project-finding-description .finding-see-more:focus-visible {
+  text-decoration: underline;
 }
 
 .command-project-detail .project-finding-description .finding-id-label,

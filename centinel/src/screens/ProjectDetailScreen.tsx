@@ -16,6 +16,7 @@ import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
 import { userFacingError } from '../utils/userFacingError';
+import { formatEntityId } from '../utils/entityId';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, CollaborationStatus, CollaboratorMatch } from '../types';
 import './ProjectDetailScreen.css';
 
@@ -759,7 +760,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              </div>
             {visibleProjectActivities.map(activity => (
               <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: activity.id })}>
-                <span className="project-activity-main"><strong>{activity.name} <time dateTime={activity.createdAt}>done at {formatProjectDateTime(activity.createdAt)}</time></strong><small>{activity.kind}</small></span>
+                <span className="project-activity-main"><strong>{activity.name} <span className="project-activity-id">{formatEntityId(activity.id)}</span> <time dateTime={activity.createdAt}>done at {formatProjectDateTime(activity.createdAt)}</time></strong><small>{activity.kind} <span className="project-activity-see-more">… See more</span></small></span>
                 <StatusBadge label={activity.status} />
                 <ChevronRight size={15} aria-hidden="true" />
               </button>

@@ -448,14 +448,14 @@
 }
 
 .workspace-mode:not(.dashboard-mode) .btn-fix {
-  background: var(--workspace-success-subtle);
-  border: 1px solid rgba(4, 120, 87, 0.28);
-  color: var(--workspace-success);
+  background: var(--workspace-success);
+  border: 1px solid var(--workspace-success);
+  color: #ffffff;
 }
 
 .workspace-mode:not(.dashboard-mode) .btn-fix:hover {
-  background: #d8f2e5;
-  border-color: var(--workspace-success);
+  background: var(--workspace-primary-hover);
+  border-color: var(--workspace-primary-hover);
 }
 
 .workspace-mode:not(.dashboard-mode) .btn-secondary,

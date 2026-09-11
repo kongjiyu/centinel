@@ -5,6 +5,7 @@ import {
   type ProjectSummary,
 } from '../hooks/useProjectSummaries';
 import type { Screen } from '../types';
+import { formatEntityId } from '../utils/entityId';
 import './ProjectSummaryTable.css';
 
 type Props = {
@@ -116,12 +117,15 @@ export function ProjectSummaryTable({
                 <td data-label="Latest activity">
                   {activity ? (
                     <div className={`project-activity-stack project-activity-${activity.kind}`}>
-                      <strong title={activity.session.name}>{activity.session.name}</strong>
+                      <strong title={activity.session.name}>{activity.session.name} <span className="project-activity-id">{formatEntityId(activity.session.id)}</span></strong>
                       <div className="project-activity-meta">
                         <ActivityIcon size={14} strokeWidth={1.8} aria-hidden="true" />
                         <span>{isDynamic ? 'Dynamic testing' : 'Review'}</span>
                         <span className="project-activity-separator" aria-hidden="true">·</span>
                         <time dateTime={activity.updatedAt}>{formatActivityTime(activity.updatedAt)}</time>
+                        {showsDirectoryControls
+                          ? <button type="button" className="project-activity-see-more" onClick={event => { event.stopPropagation(); openSummary(summary, onNavigate); }} aria-label={`See more about ${activity.session.name}`}>… See more</button>
+                          : <span className="project-activity-see-more">… See more</span>}
                       </div>
                     </div>
                   ) : (

@@ -38,18 +38,13 @@ type TraceabilityRecord = {
   sources: Artifact[];
   findings: Finding[];
   state: TraceabilityState;
-  completeness: TraceabilityState;
-  correctness: TraceabilityState;
-  consistency: TraceabilityState;
 };
 
 function traceabilityStateLabel(state: TraceabilityState) {
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
-/** Collapse the validation dimensions into the single state shown in the
- * traceability table. The detail panel still keeps the dimensions available
- * as rationale for reviewers who need to understand the result. */
+/** Collapse the validation dimensions into the single reviewer-facing state. */
 export function traceabilityOverallState(states: TraceabilityState[]): TraceabilityState {
   if (states.includes('missing')) return 'missing';
   if (states.includes('incomplete')) return 'incomplete';
@@ -116,9 +111,6 @@ function traceabilityRecords(
       sources: mappedArtifacts,
       findings: relatedFindings,
       state: traceabilityOverallState([completeness, correctness, consistency]),
-      completeness,
-      correctness,
-      consistency,
     };
   });
 }
@@ -424,7 +416,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     <div className="screen command-review-activity review-activity-screen">
       <CommandPageHeader
         eyebrow={`Review / ${project?.name || 'Project'}`}
-        title={session.name}
+        title={`${session.name} ${formatEntityId(session.id)}`}
         status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
         actions={state === 'Need Approval' && !currentDecision ? headerActions : state === 'Failed' ? <button type="button" className="btn-primary" onClick={() => onNavigate({ name: 'review-entry', projectId })}><History size={16} aria-hidden="true" /> Rerun review</button> : undefined}
@@ -781,13 +773,14 @@ function Traceability({
         <div className="review-traceability-table-card">
           <div className="review-traceability-table-wrap">
             <table className="review-traceability-table" aria-label="Traceability matrix">
-              <thead><tr><th scope="col">Requirement</th><th scope="col">Source</th><th scope="col">Findings</th><th scope="col">State</th></tr></thead>
+              <thead><tr><th scope="col">ID</th><th scope="col">Requirement</th><th scope="col">Source</th><th scope="col">Findings</th><th scope="col">State</th></tr></thead>
               <tbody>
                 {records.length === 0 ? (
-                  <tr><td colSpan={4}><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>No requirement mappings are available for this review yet. Add requirements and map their source evidence to populate this matrix.</span></div></td></tr>
+                  <tr><td colSpan={5}><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>No requirement mappings are available for this review yet. Add requirements and map their source evidence to populate this matrix.</span></div></td></tr>
                 ) : records.map(record => (
                   <tr key={record.requirement.id} tabIndex={0} aria-selected={selectedRecord?.requirement.id === record.requirement.id} className={selectedRecord?.requirement.id === record.requirement.id ? 'selected' : undefined} onClick={() => setSelectedRequirementId(record.requirement.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedRequirementId(record.requirement.id); } }}>
-                    <td><button type="button" className="traceability-requirement-link" onClick={event => { event.stopPropagation(); setSelectedRequirementId(record.requirement.id); }}><strong>{record.requirement.title}</strong><span>{record.requirement.category || 'Requirement'}</span></button></td>
+                    <td><span className="finding-id-label" title={entityIdTitle('Requirement ID:', record.requirement.id)}>{formatEntityId(record.requirement.id)}</span></td>
+                    <td><button type="button" className="traceability-requirement-link" onClick={event => { event.stopPropagation(); setSelectedRequirementId(record.requirement.id); }}><strong>{record.requirement.title}</strong><span>{record.requirement.category || 'Requirement'}</span><em>… See more</em></button></td>
                     <td><div className="traceability-source-list">{record.sources.length > 0 ? record.sources.map(source => <span key={source.id} className="traceability-source-chip" title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>) : <span className="traceability-muted">No mapped source</span>}</div></td>
                     <td><div className="traceability-finding-links">{record.findings.length > 0 ? record.findings.map(finding => <button key={finding.id} type="button" className="traceability-finding-link" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={event => { event.stopPropagation(); onOpenFinding(finding.id); }}>{formatEntityId(finding.id)}</button>) : <span className="traceability-muted">No linked findings</span>}</div></td>
                     <td><TraceabilityStateBadge state={record.state} /></td>
@@ -799,9 +792,8 @@ function Traceability({
         </div>
         <aside className="review-traceability-detail" aria-label="Traceability details">
           {selectedRecord ? <>
-            <div className="review-traceability-detail-heading"><div><span className="command-eyebrow">Requirement</span><h3>{selectedRecord.requirement.title}</h3></div><TraceabilityStateBadge state={selectedRecord.state} /></div>
+            <div className="review-traceability-detail-heading"><div><span className="command-eyebrow">Requirement</span><h3>{selectedRecord.requirement.title}</h3><span className="finding-id-label" title={entityIdTitle('Requirement ID:', selectedRecord.requirement.id)}>{formatEntityId(selectedRecord.requirement.id)}</span></div><TraceabilityStateBadge state={selectedRecord.state} /></div>
             <p className="review-traceability-detail-description">{selectedRecord.requirement.description || 'No requirement description was supplied.'}</p>
-            <dl className="review-traceability-status-list"><div><dt>Completeness</dt><dd><TraceabilityStateBadge state={selectedRecord.completeness} /></dd></div><div><dt>Correctness</dt><dd><TraceabilityStateBadge state={selectedRecord.correctness} /></dd></div><div><dt>Consistency</dt><dd><TraceabilityStateBadge state={selectedRecord.consistency} /></dd></div></dl>
             <section><h4>Sources</h4>{selectedRecord.sources.length > 0 ? <div className="traceability-detail-list">{selectedRecord.sources.map(source => <span key={source.id} title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>)}</div> : <p className="traceability-muted">No mapped source evidence.</p>}</section>
             <section><h4>Linked findings</h4>{selectedRecord.findings.length > 0 ? <div className="traceability-detail-list">{selectedRecord.findings.map(finding => <button key={finding.id} type="button" className="traceability-detail-finding" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={() => onOpenFinding(finding.id)}>{formatEntityId(finding.id)}</button>)}</div> : <p className="traceability-muted">No findings are linked to this requirement.</p>}</section>
           </> : <div className="review-traceability-detail-empty">Select a requirement to review its evidence links.</div>}

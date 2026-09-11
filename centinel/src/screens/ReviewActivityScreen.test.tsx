@@ -226,7 +226,8 @@ describe('ReviewActivityScreen', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Findings' }));
     expect(screen.getByRole('table', { name: 'Review findings' })).toBeInTheDocument();
-    expect(screen.getAllByRole('columnheader')).toHaveLength(4);
+    expect(screen.getAllByRole('columnheader')).toHaveLength(5);
+    expect(screen.getByRole('columnheader', { name: 'ID' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'High' })).toBeInTheDocument();
