@@ -95,7 +95,7 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    expect(screen.getByText('Product')).toBeInTheDocument();
+    expect(screen.getAllByText('Product').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: 'Projects' })).toBeInTheDocument();
     expect(screen.getByText('Activities')).toBeInTheDocument();
     expect(screen.getAllByText('Settings').length).toBeGreaterThanOrEqual(2);

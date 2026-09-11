@@ -237,10 +237,10 @@ export async function updateStaticSessionStatus(
 ): Promise<void> {
   const db = await getDb();
   const now = new Date().toISOString();
-  db.run(
-    'UPDATE static_sessions SET status = ?, final_summary = ?, failure_reason = ?, updated_at = ? WHERE id = ?',
-    [status, finalSummary, failureReason, now, sessionId]
-  );
+  const sql = status === 'cancelled'
+    ? 'UPDATE static_sessions SET status = ?, final_summary = ?, failure_reason = ?, updated_at = ? WHERE id = ?'
+    : "UPDATE static_sessions SET status = ?, final_summary = ?, failure_reason = ?, updated_at = ? WHERE id = ? AND status != 'cancelled'";
+  db.run(sql, [status, finalSummary, failureReason, now, sessionId]);
   saveDb();
 }
 
@@ -251,7 +251,7 @@ export async function updateStaticSessionProgress(
   const db = await getDb();
   const now = new Date().toISOString();
   db.run(
-    'UPDATE static_sessions SET progress_json = ?, updated_at = ? WHERE id = ?',
+    "UPDATE static_sessions SET progress_json = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')",
     [JSON.stringify({ ...progress, updatedAt: now }), now, sessionId]
   );
   saveDb();

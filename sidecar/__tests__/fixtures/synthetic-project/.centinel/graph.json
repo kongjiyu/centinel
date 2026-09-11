@@ -1,84 +1,84 @@
 {
   "nodes": [
     {
-      "id": "1472ad06-bcdc-494b-970f-fd413105e89d",
+      "id": "6f80ff52-2bde-439f-86fa-8e0c80a3dbdf",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\index.html",
       "type": "html",
       "language": "html",
       "symbolCount": 5
     },
     {
-      "id": "f72bce7a-fe28-4275-88ed-2d7616ed7082",
+      "id": "de2c3c4e-d220-4727-b603-30d9279f31a5",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
       "type": "json",
       "language": "json",
       "symbolCount": 7
     },
     {
-      "id": "6f5d16d7-802f-4029-b0ad-d725cb7f48c7",
+      "id": "64c0b97d-cedd-4965-b34c-f1cc0fa23b76",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\README.md",
       "type": "md",
       "language": "markdown",
       "symbolCount": 4
     },
     {
-      "id": "c8fc2d33-89ec-4ae2-9822-45bbd3adb800",
+      "id": "f3459129-8b46-4b75-846c-6393be394ee8",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\SPEC.md",
       "type": "md",
       "language": "markdown",
       "symbolCount": 4
     },
     {
-      "id": "c4c2ed75-2237-4dc2-97ce-8a23610f553d",
+      "id": "ab6da525-f878-4dd6-a58c-573ceb503d42",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "3aa304f3-bd79-4612-a56c-49b820fb8b67",
+      "id": "56b3abd7-bc9a-4c9f-85fd-c5a2bafa7bef",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 6
     },
     {
-      "id": "e73d10b8-6866-4df1-afa9-d4a200149a39",
+      "id": "e74ee213-4884-41e6-92bb-d6099a00d562",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\config.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 5
     },
     {
-      "id": "ec4aec7e-363b-4325-949c-0439da10babd",
+      "id": "75a3fcb9-c9ed-413d-b871-6bccb645b8ee",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "d4ac3253-2fac-4ca5-b37d-74f3265c3d52",
+      "id": "6547e927-5f95-4ee7-a55f-3b74a58e4d00",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 5
     },
     {
-      "id": "0a468483-1809-4208-8bb1-5e8f44095690",
+      "id": "3a6ffcaf-906d-4040-b1c7-6b48ce8e7f04",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\types.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "20d52ca5-6005-4391-97cc-28444b486b79",
+      "id": "40f64caf-4fae-4ecf-9b84-d16a3f7cd13d",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "e778ff85-22fb-46f4-ac05-ba7deccdb7dd",
+      "id": "2bbb095d-daae-4945-bdce-d9e79c0c9b67",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\styles.css",
       "type": "css",
       "language": "css",

@@ -6,8 +6,8 @@ export type StatusTone = 'neutral' | 'running' | 'success' | 'warning' | 'danger
 export function statusTone(status: string): StatusTone {
   if (['success', 'passed', 'accepted', 'fixed', 'implemented', 'configured', 'online'].includes(status)) return 'success';
   if (['running', 'queued', 'new'].includes(status)) return 'running';
-  if (['blocked', 'warning', 'medium', 'high'].includes(status)) return 'warning';
-  if (['failure', 'failed', 'critical', 'missing', 'offline'].includes(status)) return 'danger';
+  if (['blocked', 'warning', 'medium', 'high', 'need approval'].includes(status)) return 'warning';
+  if (['failure', 'failed', 'critical', 'missing', 'offline', 'needs attention'].includes(status)) return 'danger';
   return 'neutral';
 }
 

@@ -1,4 +1,4 @@
-import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
+import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewArtifact, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, TestItem, TestItemRollup, TestItemStatus, SessionDiff } from '../types';
 
 const BASE = 'http://localhost:37701';
 
@@ -39,6 +39,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username }),
     }),
+  listGithubPullRequests: (id: string) =>
+    request<{ repository: { owner: string; repo: string; remoteUrl: string }; pullRequests: Array<{ number: number; title: string; state: 'open' | 'closed'; htmlUrl: string; headRef: string; baseRef: string }> }>(
+      `/projects/${id}/github/pull-requests`,
+    ),
 
   // AI Settings
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
@@ -163,7 +167,7 @@ export const api = {
   createStaticSession: (projectId: string, data: {
     name: string;
     instructions: string;
-    reviewMode?: 'regular' | 'pull-request';
+    reviewMode?: 'regular' | 'pull-request' | 'changed-files';
     reviewer?: string;
     pullRequest?: string;
     /** P0-4: base git ref (e.g. 'main'). Leave empty for full-tree review. */
@@ -171,6 +175,7 @@ export const api = {
     /** P0-4: head git ref. Leave empty for full-tree review. */
     headRef?: string;
     temporaryArtifactIds?: string[];
+    supportiveDocuments?: Array<{ id?: string; name: string }>;
     /** P1-5: parent session id for a re-review. Empty for first-time reviews. */
     parentSessionId?: string;
   }) =>
@@ -201,7 +206,12 @@ export const api = {
   submitReviewDecision: (
     projectId: string,
     sessionId: string,
-    data: { decision: ReviewDecision; comment?: string; reviewer?: string }
+    data: {
+      decision: ReviewDecision;
+      comment?: string;
+      reviewer?: string;
+      attachments?: ReviewDecisionAttachmentInput[];
+    }
   ) =>
     request<ReviewDecisionRecord>(
       `/projects/${projectId}/static-sessions/${sessionId}/decision`,

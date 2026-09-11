@@ -28,7 +28,7 @@ function openSummary(summary: ProjectSummary, onNavigate: Props['onNavigate']) {
   } else if (activity.kind === 'dynamic') {
     onNavigate({ name: 'dynamic-session', projectId: summary.project.id, sessionId: activity.session.id });
   } else {
-    onNavigate({ name: 'review-activity', projectId: summary.project.id, sessionId: activity.session.id });
+    onNavigate({ name: 'review-activity', projectId: summary.project.id, sessionId: activity.session.id, reviewName: activity.session.name });
   }
 }
 
@@ -116,12 +116,11 @@ export function ProjectSummaryTable({
                 <td data-label="Latest activity">
                   {activity ? (
                     <div className={`project-activity-stack project-activity-${activity.kind}`}>
+                      <strong>{activity.session.name} <time dateTime={activity.updatedAt}>done at {formatActivityTime(activity.updatedAt)}</time></strong>
                       <div className="project-activity-meta">
                         <ActivityIcon size={14} strokeWidth={1.8} aria-hidden="true" />
                         {isDynamic ? 'Dynamic Testing' : 'Review'}
                       </div>
-                      <strong>{activity.session.name}</strong>
-                      <time dateTime={activity.updatedAt}>{formatActivityTime(activity.updatedAt)}</time>
                     </div>
                   ) : (
                     <div className="project-activity-stack project-activity-empty">

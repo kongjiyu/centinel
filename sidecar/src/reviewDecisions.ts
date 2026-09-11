@@ -23,6 +23,19 @@ import { getDb, saveDb } from './db.js';
 
 export type ReviewDecision = 'approved' | 'changes_requested' | 'commented';
 
+export type ReviewDecisionAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  createdAt: string;
+};
+
+export type ReviewDecisionAttachmentInput = {
+  fileName: string;
+  mimeType: string;
+  content: string;
+};
+
 export type ReviewDecisionRecord = {
   id: string;
   sessionId: string;
@@ -31,6 +44,7 @@ export type ReviewDecisionRecord = {
   comment: string;
   reviewer: string;
   createdAt: string;
+  attachments: ReviewDecisionAttachment[];
 };
 
 const VALID_DECISIONS: ReadonlySet<ReviewDecision> = new Set([
@@ -43,6 +57,27 @@ export function isValidDecision(value: unknown): value is ReviewDecision {
   return typeof value === 'string' && VALID_DECISIONS.has(value as ReviewDecision);
 }
 
+/**
+ * Validate when a decision-like event may be appended. Human feedback is
+ * deliberately gated while the automated run is queued or active so the
+ * audit trail cannot imply that the worker consumed a message it never saw.
+ */
+export function reviewDecisionSubmissionError(
+  decision: ReviewDecision,
+  sessionStatus: string,
+): string | null {
+  if (decision === 'commented') {
+    if (sessionStatus === 'queued' || sessionStatus === 'running') {
+      return 'Feedback can only be added after review reasoning has stopped.';
+    }
+    return null;
+  }
+  if (sessionStatus !== 'success') {
+    return 'Approval decisions can only be recorded on completed reviews.';
+  }
+  return null;
+}
+
 function mapRow(row: unknown[]): ReviewDecisionRecord {
   return {
     id: row[0] as string,
@@ -52,14 +87,40 @@ function mapRow(row: unknown[]): ReviewDecisionRecord {
     comment: (row[4] as string) ?? '',
     reviewer: (row[5] as string) ?? '',
     createdAt: row[6] as string,
+    attachments: [],
   };
+}
+
+async function listDecisionAttachments(decisionId: string): Promise<ReviewDecisionAttachment[]> {
+  const db = await getDb();
+  const stmt = db.prepare(
+    `SELECT id, file_name, mime_type, created_at
+     FROM review_decision_attachments
+     WHERE decision_id = ?
+     ORDER BY created_at ASC, id ASC`
+  );
+  stmt.bind([decisionId]);
+  const attachments: ReviewDecisionAttachment[] = [];
+  while (stmt.step()) {
+    const row = stmt.get() as unknown[];
+    attachments.push({ id: row[0] as string, fileName: row[1] as string, mimeType: row[2] as string, createdAt: row[3] as string });
+  }
+  stmt.free();
+  return attachments;
 }
 
 export type SubmitDecisionInput = {
   decision: ReviewDecision;
   comment?: string;
   reviewer?: string;
+  attachments?: ReviewDecisionAttachmentInput[];
 };
+
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  'text/plain', 'text/markdown', 'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
+]);
 
 /**
  * Append a new decision to a session's history. Validates the decision
@@ -78,6 +139,15 @@ export async function submitReviewDecision(
   const now = new Date().toISOString();
   const comment = (input.comment ?? '').trim();
   const reviewer = (input.reviewer ?? '').trim();
+  const attachments = input.attachments ?? [];
+  if (attachments.length > MAX_ATTACHMENTS) throw new Error(`A maximum of ${MAX_ATTACHMENTS} supportive documents can be attached.`);
+  for (const attachment of attachments) {
+    const fileName = attachment.fileName.trim();
+    if (!fileName || fileName.length > 255) throw new Error('Supportive document names must be between 1 and 255 characters.');
+    if (!ALLOWED_ATTACHMENT_TYPES.has(attachment.mimeType)) throw new Error(`Unsupported supportive document type: ${attachment.mimeType}`);
+    if (!attachment.content || !/^[A-Za-z0-9+/]+={0,2}$/.test(attachment.content)) throw new Error(`Supportive document content is invalid: ${fileName}`);
+    if (Math.ceil(attachment.content.length * 3 / 4) > MAX_ATTACHMENT_BYTES) throw new Error(`Supportive document is too large: ${fileName}`);
+  }
 
   db.run(
     `INSERT INTO review_decisions
@@ -85,6 +155,14 @@ export async function submitReviewDecision(
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [id, sessionId, projectId, input.decision, comment, reviewer, now]
   );
+  for (const attachment of attachments) {
+    db.run(
+      `INSERT INTO review_decision_attachments
+       (id, decision_id, session_id, project_id, file_name, mime_type, content_base64, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [crypto.randomUUID(), id, sessionId, projectId, attachment.fileName.trim(), attachment.mimeType, attachment.content, now]
+    );
+  }
   saveDb();
 
   return {
@@ -95,6 +173,7 @@ export async function submitReviewDecision(
     comment,
     reviewer,
     createdAt: now,
+    attachments: await listDecisionAttachments(id),
   };
 }
 
@@ -111,12 +190,14 @@ export async function getCurrentDecision(
     `SELECT id, session_id, project_id, decision, comment, reviewer, created_at
      FROM review_decisions
      WHERE session_id = ?
+       AND decision != 'commented'
      ORDER BY created_at DESC, id DESC
      LIMIT 1`
   );
   stmt.bind([sessionId]);
   const out = stmt.step() ? mapRow(stmt.get() as unknown[]) : null;
   stmt.free();
+  if (out) out.attachments = await listDecisionAttachments(out.id);
   return out;
 }
 
@@ -140,7 +221,9 @@ export async function listReviewDecisions(
   stmt.bind([sessionId, limit]);
   const out: ReviewDecisionRecord[] = [];
   while (stmt.step()) {
-    out.push(mapRow(stmt.get() as unknown[]));
+    const decision = mapRow(stmt.get() as unknown[]);
+    decision.attachments = await listDecisionAttachments(decision.id);
+    out.push(decision);
   }
   stmt.free();
   return out;

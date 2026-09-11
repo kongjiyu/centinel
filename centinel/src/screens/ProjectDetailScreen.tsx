@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Download, Plus, FolderOpen, Play, BarChart3, AlertCircle, FileText, GitBranch, RotateCw, Clock3, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
+import { Download, Plus, FolderOpen, Play, BarChart3, AlertCircle, FileText, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay, Pencil, X, Check } from 'lucide-react';
+import { open } from '@tauri-apps/api/dialog';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
 import { ReviewModal } from '../components/ReviewModal';
@@ -13,6 +14,7 @@ import { ReviewDecisionPill } from '../components/ReviewDecisionBar';
 import { TestPlanPanel } from '../components/TestPlanPanel';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
+import { projectActivityLifecycle } from '../reviewViewModel';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, CollaborationStatus, CollaboratorMatch } from '../types';
 import './ProjectDetailScreen.css';
 
@@ -24,7 +26,7 @@ type Props = {
   initialStaticSessionId?: string;
 };
 
-type ActivityState = 'all' | 'queued' | 'running' | 'success' | 'needs_attention' | 'cancelled';
+type ActivityState = 'all' | 'queued' | 'running' | 'needs_approval' | 'success' | 'needs_attention' | 'cancelled';
 
 type AttentionItem = {
   id: string;
@@ -40,6 +42,167 @@ type ReadinessItem = {
   count: number;
   state: 'ready' | 'insufficient' | 'missing';
 };
+
+const DEFAULT_PRIORITY_VALUES = ['Low', 'Medium', 'High'];
+const DEFAULT_SEVERITY_VALUES = ['Low', 'Medium', 'High', 'Critical'];
+
+type EditableValueCollectionProps = {
+  label: string;
+  itemLabel: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  disabled?: boolean;
+};
+
+function validateCollectionValue(value: string, values: string[], editingIndex: number | null, label: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return `${label} value cannot be blank.`;
+  if (values.some((existing, index) => index !== editingIndex && existing.trim().toLowerCase() === trimmed.toLowerCase())) {
+    return `${label} values must be unique.`;
+  }
+  return null;
+}
+
+function EditableValueCollection({ label, itemLabel, values, onChange, disabled = false }: EditableValueCollectionProps) {
+  const itemName = itemLabel.toLowerCase();
+  const fieldPrefix = itemName.replace(/\s+/g, '-');
+  const [adding, setAdding] = useState(false);
+  const [newValue, setNewValue] = useState('');
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const resetEditor = () => {
+    setAdding(false);
+    setNewValue('');
+    setEditingIndex(null);
+    setEditingValue('');
+    setValidationError(null);
+  };
+
+  const startAdd = () => {
+    if (disabled) return;
+    setAdding(true);
+    setEditingIndex(null);
+    setEditingValue('');
+    setNewValue('');
+    setValidationError(null);
+  };
+
+  const addValue = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const error = validateCollectionValue(newValue, values, null, itemLabel);
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    onChange([...values, newValue.trim()]);
+    resetEditor();
+  };
+
+  const saveRename = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (editingIndex === null) return;
+    const error = validateCollectionValue(editingValue, values, editingIndex, itemLabel);
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    onChange(values.map((value, index) => index === editingIndex ? editingValue.trim() : value));
+    resetEditor();
+  };
+
+  const removeValue = (index: number) => {
+    if (disabled) return;
+    if (values.length <= 1) {
+      setValidationError(`Keep at least one ${itemName} value.`);
+      return;
+    }
+    onChange(values.filter((_, valueIndex) => valueIndex !== index));
+    if (editingIndex === index) resetEditor();
+    else if (editingIndex !== null && editingIndex > index) setEditingIndex(editingIndex - 1);
+    setValidationError(null);
+  };
+
+  if (disabled) {
+    return (
+      <div className="project-value-collection project-value-collection-readonly" aria-labelledby={`${fieldPrefix}-collection-heading`}>
+        <h4 id={`${fieldPrefix}-collection-heading`}>{label}</h4>
+        <ol className="project-value-readonly-list" aria-label={`${label} values`}>
+          {values.map(value => <li key={value}>{value}</li>)}
+        </ol>
+      </div>
+    );
+  }
+
+  return (
+    <div className="project-value-collection" aria-labelledby={`${fieldPrefix}-collection-heading`}>
+      <div className="project-value-collection-heading">
+        <h4 id={`${fieldPrefix}-collection-heading`}>{label}</h4>
+        <button type="button" className="btn-secondary project-value-add" onClick={startAdd} disabled={disabled || adding || editingIndex !== null}>
+          <Plus size={15} aria-hidden="true" /> Add {itemName}
+        </button>
+      </div>
+      <ul className="project-value-list">
+        {values.map((value, index) => editingIndex === index ? (
+          <li key={`${value}-${index}`} className="project-value-row project-value-row-editing">
+            <form className="project-value-editor" onSubmit={saveRename}>
+              <label className="visually-hidden" htmlFor={`${fieldPrefix}-edit-${index}`}>Rename {value}</label>
+              <input id={`${fieldPrefix}-edit-${index}`} value={editingValue} onChange={event => setEditingValue(event.target.value)} autoFocus />
+              <button type="submit" className="project-value-icon-button" aria-label={`Save ${itemName} rename`}><Check size={16} aria-hidden="true" /></button>
+              <button type="button" className="project-value-icon-button" aria-label={`Cancel ${itemName} rename`} onClick={resetEditor}><X size={16} aria-hidden="true" /></button>
+            </form>
+          </li>
+        ) : (
+          <li key={`${value}-${index}`} className="project-value-row">
+            <span>{value}</span>
+            <div className="project-value-row-actions">
+              <button type="button" className="project-value-icon-button" aria-label={`Rename ${value}`} onClick={() => { setEditingIndex(index); setEditingValue(value); setAdding(false); setValidationError(null); }} disabled={disabled || adding || editingIndex !== null}>
+                <Pencil size={15} aria-hidden="true" />
+              </button>
+              <button type="button" className="project-value-icon-button project-value-remove" aria-label={`Remove ${value}`} onClick={() => removeValue(index)} disabled={disabled || adding || editingIndex !== null}>
+                <X size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {adding && <form className="project-value-editor project-value-add-editor" onSubmit={addValue}>
+        <label className="visually-hidden" htmlFor={`${fieldPrefix}-new`}>New {itemName} value</label>
+        <input id={`${fieldPrefix}-new`} value={newValue} onChange={event => setNewValue(event.target.value)} autoFocus placeholder={`New ${itemName}`} />
+        <button type="submit" className="btn-primary">Add</button>
+        <button type="button" className="btn-secondary" onClick={resetEditor}>Cancel</button>
+      </form>}
+      {validationError && <p className="project-value-validation" role="alert">{validationError}</p>}
+    </div>
+  );
+}
+
+/**
+ * Project Detail timestamps deliberately use a stable, readable format rather
+ * than the browser's locale-dependent long date output. Date parts remain in
+ * the user's local timezone, matching the rest of the desktop workspace.
+ */
+export function formatProjectDateTime(value: string, _shortYear = false): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = (part: number) => String(part).padStart(2, '0');
+  const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(date);
+  return `${pad(date.getDate())} ${month} ${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+const ATTENTION_PREVIEW_LIMIT = 80;
+
+function attentionNeedsDisclosure(detail: string): boolean {
+  return detail.length > ATTENTION_PREVIEW_LIMIT;
+}
+
+function attentionPreview(detail: string): string {
+  if (!attentionNeedsDisclosure(detail)) return detail;
+  const preview = detail.slice(0, ATTENTION_PREVIEW_LIMIT).trimEnd();
+  const boundary = preview.lastIndexOf(' ');
+  return (boundary > ATTENTION_PREVIEW_LIMIT - 30 ? preview.slice(0, boundary) : preview).trimEnd();
+}
 
 const REVIEW_TYPE_LABELS: Record<string, string> = {
   requirement_review: 'Requirement Review',
@@ -67,8 +230,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activityQuery, setActivityQuery] = useState('');
   const [activityType, setActivityType] = useState<'all' | 'review' | 'dynamic'>('all');
-  const [activityDate, setActivityDate] = useState('');
+  const [activityDateTime, setActivityDateTime] = useState('');
   const [activityState, setActivityState] = useState<ActivityState>('all');
+  const [activityPage, setActivityPage] = useState(0);
   const [projectFindings, setProjectFindings] = useState<Finding[]>([]);
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [findingsError, setFindingsError] = useState<string | null>(null);
@@ -81,8 +245,16 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [deletingProject, setDeletingProject] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [priorityValues, setPriorityValues] = useState(DEFAULT_PRIORITY_VALUES);
+  const [severityValues, setSeverityValues] = useState(DEFAULT_SEVERITY_VALUES);
+  const [settingsCollectionBackup, setSettingsCollectionBackup] = useState({
+    priority: DEFAULT_PRIORITY_VALUES,
+    severity: DEFAULT_SEVERITY_VALUES,
+  });
+  const [configurationInfoOpen, setConfigurationInfoOpen] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<CollaborationStatus | null>(null);
   const [collaborationStatusLoading, setCollaborationStatusLoading] = useState(false);
+  const [collaborationQuery, setCollaborationQuery] = useState('');
   const [showCollaboratorDialog, setShowCollaboratorDialog] = useState(false);
   const [collaboratorEmail, setCollaboratorEmail] = useState('');
   const [collaboratorMatches, setCollaboratorMatches] = useState<CollaboratorMatch[]>([]);
@@ -91,6 +263,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [collaboratorInviteLoading, setCollaboratorInviteLoading] = useState(false);
   const [collaboratorError, setCollaboratorError] = useState<string | null>(null);
   const [collaboratorNotice, setCollaboratorNotice] = useState<string | null>(null);
+  const [repositoryInfoOpen, setRepositoryInfoOpen] = useState(false);
+  const collaboratorSearchRequest = useRef(0);
+  const [attentionDetailItem, setAttentionDetailItem] = useState<AttentionItem | null>(null);
 
   const { state: activeReviewState, controls: activeReviewControls } = useActiveReviewState();
 
@@ -154,7 +329,15 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setSettingsError(null);
     setCurrentProject(project);
     setSettingsEditing(false);
+    setConfigurationInfoOpen(false);
+    setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
+
+  useEffect(() => {
+    setPriorityValues([...DEFAULT_PRIORITY_VALUES]);
+    setSeverityValues([...DEFAULT_SEVERITY_VALUES]);
+    setSettingsCollectionBackup({ priority: [...DEFAULT_PRIORITY_VALUES], severity: [...DEFAULT_SEVERITY_VALUES] });
+  }, [project.id]);
 
   useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); loadProjectFindings(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts, loadProjectFindings]);
 
@@ -261,24 +444,46 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     id: session.id,
     name: session.name,
     kind: 'Review' as const,
-    status: session.status,
+    rawStatus: session.status,
+    status: projectActivityLifecycle(session, 'review'),
     createdAt: session.updatedAt || session.createdAt,
   })), ...dynamicSessions.map(session => ({
     id: session.id,
     name: session.name,
     kind: 'Dynamic Testing' as const,
-    status: session.status,
+    rawStatus: session.status,
+    status: projectActivityLifecycle(session, 'dynamic'),
     createdAt: session.updatedAt || session.createdAt,
   }))]
     .filter(activity => activityType === 'all' || (activityType === 'review' ? activity.kind === 'Review' : activity.kind === 'Dynamic Testing'))
     .filter(activity => {
       if (activityState === 'all') return true;
-      if (activityState === 'needs_attention') return activity.status === 'blocked' || activity.status === 'failure';
-      return activity.status === activityState;
+      if (activityState === 'needs_attention') return activity.status === 'Failed';
+      if (activityState === 'needs_approval') return activity.status === 'Need Approval';
+      if (activityState === 'queued') return activity.rawStatus === 'queued';
+      if (activityState === 'running') return activity.rawStatus === 'running';
+      if (activityState === 'success') return activity.status === 'Completed';
+      if (activityState === 'cancelled') return activity.status === 'Cancelled';
+      return true;
     })
-    .filter(activity => !activityDate || activity.createdAt.slice(0, 10) === activityDate)
+    .filter(activity => {
+      if (!activityDateTime) return true;
+      const selectedTimestamp = Date.parse(activityDateTime);
+      return Number.isNaN(selectedTimestamp) || Date.parse(activity.createdAt) >= selectedTimestamp;
+    })
     .filter(activity => !activityQuery.trim() || (activity.name + ' ' + activity.kind + ' ' + activity.status).toLowerCase().includes(activityQuery.trim().toLowerCase()))
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)), [activityDate, activityQuery, activityState, activityType, dynamicSessions, staticSessions]);
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)), [activityDateTime, activityQuery, activityState, activityType, dynamicSessions, staticSessions]);
+
+  const activityPageCount = Math.max(1, Math.ceil(projectActivities.length / 5));
+  const visibleProjectActivities = projectActivities.slice(activityPage * 5, activityPage * 5 + 5);
+
+  useEffect(() => {
+    setActivityPage(page => Math.min(page, activityPageCount - 1));
+  }, [activityPageCount]);
+
+  useEffect(() => {
+    setActivityPage(0);
+  }, [activityDateTime, activityQuery, activityState, activityType]);
 
   const unresolvedFindings = useMemo(() => {
     const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -375,6 +580,23 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     moveToSection(item.action === 'source' ? 'project-source' : 'project-findings');
   };
 
+  const openAttentionDetail = (item: AttentionItem) => {
+    setAttentionDetailItem(item);
+  };
+
+  const chooseWorkspaceFolder = async () => {
+    if (!settingsEditing) return;
+    try {
+      const selected = await open({ directory: true, multiple: false, title: 'Choose workspace folder' });
+      if (typeof selected === 'string') {
+        setSettingsDraft(draft => ({ ...draft, workspacePath: selected }));
+        setSettingsError(null);
+      }
+    } catch {
+      setSettingsError('The folder picker could not open. Try again in the desktop app.');
+    }
+  };
+
   const handleDeleteProject = async () => {
     setDeletingProject(true);
     setSettingsError(null);
@@ -405,6 +627,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       });
       setCurrentProject(updated);
       setSettingsDraft({ name: updated.name, description: updated.description, workspacePath: updated.workspacePath });
+      setSettingsCollectionBackup({ priority: [...priorityValues], severity: [...severityValues] });
       setSettingsEditing(false);
       setSettingsSaved(true);
       onProjectUpdated?.(updated);
@@ -417,6 +640,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
 
   const handleCancelSettings = () => {
     setSettingsDraft({ name: currentProject.name, description: currentProject.description, workspacePath: currentProject.workspacePath });
+    setPriorityValues([...settingsCollectionBackup.priority]);
+    setSeverityValues([...settingsCollectionBackup.severity]);
     setSettingsEditing(false);
     setSettingsError(null);
     setSettingsSaved(false);
@@ -448,14 +673,24 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setSelectedCollaborator(null);
     setCollaboratorError(null);
     setCollaboratorNotice(null);
+    setRepositoryInfoOpen(false);
     setCollaborationStatus(null);
     setShowCollaboratorDialog(true);
     void loadCollaborationStatus();
   };
 
-  const searchForCollaborator = async () => {
-    if (!collaboratorEmail.trim()) {
-      setCollaboratorError('Enter an email address to search.');
+  const searchForCollaborator = useCallback(async (email = collaboratorEmail.trim()) => {
+    const normalizedEmail = email.trim();
+    const requestId = ++collaboratorSearchRequest.current;
+    if (!normalizedEmail) {
+      setCollaboratorMatches([]);
+      setCollaboratorSearchLoading(false);
+      setCollaboratorError(null);
+      return;
+    }
+    if (!collaborationStatus?.repository) {
+      setCollaboratorMatches([]);
+      setCollaboratorSearchLoading(false);
       return;
     }
     setCollaboratorSearchLoading(true);
@@ -463,17 +698,34 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCollaboratorNotice(null);
     setSelectedCollaborator(null);
     try {
-      const result = await api.searchCollaborators(project.id, collaboratorEmail.trim());
+      const result = await api.searchCollaborators(project.id, normalizedEmail);
+      if (requestId !== collaboratorSearchRequest.current) return;
       setCollaboratorMatches(result.matches);
-      if (result.matches.length === 0) {
-        setCollaboratorNotice('No public GitHub account matched this email. GitHub only returns accounts whose email is publicly searchable.');
-      }
     } catch (cause) {
+      if (requestId !== collaboratorSearchRequest.current) return;
       setCollaboratorMatches([]);
-      setCollaboratorError(String(cause));
+      setCollaboratorError('GitHub search is unavailable right now. Try again later.');
     } finally {
-      setCollaboratorSearchLoading(false);
+      if (requestId === collaboratorSearchRequest.current) setCollaboratorSearchLoading(false);
     }
+  }, [collaboratorEmail, collaborationStatus?.repository, project.id]);
+
+  useEffect(() => {
+    if (!showCollaboratorDialog) return;
+    const normalizedEmail = collaboratorEmail.trim();
+    if (!normalizedEmail || !collaborationStatus?.repository) {
+      setCollaboratorMatches([]);
+      setCollaboratorSearchLoading(false);
+      if (!normalizedEmail) setCollaboratorError(null);
+      return;
+    }
+    const timer = window.setTimeout(() => { void searchForCollaborator(normalizedEmail); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [collaboratorEmail, collaborationStatus?.repository, searchForCollaborator, showCollaboratorDialog]);
+
+  const handleSyncFromGithub = () => {
+    setCollaboratorError(null);
+    setCollaboratorNotice('GitHub sync is not available in this build, so existing collaborator data was not changed.');
   };
 
   const inviteSelectedCollaborator = async () => {
@@ -519,6 +771,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                 <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setShowDynamicForm(true); }}>
                   <Play size={16} aria-hidden="true" /> Dynamic testing
                 </button>
+                <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); void handleExportReport(); }} disabled={exporting}>
+                  <Download size={16} aria-hidden="true" /> {exporting ? 'Exporting…' : 'Export report'}
+                </button>
               </div>
             )}
           </div>
@@ -527,9 +782,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
 
       <nav className="project-section-nav" aria-label="Project sections">
         <button className={activeSection === 'project-overview' ? 'active' : ''} aria-current={activeSection === 'project-overview' ? 'page' : undefined} onClick={() => moveToSection('project-overview')}>Overview</button>
-        <button className={activeSection === 'project-source' ? 'active' : ''} aria-current={activeSection === 'project-source' ? 'page' : undefined} onClick={() => moveToSection('project-source')}>Source</button>
+        <button className={activeSection === 'project-assessment' ? 'active' : ''} aria-current={activeSection === 'project-assessment' ? 'page' : undefined} onClick={() => moveToSection('project-assessment')}>Assessment</button>
         <button className={activeSection === 'project-findings' ? 'active' : ''} aria-current={activeSection === 'project-findings' ? 'page' : undefined} onClick={() => moveToSection('project-findings')}>Findings</button>
-        <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborations</button>
+        <button className={activeSection === 'project-source' ? 'active' : ''} aria-current={activeSection === 'project-source' ? 'page' : undefined} onClick={() => moveToSection('project-source')}>Source</button>
+        <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborators</button>
         <button className={activeSection === 'project-settings' ? 'active' : ''} aria-current={activeSection === 'project-settings' ? 'page' : undefined} onClick={() => moveToSection('project-settings')}>Settings</button>
       </nav>
 
@@ -551,23 +807,38 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
               </div>
               {visibleAttentionItems.length > 0 ? (
                 <div className="project-attention-list">
-                  {visibleAttentionItems.map(item => (
-                    <div key={item.id} className="project-attention-row">
-                      <div className="project-attention-copy"><strong>{item.title}</strong><p>{item.detail}</p></div>
-                      <button type="button" className="btn-secondary" onClick={() => handleAttentionAction(item)}>{item.actionLabel}</button>
-                    </div>
-                  ))}
+                   {visibleAttentionItems.map(item => {
+                     const needsDisclosure = attentionNeedsDisclosure(item.detail);
+                     return (
+                       <div key={item.id} className="project-attention-row">
+                         <div className="project-attention-copy">
+                           <strong>{item.title}</strong>
+                           <p>
+                             <span>{attentionPreview(item.detail)}</span>
+                             {needsDisclosure && <button
+                               type="button"
+                               className="project-attention-see-more"
+                               onClick={() => openAttentionDetail(item)}
+                             >… See More</button>}
+                           </p>
+                         </div>
+                         <button type="button" className="btn-secondary" onClick={() => handleAttentionAction(item)}>{item.actionLabel}</button>
+                       </div>
+                     );
+                   })}
                 </div>
               ) : (
                 <div className="project-overview-empty"><ShieldAlert size={22} aria-hidden="true" /><p>No items need attention right now.</p></div>
               )}
               {attentionItems.length > 3 && (
-                <div className="project-pagination" aria-label="Need attention pages">
-                  <button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.max(0, page - 1))} disabled={attentionPage === 0}>Previous</button>
-                  <span>Page {attentionPage + 1} of {attentionPageCount}</span>
-                  <button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.min(attentionPageCount - 1, page + 1))} disabled={attentionPage >= attentionPageCount - 1}>Next</button>
-                </div>
-              )}
+                 <div className="project-pagination-footer">
+                 <div className="project-pagination" aria-label="Need attention pages">
+                   <span className="project-pagination-slot project-pagination-slot-start"><button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.max(0, page - 1))} disabled={attentionPage === 0}>Previous</button></span>
+                   <span className="project-pagination-label">Page {attentionPage + 1} of {attentionPageCount}</span>
+                   <span className="project-pagination-slot project-pagination-slot-end"><button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.min(attentionPageCount - 1, page + 1))} disabled={attentionPage >= attentionPageCount - 1}>Next</button></span>
+                 </div>
+                 </div>
+               )}
             </section>
 
             <section className="card detail-card project-readiness-card" aria-labelledby="project-readiness-heading">
@@ -594,27 +865,53 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           </div>
 
           <section className="card detail-card project-activity-summary" id="project-recent-activity" aria-labelledby="project-recent-activity-heading">
-            <div className="panel-header">
-              <div><h2 id="project-recent-activity-heading"><Clock3 size={19} /> Recent activity</h2></div>
-              <span className="panel-count">{Math.min(5, projectActivities.length)} of {projectActivities.length}</span>
-            </div>
-            <div className="project-activity-filters" aria-label="Filter recent activity">
-              <label>Search<input type="search" value={activityQuery} onChange={event => setActivityQuery(event.target.value)} placeholder="Search activity" /></label>
-              <label htmlFor="project-activity-type">Type<Select id="project-activity-type" value={activityType} onChange={value => setActivityType(value as 'all' | 'review' | 'dynamic')} options={[{ value: 'all', label: 'All types' }, { value: 'review', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]} /></label>
-              <label htmlFor="project-activity-state">State<Select id="project-activity-state" value={activityState} onChange={value => setActivityState(value as ActivityState)} options={[{ value: 'all', label: 'All states' }, { value: 'queued', label: 'Queued' }, { value: 'running', label: 'In progress' }, { value: 'success', label: 'Completed' }, { value: 'needs_attention', label: 'Needs attention' }, { value: 'cancelled', label: 'Cancelled' }]} /></label>
-              <label>Date<input type="date" value={activityDate} onChange={event => setActivityDate(event.target.value)} /></label>
-            </div>
-            {projectActivities.slice(0, 5).map(activity => (
-              <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id }) : onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: activity.id })}>
-                <span className="project-activity-main"><strong>{activity.name}</strong><small>{activity.kind}</small></span>
-                <time dateTime={activity.createdAt}>{new Date(activity.createdAt).toLocaleString()}</time>
+             <div className="panel-header project-activity-header">
+               <div className="project-activity-title"><h2 id="project-recent-activity-heading"><Clock3 size={19} /> Recent activity</h2><div className="project-activity-type-toggle" role="group" aria-label="Activity type">
+                 <button type="button" className={activityType === 'all' ? 'active' : ''} aria-label="All activity" aria-pressed={activityType === 'all'} title="All activity" onClick={() => setActivityType('all')}><ListFilter size={16} aria-hidden="true" /></button>
+                 <button type="button" className={activityType === 'review' ? 'active' : ''} aria-pressed={activityType === 'review'} onClick={() => setActivityType('review')}><FileCheck2 size={16} aria-hidden="true" /><span>Review</span></button>
+                 <button type="button" className={activityType === 'dynamic' ? 'active' : ''} aria-pressed={activityType === 'dynamic'} onClick={() => setActivityType('dynamic')}><MonitorPlay size={16} aria-hidden="true" /><span>Dynamic Testing</span></button>
+               </div></div>
+               <span className="panel-count">{Math.min(5, projectActivities.length)} of {projectActivities.length}</span>
+             </div>
+             <div className="project-activity-filters" aria-label="Filter recent activity">
+               <label className="project-activity-search"><span className="visually-hidden">Search activity</span><input type="search" aria-label="Search activity" value={activityQuery} onChange={event => setActivityQuery(event.target.value)} placeholder="Activity name or state" /></label>
+               <label htmlFor="project-activity-datetime">Datetime<input id="project-activity-datetime" type="datetime-local" value={activityDateTime} onChange={event => setActivityDateTime(event.target.value)} /></label>
+               <label htmlFor="project-activity-state">State<Select id="project-activity-state" value={activityState} onChange={value => setActivityState(value as ActivityState)} options={[{ value: 'all', label: 'All states' }, { value: 'queued', label: 'Queued' }, { value: 'running', label: 'In progress' }, { value: 'needs_approval', label: 'Need Approval' }, { value: 'success', label: 'Completed' }, { value: 'needs_attention', label: 'Failed' }, { value: 'cancelled', label: 'Cancelled' }]} /></label>
+             </div>
+            {visibleProjectActivities.map(activity => (
+              <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: activity.id })}>
+                <span className="project-activity-main"><strong>{activity.name} <time dateTime={activity.createdAt}>done at {formatProjectDateTime(activity.createdAt)}</time></strong><small>{activity.kind}</small></span>
                 <StatusBadge label={activity.status} />
                 <ChevronRight size={15} aria-hidden="true" />
               </button>
             ))}
             {projectActivities.length === 0 && <p className="card-empty">{staticSessions.length + dynamicSessions.length === 0 ? 'No activity yet. Start a Review or Dynamic Testing from Action.' : 'No activity matches these filters.'}</p>}
+            {projectActivities.length > 5 && <nav className="project-pagination project-activity-pagination" aria-label="Recent activity pages">
+              <span className="project-pagination-range">{activityPage * 5 + 1}–{Math.min((activityPage + 1) * 5, projectActivities.length)} of {projectActivities.length}</span>
+              <span className="project-pagination-controls"><button type="button" className="btn-secondary" onClick={() => setActivityPage(page => Math.max(0, page - 1))} disabled={activityPage === 0} aria-label="Previous activity page"><ChevronLeft size={16} aria-hidden="true" /></button><span className="project-pagination-label">Page {activityPage + 1} of {activityPageCount}</span><button type="button" className="btn-secondary" onClick={() => setActivityPage(page => Math.min(activityPageCount - 1, page + 1))} disabled={activityPage >= activityPageCount - 1} aria-label="Next activity page"><ChevronRight size={16} aria-hidden="true" /></button></span>
+            </nav>}
           </section>
         </>}
+
+        {activeSection === 'project-assessment' && <section className="card detail-card project-risk-card" id="project-assessment" aria-labelledby="project-risk-heading">
+          <div className="panel-header">
+            <div>
+              <h2 id="project-risk-heading"><ShieldAlert size={19} /> Assessment</h2>
+              <p className="project-risk-summary">Review and Dynamic Testing risk signals for this project.</p>
+            </div>
+            <span className="panel-count">Not available</span>
+          </div>
+          <div className="project-risk-grid">
+            <div className="project-risk-source">
+              <strong>Review</strong>
+              <span>Risk dimensions are not persisted by the current review service.</span>
+            </div>
+            <div className="project-risk-source">
+              <strong>Dynamic Testing</strong>
+              <span>Risk dimensions are not persisted by the current testing service.</span>
+            </div>
+          </div>
+        </section>}
 
         {/* Static Review: review runs open from Recent activity or Review entry. */}
         {false && <section className="card detail-card" id="project-review">
@@ -644,7 +941,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                 const isActive = s.status === 'running' || s.status === 'queued';
                 const isOpen = openSessionId === s.id;
                 const handleClick = () => {
-                  onNavigate({ name: 'review-activity', projectId: project.id, sessionId: s.id });
+                  onNavigate({ name: 'review-activity', projectId: project.id, sessionId: s.id, reviewName: s.name });
                 };
                 return (
                   <div key={s.id} className={`session-block ${isOpen ? 'open' : ''}`}>
@@ -755,65 +1052,61 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           )}
         </section>}
 
-        {activeSection === 'project-findings' && <section className="card detail-card findings-card" id="project-findings">
-          <FindingsPanel
-            projectId={project.id}
-            presentation="project"
+        {activeSection === 'project-findings' && <div id="project-findings">
+           <FindingsPanel
+             projectId={project.id}
+             presentation="project"
             pageSize={5}
             refreshKey={
               activeReviewState?.session.projectId === project.id
                 ? `${activeReviewState.session.id}:${activeReviewState.session.status}`
-                : undefined
-            }
-          />
-        </section>}
+               : undefined
+             }
+           />
+        </div>}
 
         {activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
           <div className="panel-header project-collaboration-header">
-            <div><h2><Users size={19} /> Collaborations</h2></div>
+            <div><h2><Users size={19} /> Collaborators</h2></div>
             <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>
           </div>
+          <div className="project-collaboration-search-row">
+            <label className="project-collaboration-search" htmlFor="project-collaboration-search"><span className="visually-hidden">Search collaborators</span><span className="project-collaboration-search-control"><Search size={15} aria-hidden="true" /><input id="project-collaboration-search" type="search" value={collaborationQuery} onChange={event => setCollaborationQuery(event.target.value)} placeholder="Name or email" /></span></label>
+          </div>
           {collaborationStatusLoading && <p className="project-collaboration-status" role="status">Checking GitHub collaboration…</p>}
-          {!collaborationStatusLoading && collaborationStatus?.available && (
-            <div className="project-collaboration-available" role="status">
-              <strong>GitHub collaboration is available</strong>
-              <p>Search for a public GitHub account by email, then confirm before sending an invitation to {collaborationStatus.repository?.owner}/{collaborationStatus.repository?.repo}.</p>
-            </div>
-          )}
-          {!collaborationStatusLoading && collaborationStatus && !collaborationStatus.available && (
-            <div className="project-collaboration-unavailable" role="status">
-              <strong>Collaboration data is not connected</strong>
-              <p>{collaborationStatus.message || 'Connect a GitHub origin remote and configure GITHUB_TOKEN or GH_TOKEN in the sidecar to invite collaborators.'}</p>
+          {!collaborationStatusLoading && collaborationStatus && (
+            <div className="project-collaboration-empty" role="status">
+              <Users size={24} aria-hidden="true" />
+              <strong>Collaborator not found</strong>
+              <p>{collaborationQuery.trim() ? `No collaborator matches “${collaborationQuery.trim()}”.` : 'No collaborator data is available for this project yet.'} Add a collaborator or sync from GitHub.</p>
             </div>
           )}
         </section>}
 
         {activeSection === 'project-settings' && <section className="card detail-card project-settings-card" id="project-settings">
-          <div className="panel-header">
+          <div className="panel-header project-settings-header">
             <div><h2><Settings size={19} /> Settings</h2></div>
+            <div className="project-settings-actions">
+              {!settingsEditing ? (
+                <button type="button" className="btn-secondary" onClick={() => { setSettingsCollectionBackup({ priority: [...priorityValues], severity: [...severityValues] }); setSettingsEditing(true); setSettingsSaved(false); }}><Settings size={15} aria-hidden="true" /> Edit</button>
+              ) : (
+                <>
+                  <button type="button" className="btn-secondary" onClick={handleCancelSettings} disabled={savingSettings}>Cancel</button>
+                  <button type="button" className="btn-primary" onClick={() => void handleSaveSettings()} disabled={savingSettings}>{savingSettings ? 'Saving…' : 'Save'}</button>
+                </>
+              )}
+            </div>
           </div>
           <div className="project-settings-stack">
             <section className="project-settings-section" aria-labelledby="project-settings-heading">
-              <div className="project-settings-section-header">
-                <h3 id="project-settings-heading">Project settings</h3>
-                <div className="project-settings-actions">
-                  {!settingsEditing ? (
-                    <button type="button" className="btn-secondary" onClick={() => { setSettingsEditing(true); setSettingsSaved(false); }}><Settings size={15} aria-hidden="true" /> Edit</button>
-                  ) : (
-                    <>
-                      <button type="button" className="btn-secondary" onClick={handleCancelSettings} disabled={savingSettings}>Cancel</button>
-                      <button type="button" className="btn-primary" onClick={() => void handleSaveSettings()} disabled={savingSettings}>{savingSettings ? 'Saving…' : 'Save'}</button>
-                    </>
-                  )}
-                </div>
-              </div>
+              <h3 id="project-settings-heading">Project settings</h3>
               <div className="project-settings-form">
                 <label htmlFor="project-setting-name"><span>Project name</span><input id="project-setting-name" disabled={!settingsEditing} value={settingsDraft.name} onChange={event => setSettingsDraft(draft => ({ ...draft, name: event.target.value }))} /></label>
-                <label htmlFor="project-setting-description"><span>Description</span><textarea id="project-setting-description" disabled={!settingsEditing} value={settingsDraft.description} onChange={event => setSettingsDraft(draft => ({ ...draft, description: event.target.value }))} rows={3} /></label>
-                <label htmlFor="project-setting-workspace"><span>Workspace</span><input id="project-setting-workspace" disabled={!settingsEditing} value={settingsDraft.workspacePath} onChange={event => setSettingsDraft(draft => ({ ...draft, workspacePath: event.target.value }))} /></label>
+                <label htmlFor="project-setting-description"><span>Description</span>{settingsEditing ? <textarea id="project-setting-description" value={settingsDraft.description} onChange={event => setSettingsDraft(draft => ({ ...draft, description: event.target.value }))} placeholder="Enter your description here" rows={3} /> : <div id="project-setting-description" className="project-settings-readonly-description" role="textbox" aria-readonly="true" aria-label="Description">{settingsDraft.description || 'No description provided.'}</div>}</label>
+                <label htmlFor="project-setting-workspace"><span>Workspace</span>{settingsEditing ? <span className="project-workspace-picker"><input id="project-setting-workspace" value={settingsDraft.workspacePath} readOnly aria-readonly="true" aria-haspopup="dialog" onClick={() => void chooseWorkspaceFolder()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void chooseWorkspaceFolder(); } }} /><button type="button" className="project-workspace-picker-button" aria-label="Choose workspace folder" onClick={() => void chooseWorkspaceFolder()}><FolderOpen size={16} aria-hidden="true" /></button></span> : <span id="project-setting-workspace" className="project-settings-readonly-workspace" role="textbox" aria-readonly="true" aria-label="Workspace">{settingsDraft.workspacePath}</span>}</label>
               </div>
               <dl className="project-settings-facts">
-                <div><dt>Created</dt><dd><time dateTime={currentProject.createdAt}>{new Date(currentProject.createdAt).toLocaleDateString()}</time><span className="project-settings-time">{new Date(currentProject.createdAt).toLocaleTimeString()}</span></dd></div>
+                <div><dt>Created Datetime</dt><dd><time dateTime={currentProject.createdAt}>{formatProjectDateTime(currentProject.createdAt)}</time></dd></div>
               </dl>
               {settingsError && <p className="command-inline-alert" role="alert"><AlertCircle size={14} /> {settingsError}</p>}
               {settingsSaved && <p className="project-settings-saved" role="status"><CheckCircle2 size={15} aria-hidden="true" /> Project settings saved.</p>}
@@ -824,11 +1117,11 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             </section>
 
             <section className="project-settings-section" aria-labelledby="project-configuration-heading">
-              <h3 id="project-configuration-heading">Configuration</h3>
-              <dl className="project-configuration-list">
-                <div><dt>Default severity</dt><dd>Service default</dd></div>
-                <div><dt>Default priority</dt><dd>Service default</dd></div>
-              </dl>
+              <div className="project-configuration-heading"><h3 id="project-configuration-heading">Configuration</h3><span className="project-configuration-info"><button type="button" className="project-settings-info-button" aria-label="About finding defaults" aria-expanded={configurationInfoOpen} aria-controls="project-configuration-info" onClick={() => setConfigurationInfoOpen(open => !open)}><Info size={16} aria-hidden="true" /></button>{configurationInfoOpen && <span id="project-configuration-info" className="project-settings-note" role="tooltip">Findings Priority starts with Low, Medium, and High for triage urgency. Findings Severity starts with Low, Medium, High, and Critical for impact. These choices are local to this project and are not saved to the service yet.</span>}</span></div>
+              <div className="project-configuration-collections">
+                <EditableValueCollection label="Findings Priority" itemLabel="Priority" values={priorityValues} onChange={setPriorityValues} disabled={!settingsEditing} />
+                <EditableValueCollection label="Findings Severity" itemLabel="Severity" values={severityValues} onChange={setSeverityValues} disabled={!settingsEditing} />
+              </div>
             </section>
           </div>
         </section>}
@@ -860,6 +1153,21 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           />
         </section>}
       </div>
+
+      <Modal
+        isOpen={attentionDetailItem !== null}
+        onClose={() => setAttentionDetailItem(null)}
+        title={attentionDetailItem?.title ?? 'Attention details'}
+        width={560}
+      >
+        {attentionDetailItem && <div className="project-attention-dialog">
+          <p>{attentionDetailItem.detail}</p>
+          <div className="form-actions">
+            <button type="button" className="btn-secondary" onClick={() => setAttentionDetailItem(null)}>Close</button>
+            <button type="button" className="btn-primary" onClick={() => { const item = attentionDetailItem; setAttentionDetailItem(null); handleAttentionAction(item); }}>{attentionDetailItem.actionLabel}</button>
+          </div>
+        </div>}
+      </Modal>
 
       {showStaticForm && (
         <ReviewModal
@@ -924,16 +1232,26 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         width={560}
       >
         <div className="collaborator-dialog">
+          <div className="collaborator-repository-heading">
+            <p className="collaborator-repository"><GitBranch size={14} aria-hidden="true" /> {collaborationStatus?.repository ? `${collaborationStatus.repository.owner}/${collaborationStatus.repository.repo}` : 'No GitHub repository connected'}</p>
+            <span className="collaborator-repository-info" onMouseEnter={() => setRepositoryInfoOpen(true)} onMouseLeave={() => setRepositoryInfoOpen(false)}>
+              <button type="button" className="collaborator-info-button" aria-label="Repository information" aria-expanded={repositoryInfoOpen} aria-controls="collaborator-repository-info" onClick={() => setRepositoryInfoOpen(open => !open)}><Info size={16} aria-hidden="true" /></button>
+              {repositoryInfoOpen && <span id="collaborator-repository-info" className="collaborator-repository-tooltip" role="tooltip">GitHub only returns accounts whose email is publicly searchable.</span>}
+            </span>
+          </div>
           <p className="collaborator-dialog-intro">Search GitHub by email, then review the account and confirm before sending an invitation.</p>
-          {collaborationStatus?.repository && <p className="collaborator-repository"><GitBranch size={14} aria-hidden="true" /> {collaborationStatus.repository.owner}/{collaborationStatus.repository.repo}</p>}
-          {!collaborationStatus?.available && collaborationStatus && <div className="collaborator-dialog-unavailable" role="alert"><AlertCircle size={16} aria-hidden="true" /><span>{collaborationStatus.message || 'GitHub collaboration is unavailable for this project.'}</span></div>}
           <form className="collaborator-search-form" onSubmit={event => { event.preventDefault(); void searchForCollaborator(); }}>
             <label htmlFor="collaborator-email">GitHub account email</label>
-            <div className="collaborator-search-row">
-              <span className="collaborator-email-control"><Search size={16} aria-hidden="true" /><input id="collaborator-email" type="email" value={collaboratorEmail} onChange={event => setCollaboratorEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" /></span>
-              <button type="submit" className="btn-secondary" disabled={collaboratorSearchLoading || !collaborationStatus?.available}>{collaboratorSearchLoading ? 'Searching…' : 'Search'}</button>
-            </div>
+            <span className="collaborator-email-control"><input id="collaborator-email" type="email" value={collaboratorEmail} onChange={event => setCollaboratorEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" disabled={collaborationStatusLoading || !collaborationStatus?.repository} aria-describedby="collaborator-email-status" /><Search size={16} aria-hidden="true" /></span>
           </form>
+          <div className="collaborator-sync-row">
+            <button type="button" className="btn-secondary" onClick={handleSyncFromGithub}><RotateCw size={15} aria-hidden="true" /> Sync collaborators from GitHub</button>
+            <span className="collaborator-sync-hint">Existing collaborator data is not changed.</span>
+          </div>
+          <div id="collaborator-email-status" aria-live="polite">
+            {collaboratorSearchLoading && <p className="collaborator-dialog-status" role="status">Searching GitHub…</p>}
+            {!collaboratorSearchLoading && collaboratorEmail.trim() && !collaboratorError && collaborationStatus?.repository && collaboratorMatches.length === 0 && <p className="collaborator-dialog-status" role="status">Collaborator not found. Try another email address.</p>}
+          </div>
           {collaboratorError && <p className="command-inline-alert" role="alert"><AlertCircle size={14} /> {collaboratorError}</p>}
           {collaboratorNotice && <p className="collaborator-dialog-notice" role="status"><CheckCircle2 size={16} aria-hidden="true" /> {collaboratorNotice}</p>}
           {collaboratorMatches.length > 0 && <div className="collaborator-results" aria-label="GitHub account matches">
@@ -954,7 +1272,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
               <button type="button" className="btn-primary" onClick={() => void inviteSelectedCollaborator()} disabled={collaboratorInviteLoading}>{collaboratorInviteLoading ? 'Sending…' : 'Send invitation'}</button>
             </div>
           </div>}
-          <p className="collaborator-dialog-footnote"><Info size={14} aria-hidden="true" /> GitHub only returns accounts whose email is publicly searchable.</p>
         </div>
       </Modal>
 

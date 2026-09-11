@@ -147,6 +147,13 @@
   white-space: nowrap;
 }
 
+.project-activity-stack strong time {
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
 .project-activity-stack time {
   margin-top: 1px;
   color: var(--color-text-subtle);

@@ -16,15 +16,15 @@ const project: Project = {
 describe('PageBreadcrumbs', () => {
   it('builds route-aware trails for the shell screens', () => {
     const cases: Array<[Screen, string[]]> = [
-      [{ name: 'dashboard' }, ['Home', 'Dashboard']],
-      [{ name: 'projects' }, ['Home', 'Projects']],
-      [{ name: 'project-detail', projectId: project.id }, ['Home', 'Projects', project.name]],
-      [{ name: 'review-entry', projectId: project.id }, ['Home', 'Review', 'Start your review']],
-      [{ name: 'review-activity', projectId: project.id, sessionId: 'review-1' }, ['Home', 'Review', 'Review activity']],
-      [{ name: 'dynamic-session', projectId: project.id, sessionId: 'test-1' }, ['Home', 'Dynamic Testing', 'Test run']],
-      [{ name: 'evidence-browser', projectId: project.id }, ['Home', 'Dynamic Testing', 'Evidence']],
-      [{ name: 'requirements', projectId: project.id }, ['Home', 'Review', 'Requirements']],
-      [{ name: 'settings' }, ['Home', 'Settings']],
+      [{ name: 'dashboard' }, ['Product', 'Home']],
+      [{ name: 'projects' }, ['Product', 'Projects']],
+      [{ name: 'project-detail', projectId: project.id }, ['Product', 'Projects', project.name]],
+      [{ name: 'review-entry', projectId: project.id }, ['Activities', 'Review']],
+      [{ name: 'review-activity', projectId: project.id, sessionId: 'review-1', reviewName: 'Release review' }, ['Product', 'Projects', 'Review', 'Release review']],
+      [{ name: 'dynamic-session', projectId: project.id, sessionId: 'test-1' }, ['Product', 'Dynamic Testing', 'Test run']],
+      [{ name: 'evidence-browser', projectId: project.id }, ['Product', 'Dynamic Testing', 'Evidence']],
+      [{ name: 'requirements', projectId: project.id }, ['Product', 'Review', 'Requirements']],
+      [{ name: 'settings' }, ['Settings']],
     ];
 
     for (const [screenState, labels] of cases) {
@@ -43,9 +43,9 @@ describe('PageBreadcrumbs', () => {
       />,
     );
 
-    const home = screen.getByRole('link', { name: 'Home' });
-    expect(home).toHaveAttribute('title', 'Home');
-    await user.click(home);
+    const product = screen.getByRole('link', { name: 'Product' });
+    expect(product).toHaveAttribute('title', 'Product');
+    await user.click(product);
     expect(onNavigate).toHaveBeenCalledWith({ name: 'dashboard' });
     expect(screen.getByTitle(project.name)).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTitle(project.name)).toHaveTextContent(project.name);

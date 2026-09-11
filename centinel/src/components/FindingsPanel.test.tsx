@@ -1,24 +1,7 @@
-/**
- * FindingsPanel.test.tsx — Component tests for the static/dynamic findings list.
- *
- * Verifies the user-facing behaviors the precision-batch UI added on top
- * of the original list:
- *   - The 3 filter dropdowns (source, severity, status) actually filter
- *   - Severity-based sort order is critical → info
- *   - Accept/Dismiss/Mark-Fixed buttons call api.updateFinding
- *   - Static findings get the "static" source badge; dynamic ones get
- *     "dynamic" — important for the precision batch's "Source" column
- *     parity with the report export
- *   - "carryover" status from the P1-5 re-review flow renders without
- *     crashing
- *
- * The api module is mocked so the component under test is the only thing
- * exercising real React rendering.
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { FindingsPanel } from './FindingsPanel';
+import { FindingsPanel, findingPresentationStatus } from './FindingsPanel';
 import { api } from '../api/client';
 import type { Finding } from '../types';
 
@@ -35,6 +18,7 @@ const baseFinding: Finding = {
   sessionId: 's-1',
   source: 'static',
   severity: 'high',
+  priority: 'High',
   title: 'Null pointer risk in auth.ts',
   description: 'x.y may be null when called from public API',
   status: 'new',
@@ -50,8 +34,14 @@ const baseFinding: Finding = {
 };
 
 describe('FindingsPanel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  beforeEach(() => vi.clearAllMocks());
+
+  it('maps legacy finding states to the three-state presentation', () => {
+    expect(findingPresentationStatus('new')).toBe('unresolved');
+    expect(findingPresentationStatus('carryover')).toBe('unresolved');
+    expect(findingPresentationStatus('accepted')).toBe('unresolved');
+    expect(findingPresentationStatus('fixed')).toBe('resolved');
+    expect(findingPresentationStatus('dismissed')).toBe('dismissed');
   });
 
   it('shows a loading state while the API call is in flight', () => {
@@ -63,21 +53,17 @@ describe('FindingsPanel', () => {
   it('renders the empty state when there are no findings', async () => {
     vi.mocked(api.listFindings).mockResolvedValue([]);
     render(<FindingsPanel projectId="p-1" />);
-    await waitFor(() => {
-      expect(screen.getByText(/no findings yet/i)).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByText(/no findings yet/i)).toBeInTheDocument());
   });
 
-  it('renders a finding row with title, severity badge, and source badge', async () => {
+  it('renders a finding row with title, severity badge, source badge, and Unresolved status', async () => {
     vi.mocked(api.listFindings).mockResolvedValue([baseFinding]);
     render(<FindingsPanel projectId="p-1" />);
-    await waitFor(() => {
-      expect(screen.getByText('Null pointer risk in auth.ts')).toBeInTheDocument();
-    });
-    // The severity badge and source badge are siblings in the header.
+    await waitFor(() => expect(screen.getByText('Null pointer risk in auth.ts')).toBeInTheDocument());
     const row = screen.getByText('Null pointer risk in auth.ts').closest<HTMLElement>('.finding-row')!;
     expect(within(row).getByText('high')).toBeInTheDocument();
     expect(within(row).getByText('Review')).toBeInTheDocument();
+    expect(within(row).getByText('Unresolved')).toBeInTheDocument();
   });
 
   it('sorts findings by severity (critical → info)', async () => {
@@ -88,12 +74,7 @@ describe('FindingsPanel', () => {
     ]);
     render(<FindingsPanel projectId="p-1" />);
     await waitFor(() => screen.getByText('Critical one'));
-    // The 1-indexed finding-index badges reflect sort order. Critical
-    // first means its row shows "1" in the index column.
-    const rows = screen.getAllByRole('generic', { name: '' }).filter((el): el is HTMLElement =>
-      el.className.includes('finding-row')
-    );
-    // Robust check: the first row's title is the critical one.
+    const rows = Array.from(document.querySelectorAll('.finding-row')) as HTMLElement[];
     expect(within(rows[0]).getByText('Critical one')).toBeInTheDocument();
     expect(within(rows[rows.length - 1]).getByText('Low one')).toBeInTheDocument();
   });
@@ -106,68 +87,60 @@ describe('FindingsPanel', () => {
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" />);
     await waitFor(() => screen.getByText('Null pointer risk in auth.ts'));
-
+    await user.click(screen.getByRole('button', { name: /^Filters/ }));
     await user.click(screen.getByRole('combobox', { name: 'Source' }));
     await user.click(screen.getByRole('option', { name: 'Dynamic Testing' }));
-
-    // After filtering, the static finding should be gone.
     expect(screen.queryByText('Null pointer risk in auth.ts')).not.toBeInTheDocument();
     expect(screen.getByText('Dynamic finding')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Source filter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
   });
 
-  it('renders carryover findings from the P1-5 re-review flow without crashing', async () => {
-    // The P1-5 re-review-on-push work adds 'carryover' to the Finding
-    // status union. The filter dropdown still uses the original 4 statuses
-    // (new/accepted/dismissed/fixed) — known UX gap, but the row must
-    // render correctly when one slips through the unfiltered list.
+  it('filters persisted accepted and carryover statuses as Unresolved', async () => {
     vi.mocked(api.listFindings).mockResolvedValue([
       { ...baseFinding, id: 'f-carry', status: 'carryover', title: 'Carryover from parent session' },
+      { ...baseFinding, id: 'f-accepted', status: 'accepted', title: 'Accepted legacy finding' },
+      { ...baseFinding, id: 'f-fixed', status: 'fixed', title: 'Resolved finding' },
+      { ...baseFinding, id: 'f-dismissed', status: 'dismissed', title: 'Dismissed finding' },
     ]);
+    const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" />);
-    await waitFor(() => {
-      expect(screen.getByText('Carryover from parent session')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByText('Carryover from parent session')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /^Filters/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Status' }));
+    await user.click(screen.getByRole('option', { name: 'Unresolved' }));
+    expect(screen.getByText('Carryover from parent session')).toBeInTheDocument();
+    expect(screen.getByText('Accepted legacy finding')).toBeInTheDocument();
+    expect(screen.queryByText('Resolved finding')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dismissed finding')).not.toBeInTheDocument();
   });
 
-  it('calls api.updateFinding when Accept is clicked', async () => {
+  it('calls api.updateFinding for Dismiss and Mark as resolved', async () => {
     vi.mocked(api.listFindings).mockResolvedValue([baseFinding]);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" />);
     await waitFor(() => screen.getByText('Null pointer risk in auth.ts'));
-
-    // Expand the row first, then click Accept.
     await user.click(screen.getByText('Null pointer risk in auth.ts'));
-    await user.click(screen.getByRole('button', { name: /^accept$/i }));
-
-    expect(api.updateFinding).toHaveBeenCalledWith('p-1', 'f-1', 'accepted');
+    await user.click(screen.getByRole('button', { name: 'Mark as resolved' }));
+    expect(api.updateFinding).toHaveBeenCalledWith('p-1', 'f-1', 'fixed');
+    expect(screen.getAllByText('Resolved')).not.toHaveLength(0);
   });
 
-  it('does not show the Accept button after a finding is accepted (idempotent UI)', async () => {
-    vi.mocked(api.listFindings).mockResolvedValue([
-      { ...baseFinding, status: 'accepted' },
-    ]);
+  it('hides the action that already represents the current state', async () => {
+    vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, status: 'fixed' }]);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" />);
     await waitFor(() => screen.getByText('Null pointer risk in auth.ts'));
-
     await user.click(screen.getByText('Null pointer risk in auth.ts'));
-    // Accept is gone, but Dismiss + Mark Fixed should still be there.
-    expect(screen.queryByRole('button', { name: /^accept$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /mark fixed/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
   });
 
-  it('supports numbered pages for the Project Detail presentation', async () => {
-    const findings = Array.from({ length: 6 }, (_, index) => ({
-      ...baseFinding,
-      id: `f-page-${index}`,
-      title: `Paged finding ${index + 1}`,
-      severity: index === 0 ? 'critical' : 'low',
-    }));
+  it('supports numbered pages and ordered detail fields for Project Detail', async () => {
+    const findings = Array.from({ length: 6 }, (_, index) => ({ ...baseFinding, id: `f-page-${index}`, title: `Paged finding ${index + 1}`, severity: index === 0 ? 'critical' : 'low' }));
     vi.mocked(api.listFindings).mockResolvedValue(findings);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
-
     await waitFor(() => expect(screen.getByText('Paged finding 1')).toBeInTheDocument());
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
     expect(screen.queryByText('Paged finding 6')).not.toBeInTheDocument();
@@ -180,17 +153,24 @@ describe('FindingsPanel', () => {
     vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, priority: 'high', title: 'Keyboard-selectable finding' }]);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
-
     expect(await screen.findByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Severity' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
-    expect(screen.getByText('Select Finding to review the details')).toBeInTheDocument();
-
+    expect(screen.getByText('Select a finding to review its details')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Source' })).not.toBeInTheDocument();
     const row = screen.getByRole('row', { name: /Keyboard-selectable finding/i });
     row.focus();
     await user.keyboard('{Enter}');
-    expect(screen.getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
-    expect(screen.getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
+    const details = screen.getByRole('complementary', { name: 'Finding details' });
+    expect(within(details).getByText('Review')).toBeInTheDocument();
+    expect(within(details).getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
+    expect(within(details).getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
+    const text = details.textContent || '';
+    expect(text).not.toContain('Source type');
+    expect(text.indexOf('Review')).toBeLessThan(text.indexOf('Keyboard-selectable finding'));
+    expect(text.indexOf('Priority')).toBeLessThan(text.indexOf('Severity'));
+    expect(text.indexOf('Recommendation')).toBeLessThan(text.indexOf('Evidence'));
+    expect(text).not.toMatch(/Confidence/i);
   });
 });

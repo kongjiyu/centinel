@@ -18,6 +18,7 @@ import {
   getCurrentDecision,
   listReviewDecisions,
   isValidDecision,
+  reviewDecisionSubmissionError,
 } from '../../src/reviewDecisions.js';
 
 function makeDb() {
@@ -50,6 +51,13 @@ function seedSession(db: Awaited<ReturnType<typeof makeDb>>, projectId: string, 
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, project_id TEXT NOT NULL,
       decision TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '',
       reviewer TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS review_decision_attachments (
+      id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL, file_name TEXT NOT NULL, mime_type TEXT NOT NULL,
+      content_base64 TEXT NOT NULL, created_at TEXT NOT NULL
     )
   `);
   const now = new Date().toISOString();
@@ -153,6 +161,36 @@ describe('reviewDecisions', () => {
     });
     expect(r.comment).toBe('look at line 42');
     expect(r.reviewer).toBe('alice');
+  });
+
+  it('gates feedback until automated reasoning has stopped', () => {
+    expect(reviewDecisionSubmissionError('commented', 'queued')).toMatch(/after review reasoning has stopped/i);
+    expect(reviewDecisionSubmissionError('commented', 'running')).toMatch(/after review reasoning has stopped/i);
+    expect(reviewDecisionSubmissionError('commented', 'success')).toBeNull();
+    expect(reviewDecisionSubmissionError('commented', 'failure')).toBeNull();
+    expect(reviewDecisionSubmissionError('commented', 'cancelled')).toBeNull();
+  });
+
+  it('only allows lifecycle decisions after successful execution', () => {
+    expect(reviewDecisionSubmissionError('approved', 'running')).toMatch(/completed reviews/i);
+    expect(reviewDecisionSubmissionError('changes_requested', 'failure')).toMatch(/completed reviews/i);
+    expect(reviewDecisionSubmissionError('approved', 'success')).toBeNull();
+  });
+
+  it('persists supportive documents with feedback without making a comment the current decision', async () => {
+    const db = await makeDb();
+    seedSession(db, 'p1', 's1');
+    setTestDb(db);
+
+    const feedback = await submitReviewDecision('s1', 'p1', {
+      decision: 'commented',
+      comment: 'Review the attached release notes.',
+      attachments: [{ fileName: 'release-notes.md', mimeType: 'text/markdown', content: 'c3VwcG9ydA==' }],
+    });
+
+    expect(feedback.attachments).toEqual([expect.objectContaining({ fileName: 'release-notes.md', mimeType: 'text/markdown' })]);
+    expect(await getCurrentDecision('s1')).toBeNull();
+    expect((await listReviewDecisions('s1'))[0].attachments).toEqual(feedback.attachments);
   });
 
   it('listReviewDecisions honors the limit', async () => {

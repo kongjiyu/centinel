@@ -44,20 +44,20 @@ describe('ReviewProgressView', () => {
     expect(screen.getByText('Reviewing')).toBeInTheDocument();
   });
 
-  it('renders the active stage with a spinner indicator', () => {
+  it('renders the active stage without the removed progress checkpoint UI', () => {
     const progress = makeProgress(['done', 'active', 'pending', 'pending']);
     const { container } = render(<ReviewProgressView progress={progress} />);
-    // The active stage row has a step-spinner inside it.
     const activeRow = container.querySelector('.stage.stage-active');
     expect(activeRow).not.toBeNull();
-    expect(activeRow!.querySelector('.step-spinner')).not.toBeNull();
+    expect(activeRow!.querySelector('.step-spinner')).toBeNull();
   });
 
-  it('renders done stages with the summary text', () => {
+  it('keeps stage rows focused on stage names', () => {
     const progress = makeProgress(['done', 'done', 'pending', 'pending']);
     render(<ReviewProgressView progress={progress} />);
-    expect(screen.getByText('Context understood')).toBeInTheDocument();
-    expect(screen.getByText('5 code issue(s) found')).toBeInTheDocument();
+    expect(screen.getByText('Source readiness check')).toBeInTheDocument();
+    expect(screen.queryByText('Context understood')).not.toBeInTheDocument();
+    expect(screen.queryByText('5 code issue(s) found')).not.toBeInTheDocument();
   });
 
   it('renders failed stages with a distinct visual class (B7 — per-stage error recovery)', () => {
@@ -88,7 +88,7 @@ describe('ReviewProgressView', () => {
     const legacy = { stage: 'Review', message: 'Some legacy message' } as unknown as ReviewProgress;
     render(<ReviewProgressView progress={legacy} />);
     expect(screen.getByText('Review')).toBeInTheDocument();
-    expect(screen.getByText('Some legacy message')).toBeInTheDocument();
+    expect(screen.queryByText('Some legacy message')).not.toBeInTheDocument();
   });
 });
 
