@@ -3,6 +3,7 @@ import './App.css';
 import { userFacingError } from './utils/userFacingError';
 import './command.css';
 import './workspace.css';
+import './screens/ProfileScreen.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
@@ -10,6 +11,7 @@ import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
 import type { ProjectCreateSource } from './components/ProjectCreateModal';
 import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { ProfileScreen } from './screens/ProfileScreen';
 import { RequirementsScreen } from './screens/RequirementsScreen';
 import { EvidenceBrowser } from './screens/EvidenceBrowser';
 import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
@@ -166,6 +168,7 @@ function App() {
         {screen.name === 'settings' && (
           <SettingsScreen settings={aiSettings} onRefresh={loadData} />
         )}
+        {screen.name === 'profile' && <ProfileScreen />}
       </AppShell>
       <ReviewToast />
     </ActiveReviewProvider>

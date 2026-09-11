@@ -1,0 +1,61 @@
+.workspace-mode:not(.dashboard-mode) .profile-screen {
+  display: grid;
+  gap: 20px;
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-card {
+  display: flex;
+  max-width: 680px;
+  min-width: 0;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-panel);
+  background: var(--workspace-surface);
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-avatar {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--workspace-surface-selected);
+  color: var(--workspace-primary);
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-account-copy { min-width: 0; }
+
+.workspace-mode:not(.dashboard-mode) .profile-account-copy h2 {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-account-copy p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-mock-badge {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 999px;
+  color: var(--workspace-text-subtle);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .workspace-mode:not(.dashboard-mode) .profile-card { align-items: flex-start; flex-wrap: wrap; }
+  .workspace-mode:not(.dashboard-mode) .profile-mock-badge { margin-left: 68px; }
+}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, FileCheck2, FolderOpen, House, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Settings } from 'lucide-react';
 import type { Project, Screen } from '../types';
 import { Modal } from './Modal';
 import { Select } from './Select';
@@ -219,6 +219,21 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
               </div>
             </div>
             </nav>
+            <div className="sidebar-profile">
+              <button
+                type="button"
+                className={`nav-item sidebar-profile-button ${isActive(['profile']) ? 'active' : ''}`}
+                onClick={() => nav('profile')}
+                aria-label="Open profile for @centinel-demo"
+                title="Profile · @centinel-demo"
+              >
+                <span className="sidebar-profile-avatar" aria-hidden="true"><CircleUserRound size={20} strokeWidth={1.7} /></span>
+                <span className="sidebar-profile-copy">
+                  <span className="sidebar-profile-label">Profile</span>
+                  <span className="sidebar-profile-username"><GitBranch size={12} aria-hidden="true" />@centinel-demo</span>
+                </span>
+              </button>
+            </div>
           </div>
         </aside>
 

@@ -2910,6 +2910,89 @@ div.app-shell.has-window-chrome .nav-item.active,
   display: none;
 }
 
+/* Account context remains available even when the primary navigation scrolls. */
+.app-shell.has-window-chrome .sidebar-profile {
+  flex: 0 0 auto;
+  padding: 12px;
+  border-top: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+}
+
+.app-shell.has-window-chrome .sidebar-profile-button {
+  min-height: 52px;
+  text-align: left;
+}
+
+.app-shell.has-window-chrome .sidebar-profile-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--shell-surface-selected);
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome .sidebar-profile-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.app-shell.has-window-chrome .sidebar-profile-label {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.app-shell.has-window-chrome .sidebar-profile-username {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--shell-text-subtle);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.app-shell.has-window-chrome .sidebar-profile-button.active .sidebar-profile-username {
+  color: var(--shell-primary);
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-profile {
+  display: grid;
+  place-items: center;
+  padding-inline: 8px;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-profile-button {
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-profile-avatar {
+  display: grid;
+  position: static;
+  width: 28px;
+  height: 28px;
+  overflow: visible;
+  clip: auto;
+}
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-profile-copy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .app-shell.has-window-chrome .sidebar-pin-item {
   min-height: 38px;
   padding-block: 8px;

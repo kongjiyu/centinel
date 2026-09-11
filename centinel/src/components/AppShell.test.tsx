@@ -160,4 +160,17 @@ describe('AppShell module launch', () => {
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-expanded', 'false');
     expect(container.querySelector('.app-shell')).toHaveClass('sidebar-collapsed');
   });
+
+  it('keeps the mock GitHub profile at the bottom of the navigation and opens it', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const { container } = renderShell({ name: 'dashboard' }, onNavigate);
+
+    const profile = screen.getByRole('button', { name: 'Open profile for @centinel-demo' });
+    expect(profile).toBeInTheDocument();
+    expect(container.querySelector('.sidebar-panel > .sidebar-profile')).toBeInTheDocument();
+
+    await user.click(profile);
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'profile' });
+  });
 });

@@ -323,7 +323,8 @@ export type Screen =
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'profile' };
 
 export type Requirement = {
   id: string;
