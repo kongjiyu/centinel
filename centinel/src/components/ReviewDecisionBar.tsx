@@ -16,6 +16,7 @@ import { useState, useCallback } from 'react';
 import { CheckCircle2, XCircle, MessageSquare, RotateCcw, History } from 'lucide-react';
 import { api } from '../api/client';
 import type { ReviewDecision, ReviewDecisionRecord } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 const DECISION_LABELS: Record<ReviewDecision, string> = {
   approved: 'Approved',
@@ -62,7 +63,7 @@ export function ReviewDecisionBar({ projectId, sessionId, currentDecision, onCha
         onChange(record);
         reset();
       } catch (e) {
-        setError(String(e));
+        setError(userFacingError(e, 'The review decision could not be saved. Try again.'));
       } finally {
         setSubmitting(null);
       }
@@ -77,7 +78,7 @@ export function ReviewDecisionBar({ projectId, sessionId, currentDecision, onCha
       const records = await api.listReviewDecisions(projectId, sessionId);
       setHistory(records);
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'Decision history could not be loaded. Try again.'));
     }
   }, [projectId, sessionId, history]);
 

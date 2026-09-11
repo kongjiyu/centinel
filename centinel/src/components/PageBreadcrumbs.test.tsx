@@ -20,7 +20,7 @@ describe('PageBreadcrumbs', () => {
       [{ name: 'projects' }, ['Product', 'Projects']],
       [{ name: 'project-detail', projectId: project.id }, ['Product', 'Projects', project.name]],
       [{ name: 'review-entry', projectId: project.id }, ['Activities', 'Review']],
-      [{ name: 'review-activity', projectId: project.id, sessionId: 'review-1', reviewName: 'Release review' }, ['Product', 'Projects', 'Review', 'Release review']],
+      [{ name: 'review-activity', projectId: project.id, sessionId: 'review-1', reviewName: 'Release review' }, ['Product', 'Projects', project.name, 'Review', 'Release review']],
       [{ name: 'dynamic-session', projectId: project.id, sessionId: 'test-1' }, ['Product', 'Dynamic Testing', 'Test run']],
       [{ name: 'evidence-browser', projectId: project.id }, ['Product', 'Dynamic Testing', 'Evidence']],
       [{ name: 'requirements', projectId: project.id }, ['Product', 'Review', 'Requirements']],

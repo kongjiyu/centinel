@@ -29,4 +29,19 @@ describe('Modal', () => {
     expect(trigger).toHaveFocus();
     trigger.remove();
   });
+
+  it('closes on a backdrop click without closing for clicks inside the dialog', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal isOpen onClose={onClose} title="Backdrop test">
+        <button type="button">Inside</button>
+      </Modal>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Backdrop test' });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(dialog.parentElement!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

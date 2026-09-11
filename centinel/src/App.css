@@ -3356,7 +3356,8 @@ body {
   border-left: 3px solid var(--success);
 }
 
-.finding-row.finding-dismissed {
+.finding-row.finding-dismissed,
+.finding-row.finding-dismiss {
   border-left: 3px solid var(--text-faint);
   opacity: 0.6;
 }
@@ -3411,7 +3412,8 @@ body {
 
 .finding-status-new       { background: rgba(45,212,191,0.1); color: #2dd4bf; }
 .finding-status-accepted  { background: rgba(74,222,128,0.1); color: #4ade80; }
-.finding-status-dismissed { background: rgba(107,114,128,0.1); color: #9ca3af; }
+.finding-status-dismissed,
+.finding-status-dismiss { background: rgba(107,114,128,0.1); color: #9ca3af; }
 .finding-status-fixed     { background: rgba(96,165,250,0.1); color: #60a5fa; }
 
 .finding-detail {

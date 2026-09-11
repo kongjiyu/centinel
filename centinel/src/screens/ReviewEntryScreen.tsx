@@ -7,6 +7,7 @@ import { StaticReviewForm, type StaticReviewFormData } from '../components/Stati
 import { Select } from '../components/Select';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import type { Artifact, Project, Screen, StaticSession } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 import './ReviewEntryScreen.css';
 
 type Props = {
@@ -80,7 +81,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       }
     } catch (cause) {
       setArtifacts([]);
-      setSourceError(`Sources could not be loaded: ${String(cause)}`);
+      setSourceError(`Sources could not be loaded. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setLoadingSources(false);
     }

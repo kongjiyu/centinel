@@ -12,6 +12,7 @@
     "gemini:smoke": "tsx src/geminiSmoke.ts",
     "sqlite:smoke": "tsx src/sqliteSmoke.ts",
     "demo": "tsx src/demoServer.ts",
+    "seed:mock": "tsx src/seedMockProject.ts",
     "tools:probe": "tsx src/toolsProbe.ts"
   },
   "dependencies": {

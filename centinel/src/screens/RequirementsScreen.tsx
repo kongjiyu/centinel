@@ -5,6 +5,7 @@ import { CommandEmptyState, CommandPageHeader, IconButton, StatusBadge, type Sta
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Select } from '../components/Select';
 import type { Requirement, RequirementMapping, Artifact, Screen } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = { projectId: string; onNavigate: (screen: Screen) => void };
 
@@ -36,7 +37,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
 
   const loadData = useCallback(async () => {
     try { const [reqs, arts] = await Promise.all([api.listRequirements(projectId), api.listArtifacts(projectId)]); setRequirements(reqs); setArtifacts(arts); setError(null); }
-    catch (e) { setError(String(e)); } finally { setLoading(false); }
+    catch (e) { setError(userFacingError(e, 'Requirements could not be loaded. Try again.')); } finally { setLoading(false); }
   }, [projectId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -47,7 +48,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
     if (!formTitle.trim()) { setError('Title is required'); return; }
     setError(null);
     try { await api.createRequirement(projectId, { title: formTitle, description: formDesc, category: formCategory, priority: formPriority }); resetForm(); loadData(); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(userFacingError(e, 'The requirement could not be saved. Try again.')); }
   };
 
   const handleUpdate = async () => {
@@ -55,7 +56,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
     if (!formTitle.trim()) { setError('Title is required'); return; }
     setError(null);
     try { await api.updateRequirement(projectId, editing.id, { title: formTitle, description: formDesc, category: formCategory, priority: formPriority }); resetForm(); loadData(); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(userFacingError(e, 'The requirement could not be updated. Try again.')); }
   };
 
   const handleDelete = async () => {
@@ -65,7 +66,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
       await api.deleteRequirement(projectId, requirementToDelete.id);
       setRequirementToDelete(null);
       await loadData();
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(userFacingError(e, 'The requirement could not be removed. Try again.')); }
     finally { setDeleting(false); }
   };
 
@@ -89,7 +90,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
       setShowMapForm(null); setMapFileId(''); setMapCoverage('unknown'); setMapConfidence(0);
       const data = await api.listRequirementMappings(projectId, reqId);
       setMappings(prev => ({ ...prev, [reqId]: data }));
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(userFacingError(e, 'The requirement mapping could not be saved. Try again.')); }
   };
 
   if (loading) return <div className="screen command-loading"><Activity size={20} /> Loading requirements...</div>;

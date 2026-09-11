@@ -270,7 +270,7 @@ export function findingStatusLabel(status: Finding['status']): string {
   const labels: Record<Finding['status'], string> = {
     new: 'New',
     accepted: 'Accepted',
-    dismissed: 'Dismissed',
+    dismissed: 'Dismiss',
     fixed: 'Fixed',
     carryover: 'Carryover',
   };

@@ -41,7 +41,7 @@ describe('FindingsPanel', () => {
     expect(findingPresentationStatus('carryover')).toBe('unresolved');
     expect(findingPresentationStatus('accepted')).toBe('unresolved');
     expect(findingPresentationStatus('fixed')).toBe('resolved');
-    expect(findingPresentationStatus('dismissed')).toBe('dismissed');
+    expect(findingPresentationStatus('dismissed')).toBe('dismiss');
   });
 
   it('shows a loading state while the API call is in flight', () => {
@@ -157,18 +157,20 @@ describe('FindingsPanel', () => {
     expect(screen.getByRole('columnheader', { name: 'Severity' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    expect(screen.getByText('#f-1')).toBeInTheDocument();
     expect(screen.getByText('Select a finding to review its details')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Source' })).not.toBeInTheDocument();
     const row = screen.getByRole('row', { name: /Keyboard-selectable finding/i });
     row.focus();
     await user.keyboard('{Enter}');
     const details = screen.getByRole('complementary', { name: 'Finding details' });
-    expect(within(details).getByText('Review')).toBeInTheDocument();
+    expect(within(details).queryByText('Review')).not.toBeInTheDocument();
     expect(within(details).getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
+    expect(within(details).getByText('#f-1')).toBeInTheDocument();
     expect(within(details).getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
     const text = details.textContent || '';
     expect(text).not.toContain('Source type');
-    expect(text.indexOf('Review')).toBeLessThan(text.indexOf('Keyboard-selectable finding'));
+    expect(text).not.toContain('Review');
     expect(text.indexOf('Priority')).toBeLessThan(text.indexOf('Severity'));
     expect(text.indexOf('Recommendation')).toBeLessThan(text.indexOf('Evidence'));
     expect(text).not.toMatch(/Confidence/i);

@@ -70,7 +70,7 @@ beforeEach(() => {
 });
 
 describe('ProjectDetailScreen refinement surfaces', () => {
-  it('keeps project settings read-only until Edit, formats metadata, and exposes local defaults', async () => {
+  it('keeps project settings read-only until Edit and uses fixed finding defaults', async () => {
     const user = userEvent.setup();
     const onProjectUpdated = vi.fn();
     const updatedProject = { ...project, name: 'Website refresh v2', description: 'Updated description' };
@@ -91,28 +91,13 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(settings.queryByRole('button', { name: 'Add severity' })).not.toBeInTheDocument();
     expect(settings.queryByRole('button', { name: 'Choose workspace folder' })).not.toBeInTheDocument();
     expect(settings.getByLabelText('Workspace')).toHaveAttribute('aria-readonly', 'true');
-    expect(settings.getByRole('list', { name: 'Findings Priority values' })).toHaveTextContent('LowMediumHigh');
-    expect(settings.getByRole('list', { name: 'Findings Severity values' })).toHaveTextContent('LowMediumHighCritical');
-    expect(settings.queryByRole('button', { name: 'Rename Medium' })).not.toBeInTheDocument();
-    expect(settings.queryByRole('button', { name: 'Remove Medium' })).not.toBeInTheDocument();
-    expect(settings.getByRole('button', { name: 'About finding defaults' })).toHaveAttribute('aria-expanded', 'false');
-    await user.click(settings.getByRole('button', { name: 'About finding defaults' }));
-    expect(settings.getByText(/not saved to the service/i)).toBeInTheDocument();
+    expect(settings.queryByRole('list', { name: 'Findings Priority values' })).not.toBeInTheDocument();
+    expect(settings.queryByRole('list', { name: 'Findings Severity values' })).not.toBeInTheDocument();
+    expect(settings.queryByRole('button', { name: /finding defaults/i })).not.toBeInTheDocument();
     await user.click(settings.getByRole('button', { name: 'Edit' }));
-    expect(settings.getByLabelText('Description')).toHaveAttribute('placeholder', 'Enter your description here');
-    expect(settings.getByRole('button', { name: 'Add priority' })).toBeEnabled();
+    expect(settings.getByLabelText('Description')).toHaveAttribute('placeholder', 'enter your description here');
     await user.clear(settings.getByLabelText('Project name'));
     await user.type(settings.getByLabelText('Project name'), updatedProject.name);
-    await user.click(settings.getByRole('button', { name: 'Add severity' }));
-    await user.type(settings.getByLabelText('New severity value'), 'Info');
-    await user.click(settings.getByRole('button', { name: 'Add' }));
-    expect(settings.getByText('Info')).toBeInTheDocument();
-    const severity = screen.getByRole('heading', { name: 'Findings Severity' }).closest('.project-value-collection') as HTMLElement;
-    await user.click(within(severity).getByRole('button', { name: 'Rename Medium' }));
-    await user.clear(within(severity).getByLabelText('Rename Medium'));
-    await user.type(within(severity).getByLabelText('Rename Medium'), 'Average');
-    await user.click(settings.getByRole('button', { name: 'Save severity rename' }));
-    expect(settings.getByText('Average')).toBeInTheDocument();
     await user.click(settings.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.updateProject).toHaveBeenCalledWith(project.id, {
       name: updatedProject.name,
@@ -122,10 +107,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(onProjectUpdated).toHaveBeenCalledWith(updatedProject);
     expect(screen.getByText('Project settings saved.')).toBeInTheDocument();
     expect(settings.getByText(formatProjectDateTime(project.createdAt))).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Configuration' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Findings Severity' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Findings Priority' })).toBeInTheDocument();
-    expect(settings.getByText('Average')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Configuration' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Findings Severity' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Findings Priority' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove project' })).toBeInTheDocument();
   });
 
@@ -159,36 +143,21 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await waitFor(() => expect(folderPicker).toHaveBeenCalledWith({ directory: true, multiple: false, title: 'Choose workspace folder' }));
     expect(settings.getByLabelText('Workspace')).toHaveValue('D:/workspace-renamed');
 
-    await user.click(settings.getByRole('button', { name: 'Add priority' }));
-    await user.type(settings.getByLabelText('New priority value'), 'Info');
-    await user.click(settings.getByRole('button', { name: 'Add' }));
-    expect(settings.getByText('Info')).toBeInTheDocument();
     await user.click(settings.getByRole('button', { name: 'Cancel' }));
     expect(settings.getByLabelText('Workspace')).toHaveTextContent(project.workspacePath);
     expect(settings.queryByRole('button', { name: 'Choose workspace folder' })).not.toBeInTheDocument();
-    expect(settings.queryByText('Info')).not.toBeInTheDocument();
   });
 
-  it('validates editable collection labels and keeps one value available', async () => {
+  it('does not expose a per-project priority or severity configuration surface', async () => {
     const user = userEvent.setup();
     renderProject();
     await user.click(screen.getByRole('button', { name: 'Settings' }));
     const settingsCard = screen.getByRole('heading', { name: 'Settings' }).closest('section') as HTMLElement;
     const settings = within(settingsCard);
+    expect(settings.queryByRole('heading', { name: 'Configuration' })).not.toBeInTheDocument();
     await user.click(settings.getByRole('button', { name: 'Edit' }));
-    const priority = screen.getByRole('heading', { name: 'Findings Priority' }).closest('.project-value-collection') as HTMLElement;
-
-    await user.click(within(priority).getByRole('button', { name: 'Add priority' }));
-    await user.type(within(priority).getByLabelText('New priority value'), ' low ');
-    await user.click(within(priority).getByRole('button', { name: 'Add' }));
-    expect(within(priority).getByRole('alert')).toHaveTextContent(/must be unique/i);
-    await user.click(within(priority).getByRole('button', { name: 'Cancel' }));
-
-    await user.click(within(priority).getByRole('button', { name: 'Remove Low' }));
-    await user.click(within(priority).getByRole('button', { name: 'Remove Medium' }));
-    await user.click(within(priority).getByRole('button', { name: 'Remove High' }));
-    expect(within(priority).getByRole('alert')).toHaveTextContent(/at least one priority value/i);
-    expect(within(priority).getByText('High')).toBeInTheDocument();
+    expect(settings.queryByRole('button', { name: 'Add priority' })).not.toBeInTheDocument();
+    expect(settings.queryByRole('button', { name: 'Add severity' })).not.toBeInTheDocument();
   });
 
   it('debounces GitHub search, offers safe sync, and requires confirmation before inviting', async () => {
@@ -269,7 +238,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByText('Start the first Review')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByRole('heading', { name: 'Assessment' })).toBeInTheDocument();
-    expect(screen.getByText('Review and Dynamic Testing risk signals for this project.')).toBeInTheDocument();
+    expect(screen.getByText(/Evidence-led risk context from the latest Review and Dynamic Testing runs/i)).toBeInTheDocument();
   });
 
   it('filters recent activity by the type toggle and datetime, with stable timestamp formatting', async () => {

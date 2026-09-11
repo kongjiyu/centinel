@@ -435,6 +435,29 @@
   border-color: var(--workspace-primary-hover);
 }
 
+.workspace-mode:not(.dashboard-mode) .btn-dismiss {
+  background: var(--workspace-surface-subtle);
+  border: 1px solid var(--workspace-border-strong);
+  color: var(--workspace-text-muted);
+}
+
+.workspace-mode:not(.dashboard-mode) .btn-dismiss:hover {
+  background: var(--workspace-surface-hover);
+  border-color: var(--workspace-text-subtle);
+  color: var(--workspace-text);
+}
+
+.workspace-mode:not(.dashboard-mode) .btn-fix {
+  background: var(--workspace-success-subtle);
+  border: 1px solid rgba(4, 120, 87, 0.28);
+  color: var(--workspace-success);
+}
+
+.workspace-mode:not(.dashboard-mode) .btn-fix:hover {
+  background: #d8f2e5;
+  border-color: var(--workspace-success);
+}
+
 .workspace-mode:not(.dashboard-mode) .btn-secondary,
 .workspace-mode:not(.dashboard-mode) .btn-back,
 .workspace-mode:not(.dashboard-mode) .btn-copy {
@@ -734,6 +757,7 @@
 
 .workspace-mode:not(.dashboard-mode) .command-status-neutral,
 .workspace-mode:not(.dashboard-mode) .finding-status-dismissed,
+.workspace-mode:not(.dashboard-mode) .finding-status-dismiss,
 .workspace-mode:not(.dashboard-mode) .badge-source-static,
 .workspace-mode:not(.dashboard-mode) .badge-source-dynamic {
   background: var(--workspace-surface-subtle);
@@ -1549,7 +1573,8 @@
 /* Dialogs use elevation to separate decision surfaces from the workspace. */
 .workspace-project-launch .modal-overlay {
   background: rgba(28, 41, 32, 0.42);
-  backdrop-filter: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .workspace-project-launch .modal {
@@ -1706,7 +1731,8 @@
 .workspace-mode:not(.dashboard-mode) .import-dialog-overlay,
 .workspace-mode:not(.dashboard-mode) .screenshot-modal-overlay {
   background: rgba(28, 41, 32, 0.42);
-  backdrop-filter: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .workspace-mode:not(.dashboard-mode) .modal,
@@ -4788,7 +4814,8 @@ div.app-shell.has-window-chrome .sidebar {
   color: var(--workspace-success);
 }
 
-.workspace-mode:not(.dashboard-mode) .finding-status-dismissed {
+.workspace-mode:not(.dashboard-mode) .finding-status-dismissed,
+.workspace-mode:not(.dashboard-mode) .finding-status-dismiss {
   background: var(--workspace-surface-subtle);
   border-color: var(--workspace-border);
   color: var(--workspace-text-muted);

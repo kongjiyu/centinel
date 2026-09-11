@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Plus,
   RotateCw,
+  Search,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import { api } from '../api/client';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { Artifact, ArtifactSource } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'json', 'yaml', 'yml',
@@ -275,6 +277,7 @@ export function ArtifactsPanel({ projectId }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [sourceView, setSourceView] = useState<SourceView | null>(null);
   const [repoDirectory, setRepoDirectory] = useState('');
+  const [repoSearch, setRepoSearch] = useState('');
   const [selectedRepoArtifact, setSelectedRepoArtifact] = useState<Artifact | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [markdownMode, setMarkdownMode] = useState<MarkdownMode>('preview');
@@ -289,7 +292,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       setError(null);
     } catch (cause) {
       setArtifacts([]);
-      setError(`Sources could not be loaded: ${String(cause)}`);
+      setError(`Sources could not be loaded. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setLoading(false);
     }
@@ -334,7 +337,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       setPreview(current => current?.artifact.id === artifact.id ? { ...current, content, loading: false } : current);
     } catch (cause) {
       setPreview(current => current?.artifact.id === artifact.id
-        ? { ...current, error: `This file could not be previewed. ${String(cause)}`, loading: false }
+        ? { ...current, error: `This file could not be previewed. ${userFacingError(cause, 'Try again.')}`, loading: false }
         : current);
     }
   }, []);
@@ -348,6 +351,7 @@ export function ArtifactsPanel({ projectId }: Props) {
     setSourceView({ kind: 'document', artifact });
     setSelectedRepoArtifact(null);
     setRepoDirectory('');
+    setRepoSearch('');
     setMarkdownMode('preview');
     void openPreview(artifact);
   };
@@ -356,6 +360,7 @@ export function ArtifactsPanel({ projectId }: Props) {
     if (event) rememberTrigger(event);
     setSourceView({ kind: 'repository', group });
     setRepoDirectory('');
+    setRepoSearch('');
     setSelectedRepoArtifact(null);
     setPreview(null);
   };
@@ -363,6 +368,7 @@ export function ArtifactsPanel({ projectId }: Props) {
   const goBackToSources = () => {
     setSourceView(null);
     setRepoDirectory('');
+    setRepoSearch('');
     setSelectedRepoArtifact(null);
     setPreview(null);
     window.requestAnimationFrame(() => lastSourceTriggerRef.current?.focus());
@@ -377,7 +383,7 @@ export function ArtifactsPanel({ projectId }: Props) {
     try {
       await openLocation(location);
     } catch (cause) {
-      setError(`The location could not be opened. ${String(cause)}`);
+      setError(`The location could not be opened. ${userFacingError(cause, 'Check the source path and try again.')}`);
     }
   };
 
@@ -396,7 +402,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       }
       await finishUpload();
     } catch (cause) {
-      setError(`Upload failed: ${String(cause)}`);
+      setError(`Upload failed. ${userFacingError(cause, 'Check the file and try again.')}`);
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -427,7 +433,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       }
       await finishUpload();
     } catch (cause) {
-      setError(`Upload failed: ${String(cause)}`);
+      setError(`Upload failed. ${userFacingError(cause, 'Check the file and try again.')}`);
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -471,7 +477,7 @@ export function ArtifactsPanel({ projectId }: Props) {
           const status = await api.getIndexStatus(projectId);
           if (status.status === 'done' || status.status === 'error' || attempts >= 60) {
             setIndexing(false);
-            if (status.status === 'error') setError(`Indexing failed: ${status.error}`);
+            if (status.status === 'error') setError(`Indexing failed. ${userFacingError(status.error, 'The source could not be indexed. Try again.')}`);
             return;
           }
           attempts += 1;
@@ -482,7 +488,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       };
       window.setTimeout(() => { void poll(); }, 500);
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'The source could not be updated. Try again.'));
     } finally {
       setImporting(false);
     }
@@ -504,7 +510,7 @@ export function ArtifactsPanel({ projectId }: Props) {
       }
       setDeleteTarget(null);
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'The source could not be removed. Try again.'));
     } finally {
       setDeleting(false);
     }
@@ -566,7 +572,7 @@ export function ArtifactsPanel({ projectId }: Props) {
   );
 
   const repositoryTree = sourceView?.kind === 'repository' ? buildTree(sourceView.group.artifacts, sourceView.group.rootPath) : [];
-  const repositoryNodes = getNodesAtPath(repositoryTree, repoDirectory);
+  const repositoryNodes = getNodesAtPath(repositoryTree, repoDirectory).filter(node => !repoSearch.trim() || node.name.toLowerCase().includes(repoSearch.trim().toLowerCase()));
   const selectedArtifact = sourceView?.kind === 'repository' ? selectedRepoArtifact : sourceView?.artifact;
 
   const renderRepositoryDetail = (group: RepoGroup) => {
@@ -581,6 +587,7 @@ export function ArtifactsPanel({ projectId }: Props) {
         <div className="source-repository-layout">
           <section className="source-tree-panel" aria-labelledby="source-tree-heading">
             <div className="source-tree-heading"><h4 id="source-tree-heading">Repository files</h4><span>{group.artifacts.length} files</span></div>
+            <label className="source-tree-search"><Search size={15} aria-hidden="true" /><span className="visually-hidden">Search repository files</span><input type="search" aria-label="Search repository files" value={repoSearch} onChange={event => setRepoSearch(event.target.value)} placeholder="Search files" /></label>
             <nav className="source-tree-breadcrumbs" aria-label="Repository directory">
               <button type="button" className={!repoDirectory ? 'active' : ''} onClick={() => { setRepoDirectory(''); setSelectedRepoArtifact(null); setPreview(null); }}>Root</button>
               {parts.map((part, index) => {

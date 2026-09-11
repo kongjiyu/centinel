@@ -62,6 +62,12 @@ export type GithubPullRequest = {
   baseRef: string;
 };
 
+export type GithubConnectionStatus = {
+  connected: boolean;
+  login: string | null;
+  message: string;
+};
+
 /**
  * Errors returned by the collaboration boundary are intentionally generic.
  * In particular, never include the configured GitHub token in a message or
@@ -305,6 +311,41 @@ function githubHeaders(token: string): Record<string, string> {
     'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'Centinel',
   };
+}
+
+/**
+ * Validate the shared GitHub credential used by project imports, pull-request
+ * review scope, and collaborator actions. The token itself never crosses the
+ * HTTP boundary or appears in an error message.
+ */
+export async function getGithubConnectionStatus(): Promise<GithubConnectionStatus> {
+  const token = githubToken();
+  if (!token) {
+    return {
+      connected: false,
+      login: null,
+      message: 'GitHub is not connected. Configure GITHUB_TOKEN or GH_TOKEN for private repositories and pull requests.',
+    };
+  }
+
+  try {
+    const response = await fetch('https://api.github.com/user', { headers: githubHeaders(token) });
+    if (response.status === 401 || response.status === 403) {
+      return { connected: false, login: null, message: 'The GitHub credential was rejected. Update it and try again.' };
+    }
+    if (!response.ok) {
+      return { connected: false, login: null, message: 'GitHub could not verify the connection. Try again later.' };
+    }
+    const body = await response.json() as { login?: unknown };
+    const login = typeof body.login === 'string' && body.login.trim() ? body.login.trim() : null;
+    return {
+      connected: true,
+      login,
+      message: login ? `Connected to GitHub as ${login}.` : 'GitHub connection verified.',
+    };
+  } catch {
+    return { connected: false, login: null, message: 'GitHub could not be reached. Try again later.' };
+  }
 }
 
 /** Return the repository pull requests that can be selected for a PR review. */

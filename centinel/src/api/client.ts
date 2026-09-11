@@ -43,6 +43,8 @@ export const api = {
     request<{ repository: { owner: string; repo: string; remoteUrl: string }; pullRequests: Array<{ number: number; title: string; state: 'open' | 'closed'; htmlUrl: string; headRef: string; baseRef: string }> }>(
       `/projects/${id}/github/pull-requests`,
     ),
+  githubStatus: () =>
+    request<{ connected: boolean; login: string | null; message: string }>('/github/status'),
 
   // AI Settings
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),

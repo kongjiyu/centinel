@@ -13,7 +13,9 @@ import {
   truncateReviewSourceName,
   type ReviewLifecycleState,
 } from '../reviewViewModel';
-import type { Finding, Project, ReviewDecisionRecord, Screen, StaticSession } from '../types';
+import type { Artifact, Finding, Project, Requirement, RequirementMapping, ReviewDecisionRecord, Screen, StaticSession } from '../types';
+import { entityIdTitle, formatEntityId } from '../utils/entityId';
+import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 import './ReviewActivityScreen.css';
 
 type Props = {
@@ -22,12 +24,104 @@ type Props = {
   onNavigate: (screen: Screen) => void;
 };
 
-type Tab = 'Activity' | 'Overview' | 'Findings' | 'Traceability';
+type Tab = 'Overview' | 'Activity' | 'Findings' | 'Traceability';
 type DecisionIntent = 'approved' | 'changes_requested';
 type SupportiveDocument = { id: string; name: string };
 
-const REVIEW_DETAIL_TABS: Tab[] = ['Overview', 'Findings', 'Traceability', 'Activity'];
+const REVIEW_DETAIL_TABS: Tab[] = ['Overview', 'Activity', 'Findings', 'Traceability'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
+type TraceabilityState = 'complete' | 'incomplete' | 'missing';
+
+type TraceabilityRecord = {
+  requirement: Requirement;
+  mappings: RequirementMapping[];
+  sources: Artifact[];
+  findings: Finding[];
+  state: TraceabilityState;
+  completeness: TraceabilityState;
+  correctness: TraceabilityState;
+  consistency: TraceabilityState;
+};
+
+function traceabilityStateLabel(state: TraceabilityState) {
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+/** Collapse the validation dimensions into the single state shown in the
+ * traceability table. The detail panel still keeps the dimensions available
+ * as rationale for reviewers who need to understand the result. */
+export function traceabilityOverallState(states: TraceabilityState[]): TraceabilityState {
+  if (states.includes('missing')) return 'missing';
+  if (states.includes('incomplete')) return 'incomplete';
+  return 'complete';
+}
+
+function normalizeTraceabilityState(value: string | undefined, fallback: TraceabilityState): TraceabilityState {
+  const normalized = value?.trim().toLowerCase() || '';
+  if (/complete|covered|verified|pass|full/.test(normalized)) return 'complete';
+  if (/incomplete|partial|pending|weak|uncertain/.test(normalized)) return 'incomplete';
+  if (/missing|uncovered|none|fail/.test(normalized)) return 'missing';
+  return fallback;
+}
+
+function requirementTokens(requirement: Requirement) {
+  return `${requirement.title} ${requirement.description}`
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(token => token.length >= 5);
+}
+
+function traceabilityRecords(
+  requirements: Requirement[],
+  mappings: Record<string, RequirementMapping[]>,
+  artifacts: Artifact[],
+  findings: Finding[],
+): TraceabilityRecord[] {
+  const artifactsById = new Map(artifacts.map(artifact => [artifact.id, artifact]));
+  return requirements.map(requirement => {
+    const requirementMappings = mappings[requirement.id] ?? [];
+    const mappedArtifacts = requirementMappings
+      .map(mapping => mapping.fileId ? artifactsById.get(mapping.fileId) : undefined)
+      .filter((artifact): artifact is Artifact => Boolean(artifact));
+    const tokens = requirementTokens(requirement);
+    const relatedFindings = findings.filter(finding => {
+      if (requirementMappings.some(mapping => mapping.fileId && mapping.fileId === finding.artifactId)) return true;
+      if (finding.category && requirement.category && finding.category.toLowerCase() === requirement.category.toLowerCase()) return true;
+      const findingText = `${finding.title} ${finding.description} ${finding.recommendation}`.toLowerCase();
+      return tokens.some(token => findingText.includes(token));
+    });
+    const confidence = requirementMappings.length > 0
+      ? Math.min(...requirementMappings.map(mapping => mapping.confidence).filter(value => Number.isFinite(value)))
+      : NaN;
+    const completeness = requirementMappings.length === 0
+      ? 'missing'
+      : requirementMappings.every(mapping => normalizeTraceabilityState(mapping.coverageStatus, 'incomplete') === 'complete')
+        ? 'complete'
+        : 'incomplete';
+    const correctness = mappedArtifacts.length === 0
+      ? 'missing'
+      : Number.isFinite(confidence) && confidence < 0.7
+        ? 'incomplete'
+        : relatedFindings.some(finding => /incorrect|invalid|mismatch|contradict/i.test(`${finding.category} ${finding.title} ${finding.description}`))
+          ? 'incomplete'
+          : 'complete';
+    const consistency = mappedArtifacts.length === 0
+      ? 'missing'
+      : relatedFindings.some(finding => /inconsisten|contradict|conflict|mismatch/i.test(`${finding.category} ${finding.title} ${finding.description}`))
+        ? 'incomplete'
+        : 'complete';
+    return {
+      requirement,
+      mappings: requirementMappings,
+      sources: mappedArtifacts,
+      findings: relatedFindings,
+      state: traceabilityOverallState([completeness, correctness, consistency]),
+      completeness,
+      correctness,
+      consistency,
+    };
+  });
+}
 
 function stateTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
   if (state === 'Completed') return 'success';
@@ -73,6 +167,9 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [session, setSession] = useState<StaticSession | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [findingsError, setFindingsError] = useState<string | null>(null);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [requirementMappings, setRequirementMappings] = useState<Record<string, RequirementMapping[]>>({});
   const [decisions, setDecisions] = useState<ReviewDecisionRecord[]>([]);
   const [decisionsError, setDecisionsError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>(() => {
@@ -93,7 +190,9 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<DecisionIntent | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement>>>({});
+  const feedbackRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
@@ -111,7 +210,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         setFindingsError(null);
       } catch (cause) {
         setFindings([]);
-        setFindingsError(String(cause));
+        setFindingsError(userFacingError(cause, 'Findings could not be loaded.'));
       }
 
       try {
@@ -119,10 +218,42 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         setDecisionsError(null);
       } catch (cause) {
         setDecisions([]);
-        setDecisionsError(String(cause));
+        setDecisionsError(userFacingError(cause, 'Decision history could not be loaded.'));
+      }
+
+      if (!silent) {
+        // Traceability is an evidence view, so an unavailable mapping endpoint
+        // should not prevent the review activity itself from loading. Older test
+        // doubles and saved workspaces may not expose these optional calls yet.
+        try {
+          const nextRequirements = typeof api.listRequirements === 'function'
+            ? await api.listRequirements(projectId)
+            : [];
+          const nextArtifacts = typeof api.listArtifacts === 'function'
+            ? await api.listArtifacts(projectId)
+            : [];
+          setRequirements(nextRequirements);
+          setArtifacts(nextArtifacts);
+          if (typeof api.listRequirementMappings === 'function') {
+            const mappingEntries = await Promise.all(nextRequirements.map(async requirement => {
+              try {
+                return [requirement.id, await api.listRequirementMappings(projectId, requirement.id)] as const;
+              } catch {
+                return [requirement.id, []] as const;
+              }
+            }));
+            setRequirementMappings(Object.fromEntries(mappingEntries));
+          } else {
+            setRequirementMappings({});
+          }
+        } catch {
+          setRequirements([]);
+          setArtifacts([]);
+          setRequirementMappings({});
+        }
       }
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'Review activity could not be loaded.'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -153,6 +284,12 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const handleFindingsLoadState = useCallback((nextFindings: Finding[], nextError: string | null) => {
     setFindings(nextFindings);
     setFindingsError(nextError);
+  }, []);
+  const openFinding = useCallback((findingId: string) => {
+    setFocusFindingId(findingId);
+    changeTab('Findings');
+  // `changeTab` only writes local tab state and session storage.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const availableTabs = REVIEW_DETAIL_TABS;
@@ -199,7 +336,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       await load();
       if (decisionIntent === 'changes_requested') changeTab('Activity');
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'The review decision could not be saved.'));
     } finally {
       setSubmitting(null);
     }
@@ -225,7 +362,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       setFeedbackNotice('Feedback added to this review.');
       await load({ silent: true });
     } catch (cause) {
-      setFeedbackNotice(`Feedback could not be sent. Your draft and attachments are still here; check the file type or size and try again. ${String(cause)}`);
+      setFeedbackNotice(`Feedback could not be sent. Your draft and attachments are still here; ${userFacingError(cause, 'check the file type or size and try again.')}`);
     } finally {
       setSendingFeedback(false);
     }
@@ -239,7 +376,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       await api.cancelStaticSession(projectId, session.id);
       await load();
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'The review could not be cancelled. Try again.'));
     } finally {
       setCancelling(false);
     }
@@ -272,7 +409,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     <section className="review-activity-actions" aria-label="Review decision actions">
       {state === 'Need Approval' && !currentDecision && (
         <>
-          <button data-testid="review-decision-reject" className="btn-secondary review-reject-button" type="button" onClick={() => openDecisionPanel('changes_requested')} disabled={!canDecide}>
+          <button data-testid="review-decision-reject" className="btn-secondary review-reject-button" type="button" onClick={() => { setDecisionIntent(null); setDecisionFeedback(''); changeTab('Activity'); window.requestAnimationFrame(() => feedbackRef.current?.focus()); }} disabled={!canDecide}>
             <MessageSquare size={15} aria-hidden="true" /> Request changes
           </button>
           <button data-testid="review-decision-approve" className="btn-primary" type="button" onClick={() => openDecisionPanel('approved')} disabled={!canDecide}>
@@ -296,35 +433,42 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
       <ReviewTabs tabs={REVIEW_DETAIL_TABS} tab={tab} onTabChange={changeTab} onTabKeyDown={handleTabKeyDown} tabRefs={tabRefs} label="Review detail sections" />
 
-      {tab === 'Activity' ? (
-        <ReviewActivityContent
-          session={session}
-          state={state}
-          findings={findings}
-          findingsError={findingsError}
-          decisions={decisions}
-          decisionsError={decisionsError}
-          currentDecision={currentDecision}
-          objective={objective}
-          supportiveDocuments={objectiveDocuments}
-        />
+      {tab === 'Overview' ? (
+        <section className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-overview">
+          <ReviewResultOverview
+            session={session}
+            findings={findings}
+            findingsError={findingsError}
+            decisionsError={decisionsError}
+            currentDecision={currentDecision}
+            reviewer={reviewer}
+            severityCounts={severityCounts}
+            state={state}
+            objective={objective}
+            supportiveDocuments={objectiveDocuments}
+          />
+        </section>
+      ) : tab === 'Activity' ? (
+        <section className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-activity">
+          <ReviewActivityContent
+            session={session}
+            state={state}
+            findingsError={findingsError}
+            decisions={decisions}
+            decisionsError={decisionsError}
+            currentDecision={currentDecision}
+          />
+        </section>
+      ) : tab === 'Findings' ? (
+        <section className="review-detail-panel review-result-panel command-project-detail" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-findings">
+          {state === 'In progress' || state === 'Queued'
+            ? <ReviewWaitingPanel title="Findings" />
+            : <FindingsPanel projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} focusFindingId={focusFindingId} onLoadStateChange={handleFindingsLoadState} />}
+        </section>
       ) : (
-        <ReviewResult
-          session={session}
-          state={state}
-          findings={findings}
-          findingsError={findingsError}
-          decisions={decisions}
-          decisionsError={decisionsError}
-          currentDecision={currentDecision}
-          reviewer={reviewer}
-          severityCounts={severityCounts}
-          tab={tab}
-          onTabChange={changeTab}
-          onTabKeyDown={handleTabKeyDown}
-          tabRefs={tabRefs}
-          onFindingsLoadState={handleFindingsLoadState}
-        />
+        <section className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-traceability">
+          {state === 'In progress' || state === 'Queued' ? <ReviewWaitingPanel title="Traceability" /> : <Traceability requirements={requirements} mappings={requirementMappings} artifacts={artifacts} findings={findings} onOpenFinding={openFinding} />}
+        </section>
       )}
 
       {canCancel && (
@@ -344,6 +488,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           onChange={setComposerFeedback}
           onFilesChange={setComposerFiles}
           onSubmit={() => void sendFeedback()}
+          inputRef={feedbackRef}
         />
       )}
 
@@ -400,28 +545,19 @@ function ReviewTabs({
 function ReviewActivityContent({
   session,
   state,
-  findings,
   findingsError,
   decisions,
   decisionsError,
   currentDecision,
-  objective,
-  supportiveDocuments,
 }: {
   session: StaticSession;
   state: ReviewLifecycleState;
-  findings: Finding[];
   findingsError: string | null;
   decisions: ReviewDecisionRecord[];
   decisionsError: string | null;
   currentDecision: ReviewDecisionRecord | null;
-  objective: string | null;
-  supportiveDocuments: SupportiveDocument[];
 }) {
   const progress = parseReviewProgress(session.progressJson);
-  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  const objectiveText = objective || 'No objective was persisted for this review.';
-  const objectiveNeedsDisclosure = objectiveText.length > 280;
   return (
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
@@ -429,8 +565,8 @@ function ReviewActivityContent({
           <h2>{state === 'Need Approval' ? 'Review activity' : 'Review activity'}</h2>
         </div>
         <ReviewProgressView progress={progress} />
-        {state === 'Blocked' && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>Review needs attention</strong><p>{session.failureReason || 'A required source or service needs attention before processing can continue.'}</p></div></div>}
-        {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{session.failureReason || 'Centinel could not complete this activity.'}</p></div></div>}
+        {state === 'Blocked' && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>Review needs attention</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
+        {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
         {currentDecision && (
           <div className="review-decision-recorded" role="status">
@@ -442,23 +578,11 @@ function ReviewActivityContent({
         {decisions.length > 0 && <DecisionHistoryPreview decisions={decisions} />}
         {findingsError && <p className="review-history-unavailable" role="status">Findings could not be loaded. Decisions are disabled until the evidence can be reloaded.</p>}
       </section>
-      <aside className="review-objective" aria-label="Review information">
-        <div className="review-objective-heading"><h2>Information</h2>{objectiveNeedsDisclosure && <button type="button" className="command-icon-button" aria-label="Expand review objective" title="Expand review objective" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(true)}><Expand size={16} aria-hidden="true" /></button>}</div>
-        <ReviewInformation session={session} objective={objectiveText} />
-        {supportiveDocuments.length > 0 && (
-          <div className="review-source-tags" role="group" aria-label="Supportive documents">
-            {supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}
-          </div>
-        )}
-      </aside>
-      <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
-        <div className="review-objective-dialog-content"><p>{objectiveText}</p>{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>
-      </Modal>
     </div>
   );
 }
 
-function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesChange, onSubmit }: {
+function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesChange, onSubmit, inputRef }: {
   value: string;
   files: File[];
   submitting: boolean;
@@ -466,17 +590,18 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
   onChange: (value: string) => void;
   onFilesChange: (files: File[]) => void;
   onSubmit: () => void;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <aside className={`review-feedback-composer${expanded ? ' is-expanded' : ''}`} aria-label="Review feedback">
       <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
         <label className="visually-hidden" htmlFor="review-feedback-message">Write feedback about this review</label>
-        <div className="review-feedback-entry"><textarea id="review-feedback-message" rows={expanded ? 3 : 1} value={value} onFocus={() => setExpanded(true)} onBlur={() => { if (!value.trim() && files.length === 0) setExpanded(false); }} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
+        <div className="review-feedback-entry"><textarea ref={inputRef} id="review-feedback-message" rows={expanded ? 3 : 1} value={value} onFocus={() => setExpanded(true)} onBlur={() => { if (!value.trim() && files.length === 0) setExpanded(false); }} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
           <div className="review-feedback-controls">
-            <label className="review-attach-button" htmlFor="review-feedback-attachments" title="Attach supportive documents"><Paperclip size={17} aria-hidden="true" /><span className="visually-hidden">Attach supportive documents</span></label>
+            <label className="review-attach-button" htmlFor="review-feedback-attachments" title="Attach supportive documents"><Paperclip size={20} aria-hidden="true" /><span className="visually-hidden">Attach supportive documents</span></label>
             <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />
-            <button className="btn-primary review-feedback-send" type="submit" aria-label={submitting ? 'Sending feedback' : 'Send feedback'} title={submitting ? 'Sending feedback' : 'Send feedback'} disabled={submitting || (!value.trim() && files.length === 0)}><Send size={19} aria-hidden="true" /></button>
+            <button className="btn-primary review-feedback-send" type="submit" aria-label={submitting ? 'Sending feedback' : 'Send feedback'} title={submitting ? 'Sending feedback' : 'Send feedback'} disabled={submitting || (!value.trim() && files.length === 0)}><Send size={20} aria-hidden="true" /></button>
           </div>
         </div>
         {files.length > 0 && <div className="review-feedback-files" role="group" aria-label="Attached supportive documents">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={13} aria-hidden="true" />{truncateReviewSourceName(file.name)}<button type="button" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}><X size={12} aria-hidden="true" /></button></span>)}</div>}
@@ -486,32 +611,6 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
   );
 }
 
-function ReviewInformation({ session, objective }: { session: StaticSession; objective: string }) {
-  const config = parseReviewConfig(session);
-  const progress = parseReviewProgress(session.progressJson);
-  const pullRequest = typeof config.pullRequest === 'string' ? config.pullRequest.trim() : '';
-  const reviewMode = typeof config.reviewMode === 'string' ? config.reviewMode : '';
-  const reviewScope = pullRequest ? 'Pull Request (PR Review)' : reviewMode === 'changed-files' ? 'Change File Review' : 'Full Scope Review';
-  const startedAt = progress?.startedAt;
-  const finishedAt = progress?.updatedAt || session.updatedAt;
-  const durationMs = startedAt && finishedAt ? Date.parse(finishedAt) - Date.parse(startedAt) : NaN;
-  const duration = Number.isFinite(durationMs) && durationMs >= 0 ? `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs % 60000) / 1000)}s` : 'In progress';
-  return <dl className="review-information-list">
-    <div><dt>Objective</dt><dd>{objective}</dd></div>
-    <div><dt>Review scope</dt><dd>{reviewScope}</dd></div>
-    <div><dt>Duration</dt><dd>{duration}</dd></div>
-  </dl>;
-}
-
-function ReviewWaitingPanel({ tab }: { tab: Tab }) {
-  const title = tab === 'Overview' ? 'Review overview' : tab;
-  return <section className="review-waiting-panel" role="status">
-    <h2>{title}</h2>
-    <p>—</p>
-    <span>This section will be available when the review has produced evidence.</span>
-  </section>;
-}
-
 function DecisionHistoryPreview({ decisions }: { decisions: ReviewDecisionRecord[] }) {
   return (
     <section className="review-decision-history-preview" aria-labelledby="activity-history-heading">
@@ -519,6 +618,14 @@ function DecisionHistoryPreview({ decisions }: { decisions: ReviewDecisionRecord
       {decisions.slice(0, 3).map(decision => <DecisionRecord key={decision.id} decision={decision} />)}
     </section>
   );
+}
+
+function ReviewWaitingPanel({ title }: { title: string }) {
+  return <section className="review-waiting-panel" role="status">
+    <h2>{title}</h2>
+    <p>—</p>
+    <span>This section will be available when the review has produced evidence.</span>
+  </section>;
 }
 
 function ReviewDecisionPanel({
@@ -576,51 +683,6 @@ function ReviewDecisionPanel({
   );
 }
 
-function ReviewResult({
-  session,
-  state,
-  findings,
-  findingsError,
-  decisions,
-  decisionsError,
-  currentDecision,
-  reviewer,
-  severityCounts,
-  tab,
-  onTabChange,
-  onTabKeyDown,
-  tabRefs,
-  onFindingsLoadState,
-}: {
-  session: StaticSession;
-  state: ReviewLifecycleState;
-  findings: Finding[];
-  findingsError: string | null;
-  decisions: ReviewDecisionRecord[];
-  decisionsError: string | null;
-  currentDecision: ReviewDecisionRecord | null;
-  reviewer: string | null;
-  severityCounts: { severity: string; count: number }[];
-  tab: Tab;
-  onTabChange: (tab: Tab, focus?: boolean) => void;
-  onTabKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>, tab: Tab) => void;
-  tabRefs: React.MutableRefObject<Partial<Record<Tab, HTMLButtonElement>>>;
-  onFindingsLoadState: (findings: Finding[], error: string | null) => void;
-}) {
-  const panelId = `review-result-panel-${tab.toLowerCase().replace(/\s+/g, '-')}`;
-  const waitingForResult = state === 'In progress' || state === 'Queued';
-  return (
-    <section className="review-detail-panel command-project-detail" aria-label="Review detail">
-      <div id={panelId} role="tabpanel" tabIndex={0} aria-labelledby={`review-result-tab-${tab.toLowerCase().replace(/\s+/g, '-')}`} className="review-result-panel">
-        {waitingForResult && <ReviewWaitingPanel tab={tab} />}
-        {!waitingForResult && tab === 'Overview' && <ReviewResultOverview session={session} findings={findings} findingsError={findingsError} decisionsError={decisionsError} currentDecision={currentDecision} reviewer={reviewer} severityCounts={severityCounts} state={state} />}
-        {!waitingForResult && tab === 'Findings' && <FindingsPanel projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} onLoadStateChange={onFindingsLoadState} />}
-        {!waitingForResult && tab === 'Traceability' && <Traceability findings={findings} />}
-      </div>
-    </section>
-  );
-}
-
 function ReviewResultOverview({
   session,
   findings,
@@ -630,6 +692,8 @@ function ReviewResultOverview({
   reviewer,
   severityCounts,
   state,
+  objective,
+  supportiveDocuments,
 }: {
   session: StaticSession;
   findings: Finding[];
@@ -639,7 +703,10 @@ function ReviewResultOverview({
   reviewer: string | null;
   severityCounts: { severity: string; count: number }[];
   state: ReviewLifecycleState;
+  objective: string | null;
+  supportiveDocuments: SupportiveDocument[];
 }) {
+  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
   const criticalCount = findings.filter(finding => finding.severity.toLowerCase() === 'critical').length;
   const highPriorityCount = findings.filter(finding => finding.priority?.toLowerCase() === 'high').length;
   const progress = parseReviewProgress(session.progressJson);
@@ -653,21 +720,99 @@ function ReviewResultOverview({
   const reviewMode = typeof config.reviewMode === 'string' ? config.reviewMode : '';
   const pullRequest = typeof config.pullRequest === 'string' ? config.pullRequest : '';
   const reviewScope = pullRequest ? 'Pull Request (PR Review)' : reviewMode === 'changed-files' ? 'Change File Review' : 'Full Scope Review';
+  const waitingForEvidence = state === 'In progress' || state === 'Queued';
+  const summary = waitingForEvidence
+    ? 'The review is processing its sources. Findings and traceability will appear here as evidence becomes available.'
+    : session.finalSummary || 'The review activity completed. Inspect the evidence before recording a decision.';
+  const metricValue = (value: number) => findingsError || waitingForEvidence ? '—' : String(value);
+  const objectiveText = objective || 'No objective was persisted for this review.';
+  const objectiveNeedsDisclosure = objectiveText.length > 280;
   return (
     <div className="review-overview-grid">
       <section className="review-overview-main review-overview-card">
         <div className="review-overview-copy"><div className="review-overview-heading"><div className="review-overview-title"><h2>Review Overview</h2></div><StatusBadge label={state} tone={stateTone(state)} /></div></div>
-        {!findingsError && <div className="review-severity-grid" aria-label="Review metrics"><div className="review-severity-total"><strong>{findings.length}</strong><span>Reported findings</span></div><div><strong>{criticalCount}</strong><span>Critical severity</span></div><div><strong>{highPriorityCount}</strong><span>High priority</span></div></div>}
-        <div className="review-overview-copy review-overview-summary"><h3>Summary</h3><p>{session.finalSummary || 'The automated activity completed and the review was approved by a human reviewer.'}</p></div>
+        <div className="review-severity-grid" aria-label="Review metrics"><div className="review-severity-total"><strong>{metricValue(findings.length)}</strong><span>Reported findings</span></div><div><strong>{metricValue(criticalCount)}</strong><span>Critical severity</span></div><div><strong>{metricValue(highPriorityCount)}</strong><span>High priority</span></div></div>
+        <section className="review-overview-objective" aria-labelledby="review-overview-objective-heading">
+          <div className="review-overview-subheading">
+            <h3 id="review-overview-objective-heading">Objective</h3>
+            {objectiveNeedsDisclosure && <button type="button" className="command-icon-button" aria-label="Expand review objective" title="Expand review objective" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(true)}><Expand size={16} aria-hidden="true" /></button>}
+          </div>
+          <p className={objectiveNeedsDisclosure ? 'review-overview-objective-text is-truncated' : 'review-overview-objective-text'}>{objectiveText}</p>
+          {supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}
+        </section>
+        <div className="review-overview-copy review-overview-summary"><h3>Summary</h3><p>{summary}</p></div>
         {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
       </section>
-      <aside className="review-overview-rail review-decision-card"><h2>Decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : 'Not supplied'}</dd></div><div><dt>Assigned reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>Completed</dt><dd>{completedAt ? formatReviewTimestamp(completedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
+      <aside className="review-overview-rail review-decision-card"><h2>Decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : state === 'Need Approval' ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>Completed</dt><dd>{waitingForEvidence ? 'Not yet' : completedAt ? formatReviewTimestamp(completedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
+      <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
+        <div className="review-objective-dialog-content"><p>{objectiveText}</p>{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>
+      </Modal>
     </div>
   );
 }
 
-function Traceability({ findings }: { findings: Finding[] }) {
-  return <section className="review-traceability"><div className="review-section-heading"><div><h2>Traceability</h2><p>Structured requirement relationships are not supplied by this review service.</p></div></div><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>Traceability is unavailable for this result. Findings and source evidence remain available in the Findings tab.</span></div></section>;
+function Traceability({
+  requirements,
+  mappings,
+  artifacts,
+  findings,
+  onOpenFinding,
+}: {
+  requirements: Requirement[];
+  mappings: Record<string, RequirementMapping[]>;
+  artifacts: Artifact[];
+  findings: Finding[];
+  onOpenFinding: (findingId: string) => void;
+}) {
+  const records = useMemo(() => traceabilityRecords(requirements, mappings, artifacts, findings), [artifacts, findings, mappings, requirements]);
+  const [selectedRequirementId, setSelectedRequirementId] = useState<string | null>(null);
+  const selectedRecord = records.find(record => record.requirement.id === selectedRequirementId) ?? records[0] ?? null;
+
+  return (
+    <section className="review-traceability" aria-labelledby="review-traceability-heading">
+      <div className="review-section-heading">
+        <div>
+          <h2 id="review-traceability-heading"><FileCheck2 size={18} aria-hidden="true" /> Traceability</h2>
+          <p>Each requirement is linked to its mapped source evidence and related findings.</p>
+        </div>
+        <strong className="review-traceability-total">{records.length} requirements</strong>
+      </div>
+      <div className="review-traceability-layout">
+        <div className="review-traceability-table-card">
+          <div className="review-traceability-table-wrap">
+            <table className="review-traceability-table" aria-label="Traceability matrix">
+              <thead><tr><th scope="col">Requirement</th><th scope="col">Source</th><th scope="col">Findings</th><th scope="col">State</th></tr></thead>
+              <tbody>
+                {records.length === 0 ? (
+                  <tr><td colSpan={4}><div className="review-traceability-empty" role="status"><FileCheck2 size={22} aria-hidden="true" /><span>No requirement mappings are available for this review yet. Add requirements and map their source evidence to populate this matrix.</span></div></td></tr>
+                ) : records.map(record => (
+                  <tr key={record.requirement.id} tabIndex={0} aria-selected={selectedRecord?.requirement.id === record.requirement.id} className={selectedRecord?.requirement.id === record.requirement.id ? 'selected' : undefined} onClick={() => setSelectedRequirementId(record.requirement.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedRequirementId(record.requirement.id); } }}>
+                    <td><button type="button" className="traceability-requirement-link" onClick={event => { event.stopPropagation(); setSelectedRequirementId(record.requirement.id); }}><strong>{record.requirement.title}</strong><span>{record.requirement.category || 'Requirement'}</span></button></td>
+                    <td><div className="traceability-source-list">{record.sources.length > 0 ? record.sources.map(source => <span key={source.id} className="traceability-source-chip" title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>) : <span className="traceability-muted">No mapped source</span>}</div></td>
+                    <td><div className="traceability-finding-links">{record.findings.length > 0 ? record.findings.map(finding => <button key={finding.id} type="button" className="traceability-finding-link" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={event => { event.stopPropagation(); onOpenFinding(finding.id); }}>{formatEntityId(finding.id)}</button>) : <span className="traceability-muted">No linked findings</span>}</div></td>
+                    <td><TraceabilityStateBadge state={record.state} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <aside className="review-traceability-detail" aria-label="Traceability details">
+          {selectedRecord ? <>
+            <div className="review-traceability-detail-heading"><div><span className="command-eyebrow">Requirement</span><h3>{selectedRecord.requirement.title}</h3></div><TraceabilityStateBadge state={selectedRecord.state} /></div>
+            <p className="review-traceability-detail-description">{selectedRecord.requirement.description || 'No requirement description was supplied.'}</p>
+            <dl className="review-traceability-status-list"><div><dt>Completeness</dt><dd><TraceabilityStateBadge state={selectedRecord.completeness} /></dd></div><div><dt>Correctness</dt><dd><TraceabilityStateBadge state={selectedRecord.correctness} /></dd></div><div><dt>Consistency</dt><dd><TraceabilityStateBadge state={selectedRecord.consistency} /></dd></div></dl>
+            <section><h4>Sources</h4>{selectedRecord.sources.length > 0 ? <div className="traceability-detail-list">{selectedRecord.sources.map(source => <span key={source.id} title={source.filePath || source.fileName}>{source.fileName || source.filePath}</span>)}</div> : <p className="traceability-muted">No mapped source evidence.</p>}</section>
+            <section><h4>Linked findings</h4>{selectedRecord.findings.length > 0 ? <div className="traceability-detail-list">{selectedRecord.findings.map(finding => <button key={finding.id} type="button" className="traceability-detail-finding" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={() => onOpenFinding(finding.id)}>{formatEntityId(finding.id)}</button>)}</div> : <p className="traceability-muted">No findings are linked to this requirement.</p>}</section>
+          </> : <div className="review-traceability-detail-empty">Select a requirement to review its evidence links.</div>}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function TraceabilityStateBadge({ state }: { state: TraceabilityState }) {
+  return <span className={`traceability-state-badge traceability-state-${state}`}>{traceabilityStateLabel(state)}</span>;
 }
 
 function HistoryPanel({ progress, decisions, error }: { progress: string; decisions: ReviewDecisionRecord[]; error: string | null }) {

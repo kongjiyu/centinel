@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { projectActivityLifecycle, type ProjectActivityLifecycle } from '../reviewViewModel';
 import type { Artifact, DynamicSession, Project, StaticSession } from '../types';
+import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 
 export type ActivityTypeFilter = 'all' | 'review' | 'dynamic';
 export type ProjectStateFilter = 'all' | 'needs_attention' | 'needs_approval' | 'in_progress' | 'completed' | 'cancelled' | 'no_activity';
@@ -99,7 +100,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], artifacts:
         state: 'Failed',
         action: 'Inspect',
         tone: 'danger',
-        reason: session.failureReason || `${session.name} stopped before Centinel could produce a result.`,
+        reason: reviewFailureMessage(session.failureReason) || `${session.name} stopped before Centinel could produce a result.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
         sessionName: session.name,
@@ -173,7 +174,7 @@ function getDynamicAction(project: Project, sessions: DynamicSession[], unavaila
     state: 'Failed',
     action: 'Inspect',
     tone: session.status === 'blocked' ? 'warning' : 'danger',
-    reason: session.failureReason || `${session.name} ended before its test goal could be verified.`,
+    reason: userFacingError(session.failureReason, `${session.name} ended before its test goal could be verified.`),
     updatedAt: sessionUpdatedAt(session),
     sessionId: session.id,
     sessionName: session.name,

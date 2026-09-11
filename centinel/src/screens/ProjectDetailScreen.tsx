@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
-import { Download, Plus, FolderOpen, Play, BarChart3, AlertCircle, FileText, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay, Pencil, X, Check } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Download, Plus, FolderOpen, Play, BarChart3, AlertCircle, FileText, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { api } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
@@ -14,7 +14,8 @@ import { ReviewDecisionPill } from '../components/ReviewDecisionBar';
 import { TestPlanPanel } from '../components/TestPlanPanel';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
-import { projectActivityLifecycle } from '../reviewViewModel';
+import { projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
+import { userFacingError } from '../utils/userFacingError';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, CollaborationStatus, CollaboratorMatch } from '../types';
 import './ProjectDetailScreen.css';
 
@@ -42,141 +43,6 @@ type ReadinessItem = {
   count: number;
   state: 'ready' | 'insufficient' | 'missing';
 };
-
-const DEFAULT_PRIORITY_VALUES = ['Low', 'Medium', 'High'];
-const DEFAULT_SEVERITY_VALUES = ['Low', 'Medium', 'High', 'Critical'];
-
-type EditableValueCollectionProps = {
-  label: string;
-  itemLabel: string;
-  values: string[];
-  onChange: (values: string[]) => void;
-  disabled?: boolean;
-};
-
-function validateCollectionValue(value: string, values: string[], editingIndex: number | null, label: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return `${label} value cannot be blank.`;
-  if (values.some((existing, index) => index !== editingIndex && existing.trim().toLowerCase() === trimmed.toLowerCase())) {
-    return `${label} values must be unique.`;
-  }
-  return null;
-}
-
-function EditableValueCollection({ label, itemLabel, values, onChange, disabled = false }: EditableValueCollectionProps) {
-  const itemName = itemLabel.toLowerCase();
-  const fieldPrefix = itemName.replace(/\s+/g, '-');
-  const [adding, setAdding] = useState(false);
-  const [newValue, setNewValue] = useState('');
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editingValue, setEditingValue] = useState('');
-  const [validationError, setValidationError] = useState<string | null>(null);
-
-  const resetEditor = () => {
-    setAdding(false);
-    setNewValue('');
-    setEditingIndex(null);
-    setEditingValue('');
-    setValidationError(null);
-  };
-
-  const startAdd = () => {
-    if (disabled) return;
-    setAdding(true);
-    setEditingIndex(null);
-    setEditingValue('');
-    setNewValue('');
-    setValidationError(null);
-  };
-
-  const addValue = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const error = validateCollectionValue(newValue, values, null, itemLabel);
-    if (error) {
-      setValidationError(error);
-      return;
-    }
-    onChange([...values, newValue.trim()]);
-    resetEditor();
-  };
-
-  const saveRename = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (editingIndex === null) return;
-    const error = validateCollectionValue(editingValue, values, editingIndex, itemLabel);
-    if (error) {
-      setValidationError(error);
-      return;
-    }
-    onChange(values.map((value, index) => index === editingIndex ? editingValue.trim() : value));
-    resetEditor();
-  };
-
-  const removeValue = (index: number) => {
-    if (disabled) return;
-    if (values.length <= 1) {
-      setValidationError(`Keep at least one ${itemName} value.`);
-      return;
-    }
-    onChange(values.filter((_, valueIndex) => valueIndex !== index));
-    if (editingIndex === index) resetEditor();
-    else if (editingIndex !== null && editingIndex > index) setEditingIndex(editingIndex - 1);
-    setValidationError(null);
-  };
-
-  if (disabled) {
-    return (
-      <div className="project-value-collection project-value-collection-readonly" aria-labelledby={`${fieldPrefix}-collection-heading`}>
-        <h4 id={`${fieldPrefix}-collection-heading`}>{label}</h4>
-        <ol className="project-value-readonly-list" aria-label={`${label} values`}>
-          {values.map(value => <li key={value}>{value}</li>)}
-        </ol>
-      </div>
-    );
-  }
-
-  return (
-    <div className="project-value-collection" aria-labelledby={`${fieldPrefix}-collection-heading`}>
-      <div className="project-value-collection-heading">
-        <h4 id={`${fieldPrefix}-collection-heading`}>{label}</h4>
-        <button type="button" className="btn-secondary project-value-add" onClick={startAdd} disabled={disabled || adding || editingIndex !== null}>
-          <Plus size={15} aria-hidden="true" /> Add {itemName}
-        </button>
-      </div>
-      <ul className="project-value-list">
-        {values.map((value, index) => editingIndex === index ? (
-          <li key={`${value}-${index}`} className="project-value-row project-value-row-editing">
-            <form className="project-value-editor" onSubmit={saveRename}>
-              <label className="visually-hidden" htmlFor={`${fieldPrefix}-edit-${index}`}>Rename {value}</label>
-              <input id={`${fieldPrefix}-edit-${index}`} value={editingValue} onChange={event => setEditingValue(event.target.value)} autoFocus />
-              <button type="submit" className="project-value-icon-button" aria-label={`Save ${itemName} rename`}><Check size={16} aria-hidden="true" /></button>
-              <button type="button" className="project-value-icon-button" aria-label={`Cancel ${itemName} rename`} onClick={resetEditor}><X size={16} aria-hidden="true" /></button>
-            </form>
-          </li>
-        ) : (
-          <li key={`${value}-${index}`} className="project-value-row">
-            <span>{value}</span>
-            <div className="project-value-row-actions">
-              <button type="button" className="project-value-icon-button" aria-label={`Rename ${value}`} onClick={() => { setEditingIndex(index); setEditingValue(value); setAdding(false); setValidationError(null); }} disabled={disabled || adding || editingIndex !== null}>
-                <Pencil size={15} aria-hidden="true" />
-              </button>
-              <button type="button" className="project-value-icon-button project-value-remove" aria-label={`Remove ${value}`} onClick={() => removeValue(index)} disabled={disabled || adding || editingIndex !== null}>
-                <X size={15} aria-hidden="true" />
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {adding && <form className="project-value-editor project-value-add-editor" onSubmit={addValue}>
-        <label className="visually-hidden" htmlFor={`${fieldPrefix}-new`}>New {itemName} value</label>
-        <input id={`${fieldPrefix}-new`} value={newValue} onChange={event => setNewValue(event.target.value)} autoFocus placeholder={`New ${itemName}`} />
-        <button type="submit" className="btn-primary">Add</button>
-        <button type="button" className="btn-secondary" onClick={resetEditor}>Cancel</button>
-      </form>}
-      {validationError && <p className="project-value-validation" role="alert">{validationError}</p>}
-    </div>
-  );
-}
 
 /**
  * Project Detail timestamps deliberately use a stable, readable format rather
@@ -245,13 +111,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [deletingProject, setDeletingProject] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
-  const [priorityValues, setPriorityValues] = useState(DEFAULT_PRIORITY_VALUES);
-  const [severityValues, setSeverityValues] = useState(DEFAULT_SEVERITY_VALUES);
-  const [settingsCollectionBackup, setSettingsCollectionBackup] = useState({
-    priority: DEFAULT_PRIORITY_VALUES,
-    severity: DEFAULT_SEVERITY_VALUES,
-  });
-  const [configurationInfoOpen, setConfigurationInfoOpen] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<CollaborationStatus | null>(null);
   const [collaborationStatusLoading, setCollaborationStatusLoading] = useState(false);
   const [collaborationQuery, setCollaborationQuery] = useState('');
@@ -294,7 +153,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setArtifactsError(null);
     } catch (cause) {
       setArtifacts([]);
-      setArtifactsError(String(cause));
+      setArtifactsError(userFacingError(cause, 'Sources could not be loaded.'));
     }
   }, [project.id]);
 
@@ -305,7 +164,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setProjectFindings(await api.listFindings(project.id));
     } catch (cause) {
       setProjectFindings([]);
-      setFindingsError(String(cause));
+      setFindingsError(userFacingError(cause, 'Findings could not be loaded.'));
     } finally {
       setFindingsLoading(false);
     }
@@ -329,15 +188,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setSettingsError(null);
     setCurrentProject(project);
     setSettingsEditing(false);
-    setConfigurationInfoOpen(false);
     setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
-
-  useEffect(() => {
-    setPriorityValues([...DEFAULT_PRIORITY_VALUES]);
-    setSeverityValues([...DEFAULT_SEVERITY_VALUES]);
-    setSettingsCollectionBackup({ priority: [...DEFAULT_PRIORITY_VALUES], severity: [...DEFAULT_SEVERITY_VALUES] });
-  }, [project.id]);
 
   useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); loadProjectFindings(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts, loadProjectFindings]);
 
@@ -376,7 +228,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       const session = await api.createDynamicSession(project.id, data);
       setShowDynamicForm(false);
       onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: session.id });
-    } catch (e) { setError(String(e)); throw e; }
+    } catch (e) { setError(userFacingError(e, 'Dynamic Testing could not be started.')); throw e; }
   };
 
   const handleCreateStatic = async (data: { name: string; instructions: string; baseRef?: string; headRef?: string; parentSessionId?: string }) => {
@@ -387,7 +239,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setOpenSessionId(session.id);
       activeReviewControls.trackSession(session, project.name);
       setShowStaticForm(false);
-    } catch (e) { setError(String(e)); throw e; }
+    } catch (e) { setError(userFacingError(e, 'The Review could not be started.')); throw e; }
   };
 
   const onReReviewClick = (
@@ -422,7 +274,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     try {
       await api.exportProjectReport(project.id);
     } catch (cause) {
-      setError(`Export failed: ${String(cause)}`);
+      setError(`Export failed. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setExporting(false);
     }
@@ -510,7 +362,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       .forEach(session => items.push({
         id: `session-${session.id}`,
         title: `${session.name} needs attention`,
-        detail: session.failureReason || 'The activity did not complete. Inspect the activity details before retrying.',
+        detail: userFacingError(session.failureReason, 'The activity did not complete. Inspect the activity details before retrying.'),
         action: 'activity',
         actionLabel: 'Inspect',
       }));
@@ -562,6 +414,36 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
   const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);
 
+  const latestReview = useMemo(() => [...staticSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [staticSessions]);
+  const latestDynamicTest = useMemo(() => [...dynamicSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [dynamicSessions]);
+  const latestReviewState = latestReview ? projectActivityLifecycle(latestReview, 'review') : null;
+  const latestDynamicState = latestDynamicTest ? projectActivityLifecycle(latestDynamicTest, 'dynamic') : null;
+  const assessmentDimensions = useMemo(() => {
+    const unresolvedCritical = unresolvedFindings.filter(finding => finding.severity.toLowerCase() === 'critical').length;
+    const unresolvedHigh = unresolvedFindings.filter(finding => finding.severity.toLowerCase() === 'high').length;
+    const reviewRisk = !latestReview
+      ? 'Insufficient evidence'
+      : unresolvedCritical > 0
+        ? 'High'
+        : unresolvedHigh > 0 || unresolvedFindings.length > 0
+          ? 'Medium'
+          : 'Low';
+    const dynamicRisk = !latestDynamicTest
+      ? 'Insufficient evidence'
+      : latestDynamicState === 'Failed'
+        ? 'High'
+        : latestDynamicState === 'Completed'
+          ? 'Low'
+          : 'Medium';
+    return [
+      { id: 'security', label: 'Security', source: 'Review', state: reviewRisk, evidence: latestReview ? `${unresolvedFindings.length} unresolved finding${unresolvedFindings.length === 1 ? '' : 's'}` : 'No Review evidence recorded.' },
+      { id: 'traceability', label: 'Requirement traceability', source: 'Review', state: latestReview ? (projectFindings.length > 0 ? 'Medium' : 'Insufficient evidence') : 'Insufficient evidence', evidence: latestReview ? 'Review mappings and linked findings' : 'No Review evidence recorded.' },
+      { id: 'reliability', label: 'Reliability', source: 'Dynamic Testing', state: dynamicRisk, evidence: latestDynamicTest?.finalSummary || latestDynamicState || 'No Dynamic Testing evidence recorded.' },
+      { id: 'maintainability', label: 'Maintainability', source: 'Review', state: latestReview ? (unresolvedFindings.length > 0 ? 'Medium' : 'Low') : 'Insufficient evidence', evidence: latestReview ? 'Source findings and recommendations' : 'No Review evidence recorded.' },
+      { id: 'coverage', label: 'Evidence coverage', source: 'Review + Dynamic Testing', state: latestReview || latestDynamicTest ? 'Medium' : 'Insufficient evidence', evidence: `${artifacts.length} source${artifacts.length === 1 ? '' : 's'} available across the project` },
+    ];
+  }, [artifacts.length, latestDynamicState, latestDynamicTest, latestReview, projectFindings.length, unresolvedFindings]);
+
   useEffect(() => {
     setAttentionPage(page => Math.min(page, attentionPageCount - 1));
   }, [attentionPageCount]);
@@ -605,7 +487,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setShowDeleteProject(false);
       onNavigate({ name: 'projects' });
     } catch (cause) {
-      setSettingsError(`Project could not be removed. Your workspace files are unchanged. ${String(cause)}`);
+      setSettingsError(`Project could not be removed. Your workspace files are unchanged. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setDeletingProject(false);
     }
@@ -627,12 +509,11 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       });
       setCurrentProject(updated);
       setSettingsDraft({ name: updated.name, description: updated.description, workspacePath: updated.workspacePath });
-      setSettingsCollectionBackup({ priority: [...priorityValues], severity: [...severityValues] });
       setSettingsEditing(false);
       setSettingsSaved(true);
       onProjectUpdated?.(updated);
     } catch (cause) {
-      setSettingsError(`Project settings could not be saved. ${String(cause)}`);
+      setSettingsError(`Project settings could not be saved. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setSavingSettings(false);
     }
@@ -640,8 +521,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
 
   const handleCancelSettings = () => {
     setSettingsDraft({ name: currentProject.name, description: currentProject.description, workspacePath: currentProject.workspacePath });
-    setPriorityValues([...settingsCollectionBackup.priority]);
-    setSeverityValues([...settingsCollectionBackup.severity]);
     setSettingsEditing(false);
     setSettingsError(null);
     setSettingsSaved(false);
@@ -740,7 +619,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         : `Invitation sent to @${result.username} for ${result.repository.owner}/${result.repository.repo}.`);
       setSelectedCollaborator(null);
     } catch (cause) {
-      setCollaboratorError(String(cause));
+      setCollaboratorError(userFacingError(cause, 'The collaborator could not be added. Try again.'));
     } finally {
       setCollaboratorInviteLoading(false);
     }
@@ -897,19 +776,21 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           <div className="panel-header">
             <div>
               <h2 id="project-risk-heading"><ShieldAlert size={19} /> Assessment</h2>
-              <p className="project-risk-summary">Review and Dynamic Testing risk signals for this project.</p>
+              <p className="project-risk-summary">Evidence-led risk context from the latest Review and Dynamic Testing runs. These signals are not a composite score.</p>
             </div>
-            <span className="panel-count">Not available</span>
+            <span className="panel-count">{latestReview || latestDynamicTest ? 'Evidence available' : 'No evidence yet'}</span>
           </div>
-          <div className="project-risk-grid">
-            <div className="project-risk-source">
-              <strong>Review</strong>
-              <span>Risk dimensions are not persisted by the current review service.</span>
-            </div>
-            <div className="project-risk-source">
-              <strong>Dynamic Testing</strong>
-              <span>Risk dimensions are not persisted by the current testing service.</span>
-            </div>
+          <div className="project-assessment-summary">
+            <div><strong>Review</strong><span>{latestReview?.name || 'No review run recorded'}</span><small>{latestReviewState || 'Start a Review to collect evidence'}</small></div>
+            <div><strong>Dynamic Testing</strong><span>{latestDynamicTest?.name || 'No dynamic test recorded'}</span><small>{latestDynamicState || 'Start Dynamic Testing to collect evidence'}</small></div>
+            <div><strong>Sources</strong><span>{artifacts.length} available</span><small>Used as assessment context</small></div>
+          </div>
+          <div className="project-assessment-dimensions" role="list" aria-label="Project risk dimensions">
+            {assessmentDimensions.map(dimension => <article key={dimension.id} className="project-assessment-dimension" role="listitem">
+              <div className="project-assessment-dimension-heading"><h3>{dimension.label}</h3><StatusBadge label={dimension.state} tone={dimension.state === 'High' ? 'danger' : dimension.state === 'Medium' ? 'warning' : dimension.state === 'Low' ? 'success' : 'neutral'} /></div>
+              <p>{dimension.evidence}</p>
+              <small>Evidence source: {dimension.source}</small>
+            </article>)}
           </div>
         </section>}
 
@@ -1088,7 +969,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             <div><h2><Settings size={19} /> Settings</h2></div>
             <div className="project-settings-actions">
               {!settingsEditing ? (
-                <button type="button" className="btn-secondary" onClick={() => { setSettingsCollectionBackup({ priority: [...priorityValues], severity: [...severityValues] }); setSettingsEditing(true); setSettingsSaved(false); }}><Settings size={15} aria-hidden="true" /> Edit</button>
+                <button type="button" className="btn-secondary" onClick={() => { setSettingsEditing(true); setSettingsSaved(false); }}><Settings size={15} aria-hidden="true" /> Edit</button>
               ) : (
                 <>
                   <button type="button" className="btn-secondary" onClick={handleCancelSettings} disabled={savingSettings}>Cancel</button>
@@ -1102,7 +983,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
               <h3 id="project-settings-heading">Project settings</h3>
               <div className="project-settings-form">
                 <label htmlFor="project-setting-name"><span>Project name</span><input id="project-setting-name" disabled={!settingsEditing} value={settingsDraft.name} onChange={event => setSettingsDraft(draft => ({ ...draft, name: event.target.value }))} /></label>
-                <label htmlFor="project-setting-description"><span>Description</span>{settingsEditing ? <textarea id="project-setting-description" value={settingsDraft.description} onChange={event => setSettingsDraft(draft => ({ ...draft, description: event.target.value }))} placeholder="Enter your description here" rows={3} /> : <div id="project-setting-description" className="project-settings-readonly-description" role="textbox" aria-readonly="true" aria-label="Description">{settingsDraft.description || 'No description provided.'}</div>}</label>
+                <label htmlFor="project-setting-description"><span>Description</span>{settingsEditing ? <textarea id="project-setting-description" value={settingsDraft.description} onChange={event => setSettingsDraft(draft => ({ ...draft, description: event.target.value }))} placeholder="enter your description here" rows={3} /> : <div id="project-setting-description" className="project-settings-readonly-description" role="textbox" aria-readonly="true" aria-label="Description">{settingsDraft.description || 'No description provided.'}</div>}</label>
                 <label htmlFor="project-setting-workspace"><span>Workspace</span>{settingsEditing ? <span className="project-workspace-picker"><input id="project-setting-workspace" value={settingsDraft.workspacePath} readOnly aria-readonly="true" aria-haspopup="dialog" onClick={() => void chooseWorkspaceFolder()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void chooseWorkspaceFolder(); } }} /><button type="button" className="project-workspace-picker-button" aria-label="Choose workspace folder" onClick={() => void chooseWorkspaceFolder()}><FolderOpen size={16} aria-hidden="true" /></button></span> : <span id="project-setting-workspace" className="project-settings-readonly-workspace" role="textbox" aria-readonly="true" aria-label="Workspace">{settingsDraft.workspacePath}</span>}</label>
               </div>
               <dl className="project-settings-facts">
@@ -1110,18 +991,11 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
               </dl>
               {settingsError && <p className="command-inline-alert" role="alert"><AlertCircle size={14} /> {settingsError}</p>}
               {settingsSaved && <p className="project-settings-saved" role="status"><CheckCircle2 size={15} aria-hidden="true" /> Project settings saved.</p>}
-              <section className="project-danger-zone" aria-labelledby="project-danger-zone-heading">
-                <div><h3 id="project-danger-zone-heading">Remove project</h3><p>Removing this project is unrecoverable. Workspace files will be retained.</p></div>
-                <button type="button" className="btn-danger" onClick={() => setShowDeleteProject(true)}><Trash2 size={16} aria-hidden="true" /> Remove project</button>
-              </section>
             </section>
 
-            <section className="project-settings-section" aria-labelledby="project-configuration-heading">
-              <div className="project-configuration-heading"><h3 id="project-configuration-heading">Configuration</h3><span className="project-configuration-info"><button type="button" className="project-settings-info-button" aria-label="About finding defaults" aria-expanded={configurationInfoOpen} aria-controls="project-configuration-info" onClick={() => setConfigurationInfoOpen(open => !open)}><Info size={16} aria-hidden="true" /></button>{configurationInfoOpen && <span id="project-configuration-info" className="project-settings-note" role="tooltip">Findings Priority starts with Low, Medium, and High for triage urgency. Findings Severity starts with Low, Medium, High, and Critical for impact. These choices are local to this project and are not saved to the service yet.</span>}</span></div>
-              <div className="project-configuration-collections">
-                <EditableValueCollection label="Findings Priority" itemLabel="Priority" values={priorityValues} onChange={setPriorityValues} disabled={!settingsEditing} />
-                <EditableValueCollection label="Findings Severity" itemLabel="Severity" values={severityValues} onChange={setSeverityValues} disabled={!settingsEditing} />
-              </div>
+            <section className="project-danger-zone" aria-labelledby="project-danger-zone-heading">
+              <div><h3 id="project-danger-zone-heading">Remove project</h3><p>Removing this project is unrecoverable. Workspace files will be retained.</p></div>
+              <button type="button" className="btn-danger" onClick={() => setShowDeleteProject(true)}><Trash2 size={16} aria-hidden="true" /> Remove project</button>
             </section>
           </div>
         </section>}

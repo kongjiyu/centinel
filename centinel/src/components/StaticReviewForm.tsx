@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import { Select } from './Select';
+import { userFacingError } from '../utils/userFacingError';
 
 const MAX_INSTRUCTIONS_CHARS = 1000;
 
@@ -59,7 +60,7 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel, staleSourceCou
     }
     void api.listGithubPullRequests(projectId)
       .then(result => { if (!cancelled) setPullRequests(result.pullRequests); })
-      .catch(cause => { if (!cancelled) setPullRequestError(String(cause)); })
+      .catch(cause => { if (!cancelled) setPullRequestError(userFacingError(cause, 'Pull requests could not be loaded.')); })
       .finally(() => { if (!cancelled) setPullRequestLoading(false); });
     return () => { cancelled = true; };
   }, [projectId, reviewMode]);
@@ -81,7 +82,7 @@ export function StaticReviewForm({ projectId, onSubmit, onCancel, staleSourceCou
         pullRequest: reviewMode === 'pull-request' ? pullRequest.trim() : undefined,
       });
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'The review could not be started. Try again.'));
     } finally {
       setSubmitting(false);
     }

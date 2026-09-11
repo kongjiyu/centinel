@@ -141,7 +141,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
     await user.click(screen.getByRole('button', { name: 'Check for updates' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Network unavailable');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Centinel could not reach the local service');
     expect(screen.queryByRole('button', { name: 'Open update' })).not.toBeInTheDocument();
   });
 

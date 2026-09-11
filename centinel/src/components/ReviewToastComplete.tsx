@@ -1,5 +1,6 @@
 import { CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import type { ActiveReviewSnapshot } from '../context/ActiveReviewContext';
+import { reviewFailureMessage } from '../utils/userFacingError';
 
 function countBySeverity(findings: ActiveReviewSnapshot['findings']) {
   const counts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -15,7 +16,7 @@ export function ReviewToastComplete({ snapshot }: { snapshot: ActiveReviewSnapsh
     return (
       <div className="review-toast-complete review-toast-failure">
         <XCircle size={14} />
-        <span>Review failed — {snapshot.failureReason || 'Unknown error'}</span>
+        <span>Review failed — {reviewFailureMessage(snapshot.failureReason)}</span>
       </div>
     );
   }

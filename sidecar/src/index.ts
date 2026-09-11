@@ -13,6 +13,7 @@ import {
   deleteProject,
   getCollaborationStatus,
   listGithubPullRequests,
+  getGithubConnectionStatus,
   searchGithubUsers,
   inviteGithubCollaborator,
   CollaborationError,
@@ -340,6 +341,10 @@ const server = http.createServer(async (req, res) => {
     // Health
     if (req.method === 'GET' && url === '/health') {
       return json(res, 200, { status: 'ok' });
+    }
+
+    if (req.method === 'GET' && url === '/github/status') {
+      return json(res, 200, await getGithubConnectionStatus());
     }
 
     // AI Settings

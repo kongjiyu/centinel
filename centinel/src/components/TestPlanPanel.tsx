@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ClipboardList, RotateCcw, Check, X, RefreshCw, ChevronDown, ChevronRight, FileText, GitBranch } from 'lucide-react';
 import { api } from '../api/client';
 import type { TestItem, TestItemRollup, TestItemStatus } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   projectId: string;
@@ -66,7 +67,7 @@ export function TestPlanPanel({ projectId, sessionId }: Props) {
         setOpenModules(new Set(r.slice(0, 3).map(x => x.module)));
       }
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'The test plan could not be loaded. Try again.'));
     } finally {
       setLoading(false);
     }
@@ -81,7 +82,7 @@ export function TestPlanPanel({ projectId, sessionId }: Props) {
       // Bump the rollup too so the module totals stay in sync.
       setRollups(prev => prev.map(r => recomputeRollup(r, items, itemId, status)));
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'The test item could not be updated. Try again.'));
     }
   }, [projectId, items]);
 
@@ -93,7 +94,7 @@ export function TestPlanPanel({ projectId, sessionId }: Props) {
       await api.regenerateTestPlan(projectId, sessionId);
       await load();
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'The test plan could not be regenerated. Try again.'));
     } finally {
       setRegenerating(false);
     }

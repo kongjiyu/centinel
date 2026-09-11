@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ChevronDown, FileSearch, Filter, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { Finding } from '../types';
+import { entityIdTitle, formatEntityId } from '../utils/entityId';
+import { userFacingError } from '../utils/userFacingError';
 import { Select } from './Select';
 
 type Props = {
@@ -14,22 +16,24 @@ type Props = {
   /** Project Detail uses numbered pages; other consumers retain the existing "show more" behavior. */
   presentation?: 'default' | 'project';
   pageSize?: number;
+  /** Optional finding to select when another evidence view links into the table. */
+  focusFindingId?: string | null;
 };
 
 const FINDINGS_BATCH_SIZE = 50;
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
-export type FindingPresentationStatus = 'unresolved' | 'resolved' | 'dismissed';
+export type FindingPresentationStatus = 'unresolved' | 'resolved' | 'dismiss';
 
 /** Map persisted statuses to the deliberately smaller user-facing lifecycle. */
 export function findingPresentationStatus(status: Finding['status']): FindingPresentationStatus {
   if (status === 'fixed') return 'resolved';
-  if (status === 'dismissed') return 'dismissed';
+  if (status === 'dismissed') return 'dismiss';
   return 'unresolved';
 }
 
 export function findingStatusLabel(status: Finding['status'] | FindingPresentationStatus): string {
-  const normalized = status === 'unresolved' || status === 'resolved' || status === 'dismissed'
+  const normalized = status === 'unresolved' || status === 'resolved' || status === 'dismiss'
     ? status
     : findingPresentationStatus(status);
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
@@ -64,13 +68,13 @@ function FindingActions({
   const presentationStatus = findingPresentationStatus(finding.status);
   return (
     <div className="finding-actions" aria-label="Finding actions">
-      {presentationStatus !== 'dismissed' && <button type="button" className="btn-dismiss" disabled={updatingId === finding.id} onClick={() => onUpdate(finding.id, 'dismissed')}>Dismiss</button>}
+      {presentationStatus !== 'dismiss' && <button type="button" className="btn-dismiss" disabled={updatingId === finding.id} onClick={() => onUpdate(finding.id, 'dismissed')}>Dismiss</button>}
       {presentationStatus !== 'resolved' && <button type="button" className="btn-fix" disabled={updatingId === finding.id} onClick={() => onUpdate(finding.id, 'fixed')}>{updatingId === finding.id ? 'Updating…' : 'Mark as resolved'}</button>}
     </div>
   );
 }
 
-export function FindingsPanel({ projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, onLoadStateChange }: Props) {
+export function FindingsPanel({ projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, onLoadStateChange }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -98,8 +102,9 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
       onLoadStateChange?.(nextFindings, null);
     } catch (cause) {
       setFindings([]);
-      setLoadError(String(cause));
-      onLoadStateChange?.([], String(cause));
+      const message = userFacingError(cause, 'Findings could not be loaded.');
+      setLoadError(message);
+      onLoadStateChange?.([], message);
     } finally {
       setLoading(false);
     }
@@ -127,7 +132,7 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
       await api.updateFinding(projectId, findingId, status);
       setFindings(previous => previous.map(finding => finding.id === findingId ? { ...finding, status } : finding));
     } catch (cause) {
-      setActionError(`Finding could not be updated. Your previous state is still shown. ${String(cause)}`);
+      setActionError(`Finding could not be updated. Your previous state is still shown. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setUpdatingId(null);
     }
@@ -156,6 +161,13 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
   useEffect(() => {
     if (presentation === 'project' && selectedId && !sorted.some(finding => finding.id === selectedId)) setSelectedId(null);
   }, [presentation, selectedId, sorted]);
+  useEffect(() => {
+    if (presentation !== 'project' || !focusFindingId) return;
+    const index = sorted.findIndex(finding => finding.id === focusFindingId);
+    if (index < 0) return;
+    setPage(Math.floor(index / pageSize));
+    setSelectedId(focusFindingId);
+  }, [focusFindingId, pageSize, presentation, sorted]);
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -193,7 +205,7 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
       {filtersOpen && <div id={`${filterPrefix}finding-filter-options`} className="findings-filter-options">
         {includeSource && <label className="finding-filter-field" htmlFor="finding-source-filter"><span>Source</span><Select id="finding-source-filter" aria-label="Source" value={filterSource} onChange={value => setFilterSource(value as 'all' | 'static' | 'dynamic')} options={[{ value: 'all', label: 'All sources' }, { value: 'static', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]} /></label>}
         <label className="finding-filter-field" htmlFor="finding-severity-filter"><span>Severity</span><Select id="finding-severity-filter" aria-label="Severity" value={filterSeverity} onChange={setFilterSeverity} options={[{ value: 'all', label: 'All severities' }, { value: 'critical', label: 'Critical' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low' }, { value: 'info', label: 'Info' }]} /></label>
-        <label className="finding-filter-field" htmlFor="finding-status-filter"><span>Status</span><Select id="finding-status-filter" aria-label="Status" value={filterStatus} onChange={value => setFilterStatus(value as 'all' | FindingPresentationStatus)} options={[{ value: 'all', label: 'All statuses' }, { value: 'unresolved', label: 'Unresolved' }, { value: 'resolved', label: 'Resolved' }, { value: 'dismissed', label: 'Dismissed' }]} /></label>
+        <label className="finding-filter-field" htmlFor="finding-status-filter"><span>Status</span><Select id="finding-status-filter" aria-label="Status" value={filterStatus} onChange={value => setFilterStatus(value as 'all' | FindingPresentationStatus)} options={[{ value: 'all', label: 'All statuses' }, { value: 'unresolved', label: 'Unresolved' }, { value: 'resolved', label: 'Resolved' }, { value: 'dismiss', label: 'Dismiss' }]} /></label>
         {hasPriorityFilter && <label className="finding-filter-field" htmlFor="finding-priority-filter"><span>Priority</span><Select id="finding-priority-filter" aria-label="Priority" value={filterPriority} onChange={setFilterPriority} options={[{ value: 'all', label: 'All priorities' }, ...priorityOptions.map(priority => ({ value: priority, label: priority }))]} /></label>}
       </div>}
     </div>
@@ -214,7 +226,7 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
             <section className="project-findings-table-region" aria-label="Findings table">
               <table className="project-findings-table" aria-label="Review findings"><thead><tr><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Description</th><th scope="col">Status</th></tr></thead><tbody>
                 {pagedFindings.map(finding => <tr key={finding.id} tabIndex={0} aria-selected={selectedId === finding.id} className={selectedId === finding.id ? 'selected' : undefined} onClick={() => setSelectedId(finding.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedId(finding.id); } }}>
-                  <td><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{finding.filePath || finding.description || 'No location supplied'}</small></span></td><td><span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></td>
+                  <td><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><span className="project-finding-description"><strong>{finding.title}</strong><small className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</small><small>{finding.filePath || finding.description || 'No location supplied'}</small></span></td><td><span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></td>
                 </tr>)}
               </tbody></table>
               {pageCount > 1 && <div className="findings-pagination" aria-label="Finding pages"><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={page === 0}>Previous</button><span>Page {page + 1} of {pageCount}</span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1}>Next</button></div>}
@@ -224,8 +236,8 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
 
         <aside className="card detail-card project-finding-details" aria-label="Finding details">
           {selectedFinding ? <>
-            <div className="project-finding-source-status"><strong>{sourceLabel(selectedFinding.source)}</strong><span className={`finding-status finding-status-${findingPresentationStatus(selectedFinding.status)}`}>{findingStatusLabel(selectedFinding.status)}</span></div>
-            <div className="project-finding-title-status"><h4>{selectedFinding.title}</h4></div>
+            <div className="project-finding-source-status">{selectedFinding.source !== 'static' && <strong>{sourceLabel(selectedFinding.source)}</strong>}<span className={`finding-status finding-status-${findingPresentationStatus(selectedFinding.status)}`}>{findingStatusLabel(selectedFinding.status)}</span></div>
+            <div className="project-finding-title-status"><h4>{selectedFinding.title}</h4><span className="finding-id-label" title={entityIdTitle('Finding ID:', selectedFinding.id)}>{formatEntityId(selectedFinding.id)}</span></div>
             <dl className="project-finding-facts">
               <div><dt>Priority</dt><dd>{selectedFinding.priority || 'Not set'}</dd></div>
               <div><dt>Severity</dt><dd><SeverityBadge severity={selectedFinding.severity} /></dd></div>
@@ -258,7 +270,7 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
               </button>
               {expanded && <div className="finding-detail" id={detailId} role="region" aria-label={`${finding.title} details`}>
                 <div className="finding-detail-content">
-                  <div className="finding-source-status"><strong>{sourceLabel(finding.source)}</strong><span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></div>
+                  <div className="finding-source-status">{finding.source !== 'static' && <strong>{sourceLabel(finding.source)}</strong>}<span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></div>
                   <div className="finding-detail-title-status"><h4>{finding.title}</h4></div>
                   <dl className="finding-facts"><div><dt>Priority</dt><dd>{finding.priority || 'Not set'}</dd></div><div><dt>Severity</dt><dd><SeverityBadge severity={finding.severity} /></dd></div><div><dt>Location</dt><dd className="finding-location-path">{locationLabel(finding)}</dd></div></dl>
                   <section><h4>Description</h4><p className="finding-description">{finding.description || 'No description was supplied.'}</p></section>

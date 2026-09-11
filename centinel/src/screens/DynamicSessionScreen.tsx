@@ -7,6 +7,7 @@ import { api } from '../api/client';
 import { CommandEmptyState, CommandPageHeader } from '../components/CommandUI';
 import { EvidenceScreenshotThumbnail, EvidenceScreenshotViewer } from '../components/EvidenceScreenshot';
 import type { DynamicSession, DynamicEvidence, Screen } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = { projectId: string; sessionId: string; onNavigate: (screen: Screen) => void };
 
@@ -129,7 +130,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
     try {
       const result = await api.exportDynamicSessionReport(projectId, sessionId);
       setExportResult({ success: true, message: 'Report exported', reportPath: result.reportPath, markdown: result.markdown });
-    } catch (e) { setExportResult({ success: false, message: `Export failed: ${String(e)}` }); }
+    } catch (e) { setExportResult({ success: false, message: `Export failed. ${userFacingError(e, 'Try again.')}` }); }
     finally { setExporting(false); }
   };
 
@@ -225,7 +226,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
       {session.failureReason && (
         <div className="section">
           <h2 className="command-section-heading"><Bug size={16} /> Failure reason</h2>
-          <div className="summary-box error">{session.failureReason}</div>
+          <div className="summary-box error">{userFacingError(session.failureReason, 'The test run could not finish. Check the target and try again.')}</div>
         </div>
       )}
 

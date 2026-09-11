@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ArrowRight, Check, X, AlertCircle, Plus, RefreshCw } from 'lucide-react';
 import { api } from '../api/client';
 import type { SessionDiff, SessionDiffItem } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   projectId: string;
@@ -40,7 +41,7 @@ export function SessionDiffView({ projectId, childId, parentId, parentCreatedAt 
       const d = await api.getSessionDiff(projectId, childId, parentId);
       setDiff(d);
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'The review change summary could not be loaded. Try again.'));
     } finally {
       setLoading(false);
     }
@@ -83,7 +84,7 @@ export function SessionDiffView({ projectId, childId, parentId, parentCreatedAt 
           items={diff.fixed}
         />
         <Bucket
-          label="Dismissed"
+          label="Dismiss"
           count={diff.counts.dismissed}
           tone="muted"
           isOpen={open.has('dismissed')}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Play, Globe, Target, Hash, SlidersHorizontal } from 'lucide-react';
 import { Select } from '../components/Select';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   onSubmit: (data: {
@@ -30,7 +31,7 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
     try {
       await onSubmit({ targetUrl: targetUrl.trim(), goal: goal.trim(), missionType, maxSteps });
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'Dynamic Testing could not be started. Try again.'));
     } finally {
       setSubmitting(false);
     }

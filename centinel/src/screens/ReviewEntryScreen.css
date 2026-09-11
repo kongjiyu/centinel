@@ -72,8 +72,8 @@
 
 .workspace-mode:not(.dashboard-mode) .review-entry-screen .static-review-form > .review-form-section + .review-form-section {
   margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--workspace-border);
+  padding-top: 0;
+  border-top: 0;
 }
 
 .review-type-fieldset {

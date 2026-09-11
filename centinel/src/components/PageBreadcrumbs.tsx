@@ -48,13 +48,16 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
     }
     case 'review-entry':
       return [{ label: 'Activities' }, { label: 'Review' }];
-    case 'review-activity':
+    case 'review-activity': {
+      const project = projectLabel(projects, screen.projectId);
       return [
         product,
         projectsItem,
+        { label: project, target: { name: 'project-detail', projectId: screen.projectId } },
         { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } },
         { label: screen.reviewName || 'Review' },
       ];
+    }
     case 'dynamic-session':
       return [
         product,

@@ -7,6 +7,7 @@ import { api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
+import { userFacingError } from '../utils/userFacingError';
 
 type ProviderPreset = {
   id: string;
@@ -138,7 +139,7 @@ function AppVersionSection() {
       }
     } catch (cause) {
       setUpdateState('error');
-      setUpdateMessage(String(cause));
+      setUpdateMessage(userFacingError(cause, 'Updates could not be checked. Try again later.'));
     }
   };
 
@@ -231,7 +232,7 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
         model: model.trim(),
       });
       setApiKey(''); setSaved(true); await onRefresh();
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(userFacingError(e, 'The provider settings could not be saved. Try again.')); }
     finally { setSaving(false); }
   };
 
@@ -249,7 +250,7 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
       });
       setTestResult(result);
     }
-    catch (e) { setTestResult({ status: 'fail', message: String(e) }); }
+    catch (e) { setTestResult({ status: 'fail', message: userFacingError(e, 'The provider could not be reached. Check the settings and try again.') }); }
     finally { setTesting(false); }
   };
 
@@ -412,7 +413,7 @@ function TokenUsagePanel() {
       setSummary(data);
       setRecentPage(0);
     } catch (e) {
-      setError(String(e));
+      setError(userFacingError(e, 'Usage data could not be loaded. Try again.'));
     } finally {
       setLoading(false);
     }
@@ -626,6 +627,18 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
   const textSetting = settings.find(s => s.id === 'text');
   const [connectionDialog, setConnectionDialog] = useState<ConnectionDefinition | null>(null);
   const [managedConnection, setManagedConnection] = useState<ConnectionDefinition | null>(null);
+  const [githubStatus, setGithubStatus] = useState<{ connected: boolean; login: string | null; message: string } | null>(null);
+
+  const refreshGithubStatus = async () => {
+    if (typeof api.githubStatus !== 'function') return;
+    try {
+      setGithubStatus(await api.githubStatus());
+    } catch (cause) {
+      setGithubStatus({ connected: false, login: null, message: userFacingError(cause, 'GitHub connection status is unavailable.') });
+    }
+  };
+
+  useEffect(() => { void refreshGithubStatus(); }, []);
 
   return (
     <div className="screen settings-screen animate-fade-in">
@@ -638,7 +651,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
           <div className="settings-section-heading">
             <h2 id="settings-connections-title"><SectionTitleIcon Icon={Cable} />Connections</h2>
           </div>
-          <ConnectionsList onConnect={setConnectionDialog} onManage={setManagedConnection} />
+          <ConnectionsList onConnect={setConnectionDialog} onManage={setManagedConnection} githubConnected={Boolean(githubStatus?.connected)} />
         </section>
 
         <section className="settings-section settings-provider-section" aria-labelledby="model-provider-title">
@@ -660,10 +673,19 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
       </div>
 
       <Modal isOpen={Boolean(connectionDialog)} onClose={() => setConnectionDialog(null)} title={connectionDialog ? `Connect ${connectionDialog.label}` : 'Connect'} width={480}>
-        <p className="connection-dialog-copy">Centinel needs OAuth client credentials and a registered redirect URI before it can open the {connectionDialog?.label} sign-in flow.</p>
-        <div className="connection-dialog-actions">
-          <button type="button" className="btn-secondary" onClick={() => setConnectionDialog(null)}>Close</button>
-        </div>
+        {connectionDialog?.id === 'github' ? <>
+          <p className="connection-dialog-copy">{githubStatus?.message ?? 'Checking the shared GitHub connection…'}</p>
+          <p className="connection-dialog-copy">Projects and Review Entry use this same connection for private repository imports, collaborators, and pull-request scope.</p>
+          <div className="connection-dialog-actions">
+            <button type="button" className="btn-secondary" onClick={() => void refreshGithubStatus()}><RefreshCw size={15} aria-hidden="true" /> Check again</button>
+            <button type="button" className="btn-secondary" onClick={() => setConnectionDialog(null)}>Close</button>
+          </div>
+        </> : <>
+          <p className="connection-dialog-copy">Centinel needs OAuth client credentials and a registered redirect URI before it can open the {connectionDialog?.label} sign-in flow.</p>
+          <div className="connection-dialog-actions">
+            <button type="button" className="btn-secondary" onClick={() => setConnectionDialog(null)}>Close</button>
+          </div>
+        </>}
       </Modal>
 
       <Modal isOpen={Boolean(managedConnection)} onClose={() => setManagedConnection(null)} title={managedConnection ? `Manage ${managedConnection.label}` : 'Manage connection'} width={480}>
@@ -695,9 +717,9 @@ const CONNECTIONS: ConnectionDefinition[] = [
   { id: 'slack', label: 'Slack', description: 'Share review updates and collaborate with your team.', asset: '/assets/connectors/slack.svg' },
 ];
 
-function ConnectionsList({ onConnect, onManage }: { onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void }) {
+function ConnectionsList({ onConnect, onManage, githubConnected }: { onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void; githubConnected: boolean }) {
   return <div className="connection-list" role="list">
-    {CONNECTIONS.map(connection => <ConnectionOption key={connection.id} connection={connection} onConnect={onConnect} onManage={onManage} />)}
+    {CONNECTIONS.map(connection => <ConnectionOption key={connection.id} connection={{ ...connection, connected: connection.id === 'github' ? githubConnected : false }} onConnect={onConnect} onManage={onManage} />)}
   </div>;
 }
 

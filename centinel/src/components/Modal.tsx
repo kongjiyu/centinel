@@ -65,7 +65,7 @@ export function Modal({ isOpen, onClose, title, descriptionId, width = 520, chil
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={event => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <div
         ref={dialogRef}
         className="modal"
@@ -75,6 +75,7 @@ export function Modal({ isOpen, onClose, title, descriptionId, width = 520, chil
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         tabIndex={-1}
+        onClick={event => event.stopPropagation()}
       >
         <div className="modal-header">
           <h3 id={titleId}>{title}</h3>

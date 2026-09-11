@@ -3,6 +3,7 @@ import { FolderGit2, GitBranch } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { Modal } from './Modal';
 import type { Project } from '../types';
+import { userFacingError } from '../utils/userFacingError';
 
 type Props = {
   isOpen: boolean;
@@ -91,7 +92,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated }: Pro
       if (created) onCreated?.(created);
       onClose();
     } catch (cause) {
-      setError(String(cause));
+      setError(userFacingError(cause, 'The project could not be created. Try again.'));
     } finally {
       setCreating(false);
     }

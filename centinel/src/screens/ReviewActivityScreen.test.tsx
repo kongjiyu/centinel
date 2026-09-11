@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import { ReviewActivityScreen } from './ReviewActivityScreen';
-import type { Finding, Project, ReviewDecisionRecord, StaticSession } from '../types';
+import type { Artifact, Finding, Project, Requirement, ReviewDecisionRecord, StaticSession } from '../types';
 
 vi.mock('../api/client', () => ({
   api: {
@@ -15,6 +15,9 @@ vi.mock('../api/client', () => ({
     cancelStaticSession: vi.fn(),
     exportSessionReport: vi.fn(),
     listReviewArtifacts: vi.fn(),
+    listRequirements: vi.fn(),
+    listArtifacts: vi.fn(),
+    listRequirementMappings: vi.fn(),
   },
 }));
 
@@ -105,6 +108,9 @@ function setup(session: StaticSession = baseSession, decisions: ReviewDecisionRe
   vi.mocked(api.submitReviewDecision).mockResolvedValue({ ...approvedDecision, decision: 'changes_requested' });
   vi.mocked(api.exportSessionReport).mockResolvedValue({ reportPath: 'C:/reports/review.md' });
   vi.mocked(api.listReviewArtifacts).mockResolvedValue([]);
+  vi.mocked(api.listRequirements).mockResolvedValue([]);
+  vi.mocked(api.listArtifacts).mockResolvedValue([]);
+  vi.mocked(api.listRequirementMappings).mockResolvedValue([]);
 }
 
 describe('ReviewActivityScreen', () => {
@@ -114,14 +120,14 @@ describe('ReviewActivityScreen', () => {
     setup();
   });
 
-  it('renders the 9/3 information panel and simplified review stages while running', async () => {
+  it('renders the activity stages without a duplicate information rail while running', async () => {
     const running = { ...baseSession, status: 'running' as const };
     setup(running);
     render(<ReviewActivityScreen projectId={project.id} sessionId={running.id} onNavigate={vi.fn()} />);
 
     expect(await screen.findByRole('heading', { name: 'Review activity' })).toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Review information' })).toHaveTextContent('Check traceability');
-    expect(screen.getByRole('group', { name: 'Supportive documents' })).toHaveTextContent('checkout-requir…');
+    expect(screen.queryByRole('complementary', { name: 'Review information' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Supportive documents' })).not.toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Review stages' })).toBeInTheDocument();
     expect(screen.getByText('Loaded project sources')).toBeInTheDocument();
     expect(screen.queryByTestId('review-decision-approve')).not.toBeInTheDocument();
@@ -185,17 +191,16 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByTestId('review-decision-approve')).toBeEnabled();
   });
 
-  it('requires feedback for request-changes and does not claim automatic reprocessing', async () => {
+  it('routes request-changes to Activity and focuses the feedback composer without opening a modal', async () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
     await screen.findByRole('heading', { name: 'Review Overview' });
     await user.click(screen.getByTestId('review-decision-reject'));
-    const panel = screen.getByRole('complementary', { name: 'Request changes' });
-    await user.click(within(panel).getByRole('button', { name: 'Request changes' }));
-    expect(within(panel).getByRole('textbox', { name: /Feedback/ })).toBeRequired();
+    expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('complementary', { name: 'Request changes' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Write feedback about this review' })).toHaveFocus());
     expect(api.submitReviewDecision).not.toHaveBeenCalled();
-    expect(screen.getByText(/does not resolve, dismiss, or automatically reprocess/i)).toBeInTheDocument();
   });
 
   it('uses accessible result tabs and the shared project findings workspace', async () => {
@@ -206,7 +211,7 @@ describe('ReviewActivityScreen', () => {
 
     expect(await screen.findByRole('heading', { name: 'Review Overview' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Review objective' })).not.toBeInTheDocument();
-    expect(screen.getByText('Assigned reviewer')).toBeInTheDocument();
+    expect(screen.getByText('Reviewer')).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(4);
     expect(screen.queryByRole('tab', { name: 'Risk Assessment' })).not.toBeInTheDocument();
@@ -225,5 +230,50 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'High' })).toBeInTheDocument();
+  });
+
+  it('presents traceability findings as IDs and one derived state column', async () => {
+    const requirement: Requirement = {
+      id: 'requirement-1',
+      projectId: project.id,
+      title: 'Checkout must be protected',
+      description: 'The checkout route requires authorization.',
+      category: 'Security',
+      priority: 'High',
+      createdAt: '2026-09-07T10:00:00.000Z',
+    };
+    const artifact: Artifact = {
+      id: 'artifact-1',
+      projectId: project.id,
+      type: 'source_code',
+      source: 'repository',
+      fileName: 'checkout.ts',
+      filePath: 'src/checkout.ts',
+      originalPath: 'src/checkout.ts',
+      contentHash: 'hash',
+      createdAt: '2026-09-07T10:00:00.000Z',
+    };
+    vi.mocked(api.listRequirements).mockResolvedValue([requirement]);
+    vi.mocked(api.listArtifacts).mockResolvedValue([artifact]);
+    vi.mocked(api.listRequirementMappings).mockResolvedValue([{
+      id: 'mapping-1',
+      requirementId: requirement.id,
+      fileId: artifact.id,
+      symbolId: null,
+      coverageStatus: 'complete',
+      confidence: 0.95,
+    }]);
+    const user = userEvent.setup();
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    await user.click(screen.getByRole('tab', { name: 'Traceability' }));
+    const table = screen.getByRole('table', { name: 'Traceability matrix' });
+    expect(within(table).getByRole('columnheader', { name: 'State' })).toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: 'Completeness' })).not.toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: 'Correctness' })).not.toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: 'Consistency' })).not.toBeInTheDocument();
+    expect(within(table).getByText('Complete')).toBeInTheDocument();
+    expect(within(table).getByRole('button', { name: 'Open finding #finding-1: Checkout requirement is not represented' })).toBeInTheDocument();
   });
 });

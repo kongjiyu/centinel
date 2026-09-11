@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import { userFacingError } from './utils/userFacingError';
 import './command.css';
 import './workspace.css';
 import { AppShell } from './components/AppShell';
@@ -38,7 +39,7 @@ function App() {
       setError(null);
     } catch (e) {
       setSidecarOnline(false);
-      setError(String(e));
+      setError(userFacingError(e, 'Centinel could not load this workspace. Try again.'));
     } finally {
       setLoading(false);
     }
