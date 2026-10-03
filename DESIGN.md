@@ -6,7 +6,7 @@
 >
 > Primary audience: office teams and non-technical reviewers, with progressive disclosure for QA and engineering detail
 >
-> Last revised: 2026-09-08
+> Last revised: 2026-09-12
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
@@ -15,13 +15,12 @@ This document defines the product-wide UI and UX contract. It supersedes the pre
 The latest user-approved requirements supersede conflicting terminology and navigation below. The visual system and accessibility rules remain authoritative. Implementation is frontend-only; unsupported backend capabilities must be represented honestly.
 
 - Rename the user-facing Static testing module to **Review**. Global navigation: Home, Projects, Review, Dynamic Testing, Settings.
-- Project tabs: Overview, Source, Findings, Collaborations, Settings. Review and Dynamic Testing are entry actions on Overview, not project tabs. Recent activity supports search, type, and date/time filters.
+- Project tabs: Overview, Assessment, Findings, Source, Collaborators, Settings. Review and Dynamic Testing are entry actions on Overview, not project tabs. Recent activity supports search, type, and date/time filters.
 - Home retains Highlights and Recommendations (one recommendation at a time); its lower section is Recent projects with available last-activity context.
 - Review entry starts with Review name, then project selection and Create project access, followed by objective/instructions and optional branch/PR scope. Active sources are validated at submission without rendering an available-source count or source list. No review-type selection. Preserve existing transport identifiers while service contracts are unchanged.
-- Progress presents stage/activity logs only. Review activity results contain Overview, Findings, Traceability, Risk Assessment, History, with activity-level Approve/Reject in the header. Rejection requires feedback with optional finding mentions; human feedback appears separately from system history.
+- Progress presents stage/activity logs only. Review activity results preserve the Overview, Activity, Findings, and Traceability tabs, with activity-level Approve/Reject in the header. Project-level risk belongs to Project Assessment, not a Review Detail tab. Rejection requires feedback with optional finding mentions; human feedback appears separately from system history.
 - Desired lifecycle: In Progress, Pending to Review, Completed, Blocked, Cancelled, Failed. Never assert unsupported state transitions. Approval completes a review but does not resolve its findings.
 - Source currency confirmation is distinct from version approval: incoming versions do not need approval. Default currency interval is 90 days since last confirmation; deprecated documents are excluded from new reviews. Durable governance, roles, and iteration behavior require service support and are not simulated in production UI.
-- Implementation plan: [docs/REVIEW_UI_IMPLEMENTATION_PLAN.md](docs/REVIEW_UI_IMPLEMENTATION_PLAN.md).
 
 ### Evidence-led approval workflow amendment (10 September 2026)
 
@@ -29,11 +28,15 @@ The following later decisions supersede conflicting Review navigation, lifecycle
 
 - A technically successful review that has not been approved is **Need Approval**, not Completed. **Completed** is reserved for an approved review. Failed and blocked work remains visibly **Needs attention** even though it is outside the happy-path state list.
 - The Need Approval workspace exposes **Activity**, **Findings**, and **Traceability** before the reviewer can approve or request changes. Approval is blocked when the findings request fails or the effective scope is not trustworthy.
-- Review Result is rendered only for an approved review. Its header-adjacent tabs are **Overview**, **Findings**, **Traceability**, and **History**. It reuses the shared findings workspace rather than a reduced result-only table.
+- Review Detail preserves the existing header-adjacent tabs **Overview**, **Activity**, **Findings**, and **Traceability**. It reuses the shared findings workspace rather than a reduced result-only table, and project-level risk remains on Project Assessment.
 - Review Activity uses an 8/4 Activity/Objective layout on desktop. Stage content is presented as calm activity paragraphs with source tags; repeated actor labels, checkpoint rails, per-stage completion pills, duplicated timestamps, raw transport failures, and raw model chain-of-thought are not product content.
 - While automated reasoning is queued or running, the only workflow action is Stop/Cancel. Feedback becomes available after reasoning stops and is recorded chronologically as a human message. The UI must not imply that AI reasoning continued unless the service actually executes and persists a subsequent iteration.
-- Project tabs are **Overview, Assessment, Findings, Source, Collaborators, Settings**. Assessment owns honest, source-separated Review and Dynamic Testing risk information; it does not invent an aggregate risk score.
+- Project tabs are **Overview, Assessment, Findings, Source, Collaborators, Settings**. Assessment is the project-level finding-derived risk report: Risk Summary, current Critical/High Risk items, and latest approved-Review traceability attention. It does not duplicate Readiness, Recurrence, Trends, full Findings, or full Traceability, and it does not claim an ISO/IEEE risk mandate.
 - One shared lifecycle mapper must be used by Review Activity, Project Recent activity, Projects, and Dashboard summaries. Execution status, human decision, and individual finding status remain separate concepts.
+
+### Project Assessment and Review Overview refinement (12 September 2026)
+
+The project risk and Review evidence refinement is additive to the visual and accessibility system above. Assessment is the single project-level risk destination and uses the versioned Centinel Severity + Priority matrix over Review/static findings; Dynamic Testing remains a separate evidence area until a comparable cross-module policy exists. Informational findings stay in Findings but are not promoted to Low Risk. Review Overview remains session-scoped and reports only persisted findings, source-manifest artifact counts, and traceability attention for that Review. Sources Used is a full-width evidence section below the existing Overview/Decision 8/4 row. Historical Reviews without the new evidence snapshots use explicit unavailable copy rather than zero. Recurring finding patterns may appear in Project Overview's short Need attention list, but full risk distributions and traceability tables remain in their dedicated destinations.
 
 ### Dashboard, Projects, and Review entry refinement (September 2026)
 
@@ -127,15 +130,16 @@ Do not place project-specific Evidence or Reports in global navigation. When a p
 
 ### Project navigation
 
-Each project workspace has five stable destinations:
+Each project workspace has six stable destinations:
 
 1. **Overview** — project summary, setup progress, recent runs, and the next recommended action.
-2. **Source** — active project sources and source setup.
+2. **Assessment** — current project risk derived from persisted finding Severity and Priority, with latest approved-Review traceability attention.
 3. **Findings** — unified Review and Dynamic findings with filters and review actions.
-4. **Collaborations** — project review context and collaboration history.
-5. **Settings** — project-specific configuration.
+4. **Source** — active project sources and source setup.
+5. **Collaborators** — project review context and collaboration history.
+6. **Settings** — project-specific configuration.
 
-Review and Dynamic Testing are entry actions on Overview, not project tabs. Use tabs or a compact secondary navigation bar for the five stable destinations above. Preserve the selected project and selected subsection when the user returns from a detail view.
+Review and Dynamic Testing are entry actions on Overview, not project tabs. Use tabs or a compact secondary navigation bar for the six stable destinations above. Preserve the selected project and selected subsection when the user returns from a detail view.
 
 ### Screen hierarchy
 

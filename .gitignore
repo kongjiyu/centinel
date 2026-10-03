@@ -47,5 +47,5 @@ sidecar/artifacts/
 .playwright-cli/
 output/playwright/
 
-# Tests script and snapshots
-sidecar/__tests__
+# Test sources are part of the product contract. Generated fixture indexes are
+# already represented by tracked fixtures and must not hide newly added tests.

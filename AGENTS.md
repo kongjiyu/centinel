@@ -11,18 +11,18 @@ Use these references in priority order:
 
 1. [`DESIGN.md`](./DESIGN.md) for all user-facing design decisions.
 2. [`docs/Centinel_PRD_Revised.md`](./docs/Centinel_PRD_Revised.md) for product scope and requirements.
-3. [`docs/PROJECT_PLAN.md`](./docs/PROJECT_PLAN.md) for the high-level roadmap; confirm roadmap items against the current code before treating them as unfinished.
+3. Current feature specifications in `docs/` for authentication, reviews, and project assessment.
 4. Existing tests and implemented behavior for current technical contracts. Flag material conflicts with the PRD instead of silently changing behavior.
 
 ## Repository Map
 
 - `centinel/` — Tauri 1 desktop app with a React 18, TypeScript, and Vite frontend.
 - `centinel/src-tauri/` — Rust desktop shell and Tauri commands.
-- `sidecar/` — Node.js/TypeScript service on `127.0.0.1:37701`; owns Playwright automation, AI integrations, and local persistence.
-- `docs/` — canonical product, roadmap, progress, and testing documentation.
+- `sidecar/` — Node.js/TypeScript service on `127.0.0.1:37701`; owns Review orchestration, integration OAuth, report generation, and Playwright automation.
+- `docs/` — canonical product, setup, and current feature specifications.
 - `data/`, `evidence/`, `dist/`, `node_modules/`, and `centinel/src-tauri/target/` — generated or local-only artifacts; do not hand-edit them.
 
-The text-review path uses MiMo, the vision path uses Gemini, and local data uses SQLite through `sql.js`. API keys are loaded from the repository-root `.env`; keep secrets out of source and logs.
+Static Review uses the user's configured Model Provider settings and bearer-scoped Supabase Postgres/Storage as its durable data layer. Do not reintroduce fixed MiMo/Gemini environment-key defaults or local SQLite fallbacks for Static Review. The remaining `sql.js` store serves Dynamic Testing and the explicit legacy migration reader; do not delete existing local data during cleanup. Integration OAuth secrets and local runtime configuration are loaded from the repository-root `.env`; keep secrets out of source, logs, and `VITE_*` variables. The desktop runtime must not use a Supabase service-role key.
 
 ## Tooling and Commands
 

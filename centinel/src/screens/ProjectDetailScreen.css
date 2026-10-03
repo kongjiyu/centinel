@@ -1439,12 +1439,74 @@
 
 .command-project-detail .project-findings-table th:nth-child(1),
 .command-project-detail .project-findings-table td:nth-child(1) {
-  width: 11%;
+  width: 10%;
 }
 
 .command-project-detail .project-findings-table th:nth-child(2),
 .command-project-detail .project-findings-table td:nth-child(2) {
-  width: 10%;
+  width: 13%;
+}
+
+/* Project Assessment refinement: a compact risk report, not a second
+   dashboard. Keep surfaces and tokens aligned with the existing workspace. */
+.command-project-detail .project-risk-card { display: grid; gap: 24px; }
+.command-project-detail .project-risk-card .panel-header { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+.assessment-info-button { display: inline-grid; width: 30px; height: 30px; margin-left: 4px; border: 0; background: transparent; box-shadow: none; vertical-align: middle; }
+.project-risk-summary-section, .project-risk-items-section { display: grid; gap: 14px; }
+.project-risk-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.project-risk-section-heading h3 { margin: 0; color: var(--workspace-text); font-size: 16px; line-height: 22px; }
+.project-risk-section-heading p { margin: 3px 0 0; color: var(--workspace-text-muted); font-size: 12px; line-height: 18px; }
+.project-risk-overview-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr); gap: 12px; }
+.project-risk-count-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.project-risk-count { display: grid; gap: 4px; min-width: 0; padding: 14px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); }
+.project-risk-count strong { color: var(--workspace-text); font-size: 25px; line-height: 30px; font-variant-numeric: tabular-nums; }
+.project-risk-count span { color: var(--workspace-text-muted); font-size: 12px; font-weight: 650; }
+.project-risk-count-critical strong, .project-risk-level-critical { color: var(--workspace-danger); }
+.project-risk-count-high strong, .project-risk-level-high { color: var(--workspace-warning); }
+.project-risk-count-medium strong, .project-risk-level-medium { color: var(--workspace-primary); }
+.project-risk-count-low strong, .project-risk-level-low { color: var(--workspace-text-muted); }
+.project-traceability-attention-card { display: flex; min-height: 132px; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 16px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); }
+.project-traceability-attention-card > div { display: grid; gap: 3px; min-width: 0; }
+.project-traceability-attention-card strong { color: var(--workspace-text); font-size: 13px; }
+.project-traceability-attention-card span { color: var(--workspace-text); font-size: 24px; line-height: 28px; font-variant-numeric: tabular-nums; }
+.project-traceability-attention-card small { color: var(--workspace-text-muted); font-size: 12px; }
+.project-risk-table-wrap { overflow-x: auto; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); }
+.project-risk-table { width: 100%; min-width: 760px; border-collapse: collapse; background: var(--workspace-surface); }
+.project-risk-table th, .project-risk-table td { padding: 12px 13px; border-bottom: 1px solid var(--workspace-border); text-align: left; vertical-align: top; font-size: 12px; line-height: 18px; }
+.project-risk-table th { background: var(--workspace-surface-subtle); color: var(--workspace-text-muted); font-size: 11px; font-weight: 700; }
+.project-risk-table tbody tr:last-child td { border-bottom: 0; }
+.project-risk-table td { color: var(--workspace-text-muted); }
+.project-risk-table td strong { color: var(--workspace-text); font-weight: 650; }
+.project-risk-level { font-weight: 750; text-transform: capitalize; }
+.project-see-more-findings { justify-self: start; }
+.assessment-info-dialog { display: grid; gap: 20px; }
+.assessment-info-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 4px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); }
+.assessment-info-tabs button { min-height: 36px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--workspace-radius-control); background: transparent; color: var(--workspace-text-muted); font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.assessment-info-tabs button[aria-selected='true'] { border-color: var(--workspace-border-strong); background: var(--workspace-surface); color: var(--workspace-primary); }
+.assessment-info-dialog section { display: grid; gap: 12px; }
+.assessment-info-dialog section h3 { margin: 0; color: var(--workspace-text); font-size: 17px; }
+.assessment-info-dialog section p { margin: 0; color: var(--workspace-text-muted); font-size: 13px; line-height: 21px; }
+.assessment-info-definitions { display: grid; gap: 10px; margin: 0; }
+.assessment-info-definitions > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; padding-top: 10px; border-top: 1px solid var(--workspace-border); }
+.assessment-info-definitions dt { color: var(--workspace-text); font-size: 13px; font-weight: 700; }
+.assessment-info-definitions dd { margin: 0; color: var(--workspace-text-muted); font-size: 13px; line-height: 20px; }
+.assessment-info-note { padding: 12px 14px; border-left: 3px solid var(--workspace-primary); background: var(--workspace-surface-subtle); }
+.assessment-risk-matrix-wrap { overflow-x: auto; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); }
+.assessment-risk-matrix { width: 100%; min-width: 520px; border-collapse: collapse; }
+.assessment-risk-matrix th, .assessment-risk-matrix td { padding: 10px 12px; border-bottom: 1px solid var(--workspace-border); border-right: 1px solid var(--workspace-border); text-align: center; font-size: 12px; }
+.assessment-risk-matrix tr:last-child th, .assessment-risk-matrix tr:last-child td { border-bottom: 0; }
+.assessment-risk-matrix th:last-child, .assessment-risk-matrix td:last-child { border-right: 0; }
+.assessment-risk-matrix thead th, .assessment-risk-matrix tbody th { background: var(--workspace-surface-subtle); color: var(--workspace-text); font-weight: 700; }
+.assessment-risk-matrix td { color: var(--workspace-text-muted); font-weight: 650; }
+.assessment-info-navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid var(--workspace-border); }
+.assessment-info-navigation span { color: var(--workspace-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+  .project-risk-overview-grid { grid-template-columns: 1fr; }
+  .project-traceability-attention-card { align-items: flex-start; flex-direction: column; }
+  .project-traceability-attention-card .btn-link { width: 100%; text-align: left; }
+  .project-risk-section-heading { align-items: flex-start; flex-direction: column; }
+  .assessment-info-definitions > div { grid-template-columns: 1fr; gap: 4px; }
 }
 
 .command-project-detail .project-activity-id {
@@ -1456,17 +1518,22 @@
 
 .command-project-detail .project-findings-table th:nth-child(3),
 .command-project-detail .project-findings-table td:nth-child(3) {
-  width: 13%;
+  width: 10%;
 }
 
 .command-project-detail .project-findings-table th:nth-child(4),
 .command-project-detail .project-findings-table td:nth-child(4) {
-  width: 50%;
+  width: 12%;
 }
 
 .command-project-detail .project-findings-table th:nth-child(5),
 .command-project-detail .project-findings-table td:nth-child(5) {
-  width: 16%;
+  width: 13%;
+}
+
+.command-project-detail .project-findings-table th:nth-child(6),
+.command-project-detail .project-findings-table td:nth-child(6) {
+  width: 42%;
 }
 
 .command-project-detail .project-findings-table th {
@@ -1566,6 +1633,26 @@
   color: var(--workspace-text-muted);
   font-size: 12px;
   text-transform: capitalize;
+}
+
+.command-project-detail .project-finding-risk {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 3px 7px;
+  border: 1px solid currentColor;
+  border-radius: var(--workspace-radius-pill);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.command-project-detail .project-risk-level-unclassified {
+  border-color: var(--workspace-border-strong);
+  color: var(--workspace-text-muted);
+  text-transform: none;
 }
 
 .command-project-detail .project-findings-table-region > .findings-pagination {
@@ -1976,6 +2063,39 @@
   color: var(--workspace-text);
   font-size: 15px;
   line-height: 22px;
+}
+
+.command-project-detail .project-collaborator-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.command-project-detail .project-collaborator-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+}
+
+.command-project-detail .project-collaborator-row img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.command-project-detail .project-collaborator-row > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.command-project-detail .project-collaborator-row small {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
 }
 
 .command-project-detail .project-collaboration-empty p {
@@ -2787,5 +2907,223 @@
 
   .command-project-detail .project-value-collection-heading {
     align-items: flex-start;
+  }
+}
+
+.command-project-detail .export-result.success {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-card);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  box-shadow: var(--workspace-shadow-card);
+}
+
+.command-project-detail .export-result-message {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.command-project-detail .report-export-summary {
+  margin: -8px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.command-project-detail .report-export-meta,
+.command-project-detail .report-export-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.command-project-detail .report-export-meta > span {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-pill);
+  background: var(--workspace-surface-subtle);
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.command-project-detail .report-export-meta code,
+.command-project-detail .report-integrity code {
+  color: var(--workspace-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.command-project-detail .report-export-downloads .btn-secondary {
+  min-height: 36px;
+  text-decoration: none;
+}
+
+.command-project-detail .report-export-downloads > span {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.command-project-detail .report-integrity {
+  border-top: 1px solid var(--workspace-border);
+  padding-top: 10px;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+}
+
+.command-project-detail .report-integrity summary,
+.command-project-detail .report-preview summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.command-project-detail .report-integrity summary:focus-visible,
+.command-project-detail .report-preview summary:focus-visible {
+  outline: 2px solid var(--workspace-primary);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.command-project-detail .report-integrity dl {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.command-project-detail .report-integrity dl > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.command-project-detail .report-integrity dt { color: var(--workspace-text-muted); }
+.command-project-detail .report-integrity dd { min-width: 0; margin: 0; }
+
+.command-project-detail .report-preview {
+  margin-top: 0;
+  border-color: var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.command-project-detail .report-preview > summary {
+  padding: 10px 12px;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+}
+
+.command-project-detail .report-content {
+  margin: 0;
+  border-top: 1px solid var(--workspace-border);
+  color: var(--workspace-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.command-project-detail .project-reports-card {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 18px;
+}
+
+.command-project-detail .project-report-history-description {
+  margin: 0;
+  color: var(--workspace-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.command-project-detail .project-reports-status,
+.command-project-detail .project-reports-empty {
+  margin: 0;
+  color: var(--workspace-text-muted);
+}
+
+.command-project-detail .project-reports-empty {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 38px 20px;
+  border: 1px dashed var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  text-align: center;
+}
+
+.command-project-detail .project-report-history {
+  display: grid;
+  gap: 10px;
+}
+
+.command-project-detail .project-report-history-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 16px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.command-project-detail .project-report-history-main,
+.command-project-detail .project-report-history-actions,
+.command-project-detail .project-report-links {
+  display: grid;
+  gap: 5px;
+}
+
+.command-project-detail .project-report-history-main > span,
+.command-project-detail .project-report-history-main > small,
+.command-project-detail .project-report-links small {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+}
+
+.command-project-detail .project-report-checksum code {
+  overflow-wrap: anywhere;
+}
+
+.command-project-detail .project-report-history-actions {
+  min-width: 178px;
+  justify-items: stretch;
+}
+
+.command-project-detail .project-report-links {
+  grid-template-columns: repeat(3, auto);
+  align-items: center;
+  column-gap: 12px;
+  font-size: 12px;
+}
+
+.command-project-detail .project-report-links small {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .command-project-detail .report-integrity dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .command-project-detail .project-reports-header,
+  .command-project-detail .project-report-history-row {
+    flex-direction: column;
+  }
+
+  .command-project-detail .project-report-history-actions {
+    width: 100%;
   }
 }

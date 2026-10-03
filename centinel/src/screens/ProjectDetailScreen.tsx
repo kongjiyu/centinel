@@ -1,23 +1,19 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Download, Plus, FolderOpen, Play, BarChart3, AlertCircle, FileText, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
-import { api } from '../api/client';
+import { api, type ProjectReportDownloadLinks, type ProjectReportExportResult, type ProjectReportHistoryEntry } from '../api/client';
 import { DynamicTestForm } from './DynamicTestForm';
-import { ReviewModal } from '../components/ReviewModal';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
-import { ActiveSessionInline } from '../components/ActiveSessionInline';
-import { ActiveSessionComplete } from '../components/ActiveSessionComplete';
-import { ReviewDecisionPill } from '../components/ReviewDecisionBar';
-import { TestPlanPanel } from '../components/TestPlanPanel';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
 import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
-import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, CollaborationStatus, CollaboratorMatch } from '../types';
+import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
+import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot } from '../types';
 import './ProjectDetailScreen.css';
 
 type Props = {
@@ -36,7 +32,10 @@ type AttentionItem = {
   detail: string;
   action: 'source' | 'findings' | 'activity' | 'actions';
   actionLabel: string;
+  filter?: { category?: string; search?: string };
 };
+
+type AssessmentInfoPage = 'severity' | 'priority' | 'risk';
 
 type ReadinessItem = {
   id: string;
@@ -71,29 +70,22 @@ function attentionPreview(detail: string): string {
   return (boundary > ATTENTION_PREVIEW_LIMIT - 30 ? preview.slice(0, boundary) : preview).trimEnd();
 }
 
-const REVIEW_TYPE_LABELS: Record<string, string> = {
-  requirement_review: 'Requirement Review',
-  code_review: 'Code Inspection',
-  requirement_to_code_traceability: 'Traceability',
-  cross_artifact_consistency: 'Consistency',
-};
-
-export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialStaticSessionId }: Props) {
+export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialStaticSessionId: _initialStaticSessionId }: Props) {
   const [currentProject, setCurrentProject] = useState(project);
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [showDynamicForm, setShowDynamicForm] = useState(initialAction === 'dynamic');
-  const [showStaticForm, setShowStaticForm] = useState(initialAction === 'static');
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [openSessionId, setOpenSessionId] = useState<string | null>(initialStaticSessionId ?? null);
-  const [findingsBySession, setFindingsBySession] = useState<Record<string, Finding[]>>({});
+  const [exportResult, setExportResult] = useState<ProjectReportExportResult | null>(null);
+  const [reportHistory, setReportHistory] = useState<ProjectReportHistoryEntry[]>([]);
+  const [reportHistoryLoading, setReportHistoryLoading] = useState(false);
+  const [reportHistoryError, setReportHistoryError] = useState<string | null>(null);
+  const [showReportHistory, setShowReportHistory] = useState(false);
+  const [reportLinks, setReportLinks] = useState<Record<string, ProjectReportDownloadLinks>>({});
+  const [renewingReportId, setRenewingReportId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState('project-overview');
-  const [reReviewSession, setReReviewSession] = useState<StaticSession | null>(null);
-  const [reReviewName, setReReviewName] = useState('');
-  const [reReviewInstructions, setReReviewInstructions] = useState('');
-  const [creatingReReview, setCreatingReReview] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activityQuery, setActivityQuery] = useState('');
   const [activityType, setActivityType] = useState<'all' | 'review' | 'dynamic'>('all');
@@ -101,9 +93,14 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [activityState, setActivityState] = useState<ActivityState>('all');
   const [activityPage, setActivityPage] = useState(0);
   const [projectFindings, setProjectFindings] = useState<Finding[]>([]);
+  const [assessmentData, setAssessmentData] = useState<ProjectAssessment | null>(null);
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [findingsError, setFindingsError] = useState<string | null>(null);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
+  const [latestTraceabilitySummary, setLatestTraceabilitySummary] = useState<{ complete: number; incomplete: number; missing: number; attention: number } | null>(null);
+  const [latestTraceabilityReview, setLatestTraceabilityReview] = useState<StaticSession | null>(null);
+  const [traceabilitySummaryLoading, setTraceabilitySummaryLoading] = useState(false);
+  const [assessmentInfoPage, setAssessmentInfoPage] = useState<AssessmentInfoPage | null>(null);
   const [attentionPage, setAttentionPage] = useState(0);
   const [settingsDraft, setSettingsDraft] = useState({ name: project.name, description: project.description, workspacePath: project.workspacePath });
   const [settingsEditing, setSettingsEditing] = useState(false);
@@ -115,6 +112,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [collaborationStatus, setCollaborationStatus] = useState<CollaborationStatus | null>(null);
   const [collaborationStatusLoading, setCollaborationStatusLoading] = useState(false);
   const [collaborationQuery, setCollaborationQuery] = useState('');
+  const [githubCollaborators, setGithubCollaborators] = useState<GithubCollaboratorSnapshot | null>(null);
+  const [githubCollaboratorsLoading, setGithubCollaboratorsLoading] = useState(false);
+  const [githubCollaboratorsSyncing, setGithubCollaboratorsSyncing] = useState(false);
+  const [githubCollaboratorsError, setGithubCollaboratorsError] = useState<string | null>(null);
   const [showCollaboratorDialog, setShowCollaboratorDialog] = useState(false);
   const [collaboratorEmail, setCollaboratorEmail] = useState('');
   const [collaboratorMatches, setCollaboratorMatches] = useState<CollaboratorMatch[]>([]);
@@ -126,11 +127,11 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [repositoryInfoOpen, setRepositoryInfoOpen] = useState(false);
   const collaboratorSearchRequest = useRef(0);
   const [attentionDetailItem, setAttentionDetailItem] = useState<AttentionItem | null>(null);
+  const [findingsFilter, setFindingsFilter] = useState<{ riskLevel?: 'critical_or_high'; status?: 'unresolved'; category?: string; search?: string } | null>(null);
 
-  const { state: activeReviewState, controls: activeReviewControls } = useActiveReviewState();
+  const { state: activeReviewState } = useActiveReviewState();
 
   useEffect(() => {
-    setShowStaticForm(initialAction === 'static');
     setShowDynamicForm(initialAction === 'dynamic');
     if (!initialAction) return;
     const sectionId = 'project-overview';
@@ -171,18 +172,14 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     }
   }, [project.id]);
 
-  const ensureFindingsLoaded = useCallback(async (sessionId: string) => {
-    if (findingsBySession[sessionId]) return;
-    try {
-      const findings = await api.listStaticFindings(project.id, sessionId);
-      setFindingsBySession(prev => ({ ...prev, [sessionId]: findings }));
-    } catch {}
-  }, [findingsBySession, project.id]);
-
-  useEffect(() => {
-    setOpenSessionId(initialStaticSessionId ?? null);
-    if (initialStaticSessionId) void ensureFindingsLoaded(initialStaticSessionId);
-  }, [ensureFindingsLoaded, initialStaticSessionId, project.id]);
+  const loadReportHistory = useCallback(async () => {
+    if (typeof api.listProjectReportHistory !== 'function') return;
+    setReportHistoryLoading(true);
+    setReportHistoryError(null);
+    try { setReportHistory(await api.listProjectReportHistory(project.id)); }
+    catch (cause) { setReportHistoryError(userFacingError(cause, 'Report history could not be loaded.')); }
+    finally { setReportHistoryLoading(false); }
+  }, [project.id]);
 
   useEffect(() => {
     setSettingsDraft({ name: project.name, description: project.description, workspacePath: project.workspacePath });
@@ -192,7 +189,19 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
 
-  useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); loadProjectFindings(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts, loadProjectFindings]);
+  useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); loadProjectFindings(); loadReportHistory(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts, loadProjectFindings, loadReportHistory]);
+
+  useEffect(() => {
+    if (typeof api.getProjectAssessment !== 'function') {
+      setAssessmentData(null);
+      return;
+    }
+    let cancelled = false;
+    api.getProjectAssessment(project.id)
+      .then(data => { if (!cancelled) setAssessmentData(data.status === 'available' ? data : null); })
+      .catch(() => { if (!cancelled) setAssessmentData(null); });
+    return () => { cancelled = true; };
+  }, [project.id, projectFindings, staticSessions]);
 
   useEffect(() => {
     const snapshot = activeReviewState?.session;
@@ -207,12 +216,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         }
       : session));
 
-    if (snapshot.status === 'success') {
-      setFindingsBySession(prev => ({
-        ...prev,
-        [snapshot.id]: snapshot.findings,
-      }));
-    }
   }, [activeReviewState?.session, project.id]);
 
   useEffect(() => {
@@ -232,52 +235,30 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     } catch (e) { setError(userFacingError(e, 'Dynamic Testing could not be started.')); throw e; }
   };
 
-  const handleCreateStatic = async (data: { name: string; instructions: string; baseRef?: string; headRef?: string; parentSessionId?: string }) => {
-    setError(null);
-    try {
-      const session = await api.createStaticSession(project.id, data);
-      setStaticSessions(prev => [session, ...prev.filter(item => item.id !== session.id)]);
-      setOpenSessionId(session.id);
-      activeReviewControls.trackSession(session, project.name);
-      setShowStaticForm(false);
-    } catch (e) { setError(userFacingError(e, 'The Review could not be started.')); throw e; }
-  };
-
-  const onReReviewClick = (
-    e: React.MouseEvent<HTMLButtonElement>,
-    s: StaticSession
-  ) => {
-    e.stopPropagation();
-    setReReviewSession(s);
-    setReReviewName(`Re-review of ${s.name}`);
-    setReReviewInstructions(s.remarks || '');
-  };
-
-  const handleCreateReReview = async () => {
-    if (!reReviewSession || !reReviewName.trim()) return;
-    setCreatingReReview(true);
-    try {
-      await handleCreateStatic({
-        name: reReviewName.trim(),
-        instructions: reReviewInstructions.trim(),
-        baseRef: reReviewSession.baseRef,
-        headRef: reReviewSession.headRef,
-        parentSessionId: reReviewSession.id,
-      });
-      setReReviewSession(null);
-    } finally {
-      setCreatingReReview(false);
-    }
-  };
-
   const handleExportReport = async () => {
     setExporting(true);
+    setError(null);
     try {
-      await api.exportProjectReport(project.id);
+      setExportResult(await api.exportProjectReport(project.id));
+      await loadReportHistory();
     } catch (cause) {
+      setExportResult(null);
       setError(`Export failed. ${userFacingError(cause, 'Try again.')}`);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const renewReportLinks = async (reportId: string) => {
+    setRenewingReportId(reportId);
+    setReportHistoryError(null);
+    try {
+      const links = await api.renewProjectReportLinks(project.id, reportId);
+      setReportLinks(previous => ({ ...previous, [reportId]: links }));
+    } catch (cause) {
+      setReportHistoryError(userFacingError(cause, 'Fresh report download links could not be created.'));
+    } finally {
+      setRenewingReportId(null);
     }
   };
 
@@ -286,12 +267,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setActiveSection(sectionId);
     requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
-
-  const staleSourceCount = artifacts.filter(artifact => {
-    if (artifact.source !== 'documents' && artifact.source !== 'drive') return false;
-    const ingestedAt = Date.parse(artifact.createdAt);
-    return Number.isFinite(ingestedAt) && Date.now() - ingestedAt > 90 * 24 * 60 * 60 * 1000;
-  }).length;
 
   const projectActivities = useMemo(() => [...staticSessions.map(session => ({
     id: session.id,
@@ -338,12 +313,91 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setActivityPage(0);
   }, [activityDateTime, activityQuery, activityState, activityType]);
 
-  const unresolvedFindings = useMemo(() => {
-    const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-    return projectFindings
-      .filter(finding => !['accepted', 'dismissed', 'fixed'].includes(finding.status))
-      .sort((a, b) => (severityOrder[a.severity.toLowerCase()] ?? 99) - (severityOrder[b.severity.toLowerCase()] ?? 99) || Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt));
-  }, [projectFindings]);
+  const unresolvedFindings = useMemo(() => projectFindings
+    .filter(finding => !['dismissed', 'fixed'].includes(finding.status))
+    .sort((a, b) => (riskLevelRank(a.riskLevel ?? deriveRiskLevel(a.severity, a.priority)) - riskLevelRank(b.riskLevel ?? deriveRiskLevel(b.severity, b.priority))) || Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)), [projectFindings]);
+
+  const currentFindings = useMemo(() => {
+    // A re-review can expose a carry-over row alongside the newly produced
+    // row for the same issue. Collapse that stable fingerprint so one logical
+    // unresolved issue contributes once to project risk.
+    const byFingerprint = new Map<string, Finding>();
+    unresolvedFindings
+      // Project Assessment risk is Review/static-only in v1. Dynamic Testing
+      // keeps its own evidence and lifecycle until a comparable cross-module
+      // policy is defined.
+      .filter(finding => finding.source === 'static')
+      .forEach(finding => {
+        const title = finding.title.trim().toLowerCase().replace(/\s+/g, ' ');
+        const fingerprint = [finding.artifactId || finding.filePath || finding.id, (finding.category || '').trim().toLowerCase(), title].join('|');
+        const existing = byFingerprint.get(fingerprint);
+        if (!existing || (existing.status === 'carryover' && finding.status !== 'carryover')) byFingerprint.set(fingerprint, finding);
+      });
+    return Array.from(byFingerprint.values());
+  }, [unresolvedFindings]);
+
+  const riskLevelFindings = useMemo(() => currentFindings
+    .map(finding => ({ ...finding, riskLevel: finding.riskLevel ?? deriveRiskLevel(finding.severity, finding.priority) }))
+    .filter(finding => Boolean(finding.riskLevel)), [currentFindings]);
+
+  const riskFindings = useMemo(() => riskLevelFindings
+    .sort((a, b) => riskLevelRank(a.riskLevel) - riskLevelRank(b.riskLevel)
+      || priorityRank(a.priority) - priorityRank(b.priority)
+      || riskLevelRank(a.severity) - riskLevelRank(b.severity)
+      || Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)
+      || a.title.localeCompare(b.title)
+      || a.id.localeCompare(b.id)), [riskLevelFindings]);
+
+  const displayedRiskFindings = assessmentData?.status === 'available' ? assessmentData.riskItems : riskFindings;
+
+  const latestReview = useMemo(() => [...staticSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [staticSessions]);
+  const latestDynamicTest = useMemo(() => [...dynamicSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [dynamicSessions]);
+  const latestReviewState = latestReview ? projectActivityLifecycle(latestReview, 'review') : null;
+  const latestDynamicState = latestDynamicTest ? projectActivityLifecycle(latestDynamicTest, 'dynamic') : null;
+
+  useEffect(() => {
+    const completedReview = [...staticSessions]
+      .filter(review => review.status === 'success' && review.currentDecision?.decision === 'approved')
+      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null;
+    if (assessmentData?.status === 'available') {
+      const assessedReview = assessmentData.traceability.reviewId
+        ? staticSessions.find(review => review.id === assessmentData.traceability.reviewId) ?? completedReview
+        : completedReview;
+      setLatestTraceabilityReview(assessedReview ?? null);
+      setLatestTraceabilitySummary(assessmentData.traceability.status === 'available' ? assessmentData.traceability.summary : null);
+      setTraceabilitySummaryLoading(false);
+      return;
+    }
+    setLatestTraceabilityReview(completedReview);
+    if (!completedReview || typeof api.getReviewTraceability !== 'function') {
+      setLatestTraceabilitySummary(null);
+      setTraceabilitySummaryLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTraceabilitySummaryLoading(true);
+    api.getReviewTraceability(project.id, completedReview.id)
+      .then(snapshot => { if (!cancelled) setLatestTraceabilitySummary(snapshot.status === 'available' ? snapshot.summary : null); })
+      .catch(() => { if (!cancelled) setLatestTraceabilitySummary(null); })
+      .finally(() => { if (!cancelled) setTraceabilitySummaryLoading(false); });
+    return () => { cancelled = true; };
+  }, [assessmentData, project.id, staticSessions]);
+
+  const recurringPatterns = useMemo(() => {
+    const approvedSessionIds = new Set(staticSessions.filter(review => review.status === 'success' && review.currentDecision?.decision === 'approved').map(review => review.id));
+    const groups = new Map<string, { label: string; sessions: Set<string>; filter: { category?: string; search?: string } }>();
+    projectFindings.forEach(finding => {
+      if (finding.source !== 'static') return;
+      if (!finding.sessionId || !approvedSessionIds.has(finding.sessionId)) return;
+      const category = finding.category?.trim();
+      const normalizedTitle = finding.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const key = category ? `category:${category.toLowerCase()}` : `title:${normalizedTitle}`;
+      const existing = groups.get(key) ?? { label: category || finding.title, sessions: new Set<string>(), filter: category ? { category } : { search: finding.title } };
+      existing.sessions.add(finding.sessionId);
+      groups.set(key, existing);
+    });
+    return Array.from(groups.values()).sort((a, b) => b.sessions.size - a.sessions.size || a.label.localeCompare(b.label)).slice(0, 3);
+  }, [projectFindings, staticSessions]);
 
   const attentionItems = useMemo<AttentionItem[]>(() => {
     const items: AttentionItem[] = [];
@@ -367,6 +421,15 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         action: 'activity',
         actionLabel: 'Inspect',
       }));
+
+    recurringPatterns.forEach(pattern => items.push({
+      id: `recurring-${pattern.label}`,
+      title: `Recurring Finding Patterns · ${pattern.label}`,
+      detail: `${pattern.sessions.size} completed Review session${pattern.sessions.size === 1 ? '' : 's'} contain this pattern.`,
+      action: 'findings',
+      actionLabel: 'Review',
+      filter: pattern.filter,
+    }));
 
     unresolvedFindings.forEach(finding => items.push({
       id: `finding-${finding.id}`,
@@ -397,7 +460,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     }
 
     return items;
-  }, [artifacts.length, artifactsError, dynamicSessions, staticSessions, unresolvedFindings]);
+  }, [artifacts.length, artifactsError, dynamicSessions, recurringPatterns, staticSessions, unresolvedFindings]);
 
   const readinessItems = useMemo<ReadinessItem[]>(() => {
     const entries = [
@@ -415,35 +478,19 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
   const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);
 
-  const latestReview = useMemo(() => [...staticSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [staticSessions]);
-  const latestDynamicTest = useMemo(() => [...dynamicSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [dynamicSessions]);
-  const latestReviewState = latestReview ? projectActivityLifecycle(latestReview, 'review') : null;
-  const latestDynamicState = latestDynamicTest ? projectActivityLifecycle(latestDynamicTest, 'dynamic') : null;
-  const assessmentDimensions = useMemo(() => {
-    const unresolvedCritical = unresolvedFindings.filter(finding => finding.severity.toLowerCase() === 'critical').length;
-    const unresolvedHigh = unresolvedFindings.filter(finding => finding.severity.toLowerCase() === 'high').length;
-    const reviewRisk = !latestReview
-      ? 'Insufficient evidence'
-      : unresolvedCritical > 0
-        ? 'High'
-        : unresolvedHigh > 0 || unresolvedFindings.length > 0
-          ? 'Medium'
-          : 'Low';
-    const dynamicRisk = !latestDynamicTest
-      ? 'Insufficient evidence'
-      : latestDynamicState === 'Failed'
-        ? 'High'
-        : latestDynamicState === 'Completed'
-          ? 'Low'
-          : 'Medium';
-    return [
-      { id: 'security', label: 'Security', source: 'Review', state: reviewRisk, evidence: latestReview ? `${unresolvedFindings.length} unresolved finding${unresolvedFindings.length === 1 ? '' : 's'}` : 'No Review evidence recorded.' },
-      { id: 'traceability', label: 'Requirement traceability', source: 'Review', state: latestReview ? (projectFindings.length > 0 ? 'Medium' : 'Insufficient evidence') : 'Insufficient evidence', evidence: latestReview ? 'Review mappings and linked findings' : 'No Review evidence recorded.' },
-      { id: 'reliability', label: 'Reliability', source: 'Dynamic Testing', state: dynamicRisk, evidence: latestDynamicTest?.finalSummary || latestDynamicState || 'No Dynamic Testing evidence recorded.' },
-      { id: 'maintainability', label: 'Maintainability', source: 'Review', state: latestReview ? (unresolvedFindings.length > 0 ? 'Medium' : 'Low') : 'Insufficient evidence', evidence: latestReview ? 'Source findings and recommendations' : 'No Review evidence recorded.' },
-      { id: 'coverage', label: 'Evidence coverage', source: 'Review + Dynamic Testing', state: latestReview || latestDynamicTest ? 'Medium' : 'Insufficient evidence', evidence: `${artifacts.length} source${artifacts.length === 1 ? '' : 's'} available across the project` },
-    ];
-  }, [artifacts.length, latestDynamicState, latestDynamicTest, latestReview, projectFindings.length, unresolvedFindings]);
+  const riskSummary = useMemo(() => {
+    const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+    riskLevelFindings.forEach(finding => {
+      const level = finding.riskLevel as keyof typeof counts;
+      if (level in counts) counts[level] += 1;
+    });
+    return assessmentData?.status === 'available' && assessmentData.summary ? {
+      critical: assessmentData.summary.critical,
+      high: assessmentData.summary.high,
+      medium: assessmentData.summary.medium,
+      low: assessmentData.summary.low,
+    } : counts;
+  }, [assessmentData, riskLevelFindings]);
 
   useEffect(() => {
     setAttentionPage(page => Math.min(page, attentionPageCount - 1));
@@ -460,6 +507,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       requestAnimationFrame(() => document.getElementById('project-recent-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
       return;
     }
+    if (item.action === 'findings') setFindingsFilter(item.filter ?? null);
     moveToSection(item.action === 'source' ? 'project-source' : 'project-findings');
   };
 
@@ -535,17 +583,30 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setCollaborationStatus({
         available: false,
         repository: null,
-        message: 'This build does not connect to a collaboration service, so no invitations or roles are represented here.',
+        message: userFacingError(cause, 'GitHub collaboration status is unavailable. Check your connection and try again.'),
       });
     } finally {
       setCollaborationStatusLoading(false);
     }
   }, [project.id]);
 
+  const loadGithubCollaborators = useCallback(async () => {
+    setGithubCollaboratorsLoading(true);
+    setGithubCollaboratorsError(null);
+    try {
+      setGithubCollaborators(await api.getProjectCollaborators(project.id));
+    } catch (cause) {
+      setGithubCollaboratorsError(userFacingError(cause, 'Saved collaborators could not be loaded.'));
+    } finally {
+      setGithubCollaboratorsLoading(false);
+    }
+  }, [project.id]);
+
   useEffect(() => {
     if (activeSection !== 'project-collaborations') return;
     void loadCollaborationStatus();
-  }, [activeSection, loadCollaborationStatus]);
+    void loadGithubCollaborators();
+  }, [activeSection, loadCollaborationStatus, loadGithubCollaborators]);
 
   const openCollaboratorDialog = () => {
     setCollaboratorEmail('');
@@ -603,10 +664,27 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     return () => window.clearTimeout(timer);
   }, [collaboratorEmail, collaborationStatus?.repository, searchForCollaborator, showCollaboratorDialog]);
 
-  const handleSyncFromGithub = () => {
+  const handleSyncFromGithub = async () => {
     setCollaboratorError(null);
-    setCollaboratorNotice('GitHub sync is not available in this build, so existing collaborator data was not changed.');
+    setGithubCollaboratorsError(null);
+    setCollaboratorNotice(null);
+    setGithubCollaboratorsSyncing(true);
+    try {
+      const snapshot = await api.syncGithubCollaborators(project.id);
+      setGithubCollaborators(snapshot);
+      setCollaboratorNotice(`Synced ${snapshot.collaborators.length} collaborator${snapshot.collaborators.length === 1 ? '' : 's'} from GitHub.`);
+    } catch (cause) {
+      const message = userFacingError(cause, 'GitHub collaborators could not be synced. Check repository access and try again.');
+      setGithubCollaboratorsError(message);
+      setCollaboratorError(message);
+    } finally {
+      setGithubCollaboratorsSyncing(false);
+    }
   };
+
+  const visibleGithubCollaborators = (githubCollaborators?.collaborators ?? []).filter(collaborator =>
+    collaborator.login.toLowerCase().includes(collaborationQuery.trim().toLowerCase()),
+  );
 
   const inviteSelectedCollaborator = async () => {
     if (!selectedCollaborator) return;
@@ -646,13 +724,16 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             {actionsOpen && (
               <div className="project-action-popover" role="menu" aria-label="Project actions">
                 <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); onNavigate({ name: 'review-entry', projectId: project.id }); }}>
-                  <FolderOpen size={16} aria-hidden="true" /> Review
+                  <FolderOpen size={16} aria-hidden="true" /> Start Review
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setShowDynamicForm(true); }}>
                   <Play size={16} aria-hidden="true" /> Dynamic testing
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); void handleExportReport(); }} disabled={exporting}>
                   <Download size={16} aria-hidden="true" /> {exporting ? 'Exporting…' : 'Export report'}
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setShowReportHistory(true); void loadReportHistory(); }}>
+                  <Clock3 size={16} aria-hidden="true" /> Report history
                 </button>
               </div>
             )}
@@ -670,11 +751,74 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       </nav>
 
       {error && <p className="form-error command-inline-alert"><AlertCircle size={14} /> {error}</p>}
+      {exportResult && <section className="export-result success" aria-labelledby="report-export-heading">
+        <h2 className="export-result-message" id="report-export-heading">Project report generated</h2>
+        <p className="report-export-summary" role="status" aria-live="polite">One immutable snapshot was rendered as JSON, Markdown, and PDF.</p>
+        <div className="report-export-meta">
+          <span>Stored privately in Supabase</span>
+          <span>Generated {formatProjectDateTime(exportResult.generatedAt)}</span>
+          {exportResult.reportId && <span>Export ID <code>{exportResult.reportId}</code></span>}
+          {exportResult.expiresAt && <span>Download links expire {formatProjectDateTime(exportResult.expiresAt)}</span>}
+        </div>
+        <nav className="report-export-downloads" aria-label="Report downloads">
+            {exportResult.downloads.json && <a className="btn-secondary" href={exportResult.downloads.json} target="_blank" rel="noreferrer" download>Download JSON</a>}
+            {exportResult.downloads.markdown && <a className="btn-secondary" href={exportResult.downloads.markdown} target="_blank" rel="noreferrer" download>Download Markdown</a>}
+            {exportResult.downloads.pdf && <a className="btn-secondary" href={exportResult.downloads.pdf} target="_blank" rel="noreferrer" download>Download PDF</a>}
+            {!exportResult.downloads.json && !exportResult.downloads.markdown && !exportResult.downloads.pdf && <span>Download links are unavailable. The report record was retained; try exporting again to request fresh links.</span>}
+        </nav>
+        <details className="report-integrity">
+          <summary>Integrity checksums</summary>
+          <dl>
+            <div><dt>Snapshot JSON</dt><dd><code>{exportResult.checksums.snapshot}</code></dd></div>
+            <div><dt>Markdown</dt><dd><code>{exportResult.checksums.markdown}</code></dd></div>
+            <div><dt>PDF</dt><dd><code>{exportResult.checksums.pdf}</code></dd></div>
+            <div><dt>Package</dt><dd><code>{exportResult.checksums.package}</code></dd></div>
+          </dl>
+        </details>
+        <details className="report-preview">
+          <summary>Preview Markdown contents</summary>
+          <pre className="report-content">{exportResult.markdown}</pre>
+        </details>
+      </section>}
       <div className="detail-grid" id="project-overview">
         {/* Artifacts */}
         {activeSection === 'project-source' && <section className="card detail-card sources-card" id="project-source">
-          <ArtifactsPanel projectId={project.id} />
+          <ArtifactsPanel projectId={project.id} onOpenSettings={() => onNavigate({ name: 'settings' })} />
         </section>}
+
+        {showReportHistory && <Modal isOpen onClose={() => setShowReportHistory(false)} title="Report history" width={760}><section className="project-reports-card" aria-label="Project report history">
+          <p className="project-report-history-description">Past project reports include risk assessment, Review findings and evidence, decisions, and the latest available Dynamic Testing summary. Use Action → Export report to create a new snapshot.</p>
+          {reportHistoryError && <p className="command-inline-alert" role="alert"><AlertCircle size={14} /> {reportHistoryError}</p>}
+          {reportHistoryLoading ? <p className="project-reports-status" role="status">Loading report history…</p> : reportHistory.length === 0 ? (
+            <div className="project-reports-empty">
+              <Download size={22} aria-hidden="true" />
+              <p>No reports have been exported for this project yet.</p>
+            </div>
+          ) : <div className="project-report-history" role="list" aria-label="Project report history">
+            {reportHistory.map(report => {
+              const links = reportLinks[report.id];
+              return <article className="project-report-history-row" role="listitem" key={report.id}>
+                <div className="project-report-history-main">
+                  <strong>Report {formatEntityId(report.id)}</strong>
+                  <span>Generated {formatProjectDateTime(report.createdAt)}</span>
+                  <small>Policy {report.policyVersion} · Generator {report.generatorVersion}</small>
+                  {report.checksum && <small className="project-report-checksum">Checksum <code>{report.checksum}</code></small>}
+                </div>
+                <div className="project-report-history-actions">
+                  <button type="button" className="btn-secondary" onClick={() => void renewReportLinks(report.id)} disabled={renewingReportId === report.id}>
+                    {renewingReportId === report.id ? 'Preparing…' : 'Get download links'}
+                  </button>
+                  {links && <div className="project-report-links" aria-label={`Downloads for report ${formatEntityId(report.id)}`}>
+                    <a href={links.downloads.json} target="_blank" rel="noreferrer" download>JSON</a>
+                    <a href={links.downloads.markdown} target="_blank" rel="noreferrer" download>Markdown</a>
+                    <a href={links.downloads.pdf} target="_blank" rel="noreferrer" download>PDF</a>
+                    <small>Links expire {formatProjectDateTime(links.expiresAt)}</small>
+                  </div>}
+                </div>
+              </article>;
+            })}
+          </div>}
+        </section></Modal>}
 
         {activeSection === 'project-overview' && <>
           <div className="project-overview-grid" aria-label="Project overview">
@@ -776,116 +920,25 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         {activeSection === 'project-assessment' && <section className="card detail-card project-risk-card" id="project-assessment" aria-labelledby="project-risk-heading">
           <div className="panel-header">
             <div>
-              <h2 id="project-risk-heading"><ShieldAlert size={19} /> Assessment</h2>
-              <p className="project-risk-summary">Evidence-led risk context from the latest Review and Dynamic Testing runs. These signals are not a composite score.</p>
+              <h2 id="project-risk-heading"><ShieldAlert size={19} /> Assessment <button type="button" className="command-icon-button assessment-info-button" aria-label="Assessment information" title="How Assessment risk is measured" onClick={() => setAssessmentInfoPage('severity')}><Info size={16} aria-hidden="true" /></button></h2>
             </div>
-            <span className="panel-count">{latestReview || latestDynamicTest ? 'Evidence available' : 'No evidence yet'}</span>
+              <span className="panel-count">{findingsError ? 'Unavailable' : findingsLoading ? 'Loading…' : assessmentData?.status === 'available' && assessmentData.summary ? `${assessmentData.summary.classified} classified${assessmentData.summary.unclassified > 0 ? ` · ${assessmentData.summary.unclassified} unavailable` : ''}` : `${riskLevelFindings.length} classified${currentFindings.length > riskLevelFindings.length ? ` · ${currentFindings.length - riskLevelFindings.length} unavailable` : ''}`}</span>
           </div>
-          <div className="project-assessment-summary">
-            <div><strong>Review</strong><span>{latestReview?.name || 'No review run recorded'}</span><small>{latestReviewState || 'Start a Review to collect evidence'}</small></div>
-            <div><strong>Dynamic Testing</strong><span>{latestDynamicTest?.name || 'No dynamic test recorded'}</span><small>{latestDynamicState || 'Start Dynamic Testing to collect evidence'}</small></div>
-            <div><strong>Sources</strong><span>{artifacts.length} available</span><small>Used as assessment context</small></div>
-          </div>
-          <div className="project-assessment-dimensions" role="list" aria-label="Project risk dimensions">
-            {assessmentDimensions.map(dimension => <article key={dimension.id} className="project-assessment-dimension" role="listitem">
-              <div className="project-assessment-dimension-heading"><h3>{dimension.label}</h3><StatusBadge label={dimension.state} tone={dimension.state === 'High' ? 'danger' : dimension.state === 'Medium' ? 'warning' : dimension.state === 'Low' ? 'success' : 'neutral'} /></div>
-              <p>{dimension.evidence}</p>
-              <small>Evidence source: {dimension.source}</small>
-            </article>)}
-          </div>
-        </section>}
-
-        {/* Static Review: review runs open from Recent activity or Review entry. */}
-        {false && <section className="card detail-card" id="project-review">
-          <div className="panel-header">
-            <h3>
-              <BarChart3 size={18} /> Review
-            </h3>
-            <div className="panel-actions">
-              <button className="btn-secondary" onClick={() => onNavigate({ name: 'requirements', projectId: project.id })}>
-                Requirements
-              </button>
-              {!showStaticForm && (
-                <button className="btn-primary" onClick={() => setShowStaticForm(true)}>
-                  <Plus size={16} /> New review
-                </button>
-              )}
+          <section className="project-risk-summary-section" aria-labelledby="risk-summary-heading">
+            <div className="project-risk-section-heading"><div><h3 id="risk-summary-heading">Risk Summary</h3></div></div>
+            <div className="project-risk-overview-grid">
+              <div className="project-traceability-attention-card"><div><strong>Requirement traceability attention</strong><span>{traceabilitySummaryLoading ? 'Loading…' : latestTraceabilitySummary ? latestTraceabilitySummary.attention : '—'}</span><small>{latestTraceabilitySummary ? `${latestTraceabilitySummary.missing} Missing · ${latestTraceabilitySummary.incomplete} Incomplete` : latestTraceabilityReview ? 'Traceability snapshot unavailable' : 'No completed Review snapshot available'}</small></div>{latestTraceabilityReview && <button type="button" className="btn-link" onClick={() => { try { window.sessionStorage.setItem(`centinel:review-result-tab:${project.id}:${latestTraceabilityReview.id}`, 'Traceability'); } catch { /* storage is optional */ } onNavigate({ name: 'review-activity', projectId: project.id, sessionId: latestTraceabilityReview.id, reviewName: latestTraceabilityReview.name }); }}>View latest review <span aria-hidden="true">→</span></button>}</div>
+              <div className="project-risk-count-grid" aria-label="Risk level counts">
+                {(['low', 'medium', 'high', 'critical'] as const).map(level => <div key={level} className={`project-risk-count project-risk-count-${level}`}><strong>{findingsError || findingsLoading ? '—' : riskSummary[level]}</strong><span>{level.charAt(0).toUpperCase() + level.slice(1)} Risk</span></div>)}
+              </div>
             </div>
-          </div>
-          {showStaticForm && (
-            <ReviewModal projectId={project.id} onSubmit={handleCreateStatic}
-              staleSourceCount={staleSourceCount}
-              onClose={() => { setShowStaticForm(false); setError(null); }} />
-          )}
-          {staticSessions.length > 0 ? (
-            <div className="session-list">
-              {staticSessions.map(s => {
-                const isActive = s.status === 'running' || s.status === 'queued';
-                const isOpen = openSessionId === s.id;
-                const handleClick = () => {
-                  onNavigate({ name: 'review-activity', projectId: project.id, sessionId: s.id, reviewName: s.name });
-                };
-                return (
-                  <div key={s.id} className={`session-block ${isOpen ? 'open' : ''}`}>
-                    <div className="session-row">
-                      <button
-                      type="button"
-                      className="session-row-main"
-                      onClick={handleClick}
-                      aria-expanded={isOpen}
-                    >
-                      <div className="session-info-compact">
-                        <span className="session-name">{s.name}</span>
-                        <span className="session-type">{REVIEW_TYPE_LABELS[s.reviewType] || s.reviewType}</span>
-                        {s.baseRef && s.headRef && (
-                          <span
-                            className="session-scope-badge"
-                            data-testid="session-scope-badge"
-                            title={`Scoped to files changed between ${s.baseRef} and ${s.headRef}`}
-                          >
-                            <GitBranch size={10} /> {s.baseRef} → {s.headRef}
-                          </span>
-                        )}
-                      </div>
-                      <div className="session-meta">
-                        <StatusBadge label={s.status} />
-                        {s.status === 'success' && (
-                          <ReviewDecisionPill decision={s.currentDecision ?? null} />
-                        )}
-                        <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
-                      </div>
-                      </button>
-                      {s.status === 'success' && !s.parentSessionId && (
-                        <button
-                          className="btn-ghost btn-re-review"
-                          onClick={(e) => onReReviewClick(e, s)}
-                          data-testid="re-review-button"
-                          title="Start a new review that carries over unresolved findings from this one"
-                          type="button"
-                        >
-                          <RotateCw size={13} /> Re-review
-                        </button>
-                      )}
-                    </div>
-                    {isOpen && (
-                      isActive ? (
-                        <ActiveSessionInline projectId={project.id} sessionId={s.id} />
-                      ) : (
-                        <ActiveSessionComplete
-                          projectId={project.id}
-                          sessionId={s.id}
-                          findings={findingsBySession[s.id] ?? []}
-                          parentSessionId={s.parentSessionId}
-                        />
-                      )
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            !showStaticForm && <p className="card-empty">No reviews yet.</p>
-          )}
+          </section>
+          <section className="project-risk-items-section" aria-labelledby="risk-items-heading">
+            <div className="project-risk-section-heading"><div><h3 id="risk-items-heading">Risk Items</h3><p>Four highest-risk unresolved findings.</p></div><span className="panel-count">{Math.min(4, displayedRiskFindings.length)} of {displayedRiskFindings.length}</span></div>
+            {displayedRiskFindings.length > 0 ? <div className="project-risk-table-wrap"><table className="project-risk-table" aria-label="Current risk items"><thead><tr><th scope="col">Risk</th><th scope="col">Severity</th><th scope="col">Priority</th><th scope="col">Finding</th><th scope="col">Category</th><th scope="col">Status</th></tr></thead><tbody>{displayedRiskFindings.slice(0, 4).map(finding => <tr key={finding.id}><td><span className={`project-risk-level project-risk-level-${finding.riskLevel}`}>{finding.riskLevel}</span></td><td>{finding.severity}</td><td>{finding.priority || 'Not set'}</td><td><strong>{finding.title}</strong></td><td>{finding.category || '—'}</td><td>{finding.status === 'fixed' ? 'Resolved' : finding.status === 'dismissed' ? 'Dismissed' : 'Unresolved'}</td></tr>)}</tbody></table></div> : <p className="card-empty">{findingsError ? 'Risk items could not be loaded.' : findingsLoading ? 'Loading risk items…' : riskLevelFindings.length === 0 ? 'No classified unresolved risk items.' : 'No current risk items.'}</p>}
+            <button type="button" className="btn-link project-see-more-findings" onClick={() => { setFindingsFilter({ riskLevel: 'critical_or_high', status: 'unresolved' }); moveToSection('project-findings'); }}>See More Findings <span aria-hidden="true">→</span></button>
+          </section>
+          <AssessmentInfoDialog page={assessmentInfoPage} onPageChange={setAssessmentInfoPage} onClose={() => setAssessmentInfoPage(null)} />
         </section>}
 
         {/* Dynamic Testing: test runs open from Recent activity or the header action. */}
@@ -939,6 +992,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              projectId={project.id}
              presentation="project"
             pageSize={5}
+            initialFilter={findingsFilter}
             refreshKey={
               activeReviewState?.session.projectId === project.id
                 ? `${activeReviewState.session.id}:${activeReviewState.session.status}`
@@ -950,17 +1004,29 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         {activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
           <div className="panel-header project-collaboration-header">
             <div><h2><Users size={19} /> Collaborators</h2></div>
-            <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>
+            <div className="project-collaboration-actions">
+              <button type="button" className="btn-secondary" onClick={() => void handleSyncFromGithub()} disabled={githubCollaboratorsSyncing || collaborationStatusLoading || !collaborationStatus?.available}><RotateCw size={16} aria-hidden="true" /> {githubCollaboratorsSyncing ? 'Syncing…' : 'Sync from GitHub'}</button>
+              <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>
+            </div>
           </div>
           <div className="project-collaboration-search-row">
-            <label className="project-collaboration-search" htmlFor="project-collaboration-search"><span className="visually-hidden">Search collaborators</span><span className="project-collaboration-search-control"><Search size={15} aria-hidden="true" /><input id="project-collaboration-search" type="search" value={collaborationQuery} onChange={event => setCollaborationQuery(event.target.value)} placeholder="Name or email" /></span></label>
+            <label className="project-collaboration-search" htmlFor="project-collaboration-search"><span className="visually-hidden">Search collaborators</span><span className="project-collaboration-search-control"><Search size={15} aria-hidden="true" /><input id="project-collaboration-search" type="search" value={collaborationQuery} onChange={event => setCollaborationQuery(event.target.value)} placeholder="GitHub username" /></span></label>
           </div>
           {collaborationStatusLoading && <p className="project-collaboration-status" role="status">Checking GitHub collaboration…</p>}
-          {!collaborationStatusLoading && collaborationStatus && (
+          {githubCollaboratorsLoading && <p className="project-collaboration-status" role="status">Loading collaborators…</p>}
+          {githubCollaboratorsError && <p className="command-inline-alert" role="alert">{githubCollaboratorsError}</p>}
+          {collaboratorNotice && <p className="collaborator-dialog-notice" role="status">{collaboratorNotice}</p>}
+          {!collaborationStatusLoading && !githubCollaboratorsLoading && visibleGithubCollaborators.length > 0 && <div className="project-collaborator-list" role="list" aria-label="GitHub collaborators">
+            {visibleGithubCollaborators.map(collaborator => <div className="project-collaborator-row" role="listitem" key={collaborator.id}>
+              {collaborator.avatarUrl ? <img src={collaborator.avatarUrl} alt="" /> : <span className="collaborator-avatar" aria-hidden="true"><Users size={16} /></span>}
+              <span><strong>@{collaborator.login}</strong><small>{collaborator.permission} access</small></span>
+            </div>)}
+          </div>}
+          {!collaborationStatusLoading && !githubCollaboratorsLoading && !githubCollaboratorsError && visibleGithubCollaborators.length === 0 && (
             <div className="project-collaboration-empty" role="status">
               <Users size={24} aria-hidden="true" />
-              <strong>Collaborator not found</strong>
-              <p>{collaborationQuery.trim() ? `No collaborator matches “${collaborationQuery.trim()}”.` : 'No collaborator data is available for this project yet.'} Add a collaborator or sync from GitHub.</p>
+              <strong>{collaborationQuery.trim() ? 'Collaborator not found' : githubCollaborators?.syncedAt ? 'No repository collaborators' : 'No collaborators synced yet'}</strong>
+              <p>{collaborationQuery.trim() ? `No collaborator matches “${collaborationQuery.trim()}”.` : !collaborationStatus?.available ? collaborationStatus?.message ?? 'Connect a GitHub repository and account to sync collaborators.' : githubCollaborators?.syncedAt ? 'The latest GitHub sync found no collaborators with repository access.' : 'Sync from GitHub to see people with repository access.'}</p>
             </div>
           )}
         </section>}
@@ -1001,32 +1067,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           </div>
         </section>}
 
-        {false && <section className="card detail-card project-report-card" id="project-reports">
-          <div className="panel-header">
-            <div>
-              <h3><FileText size={18} /> Reports</h3>
-              <p className="panel-description">Export a combined project report with the latest Review and Dynamic Testing results.</p>
-            </div>
-            <button className="btn-primary" onClick={handleExportReport} disabled={exporting}>
-              <Download size={16} /> {exporting ? 'Exporting…' : 'Export report'}
-            </button>
-          </div>
-        </section>}
-
-        {/* Test Plan (Group 2c) — module-grouped test items derived
-            from the static review. Mounts below findings so the
-            reviewer can scan defects and the test plan to address
-            them in one pass. */}
-        {false && <section className="card detail-card test-plan-card" id="project-suggested-tests">
-          <TestPlanPanel
-            projectId={project.id}
-            sessionId={
-              activeReviewState?.session?.projectId === project.id
-                ? activeReviewState?.session?.id
-                : staticSessions.find(s => s.status === 'success')?.id
-            }
-          />
-        </section>}
       </div>
 
       <Modal
@@ -1044,15 +1084,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         </div>}
       </Modal>
 
-      {showStaticForm && (
-        <ReviewModal
-          projectId={project.id}
-          onSubmit={handleCreateStatic}
-          staleSourceCount={staleSourceCount}
-          onClose={() => { setShowStaticForm(false); setError(null); }}
-        />
-      )}
-
       {showDynamicForm && (
         <Modal
           isOpen={showDynamicForm}
@@ -1066,39 +1097,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           />
         </Modal>
       )}
-
-      <Modal
-        isOpen={reReviewSession !== null}
-        onClose={creatingReReview ? () => undefined : () => setReReviewSession(null)}
-        title="Start re-review"
-        width={520}
-      >
-        <p className="modal-intro">Carry the existing scope into a new review and update the instructions if needed.</p>
-        <div className="form-field">
-          <label htmlFor="re-review-name">Review name</label>
-          <input
-            id="re-review-name"
-            value={reReviewName}
-            onChange={event => setReReviewName(event.target.value)}
-            maxLength={120}
-          />
-        </div>
-        <div className="form-field">
-          <label htmlFor="re-review-instructions">Instructions <span className="field-optional">Optional</span></label>
-          <textarea
-            id="re-review-instructions"
-            value={reReviewInstructions}
-            onChange={event => setReReviewInstructions(event.target.value)}
-            rows={4}
-          />
-        </div>
-        <div className="form-actions">
-          <button type="button" className="btn-secondary" onClick={() => setReReviewSession(null)} disabled={creatingReReview}>Cancel</button>
-          <button type="button" className="btn-primary" onClick={() => void handleCreateReReview()} disabled={creatingReReview || !reReviewName.trim()}>
-            {creatingReReview ? 'Starting…' : 'Start re-review'}
-          </button>
-        </div>
-      </Modal>
 
       <Modal
         isOpen={showCollaboratorDialog}
@@ -1120,8 +1118,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             <span className="collaborator-email-control"><input id="collaborator-email" type="email" value={collaboratorEmail} onChange={event => setCollaboratorEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" disabled={collaborationStatusLoading || !collaborationStatus?.repository} aria-describedby="collaborator-email-status" /><Search size={16} aria-hidden="true" /></span>
           </form>
           <div className="collaborator-sync-row">
-            <button type="button" className="btn-secondary" onClick={handleSyncFromGithub}><RotateCw size={15} aria-hidden="true" /> Sync collaborators from GitHub</button>
-            <span className="collaborator-sync-hint">Existing collaborator data is not changed.</span>
+            <button type="button" className="btn-secondary" onClick={() => void handleSyncFromGithub()} disabled={githubCollaboratorsSyncing || !collaborationStatus?.available}><RotateCw size={15} aria-hidden="true" /> {githubCollaboratorsSyncing ? 'Syncing…' : 'Sync collaborators from GitHub'}</button>
+            <span className="collaborator-sync-hint">Refreshes the saved list from GitHub.</span>
           </div>
           <div id="collaborator-email-status" aria-live="polite">
             {collaboratorSearchLoading && <p className="collaborator-dialog-status" role="status">Searching GitHub…</p>}
@@ -1167,4 +1165,46 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       </Modal>
     </div>
   );
+}
+
+function AssessmentInfoDialog({
+  page,
+  onPageChange,
+  onClose,
+}: {
+  page: AssessmentInfoPage | null;
+  onPageChange: (page: AssessmentInfoPage) => void;
+  onClose: () => void;
+}) {
+  const pages: Array<{ id: AssessmentInfoPage; label: string }> = [
+    { id: 'severity', label: 'Severity' },
+    { id: 'priority', label: 'Priority' },
+    { id: 'risk', label: 'Risk Measurement' },
+  ];
+  const activePage = page ?? 'severity';
+  const handlePageKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, current: AssessmentInfoPage) => {
+    const index = pages.findIndex(item => item.id === current);
+    let nextIndex = index;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % pages.length;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + pages.length) % pages.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = pages.length - 1;
+    if (nextIndex !== index) {
+      event.preventDefault();
+      onPageChange(pages[nextIndex].id);
+      requestAnimationFrame(() => document.getElementById(`assessment-info-tab-${pages[nextIndex].id}`)?.focus());
+    }
+  };
+
+  return <Modal isOpen={Boolean(page)} onClose={onClose} title="Assessment information" width={720}>
+    <div className="assessment-info-dialog">
+      <div className="assessment-info-tabs" role="tablist" aria-label="Assessment information pages">
+        {pages.map(item => <button key={item.id} id={`assessment-info-tab-${item.id}`} type="button" role="tab" aria-selected={activePage === item.id} aria-controls={`assessment-info-panel-${item.id}`} tabIndex={activePage === item.id ? 0 : -1} data-autofocus={activePage === item.id ? true : undefined} onClick={() => onPageChange(item.id)} onKeyDown={event => handlePageKeyDown(event, item.id)}>{item.label}</button>)}
+      </div>
+      {activePage === 'severity' && <section id="assessment-info-panel-severity" role="tabpanel" aria-labelledby="assessment-info-tab-severity" tabIndex={0}><h3 id="assessment-info-severity">Severity</h3><p>Severity represents the potential impact of an identified finding.</p><dl className="assessment-info-definitions"><div><dt>Critical</dt><dd>Severe impact requiring immediate attention, such as major security, correctness, integrity, or production-impacting concerns.</dd></div><div><dt>High</dt><dd>Significant impact that should be remediated promptly.</dd></div><div><dt>Medium</dt><dd>Material concern that should be addressed but does not normally require immediate intervention.</dd></div><div><dt>Low</dt><dd>Limited-impact concern or lower-urgency improvement.</dd></div></dl><p className="assessment-info-note">Informational findings remain visible in Findings when supported, but are not silently converted into Low Risk.</p></section>}
+      {activePage === 'priority' && <section id="assessment-info-panel-priority" role="tabpanel" aria-labelledby="assessment-info-tab-priority" tabIndex={0}><h3 id="assessment-info-priority">Priority</h3><p>Priority represents remediation and review urgency. It is independent from Severity.</p><dl className="assessment-info-definitions"><div><dt>High</dt><dd>Respond promptly because delay materially increases exposure or blocks important work.</dd></div><div><dt>Medium</dt><dd>Schedule remediation in the normal project flow.</dd></div><div><dt>Low</dt><dd>Address when practical or as part of routine improvement.</dd></div></dl><p className="assessment-info-note">Example: a finding can be Severity <strong>High</strong> and Priority <strong>Medium</strong>. Severity describes impact; Priority describes urgency.</p></section>}
+      {activePage === 'risk' && <section id="assessment-info-panel-risk" role="tabpanel" aria-labelledby="assessment-info-tab-risk" tabIndex={0}><h3 id="assessment-info-risk">Risk Measurement</h3><p>Centinel determines a finding's Risk Level by evaluating the combination of its Severity and Priority. Severity represents potential impact, while Priority represents remediation urgency. The resulting classification is evaluated using Centinel's predefined risk matrix.</p><div className="assessment-risk-matrix-wrap"><table className="assessment-risk-matrix" aria-label="Centinel Risk Matrix v1"><thead><tr><th scope="col">Severity / Priority</th><th scope="col">High</th><th scope="col">Medium</th><th scope="col">Low</th></tr></thead><tbody>{RISK_MATRIX_ROWS.map(row => <tr key={row.severity}><th scope="row">{row.severity}</th><td>{row.high}</td><td>{row.medium}</td><td>{row.low}</td></tr>)}</tbody></table></div><p className="assessment-info-note"><strong>Severity ≠ Priority ≠ Risk Category ≠ Risk Level.</strong> Risk Category describes the type or domain of concern, such as Security or Requirement. This deterministic matrix is Centinel policy; it is not claimed as a direct ISO/IEEE mandate.</p></section>}
+      <div className="assessment-info-navigation"><button type="button" className="btn-secondary" onClick={() => onPageChange(pages[Math.max(0, pages.findIndex(item => item.id === activePage) - 1)].id)} disabled={activePage === pages[0].id}>Previous</button><span>{pages.findIndex(item => item.id === activePage) + 1} of {pages.length}</span><button type="button" className="btn-secondary" onClick={() => onPageChange(pages[Math.min(pages.length - 1, pages.findIndex(item => item.id === activePage) + 1)].id)} disabled={activePage === pages[pages.length - 1].id}>Next</button></div>
+    </div>
+  </Modal>;
 }

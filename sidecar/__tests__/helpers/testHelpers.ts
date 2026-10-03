@@ -141,19 +141,6 @@ export async function createTestDb(): Promise<Database> {
   `);
 
   testDb.run(`
-    CREATE TABLE IF NOT EXISTS review_artifacts (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
-      artifact_type TEXT NOT NULL DEFAULT 'analysis',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES static_sessions(id)
-    )
-  `);
-
-  testDb.run(`
     CREATE TABLE IF NOT EXISTS ai_provider_settings (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,

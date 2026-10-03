@@ -10,7 +10,6 @@ vi.mock('../api/client', () => ({
     listStaticSessions: vi.fn(),
     listDynamicSessions: vi.fn(),
     listArtifacts: vi.fn(),
-    getIndexStatus: vi.fn(),
   },
 }));
 
@@ -123,7 +122,6 @@ describe('DashboardScreen', () => {
         createdAt: project.updatedAt,
       },
     ]);
-    vi.mocked(api.getIndexStatus).mockResolvedValue({ status: 'ready', fileCount: 12 });
   });
 
   it('shows actionable highlights and direct quick-action routes', async () => {

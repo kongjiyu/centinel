@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { writeText } from '@tauri-apps/api/clipboard';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
-  Download,
   X,
-  Copy,
-  Check,
   Image,
   FileText,
   Terminal,
@@ -123,17 +117,29 @@ function sessionOutcome(status: DynamicSession['status']) {
   }
 }
 
+/** Keep runner diagnostics out of the main workflow while giving a specific next step. */
+function failureRecovery(reason: string, status: DynamicSession['status']): string {
+  const normalized = reason.toLowerCase();
+  if (/playwright|browsertype\.launch|executable.*(?:doesn.t|not) exist|chromium/.test(normalized)) {
+    return 'Centinel could not start its test browser. Install or repair the Playwright browser, then rerun the test.';
+  }
+  if (/network|econnrefused|timeout|failed to fetch|connection refused/.test(normalized)) {
+    return 'Centinel could not reach the target website. Confirm that the site is available, then rerun the test.';
+  }
+  if (/permission|access denied|http\s*403/.test(normalized)) {
+    return 'Centinel could not access the target website. Check the target permissions or sign-in requirements, then rerun the test.';
+  }
+  return status === 'blocked'
+    ? 'The test could not continue. Check the target website and test setup, then rerun the test.'
+    : 'The test could not finish. Check the target website and test setup, then rerun the test.';
+}
+
 export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props) {
   const [session, setSession] = useState<DynamicSession | null>(null);
   const [evidence, setEvidence] = useState<DynamicEvidence[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedScreenshot, setSelectedScreenshot] = useState<DynamicEvidence | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [exportResult, setExportResult] = useState<{
-    success: boolean; message: string; reportPath?: string; markdown?: string;
-  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -162,20 +168,6 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
     try { await api.cancelDynamicSession(projectId, sessionId); await load(); } catch {}
   };
 
-  const handleExport = async () => {
-    setExporting(true); setExportResult(null);
-    try {
-      const result = await api.exportDynamicSessionReport(projectId, sessionId);
-      setExportResult({ success: true, message: 'Report exported', reportPath: result.reportPath, markdown: result.markdown });
-    } catch (e) { setExportResult({ success: false, message: `Export failed. ${userFacingError(e, 'Try again.')}` }); }
-    finally { setExporting(false); }
-  };
-
-  const handleCopyPath = async (path: string) => {
-    try { await writeText(path); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-    catch (err) { console.error('Failed to copy path:', err); }
-  };
-
   if (loading) return <div className="screen command-loading" role="status" aria-live="polite"><Activity size={20} /> Loading session...</div>;
   if (loadError && !session) return (
     <div className="screen">
@@ -197,6 +189,10 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
   const latestActions = actionTrace.slice(-5).reverse();
   const outcome = sessionOutcome(session.status);
   const OutcomeIcon = outcome.icon;
+  const recovery = failureRecovery(session.failureReason, session.status);
+  const outcomeCopy = session.status === 'failure' || session.status === 'blocked'
+    ? recovery
+    : session.finalSummary || outcome.copy;
 
   return (
     <div className="screen command-dynamic-session animate-fade-in">
@@ -209,11 +205,6 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         meta={<><span>{session.missionType === 'smoke' ? 'Smoke test' : 'User journey'}</span><span>{new Date(session.createdAt).toLocaleString()}</span></>}
         actions={(
           <>
-          {!isActive && (
-            <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
-              <Download size={14} /> {exporting ? 'Exporting…' : 'Export report'}
-            </button>
-          )}
           {isActive && (
             <button className="btn-delete" onClick={handleCancel}>
               <X size={14} /> Cancel
@@ -230,40 +221,13 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         <div className="dynamic-outcome-copy">
           <span className="dynamic-overline">{isActive ? 'Autonomous run' : 'Test outcome'}</span>
           <h2>{outcome.title}</h2>
-          <p>{session.finalSummary || outcome.copy}</p>
+          <p>{outcomeCopy}</p>
         </div>
         <div className="dynamic-outcome-count">
           <strong>{actionTrace.length}</strong>
           <span>recorded {actionTrace.length === 1 ? 'action' : 'actions'}</span>
         </div>
       </section>
-
-      {exportResult && (
-        <div className={`export-result ${exportResult.success ? 'success' : 'error'} animate-slide-up`}>
-          <div className="export-result-message">{exportResult.message}</div>
-
-          {exportResult.markdown && (
-            <div className="report-preview">
-              <h3 className="command-section-heading">
-                <FileText size={14} /> Report preview
-              </h3>
-              <div className="report-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{exportResult.markdown}</ReactMarkdown>
-              </div>
-            </div>
-          )}
-
-          {exportResult.reportPath && (
-            <div className="export-result-path">
-              <span className="export-result-path-label">Saved to:</span>
-              <code>{exportResult.reportPath}</code>
-              <button className="btn-copy" onClick={() => handleCopyPath(exportResult.reportPath!)}>
-                {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy path</>}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
 
       <section className="dynamic-run-context" aria-label="Test configuration">
         <div className="dynamic-context-item dynamic-context-target">
@@ -328,13 +292,6 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
               <p className="dynamic-activity-empty">No browser actions have been recorded yet.</p>
             )}
           </aside>
-        </section>
-      )}
-
-      {session.failureReason && (
-        <section className="dynamic-failure-reason">
-          <h2 className="command-section-heading"><Bug size={16} /> Failure reason</h2>
-          <div className="summary-box error">{userFacingError(session.failureReason, 'The test run could not finish. Check the target and try again.')}</div>
         </section>
       )}
 

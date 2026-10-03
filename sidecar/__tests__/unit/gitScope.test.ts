@@ -13,7 +13,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { getChangedFiles, GitScopeError } from '../../src/gitScope.js';
-import { parseGithubRemote } from '../../src/projects.js';
+import { parseGithubRemote } from '../../src/githubTypes.js';
 
 function makeRepo(): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'centinel-gitscope-'));

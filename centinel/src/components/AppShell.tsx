@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Repeat2, Settings } from 'lucide-react';
 import type { Project, Screen } from '../types';
 import { Modal } from './Modal';
 import { Select } from './Select';
@@ -13,6 +13,12 @@ type Props = {
   screen: Screen;
   onNavigate: (screen: Screen) => void;
   projects: Project[];
+  accountEmail: string | null;
+  githubLogin: string | null;
+  accountGithubLogin?: string | null;
+  authProvider?: 'github' | 'google' | 'email' | null;
+  onSwitchAccount: () => void;
+  onLogOut: () => void;
   children: React.ReactNode;
 };
 
@@ -33,16 +39,32 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_IPC__' in window;
 }
 
-export function AppShell({ screen, onNavigate, projects, children }: Props) {
+function accountUsername(githubLogin: string | null, accountEmail: string | null): string {
+  if (githubLogin) return `@${githubLogin.replace(/^@/, '')}`;
+  if (accountEmail) return accountEmail.split('@')[0] || accountEmail;
+  return 'Not provided';
+}
+
+export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, authProvider = null, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [pendingModuleAction, setPendingModuleAction] = useState<ModuleAction | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(readPinsExpanded);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const mainContentRef = useRef<HTMLElement | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement | null>(null);
   const { pinnedProjects } = usePinnedProjects(projects);
   const screenKey = JSON.stringify(screen);
   const nativeWindowChrome = isTauriRuntime();
+  const accountLogin = authProvider === 'github' ? accountGithubLogin ?? githubLogin
+    : authProvider ? null : accountGithubLogin ?? githubLogin;
+  const username = accountUsername(accountLogin, accountEmail);
+  const accountMethod = accountLogin ? `@${accountLogin.replace(/^@/, '')}`
+    : authProvider === 'google' ? 'Google account'
+      : authProvider === 'email' ? 'Email account'
+        : authProvider === 'github' ? 'GitHub account' : 'Account';
 
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
   useEffect(() => {
@@ -64,6 +86,43 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
     mainContentRef.current.scrollTop = 0;
     mainContentRef.current.scrollLeft = 0;
   }, [screenKey]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+
+    const menuButtons = () => Array.from(accountMenuRef.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? []);
+    menuButtons()[0]?.focus();
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (accountMenuRef.current?.contains(target) || accountTriggerRef.current?.contains(target)) return;
+      setAccountMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setAccountMenuOpen(false);
+        accountTriggerRef.current?.focus();
+      } else if (event.key === 'Tab') {
+        const buttons = menuButtons();
+        if (buttons.length === 0) return;
+        if (event.shiftKey && document.activeElement === buttons[0]) {
+          event.preventDefault();
+          buttons[buttons.length - 1].focus();
+        } else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) {
+          event.preventDefault();
+          buttons[0].focus();
+        }
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [accountMenuOpen]);
 
   const openModule = (initialAction: 'static' | 'dynamic') => {
     const contextualProject = 'projectId' in screen
@@ -104,7 +163,7 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
     (screen.name === 'project-detail' && !screen.initialAction);
 
   return (
-    <div className={`app-shell has-window-chrome command-mode workspace-mode ${nativeWindowChrome ? 'native-window-chrome' : 'browser-window-chrome'} ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`app-shell has-window-chrome command-mode workspace-mode ${nativeWindowChrome ? 'native-window-chrome' : 'browser-window-chrome'} ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${accountMenuOpen ? 'account-menu-open' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
       {!nativeWindowChrome && <WindowHeader />}
       <div className="app-shell-workspace">
@@ -117,7 +176,10 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
                 aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 aria-expanded={!sidebarCollapsed}
                 title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                onClick={() => setSidebarCollapsed(value => !value)}
+                onClick={() => {
+                  setSidebarCollapsed(value => !value);
+                  setAccountMenuOpen(false);
+                }}
               >
                 <span className="sidebar-toggle-icon" aria-hidden="true">
                   {sidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={1.7} /> : <PanelLeftClose size={18} strokeWidth={1.7} />}
@@ -126,7 +188,7 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
             </header>
             <nav className="sidebar-nav" aria-label="Primary navigation">
             <div className="sidebar-nav-group">
-              <div className="sidebar-category">Product</div>
+              <div className="sidebar-category">Dashboard</div>
               <button
                 className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
                 onClick={() => nav('dashboard')}
@@ -222,17 +284,35 @@ export function AppShell({ screen, onNavigate, projects, children }: Props) {
             <div className="sidebar-profile">
               <button
                 type="button"
-                className={`nav-item sidebar-profile-button ${isActive(['profile']) ? 'active' : ''}`}
-                onClick={() => nav('profile')}
-                aria-label="Open profile for @centinel-demo"
-                title="Profile · @centinel-demo"
+                ref={accountTriggerRef}
+                className={`nav-item sidebar-profile-button ${accountMenuOpen ? 'active' : ''}`}
+                onClick={() => setAccountMenuOpen(value => !value)}
+                aria-label="Open account menu"
+                aria-haspopup="dialog"
+                aria-expanded={accountMenuOpen}
+                aria-controls="sidebar-account-menu"
+                title="Account"
               >
                 <span className="sidebar-profile-avatar" aria-hidden="true"><CircleUserRound size={20} strokeWidth={1.7} /></span>
                 <span className="sidebar-profile-copy">
-                  <span className="sidebar-profile-label">Profile</span>
-                  <span className="sidebar-profile-username"><GitBranch size={12} aria-hidden="true" />@centinel-demo</span>
+                  <span className="sidebar-profile-label">Account</span>
+                  <span className="sidebar-profile-username">{accountLogin && <GitBranch size={12} aria-hidden="true" />}{accountMethod}</span>
+                  {accountEmail && <span className="sidebar-profile-email">{accountEmail}</span>}
                 </span>
               </button>
+              {accountMenuOpen && (
+                <div id="sidebar-account-menu" ref={accountMenuRef} className="sidebar-account-menu" role="dialog" aria-label="Account menu">
+                  <div className="sidebar-account-menu-heading">
+                    <span className="sidebar-account-menu-avatar" aria-hidden="true"><CircleUserRound size={20} strokeWidth={1.7} /></span>
+                  <div><strong>{username}</strong><span>{accountEmail ?? 'Email not provided'}</span></div>
+                </div>
+                  <div className="sidebar-account-actions" role="group" aria-label="Account actions">
+                    <button type="button" onClick={() => { setAccountMenuOpen(false); onNavigate({ name: 'profile' }); }}><CircleUserRound size={16} aria-hidden="true" /> Manage account</button>
+                    <button type="button" onClick={() => { setAccountMenuOpen(false); onSwitchAccount(); }}><Repeat2 size={16} aria-hidden="true" /> Switch account</button>
+                    <button type="button" className="sidebar-account-logout" onClick={() => { setAccountMenuOpen(false); onLogOut(); }}><LogOut size={16} aria-hidden="true" /> Log out</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </aside>

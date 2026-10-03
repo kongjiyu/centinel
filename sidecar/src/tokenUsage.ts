@@ -4,7 +4,7 @@ import type { AiProvider, AiApiFormat } from './settings.js';
 import type { TokenUsage } from './aiClient.js';
 
 export type CallKind = 'review' | 'test' | 'dynamic';
-export type TokenScope = 'text' | 'vision';
+export type TokenScope = 'text' | 'vision' | 'embedding';
 
 export type TokenUsageRow = {
   id: string;

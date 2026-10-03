@@ -5,6 +5,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
 
+  // The repository keeps one shared .env at the workspace root so the
+  // sidecar and renderer use the same Supabase/OAuth setup.
+  envDir: '..',
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   // prevent vite from obscuring rust errors
   clearScreen: false,

@@ -1,5 +1,7 @@
 .workspace-mode:not(.dashboard-mode) .profile-screen {
   display: grid;
+  width: min(100%, 920px);
+  margin: 0 auto;
   gap: 20px;
 }
 
@@ -17,9 +19,9 @@
 
 .workspace-mode:not(.dashboard-mode) .profile-avatar {
   display: grid;
-  width: 52px;
-  height: 52px;
-  flex: 0 0 52px;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
   place-items: center;
   border-radius: 50%;
   background: var(--workspace-surface-selected);
@@ -31,31 +33,79 @@
 .workspace-mode:not(.dashboard-mode) .profile-account-copy h2 {
   margin: 0;
   color: var(--workspace-text);
-  font-size: 18px;
-  line-height: 26px;
+  font-size: 16px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
 }
 
 .workspace-mode:not(.dashboard-mode) .profile-account-copy p {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   color: var(--workspace-text-muted);
   font-size: 13px;
   line-height: 20px;
 }
 
-.workspace-mode:not(.dashboard-mode) .profile-mock-badge {
-  margin-left: auto;
-  padding: 3px 8px;
+.workspace-mode:not(.dashboard-mode) .profile-card > .status-badge { margin-left: auto; }
+
+.workspace-mode:not(.dashboard-mode) .profile-provider-section {
+  padding: 20px;
   border: 1px solid var(--workspace-border);
-  border-radius: 999px;
-  color: var(--workspace-text-subtle);
-  font-size: 11px;
-  white-space: nowrap;
+  border-radius: var(--workspace-radius-panel);
+  background: var(--workspace-surface);
 }
+
+.workspace-mode:not(.dashboard-mode) .profile-section-heading { margin-bottom: 16px; }
+
+.workspace-mode:not(.dashboard-mode) .profile-section-heading h2 {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-section-heading p {
+  max-width: 680px;
+  margin: 4px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-provider-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-provider-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--workspace-surface-selected);
+  color: var(--workspace-primary);
+}
+
+.workspace-mode:not(.dashboard-mode) .profile-provider-copy { display: grid; min-width: 0; gap: 3px; }
+.workspace-mode:not(.dashboard-mode) .profile-provider-copy strong { color: var(--workspace-text); font-size: 14px; line-height: 20px; }
+.workspace-mode:not(.dashboard-mode) .profile-provider-copy span { color: var(--workspace-text-muted); font-size: 13px; line-height: 20px; }
+.workspace-mode:not(.dashboard-mode) .profile-provider-copy small { color: var(--workspace-text-subtle); font-size: 12px; line-height: 18px; }
+.workspace-mode:not(.dashboard-mode) .profile-provider-action { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; white-space: nowrap; }
+.workspace-mode:not(.dashboard-mode) .profile-provider-unavailable,
+.workspace-mode:not(.dashboard-mode) .profile-provider-error { margin: 0; font-size: 13px; line-height: 20px; }
+.workspace-mode:not(.dashboard-mode) .profile-provider-unavailable { color: var(--workspace-text-muted); }
+.workspace-mode:not(.dashboard-mode) .profile-provider-error { color: var(--workspace-danger); }
 
 @media (max-width: 720px) {
   .workspace-mode:not(.dashboard-mode) .profile-card { align-items: flex-start; flex-wrap: wrap; }
-  .workspace-mode:not(.dashboard-mode) .profile-mock-badge { margin-left: 68px; }
+  .workspace-mode:not(.dashboard-mode) .profile-card > .status-badge { margin-left: 64px; }
+  .workspace-mode:not(.dashboard-mode) .profile-provider-row { grid-template-columns: 32px minmax(0, 1fr); }
+  .workspace-mode:not(.dashboard-mode) .profile-provider-action { grid-column: 2; justify-self: start; }
 }

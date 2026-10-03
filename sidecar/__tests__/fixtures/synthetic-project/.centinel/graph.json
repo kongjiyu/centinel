@@ -1,84 +1,84 @@
 {
   "nodes": [
     {
-      "id": "6f80ff52-2bde-439f-86fa-8e0c80a3dbdf",
+      "id": "75914599-8e83-4907-bff9-ef113d914467",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\index.html",
       "type": "html",
       "language": "html",
       "symbolCount": 5
     },
     {
-      "id": "de2c3c4e-d220-4727-b603-30d9279f31a5",
+      "id": "b551274f-4c6f-4638-ae91-a42dc620b7e5",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\package.json",
       "type": "json",
       "language": "json",
       "symbolCount": 7
     },
     {
-      "id": "64c0b97d-cedd-4965-b34c-f1cc0fa23b76",
+      "id": "88bd2076-5bc0-4992-a799-26da4af618f2",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\README.md",
       "type": "md",
       "language": "markdown",
       "symbolCount": 4
     },
     {
-      "id": "f3459129-8b46-4b75-846c-6393be394ee8",
+      "id": "5f5793e6-4751-4bca-8396-132308c84497",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\SPEC.md",
       "type": "md",
       "language": "markdown",
       "symbolCount": 4
     },
     {
-      "id": "ab6da525-f878-4dd6-a58c-573ceb503d42",
+      "id": "26a3a9b1-ec54-45be-ae6a-ff677700a2de",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "56b3abd7-bc9a-4c9f-85fd-c5a2bafa7bef",
+      "id": "ba405f3f-d499-4a9f-a505-5010f36e2d76",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 6
     },
     {
-      "id": "e74ee213-4884-41e6-92bb-d6099a00d562",
+      "id": "1c902e9a-44b1-4b34-9348-02eb9341f1d8",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\config.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 5
     },
     {
-      "id": "75a3fcb9-c9ed-413d-b871-6bccb645b8ee",
+      "id": "126e4b32-2a20-4402-b3f0-e99b9458687e",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "6547e927-5f95-4ee7-a55f-3b74a58e4d00",
+      "id": "48a19ab5-563b-4d14-8a87-df9b82c15e7f",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 5
     },
     {
-      "id": "3a6ffcaf-906d-4040-b1c7-6b48ce8e7f04",
+      "id": "ca349a13-2fff-4505-8948-2a25dfcc6efe",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\types.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "40f64caf-4fae-4ecf-9b84-d16a3f7cd13d",
+      "id": "74fdecee-ed22-49c4-a6f0-e2590031ddc1",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
       "type": "ts",
       "language": "typescript",
       "symbolCount": 4
     },
     {
-      "id": "2bbb095d-daae-4945-bdce-d9e79c0c9b67",
+      "id": "b9b4b1f1-6b01-487e-8d0d-8a91036e4e74",
       "path": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\styles.css",
       "type": "css",
       "language": "css",
@@ -124,49 +124,49 @@
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
-      "to": "./auth",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
       "type": "import",
       "symbol": "authenticate"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\api.ts",
-      "to": "./config",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\config.ts",
       "type": "import",
       "symbol": "API_KEY"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
-      "to": "./db",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
       "type": "import",
       "symbol": "query"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
-      "to": "./utils",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
       "type": "import",
       "symbol": "log"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
-      "to": "./config",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\config.ts",
       "type": "import",
       "symbol": "API_KEY"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\db.ts",
-      "to": "./utils",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
       "type": "import",
       "symbol": "formatDate"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
-      "to": "./auth",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\auth.ts",
       "type": "import",
       "symbol": "validateSession"
     },
     {
       "from": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\middleware.ts",
-      "to": "./utils",
+      "to": "C:\\Cstan\\Projects\\centinel\\sidecar\\__tests__\\fixtures\\synthetic-project\\src\\utils.ts",
       "type": "import",
       "symbol": "log"
     },

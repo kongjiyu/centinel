@@ -1,13 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
-import { open as openExternal } from '@tauri-apps/api/shell';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
+import { openExternalUrl } from '../utils/openExternalUrl';
 
 type ProviderPreset = {
   id: string;
@@ -37,7 +37,10 @@ function findMatchingPreset(setting: AiProviderSetting): ProviderPreset | null {
 
 export { findMatchingPreset, PROVIDER_PRESETS };
 
-type Props = { settings: AiProviderSetting[]; onRefresh: () => Promise<void> };
+type Props = {
+  settings: AiProviderSetting[];
+  onRefresh: () => Promise<void>;
+};
 
 export const RELEASES_API_URL = 'https://api.github.com/repos/kongjiyu/centinel/releases/latest';
 export const RELEASES_URL = 'https://github.com/kongjiyu/centinel/releases';
@@ -89,17 +92,11 @@ export async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetc
 }
 
 export async function openReleasePage(url: string): Promise<boolean> {
-  try {
-    await openExternal(url);
-    return true;
-  } catch {
-    if (typeof window === 'undefined') return false;
-    try {
-      return Boolean(window.open(url, '_blank', 'noopener,noreferrer'));
-    } catch {
-      return false;
-    }
-  }
+  return openExternalUrl(url);
+}
+
+function findPresetForValues(provider: AiProvider | null | undefined, apiFormat: AiApiFormat | null | undefined, baseUrl: string, model: string): ProviderPreset | null {
+  return PROVIDER_PRESETS.find(p => p.provider === provider && p.apiFormat === apiFormat && p.baseUrl === baseUrl && p.model === model) || null;
 }
 
 function AppVersionSection() {
@@ -187,6 +184,13 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   const [showKey, setShowKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState(setting.baseUrl);
   const [model, setModel] = useState(setting.model);
+  const initialFallbackPreset = findPresetForValues(setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl ?? '', setting.fallbackModel ?? '');
+  const [fallbackEnabled, setFallbackEnabled] = useState(Boolean(setting.fallbackEnabled));
+  const [fallbackPresetId, setFallbackPresetId] = useState(initialFallbackPreset?.id ?? (setting.fallbackApiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
+  const [fallbackApiKey, setFallbackApiKey] = useState('');
+  const [showFallbackKey, setShowFallbackKey] = useState(false);
+  const [fallbackBaseUrl, setFallbackBaseUrl] = useState(setting.fallbackBaseUrl ?? '');
+  const [fallbackModel, setFallbackModel] = useState(setting.fallbackModel ?? '');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
@@ -202,11 +206,18 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
     setModel(setting.model);
     const match = findMatchingPreset(setting);
     setSelectedPresetId(match?.id ?? (setting.apiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
-  }, [setting.id, setting.baseUrl, setting.model, setting.apiFormat, setting.provider]);
+    setFallbackEnabled(Boolean(setting.fallbackEnabled));
+    setFallbackBaseUrl(setting.fallbackBaseUrl ?? '');
+    setFallbackModel(setting.fallbackModel ?? '');
+    const fallbackMatch = findPresetForValues(setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl ?? '', setting.fallbackModel ?? '');
+    setFallbackPresetId(fallbackMatch?.id ?? (setting.fallbackApiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
+  }, [setting.id, setting.baseUrl, setting.model, setting.apiFormat, setting.provider, setting.fallbackEnabled, setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl, setting.fallbackModel]);
 
   const selectedPreset = PROVIDER_PRESETS.find(p => p.id === selectedPresetId);
   const isCustom = selectedPresetId.startsWith('custom-');
   const isConfigured = setting.hasApiKey;
+  const fallbackPreset = PROVIDER_PRESETS.find(p => p.id === fallbackPresetId);
+  const fallbackIsCustom = fallbackPresetId.startsWith('custom-');
 
   const handlePresetChange = (presetId: string) => {
     setSelectedPresetId(presetId);
@@ -217,11 +228,23 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
     }
   };
 
+  const handleFallbackPresetChange = (presetId: string) => {
+    setFallbackPresetId(presetId);
+    const preset = PROVIDER_PRESETS.find(p => p.id === presetId);
+    if (preset && !presetId.startsWith('custom-')) {
+      setFallbackBaseUrl(preset.baseUrl);
+      setFallbackModel(preset.model);
+    }
+  };
+
   const handleSave = async () => {
     setError(null); setSaved(false);
     if (!apiKey && !isConfigured) { setError('API key is required'); return; }
     if (!baseUrl.trim()) { setError('Base URL is required'); return; }
     if (!model.trim()) { setError('Model is required'); return; }
+    if (fallbackEnabled && !fallbackApiKey && !setting.fallbackHasApiKey) { setError('Fallback API key is required'); return; }
+    if (fallbackEnabled && !fallbackBaseUrl.trim()) { setError('Fallback Base URL is required'); return; }
+    if (fallbackEnabled && !fallbackModel.trim()) { setError('Fallback model is required'); return; }
     setSaving(true);
     try {
       await api.updateAiSetting(setting.id, {
@@ -230,8 +253,14 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
         apiKey: apiKey || '',
         baseUrl: baseUrl.trim(),
         model: model.trim(),
+        fallbackEnabled,
+        fallbackProvider: fallbackEnabled ? fallbackPreset?.provider ?? 'custom' : null,
+        fallbackApiFormat: fallbackEnabled ? fallbackPreset?.apiFormat ?? 'openai-compatible' : null,
+        fallbackApiKey: fallbackApiKey || '',
+        fallbackBaseUrl: fallbackEnabled ? fallbackBaseUrl.trim() : '',
+        fallbackModel: fallbackEnabled ? fallbackModel.trim() : '',
       });
-      setApiKey(''); setSaved(true); await onRefresh();
+      setApiKey(''); setFallbackApiKey(''); setSaved(true); await onRefresh();
     } catch (e) { setError(userFacingError(e, 'The provider settings could not be saved. Try again.')); }
     finally { setSaving(false); }
   };
@@ -312,12 +341,49 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
         <input id={`api-format-${setting.id}`} value={selectedPreset?.apiFormat || 'openai-compatible'} disabled className="readonly-field" />
       </div>
 
+      <section className="fallback-provider-config" aria-labelledby={`fallback-provider-heading-${setting.id}`}>
+        <div className="fallback-provider-heading">
+          <div>
+            <h5 id={`fallback-provider-heading-${setting.id}`}>Fallback provider</h5>
+            <p>Used only when the primary provider cannot complete the Review. Primary and fallback share a maximum of three total attempts.</p>
+          </div>
+          <label className="fallback-provider-toggle"><input type="checkbox" checked={fallbackEnabled} onChange={event => setFallbackEnabled(event.target.checked)} /> Enable fallback</label>
+        </div>
+        {fallbackEnabled && <div className="fallback-provider-fields">
+          <div className="form-field">
+            <label htmlFor={`fallback-provider-${setting.id}`}>Fallback provider</label>
+            <Select
+              id={`fallback-provider-${setting.id}`}
+              value={fallbackPresetId}
+              onChange={handleFallbackPresetChange}
+              groups={[
+                { label: 'MiMo', options: PROVIDER_PRESETS.filter(p => p.provider === 'mimo').map(p => ({ value: p.id, label: p.label })) },
+                { label: 'Google', options: PROVIDER_PRESETS.filter(p => p.provider === 'gemini').map(p => ({ value: p.id, label: p.label })) },
+                { label: 'Custom', options: PROVIDER_PRESETS.filter(p => p.provider === 'custom').map(p => ({ value: p.id, label: p.label })) },
+              ]}
+            />
+          </div>
+          <div className="form-field">
+            <label htmlFor={`fallback-api-key-${setting.id}`}>Fallback API Key</label>
+            <div className="api-key-field">
+              <input id={`fallback-api-key-${setting.id}`} type={showFallbackKey ? 'text' : 'password'} value={fallbackApiKey} onChange={event => setFallbackApiKey(event.target.value)} placeholder={setting.fallbackHasApiKey ? `Current: ${setting.fallbackApiKeyPreview}` : 'Enter fallback API key'} />
+              <IconButton icon={showFallbackKey ? EyeOff : Eye} label={showFallbackKey ? 'Hide fallback API key' : 'Show fallback API key'} onClick={() => setShowFallbackKey(value => !value)} />
+            </div>
+          </div>
+          <div className={`provider-endpoint-fields ${fallbackIsCustom ? 'is-custom' : ''}`}>
+            <div className="form-field"><label htmlFor={`fallback-base-url-${setting.id}`}>Fallback Base URL</label><input id={`fallback-base-url-${setting.id}`} value={fallbackBaseUrl} onChange={event => setFallbackBaseUrl(event.target.value)} disabled={!fallbackIsCustom} /></div>
+            <div className="form-field"><label htmlFor={`fallback-model-${setting.id}`}>Fallback model</label><input id={`fallback-model-${setting.id}`} value={fallbackModel} onChange={event => setFallbackModel(event.target.value)} disabled={!fallbackIsCustom} /></div>
+          </div>
+          <div className="form-field"><label htmlFor={`fallback-api-format-${setting.id}`}>Fallback API Format</label><input id={`fallback-api-format-${setting.id}`} value={fallbackPreset?.apiFormat ?? 'openai-compatible'} disabled className="readonly-field" /></div>
+        </div>}
+      </section>
+
       {error && <p className="form-error">{error}</p>}
       {saved && <p className="form-success"><Check size={14} /> Settings saved</p>}
 
       <div className="form-actions">
-        <button className="provider-connectivity-button" type="button" onClick={handleTest} disabled={testing || (!apiKey && !isConfigured)} aria-label={testing ? 'Testing provider connectivity' : 'Test provider connectivity'} title={testing ? 'Testing provider connectivity' : 'Test provider connectivity'}>
-          <Stethoscope size={16} aria-hidden="true" />
+        <button className="btn-secondary provider-connectivity-button" type="button" onClick={handleTest} disabled={testing || (!apiKey && !isConfigured)}>
+          <Stethoscope size={16} aria-hidden="true" /> {testing ? 'Testing connection…' : 'Test connection'}
         </button>
         <button className="btn-primary" type="button" onClick={handleSave} disabled={saving}>
           <Save size={14} aria-hidden="true" /> {saving ? 'Saving...' : 'Save'}
@@ -325,17 +391,93 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
       </div>
 
       {testResult && (
-        <div className={`test-result ${testResult.status}`}>
-          {testResult.status === 'pass' ? <Check size={14} /> : <ScanEye size={14} />}
-          <strong>{testResult.status === 'pass' ? 'Success' : 'Failed'}</strong>
-          {testResult.message && <span>: {testResult.message}</span>}
+        <div className={`test-result provider-test-status ${testResult.status}`} role={testResult.status === 'pass' ? 'status' : 'alert'}>
+          {testResult.status === 'pass' ? <Check size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
+          <div><strong>{testResult.status === 'pass' ? 'Connection successful' : 'Connection failed'}</strong>
+          <span className="provider-test-scope">Tested with the current form settings. Save any edits before using them in reviews.</span>
+          {testResult.message && <p className="provider-test-message">{testResult.message}</p>}
           {testResult.hint && (
             <p className="test-result-hint">{testResult.hint}</p>
           )}
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function EmbeddingProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(setting.baseUrl);
+  const [model, setModel] = useState(setting.model);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<AiTestResult | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setBaseUrl(setting.baseUrl);
+    setModel(setting.model);
+  }, [setting.baseUrl, setting.model]);
+
+  const save = async () => {
+    setError(null); setSaved(false); setResult(null);
+    if (!apiKey.trim() && !setting.hasApiKey) { setError('API key is required.'); return; }
+    if (!/^https?:\/\//i.test(baseUrl.trim())) { setError('Base URL must start with http:// or https://.'); return; }
+    if (!model.trim()) { setError('Embedding model is required.'); return; }
+    setSaving(true);
+    try {
+      await api.updateAiSetting('embedding', {
+        provider: 'custom', apiFormat: 'openai-compatible', apiKey: apiKey.trim(),
+        baseUrl: baseUrl.trim(), model: model.trim(), fallbackEnabled: false,
+      });
+      setApiKey(''); setSaved(true); await onRefresh();
+    } catch (cause) {
+      setError(userFacingError(cause, 'Source-indexing settings could not be saved. Try again.'));
+    } finally { setSaving(false); }
+  };
+
+  const test = async () => {
+    setResult(null); setError(null); setTesting(true);
+    try { setResult(await api.testAiProvider('embedding')); }
+    catch (cause) { setResult({ status: 'fail', message: userFacingError(cause, 'The source-indexing provider could not be reached.') }); }
+    finally { setTesting(false); }
+  };
+
+  return <div className="provider-form embedding-provider-form" aria-labelledby="embedding-provider-heading">
+    <div className="provider-form-header">
+      <h4 id="embedding-provider-heading">Source indexing</h4>
+      <StatusBadge label={setting.hasApiKey ? 'Configured' : 'Optional'} tone={setting.hasApiKey ? 'success' : 'neutral'} />
+    </div>
+    <p className="embedding-provider-description">Optional semantic retrieval for frozen Review sources. Without it, Centinel keeps the durable text index. Configure an OpenAI-compatible embedding endpoint that returns 1536 dimensions.</p>
+    <div className="form-field">
+      <label htmlFor="embedding-api-key">API key</label>
+      <div className="api-key-field">
+        <input id="embedding-api-key" type={showKey ? 'text' : 'password'} autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={setting.hasApiKey ? `Current: ${setting.apiKeyPreview}` : 'Enter API key'} />
+        <IconButton icon={showKey ? EyeOff : Eye} label={showKey ? 'Hide source-indexing API key' : 'Show source-indexing API key'} onClick={() => setShowKey(value => !value)} />
+      </div>
+    </div>
+    <div className="provider-endpoint-fields is-custom">
+      <div className="form-field"><label htmlFor="embedding-base-url">Base URL</label><input id="embedding-base-url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://provider.example.com/v1" /></div>
+      <div className="form-field"><label htmlFor="embedding-model">Embedding model</label><input id="embedding-model" value={model} onChange={event => setModel(event.target.value)} placeholder="embedding-model-name" /></div>
+    </div>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {saved && <p className="form-success" role="status"><Check size={14} aria-hidden="true" /> Settings saved</p>}
+    <div className="form-actions">
+      <button className="btn-secondary" type="button" onClick={() => void test()} disabled={testing || !setting.hasApiKey}>{testing ? 'Testing…' : 'Test connection'}</button>
+      <button className="btn-primary" type="button" onClick={() => void save()} disabled={saving}><Save size={14} aria-hidden="true" /> {saving ? 'Saving…' : 'Save'}</button>
+    </div>
+    {result && <div className={`test-result provider-test-status ${result.status}`} role={result.status === 'pass' ? 'status' : 'alert'}>
+      {result.status === 'pass' ? <Check size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
+      <div><strong>{result.status === 'pass' ? 'Connection successful' : 'Connection failed'}</strong>
+        <span className="provider-test-scope">Tested with saved source-indexing settings.</span>
+        {result.message && <p className="provider-test-message">{result.message}</p>}
+        {result.hint && <p className="test-result-hint">{result.hint}</p>}
+      </div>
+    </div>}
+  </div>;
 }
 
 // ── Token Usage Dashboard ─────────────────────────────────────────────────
@@ -625,20 +767,134 @@ function TokenUsagePanel() {
 
 export function SettingsScreen({ settings, onRefresh }: Props) {
   const textSetting = settings.find(s => s.id === 'text');
+  const embeddingSetting = settings.find(s => s.id === 'embedding');
   const [connectionDialog, setConnectionDialog] = useState<ConnectionDefinition | null>(null);
   const [managedConnection, setManagedConnection] = useState<ConnectionDefinition | null>(null);
   const [githubStatus, setGithubStatus] = useState<{ connected: boolean; login: string | null; message: string } | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const pendingConnectionRef = useRef<{ provider: 'github' | 'google_drive' | 'slack'; priorUpdatedAt: string | null } | null>(null);
+  const [pendingConnection, setPendingConnection] = useState(false);
 
-  const refreshGithubStatus = async () => {
-    if (typeof api.githubStatus !== 'function') return;
+  const refreshConnections = async () => {
     try {
-      setGithubStatus(await api.githubStatus());
+      const [github, connected] = await Promise.all([
+        typeof api.githubStatus === 'function' ? api.githubStatus() : Promise.resolve({ connected: false, login: null, message: 'Connection status is unavailable.' }),
+        typeof api.listIntegrations === 'function' ? api.listIntegrations() : Promise.resolve([]),
+      ]);
+      setGithubStatus(github);
+      setIntegrations(connected.map(item => ({
+        provider: item.provider,
+        accountLabel: item.accountLabel,
+        accountId: item.accountId,
+        scopes: item.scopes,
+        status: item.status,
+        updatedAt: item.updatedAt,
+      })));
+      const pending = pendingConnectionRef.current;
+      const refreshedRecord = connected.find(item => item.provider === pending?.provider && item.status === 'connected');
+      if (pending && refreshedRecord && (pending.provider !== 'github' || github.connected)
+        && (!pending.priorUpdatedAt || refreshedRecord.updatedAt !== pending.priorUpdatedAt)) {
+        pendingConnectionRef.current = null;
+        setPendingConnection(false);
+        setConnectionDialog(null);
+        setManagedConnection(null);
+        setConnectionMessage(null);
+      }
     } catch (cause) {
       setGithubStatus({ connected: false, login: null, message: userFacingError(cause, 'GitHub connection status is unavailable.') });
+      setIntegrations([]);
     }
   };
 
-  useEffect(() => { void refreshGithubStatus(); }, []);
+  useEffect(() => {
+    void refreshConnections();
+    // OAuth completes in an external browser window. Refresh as soon as the
+    // desktop regains focus so the new provider status is visible without a
+    // manual page reload.
+    const handleWindowFocus = () => { void refreshConnections(); };
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingConnection) return;
+    const timer = window.setInterval(() => { void refreshConnections(); }, 2500);
+    return () => window.clearInterval(timer);
+  }, [pendingConnection]);
+
+  const backendProvider = (connection: ConnectionDefinition): 'github' | 'google_drive' | 'slack' => connection.id === 'google-drive' ? 'google_drive' : connection.id;
+  const isConnected = (connection: ConnectionDefinition): boolean => {
+    const provider = backendProvider(connection);
+    return provider === 'github' ? Boolean(githubStatus?.connected) : integrations.some(item => item.provider === provider && item.status === 'connected');
+  };
+
+  const connectionState = (connection: ConnectionDefinition): ConnectionState => {
+    if (!isConnected(connection)) return 'disconnected';
+    const record = connectedRecord(connection);
+    if (backendProvider(connection) === 'slack' && slackMissingScopes(record?.scopes ?? '').length) return 'reauthorization_required';
+    return 'connected';
+  };
+
+  const beginConnection = async (connection: ConnectionDefinition) => {
+    setConnectionBusy(true);
+    setConnectionMessage(null);
+    try {
+      const result = await api.startIntegration(backendProvider(connection));
+      const opened = await openReleasePage(result.authorizeUrl);
+      if (opened) {
+        const provider = backendProvider(connection);
+        pendingConnectionRef.current = { provider, priorUpdatedAt: integrations.find(item => item.provider === provider)?.updatedAt ?? null };
+        setPendingConnection(true);
+      }
+      setConnectionMessage(opened ? `The ${connection.label} authorization page is open. Complete it, then return here.` : `Centinel could not open the ${connection.label} authorization page.`);
+    } catch (cause) {
+      setConnectionMessage(userFacingError(cause, `${connection.label} is not configured yet.`));
+    } finally {
+      setConnectionBusy(false);
+      void refreshConnections();
+    }
+  };
+
+  const disconnect = async (connection: ConnectionDefinition) => {
+    setConnectionBusy(true);
+    try {
+      pendingConnectionRef.current = null;
+      setPendingConnection(false);
+      await api.disconnectIntegration(backendProvider(connection));
+      setManagedConnection(null);
+      await refreshConnections();
+    } catch (cause) {
+      setConnectionMessage(userFacingError(cause, `The ${connection.label} connection could not be removed.`));
+    } finally {
+      setConnectionBusy(false);
+    }
+  };
+
+  const connectedRecord = (connection: ConnectionDefinition | null): IntegrationSummary | null => {
+    if (!connection) return null;
+    const provider = backendProvider(connection);
+    return integrations.find(item => item.provider === provider && item.status === 'connected') ?? null;
+  };
+
+  const accountDetails = (connection: ConnectionDefinition | null): ConnectionAccountDetails => {
+    if (!connection) return { primary: null, secondary: null };
+    const record = connectedRecord(connection);
+    if (backendProvider(connection) === 'github') {
+      const login = githubStatus?.login ?? record?.accountLabel ?? null;
+      return {
+        primary: login ? `@${login.replace(/^@/, '')}` : null,
+        secondary: record?.accountId?.includes('@') ? record.accountId : null,
+      };
+    }
+    const accountLabel = record?.accountLabel?.trim() || null;
+    const accountId = record?.accountId?.trim() || null;
+    return {
+      primary: accountLabel,
+      secondary: accountId && accountId.includes('@') ? accountId : null,
+    };
+  };
 
   return (
     <div className="screen settings-screen animate-fade-in">
@@ -651,7 +907,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
           <div className="settings-section-heading">
             <h2 id="settings-connections-title"><SectionTitleIcon Icon={Cable} />Connections</h2>
           </div>
-          <ConnectionsList onConnect={setConnectionDialog} onManage={setManagedConnection} githubConnected={Boolean(githubStatus?.connected)} />
+          <ConnectionsList onConnect={(connection) => { setConnectionMessage(null); setConnectionDialog(connection); }} onManage={(connection) => { setConnectionMessage(null); setManagedConnection(connection); }} connectionState={connectionState} />
         </section>
 
         <section className="settings-section settings-provider-section" aria-labelledby="model-provider-title">
@@ -660,6 +916,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
           </div>
           <div className="settings-provider-forms">
             {textSetting && <ProviderForm setting={textSetting} onRefresh={onRefresh} />}
+            {embeddingSetting && <EmbeddingProviderForm setting={embeddingSetting} onRefresh={onRefresh} />}
             {!textSetting && (
               <p className="card-empty">No model service providers are available in this build.</p>
             )}
@@ -672,27 +929,42 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
 
       </div>
 
-      <Modal isOpen={Boolean(connectionDialog)} onClose={() => setConnectionDialog(null)} title={connectionDialog ? `Connect ${connectionDialog.label}` : 'Connect'} width={480}>
-        {connectionDialog?.id === 'github' ? <>
-          <p className="connection-dialog-copy">{githubStatus?.message ?? 'Checking the shared GitHub connection…'}</p>
-          <p className="connection-dialog-copy">Projects and Review Entry use this same connection for private repository imports, collaborators, and pull-request scope.</p>
+      <Modal
+        isOpen={Boolean(connectionDialog)}
+        onClose={() => { pendingConnectionRef.current = null; setPendingConnection(false); setConnectionDialog(null); }}
+        title={connectionDialog ? `Connect ${connectionDialog.label}` : 'Connect'}
+        headerAside={connectionDialog ? <ConnectionStatusTag connected={false} /> : undefined}
+        width={520}
+      >
+        {connectionDialog && <>
+          <ConnectionAccessDetails connection={connectionDialog} />
+          <p className="connection-dialog-security">You'll finish authorization in your browser. Return to Centinel after granting access.</p>
+          {connectionMessage && <p className="connection-dialog-copy" role="status">{connectionMessage}</p>}
           <div className="connection-dialog-actions">
-            <button type="button" className="btn-secondary" onClick={() => void refreshGithubStatus()}><RefreshCw size={15} aria-hidden="true" /> Check again</button>
-            <button type="button" className="btn-secondary" onClick={() => setConnectionDialog(null)}>Close</button>
-          </div>
-        </> : <>
-          <p className="connection-dialog-copy">Centinel needs OAuth client credentials and a registered redirect URI before it can open the {connectionDialog?.label} sign-in flow.</p>
-          <div className="connection-dialog-actions">
-            <button type="button" className="btn-secondary" onClick={() => setConnectionDialog(null)}>Close</button>
+            <button type="button" className="btn-primary connection-primary-button" data-autofocus onClick={() => void beginConnection(connectionDialog)} disabled={connectionBusy}><ExternalLink size={15} aria-hidden="true" /> {connectionBusy ? 'Opening…' : `Connect ${connectionDialog.label}`}</button>
+            <button type="button" className="btn-secondary" onClick={() => { pendingConnectionRef.current = null; setPendingConnection(false); setConnectionDialog(null); setConnectionMessage(null); }}>Close</button>
           </div>
         </>}
       </Modal>
 
-      <Modal isOpen={Boolean(managedConnection)} onClose={() => setManagedConnection(null)} title={managedConnection ? `Manage ${managedConnection.label}` : 'Manage connection'} width={480}>
-        <p className="connection-dialog-copy">Account details will appear here after OAuth is configured and the provider returns an identity.</p>
+      <Modal
+        isOpen={Boolean(managedConnection)}
+        onClose={() => { pendingConnectionRef.current = null; setPendingConnection(false); setManagedConnection(null); }}
+        title={managedConnection ? `Manage ${managedConnection.label}` : 'Manage connection'}
+        headerAside={managedConnection ? <ConnectionStatusTag state={connectionState(managedConnection)} /> : undefined}
+        width={520}
+      >
+        {managedConnection && <>
+          <ConnectionAccountSummary connection={managedConnection} details={accountDetails(managedConnection)} />
+          {connectionState(managedConnection) === 'reauthorization_required' && <p className="connection-dialog-security" role="alert">Reconnect Slack to grant the missing read scopes: {slackMissingScopes(connectedRecord(managedConnection)?.scopes ?? '').join(', ')}. Sync stays disabled until authorization is updated.</p>}
+          <ConnectionAccessDetails connection={managedConnection} />
+          <p className="connection-dialog-security">You can reconnect to update access or disconnect this account from Centinel.</p>
+        </>}
+        {connectionMessage && <p className="connection-dialog-copy" role="status">{connectionMessage}</p>}
         <div className="connection-dialog-actions">
-          <button type="button" className="btn-secondary" disabled>Reconnect with another account</button>
-          <button type="button" className="btn-secondary" onClick={() => setManagedConnection(null)}>Close</button>
+          {managedConnection && <button type="button" className="btn-danger" onClick={() => void disconnect(managedConnection)} disabled={connectionBusy}>Disconnect</button>}
+          {managedConnection && <button type="button" className="btn-primary connection-primary-button" data-autofocus onClick={() => void beginConnection(managedConnection)} disabled={connectionBusy}><ExternalLink size={15} aria-hidden="true" /> {connectionBusy ? 'Opening…' : 'Reconnect'}</button>}
+          <button type="button" className="btn-secondary" onClick={() => { pendingConnectionRef.current = null; setPendingConnection(false); setManagedConnection(null); }}>Close</button>
         </div>
       </Modal>
     </div>
@@ -708,27 +980,84 @@ type ConnectionDefinition = {
   label: string;
   description: string;
   asset: string;
+  access: readonly string[];
   connected?: boolean;
 };
 
+type IntegrationSummary = {
+  provider: 'github' | 'google_drive' | 'slack';
+  accountLabel: string;
+  accountId: string;
+  scopes: string;
+  status: string;
+  updatedAt: string;
+};
+
+type ConnectionState = 'connected' | 'disconnected' | 'reauthorization_required';
+
+const SLACK_REQUIRED_READ_SCOPES = ['channels:history', 'channels:read', 'groups:history', 'groups:read', 'users:read', 'files:read'] as const;
+
+function slackMissingScopes(scopes: string): string[] {
+  const granted = new Set(scopes.split(/[\s,]+/).map(scope => scope.trim()).filter(Boolean));
+  return SLACK_REQUIRED_READ_SCOPES.filter(scope => !granted.has(scope));
+}
+
+type ConnectionAccountDetails = {
+  primary: string | null;
+  secondary: string | null;
+};
+
 const CONNECTIONS: ConnectionDefinition[] = [
-  { id: 'google-drive', label: 'Google Drive', description: 'Import and review shared documents and requirements.', asset: '/assets/connectors/google-drive.svg' },
-  { id: 'github', label: 'GitHub', description: 'Connect repositories and pull request context to reviews.', asset: '/assets/connectors/github.svg' },
-  { id: 'slack', label: 'Slack', description: 'Share review updates and collaborate with your team.', asset: '/assets/connectors/slack.svg' },
+  {
+    id: 'google-drive',
+    label: 'Google Drive',
+    description: 'Import and review shared documents and requirements.',
+    asset: '/assets/connectors/google-drive.svg',
+    access: [
+      'Read files and folders so you can import Drive content as project sources.',
+      'Read file metadata such as names, owners, and modified dates to identify sources.',
+      'Centinel does not edit or delete your Google Drive content.',
+    ],
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    description: 'Connect repositories and pull request context to reviews.',
+    asset: '/assets/connectors/github.svg',
+    access: [
+      'Read repository files and metadata for repositories you choose to import.',
+      'Read pull-request context and GitHub account information for review workflows.',
+      'Centinel can invite collaborators to a selected project repository only when you explicitly request it.',
+    ],
+  },
+  {
+    id: 'slack',
+    label: 'Slack',
+    description: 'Share review updates and collaborate with your team.',
+    asset: '/assets/connectors/slack.svg',
+    access: [
+      'Read public channel names and metadata to identify collaboration context.',
+      'Read messages in channels the connected Slack app can access.',
+      'Read basic user information; the current connection does not send Slack messages.',
+    ],
+  },
 ];
 
-function ConnectionsList({ onConnect, onManage, githubConnected }: { onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void; githubConnected: boolean }) {
+function ConnectionsList({ onConnect, onManage, connectionState }: { onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void; connectionState: (connection: ConnectionDefinition) => ConnectionState }) {
   return <div className="connection-list" role="list">
-    {CONNECTIONS.map(connection => <ConnectionOption key={connection.id} connection={{ ...connection, connected: connection.id === 'github' ? githubConnected : false }} onConnect={onConnect} onManage={onManage} />)}
+    {CONNECTIONS.map(connection => <ConnectionOption key={connection.id} connection={{ ...connection, connected: connectionState(connection) !== 'disconnected' }} state={connectionState(connection)} onConnect={onConnect} onManage={onManage} />)}
   </div>;
 }
 
-function ConnectionOption({ connection, onConnect, onManage }: { connection: ConnectionDefinition; onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void }) {
+function ConnectionOption({ connection, state, onConnect, onManage }: { connection: ConnectionDefinition; state: ConnectionState; onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void }) {
   return (
     <div className="connection-option" role="listitem">
       <span className="connection-brand-icon"><img src={connection.asset} alt="" aria-hidden="true" /></span>
       <div className="connection-copy">
-        <strong>{connection.label}</strong>
+        <div className="connection-copy-heading">
+          <strong>{connection.label}</strong>
+          <ConnectionStatusTag state={state} />
+        </div>
         <p>{connection.description}</p>
       </div>
       {connection.connected ? (
@@ -737,5 +1066,34 @@ function ConnectionOption({ connection, onConnect, onManage }: { connection: Con
         <button type="button" className="connection-action" aria-label={`Connect ${connection.label}`} title={`Connect ${connection.label}`} onClick={() => onConnect(connection)}><Plus size={20} aria-hidden="true" /></button>
       )}
     </div>
+  );
+}
+
+function ConnectionStatusTag({ connected, state }: { connected?: boolean; state?: ConnectionState }) {
+  const resolved = state ?? (connected ? 'connected' : 'disconnected');
+  return <StatusBadge label={resolved === 'connected' ? 'Connected' : resolved === 'reauthorization_required' ? 'Reconnect required' : 'Disconnected'} tone={resolved === 'connected' ? 'success' : 'warning'} />;
+}
+
+function ConnectionAccessDetails({ connection }: { connection: ConnectionDefinition }) {
+  return (
+    <section className="connection-access-details" aria-labelledby={`${connection.id}-access-title`}>
+      <h4 id={`${connection.id}-access-title`}>What Centinel can access</h4>
+      <ul>
+        {connection.access.map(item => <li key={item}>{item}</li>)}
+      </ul>
+    </section>
+  );
+}
+
+function ConnectionAccountSummary({ connection, details }: { connection: ConnectionDefinition; details: ConnectionAccountDetails }) {
+  return (
+    <section className="connection-account-summary" aria-labelledby={`${connection.id}-account-title`}>
+      <h4 id={`${connection.id}-account-title`}>Connected account</h4>
+      <dl>
+        {details.primary && <div><dt>Account</dt><dd>{details.primary}</dd></div>}
+        {details.secondary && <div><dt>Email</dt><dd>{details.secondary}</dd></div>}
+        {!details.primary && !details.secondary && <div><dt>Account</dt><dd>Account details unavailable</dd></div>}
+      </dl>
+    </section>
   );
 }

@@ -16,6 +16,8 @@ export function getDbPath(): string {
 export function setTestDb(db: Database) {
   dbInstance = db;
   isTestMode = true;
+  // Tests use the same additive Dynamic schema as persisted local databases.
+  initSchema(db);
 }
 
 export function clearTestDb() {
@@ -74,6 +76,7 @@ function initSchema(db: Database) {
       session_id TEXT,
       source TEXT NOT NULL,
       severity TEXT NOT NULL,
+      priority TEXT,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -116,95 +119,6 @@ function initSchema(db: Database) {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS artifacts (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      original_path TEXT,
-      content_hash TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'documents',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS static_sessions (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      review_type TEXT NOT NULL,
-      status TEXT NOT NULL,
-      config_json TEXT NOT NULL DEFAULT '{}',
-      progress_json TEXT NOT NULL DEFAULT '{}',
-      remarks TEXT NOT NULL DEFAULT '',
-      final_summary TEXT NOT NULL DEFAULT '',
-      failure_reason TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS review_artifacts (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
-      artifact_type TEXT NOT NULL DEFAULT 'analysis',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES static_sessions(id)
-    )
-  `);
-
-  // Phase 8: Review Decisions (P0-3)
-  //
-  // A session-level lifecycle event distinct from per-finding status.
-  //   - 'approved'        — the reviewer's overall sign-off; the report can ship
-  //   - 'changes_requested' — blocking; new findings or unresolved issues remain
-  //   - 'commented'       — non-blocking note, no verdict yet
-  // The most recent decision for a session is the "current" one; full history
-  // is preserved so the audit trail shows how the team got there.
-  db.run(`
-    CREATE TABLE IF NOT EXISTS review_decisions (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      decision TEXT NOT NULL,
-      comment TEXT NOT NULL DEFAULT '',
-      reviewer TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES static_sessions(id),
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS review_decision_attachments (
-      id TEXT PRIMARY KEY,
-      decision_id TEXT NOT NULL,
-      session_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      content_base64 TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (decision_id) REFERENCES review_decisions(id),
-      FOREIGN KEY (session_id) REFERENCES static_sessions(id),
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-  db.run('CREATE INDEX IF NOT EXISTS idx_review_decision_attachments_decision ON review_decision_attachments(decision_id, created_at ASC)');
-  // Index: list decisions for a session in reverse chronological order.
-  db.run(`CREATE INDEX IF NOT EXISTS idx_review_decisions_session ON review_decisions(session_id, created_at DESC)`);
-  // Index: list all decisions on a project (for the "review activity" feed
-  // if/when we surface one on the project dashboard).
-  db.run(`CREATE INDEX IF NOT EXISTS idx_review_decisions_project ON review_decisions(project_id, created_at DESC)`);
-
-  db.run(`
     CREATE TABLE IF NOT EXISTS ai_provider_settings (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -216,249 +130,23 @@ function initSchema(db: Database) {
     )
   `);
 
-  // Migrate: add columns to a table if they don't exist (existing DBs).
-  //
-  // P1-5 note: this helper used to be hardcoded to `findings` — which
-  // silently corrupted earlier schema migrations whenever a caller
-  // wanted to add a column to a different table (the P0-4 diff-scope
-  // columns on static_sessions were being added to findings, not
-  // static_sessions). Refactored to take an explicit table name so
-  // the silent corruption can't recur.
-  const migrateCol = (table: string, col: string, colDef: string) => {
-    try { db.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${colDef}`); } catch { /* already exists */ }
+  // Keep older local Dynamic findings readable without touching legacy
+  // Static Review tables that are retained for explicit migration.
+  const migrateFindingColumn = (col: string, colDef: string) => {
+    try { db.run(`ALTER TABLE findings ADD COLUMN ${col} ${colDef}`); } catch { /* already exists */ }
   };
-  migrateCol('findings', 'artifact_id', 'TEXT');
-  migrateCol('findings', 'category', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('findings', 'evidence_text', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('findings', 'recommendation', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('findings', 'confidence', "TEXT NOT NULL DEFAULT ''");
+  migrateFindingColumn('artifact_id', 'TEXT');
+  migrateFindingColumn('category', "TEXT NOT NULL DEFAULT ''");
+  migrateFindingColumn('evidence_text', "TEXT NOT NULL DEFAULT ''");
+  migrateFindingColumn('recommendation', "TEXT NOT NULL DEFAULT ''");
+  migrateFindingColumn('confidence', "TEXT NOT NULL DEFAULT ''");
+  migrateFindingColumn('priority', 'TEXT');
+  migrateFindingColumn('from_remarks', 'INTEGER NOT NULL DEFAULT 0');
+  migrateFindingColumn('file_path', "TEXT NOT NULL DEFAULT ''");
+  migrateFindingColumn('line_number', 'INTEGER');
 
-  // Migrate: add remarks column to static_sessions if missing
-  try { db.run("ALTER TABLE static_sessions ADD COLUMN remarks TEXT NOT NULL DEFAULT ''"); } catch { /* already exists */ }
-
-  // Migrate: add progress_json column to static_sessions if missing
-  try { db.run("ALTER TABLE static_sessions ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'"); } catch { /* already exists */ }
-
-  // Migrate: add from_remarks column to findings if missing
-  try { db.run("ALTER TABLE findings ADD COLUMN from_remarks INTEGER NOT NULL DEFAULT 0"); } catch { /* already exists */ }
-
-  // Migrate: add file_path + line_number to findings for precise location display
-  migrateCol('findings', 'file_path', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('findings', 'line_number', 'INTEGER');
-
-  // Migrate: add diff-scope columns to static_sessions (P0-4)
-  // - base_ref / head_ref: the user-supplied git refs the review is scoped to
-  // - changed_files_json: array of paths changed between those refs
-  //   (JSON-encoded; small for any reasonable PR, no need for a join table)
-  // All nullable: most existing reviews predate the feature and have no scope.
-  // P1-5 fix: these were previously added via migrateCol('findings', ...)
-  // which silently corrupted findings rather than static_sessions. The
-  // refactor above now lets us target the right table.
-  migrateCol('static_sessions', 'base_ref', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('static_sessions', 'head_ref', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('static_sessions', 'changed_files_json', "TEXT NOT NULL DEFAULT '[]'");
-
-  // P1-5: Re-review on push. Two new columns on static_sessions:
-  //   - parent_session_id: the session this one was generated from
-  //     (null for first-time reviews). Forms a chain — re-review
-  //     re-reviews land with their own parent, building an audit
-  //     trail of the "this PR has been reviewed N times" lineage.
-  //   - review_diff_json: cached result of the last diff computation
-  //     against the parent (or null until the user opens the diff
-  //     view). Caching avoids re-running the SQL aggregation on every
-  //     dashboard load.
-  migrateCol('static_sessions', 'parent_session_id', "TEXT NOT NULL DEFAULT ''");
-  migrateCol('static_sessions', 'review_diff_json', "TEXT NOT NULL DEFAULT ''");
-  db.run(`CREATE INDEX IF NOT EXISTS idx_static_sessions_parent ON static_sessions(parent_session_id) WHERE parent_session_id != ''`);
-
-  // Coalesce legacy 'partial' status rows to 'failure' so the typed
-  // StaticSessionStatus contract holds for data written before the
-  // status was simplified (the old "1–3 of 4 stages failed" branch
-  // now collapses to 'failure'). Idempotent — UPDATE on a
-  // non-matching status is a no-op.
-  db.run("UPDATE static_sessions SET status = 'failure' WHERE status = 'partial'");
-
-  // Test plan (Group 2c).
-  //
-  // A test plan is the bridge from the static review to the dynamic
-  // runner. For each module under the system, we generate:
-  //   - one test item per finding (rationale=the finding id), asking the
-  //     AI for 1-3 cases that would verify the fix
-  //   - one smoke test per module with zero findings (rationale='smoke')
-  //
-  // Items are append-only and survive finding deletion/dedup via the
-  // `rationale` text column (no hard FK). The `status` lifecycle mirrors
-  // a real test-management tool: proposed → accepted | rejected →
-  // in_progress → passed | failed.
-  db.run(`
-    CREATE TABLE IF NOT EXISTS test_items (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      module TEXT NOT NULL,
-      component TEXT,
-      file_path TEXT NOT NULL DEFAULT '',
-      line_number INTEGER,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      rationale TEXT,
-      kind TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'medium',
-      status TEXT NOT NULL DEFAULT 'proposed',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES static_sessions(id),
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-  // Module-grouped reads are the common dashboard query (per-module card
-  // with status counts). Single-column index is enough.
-  db.run(`CREATE INDEX IF NOT EXISTS idx_test_items_module ON test_items(project_id, module, status)`);
-  // Session-level reads (regenerate, diff against parent) hit by session
-  // id alone. The module index already covers this if combined with the
-  // project_id; add a single-column index for the simple case.
-  db.run(`CREATE INDEX IF NOT EXISTS idx_test_items_session ON test_items(session_id, created_at)`);
-
-  // repo_index gets a `module` column derived from the first path segment
-  // under the workspace root. Back-fill empty for existing rows; the next
-  // call to indexProject will populate it.
-  migrateCol('repo_index', 'module', "TEXT NOT NULL DEFAULT ''");
-  // Back-fill the module for any existing rows that were indexed before
-  // this column existed. We inline the same heuristic deriveModuleFromPath
-  // uses (in repoIndex.ts) to avoid pulling repoIndex into db.ts — that
-  // would create a circular import (repoIndex → db → repoIndex).
-  // Convention: first non-empty path segment after stripping src/ or lib/.
-  const moduleOf = (fp: string): string => {
-    if (!fp) return '(root)';
-    let p = fp.replace(/\\/g, '/').replace(/^\.\//, '');
-    if (p.startsWith('src/')) p = p.slice(4);
-    else if (p.startsWith('lib/')) p = p.slice(4);
-    const first = p.split('/').filter(Boolean)[0];
-    if (!first) return '(root)';
-    if (!p.includes('/')) return first.replace(/\.[^.]+$/, '');
-    return first;
-  };
-  try {
-    const stmt = db.prepare('SELECT id, file_path FROM repo_index WHERE module = ?');
-    stmt.bind(['']);
-    const pending: Array<[string, string]> = [];
-    while (stmt.step()) {
-      const row = stmt.get() as unknown[];
-      pending.push([row[0] as string, moduleOf(row[1] as string)]);
-    }
-    stmt.free();
-    for (const [id, mod] of pending) {
-      db.run('UPDATE repo_index SET module = ? WHERE id = ?', [mod, id]);
-    }
-  } catch { /* ignore — first run on an empty DB */ }
-
-  // Migrate: add source column to artifacts if missing
-  try { db.run("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'documents'"); } catch { /* already exists */ }
-
-  // Phase 2: Repository Indexing
-  db.run(`
-    CREATE TABLE IF NOT EXISTS repo_index (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      parent_path TEXT,
-      file_type TEXT,
-      language TEXT,
-      file_size INTEGER,
-      symbol_count INTEGER DEFAULT 0,
-      indexed_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS code_symbols (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      file_id TEXT NOT NULL,
-      symbol_type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      start_line INTEGER,
-      end_line INTEGER,
-      signature TEXT,
-      exports INTEGER DEFAULT 0,
-      FOREIGN KEY (project_id) REFERENCES projects(id),
-      FOREIGN KEY (file_id) REFERENCES repo_index(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS code_relationships (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      source_file_id TEXT NOT NULL,
-      target_file_path TEXT,
-      target_symbol TEXT,
-      relationship_type TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id),
-      FOREIGN KEY (source_file_id) REFERENCES repo_index(id)
-    )
-  `);
-
-  // Phase 4: Static Analysis Results
-  db.run(`
-    CREATE TABLE IF NOT EXISTS static_analysis_results (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      session_id TEXT,
-      file_path TEXT NOT NULL,
-      line_number INTEGER,
-      rule_id TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      category TEXT NOT NULL,
-      message TEXT NOT NULL,
-      evidence TEXT,
-      confidence TEXT NOT NULL DEFAULT 'high',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-  // Migration: older databases (pre-noise-filter era) were created without
-  // the confidence column. dedupeAgainstStaticFindings reads it to rank
-  // static findings vs AI findings; without the column that query throws
-  // "no such column: confidence" mid-pipeline. Backfill with 'high' — static
-  // rules are deterministic so 'high' is the correct implicit value.
-  addColumnIfMissing(db, 'static_analysis_results', 'confidence', "TEXT NOT NULL DEFAULT 'high'");
-
-  // Phase 6: Requirements
-  db.run(`
-    CREATE TABLE IF NOT EXISTS requirements (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      category TEXT NOT NULL DEFAULT '',
-      priority TEXT NOT NULL DEFAULT 'medium',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS requirement_mappings (
-      id TEXT PRIMARY KEY,
-      requirement_id TEXT NOT NULL,
-      file_id TEXT,
-      symbol_id TEXT,
-      coverage_status TEXT NOT NULL DEFAULT 'unknown',
-      confidence REAL DEFAULT 0,
-      FOREIGN KEY (requirement_id) REFERENCES requirements(id)
-    )
-  `);
-
-  // Phase 7: AI Token Usage
-  //
-  // One row per AI call (text or vision, test or review). The provider
-  // reports its own usage block which we persist verbatim. Cost is not
-  // computed here — pricing varies wildly per provider, model, and contract;
-  // that's a dashboard concern. The `call_kind` column distinguishes the
-  // origin so the Settings page can show "5 review calls" vs "12 test calls"
-  // separately.
+  // Local Dynamic Testing usage. Static Review usage is authoritative in
+  // Supabase model_usage_records.
   db.run(`
     CREATE TABLE IF NOT EXISTS token_usage (
       id TEXT PRIMARY KEY,
@@ -479,58 +167,12 @@ function initSchema(db: Database) {
       created_at TEXT NOT NULL
     )
   `);
-  // Composite index: the Settings page filters by scope + groups by
-  // (provider, api_format, model). Sessions are paged in chronological
-  // order, so created_at covers both ad-hoc and per-session queries.
   db.run(`CREATE INDEX IF NOT EXISTS idx_token_usage_scope ON token_usage(scope, created_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_token_usage_session ON token_usage(session_id, round_number)`);
-
-  // Seed defaults if empty
-  const stmt = db.prepare("SELECT COUNT(*) FROM ai_provider_settings WHERE id = 'text'");
-  stmt.step();
-  const count = (stmt.get() as unknown[])[0] as number;
-  stmt.free();
-
-  if (count === 0) {
-    const now = new Date().toISOString();
-    db.run(
-      "INSERT INTO ai_provider_settings (id, label, compatibility_mode, api_key, base_url, model, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ['text', 'Text Generation', 'anthropic', '', 'https://api.xiaomimimo.com/anthropic/v1/messages', 'mimo-v2.5-pro', now]
-    );
-    db.run(
-      "INSERT INTO ai_provider_settings (id, label, compatibility_mode, api_key, base_url, model, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ['vision', 'Multimodal Vision', 'anthropic', '', 'https://token-plan-sgp.xiaomimimo.com/anthropic/v1/messages', 'mimo-v2.5', now]
-    );
-  }
 }
 
 export function saveDb() {
   if (!dbInstance || isTestMode) return;
   const data = dbInstance.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
-}
-
-/**
- * Migration helper: add a column to a table if it doesn't already exist.
- * CREATE TABLE IF NOT EXISTS won't add columns to a pre-existing table, so
- * schema additions for already-deployed databases need an explicit ALTER.
- * Safe to call on every startup — the PRAGMA check makes it a no-op when
- * the column is already there.
- */
-function addColumnIfMissing(
-  db: Database,
-  table: string,
-  column: string,
-  definition: string
-): void {
-  const infoStmt = db.prepare(`PRAGMA table_info(${table})`);
-  const existing = new Set<string>();
-  while (infoStmt.step()) {
-    const row = infoStmt.get() as unknown[];
-    // PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
-    existing.add(row[1] as string);
-  }
-  infoStmt.free();
-  if (existing.has(column)) return;
-  db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

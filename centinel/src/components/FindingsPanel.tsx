@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import type { Finding } from '../types';
 import { entityIdTitle, formatEntityId } from '../utils/entityId';
 import { userFacingError } from '../utils/userFacingError';
+import { deriveRiskLevelWithFallback, priorityRank, riskLevelRank } from '../riskPolicy';
 import { Select } from './Select';
 
 type Props = {
@@ -18,10 +19,21 @@ type Props = {
   pageSize?: number;
   /** Optional finding to select when another evidence view links into the table. */
   focusFindingId?: string | null;
+  /** Optional navigation context supplied by Assessment/Overview links. */
+  initialFilter?: {
+    riskLevel?: 'all' | 'critical' | 'high' | 'medium' | 'low' | 'critical_or_high';
+    status?: 'all' | FindingPresentationStatus;
+    category?: string;
+    search?: string;
+  } | null;
 };
 
 const FINDINGS_BATCH_SIZE = 50;
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+function findingRiskLevel(finding: Finding): string | null {
+  return finding.riskLevel ?? deriveRiskLevelWithFallback(finding.severity, finding.priority);
+}
 
 export type FindingPresentationStatus = 'unresolved' | 'resolved' | 'dismiss';
 
@@ -41,6 +53,11 @@ export function findingStatusLabel(status: Finding['status'] | FindingPresentati
 
 function SeverityBadge({ severity }: { severity: string }) {
   return <span className={`badge badge-severity-${severity.toLowerCase()}`}>{severity}</span>;
+}
+
+function RiskBadge({ finding }: { finding: Finding }) {
+  const riskLevel = findingRiskLevel(finding);
+  return <span className={`project-finding-risk ${riskLevel ? `project-risk-level-${riskLevel}` : 'project-risk-level-unclassified'}`} title={finding.riskLevel ? 'Recorded Risk Level' : 'Risk Level calculated from available finding data'}>{riskLevel ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1) : 'Not classified'}</span>;
 }
 
 function sourceLabel(source: Finding['source']) {
@@ -74,7 +91,7 @@ function FindingActions({
   );
 }
 
-export function FindingsPanel({ projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, onLoadStateChange }: Props) {
+export function FindingsPanel({ projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -84,6 +101,8 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
   const [filterSeverity, setFilterSeverity] = useState('all');
   const [filterStatus, setFilterStatus] = useState<'all' | FindingPresentationStatus>('all');
   const [filterPriority, setFilterPriority] = useState('all');
+  const [filterRiskLevel, setFilterRiskLevel] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(FINDINGS_BATCH_SIZE);
   const [page, setPage] = useState(0);
@@ -114,15 +133,25 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
   useEffect(() => {
     setVisibleCount(FINDINGS_BATCH_SIZE);
     setPage(0);
-  }, [filterSource, filterSeverity, filterStatus, filterPriority, searchQuery]);
+  }, [filterSource, filterSeverity, filterStatus, filterPriority, filterRiskLevel, filterCategory, searchQuery]);
+
+  useEffect(() => {
+    setFilterRiskLevel(initialFilter?.riskLevel ?? 'all');
+    setFilterStatus(initialFilter?.status ?? 'all');
+    setFilterCategory(initialFilter?.category ?? 'all');
+    setSearchQuery(initialFilter?.search ?? '');
+  }, [initialFilter?.category, initialFilter?.riskLevel, initialFilter?.search, initialFilter?.status]);
 
   const hasPriorityFilter = presentation === 'project' || findings.some(finding => Boolean(finding.priority));
   const priorityOptions = useMemo(() => Array.from(new Set(findings.map(finding => finding.priority).filter(Boolean) as string[])).sort((a, b) => (SEVERITY_ORDER[a.toLowerCase()] ?? 99) - (SEVERITY_ORDER[b.toLowerCase()] ?? 99)), [findings]);
+  const categoryOptions = useMemo(() => Array.from(new Set(findings.map(finding => finding.category?.trim()).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)), [findings]);
   const activeFilters = [
     filterSource !== 'all' ? { key: 'source', label: 'Source', value: sourceLabel(filterSource as Finding['source']) } : null,
     filterSeverity !== 'all' ? { key: 'severity', label: 'Severity', value: filterSeverity } : null,
     filterStatus !== 'all' ? { key: 'status', label: 'Status', value: findingStatusLabel(filterStatus) } : null,
     filterPriority !== 'all' ? { key: 'priority', label: 'Priority', value: filterPriority } : null,
+    filterRiskLevel !== 'all' ? { key: 'risk', label: 'Risk level', value: filterRiskLevel === 'critical_or_high' ? 'Critical + High' : filterRiskLevel } : null,
+    filterCategory !== 'all' ? { key: 'category', label: 'Category', value: filterCategory } : null,
   ].filter((entry): entry is { key: string; label: string; value: string } => Boolean(entry));
 
   const handleUpdateStatus = async (findingId: string, status: Finding['status']) => {
@@ -140,17 +169,35 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
 
   const sorted = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const compareFindings = (a: Finding, b: Finding) => {
+      if (presentation === 'project') {
+        const riskComparison = riskLevelRank(findingRiskLevel(a)) - riskLevelRank(findingRiskLevel(b));
+        if (riskComparison !== 0) return riskComparison;
+        const priorityComparison = priorityRank(a.priority) - priorityRank(b.priority);
+        if (priorityComparison !== 0) return priorityComparison;
+      }
+      const severityComparison = (SEVERITY_ORDER[a.severity.toLowerCase()] ?? 99) - (SEVERITY_ORDER[b.severity.toLowerCase()] ?? 99);
+      if (severityComparison !== 0) return severityComparison;
+      const recencyComparison = Date.parse(updatedTime(b)) - Date.parse(updatedTime(a));
+      if (recencyComparison !== 0) return recencyComparison;
+      return a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+    };
     return findings
       .filter(finding => {
         if (filterSource !== 'all' && finding.source !== filterSource) return false;
         if (filterSeverity !== 'all' && finding.severity.toLowerCase() !== filterSeverity) return false;
         if (filterStatus !== 'all' && findingPresentationStatus(finding.status) !== filterStatus) return false;
         if (filterPriority !== 'all' && finding.priority !== filterPriority) return false;
+        if (filterRiskLevel !== 'all') {
+          const level = findingRiskLevel(finding);
+          if (filterRiskLevel === 'critical_or_high' ? level !== 'critical' && level !== 'high' : level !== filterRiskLevel) return false;
+        }
+        if (filterCategory !== 'all' && finding.category?.trim().toLowerCase() !== filterCategory.toLowerCase()) return false;
         if (query && ![finding.title, finding.description, finding.filePath, finding.category, sourceLabel(finding.source)].some(value => value?.toLowerCase().includes(query))) return false;
         return true;
       })
-      .sort((a, b) => (SEVERITY_ORDER[a.severity.toLowerCase()] ?? 99) - (SEVERITY_ORDER[b.severity.toLowerCase()] ?? 99) || Date.parse(updatedTime(b)) - Date.parse(updatedTime(a)) || a.title.localeCompare(b.title));
-  }, [filterPriority, filterSeverity, filterSource, filterStatus, findings, searchQuery]);
+      .sort(compareFindings);
+  }, [filterCategory, filterPriority, filterRiskLevel, filterSeverity, filterSource, filterStatus, findings, presentation, searchQuery]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pagedFindings = presentation === 'project'
@@ -175,6 +222,8 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
     setFilterSeverity('all');
     setFilterStatus('all');
     setFilterPriority('all');
+    setFilterRiskLevel('all');
+    setFilterCategory('all');
     setExpandedId(null);
   };
 
@@ -183,6 +232,8 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
     if (key === 'severity') setFilterSeverity('all');
     if (key === 'status') setFilterStatus('all');
     if (key === 'priority') setFilterPriority('all');
+    if (key === 'risk') setFilterRiskLevel('all');
+    if (key === 'category') setFilterCategory('all');
     setExpandedId(null);
   };
 
@@ -207,6 +258,8 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
         <label className="finding-filter-field" htmlFor="finding-severity-filter"><span>Severity</span><Select id="finding-severity-filter" aria-label="Severity" value={filterSeverity} onChange={setFilterSeverity} options={[{ value: 'all', label: 'All severities' }, { value: 'critical', label: 'Critical' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low' }, { value: 'info', label: 'Info' }]} /></label>
         <label className="finding-filter-field" htmlFor="finding-status-filter"><span>Status</span><Select id="finding-status-filter" aria-label="Status" value={filterStatus} onChange={value => setFilterStatus(value as 'all' | FindingPresentationStatus)} options={[{ value: 'all', label: 'All statuses' }, { value: 'unresolved', label: 'Unresolved' }, { value: 'resolved', label: 'Resolved' }, { value: 'dismiss', label: 'Dismiss' }]} /></label>
         {hasPriorityFilter && <label className="finding-filter-field" htmlFor="finding-priority-filter"><span>Priority</span><Select id="finding-priority-filter" aria-label="Priority" value={filterPriority} onChange={setFilterPriority} options={[{ value: 'all', label: 'All priorities' }, ...priorityOptions.map(priority => ({ value: priority, label: priority }))]} /></label>}
+        {presentation === 'project' && <label className="finding-filter-field" htmlFor="finding-risk-filter"><span>Risk level</span><Select id="finding-risk-filter" aria-label="Risk level" value={filterRiskLevel} onChange={setFilterRiskLevel} options={[{ value: 'all', label: 'All risk levels' }, { value: 'critical_or_high', label: 'Critical + High' }, { value: 'critical', label: 'Critical' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low' }]} /></label>}
+        {categoryOptions.length > 0 && <label className="finding-filter-field" htmlFor="finding-category-filter"><span>Category</span><Select id="finding-category-filter" aria-label="Category" value={filterCategory} onChange={setFilterCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryOptions.map(category => ({ value: category, label: category }))]} /></label>}
       </div>}
     </div>
   );
@@ -224,9 +277,9 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
           {findings.length > 0 && filterToolbar(false)}
           {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : (
             <section className="project-findings-table-region" aria-label="Findings table">
-              <table className="project-findings-table" aria-label="Review findings"><thead><tr><th scope="col">ID</th><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Description</th><th scope="col">Status</th></tr></thead><tbody>
+              <table className="project-findings-table" aria-label="Review findings"><thead><tr><th scope="col">ID</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Risk</th><th scope="col">Description</th></tr></thead><tbody>
                 {pagedFindings.map(finding => <tr key={finding.id} tabIndex={0} aria-selected={selectedId === finding.id} className={selectedId === finding.id ? 'selected' : undefined} onClick={() => setSelectedId(finding.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedId(finding.id); } }}>
-                  <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td><td><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); setSelectedId(finding.id); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td><td><span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></td>
+                  <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td><td><span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); setSelectedId(finding.id); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td>
                 </tr>)}
               </tbody></table>
               {pageCount > 1 && <div className="findings-pagination" aria-label="Finding pages"><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={page === 0}>Previous</button><span>Page {page + 1} of {pageCount}</span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1}>Next</button></div>}
@@ -236,11 +289,11 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
 
         <aside className="card detail-card project-finding-details" aria-label="Finding details">
           {selectedFinding ? <>
-            <div className="project-finding-source-status">{selectedFinding.source !== 'static' && <strong>{sourceLabel(selectedFinding.source)}</strong>}<span className={`finding-status finding-status-${findingPresentationStatus(selectedFinding.status)}`}>{findingStatusLabel(selectedFinding.status)}</span></div>
+            {selectedFinding.source !== 'static' && <div className="project-finding-source-status"><strong>{sourceLabel(selectedFinding.source)}</strong></div>}
             <div className="project-finding-title-status"><h4>{selectedFinding.title}</h4><span className="finding-id-label" title={entityIdTitle('Finding ID:', selectedFinding.id)}>{formatEntityId(selectedFinding.id)}</span></div>
             <dl className="project-finding-facts">
               <div><dt>Priority</dt><dd>{selectedFinding.priority || 'Not set'}</dd></div>
-              <div><dt>Severity</dt><dd><SeverityBadge severity={selectedFinding.severity} /></dd></div>
+              <div><dt>Risk Level</dt><dd><RiskBadge finding={selectedFinding} /></dd></div>
               <div><dt>Location</dt><dd className="finding-location-path">{locationLabel(selectedFinding)}</dd></div>
             </dl>
             <section><h5>Description</h5><p>{selectedFinding.description || 'No description was supplied.'}</p></section>
@@ -272,7 +325,7 @@ export function FindingsPanel({ projectId, sessionId, refreshKey, presentation =
                 <div className="finding-detail-content">
                   <div className="finding-source-status">{finding.source !== 'static' && <strong>{sourceLabel(finding.source)}</strong>}<span className={`finding-status finding-status-${findingPresentationStatus(finding.status)}`}>{findingStatusLabel(finding.status)}</span></div>
                   <div className="finding-detail-title-status"><h4>{finding.title}</h4><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></div>
-                  <dl className="finding-facts"><div><dt>Priority</dt><dd>{finding.priority || 'Not set'}</dd></div><div><dt>Severity</dt><dd><SeverityBadge severity={finding.severity} /></dd></div><div><dt>Location</dt><dd className="finding-location-path">{locationLabel(finding)}</dd></div></dl>
+                  <dl className="finding-facts"><div><dt>Priority</dt><dd>{finding.priority || 'Not set'}</dd></div><div><dt>Risk Level</dt><dd><RiskBadge finding={finding} /></dd></div><div><dt>Location</dt><dd className="finding-location-path">{locationLabel(finding)}</dd></div></dl>
                   <section><h4>Description</h4><p className="finding-description">{finding.description || 'No description was supplied.'}</p></section>
                   {finding.recommendation && <section className="finding-recommendation"><h4>Recommendation</h4><p>{finding.recommendation}</p></section>}
                   {finding.evidenceText && <section className="finding-evidence"><h4>Evidence</h4><pre>{finding.evidenceText}</pre></section>}

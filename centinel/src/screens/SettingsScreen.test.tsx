@@ -16,6 +16,10 @@ vi.mock('../api/client', () => ({
     getAiUsage: vi.fn(),
     updateAiSetting: vi.fn(),
     testAiProvider: vi.fn(),
+    githubStatus: vi.fn(),
+    listIntegrations: vi.fn(),
+    startIntegration: vi.fn(),
+    disconnectIntegration: vi.fn(),
   },
 }));
 
@@ -49,6 +53,8 @@ describe('SettingsScreen information architecture and capability boundary', () =
     vi.clearAllMocks();
     tauriApp.getVersion.mockResolvedValue('0.0.1');
     tauriShell.open.mockResolvedValue(undefined);
+    vi.mocked(api.githubStatus).mockResolvedValue({ connected: false, login: null, message: 'GitHub is not connected.' });
+    vi.mocked(api.listIntegrations).mockResolvedValue([]);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -126,7 +132,131 @@ describe('SettingsScreen information architecture and capability boundary', () =
 
     await user.click(screen.getByRole('button', { name: 'Connect Google Drive' }));
     expect(screen.getByRole('dialog', { name: 'Connect Google Drive' })).toBeInTheDocument();
-    expect(screen.getByText(/OAuth client credentials/)).toBeInTheDocument();
+    expect(screen.getByText(/finish authorization in your browser/i)).toBeInTheDocument();
+  });
+
+  it('closes the connection dialog after OAuth completes and the account becomes connected', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.startIntegration).mockResolvedValue({ authorizeUrl: 'https://slack.com/oauth/authorize', state: 'opaque' });
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    await user.click(screen.getByRole('button', { name: 'Connect Slack' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Connect Slack' })).getByRole('button', { name: 'Connect Slack' }));
+    await waitFor(() => expect(tauriShell.open).toHaveBeenCalledWith('https://slack.com/oauth/authorize'));
+
+    vi.mocked(api.listIntegrations).mockResolvedValue([{
+      id: 'slack-1', provider: 'slack', accountLabel: 'Acme workspace', accountId: 'T123',
+      scopes: 'channels:history channels:read groups:history groups:read users:read files:read', expiresAt: null,
+      status: 'connected', createdAt: '2026-09-26T10:00:00.000Z', updatedAt: '2026-09-26T10:00:00.000Z',
+    }]);
+    window.dispatchEvent(new Event('focus'));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Connect Slack' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Manage Slack connection' })).toBeInTheDocument();
+  });
+
+  it('keeps a reconnect dialog open until the existing connection is actually refreshed', async () => {
+    const user = userEvent.setup();
+    const existing = {
+      id: 'slack-1', provider: 'slack' as const, accountLabel: 'Acme workspace', accountId: 'T123',
+      scopes: 'channels:history channels:read groups:history groups:read users:read files:read', expiresAt: null,
+      status: 'connected' as const, createdAt: '2026-09-25T10:00:00.000Z', updatedAt: '2026-09-25T10:00:00.000Z',
+    };
+    vi.mocked(api.listIntegrations).mockResolvedValue([existing]);
+    vi.mocked(api.startIntegration).mockResolvedValue({ authorizeUrl: 'https://slack.com/oauth/authorize', state: 'opaque' });
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Manage Slack connection' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Manage Slack' })).getByRole('button', { name: 'Reconnect' }));
+    await waitFor(() => expect(tauriShell.open).toHaveBeenCalled());
+    window.dispatchEvent(new Event('focus'));
+    expect(screen.getByRole('dialog', { name: 'Manage Slack' })).toBeInTheDocument();
+
+    vi.mocked(api.listIntegrations).mockResolvedValue([{ ...existing, updatedAt: '2026-09-26T10:00:00.000Z' }]);
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Manage Slack' })).not.toBeInTheDocument());
+  });
+
+  it('configures optional source indexing inside Model Provider and tests the saved configuration', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getAiUsage).mockResolvedValue({
+      totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, calls: 0 }, byGroup: [], recent: [],
+    });
+    vi.mocked(api.updateAiSetting).mockResolvedValue({
+      ...settings[0], id: 'embedding', label: 'Source indexing', provider: 'custom',
+      hasApiKey: true, apiKeyPreview: '••••••••', baseUrl: 'https://example.com/v1', model: 'embed-model',
+    });
+    vi.mocked(api.testAiProvider).mockResolvedValue({ status: 'pass', message: 'Source indexing returned a valid vector.' });
+    const embedding: AiProviderSetting = {
+      ...settings[0], id: 'embedding', label: 'Source indexing', provider: 'custom',
+      baseUrl: '', model: '',
+    };
+    const { rerender } = render(<SettingsScreen settings={[...settings, embedding]} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    const indexing = screen.getByRole('heading', { name: 'Source indexing' }).closest('.embedding-provider-form')!;
+    expect(within(indexing as HTMLElement).getByText('Optional')).toBeInTheDocument();
+    expect(within(indexing as HTMLElement).getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    await user.type(within(indexing as HTMLElement).getByLabelText('API key'), 'secret-key');
+    await user.type(within(indexing as HTMLElement).getByLabelText('Base URL'), 'https://example.com/v1');
+    await user.type(within(indexing as HTMLElement).getByLabelText('Embedding model'), 'embed-model');
+    await user.click(within(indexing as HTMLElement).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(api.updateAiSetting).toHaveBeenCalledWith('embedding', {
+      provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret-key',
+      baseUrl: 'https://example.com/v1', model: 'embed-model', fallbackEnabled: false,
+    }));
+    expect(within(indexing as HTMLElement).getByRole('status')).toHaveTextContent('Settings saved');
+
+    rerender(<SettingsScreen settings={[...settings, { ...embedding, hasApiKey: true, apiKeyPreview: '••••••••' }]} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+    await user.click(within(indexing as HTMLElement).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(api.testAiProvider).toHaveBeenCalledWith('embedding'));
+    expect(within(indexing as HTMLElement).getByText('Connection successful')).toBeInTheDocument();
+  });
+
+  it('shows provider states and connected account details in the manage dialog', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.githubStatus).mockResolvedValue({ connected: true, login: 'Cstan0824', message: 'Connected to GitHub as Cstan0824.' });
+    vi.mocked(api.listIntegrations).mockResolvedValue([{
+      id: 'google-drive-1',
+      provider: 'google_drive',
+      accountLabel: 'Tancs Drive',
+      accountId: 'tancs8803@gmail.com',
+      scopes: 'drive.readonly',
+      expiresAt: null,
+      status: 'connected',
+      createdAt: '2026-09-15T10:00:00.000Z',
+      updatedAt: '2026-09-15T10:00:00.000Z',
+    }]);
+
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    expect(await screen.findAllByText('Connected')).toHaveLength(2);
+    expect(screen.getAllByText('Disconnected')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Manage GitHub connection' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Manage GitHub' });
+    expect(within(dialog).getByText('@Cstan0824')).toBeInTheDocument();
+    expect(within(dialog).queryByText('tancs8803@gmail.com')).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/Read repository files/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Connected')).toBeInTheDocument();
+  });
+
+  it('guides an existing Slack connection through reauthorization when scopes are incomplete', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listIntegrations).mockResolvedValue([{
+      id: 'slack-1', provider: 'slack', accountLabel: 'Acme workspace', accountId: 'T123',
+      scopes: 'channels:read channels:history', expiresAt: null, status: 'connected',
+      createdAt: '2026-09-15T10:00:00.000Z', updatedAt: '2026-09-15T10:00:00.000Z',
+    }]);
+
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    expect(await screen.findByText('Reconnect required')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Manage Slack connection' }));
+    const dialog = screen.getByRole('dialog', { name: 'Manage Slack' });
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('groups:history');
+    expect(within(dialog).getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
   });
 
   it('reports a truthful release-check error without exposing an installer action', async () => {
@@ -275,12 +405,25 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByLabelText('Model', { selector: '#model-text' })).toBeEnabled();
     expect(screen.getAllByRole('button', { name: 'Show API key' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Test provider connectivity' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Test connection' })).toHaveLength(1);
     await user.type(screen.getByLabelText('API Key'), 'temporary-key');
-    await user.click(screen.getByRole('button', { name: 'Test provider connectivity' }));
+    await user.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(api.testAiProvider).toHaveBeenCalledWith('text', expect.objectContaining({ apiKey: 'temporary-key' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(api.updateAiSetting).toHaveBeenCalledWith('text', expect.objectContaining({ apiKey: 'temporary-key' }));
     await waitFor(() => expect(api.getAiUsage).toHaveBeenCalled());
+  });
+
+  it('presents a failed model-provider test as an actionable alert', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.testAiProvider).mockResolvedValue({ status: 'fail', message: 'The endpoint rejected the key.', hint: 'Check the API key and try again.' });
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    await user.type(screen.getByLabelText('API Key'), 'invalid-key');
+    await user.click(screen.getByRole('button', { name: 'Test connection' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Connection failed');
+    expect(alert).toHaveTextContent('The endpoint rejected the key.');
+    expect(alert).toHaveTextContent('Check the API key and try again.');
   });
 });

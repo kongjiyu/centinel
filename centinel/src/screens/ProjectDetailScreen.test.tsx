@@ -16,7 +16,11 @@ vi.mock('../api/client', () => ({
     deleteProject: vi.fn(),
     updateProject: vi.fn(),
     exportProjectReport: vi.fn(),
+    listProjectReportHistory: vi.fn(),
+    renewProjectReportLinks: vi.fn(),
     getCollaborationStatus: vi.fn(),
+    getProjectCollaborators: vi.fn(),
+    syncGithubCollaborators: vi.fn(),
     searchCollaborators: vi.fn(),
     inviteCollaborator: vi.fn(),
   },
@@ -60,6 +64,7 @@ function renderProject(
   vi.mocked(api.listArtifacts).mockResolvedValue(projectArtifacts);
   vi.mocked(api.listFindings).mockResolvedValue(projectFindings);
   vi.mocked(api.getCollaborationStatus).mockResolvedValue(collaborationStatus);
+  vi.mocked(api.getProjectCollaborators).mockResolvedValue({ repository: collaborationStatus.repository, collaborators: [], syncedAt: null });
 
   return render(<ProjectDetailScreen project={project} onNavigate={onNavigate} onProjectUpdated={onProjectUpdated} />);
 }
@@ -67,6 +72,7 @@ function renderProject(
 beforeEach(() => {
   vi.clearAllMocks();
   folderPicker.mockReset();
+  vi.mocked(api.listProjectReportHistory).mockResolvedValue([]);
 });
 
 describe('ProjectDetailScreen refinement surfaces', () => {
@@ -120,9 +126,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
 
     expect(screen.getByRole('heading', { name: 'Collaborators' })).toBeInTheDocument();
-    expect(screen.getByText('Collaborator not found')).toBeInTheDocument();
+    expect(screen.getByText('No collaborators synced yet')).toBeInTheDocument();
     expect(screen.getByLabelText('Search collaborators')).toBeInTheDocument();
-    expect(screen.getByText(/Add a collaborator or sync from GitHub/i)).toBeInTheDocument();
+    expect(screen.getByText('Collaboration data is not connected')).toBeInTheDocument();
     expect(screen.queryByText('You · Admin')).not.toBeInTheDocument();
     expect(screen.queryByText('Assigned reviewers')).not.toBeInTheDocument();
     expect(screen.queryByText('Developers')).not.toBeInTheDocument();
@@ -175,14 +181,16 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
 
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
-    await waitFor(() => expect(screen.getByText('Collaborator not found')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('No collaborators synced yet')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Add collaborator' }));
     const dialog = screen.getByRole('dialog', { name: 'Add collaborator' });
     expect(within(dialog).getByText('acme/website')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Repository information' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Sync collaborators from GitHub' })).toBeInTheDocument();
+    vi.mocked(api.syncGithubCollaborators).mockResolvedValue({ repository: availableCollaboration.repository, collaborators: [{ id: 7, login: 'dev', avatarUrl: '', htmlUrl: 'https://github.com/dev', type: 'User', permission: 'pull' }], syncedAt: '2026-09-26T00:00:00.000Z' });
     await user.click(within(dialog).getByRole('button', { name: 'Sync collaborators from GitHub' }));
-    expect(within(dialog).getByText(/existing collaborator data was not changed/i)).toBeInTheDocument();
+    await waitFor(() => expect(api.syncGithubCollaborators).toHaveBeenCalledWith(project.id));
+    expect(await screen.findByText('@dev')).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText('GitHub account email'), 'dev@example.com');
     expect(await within(dialog).findByText('dev')).toBeInTheDocument();
     expect(api.searchCollaborators).toHaveBeenCalledWith(project.id, 'dev@example.com');
@@ -211,19 +219,78 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
   it('exposes Export report as the third project action and reuses the report handler', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.exportProjectReport).mockResolvedValue({ path: 'C:/reports/project.md' } as never);
+    vi.mocked(api.exportProjectReport).mockResolvedValue({
+      reportId: 'report-123',
+      generatedAt: '2026-09-21T00:00:00.000Z',
+      generatorVersion: 'project-report-v3',
+      riskPolicyVersion: 'centinel-risk-v1',
+      expiresAt: '2026-09-21T00:15:00.000Z',
+      storage: 'private-supabase',
+      downloads: {
+        json: 'https://reports.example.test/snapshot?token=json',
+        markdown: 'https://reports.example.test/markdown?token=md',
+        pdf: 'https://reports.example.test/pdf?token=pdf',
+      },
+      markdown: '# Project report\n',
+      checksums: { snapshot: 'a'.repeat(64), markdown: 'b'.repeat(64), pdf: 'c'.repeat(64), package: 'd'.repeat(64) },
+    });
     renderProject();
 
     await user.click(screen.getByRole('button', { name: 'Action' }));
     const menu = screen.getByRole('menu', { name: 'Project actions' });
     const items = within(menu).getAllByRole('menuitem');
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(4);
+    expect(items[0]).toHaveTextContent('Start Review');
     expect(items[2]).toHaveTextContent('Export report');
     await user.click(items[2]);
     await waitFor(() => expect(api.exportProjectReport).toHaveBeenCalledWith(project.id));
+    expect(await screen.findByRole('heading', { name: 'Project report generated' })).toBeInTheDocument();
+    const downloads = screen.getByRole('navigation', { name: 'Report downloads' });
+    expect(within(downloads).getByRole('link', { name: 'Download JSON' })).toHaveAttribute('href', 'https://reports.example.test/snapshot?token=json');
+    expect(within(downloads).getByRole('link', { name: 'Download Markdown' })).toHaveAttribute('href', 'https://reports.example.test/markdown?token=md');
+    expect(within(downloads).getByRole('link', { name: 'Download PDF' })).toHaveAttribute('href', 'https://reports.example.test/pdf?token=pdf');
+    await user.click(screen.getByText('Integrity checksums'));
+    expect(screen.getByText('d'.repeat(64))).toBeInTheDocument();
   });
 
-  it('provides the overview readiness and paged attention surfaces', async () => {
+  it('shows immutable report history and renews short-lived download links', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listProjectReportHistory).mockResolvedValue([{
+      id: 'report-history-123',
+      projectId: project.id,
+      actorId: 'user-1',
+      policyVersion: 'centinel-risk-v1',
+      generatorVersion: 'project-report-v3',
+      checksum: 'a'.repeat(64),
+      createdAt: '2026-09-22T10:30:00.000Z',
+      storage: { json: 'reports/report.json', markdown: 'reports/report.md', pdf: 'reports/report.pdf' },
+    }]);
+    vi.mocked(api.renewProjectReportLinks).mockResolvedValue({
+      reportId: 'report-history-123',
+      expiresAt: '2026-09-22T10:45:00.000Z',
+      downloads: {
+        json: 'https://reports.example.test/report.json',
+        markdown: 'https://reports.example.test/report.md',
+        pdf: 'https://reports.example.test/report.pdf',
+      },
+    });
+    renderProject();
+
+    expect(screen.queryByRole('button', { name: 'Reports' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Action' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Report history' }));
+    expect(await screen.findByRole('dialog', { name: 'Report history' })).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog', { name: 'Report history' })).queryByRole('button', { name: 'Export report' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Policy centinel-risk-v1/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Get download links' }));
+    await waitFor(() => expect(api.renewProjectReportLinks).toHaveBeenCalledWith(project.id, 'report-history-123'));
+    const links = screen.getByLabelText(/Downloads for report/);
+    expect(within(links).getByRole('link', { name: 'JSON' })).toHaveAttribute('href', 'https://reports.example.test/report.json');
+    expect(within(links).getByRole('link', { name: 'Markdown' })).toHaveAttribute('href', 'https://reports.example.test/report.md');
+    expect(within(links).getByRole('link', { name: 'PDF' })).toHaveAttribute('href', 'https://reports.example.test/report.pdf');
+  });
+
+  it('provides the overview readiness and risk-derived assessment surfaces', async () => {
     const user = userEvent.setup();
     const projectArtifacts: Artifact[] = [
       { id: 'a-1', projectId: project.id, type: 'requirement', source: 'documents', fileName: 'requirements.md', filePath: 'requirements.md', originalPath: null, contentHash: 'a', createdAt: project.updatedAt },
@@ -238,7 +305,47 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByText('Start the first Review')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByRole('heading', { name: 'Assessment' })).toBeInTheDocument();
-    expect(screen.getByText(/Evidence-led risk context from the latest Review and Dynamic Testing runs/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Risk Summary' })).toBeInTheDocument();
+    expect(screen.queryByText(/Current unresolved project risk derived from persisted Severity and Priority/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Risk Level is derived using the Centinel Severity \+ Priority policy/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Requirement traceability attention')).toBeInTheDocument();
+  });
+
+  it('shows the four highest-risk unresolved findings in Assessment', async () => {
+    const user = userEvent.setup();
+    const riskFindings = [
+      ['critical', 'High', 'Critical finding'],
+      ['high', 'High', 'High finding'],
+      ['medium', 'Medium', 'Medium finding'],
+      ['low', 'Low', 'Low finding'],
+      ['low', 'Low', 'Zeta finding'],
+    ].map(([severity, priority, title], index) => ({
+      id: `finding-${index}`,
+      projectId: project.id,
+      sessionId: 'review-1',
+      source: 'static' as const,
+      severity,
+      priority,
+      title,
+      description: 'Risk finding',
+      status: 'new' as const,
+      createdAt: project.updatedAt,
+      artifactId: null,
+      category: 'quality',
+      evidenceText: '',
+      recommendation: '',
+      confidence: 'medium',
+      fromRemarks: false,
+      filePath: 'src/example.ts',
+      lineNumber: 1,
+    }));
+    renderProject(vi.fn(), [], undefined, [], [], riskFindings);
+
+    await user.click(screen.getByRole('button', { name: 'Assessment' }));
+    const table = await screen.findByRole('table', { name: 'Current risk items' });
+    expect(within(table).getAllByRole('row')).toHaveLength(5);
+    expect(within(table).getByText('Critical finding')).toBeInTheDocument();
+    expect(within(table).queryByText('Zeta finding')).not.toBeInTheDocument();
   });
 
   it('filters recent activity by the type toggle and datetime, with stable timestamp formatting', async () => {

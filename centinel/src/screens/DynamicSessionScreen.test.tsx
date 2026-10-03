@@ -9,7 +9,6 @@ vi.mock('../api/client', () => ({
   api: {
     getDynamicSession: vi.fn(),
     listDynamicEvidence: vi.fn(),
-    exportDynamicSessionReport: vi.fn(),
     cancelDynamicSession: vi.fn(),
   },
 }));
@@ -67,12 +66,23 @@ describe('DynamicSessionScreen', () => {
     render(<DynamicSessionScreen projectId="project-1" sessionId={session.id} onNavigate={() => {}} />);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: session.name })).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: 'Failure reason' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Failure reason' })).not.toBeInTheDocument();
+    expect(screen.getByText('The test could not finish. Check the target website and test setup, then rerun the test.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Screenshots (1)' })).toBeInTheDocument();
     expect(screen.getByText('Technical details').closest('details')).not.toHaveAttribute('open');
 
     await user.click(screen.getByRole('button', { name: 'Open screenshot: Checkout page' }));
     expect(screen.getByRole('dialog', { name: 'Checkout page' })).toBeInTheDocument();
+  });
+
+  it('replaces raw browser-launch diagnostics with recovery guidance', async () => {
+    const rawBrowserError = "Test failed at step 0: Error: browserType.launch: Executable doesn't exist at C:\\Users\\PREDATOR\\AppData\\Local\\ms-playwright\\chromium\\chrome.exe";
+    vi.mocked(api.getDynamicSession).mockResolvedValue({ ...session, finalSummary: rawBrowserError, failureReason: rawBrowserError });
+    render(<DynamicSessionScreen projectId="project-1" sessionId={session.id} onNavigate={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: session.name })).toBeInTheDocument());
+    expect(screen.getByText('Centinel could not start its test browser. Install or repair the Playwright browser, then rerun the test.')).toBeInTheDocument();
+    expect(screen.queryByText(/browserType\.launch|ms-playwright|chrome\.exe/i)).not.toBeInTheDocument();
   });
 
   it('offers retry guidance when the run cannot be loaded', async () => {

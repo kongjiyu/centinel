@@ -1,13 +1,18 @@
 /**
  * Risk scoring engine for static analysis findings.
  *
- * risk_score = severity_weight × confidence_weight × module_importance × security_boost
+ * This legacy numeric score remains available to the static-rule pipeline for
+ * prioritising model context. User-facing Risk Level is now derived by the
+ * canonical Severity + Priority policy in `riskPolicy.ts`.
  *
  * Each factor is normalized to [0, 1], producing a final score in [0, 1].
  */
 
+import { deriveRiskLevel, normalizeRiskPriority, type RiskLevel, type RiskPriority } from './riskPolicy.js';
+
 export type RiskInput = {
   severity: string;
+  priority?: string;
   confidence: string;
   category: string;
   filePath: string;
@@ -17,7 +22,10 @@ export type RiskInput = {
 
 export type RiskScore = {
   score: number;           // 0-1
-  level: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  level: RiskLevel | 'info';
+  /** Canonical policy output when independent priority is available. */
+  policyLevel?: RiskLevel | null;
+  priority?: RiskPriority | null;
   factors: {
     severity: number;
     confidence: number;
@@ -105,11 +113,22 @@ export function calculateRisk(input: RiskInput): RiskInput & { risk: RiskScore }
     security * 0.15
   );
 
+  // Numeric scoring may still be used to order model context, but it must not
+  // manufacture a canonical Priority (or Risk Level) when a finding did not
+  // supply one. Rule-based findings get an explicit persisted priority at
+  // their own service boundary; historical/AI omissions remain unclassified.
+  const priority = normalizeRiskPriority(input.priority);
+  const policyLevel = deriveRiskLevel(input.severity, priority);
   return {
     ...input,
     risk: {
       score: Math.round(score * 100) / 100,
+      // Keep the numeric score's old level for callers that use it to order
+      // model context, while exposing the deterministic policy result for
+      // persistence/reporting consumers.
       level: scoreToLevel(score),
+      policyLevel,
+      priority,
       factors: {
         severity,
         confidence,

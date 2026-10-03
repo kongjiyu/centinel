@@ -8,24 +8,20 @@
     "test:watch": "vitest",
     "smoke": "tsx src/cliSmoke.ts",
     "playwright:smoke": "tsx src/playwrightSmoke.ts",
-    "mimo:smoke": "tsx src/mimoSmoke.ts",
-    "gemini:smoke": "tsx src/geminiSmoke.ts",
     "sqlite:smoke": "tsx src/sqliteSmoke.ts",
     "demo": "tsx src/demoServer.ts",
-    "seed:mock": "tsx src/seedMockProject.ts",
-    "tools:probe": "tsx src/toolsProbe.ts"
+    "migrate:legacy": "tsx src/migration/legacy.ts"
   },
   "dependencies": {
-    "@babel/parser": "^7.29.7",
-    "@babel/traverse": "^7.29.7",
-    "@google/genai": "^1.2.1",
+    "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^17.0.0",
+    "pdfkit": "^0.20.2",
     "playwright": "^1.53.2",
     "sql.js": "^1.12.0"
   },
   "devDependencies": {
-    "@types/babel__traverse": "^7.28.0",
     "@types/node": "^22.0.0",
+    "@types/pdfkit": "^0.17.6",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vitest": "^4.1.8"

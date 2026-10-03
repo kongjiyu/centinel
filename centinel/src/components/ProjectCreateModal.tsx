@@ -114,7 +114,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated }: Pro
           <legend>Repository source</legend>
           <div>
             <label className={sourceType === 'local-repository' ? 'is-selected' : ''}><input type="radio" name="project-source" checked={sourceType === 'local-repository'} onChange={() => setSourceType('local-repository')} /><FolderGit2 size={18} aria-hidden="true" /><span><strong>Local repository</strong><small>Use a repository already on this computer.</small></span></label>
-            <label className={sourceType === 'github' ? 'is-selected' : ''}><input type="radio" name="project-source" checked={sourceType === 'github'} onChange={() => setSourceType('github')} /><GitBranch size={18} aria-hidden="true" /><span><strong>GitHub</strong><small>Clone a public repository into Centinel's default directory.</small></span></label>
+            <label className={sourceType === 'github' ? 'is-selected' : ''}><input type="radio" name="project-source" checked={sourceType === 'github'} onChange={() => setSourceType('github')} /><GitBranch size={18} aria-hidden="true" /><span><strong>GitHub</strong><small>Import a repository using your connected GitHub account.</small></span></label>
           </div>
         </fieldset>
         {sourceType === 'local-repository' ? <div className="form-field">

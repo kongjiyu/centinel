@@ -153,10 +153,11 @@ describe('FindingsPanel', () => {
     vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, priority: 'high', title: 'Keyboard-selectable finding' }]);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
-    expect(await screen.findByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
+    expect(await screen.findByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Severity' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Risk' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
     expect(screen.getByText('#f-1')).toBeInTheDocument();
     expect(screen.getByText('Select a finding to review its details')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Source' })).not.toBeInTheDocument();
@@ -171,8 +172,16 @@ describe('FindingsPanel', () => {
     const text = details.textContent || '';
     expect(text).not.toContain('Source type');
     expect(text).not.toContain('Review');
-    expect(text.indexOf('Priority')).toBeLessThan(text.indexOf('Severity'));
+    expect(text.indexOf('Priority')).toBeLessThan(text.indexOf('Risk Level'));
+    expect(text).not.toContain('Severity');
+    expect(text).not.toContain('Risk Category');
     expect(text.indexOf('Recommendation')).toBeLessThan(text.indexOf('Evidence'));
     expect(text).not.toMatch(/Confidence/i);
+  });
+
+  it('calculates a display risk when a finding has severity but no recorded risk or priority', async () => {
+    vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, priority: null, riskLevel: null, severity: 'critical' }]);
+    render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
+    expect(await screen.findByTitle('Risk Level calculated from available finding data')).toHaveTextContent('Critical');
   });
 });

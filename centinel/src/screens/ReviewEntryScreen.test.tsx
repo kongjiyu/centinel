@@ -1,41 +1,66 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import { useState } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import { ReviewEntryScreen } from './ReviewEntryScreen';
-import type { Project, StaticSession } from '../types';
+import type { Artifact, Project, Requirement, StaticSession } from '../types';
 
-const folderPicker = vi.hoisted(() => vi.fn());
-const trackSession = vi.hoisted(() => vi.fn());
-
-vi.mock('@tauri-apps/api/dialog', () => ({ open: folderPicker }));
 vi.mock('../api/client', () => ({
   api: {
     listArtifacts: vi.fn(),
+    listRequirements: vi.fn(),
     listActiveStaticSessions: vi.fn(),
     createStaticSession: vi.fn(),
-    uploadArtifact: vi.fn(),
-    deleteArtifact: vi.fn(),
   },
-}));
-vi.mock('../context/ActiveReviewContext', () => ({
-  useActiveReviewState: () => ({ controls: { trackSession } }),
 }));
 
 const project: Project = {
   id: 'project-1',
-  name: 'Website refresh',
-  description: 'Office website',
-  workspacePath: 'C:/work/website-refresh',
-  createdAt: '2026-08-29T10:00:00.000Z',
+  name: 'Checkout app',
+  description: 'Checkout application',
+  workspacePath: 'C:/work/checkout',
+  createdAt: '2026-09-01T10:00:00.000Z',
   updatedAt: '2026-09-01T10:00:00.000Z',
 };
 
-const session: StaticSession = {
+const sourceArtifact: Artifact = {
+  id: 'artifact-source',
+  projectId: project.id,
+  type: 'source_code',
+  source: 'repository',
+  fileName: 'checkout.ts',
+  filePath: 'src/checkout.ts',
+  originalPath: 'src/checkout.ts',
+  contentHash: 'source-hash',
+  createdAt: '2026-09-10T10:00:00.000Z',
+};
+
+const standardArtifact: Artifact = {
+  id: 'artifact-standard',
+  projectId: project.id,
+  type: 'coding_standard',
+  source: 'documents',
+  fileName: 'security.md',
+  filePath: 'docs/security.md',
+  originalPath: 'docs/security.md',
+  contentHash: 'standard-hash',
+  createdAt: '2026-09-10T10:00:00.000Z',
+};
+
+const requirement: Requirement = {
+  id: 'requirement-1',
+  projectId: project.id,
+  title: 'Checkout requires authorization',
+  description: 'Only signed-in users can complete checkout.',
+  category: 'Security',
+  priority: 'High',
+  createdAt: '2026-09-10T10:00:00.000Z',
+};
+
+const returnedSession: StaticSession = {
   id: 'review-1',
   projectId: project.id,
-  name: 'Release review',
+  name: 'Sprint review',
   reviewType: 'code_review',
   status: 'queued',
   configJson: '{}',
@@ -43,8 +68,8 @@ const session: StaticSession = {
   remarks: '',
   finalSummary: '',
   failureReason: '',
-  createdAt: '2026-09-07T10:00:00.000Z',
-  updatedAt: '2026-09-07T10:00:00.000Z',
+  createdAt: '2026-09-21T10:00:00.000Z',
+  updatedAt: '2026-09-21T10:00:00.000Z',
   baseRef: '',
   headRef: '',
   changedFilesJson: '[]',
@@ -52,212 +77,88 @@ const session: StaticSession = {
   reviewDiffJson: '',
 };
 
+function setup({ artifacts = [sourceArtifact, standardArtifact], requirements = [requirement], active = [] }: {
+  artifacts?: Artifact[];
+  requirements?: Requirement[];
+  active?: StaticSession[];
+} = {}) {
+  vi.mocked(api.listArtifacts).mockResolvedValue(artifacts);
+  vi.mocked(api.listRequirements).mockResolvedValue(requirements);
+  vi.mocked(api.listActiveStaticSessions).mockResolvedValue(active);
+  vi.mocked(api.createStaticSession).mockResolvedValue(returnedSession);
+}
+
 describe('ReviewEntryScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(api.listArtifacts).mockResolvedValue([{
-      id: 'artifact-1',
-      projectId: project.id,
-      type: 'source_code',
-      source: 'documents',
-      fileName: 'source.ts',
-      filePath: 'C:/work/website-refresh/source.ts',
-      originalPath: null,
-      contentHash: 'source-hash',
-      createdAt: project.createdAt,
-    }]);
-    vi.mocked(api.listActiveStaticSessions).mockResolvedValue([]);
-    vi.mocked(api.createStaticSession).mockResolvedValue(session);
+    setup();
   });
 
-  it('uses the selected project, shows its compact source status, and opens Review activity', async () => {
+  it('loads real project scope and starts a review with the selected immutable inputs', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={onNavigate}
-        onCreateProject={vi.fn()}
-      />,
-    );
+    render(<ReviewEntryScreen projects={[project]} onNavigate={onNavigate} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByLabelText('Review name')).toBeInTheDocument();
-    expect(screen.getByRole('form', { name: 'Start review' })).toBeInTheDocument();
-    expect(screen.queryByText('Start with a clear objective')).not.toBeInTheDocument();
-    expect(await screen.findByText('Complete source')).toBeInTheDocument();
-    expect(screen.queryByText('Inherited project context')).not.toBeInTheDocument();
-    const objective = screen.getByLabelText('Review objective');
-    const supportiveDocuments = screen.getByLabelText('Supportive Documents (Optional)');
-    expect(objective.compareDocumentPosition(supportiveDocuments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.queryByText('Save these documents to the project sources')).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText('Review name'), 'Release review');
-    await user.type(objective, 'Check traceability');
+    expect(await screen.findByRole('heading', { name: 'Review scope' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /checkout\.ts/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /security\.md/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
+
+    await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Sprint review');
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Verify checkout authorization and evidence traceability.');
+    await user.click(screen.getByRole('checkbox', { name: /security\.md/i }));
     await user.click(screen.getByRole('button', { name: 'Start review' }));
 
-    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledWith(project.id, {
-      name: 'Release review',
-      instructions: 'Check traceability',
-      reviewMode: 'regular',
-      reviewer: 'Project owner',
-      pullRequest: undefined,
-      temporaryArtifactIds: undefined,
-    }));
-    expect(trackSession).toHaveBeenCalledWith(session, project.name);
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: session.id, reviewName: session.name });
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));
+    const [, payload] = vi.mocked(api.createStaticSession).mock.calls[0];
+    expect(payload).toMatchObject({
+      name: 'Sprint review',
+      instructions: 'Verify checkout authorization and evidence traceability.',
+      artifactIds: ['artifact-source'],
+      standardIds: [],
+      requirementIds: ['requirement-1'],
+      scope: {
+        artifactIds: ['artifact-source'],
+        standardIds: [],
+        requirementIds: ['requirement-1'],
+      },
+    });
+    expect(payload.idempotencyKey).toEqual(expect.any(String));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: returnedSession.id, reviewName: returnedSession.name });
   });
 
-  it('keeps the Review header and form on the same border-box width', () => {
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={vi.fn()}
-        onCreateProject={vi.fn()}
-      />,
-    );
+  it('keeps Start review unavailable when the project has no reviewable scope', async () => {
+    setup({ artifacts: [], requirements: [] });
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    const header = screen.getByRole('heading', { name: 'Start your review' }).closest('header');
-    const form = screen.getByRole('form', { name: 'Start review' });
-    expect(header).not.toBeNull();
-    expect(form).toHaveClass('static-review-form');
-    expect(form.closest('.review-entry-screen')).toContainElement(header);
-  });
-
-  it('treats project creation as the prerequisite and selects the new project', async () => {
-    const user = userEvent.setup();
-    const createdProject = { ...project, id: 'project-2', name: 'New project' };
-    folderPicker.mockResolvedValue('C:/work/new-project');
-    const onCreateProject = vi.fn().mockResolvedValue(createdProject);
-    function EmptyProjectHarness() {
-      const [projects, setProjects] = useState<Project[]>([]);
-      const createProject = async (...args: Parameters<typeof onCreateProject>) => {
-        const created = await onCreateProject(...args);
-        setProjects([createdProject]);
-        return created;
-      };
-      return <ReviewEntryScreen projects={projects} onNavigate={vi.fn()} onCreateProject={createProject} />;
-    }
-    render(<EmptyProjectHarness />);
-
-    expect(screen.getByText('Create or select a project before starting this review.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Create project' }));
-    await user.type(screen.getByLabelText('Project name *'), 'New project');
-    await user.click(screen.getByRole('button', { name: 'Choose repository' }));
-    const dialog = screen.getByRole('dialog', { name: 'Create project' });
-    await user.click(within(dialog).getByRole('button', { name: 'Create project' }));
-
-    await waitFor(() => expect(onCreateProject).toHaveBeenCalledWith('New project', '', 'C:/work/new-project', { type: 'local-repository' }));
-    expect(await screen.findByRole('combobox', { name: 'Project' })).toHaveTextContent('New project');
-    expect(screen.queryByText('Create or select a project before starting this review.')).not.toBeInTheDocument();
-  });
-
-  it('requires an objective and focuses the recoverable error summary', async () => {
-    const user = userEvent.setup();
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={vi.fn()}
-        onCreateProject={vi.fn()}
-      />,
-    );
-
-    await screen.findByLabelText('Review name');
-    await user.type(screen.getByLabelText('Review name'), 'Objective check');
-    await user.click(screen.getByRole('button', { name: 'Start review' }));
-
-    const error = await screen.findByRole('alert', { name: '' });
-    expect(error).toHaveTextContent('Review objective is required');
-    expect(document.activeElement).toBe(error);
+    expect(await screen.findByText('No project scope is available')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent(/Add at least one artifact, requirement, or coding standard/i);
     expect(api.createStaticSession).not.toHaveBeenCalled();
   });
 
-  it('uploads optional review documents without saving them as project sources', async () => {
-    const user = userEvent.setup();
-    Object.defineProperty(File.prototype, 'arrayBuffer', {
-      configurable: true,
-      value: vi.fn().mockResolvedValue(new TextEncoder().encode('release notes').buffer),
-    });
-    vi.mocked(api.uploadArtifact).mockResolvedValueOnce({
-      id: 'temporary-document',
-      projectId: project.id,
-      type: 'other',
-      source: 'documents',
-      fileName: 'notes.txt',
-      filePath: 'C:/work/website-refresh/artifacts/notes.txt',
-      originalPath: null,
-      contentHash: 'notes-hash',
-      createdAt: project.createdAt,
-    });
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={vi.fn()}
-        onCreateProject={vi.fn()}
-      />,
-    );
+  it('blocks a second review while an active project review exists', async () => {
+    const active: StaticSession = { ...returnedSession, id: 'review-active', status: 'running' };
+    setup({ active: [active] });
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    await screen.findByLabelText('Review name');
-    await user.type(screen.getByLabelText('Review name'), 'Document review');
-    await user.type(screen.getByLabelText('Review objective'), 'Check the attached notes.');
-    await user.upload(screen.getByLabelText('Supportive Documents (Optional)'), new File(['release notes'], 'notes.txt', { type: 'text/plain' }));
-    await user.click(screen.getByRole('button', { name: 'Start review' }));
-
-    await waitFor(() => expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, {
-      fileName: 'notes.txt',
-      content: expect.any(String),
-    }));
-    expect(api.createStaticSession).toHaveBeenCalledWith(project.id, expect.objectContaining({
-      temporaryArtifactIds: ['temporary-document'],
-    }));
-    expect(api.deleteArtifact).not.toHaveBeenCalled();
-  });
-
-  it('retains the objective after a service error', async () => {
-    const user = userEvent.setup();
-    vi.mocked(api.createStaticSession).mockRejectedValueOnce(new Error('Sidecar unavailable'));
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={vi.fn()}
-        onCreateProject={vi.fn()}
-      />,
-    );
-
-    await screen.findByLabelText('Review name');
-    await user.type(screen.getByLabelText('Review name'), 'Retryable review');
-    await user.type(screen.getByLabelText('Review objective'), 'Check the release evidence.');
-    await user.click(screen.getByRole('button', { name: 'Start review' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sidecar unavailable');
-    expect(screen.getByLabelText('Review name')).toHaveValue('Retryable review');
-    expect(screen.getByLabelText('Review objective')).toHaveValue('Check the release evidence.');
-  });
-
-  it('blocks a second review while a project review is active', async () => {
-    vi.mocked(api.listActiveStaticSessions).mockResolvedValueOnce([{ ...session, status: 'running' }]);
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={vi.fn()}
-        onCreateProject={vi.fn()}
-      />,
-    );
-
-    expect(await screen.findByText(/already in progress for this project/i)).toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Review scope' });
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent(/A review is already active/i);
   });
 
-  it('keeps valid source context usable when the optional active-review check is unavailable', async () => {
-    vi.mocked(api.listActiveStaticSessions).mockRejectedValueOnce(new Error('Active review check unavailable'));
-    render(
-      <ReviewEntryScreen
-        projects={[project]}
-        onNavigate={vi.fn()}
-        onCreateProject={vi.fn()}
-      />,
-    );
+  it('preserves entered fields and explains authentication failures', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createStaticSession).mockRejectedValue(new Error('HTTP 401'));
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByText('Complete source')).toBeInTheDocument();
-    expect(screen.queryByText(/Sources could not be checked/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start review' })).toBeEnabled();
+    await screen.findByRole('heading', { name: 'Review scope' });
+    await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Auth review');
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Check session handling.');
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/sign in again|authenticate/i);
+    expect(screen.getByRole('textbox', { name: 'Review name' })).toHaveValue('Auth review');
+    expect(screen.getByRole('textbox', { name: 'Review objective' })).toHaveValue('Check session handling.');
   });
 });

@@ -1,16 +1,18 @@
 import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
   title: string;
+  headerAside?: ReactNode;
   descriptionId?: string;
   width?: number;
   children: React.ReactNode;
 };
 
-export function Modal({ isOpen, onClose, title, descriptionId, width = 520, children }: Props) {
+export function Modal({ isOpen, onClose, title, headerAside, descriptionId, width = 520, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const titleId = useId();
@@ -78,7 +80,10 @@ export function Modal({ isOpen, onClose, title, descriptionId, width = 520, chil
         onClick={event => event.stopPropagation()}
       >
         <div className="modal-header">
-          <h3 id={titleId}>{title}</h3>
+          <div className="modal-title-group">
+            <h3 id={titleId}>{title}</h3>
+            {headerAside}
+          </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>
         </div>
         <div className="modal-body">

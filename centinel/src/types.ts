@@ -28,17 +28,109 @@ export type CollaboratorSearchResult = {
   matches: CollaboratorMatch[];
 };
 
+export type GithubProjectCollaborator = CollaboratorMatch & {
+  permission: string;
+};
+
+export type GithubCollaboratorSnapshot = {
+  repository: { owner: string; repo: string; remoteUrl: string } | null;
+  collaborators: GithubProjectCollaborator[];
+  syncedAt: string | null;
+};
+
 export type CollaboratorInviteResult = {
   username: string;
   repository: { owner: string; repo: string; remoteUrl: string };
   status: 'invited' | 'already_collaborator';
 };
 
+export type IntegrationProvider = 'github' | 'google_drive' | 'slack';
+
+export type ConnectedSourceStatus = 'active' | 'removed' | 'inaccessible' | 'disconnected';
+export type ConnectedSourceSyncStatus = 'idle' | 'syncing' | 'ready' | 'error';
+
+export type ConnectedSource = {
+  id: string;
+  projectId: string;
+  integrationId: string;
+  provider: IntegrationProvider;
+  kind: 'github_repository' | 'google_drive' | 'slack_channel';
+  remoteId: string;
+  remoteUrl: string | null;
+  name: string;
+  selectedScope: Record<string, unknown>;
+  remoteRevision: string | null;
+  syncCursor: Record<string, unknown> | null;
+  status: ConnectedSourceStatus;
+  syncStatus: ConnectedSourceSyncStatus;
+  lastSyncedAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConnectedSourceStatusResult = {
+  provider: IntegrationProvider;
+  connected: boolean;
+  accountLabel: string | null;
+  accountId: string | null;
+  scopes: string[];
+  expiresAt: string | null;
+  status: string;
+  reauthorizationRequired: boolean;
+  missingScopes: string[];
+  sources: ConnectedSource[];
+};
+
+export type ConnectedSourceBrowseEntry = {
+  id: string;
+  name: string;
+  kind: 'repository' | 'branch' | 'folder' | 'file' | 'workspace' | 'channel';
+  mimeType?: string | null;
+  remoteUrl?: string | null;
+  revision?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type ConnectedSourceBrowsePage = {
+  items: ConnectedSourceBrowseEntry[];
+  nextCursor: string | null;
+};
+
+export type ConnectedSourceSyncRun = {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  status: 'queued' | 'running' | 'partial' | 'success' | 'failure' | 'cancelled';
+  importedCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  removedCount: number;
+  inaccessibleCount: number;
+  errorMessage: string | null;
+  retryable: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type ConnectedSourceSyncResult = {
+  source: ConnectedSource;
+  run: ConnectedSourceSyncRun;
+  complete: boolean;
+  imported: number;
+  updated: number;
+  unchanged: number;
+  removed: number;
+  inaccessible: number;
+};
+
 export type AiProvider = 'mimo' | 'gemini' | 'custom';
 export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native';
 
 export type AiProviderSetting = {
-  id: 'text' | 'vision';
+  id: 'text' | 'vision' | 'embedding';
   label: string;
   provider: AiProvider;
   apiFormat: AiApiFormat;
@@ -46,6 +138,13 @@ export type AiProviderSetting = {
   apiKeyPreview: string;
   baseUrl: string;
   model: string;
+  fallbackEnabled?: boolean;
+  fallbackProvider?: AiProvider | null;
+  fallbackApiFormat?: AiApiFormat | null;
+  fallbackHasApiKey?: boolean;
+  fallbackApiKeyPreview?: string;
+  fallbackBaseUrl?: string;
+  fallbackModel?: string;
   updatedAt: string;
 };
 
@@ -93,11 +192,12 @@ export type DynamicEvidence = {
 };
 
 export type ArtifactType = 'requirement' | 'design' | 'source_code' | 'coding_standard' | 'other';
-export type ArtifactSource = 'documents' | 'repository' | 'drive';
+export type ArtifactSource = 'documents' | 'repository' | 'directory' | 'drive';
 
 export type Artifact = {
   id: string;
   projectId: string;
+  versionId?: string;
   type: ArtifactType;
   source: ArtifactSource;
   fileName: string;
@@ -107,7 +207,61 @@ export type Artifact = {
   createdAt: string;
 };
 
-export type StaticSessionStatus = 'queued' | 'running' | 'success' | 'failure' | 'blocked' | 'cancelled';
+export type StaticSessionStatus = 'prepared' | 'queued' | 'running' | 'success' | 'failure' | 'blocked' | 'cancelled' | 'pending_approval';
+
+/**
+ * The immutable input selection sent when a Review starts.  The service may
+ * add resolved source/version metadata after creation; the renderer only
+ * sends stable project-owned identifiers and never treats a display label as
+ * evidence of what was reviewed.
+ */
+export type ReviewScopeSelection = {
+  artifactIds: string[];
+  requirementIds: string[];
+  standardIds: string[];
+  baseRef?: string;
+  headRef?: string;
+  pullRequest?: string;
+};
+
+/** Per-review model usage. Token counts are provider-reported values only. */
+export type ReviewModelUsage = {
+  totals: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+    calls: number;
+  };
+  byGroup: Array<{
+    provider: AiProvider;
+    apiFormat: AiApiFormat;
+    model: string;
+    totalInput: number;
+    totalOutput: number;
+    totalCacheRead: number;
+    totalCacheCreation: number;
+    totalCalls: number;
+  }>;
+  recent: Array<{
+    id: string;
+    projectId: string | null;
+    sessionId: string | null;
+    scope: 'text' | 'vision' | 'embedding';
+    callKind: 'review' | 'test' | 'dynamic';
+    stage: string | null;
+    roundNumber: number | null;
+    provider: AiProvider;
+    apiFormat: AiApiFormat;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    totalTokens: number;
+    createdAt: string;
+  }>;
+};
 
 export type ReviewType = 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
 
@@ -144,6 +298,10 @@ export type StaticSession = {
    * a decision on this session.
    */
   currentDecision?: ReviewDecisionRecord | null;
+  /** Structured scope returned by newer review services. */
+  scope?: ReviewScopeSelection | null;
+  /** Optional embedded usage summary; the renderer also supports the usage endpoint. */
+  modelUsage?: ReviewModelUsage | null;
 };
 
 /**
@@ -164,6 +322,78 @@ export type ReviewDecisionRecord = {
   reviewer: string;
   createdAt: string;
   attachments?: ReviewDecisionAttachment[];
+  /** Present when Request Changes successfully prepared the child Review. */
+  preparedChild?: StaticSession;
+  sourceChoice?: 'reuse' | 'refresh';
+};
+
+export type EvidenceGap = {
+  id: string;
+  code: string;
+  severity: 'warning' | 'blocking';
+  title: string;
+  detail: string;
+  remediation: string;
+  affectedStages: string[];
+  artifactId?: string;
+};
+
+export type EvidenceContradiction = {
+  id: string;
+  left: { id: string; text: string; artifactId?: string; locator?: { filePath: string; lineStart?: number; section?: string } };
+  right: { id: string; text: string; artifactId?: string; locator?: { filePath: string; lineStart?: number; section?: string } };
+  detail: string;
+  affectedStages: string[];
+  disposition?: EvidenceContradictionDisposition;
+};
+
+export type EvidenceContradictionDisposition = {
+  contradictionId: string;
+  decision: 'authoritative_left' | 'authoritative_right' | 'not_conflict';
+  rationale: string;
+  actorId: string;
+  updatedAt: string;
+};
+
+export type EvidenceSufficiencyAssessment = {
+  id: string;
+  reviewId: string;
+  projectId: string;
+  reviewType: string;
+  readiness: 'ready' | 'ready_with_warnings' | 'blocked';
+  gaps: EvidenceGap[];
+  contradictions: EvidenceContradiction[];
+  artifactCount: number;
+  availableArtifactCount: number;
+  staleArtifactCount: number;
+  confirmedRequirementCount: number;
+  enabledStandardRuleCount: number;
+  assessedAt: string;
+};
+
+export type FindingCorrelationClass = 'new' | 'recurring' | 'carried_over' | 'resolved' | 'regressed';
+
+export type FindingCorrelationSnapshot = {
+  parentReviewId: string;
+  childReviewId: string;
+  correlations: Array<{
+    id: string;
+    parentFindingId: string | null;
+    childFindingId: string | null;
+    classification: FindingCorrelationClass;
+    method: 'stable_id' | 'fingerprint' | 'heuristic' | 'unmatched';
+    score: number;
+    stableFingerprint: string;
+    detail?: string;
+  }>;
+  ambiguities: Array<{
+    childFindingId: string;
+    candidateParentFindingIds: string[];
+    scores: number[];
+    reason: 'close_candidates' | 'critical_requires_confirmation' | 'candidate_already_matched';
+  }>;
+  counts: Record<FindingCorrelationClass, number>;
+  createdAt: string;
 };
 
 export type ReviewDecisionAttachment = {
@@ -180,71 +410,6 @@ export type ReviewDecisionAttachmentInput = {
   content: string;
 };
 
-/**
- * Test plan item (Group 2c). A single executable test derived from a
- * static-review finding (rationale = the finding id) or generated as
- * a smoke test for an unfinded module (rationale = 'smoke').
- */
-export type TestItemKind = 'unit' | 'integration' | 'e2e' | 'smoke';
-export type TestItemStatus = 'proposed' | 'accepted' | 'rejected' | 'in_progress' | 'passed' | 'failed';
-
-export type TestItem = {
-  id: string;
-  sessionId: string;
-  projectId: string;
-  module: string;
-  component: string | null;
-  filePath: string;
-  lineNumber: number | null;
-  title: string;
-  description: string;
-  /** The finding id that drove this item, or 'smoke' / 'coverage_gap'. */
-  rationale: string | null;
-  kind: TestItemKind;
-  severity: string;
-  status: TestItemStatus;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type TestItemRollup = {
-  module: string;
-  total: number;
-  proposed: number;
-  accepted: number;
-  rejected: number;
-  inProgress: number;
-  passed: number;
-  failed: number;
-};
-
-/**
- * P1-5: A single carryover item shown in the session diff view.
- * Subset of the full Finding type — enough for the table render.
- */
-export type SessionDiffItem = {
-  id: string;
-  title: string;
-  severity: string;
-  filePath: string;
-  lineNumber: number | null;
-};
-
-export type SessionDiff = {
-  parent: { id: string; createdAt: string; status: string };
-  child: { id: string; createdAt: string; status: string };
-  stillOpen: SessionDiffItem[];
-  fixed: SessionDiffItem[];
-  dismissed: SessionDiffItem[];
-  newFindings: SessionDiffItem[];
-  counts: {
-    stillOpen: number;
-    fixed: number;
-    dismissed: number;
-    newFindings: number;
-  };
-};
-
 export type Finding = {
   id: string;
   projectId: string;
@@ -252,7 +417,9 @@ export type Finding = {
   source: 'static' | 'dynamic';
   severity: string;
   /** Optional independent remediation priority when supplied by the service. */
-  priority?: string;
+  priority?: string | null;
+  /** Server-derived Risk Level from the shared Severity + Priority policy. */
+  riskLevel?: string | null;
   title: string;
   description: string;
   status: 'new' | 'accepted' | 'dismissed' | 'fixed' | 'carryover';
@@ -292,14 +459,80 @@ export type ReviewProgress = {
   updatedAt: string;
 };
 
-export type ReviewArtifact = {
+export type ReviewSourceKind = 'repository' | 'directory' | 'document' | 'drive';
+
+export type ReviewSourceManifestItem = {
   id: string;
   sessionId: string;
+  sourceId: string;
+  sourceKind: ReviewSourceKind;
+  label: string;
+  artifactIds: string[];
+  filesReviewed: number;
+  contentHashes: string[];
+  capturedAt: string;
+};
+
+export type ReviewSourceManifest = {
+  sessionId: string;
   projectId: string;
+  status: 'available' | 'unavailable' | 'incomplete';
+  capturedAt?: string;
+  updatedAt?: string;
+  sources: ReviewSourceManifestItem[];
+  artifactCount: number | null;
+};
+
+export type TraceabilityState = 'complete' | 'incomplete' | 'missing';
+
+export type ReviewTraceabilityRecord = {
+  requirementId: string;
   title: string;
-  content: string;
-  artifactType: string;
-  createdAt: string;
+  description: string;
+  category: string;
+  state: TraceabilityState;
+  mappingIds: string[];
+  sourceArtifactIds: string[];
+  sourceSymbolIds?: string[];
+  confidence: number | null;
+  capturedAt: string;
+};
+
+export type TraceabilitySummary = {
+  complete: number;
+  incomplete: number;
+  missing: number;
+  attention: number;
+};
+
+export type ReviewTraceabilitySnapshot = {
+  sessionId: string;
+  projectId: string;
+  status: 'available' | 'unavailable';
+  records: ReviewTraceabilityRecord[];
+  summary: TraceabilitySummary | null;
+  capturedAt?: string;
+  updatedAt?: string;
+};
+
+export type ProjectAssessment = {
+  projectId: string;
+  status: 'available' | 'unavailable';
+  policyVersion?: string;
+  summary: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    classified: number;
+    unclassified: number;
+  } | null;
+  riskItems: Array<Finding & { riskLevel: string }>;
+  traceability: {
+    status: 'available' | 'unavailable';
+    reviewId: string | null;
+    summary: TraceabilitySummary | null;
+  };
 };
 
 export type Screen =
@@ -343,4 +576,52 @@ export type RequirementMapping = {
   symbolId: string | null;
   coverageStatus: string;
   confidence: number;
+};
+
+export type SourceLocator = {
+  artifactId: string;
+  filePath: string;
+  lineStart?: number;
+  lineEnd?: number;
+  page?: number;
+  section?: string;
+  excerpt?: string;
+};
+
+export type RequirementCandidate = {
+  id: string;
+  projectId: string;
+  kind: 'requirement' | 'acceptance_criterion';
+  title: string;
+  statement: string;
+  sourceLocator: SourceLocator;
+  sourceVersion: string;
+  confidence: number;
+  fingerprint: string;
+  status: 'pending_confirmation' | 'confirmed' | 'rejected';
+  confirmedRequirementId: string | null;
+  confirmedBy: string | null;
+  rejectedBy?: string | null;
+  confirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StandardRule = {
+  id: string;
+  projectId: string;
+  standardId: string;
+  stableKey: string;
+  title: string;
+  statement: string;
+  category: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  recommendation: string;
+  sourceArtifactId: string;
+  sourceLocator: SourceLocator;
+  sourceVersion: string;
+  standardVersion: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 };

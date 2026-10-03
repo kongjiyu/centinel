@@ -15,10 +15,16 @@ vi.mock('@tauri-apps/api/shell', () => ({ open: externalOpen }));
 vi.mock('../api/client', () => ({
   api: {
     listArtifacts: vi.fn(),
+    getArtifactContent: vi.fn(),
     uploadArtifact: vi.fn(),
     importRepoArtifacts: vi.fn(),
-    getIndexStatus: vi.fn(),
     deleteArtifact: vi.fn(),
+    listConnectedSources: vi.fn(),
+    getConnectedSourceStatus: vi.fn(),
+    browseConnectedSources: vi.fn(),
+    importConnectedSource: vi.fn(),
+    syncConnectedSource: vi.fn(),
+    getConnectedSourceSyncHistory: vi.fn(),
   },
 }));
 
@@ -38,6 +44,10 @@ describe('ArtifactsPanel', () => {
     vi.clearAllMocks();
     vi.mocked(api.uploadArtifact).mockResolvedValue({} as Artifact);
     vi.mocked(api.listArtifacts).mockResolvedValue([]);
+    vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'version-1', content: btoa('Preview content'), contentHash: 'hash', mimeType: 'text/plain' });
+    vi.mocked(api.listConnectedSources).mockResolvedValue([]);
+    vi.mocked(api.getConnectedSourceStatus).mockResolvedValue({ provider: 'github', connected: false, accountLabel: null, accountId: null, scopes: [], expiresAt: null, status: 'disconnected', reauthorizationRequired: false, missingScopes: [], sources: [] });
+    vi.mocked(api.browseConnectedSources).mockResolvedValue({ items: [], nextCursor: null });
     vi.mocked(api.deleteArtifact).mockResolvedValue({ ok: true });
     vi.mocked(externalOpen).mockResolvedValue(undefined);
   });
@@ -57,17 +67,43 @@ describe('ArtifactsPanel', () => {
     expect(input).toBeInTheDocument();
   });
 
-  it('shows the five source categories and keeps disconnected connectors unavailable', async () => {
+  it('shows the five source categories and routes connector setup to Settings', async () => {
     const user = userEvent.setup();
-    render(<ArtifactsPanel projectId="p-1" />);
+    const openSettings = vi.fn();
+    render(<ArtifactsPanel projectId="p-1" onOpenSettings={openSettings} />);
     await user.click(await screen.findByRole('button', { name: /^Add source$/ }));
     const dialog = screen.getByRole('dialog', { name: 'Add source' });
     expect(within(dialog).getByRole('button', { name: /Documents/ })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: /Repository/ })).toBeEnabled();
-    expect(within(dialog).getByRole('button', { name: /GitHub/ })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: /Google Drive/ })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: /Slack/ })).toBeDisabled();
-    expect(within(dialog).getByText(/remain unavailable/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /GitHub/ })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /Google Drive/ })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /Slack/ })).toBeEnabled();
+    expect(within(dialog).getByText(/Connect GitHub, Google Drive, or Slack in Settings/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /GitHub/ }));
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
+
+  it('browses a connected GitHub account, selects a branch, and imports it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getConnectedSourceStatus).mockResolvedValue({
+      provider: 'github', connected: true, accountLabel: '@octocat', accountId: '42', scopes: ['repo'], expiresAt: null, status: 'connected', reauthorizationRequired: false, missingScopes: [], sources: [],
+    });
+    vi.mocked(api.browseConnectedSources)
+      .mockResolvedValueOnce({ items: [{ id: 'octo/centinel', name: 'octo/centinel', kind: 'repository', remoteUrl: 'https://github.com/octo/centinel', revision: 'main' }], nextCursor: null })
+      .mockResolvedValueOnce({ items: [{ id: 'main', name: 'main', kind: 'branch', revision: 'abc123' }], nextCursor: null });
+    vi.mocked(api.importConnectedSource).mockResolvedValue({ source: {} as never, syncResult: null });
+
+    render(<ArtifactsPanel projectId="p-1" onOpenSettings={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: /^Add source$/ }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Add source' })).getByRole('button', { name: /GitHub/ }));
+    const browser = await screen.findByRole('dialog', { name: 'Import from GitHub' });
+    await user.click(within(browser).getByRole('listitem', { name: /octo\/centinel/ }));
+    await user.click(await within(browser).findByRole('listitem', { name: /main/ }));
+    await user.click(within(browser).getByRole('button', { name: 'Import and sync' }));
+
+    await waitFor(() => expect(api.importConnectedSource).toHaveBeenCalledWith('p-1', expect.objectContaining({
+      provider: 'github', kind: 'github_repository', remoteId: 'octo/centinel', selectedScope: { branch: 'main' }, sync: true,
+    })));
   });
 
   it('opens a document in the detail view with Markdown Preview and Original modes', async () => {
@@ -77,7 +113,7 @@ describe('ArtifactsPanel', () => {
       filePath: 'C:/work/artifacts/a-doc_requirements.md', originalPath: null, contentHash: 'doc', createdAt: '2026-09-07T10:00:00.000Z',
     };
     vi.mocked(api.listArtifacts).mockResolvedValue([documentArtifact]);
-    vi.mocked(readBinaryFile).mockResolvedValue(new TextEncoder().encode('# Requirements'));
+    vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'version-1', content: btoa('# Requirements'), contentHash: 'hash', mimeType: 'text/markdown' });
     render(<ArtifactsPanel projectId="p-1" />);
 
     await user.click(await screen.findByRole('button', { name: 'Open' }));
@@ -87,13 +123,14 @@ describe('ArtifactsPanel', () => {
     expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByRole('button', { name: 'Original' }));
     expect(screen.getByText('# Requirements')).toBeInTheDocument();
-    expect(readBinaryFile).toHaveBeenCalledWith(documentArtifact.filePath);
+    expect(api.getArtifactContent).toHaveBeenCalledWith(documentArtifact.projectId, documentArtifact.id, undefined);
+    expect(readBinaryFile).not.toHaveBeenCalled();
   });
 
   it('opens a repository explorer, traverses directories, and previews a selected file', async () => {
     const user = userEvent.setup();
     vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
-    vi.mocked(readBinaryFile).mockResolvedValue(new TextEncoder().encode('export const button = true;'));
+    vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'version-1', content: btoa('export const button = true;'), contentHash: 'hash', mimeType: 'text/typescript' });
     render(<ArtifactsPanel projectId="p-1" />);
 
     expect(await screen.findByText('repo')).toBeInTheDocument();
