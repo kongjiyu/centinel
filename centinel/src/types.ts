@@ -126,8 +126,8 @@ export type ConnectedSourceSyncResult = {
   inaccessible: number;
 };
 
-export type AiProvider = 'mimo' | 'gemini' | 'custom';
-export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native';
+export type AiProvider = 'mimo' | 'gemini' | 'custom' | 'codex';
+export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native' | 'codex-app-server';
 
 export type AiProviderSetting = {
   id: 'text' | 'vision' | 'embedding';

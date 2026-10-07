@@ -1,5 +1,11 @@
 # Centinel FYP Project Plan
 
+> **Historical roadmap — superseded for current development.** Use
+> [the current development plan](docs/DEVELOPMENT_PLAN.md) and
+> [the revised PRD](docs/Centinel_PRD_Revised.md). The provider choices,
+> SQLite-first authority and optional-collaboration scope below are historical;
+> preserve them as background, not implementation instructions.
+
 > **For agentic workers:** This is the high-level FYP roadmap, not a sprint task list. Before implementation, derive a bounded plan and confirm each roadmap item against the current code and requirements.
 
 **Goal:** Build Centinel as a complete FYP-grade desktop software quality assurance platform with static artifact review, dynamic web application testing, structured evidence, and report generation.

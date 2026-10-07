@@ -159,6 +159,8 @@ export type PersistedReviewFinding = StaticFindingInput & {
 };
 
 export type ModelProviderSettings = {
+  /** Canonical authenticated user; required only for local Codex credentials. */
+  ownerId?: string;
   provider: AiProvider;
   apiFormat: AiApiFormat;
   apiKey: string;
@@ -167,6 +169,8 @@ export type ModelProviderSettings = {
 };
 
 export type StaticModelRequest = {
+  imagePaths?: string[];
+  outputSchema?: Record<string, unknown>;
   reviewId: string;
   projectId: string;
   stage: string;

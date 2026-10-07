@@ -4,6 +4,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
+import { CodexProviderPanel } from '../components/CodexProviderPanel';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
@@ -289,9 +290,10 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
         <h4>
           Custom Model Provider
         </h4>
-        <StatusBadge label={isConfigured ? 'Configured' : 'Setup required'} tone={isConfigured ? 'success' : 'warning'} />
+        <StatusBadge label={setting.provider === 'codex' ? 'Codex selected' : isConfigured ? 'Configured' : 'Setup required'} tone={isConfigured ? 'success' : 'warning'} />
       </div>
 
+      {setting.provider === 'codex' && <p className="form-hint">Review uses Codex. Saving this form will switch Review to an API provider.</p>}
       <div className="form-field">
         <label htmlFor={`provider-${setting.id}`}>Provider</label>
         <Select
@@ -915,6 +917,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
             <h2 id="model-provider-title"><SectionTitleIcon Icon={Bot} />Model Provider</h2>
           </div>
           <div className="settings-provider-forms">
+            <CodexProviderPanel settings={settings} onRefresh={onRefresh} />
             {textSetting && <ProviderForm setting={textSetting} onRefresh={onRefresh} />}
             {embeddingSetting && <EmbeddingProviderForm setting={embeddingSetting} onRefresh={onRefresh} />}
             {!textSetting && (

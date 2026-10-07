@@ -61,6 +61,13 @@ pnpm smoke
 pnpm build
 ```
 
+## Codex Model Provider
+
+Settings → Model Provider → **Codex with ChatGPT** connects a local Codex CLI
+using browser sign-in. Select a model separately for Review and Dynamic testing;
+Dynamic requires screenshot support. API providers remain available and source
+indexing still uses its own embedding API. See [Codex setup and boundaries](docs/CODEX_PROVIDER.md).
+
 ## Checks
 
 ```bash
@@ -85,6 +92,12 @@ centinel/
 ├── docs/                  # PRD, setup, current feature specs and acceptance audits
 └── .env.example           # Runtime configuration template (no Model Provider keys)
 ```
+
+## Development Roadmap
+
+See the [current development plan](docs/DEVELOPMENT_PLAN.md) for sequencing,
+ownership, acceptance gates and PRD requirement coverage. Product scope remains
+[in the revised PRD](docs/Centinel_PRD_Revised.md).
 
 ## Module Ownership
 

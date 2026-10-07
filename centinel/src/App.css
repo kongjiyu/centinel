@@ -3920,3 +3920,7 @@ body {
 }
 
 /* ============================================================
+
+/* Codex actions stay within their Settings card at narrow widths. */
+.codex-provider-panel .form-actions { flex-wrap: wrap; }
+.codex-provider-panel .form-hint { overflow-wrap: anywhere; }

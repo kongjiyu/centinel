@@ -3,6 +3,17 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseModelUsageSummary } from '../../src/modelUsageSummary.js';
 
 describe('Supabase Model Provider usage summary', () => {
+  it('filters Dynamic session metadata without using Review foreign keys', async () => {
+    const filters: unknown[][] = [];
+    const query: any = { select: () => query, eq: (...args: unknown[]) => { filters.push(args); return query; }, order: () => query,
+      range: () => query, then: (resolve: (value: unknown) => void) => resolve({ data: [{ id: 'usage-1', project_id: 'project-1', review_session_id: null, stage: 'step_0', attempt: 1, provider: 'codex', model: 'account-model', input_tokens: 10, output_tokens: 2, metadata: { callKind: 'dynamic', scope: 'vision', apiFormat: 'codex-app-server', dynamicSessionId: 'dynamic-1' } }], error: null }),
+    };
+    const result = await getSupabaseModelUsageSummary({ from: () => query } as unknown as SupabaseClient, 'verified-user', { sessionId: 'dynamic-1', callKind: 'dynamic' });
+    expect(filters).toContainEqual(['owner_id', 'verified-user']);
+    expect(filters).toContainEqual(['metadata->>dynamicSessionId', 'dynamic-1']);
+    expect(result.recent[0]).toMatchObject({ provider: 'codex', scope: 'vision', sessionId: 'dynamic-1', inputTokens: 10 });
+  });
+
   it('aggregates all pages and filters review versus provider-test calls', async () => {
     const rows = Array.from({ length: 501 }, (_, index) => ({
       id: String(index), project_id: index === 500 ? null : 'project-1',

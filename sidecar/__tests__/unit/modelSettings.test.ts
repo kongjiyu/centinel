@@ -1,8 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { listModelProviderSettings, mapModelProviderSetting, resolveSavedEmbeddingProvider, validateModelProviderUpdate } from '../../src/modelSettings.js';
+import { listModelProviderSettings, mapModelProviderSetting, resolveSavedEmbeddingProvider, saveModelProviderSetting, validateModelProviderUpdate } from '../../src/modelSettings.js';
 
 describe('Supabase Model Provider settings', () => {
+  it('accepts Codex without secrets for text and vision but excludes embeddings and mismatched formats', () => {
+    const input = { provider: 'codex' as const, apiFormat: 'codex-app-server' as const, apiKey: '', baseUrl: '', model: 'account-model' };
+    expect(() => validateModelProviderUpdate(input, null, 'text')).not.toThrow();
+    expect(() => validateModelProviderUpdate(input, null, 'vision')).not.toThrow();
+    expect(() => validateModelProviderUpdate(input, null, 'embedding')).toThrow();
+    expect(() => validateModelProviderUpdate({ ...input, apiKey: 'secret' }, null)).toThrow(/local sign-in/);
+    expect(() => validateModelProviderUpdate({ ...input, apiFormat: 'openai-compatible' }, null)).toThrow();
+    expect(() => validateModelProviderUpdate({ ...input, fallbackEnabled: true, fallbackProvider: 'codex' }, null)).toThrow(/fallback/);
+    expect(mapModelProviderSetting('text', { provider: 'codex', api_format: 'codex-app-server', model: 'account-model' })).toMatchObject({ provider: 'codex', hasApiKey: false });
+  });
+
+  it('removes API secrets and legacy fallback metadata when switching to Codex', async () => {
+    let payload: any;
+    const query: any = {
+      select: () => query, eq: () => query, is: () => query, order: () => query, limit: () => query,
+      maybeSingle: async () => ({ data: { id: 'saved', secret_ciphertext: 'encrypted-primary', metadata: { fallbackProvider: 'custom', fallbackSecretCiphertext: 'legacy-encrypted-key' } }, error: null }),
+      update: (value: any) => { payload = value; return query; },
+      single: async () => ({ data: payload, error: null }),
+    };
+    const client = { from: () => query } as unknown as SupabaseClient;
+    const view = await saveModelProviderSetting(client, 'verified-user', 'text', { provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: 'account-model', fallbackEnabled: false });
+    expect(payload).toMatchObject({ owner_id: 'verified-user', secret_ciphertext: null, fallback_secret_ciphertext: null });
+    expect(payload.metadata).not.toHaveProperty('fallbackSecretCiphertext');
+    expect(view).toMatchObject({ provider: 'codex', hasApiKey: false, fallbackEnabled: false });
+  });
+
   it('identifies the missing Phase 1 Supabase migration instead of a generic settings failure', async () => {
     const query: any = {
       select: () => query, eq: () => query, is: () => query, order: () => query, limit: () => query,
