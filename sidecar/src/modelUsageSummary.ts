@@ -41,7 +41,7 @@ export async function getSupabaseModelUsageSummary(
     let query = client.from('model_usage_records').select('*').eq('owner_id', ownerId)
       .order('created_at', { ascending: false }).range(offset, offset + pageSize - 1);
     if (filter.projectId) query = query.eq('project_id', filter.projectId);
-    if (filter.sessionId) query = query.eq('review_session_id', filter.sessionId);
+    if (filter.sessionId) query = query.eq(filter.callKind === 'dynamic' ? 'metadata->>dynamicSessionId' : 'review_session_id', filter.sessionId);
     const result = await query;
     if (result.error) throw new Error(`Supabase model usage query failed: ${result.error.message}`);
     const page = (result.data ?? []) as UsageRecord[];
@@ -83,7 +83,7 @@ export async function getSupabaseModelUsageSummary(
     if (recent.length < 50) recent.push({
       id: row.id,
       projectId: row.project_id,
-      sessionId: row.review_session_id,
+      sessionId: row.review_session_id ?? (typeof row.metadata?.dynamicSessionId === 'string' ? row.metadata.dynamicSessionId : null),
       scope,
       callKind,
       stage: row.stage,

@@ -207,6 +207,12 @@ export const api = {
     request<ConnectedSource>(`/projects/${projectId}/sources/${sourceId}`, { method: 'DELETE' }),
 
   // AI Settings
+  codexStatus: () => request<{ available: boolean; connected: boolean; accountLabel: string | null; message: string }>('/settings/codex'),
+  codexLogin: () => request<{ loginId: string; authUrl: string }>('/settings/codex/login', { method: 'POST' }),
+  codexCancelLogin: (loginId: string) => request<{ ok: boolean }>('/settings/codex/login/cancel', { method: 'POST', body: JSON.stringify({ loginId }) }),
+  codexLogout: () => request<{ ok: boolean }>('/settings/codex/logout', { method: 'POST' }),
+  codexModels: () => request<{ id: string; label: string; supportsImages: boolean; isDefault: boolean }[]>('/settings/codex/models'),
+  testCodex: (model: string, vision = false) => request<{ status: 'pass' | 'fail'; message: string }>('/settings/codex/test', { method: 'POST', body: JSON.stringify({ model, vision }) }),
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
   updateAiSetting: (id: 'text' | 'vision' | 'embedding', data: {
     provider: AiProvider;

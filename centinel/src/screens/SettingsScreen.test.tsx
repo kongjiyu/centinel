@@ -13,6 +13,7 @@ vi.mock('@tauri-apps/api/shell', () => tauriShell);
 
 vi.mock('../api/client', () => ({
   api: {
+    codexStatus: vi.fn(async () => ({ available: true, connected: false, accountLabel: null, message: 'Sign in to Codex.' })),
     getAiUsage: vi.fn(),
     updateAiSetting: vi.fn(),
     testAiProvider: vi.fn(),
@@ -84,7 +85,8 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByText('Import and review shared documents and requirements.')).toBeInTheDocument();
     expect(screen.getByText('Connect repositories and pull request context to reviews.')).toBeInTheDocument();
     expect(screen.getByText('Share review updates and collaborate with your team.')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(3);
+    expect(await screen.findByRole('button', { name: 'Connect Codex' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
     expect(screen.getByText('Current version')).toBeInTheDocument();
     expect(screen.getByText('Latest version')).toBeInTheDocument();
     expect(await screen.findAllByText('Centinel v0.0.1')).toHaveLength(2);

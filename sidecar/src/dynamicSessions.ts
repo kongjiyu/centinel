@@ -225,3 +225,13 @@ export async function isEvidenceFilePath(filePath: string): Promise<boolean> {
   stmt.free();
   return count > 0;
 }
+
+/** Local evidence registration alone never grants access to another project. */
+export async function getEvidenceProjectId(filePath: string): Promise<string | null> {
+  const db = await getDb();
+  const stmt = db.prepare('SELECT project_id FROM evidence WHERE file_path = ? LIMIT 1');
+  stmt.bind([filePath]);
+  const projectId = stmt.step() ? String(stmt.get()[0]) : null;
+  stmt.free();
+  return projectId;
+}

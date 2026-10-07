@@ -8,6 +8,18 @@ const request = {
 };
 
 describe('ConfiguredTextModelProvider', () => {
+  it('passes text, screenshots and cancellation through Codex without an API key', async () => {
+    const generate = vi.fn().mockResolvedValue({ text: '{"findings":[]}', model: 'codex-model', usage: { inputTokens: 5, outputTokens: 2 } });
+    const controller = new AbortController();
+    const settings = { ownerId: 'verified-user', provider: 'codex' as const, apiFormat: 'codex-app-server' as const, apiKey: '', baseUrl: '', model: 'codex-model' };
+    const provider = new ConfiguredTextModelProvider({ settings, codexBackend: { generate } as any });
+    const result = await provider.analyze({ ...request, imagePaths: ['/tmp/screenshot.png'], signal: controller.signal });
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: 'codex-model', imagePaths: ['/tmp/screenshot.png'], signal: controller.signal }));
+    expect(result.result).toEqual({ findings: [] });
+    expect(result.settings.provider).toBe('codex');
+    await expect(new ConfiguredTextModelProvider({ settings: { ...settings, ownerId: undefined }, codexBackend: { generate } as any }).analyze(request)).rejects.toMatchObject({ code: 'invalid_configuration' });
+  });
+
   it('rejects construction without an authenticated configuration source', () => {
     expect(() => new ConfiguredTextModelProvider()).toThrow('authenticated Model Provider setting or resolver');
   });

@@ -39,8 +39,8 @@ export type UpdateModelProviderSetting = {
 
 type ModelRow = Record<string, unknown>;
 
-const providerValues = new Set<AiProvider>(['mimo', 'gemini', 'custom']);
-const formatValues = new Set<AiApiFormat>(['openai-compatible', 'anthropic-compatible', 'google-native']);
+const providerValues = new Set<AiProvider>(['mimo', 'gemini', 'custom', 'codex']);
+const formatValues = new Set<AiApiFormat>(['openai-compatible', 'anthropic-compatible', 'google-native', 'codex-app-server']);
 
 function purpose(id: ModelProviderSettingId): string {
   return id === 'text' ? 'static_review' : id;
@@ -116,15 +116,20 @@ export class SupabaseMigrationRequiredError extends Error {
 }
 
 export function validateModelProviderUpdate(input: UpdateModelProviderSetting, existing?: ModelRow | null, id: ModelProviderSettingId = 'text'): void {
-  if (!providerValues.has(input.provider)) throw new Error('provider must be mimo, gemini, or custom');
+  if (!providerValues.has(input.provider)) throw new Error('provider must be mimo, gemini, custom, or codex');
   if (!formatValues.has(input.apiFormat)) throw new Error('apiFormat is invalid');
   if (id === 'embedding' && (input.provider !== 'custom' || input.apiFormat !== 'openai-compatible' || input.fallbackEnabled)) {
     throw new Error('Source indexing requires one custom OpenAI-compatible embedding provider without fallback.');
   }
-  if (!input.apiKey.trim() && !text(existing ?? {}, 'secret_ciphertext')) throw new Error('apiKey is required');
-  if (!/^https?:\/\//i.test(input.baseUrl.trim())) throw new Error('baseUrl must start with http:// or https://');
+  if (input.provider === 'codex' || input.apiFormat === 'codex-app-server') {
+    if (input.provider !== 'codex' || input.apiFormat !== 'codex-app-server' || id === 'embedding') throw new Error('Codex is available only for text and vision analysis.');
+    if (!input.model.trim()) throw new Error('model is required');
+    if (input.apiKey.trim() || input.baseUrl.trim()) throw new Error('Codex uses local sign-in, not an API key or endpoint.');
+  } else if (!input.apiKey.trim() && !text(existing ?? {}, 'secret_ciphertext')) throw new Error('apiKey is required');
+  if (input.provider !== 'codex' && !/^https?:\/\//i.test(input.baseUrl.trim())) throw new Error('baseUrl must start with http:// or https://');
   if (!input.model.trim()) throw new Error('model is required');
   if (!input.fallbackEnabled) return;
+  if (input.fallbackProvider === 'codex' || input.fallbackApiFormat === 'codex-app-server') throw new Error('Codex fallback is not supported; select an API fallback.');
   if (!input.fallbackProvider || !providerValues.has(input.fallbackProvider)) throw new Error('fallbackProvider is required');
   if (!input.fallbackApiFormat || !formatValues.has(input.fallbackApiFormat)) throw new Error('fallbackApiFormat is required');
   const previousFallbackSecret = text(existing ?? {}, 'fallback_secret_ciphertext') || text(metadata(existing ?? {}), 'fallbackSecretCiphertext');
@@ -158,11 +163,13 @@ export async function saveModelProviderSetting(
   const existing = await findRow(client, userId, id);
   validateModelProviderUpdate(input, existing, id);
   const meta = metadata(existing ?? {});
-  const primarySecret = input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
+  const primarySecret = input.provider === 'codex' ? null : input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
   const previousFallbackSecret = text(existing ?? {}, 'fallback_secret_ciphertext') || text(meta, 'fallbackSecretCiphertext');
   const fallbackSecret = input.fallbackEnabled
     ? (input.fallbackApiKey?.trim() ? encryptSecret(input.fallbackApiKey.trim()) : previousFallbackSecret)
     : null;
+  const cleanMetadata = { ...meta };
+  for (const key of ['fallbackProvider', 'fallbackApiFormat', 'fallbackModel', 'fallbackBaseUrl', 'fallbackSecretCiphertext']) delete cleanMetadata[key];
   const payload = {
     owner_id: userId,
     project_id: null,
@@ -178,7 +185,7 @@ export async function saveModelProviderSetting(
     fallback_base_url: input.fallbackEnabled ? input.fallbackBaseUrl?.trim() : null,
     fallback_secret_ciphertext: fallbackSecret,
     enabled: true,
-    metadata: { ...meta, apiFormat: input.apiFormat },
+    metadata: { ...cleanMetadata, apiFormat: input.apiFormat },
     updated_at: new Date().toISOString(),
   };
   const query = existing?.id
@@ -197,6 +204,12 @@ export async function resolveSavedProviderForTest(
   useFallback = false,
 ): Promise<{ provider: AiProvider; apiFormat: AiApiFormat; apiKey: string; baseUrl: string; model: string }> {
   const row = await findRow(client, userId, id);
+  const selectedProvider = useFallback ? input.fallbackProvider ?? row?.fallback_provider : input.provider ?? row?.provider;
+  if (selectedProvider === 'codex') {
+    const model = input.model ?? text(row ?? {}, 'model');
+    if (useFallback || !model.trim()) throw new Error('Codex model is not configured.');
+    return { provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model };
+  }
   if (!row && !input.apiKey) throw new Error('The Model Provider is not configured.');
   const meta = metadata(row ?? {});
   const fallback = useFallback;

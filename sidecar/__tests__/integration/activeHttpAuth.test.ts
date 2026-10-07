@@ -3,6 +3,8 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { createAuthGateway } from '../../src/auth/gateway.js';
+import initSqlJs from 'sql.js';
+import { setTestDb, clearTestDb } from '../../src/db.js';
 import { createSidecarServer } from '../../src/index.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
@@ -233,6 +235,23 @@ describe('active sidecar HTTP bearer contract', () => {
     expect(visible.status).toBe(200);
     expect((visible.body as unknown as Array<{ id: string }>).map(project => project.id)).toEqual([ownerProject, ownerSecondProject]);
     expect(await get(`/projects/${otherProject}`, 'owner-token', otherId)).toMatchObject({ status: 403, body: { code: 'project_access_denied' } });
+  });
+
+  it('guards all local Dynamic endpoints with shared project membership', async () => {
+    for (const suffix of ['', '/11111111-1111-1111-1111-111111111111', '/11111111-1111-1111-1111-111111111111/evidence']) {
+      expect(await get(`/projects/${otherProject}/dynamic-sessions${suffix}`, 'owner-token', otherId)).toMatchObject({ status: 403, body: { code: 'project_access_denied' } });
+    }
+    const cancel = await fetch(`${baseUrl}/projects/${otherProject}/dynamic-sessions/11111111-1111-1111-1111-111111111111/cancel`, { method: 'POST', headers: { Authorization: 'Bearer owner-token' } });
+    expect(cancel.status).toBe(403);
+  });
+
+  it('denies another project registered screenshot before checking the local filesystem', async () => {
+    const SQL = await initSqlJs();
+    const db = new SQL.Database(); setTestDb(db);
+    try {
+      db.run('INSERT INTO evidence (id, project_id, session_id, type, file_path, summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['evidence-1', otherProject, 'session-1', 'screenshot', '/tmp/private-screenshot.png', '', '2026-10-07']);
+      expect(await get('/evidence-file?path=%2Ftmp%2Fprivate-screenshot.png', 'owner-token', otherId)).toMatchObject({ status: 403, body: { code: 'forbidden' } });
+    } finally { clearTestDb(); db.close(); }
   });
 
   it('returns an actionable migration error when Model Provider tables are absent', async () => {

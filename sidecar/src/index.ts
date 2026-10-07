@@ -6,9 +6,13 @@ import fs from 'fs';
 import http from 'http';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { config as readEnv } from 'dotenv';
-import { getProject } from './projects';
+import { getProject, ensureDynamicWorkspace } from './projects';
 import { CollaborationError } from './githubTypes.js';
 import { SupabaseGithubCollaborationService } from './githubCollaboration.js';
+import { getCodexBackend, closeCodexBackends, type CodexBackend } from './model/codex.js';
+import { testCodexProvider } from './model/codexTest.js';
+import { ModelProviderError } from './review/retry.js';
+import { ModelConfigurationError, resolveModelProviderChain, SupabaseModelConfigurationRepository } from './review/modelProviderResolver.js';
 import { testTextProvider, testVisionProvider } from './aiClient';
 import {
   createDynamicSession,
@@ -17,7 +21,7 @@ import {
   getActiveSession,
   listDynamicEvidence,
   updateDynamicSessionStatus,
-  isEvidenceFilePath,
+  getEvidenceProjectId,
 } from './dynamicSessions';
 import { runDynamicSession, cancelSession } from './dynamicRunner';
 import { detectArtifactType } from './artifacts';
@@ -359,7 +363,8 @@ function toClientStaticSession(review: StaticReviewRecord) {
   };
 }
 
-export function createSidecarServer(authGateway: AuthGateway = createAuthGateway()): http.Server {
+export function createSidecarServer(authGateway: AuthGateway = createAuthGateway(), options: { codexBackend?: (ownerId: string) => CodexBackend } = {}): http.Server {
+  const codexBackend = options.codexBackend ?? getCodexBackend;
   return http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -503,6 +508,38 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       if (req.method === 'GET') return json(res, 200, await getIntegration(provider, ownerId, accessToken));
     }
 
+    // Local Codex credentials are selected only by verified Centinel identity.
+    if (url.startsWith('/settings/codex')) {
+      const backend = codexBackend(ownerId);
+      if (url === '/settings/codex' && req.method === 'GET') return json(res, 200, await backend.status());
+      if (url === '/settings/codex/login' && req.method === 'POST') return json(res, 200, await backend.login());
+      if (url === '/settings/codex/logout' && req.method === 'POST') { await backend.logout(); return json(res, 200, { ok: true }); }
+      if (url === '/settings/codex/login/cancel' && req.method === 'POST') {
+        const body = await parseJsonBody(req);
+        if (typeof body.loginId !== 'string' || !body.loginId.trim()) return json(res, 400, { error: 'loginId is required' });
+        await backend.cancelLogin(body.loginId); return json(res, 200, { ok: true });
+      }
+      if (url === '/settings/codex/models' && req.method === 'GET') return json(res, 200, await backend.models());
+      if (url === '/settings/codex/test' && req.method === 'POST') {
+        const body = await parseJsonBody(req);
+        if (typeof body.model !== 'string' || !body.model.trim()) return json(res, 400, { error: 'model is required' });
+        const controller = new AbortController();
+        const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+        res.once('close', disconnected);
+        try {
+          const result = await testCodexProvider(backend, body.model, body.vision === true, controller.signal);
+          await new SupabaseCentinelStore(auth!.client).saveModelUsage({
+            projectId: null, reviewSessionId: null, ownerId, stage: body.vision === true ? 'vision-provider-test' : 'provider-test',
+            attempt: 1, provider: 'codex', model: body.model, outcome: result.status === 'pass' ? 'success' : 'failure',
+            inputTokens: result.usage?.inputTokens ?? null, outputTokens: result.usage?.outputTokens ?? null,
+            cacheReadTokens: result.usage?.cacheReadTokens ?? null, cacheCreationTokens: null, durationMs: null, errorCode: null, cost: null,
+            metadata: { apiFormat: 'codex-app-server', callKind: 'test', scope: body.vision === true ? 'vision' : 'text' },
+          }).catch(() => {});
+          return json(res, 200, result);
+        } finally { res.removeListener('close', disconnected); }
+      }
+    }
+
     // AI Settings
     if (req.method === 'GET' && url === '/settings/ai') {
       return json(res, 200, await listModelProviderSettings(auth!.client, ownerId));
@@ -569,7 +606,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         // Empty or malformed body — use the saved setting.
       }
       const provider = await resolveSavedProviderForTest(auth!.client, ownerId, id, overrides, overrides.useFallback === true);
-      const result = id === 'vision' ? await testVisionProvider(provider, screenshotPath) : await testTextProvider(provider);
+      const result = provider.provider === 'codex'
+        ? await testCodexProvider(codexBackend(ownerId), provider.model, id === 'vision')
+        : id === 'vision' ? await testVisionProvider(provider, screenshotPath) : await testTextProvider(provider);
       // Record test-call usage. Real tokens were spent on this round-trip,
       // and the Settings page shows test vs review breakdown.
       if (result.usage && result.status === 'pass') {
@@ -601,16 +640,22 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const callKindParam = requestUrl.searchParams.get('callKind');
       const sessionId = requestUrl.searchParams.get('sessionId') ?? undefined;
       const projectId = requestUrl.searchParams.get('projectId') ?? undefined;
+      let usageCallKind: 'review' | 'test' | 'dynamic' | undefined = callKindParam === 'review' || callKindParam === 'test' || callKindParam === 'dynamic' ? callKindParam : undefined;
       if (sessionId) {
         if (!projectId) return json(res, 400, { error: 'projectId is required when filtering usage by sessionId.' });
         await authGateway.requireProjectMember(auth!, projectId);
         const review = await reviewRepository(auth!.client).getReview(sessionId);
-        if (!review || review.projectId !== projectId) return json(res, 404, { error: 'Session not found' });
+        if (!review || review.projectId !== projectId) {
+          if (usageCallKind !== 'dynamic') return json(res, 404, { error: 'Session not found' });
+          const dynamic = await getDynamicSession(projectId, sessionId);
+          if (!dynamic || (usageCallKind && usageCallKind !== 'dynamic')) return json(res, 404, { error: 'Session not found' });
+          usageCallKind = 'dynamic';
+        }
       }
       else if (projectId) await authGateway.requireProjectMember(auth!, projectId);
       const summary = await getSupabaseModelUsageSummary(auth!.client, ownerId, {
         scope: scopeParam === 'text' || scopeParam === 'vision' || scopeParam === 'embedding' ? scopeParam : undefined,
-        callKind: callKindParam === 'review' || callKindParam === 'test' || callKindParam === 'dynamic' ? callKindParam : undefined,
+        callKind: usageCallKind,
         sessionId,
         projectId,
       });
@@ -666,6 +711,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       }
     }
 
+    // Local Dynamic records never confer access: verify shared project membership first.
+    const dynamicScope = url.match(/^\/projects\/([a-f0-9-]+)\/dynamic-sessions(?:\/|$)/);
+    if (dynamicScope && !await applicationRepository!.getProject(dynamicScope[1])) return json(res, 404, { error: 'Project not found' });
+
     // Dynamic sessions - list
     const dsMatch = matchDynamicSessions(url);
     if (dsMatch && req.method === 'GET') {
@@ -681,21 +730,38 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const maxSteps = Math.min(25, Math.max(1, typeof body.maxSteps === 'number' ? body.maxSteps : 15));
 
       if (!targetUrl) return json(res, 400, { error: 'targetUrl is required' });
-      try { new URL(targetUrl); } catch { return json(res, 400, { error: 'targetUrl must be a valid URL' }); }
+      try { if (!['http:', 'https:'].includes(new URL(targetUrl).protocol)) throw new Error(); } catch { return json(res, 400, { error: 'targetUrl must be an HTTP or HTTPS URL' }); }
       if (!goal) return json(res, 400, { error: 'goal is required' });
 
       const active = await getActiveSession(dsMatch.projectId);
       if (active) return json(res, 409, { error: 'A dynamic session is already running' });
 
-      const project = await getProject(dsMatch.projectId);
-      if (!project) return json(res, 404, { error: 'Project not found' });
+      const sharedProject = await applicationRepository!.getProject(dsMatch.projectId);
+      if (!sharedProject) return json(res, 404, { error: 'Project not found' });
+      const repository = new SupabaseModelConfigurationRepository(auth!.client);
+      let vision;
+      try { vision = await resolveModelProviderChain(repository, { ownerId, projectId: dsMatch.projectId, purpose: 'vision' }); }
+      catch { return json(res, 409, { error: 'Configure a Dynamic screenshot model in Settings before starting a run.', code: 'vision_provider_required' }); }
+      let textProvider;
+      try { textProvider = (await resolveModelProviderChain(repository, { ownerId, projectId: dsMatch.projectId, purpose: 'static_review' })).primary; }
+      catch (error) { if (!(error instanceof ModelConfigurationError && ['not_configured', 'disabled'].includes(error.code))) throw error; }
+      const project = await ensureDynamicWorkspace(sharedProject);
 
       const session = await createDynamicSession(dsMatch.projectId, targetUrl, goal, missionType, maxSteps);
 
       // Run asynchronously
-      runDynamicSession(session, project.workspacePath).catch(err => {
+      runDynamicSession(session, project.workspacePath, { vision: vision.primary, text: textProvider,
+        recordUsage: usage => new SupabaseCentinelStore(auth!.client).saveModelUsage({
+          ownerId, projectId: session.projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
+          provider: usage.provider, model: usage.model, outcome: 'success',
+          inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens ?? null, cacheCreationTokens: usage.cacheCreationTokens ?? null,
+          durationMs: null, errorCode: null, cost: null,
+          metadata: { callKind: 'dynamic', scope: usage.scope, apiFormat: usage.apiFormat, dynamicSessionId: session.id },
+        }),
+      }).catch(err => {
         console.error('[runner] error:', err);
-        updateDynamicSessionStatus(session.id, 'failure', '', String(err)).catch(() => {});
+        updateDynamicSessionStatus(session.id, 'blocked', '', 'The testing runtime could not complete this session.').catch(() => {});
       });
 
       return json(res, 201, session);
@@ -1200,10 +1266,12 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       }
 
       // Validate the path exists in evidence table (prevents arbitrary file access)
-      const isEvidence = await isEvidenceFilePath(filePath);
-      if (!isEvidence) {
+      const evidenceProjectId = await getEvidenceProjectId(filePath);
+      if (!evidenceProjectId) {
         return json(res, 403, { error: 'File not registered as evidence', path: filePath });
       }
+
+      await authGateway.requireProjectMember(auth!, evidenceProjectId);
 
       // Validate file exists on disk
       if (!fs.existsSync(filePath)) {
@@ -1252,6 +1320,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
 
     json(res, 404, { error: 'Not found' });
   } catch (e) {
+    if (e instanceof ModelProviderError) return json(res, 409, { error: e.message, code: e.code });
     if (e instanceof AuthGatewayError) {
       return json(res, e.statusCode, { error: e.message, code: e.code });
     }
@@ -1284,5 +1353,5 @@ if (launchedDirectly) {
   server.listen(Number(PORT), HOST, () => {
     console.error(`[server] Centinel sidecar listening on ${HOST}:${PORT}`);
   });
-  process.on('SIGTERM', () => { server.close(); process.exit(0); });
+  process.on('SIGTERM', () => { closeCodexBackends(); server.close(); process.exit(0); });
 }

@@ -1,4 +1,5 @@
-import { getDb } from './db.js';
+import path from 'node:path';
+import { getDbPath, saveDb, getDb } from './db.js';
 
 /** Historical local project record retained for Dynamic Testing and legacy
  * report-renderer fixtures. Static Project CRUD is Supabase-only. */
@@ -31,4 +32,18 @@ export async function getProject(id: string): Promise<Project | null> {
   }
   stmt.free();
   return project;
+}
+
+/** Call only after Supabase membership verification. This local row is a
+ * workspace pointer for Dynamic, never a second project authority. */
+export async function ensureDynamicWorkspace(project: { id: string; name: string; description: string }): Promise<Project> {
+  const existing = await getProject(project.id);
+  if (existing) return existing;
+  const workspacePath = path.join(path.dirname(getDbPath()), 'dynamic', project.id);
+  const now = new Date().toISOString();
+  const db = await getDb();
+  db.run('INSERT OR IGNORE INTO projects (id, name, description, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [project.id, project.name, project.description, workspacePath, now, now]);
+  saveDb();
+  return (await getProject(project.id))!;
 }

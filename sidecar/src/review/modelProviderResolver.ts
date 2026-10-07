@@ -70,8 +70,8 @@ export class ModelConfigurationError extends Error {
   }
 }
 
-const PROVIDERS = new Set<AiProvider>(['mimo', 'gemini', 'custom']);
-const FORMATS = new Set<AiApiFormat>(['openai-compatible', 'anthropic-compatible', 'google-native']);
+const PROVIDERS = new Set<AiProvider>(['mimo', 'gemini', 'custom', 'codex']);
+const FORMATS = new Set<AiApiFormat>(['openai-compatible', 'anthropic-compatible', 'google-native', 'codex-app-server']);
 
 function rowValue(row: Record<string, unknown>, ...keys: string[]): unknown {
   for (const key of keys) {
@@ -142,13 +142,14 @@ function resolveSettings(record: ModelConfigurationRecord): { primary: ModelProv
   if (record.enabled === false) throw new ModelConfigurationError('The static-analysis Model Provider configuration is disabled.', 'disabled');
   const provider = asProvider(record.provider, 'Primary');
   const apiFormat = asFormat(record.apiFormat, 'Primary', provider);
+  if ((provider === 'codex') !== (apiFormat === 'codex-app-server')) throw new ModelConfigurationError('Codex provider and format must be selected together.', 'invalid_configuration');
   const baseUrl = record.baseUrl?.trim() ?? '';
   const model = record.model.trim();
-  if (!baseUrl || !model) throw new ModelConfigurationError('Primary Model Provider configuration is incomplete.', 'invalid_configuration');
+  if ((provider !== 'codex' && !baseUrl) || !model) throw new ModelConfigurationError('Primary Model Provider configuration is incomplete.', 'invalid_configuration');
   const primary: ModelProviderSettings = {
     provider,
     apiFormat,
-    apiKey: unwrapSecret(record.secretCiphertext, 'Primary'),
+    apiKey: provider === 'codex' ? '' : unwrapSecret(record.secretCiphertext, 'Primary'),
     baseUrl,
     model,
   };
@@ -156,7 +157,9 @@ function resolveSettings(record: ModelConfigurationRecord): { primary: ModelProv
   const fallbackProviderValue = record.fallbackProvider?.trim();
   if (!fallbackProviderValue) return { primary, fallback: null };
   const fallbackProvider = asProvider(fallbackProviderValue, 'Fallback');
+  if (fallbackProvider === 'codex') throw new ModelConfigurationError('Codex fallback is not supported.', 'invalid_configuration');
   const fallbackApiFormat = asFormat(record.fallbackApiFormat, 'Fallback', fallbackProvider);
+  if (fallbackApiFormat === 'codex-app-server') throw new ModelConfigurationError('Codex fallback is not supported.', 'invalid_configuration');
   const fallbackBaseUrl = (record.fallbackBaseUrl ?? record.baseUrl ?? '').trim();
   const fallbackModel = (record.fallbackModel ?? '').trim();
   if (!fallbackBaseUrl || !fallbackModel) throw new ModelConfigurationError('Fallback Model Provider configuration is incomplete.', 'invalid_configuration');
@@ -181,7 +184,9 @@ export async function resolveModelProviderChain(
   const rawRecord = await repository.getModelConfiguration(scope, options.signal);
   if (!rawRecord) throw new ModelConfigurationError('No static-analysis Model Provider is configured.', 'not_configured');
   const record = recordFromRow(rawRecord) ?? rawRecord;
+  if (record.ownerId && record.ownerId !== scope.ownerId) throw new ModelConfigurationError('Model Provider owner mismatch.', 'invalid_configuration');
   const settings = resolveSettings(record);
+  settings.primary.ownerId = scope.ownerId;
   const primaryProvider = new ConfiguredTextModelProvider({ settings: settings.primary, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens });
   const fallbackProvider = settings.fallback
     ? new ConfiguredTextModelProvider({ settings: settings.fallback, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens })
@@ -208,7 +213,11 @@ export function createSupabaseModelSettingResolver(
   return async () => {
     const rawRecord = await repository.getModelConfiguration(scope);
     if (!rawRecord) return null;
-    return resolveSettings(recordFromRow(rawRecord) ?? rawRecord).primary;
+    const record = recordFromRow(rawRecord) ?? rawRecord;
+    if (record.ownerId && record.ownerId !== scope.ownerId) throw new ModelConfigurationError('Model Provider owner mismatch.', 'invalid_configuration');
+    const primary = resolveSettings(record).primary;
+    primary.ownerId = scope.ownerId;
+    return primary;
   };
 }
 

@@ -5803,3 +5803,10 @@ div.app-shell.has-window-chrome .sidebar {
     min-height: 44px;
   }
 }
+
+/* Separate account sign-in from API credentials without affecting other forms. */
+.app-shell.has-window-chrome .codex-provider-panel {
+  margin-bottom: 32px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--shell-border);
+}
