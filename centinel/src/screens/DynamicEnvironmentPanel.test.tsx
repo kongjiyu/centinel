@@ -3,9 +3,9 @@ import {render,screen,waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {DynamicEnvironmentPanel} from './DynamicEnvironmentPanel';
 import {api} from '../api/client';
-vi.mock('../api/client',()=>({api:{dynamicEnvironmentData:vi.fn(),recordDynamicEnvironmentData:vi.fn(),dynamicEnvironments:vi.fn(),dynamicEnvironmentValues:vi.fn(),saveDynamicEnvironment:vi.fn(),saveDynamicEnvironmentValues:vi.fn(),preflightDynamicEnvironment:vi.fn()}}));
+vi.mock('../api/client',()=>({api:{dynamicWorkspace:vi.fn(),dynamicEnvironmentData:vi.fn(),recordDynamicEnvironmentData:vi.fn(),dynamicEnvironments:vi.fn(),dynamicEnvironmentValues:vi.fn(),saveDynamicEnvironment:vi.fn(),saveDynamicEnvironmentValues:vi.fn(),preflightDynamicEnvironment:vi.fn()}}));
 const profile={id:'env-one',projectId:'project-a',version:1,updatedBy:'actor',updatedAt:'',name:'Local',targetUrl:'http://localhost:3000/',allowedOrigins:['http://localhost:3000'],viewport:{width:1280,height:720},accountRole:'Seeded account',requiredVariables:['TEST_PASSWORD'],startupInstructions:'Start manually',targetVersion:'commit'};
-beforeEach(()=>{vi.clearAllMocks();vi.mocked(api.dynamicEnvironmentData).mockResolvedValue({profileId:'env-one',state:'unprepared',preparedVersion:null,preparation:null,runId:null,events:[]});vi.mocked(api.dynamicEnvironments).mockResolvedValue([profile]);vi.mocked(api.dynamicEnvironmentValues).mockResolvedValue({variableNames:[]});});
+beforeEach(()=>{vi.clearAllMocks();vi.mocked(api.dynamicWorkspace).mockResolvedValue({authorization:null});vi.mocked(api.dynamicEnvironmentData).mockResolvedValue({profileId:'env-one',state:'unprepared',preparedVersion:null,preparation:null,runId:null,events:[]});vi.mocked(api.dynamicEnvironments).mockResolvedValue([profile]);vi.mocked(api.dynamicEnvironmentValues).mockResolvedValue({variableNames:[]});});
 describe('Environment workspace',()=>{
  it('saves a shared profile separately from local variable values',async()=>{
   vi.mocked(api.saveDynamicEnvironment).mockResolvedValue(profile);const change=vi.fn();const user=userEvent.setup();
