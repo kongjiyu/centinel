@@ -1,4 +1,4 @@
-import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot } from '../dynamic/types';
+import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
 import { SIDECAR_BASE_URL } from './transport';
@@ -309,6 +309,8 @@ export const api = {
 
   dynamicEnvironments: (projectId: string) => request<EnvironmentProfile[]>(`/projects/${projectId}/dynamic/environments`),
   saveDynamicEnvironment: (projectId: string, data: EnvironmentInput, id?: string) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments${id ? `/${id}` : ''}`, {method:'POST',body:JSON.stringify(data)}),
+  dynamicEnvironmentData: (projectId: string,id: string) => request<EnvironmentData>(`/projects/${projectId}/dynamic/environments/${id}/data`),
+  recordDynamicEnvironmentData: (projectId:string,id:string,kind:'preparation'|'cleanup',outcome:'completed'|'failed',note:string) => request<EnvironmentData>(`/projects/${projectId}/dynamic/environments/${id}/${kind}`,{method:'POST',body:JSON.stringify({outcome,note})}),
   dynamicEnvironmentValues: (projectId: string, id: string) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`),
   saveDynamicEnvironmentValues: (projectId: string, id: string, values: Record<string,string>) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`, {method:'POST',body:JSON.stringify({values})}),
   preflightDynamicEnvironment: (projectId: string, id: string) => request<EnvironmentSnapshot>(`/projects/${projectId}/dynamic/environments/${id}/preflight`, {method:'POST',body:'{}'}),

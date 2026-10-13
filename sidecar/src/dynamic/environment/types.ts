@@ -5,4 +5,6 @@ export type EnvironmentInput = {
 };
 export type EnvironmentProfile = EnvironmentInput & { id: string; projectId: string; version: number; updatedBy: string; updatedAt: string };
 export type PreflightCheck = { name: string; ready: boolean; reason: string };
-export type EnvironmentSnapshot = EnvironmentProfile & { variableNames: string[]; preflight: PreflightCheck[]; checkedAt: string };
+export type EnvironmentSnapshot = EnvironmentProfile & { variableNames: string[]; preflight: PreflightCheck[]; checkedAt: string; preparation?: EnvironmentData['preparation'] };
+export type DataEvent = {id:string;runId:string|null;kind:'preparation'|'cleanup';outcome:'completed'|'failed';note:string;actorId:string;createdAt:string};
+export type EnvironmentData = {profileId:string;state:'unprepared'|'ready'|'in_use'|'cleanup_required';preparedVersion:number|null;preparation:{note:string;actorId:string;at:string;profileVersion:number}|null;runId:string|null;events:DataEvent[]};
