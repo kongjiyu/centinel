@@ -1,3 +1,4 @@
+import type { EnvironmentSnapshot } from './environment/types.js';
 import crypto from 'node:crypto';
 import { dynamicWorkerId } from './recovery.js';
 import { aggregateChecks } from './checker.js';
@@ -47,11 +48,11 @@ export class DynamicService {
   saveMission(projectId: string, actorId: string, input: unknown, missionId?: string) {
     return this.repository.saveRevision(projectId, actorId, validateMission(input, projectId), missionId);
   }
-  async start(projectId: string, actorId: string, revisionId: string, idempotencyKey: string) {
+  async start(projectId: string, actorId: string, revisionId: string, idempotencyKey: string, environment?: EnvironmentSnapshot) {
     if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128) throw new DynamicContractError(400, 'A bounded idempotencyKey is required.');
     const revision = await this.repository.getRevision(projectId, revisionId);
     if (!revision) throw new DynamicContractError(404, 'Mission revision not found.');
-    return this.repository.createRun(projectId, actorId, revision, idempotencyKey.trim());
+    return this.repository.createRun(projectId, actorId, revision, idempotencyKey.trim(), environment);
   }
   async claim(projectId: string, runId: string, legacySessionId: string | null = null) {
     const run = await this.requireRun(projectId, runId);

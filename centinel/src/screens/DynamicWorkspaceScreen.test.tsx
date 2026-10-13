@@ -5,12 +5,13 @@ import { DynamicWorkspaceScreen } from './DynamicWorkspaceScreen';
 import { api } from '../api/client';
 import type { MissionRevision, DynamicRun } from '../dynamic/types';
 
-vi.mock('../api/client', () => ({ api: { dynamicMissions: vi.fn(), dynamicRevision: vi.fn(), dynamicRuns: vi.fn(), saveDynamicMission: vi.fn(), startDynamicRun: vi.fn(), stopDynamicRun: vi.fn(), listDynamicEvidence: vi.fn(), dynamicEvidenceBlob: vi.fn() } }));
+vi.mock('../api/client', () => ({ api: { dynamicEnvironments: vi.fn(), dynamicEnvironmentValues: vi.fn(), dynamicMissions: vi.fn(), dynamicRevision: vi.fn(), dynamicRuns: vi.fn(), saveDynamicMission: vi.fn(), startDynamicRun: vi.fn(), stopDynamicRun: vi.fn(), listDynamicEvidence: vi.fn(), dynamicEvidenceBlob: vi.fn() } }));
 const project = { id: 'project-a', name: 'Demo web app', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
 const revision: MissionRevision = { id: 'revision-one', missionId: 'mission-one', projectId: 'project-a', revision: 1, createdBy: 'actor', createdAt: '2026-10-13T00:00:00Z', name: 'Sign-in smoke', goal: 'Inspect sign-in form', targetUrl: 'http://localhost:3000', maxSteps: 3, context: null, contextAcknowledged: false, checks: [{ id: 'heading', criterionId: 'manual-heading', description: 'Visible sign-in heading', kind: 'visible_text', expected: 'Sign in', required: true }] };
 const makeRun = (state: DynamicRun['state'] = 'completed'): DynamicRun => ({ id: 'run-one', projectId: 'project-a', missionId: 'mission-one', revision, idempotencyKey: 'one', createdBy: 'actor', createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z', state, verdict: state === 'completed' ? 'passed' : 'not_tested', checks: [], evidence: [], reason: state === 'interrupted' ? 'Execution stopped responding.' : null, legacySessionId: null });
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.dynamicEnvironments).mockResolvedValue([]);
   vi.mocked(api.dynamicMissions).mockResolvedValue([]); vi.mocked(api.dynamicRuns).mockResolvedValue([]);
   vi.mocked(api.dynamicRevision).mockResolvedValue(revision);
   vi.mocked(api.saveDynamicMission).mockResolvedValue(revision);

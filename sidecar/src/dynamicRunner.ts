@@ -231,7 +231,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
+  providers: { vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
 ): Promise<void> {
   const recordUsage = providers.recordUsage ?? recordTokenUsage;
   const sessionDir = path.join(projectWorkspacePath, 'sessions', session.id);
@@ -292,7 +292,7 @@ export async function runDynamicSession(
     browser = await chromium.launch({ headless: false });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
-    const page = await browser.newPage();
+    const page = await browser.newPage(providers.viewport ? {viewport:providers.viewport} : {});
 
     page.on('console', msg => {
       const entry = `[${msg.type()}] ${msg.text()}`;

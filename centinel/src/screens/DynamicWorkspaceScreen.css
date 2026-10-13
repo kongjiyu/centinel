@@ -65,3 +65,9 @@
 @media (max-width: 720px) { .dynamic-workspace-screen .dw-toolbar { align-items: stretch; flex-direction: column; } .dynamic-workspace-screen .dw-toolbar > div { width: 100%; } .dynamic-workspace-screen .dw-check-fields { grid-template-columns: 1fr; gap: 0; } .dynamic-workspace-screen .dw-section-heading { flex-wrap: wrap; } .dynamic-workspace-screen .dw-actions button { flex: 1 1 auto; min-height: 44px; } .dynamic-workspace-screen dl { grid-template-columns: 1fr; gap: 4px; } .dynamic-workspace-screen dd { margin-bottom: 8px; } }
 
 .dynamic-workspace-screen .dw-form-body { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+.dynamic-workspace-screen .dw-environments { margin: 0 0 28px; padding-bottom: 18px; border-bottom: 1px solid var(--workspace-border); }
+.dynamic-workspace-screen .dw-environments > .dw-field { max-width: 600px; }
+.dynamic-workspace-screen .dw-environments form { margin-top: 18px; }
+.dynamic-workspace-screen .dw-environments li { font-size: 13px; line-height: 22px; overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-environments .dw-advanced .dw-field { max-width: none; }

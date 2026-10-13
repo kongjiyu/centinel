@@ -1,3 +1,4 @@
+import type { EnvironmentSnapshot } from './environment/types.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DynamicContractError, type DynamicRepository, type DynamicRun, type Mission, type MissionInput, type MissionRevision, type RunPatch, type RunState } from './types.js';
 
@@ -42,8 +43,8 @@ export class SupabaseDynamicRepository implements DynamicRepository {
     if (error) storageError(error);
     return data?.payload as DynamicRun ?? null;
   }
-  async createRun(projectId: string, actorId: string, revision: MissionRevision, key: string): Promise<{ run: DynamicRun; reused: boolean }> {
-    const { data, error } = await this.client.rpc('start_dynamic_run', { p_project_id: projectId, p_actor_id: actorId, p_revision_id: revision.id, p_key: key });
+  async createRun(projectId: string, actorId: string, revision: MissionRevision, key: string, environment?: EnvironmentSnapshot): Promise<{ run: DynamicRun; reused: boolean }> {
+    const { data, error } = await this.client.rpc(environment ? 'start_dynamic_environment_run' : 'start_dynamic_run', { p_project_id: projectId, p_actor_id: actorId, p_revision_id: revision.id, p_key: key, ...(environment ? {p_environment:environment} : {}) });
     if (error) storageError(error);
     return data;
   }

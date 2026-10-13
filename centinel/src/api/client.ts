@@ -1,4 +1,4 @@
-import type { DynamicRun, Mission, MissionInput, MissionRevision } from '../dynamic/types';
+import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
 import { SIDECAR_BASE_URL } from './transport';
@@ -298,7 +298,7 @@ export const api = {
   dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
   saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
   dynamicRuns: (projectId: string) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`),
-  startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey }) }),
+  startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string, environmentId?: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey, ...(environmentId ? {environmentId} : {}) }) }),
   stopDynamicRun: (projectId: string, runId: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs/${runId}/cancel`, { method: 'POST', body: '{}' }),
   dynamicEvidenceBlob: async (filePath: string): Promise<Blob> => {
     const token = sessionStorage.getItem('centinel:supabase-access-token');
@@ -306,6 +306,12 @@ export const api = {
     if (!response.ok) throw new ApiError('This screenshot is unavailable on this device.', response.status);
     return response.blob();
   },
+
+  dynamicEnvironments: (projectId: string) => request<EnvironmentProfile[]>(`/projects/${projectId}/dynamic/environments`),
+  saveDynamicEnvironment: (projectId: string, data: EnvironmentInput, id?: string) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments${id ? `/${id}` : ''}`, {method:'POST',body:JSON.stringify(data)}),
+  dynamicEnvironmentValues: (projectId: string, id: string) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`),
+  saveDynamicEnvironmentValues: (projectId: string, id: string, values: Record<string,string>) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`, {method:'POST',body:JSON.stringify({values})}),
+  preflightDynamicEnvironment: (projectId: string, id: string) => request<EnvironmentSnapshot>(`/projects/${projectId}/dynamic/environments/${id}/preflight`, {method:'POST',body:'{}'}),
 
   // Dynamic Sessions
   listDynamicSessions: (projectId: string) =>

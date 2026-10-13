@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { containsLocalValue } from './dynamic/environment/secrets.js';
+import { EnvironmentRepository } from './dynamic/environment/repository.js';
+import { EnvironmentVault } from './dynamic/environment/vault.js';
+import { handleEnvironmentRoute } from './dynamic/environment/routes.js';
+import { checkEnvironment, environmentReady } from './dynamic/environment/preflight.js';
 import { handleDynamicRoute } from './dynamic/routes.js';
 import { DynamicService } from './dynamic/service.js';
 import { DynamicContractError } from './dynamic/types.js';
@@ -400,21 +405,48 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     const applicationRepository = auth ? new CentinelApplicationRepository(auth.client, auth.userId) : null;
 
     if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
+      const environments = new EnvironmentRepository(auth.client);
+      const vault = new EnvironmentVault(path.join(dataDir, 'dynamic-environment-values'));
+      const environmentResponse = await handleEnvironmentRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
+        ownerId,repository:environments,vault,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
+        providerReady:async projectId=>{try {
+          const chain=await resolveModelProviderChain(new SupabaseModelConfigurationRepository(auth.client),{ownerId,projectId,purpose:'vision'});
+          return chain.primary.provider==='codex' ? (await getCodexBackend(ownerId).status()).connected : Boolean(chain.primary.apiKey);
+        }catch{return false;}},
+      });
+      if(environmentResponse)return json(res,environmentResponse.status,environmentResponse.body);
       const service = new DynamicService(new SupabaseDynamicRepository(auth.client));
       const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, {
         actorId: ownerId,
+        validateAuthoring: async (projectId,body)=>{
+          const profiles=await environments.list(projectId);
+          const secrets=profiles.flatMap(profile=>Object.values(vault.read(ownerId,projectId,profile.id)));
+          if(containsLocalValue(body,secrets))throw new DynamicContractError(400,'Keep local variable values out of shared test fields.');
+        },
         service,
         requireProjectMember: projectId => authGateway.requireProjectMember(auth, projectId),
         cancelExecution: run => { if (['cancelled', 'interrupted'].includes(run.state) && run.legacySessionId) cancelSession(run.legacySessionId); },
-        prepareExecution: async projectId => {
+        prepareExecution: async (projectId, revisionId, environmentId) => {
           const sharedProject = await applicationRepository!.getProject(projectId);
           if (!sharedProject) throw new AuthGatewayError('Project not found.', 404, 'not_found');
+          const profile = environmentId ? await environments.get(projectId, environmentId) : null;
+          if (profile) {
+            const revision = await service.repository.getRevision(projectId, revisionId!);
+            if (!revision || new URL(revision.targetUrl).origin !== new URL(profile.targetUrl).origin) throw new DynamicContractError(400, 'Environment and test must use the same website origin.');
+            const secrets = Object.values(vault.read(ownerId,projectId,profile.id));
+            if (containsLocalValue({revision,profile},secrets)) throw new DynamicContractError(400, 'Keep local variable values out of test and shared environment fields.');
+          }
           const modelRepository = new SupabaseModelConfigurationRepository(auth.client);
           let vision;
           try { vision = await resolveModelProviderChain(modelRepository, { ownerId, projectId, purpose: 'vision' }); }
-          catch { throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.'); }
+          catch {
+            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false);
+              return {environment,execute: async run=>{await service.stop(projectId,run.id,'blocked','Environment preflight failed: configure a screenshot provider.');}};
+            }
+            throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.');
+          }
           const project = await ensureDynamicWorkspace(sharedProject);
-          return run => executeMissionRun(service, run, project.workspacePath, {
+          const execute = (run: import('./dynamic/types.js').DynamicRun) => executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
             recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
               ownerId, projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
@@ -424,6 +456,13 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
               metadata: { callKind: 'dynamic', runId: run.id, scope: usage.scope, apiFormat: usage.apiFormat },
             }),
           });
+          if (!profile) return execute;
+          const ready = vision.primary.provider === 'codex' ? await getCodexBackend(ownerId).status().then(status=>status.connected).catch(()=>false) : Boolean(vision.primary.apiKey);
+          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready);
+          return {environment, execute: async run => {
+            if (!environmentReady(environment)) { await service.stop(projectId,run.id,'blocked','Environment preflight failed. Inspect the saved checks and startup instructions.'); return; }
+            await execute(run);
+          }};
         },
       });
       if (response) return json(res, response.status, response.body);
