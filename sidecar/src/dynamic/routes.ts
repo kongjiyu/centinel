@@ -1,12 +1,14 @@
+import type { EnvironmentSnapshot } from './environment/types.js';
 import { createStaticContextFixture, type StubScenario } from './testing/staticContextStub.js';
 import { DynamicService } from './service.js';
 import { DynamicContractError, type DynamicRun } from './types.js';
 
 export type DynamicRouteDependencies = {
+  validateAuthoring?(projectId: string, body: Record<string, unknown>): Promise<void>;
   actorId: string;
   service: DynamicService;
   requireProjectMember(projectId: string): Promise<void>;
-  prepareExecution(projectId: string): Promise<(run: DynamicRun) => Promise<void>>;
+  prepareExecution(projectId: string, revisionId?: string, environmentId?: string): Promise<((run: DynamicRun) => Promise<void>) | {execute(run: DynamicRun): Promise<void>; environment: EnvironmentSnapshot}>;
   cancelExecution(run: DynamicRun): void;
 };
 
@@ -32,6 +34,7 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
         // Explicit authoring input, not a fallback for missing/failed real context.
         body.context = createStaticContextFixture(projectId, body.contextScenario as StubScenario);
       }
+      await deps.validateAuthoring?.(projectId,body);
       return { status: 201, body: await service.saveMission(projectId, deps.actorId, body, id) };
     }
     if (resource === 'revisions' && id && request.method === 'GET') {
@@ -46,12 +49,16 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
       // Replay completed/running requests even if the provider subsequently becomes unavailable.
       if (typeof body.idempotencyKey !== 'string' || !body.idempotencyKey.trim() || body.idempotencyKey.length > 128) throw new DynamicContractError(400, 'A bounded idempotencyKey is required.');
       const old = await service.repository.getRunByKey(projectId, body.idempotencyKey.trim());
+      if ('environmentId' in body && (typeof body.environmentId !== 'string' || !body.environmentId)) throw new DynamicContractError(400, 'Select a valid environment.');
       if (old) {
-        const replay = await service.start(projectId, deps.actorId, body.revisionId, body.idempotencyKey as string);
-        return { status: 200, body: replay.run };
+        if (old.environment?.id !== body.environmentId) throw new DynamicContractError(409, 'Idempotency environment conflict.');
+        if (old.revision.id !== body.revisionId || old.createdBy !== deps.actorId) throw new DynamicContractError(409, 'Idempotency key belongs to a different request.');
+        return { status: 200, body: old };
       }
-      const execute = await deps.prepareExecution(projectId);
-      const result = await service.start(projectId, deps.actorId, body.revisionId, body.idempotencyKey as string);
+      const prepared = await deps.prepareExecution(projectId, body.revisionId, body.environmentId as string | undefined);
+      const execute = typeof prepared === 'function' ? prepared : prepared.execute;
+      const environment = typeof prepared === 'function' ? undefined : prepared.environment;
+      const result = await service.start(projectId, deps.actorId, body.revisionId, body.idempotencyKey as string, environment);
       if (!result.reused) void execute(result.run).catch(async () => { await service.stop(projectId, result.run.id, 'blocked', 'Execution unavailable.').catch(() => {}); });
       return { status: result.reused ? 200 : 201, body: result.run };
     }

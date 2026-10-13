@@ -496,3 +496,16 @@ with reusable environment profiles and read-only preflight, followed by manual
 test-data preparation/cleanup records. API-mode journeys, private evidence
 synchronization, richer checks, credential references and complete action/origin
 policy remain separate gates. This does not mark P1 complete.
+
+
+## 11. Environment progress — 13 October 2026
+
+[Environment profile/preflight slice](DYNAMIC_ENVIRONMENT_PROFILES.md) implements
+shared versioned profiles, encrypted account-scoped local variables, bounded
+read-only preflight and immutable Run conditions. Its additive migration was
+locally verified and applied under the user's ongoing milestone authorization.
+A real UI flow produced a blocked Run for a missing name, then an independently
+passed Codex Run after preparation, and preserved the old profile snapshot after
+an edit. Browser authentication injection and setup/cleanup are follow-up work;
+this slice does not mark P2 complete. PR/merge status is tracked in
+[development progress](DEVELOPMENT_PROGRESS.md).

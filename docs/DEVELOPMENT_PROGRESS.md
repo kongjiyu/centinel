@@ -8,8 +8,9 @@ incoming criteria. Native desktop testing remains the separately scoped extensio
 
 | Milestone | Scope | Status / next gate |
 | --- | --- | --- |
-| M1 | Local target/provider acceptance; Mission revisions, Run lifecycle, independent checker, worker leases and saved-test/history UI | Verified locally and against QA-bearer Supabase/Codex; preparing PR. Broader API/provider failure and shared evidence gates remain later work. |
-| M2 | Environment profiles, variables, preflight, preparation/cleanup, safe reuse and secret handling (P2) | Next |
+| M1 | Local target/provider acceptance; Mission revisions, Run lifecycle, independent checker, worker leases and saved-test/history UI | Merged via PR #3 (`eb0f60f`), verified locally and against QA-bearer Supabase/Codex. Broader API/provider failure and shared evidence gates remain later work. |
+| M2a | Reusable environment profiles, encrypted local variables, preflight and immutable Run conditions (P2.1–P2.3 slice) | Locally/live verified; preparing PR. See DYNAMIC_ENVIRONMENT_PROFILES.md. |
+| M2b | Workspace prerequisites, preparation/cleanup, safe data reuse and bounded hooks (remaining P2) | Next |
 | M3 | Mock snapshot selection, exceptional inputs and immutable coverage (P3) | Planned |
 | M4 | Enforced browser policy, richer observations/checks, exploration, regression and budgets (P4; remaining P1 execution gates) | Planned |
 | M5 | Usability, reviewed findings, private shared evidence and versioned reports (P5; remaining P1 storage gates) | Planned |

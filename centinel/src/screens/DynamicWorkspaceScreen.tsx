@@ -1,3 +1,4 @@
+import { DynamicEnvironmentPanel } from './DynamicEnvironmentPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock3, FileCheck2, Globe, History, Plus, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
@@ -44,11 +45,12 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const [missionId, setMissionId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState(initialRunId ?? '');
   const [name, setName] = useState(''); const [goal, setGoal] = useState(''); const [targetUrl, setTargetUrl] = useState('');
+  const [environmentId, setEnvironmentId] = useState('');
   const [maxSteps, setMaxSteps] = useState(15);
   const [source, setSource] = useState('manual'); const [checks, setChecks] = useState<DraftCheck[]>(() => [emptyCheck()]);
   const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null); const [feedback, setFeedback] = useState('');
-  const requestKey = useRef<{ revisionId: string; key: string } | null>(null);
+  const requestKey = useRef<{ revisionId: string; environmentId: string; key: string } | null>(null);
   const loadGeneration = useRef(0); const loadSequence = useRef(0); const errorRef = useRef<HTMLParagraphElement>(null);
   const dirty = useRef(false);
   const resultRef = useRef<HTMLElement>(null);
@@ -69,7 +71,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   }, [projectId]);
   useEffect(() => {
     loadGeneration.current++; let current = true;
-    resetDraft(); setRuns([]); setRevisions([]); setSelectedRunId(initialRunId ?? ''); setError(null);
+    resetDraft(); setEnvironmentId(''); setRuns([]); setRevisions([]); setSelectedRunId(initialRunId ?? ''); setError(null);
     setLoading(Boolean(projectId));
     void load().catch(e => { if (current) setError(userFacingError(e, 'Saved tests could not be loaded.')); }).finally(() => { if (current) setLoading(false); });
     const timer = window.setInterval(() => { void load().catch(e => { if (current) setError(userFacingError(e, 'Run history could not be refreshed.')); }); }, 5000);
@@ -103,11 +105,11 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     } catch (e) { setError(userFacingError(e, 'The test could not be saved. Your inputs are preserved.')); }
     finally { setBusy(false); }
   };
-  const start = async (revision: MissionRevision) => {
+  const start = async (revision: MissionRevision, selectedEnvironment = environmentId) => {
     setBusy(true); setError(null);
-    if (!requestKey.current || requestKey.current.revisionId !== revision.id) requestKey.current = { revisionId: revision.id, key: key() };
+    if (!requestKey.current || requestKey.current.revisionId !== revision.id || requestKey.current.environmentId !== selectedEnvironment) requestKey.current = { revisionId: revision.id, environmentId: selectedEnvironment, key: key() };
     try {
-      const run = await api.startDynamicRun(projectId, revision.id, requestKey.current.key);
+      const run = selectedEnvironment ? await api.startDynamicRun(projectId, revision.id, requestKey.current.key, selectedEnvironment) : await api.startDynamicRun(projectId, revision.id, requestKey.current.key);
       requestKey.current = null; setSelectedRunId(run.id); await load();
       onNavigate({ name: 'dynamic-testing', projectId, runId: run.id });
     } catch (e) { setError(userFacingError(e, 'The run could not start. Retry uses the same request.')); }
@@ -120,6 +122,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     <div className="dw-toolbar"><div><label htmlFor="dw-project">Project</label><Select id="dw-project" value={projectId} disabled={busy} options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={value => { requestKey.current = null; setProjectId(value); onNavigate({ name: 'dynamic-testing', projectId: value }); }} /></div><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'projects', initialCreate: true })}><Plus size={16} /> Create project</button></div>
     {error && <p className="dw-error" role="alert" tabIndex={-1} ref={errorRef}>{error} <button type="button" onClick={() => { setError(null); void load().catch(e => setError(userFacingError(e))); }}>Refresh</button></p>}
     {!projectId ? <p className="dw-empty">Create or select a project to save your first browser test.</p> : <>
+      <DynamicEnvironmentPanel projectId={projectId} value={environmentId} disabled={busy} onChange={id=>{requestKey.current=null;setEnvironmentId(id);}} />
       <div className="dw-grid">
         <section className="dw-editor" aria-labelledby="dw-editor-title">
           <div className="dw-section-heading"><div><h2 id="dw-editor-title">{missionId ? 'Edit saved test' : 'New test'}</h2><p>Required checks verify the result independently of the browser agent.</p></div>{missionId && <button type="button" className="btn-secondary" onClick={resetDraft} disabled={busy}><Plus size={16} /> New test</button>}</div>
@@ -158,12 +161,13 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
         </aside>
       </div>
       {selectedRun && <section ref={resultRef} className="dw-result" aria-labelledby="dw-result-title">
-        <div className="dw-section-heading"><div><span className="dw-eyebrow">Selected run · revision {selectedRun.revision.revision}</span><h2 id="dw-result-title">{selectedRun.revision.name}</h2><p><Clock3 size={14} /> {dateLabel(selectedRun.createdAt)} · {stateLabel(selectedRun)}</p></div>{active(selectedRun) ? <button type="button" className="btn-secondary" disabled={busy} onClick={() => void stop(selectedRun)}><Square size={16} /> Stop run</button> : <button type="button" className="btn-secondary" disabled={busy || Boolean(activeRun)} onClick={() => void start(selectedRun.revision)}>Run this revision again</button>}</div>
+        <div className="dw-section-heading"><div><span className="dw-eyebrow">Selected run · revision {selectedRun.revision.revision}</span><h2 id="dw-result-title">{selectedRun.revision.name}</h2><p><Clock3 size={14} /> {dateLabel(selectedRun.createdAt)} · {stateLabel(selectedRun)}</p></div>{active(selectedRun) ? <button type="button" className="btn-secondary" disabled={busy} onClick={() => void stop(selectedRun)}><Square size={16} /> Stop run</button> : <button type="button" className="btn-secondary" disabled={busy || Boolean(activeRun)} onClick={() => void start(selectedRun.revision, selectedRun.environment?.id ?? environmentId)}>Run this revision again</button>}</div>
         <p className={`dw-result-verdict dw-${selectedRun.verdict}`}>{verdictLabel(selectedRun.verdict)}</p>
         {selectedRun.reason && <p className="dw-notice">{selectedRun.reason}</p>}
         {selectedRun.state === 'interrupted' && <p className="dw-muted">Execution was not resumed automatically. Check the test data before running again.</p>}
         {revisions.some(revision => revision.missionId === selectedRun.missionId && revision.id !== selectedRun.revision.id) && <p className="dw-notice">This result belongs to an earlier revision and does not validate the current test.</p>}
         {selectedRun.revision.context && <p className="dw-muted">Criteria source: example requirements (mock). Browser observations are recorded separately.</p>}
+        {selectedRun.environment && <details className="dw-advanced"><summary>Recorded environment · {selectedRun.environment.name} v{selectedRun.environment.version}</summary><p>{selectedRun.environment.targetUrl} · {selectedRun.environment.viewport.width}×{selectedRun.environment.viewport.height} · Target version: {selectedRun.environment.targetVersion || 'Not recorded'}</p><p>Required names: {selectedRun.environment.requiredVariables.join(', ') || 'None'}. Values remain local and are not part of this record.</p><ul>{selectedRun.environment.preflight.map(check=><li key={check.name}>{check.name}: {check.ready?'Ready':'Needs attention'} — {check.reason}</li>)}</ul></details>}
         <div className="dw-table-scroll"><table><caption>Independent check results</caption><thead><tr><th>Check</th><th>Result</th><th>Observation</th></tr></thead><tbody>{selectedRun.revision.checks.map(check => { const result = selectedRun.checks.find(item => item.checkId === check.id); return <tr key={check.id}><th scope="row">{check.description}</th><td><span className={`dw-verdict dw-${result?.verdict ?? 'not_tested'}`}>{verdictLabel(result?.verdict ?? 'not_tested')}</span></td><td>{result?.observed || result?.reason || 'No observation recorded.'}</td></tr>; })}</tbody></table></div>
         {selectedRun.evidence.length > 0 && <details className="dw-evidence"><summary>Screenshot evidence · local to the executing device</summary><RunScreenshot projectId={projectId} run={selectedRun} /></details>}
         <details className="dw-advanced"><summary>Run details</summary><dl><dt>Run ID</dt><dd>{selectedRun.id}</dd><dt>Started by</dt><dd>{selectedRun.createdBy}</dd><dt>Website</dt><dd>{selectedRun.revision.targetUrl}</dd><dt>Test goal</dt><dd>{selectedRun.revision.goal}</dd><dt>Last worker activity</dt><dd>{selectedRun.lease?.heartbeatAt ? dateLabel(selectedRun.lease.heartbeatAt) : 'Unavailable'}</dd></dl></details>

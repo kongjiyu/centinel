@@ -20,7 +20,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
   try {
     const current = await service.requireRun(run.projectId, run.id);
     if (current.state !== 'queued') return;
-    const session = await createDynamicSession(run.projectId, run.revision.targetUrl, run.revision.goal, 'user_journey', run.revision.maxSteps);
+    const session = await createDynamicSession(run.projectId, run.environment?.targetUrl ?? run.revision.targetUrl, run.revision.goal, 'user_journey', run.revision.maxSteps);
     legacySessionId = session.id;
     await service.claim(run.projectId, run.id, session.id);
     heartbeatTimer = setInterval(() => {
@@ -33,6 +33,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     heartbeatTimer.unref();
     await runDynamicSession(session, workspace, {
       ...providers,
+      viewport: run.environment?.viewport,
       verifyOutcome: async (page, signal) => {
         const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal);
         await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
