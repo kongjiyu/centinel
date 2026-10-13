@@ -4,9 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TokenUsage } from '../aiClient.js';
+import { localCodexTokenSource } from './localCodexAuth.js';
 import { ModelProviderError } from '../review/retry.js';
 
 type ObjectValue = Record<string, any>;
+export type ExternalChatgptTokens = { accessToken: string; chatgptAccountId: string; chatgptPlanType?: string | null };
 export type CodexStatus = { available: boolean; connected: boolean; accountLabel: string | null; message: string };
 export type CodexModel = { id: string; label: string; supportsImages: boolean; isDefault: boolean };
 export type CodexGeneration = { text: string; usage?: TokenUsage; model: string };
@@ -25,8 +27,8 @@ export const CODEX_ARGS = ['app-server', '--listen', 'stdio://', '--disable', 's
 const abortError = () => new DOMException('The operation was aborted', 'AbortError');
 const failure = (message: string, code = 'codex_unavailable') => new ModelProviderError(message, { code, retryable: false });
 
-/** One local Codex home per verified Centinel user. Never reads the desktop
- * assistant's ~/.codex credentials, config, tools, history, or API-key env. */
+/** One local Codex home per verified Centinel user. Desktop auth is read only
+ * when explicitly configured for that owner; config/tools/history are isolated. */
 export class CodexAppServer implements CodexBackend {
   private child: ChildProcessWithoutNullStreams | null = null;
   private starting: Promise<void> | null = null;
@@ -37,9 +39,10 @@ export class CodexAppServer implements CodexBackend {
   private queue: Promise<unknown> = Promise.resolve();
   private idleTimer?: ReturnType<typeof setTimeout>;
   private active = 0;
+  private desktopAuthDisabled = false;
   readonly workspace: string;
 
-  constructor(readonly home: string, private readonly launch: typeof spawn = spawn, private readonly timeoutMs = 120_000) {
+  constructor(readonly home: string, private readonly launch: typeof spawn = spawn, private readonly timeoutMs = 120_000, private readonly externalTokens?: () => ExternalChatgptTokens) {
     this.workspace = path.join(home, 'workspace');
   }
 
@@ -85,8 +88,12 @@ export class CodexAppServer implements CodexBackend {
     child.stdin.on('error', () => { if (this.child === child) this.close(); });
     child.on('error', () => { if (this.child === child) this.close(failure('Codex CLI could not start. Install Codex CLI or configure CENTINEL_CODEX_BIN.', 'codex_not_installed')); });
     child.on('exit', () => { if (this.child === child) this.close(); });
-    await this.rpc('initialize', { clientInfo: { name: 'centinel', title: 'Centinel', version: '0.1.0' } });
+    await this.rpc('initialize', { clientInfo: { name: 'centinel', title: 'Centinel', version: '0.1.0' }, ...(this.externalTokens ? { capabilities: { experimentalApi: true } } : {}) });
     this.send({ method: 'initialized', params: {} });
+    if (this.externalTokens && !this.desktopAuthDisabled) {
+      try { await this.rpc('account/login/start', { type: 'chatgptAuthTokens', ...this.externalTokens() }); }
+      catch { this.close(); throw failure('The configured desktop Codex login could not be used. Sign in to desktop Codex and retry.', 'codex_not_connected'); }
+    }
   }
 
   private send(message: ObjectValue) {
@@ -96,6 +103,11 @@ export class CodexAppServer implements CodexBackend {
 
   private receive(message: ObjectValue) {
     if (message.id !== undefined && message.method) {
+      if (message.method === 'account/chatgptAuthTokens/refresh' && this.externalTokens && !this.desktopAuthDisabled) {
+        try { this.send({ id: message.id, result: this.externalTokens() }); }
+        catch { this.send({ id: message.id, error: { code: -32000, message: 'Refresh the desktop Codex login and retry.' } }); }
+        return;
+      }
       // This adapter is an inference provider, not an execution/approval host.
       this.send({ id: message.id, error: { code: -32601, message: 'Centinel does not permit Codex to execute tools.' } });
     } else if (message.id !== undefined) {
@@ -141,7 +153,11 @@ export class CodexAppServer implements CodexBackend {
   }
 
   async cancelLogin(loginId: string) { await this.ready(); await this.rpc('account/login/cancel', { loginId }); }
-  async logout() { await this.ready(); await this.rpc('account/logout', {}); this.close(); }
+  async logout() {
+    this.desktopAuthDisabled = true;
+    if (this.externalTokens) { this.close(); return; }
+    await this.ready(); await this.rpc('account/logout', {}); this.close();
+  }
 
   async models(): Promise<CodexModel[]> {
     await this.ready();
@@ -261,7 +277,7 @@ export function getCodexBackend(ownerId: string): CodexBackend {
   if (!client) {
     if (clients.size >= 32) throw failure('Too many local Codex accounts are open. Restart Centinel.', 'codex_capacity');
     // Hashing prevents path traversal; authorization still comes from AuthGateway.
-    client = new CodexAppServer(path.join(root, createHash('sha256').update(ownerId).digest('hex')));
+    client = new CodexAppServer(path.join(root, createHash('sha256').update(ownerId).digest('hex')), spawn, 120_000, localCodexTokenSource(ownerId));
     clients.set(ownerId, client);
   }
   return client;

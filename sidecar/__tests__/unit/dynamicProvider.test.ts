@@ -61,6 +61,21 @@ describe('Dynamic shared provider and run basics', () => {
     expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id, 'blocked', expect.any(String), expect.any(String));
     expect(db.run).not.toHaveBeenCalled();
   });
+  it('does not let a model success bypass a failed independent check', async () => {
+    model.analyze.mockResolvedValue({ result: { action: 'finish_success', summary: 'Everything passed', reasoning: 'Proposal' } });
+    const verifyOutcome = vi.fn().mockResolvedValue('failed');
+    await runDynamicSession(session, workspace, { vision: setting, verifyOutcome });
+    expect(verifyOutcome).toHaveBeenCalledOnce();
+    expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id, 'failure', expect.any(String), 'Independent checks: failed');
+    // A verified observation is retained in the Run, without fabricated legacy risk/confidence.
+    expect(db.run).not.toHaveBeenCalled();
+  });
+  it('does not turn an inconclusive independent check into a pass or defect', async () => {
+    model.analyze.mockResolvedValue({ result: { action: 'finish_success', summary: 'Done', reasoning: 'Proposal' } });
+    await runDynamicSession(session, workspace, { vision: setting, verifyOutcome: vi.fn().mockResolvedValue('uncertain') });
+    expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id, 'blocked', expect.any(String), 'Independent checks: uncertain');
+    expect(db.run).not.toHaveBeenCalled();
+  });
   it('rejects unknown, incomplete, non-http and unbounded browser actions', () => {
     for (const value of [{ action: 'delete' }, { action: 'click', reasoning: '' }, { action: 'navigate', url: 'file:///private', reasoning: '' }, { action: 'wait', milliseconds: 1e9, reasoning: '' }, { action: 'type', targetDescription: 'field', selector: 'input', text: 1, reasoning: '' }]) expect(isValidAgentAction(value)).toBe(false);
     expect(isValidAgentAction({ action: 'assert_visible', text: 'Success', reasoning: 'Verify goal' })).toBe(true);

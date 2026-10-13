@@ -9,6 +9,7 @@ import { DashboardScreen } from './screens/DashboardScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
 import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
 import type { ProjectCreateSource } from './components/ProjectCreateModal';
+import { DynamicWorkspaceScreen } from './screens/DynamicWorkspaceScreen';
 import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
@@ -54,6 +55,7 @@ function App() {
   const [githubConnectionPromptOpen, setGithubConnectionPromptOpen] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
+  const navigate = (next: Screen) => setScreen(next.name === 'project-detail' && next.initialAction === 'dynamic' ? { name: 'dynamic-testing', projectId: next.projectId } : next);
   const [projects, setProjects] = useState<Project[]>([]);
   const [aiSettings, setAiSettings] = useState<AiProviderSetting[]>([]);
   const [sidecarOnline, setSidecarOnline] = useState(false);
@@ -283,7 +285,7 @@ function App() {
     <ActiveReviewProvider>
       <AppShell
         screen={screen}
-        onNavigate={setScreen}
+        onNavigate={navigate}
         projects={projects}
         accountEmail={accountEmail}
         githubLogin={githubLogin}
@@ -296,7 +298,7 @@ function App() {
           <DashboardScreen
             projects={projects}
             aiSettings={aiSettings}
-            onNavigate={setScreen}
+            onNavigate={navigate}
           />
         )}
         {screen.name === 'projects' && (
@@ -305,7 +307,7 @@ function App() {
             initialSearch={screen.search}
             initialStateFilter={screen.stateFilter}
             initialCreate={screen.initialCreate}
-            onNavigate={setScreen}
+            onNavigate={navigate}
             onCreate={async (name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source)}
             onDelete={handleDeleteProject}
           />
@@ -315,42 +317,43 @@ function App() {
             project={currentProject}
             initialAction={screen.initialAction}
             initialStaticSessionId={screen.initialStaticSessionId}
-            onNavigate={setScreen}
+            onNavigate={navigate}
             onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}
           />
         )}
+        {screen.name === 'dynamic-testing' && <DynamicWorkspaceScreen projects={projects} initialProjectId={screen.projectId} initialRunId={screen.runId} onNavigate={navigate} />}
         {screen.name === 'dynamic-session' && (
           <DynamicSessionScreen
             projectId={screen.projectId}
             sessionId={screen.sessionId}
-            onNavigate={setScreen}
+            onNavigate={navigate}
           />
         )}
         {screen.name === 'review-activity' && (
           <ReviewActivityScreen
             projectId={screen.projectId}
             sessionId={screen.sessionId}
-            onNavigate={setScreen}
+            onNavigate={navigate}
           />
         )}
         {screen.name === 'review-entry' && (
           <ReviewEntryScreen
             projects={projects}
             initialProjectId={screen.projectId}
-            onNavigate={setScreen}
+            onNavigate={navigate}
             onCreateProject={(name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source, false)}
           />
         )}
         {screen.name === 'evidence-browser' && (
           <EvidenceBrowser
             projectId={screen.projectId}
-            onNavigate={setScreen}
+            onNavigate={navigate}
           />
         )}
         {screen.name === 'requirements' && (
           <RequirementsScreen
             projectId={screen.projectId}
-            onNavigate={setScreen}
+            onNavigate={navigate}
           />
         )}
         {screen.name === 'settings' && (

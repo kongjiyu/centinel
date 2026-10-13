@@ -13,6 +13,7 @@ import {
   type DynamicSessionStatus,
 } from './dynamicSessions.js';
 import type { TokenUsage } from './aiClient.js';
+import type { CheckVerdict } from './dynamic/types.js';
 import { recordTokenUsage, type CallKind, type TokenUsageInput } from './tokenUsage.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -230,7 +231,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown> }
+  providers: { vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
 ): Promise<void> {
   const recordUsage = providers.recordUsage ?? recordTokenUsage;
   const sessionDir = path.join(projectWorkspacePath, 'sessions', session.id);
@@ -440,6 +441,19 @@ export async function runDynamicSession(
 
       try {
         // Handle terminal actions
+        // Mission runs require independent checks for either model terminal proposal.
+        if (providers.verifyOutcome && (action.action === 'finish_success' || action.action === 'finish_failure')) {
+          const verdict = await providers.verifyOutcome(page, signal);
+          status = verdict === 'passed' ? 'success' : verdict === 'failed' ? 'failure' : 'blocked';
+          terminalReason = `Independent checks: ${verdict}`;
+          trace.result = status === 'success' ? 'success' : status === 'failure' ? 'failure' : 'blocked';
+          trace.afterUrl = page.url();
+          actionTrace.push(trace);
+          saveActionTrace(logsDir, actionTrace);
+          await updateDynamicSessionStatus(session.id, status, terminalSummary(status, terminalReason, step, session.maxSteps), status === 'success' ? undefined : terminalReason);
+          break;
+        }
+
         if (action.action === 'finish_success') {
           trace.result = 'success';
           trace.afterUrl = page.url();
@@ -532,7 +546,7 @@ export async function runDynamicSession(
     if (status !== 'success' && status !== 'failure') {
       await updateDynamicSessionStatus(session.id, status, finalSummary, terminalReason);
     }
-    if (status === 'failure') {
+    if (status === 'failure' && !providers.verifyOutcome) {
       await createDynamicFinding(session.projectId, session.id, session.name, finalSummary, failureCategory);
     }
 

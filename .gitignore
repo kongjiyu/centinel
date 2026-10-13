@@ -49,3 +49,6 @@ output/playwright/
 
 # Test sources are part of the product contract. Generated fixture indexes are
 # already represented by tracked fixtures and must not hide newly added tests.
+
+# Supabase CLI local link/cache state
+supabase/.temp/

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { handleDynamicRoute } from './dynamic/routes.js';
+import { DynamicService } from './dynamic/service.js';
+import { DynamicContractError } from './dynamic/types.js';
+import { SupabaseDynamicRepository } from './dynamic/supabaseRepository.js';
+import { executeMissionRun } from './dynamic/runnerBridge.js';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -273,7 +278,7 @@ function matchRequirementMappings(url: string): { projectId: string; reqId: stri
   return m ? { projectId: m[1], reqId: m[2] } : null;
 }
 
-const PORT = 37701;
+const PORT = Number(process.env.CENTINEL_SIDECAR_PORT || 37701);
 const HOST = 'localhost';
 type CachedReviewRuntime = {
   authRuntime: RefreshableSupabaseRuntime;
@@ -393,6 +398,36 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     const accessToken = auth?.accessToken ?? null;
     const ownerId = auth?.userId ?? '';
     const applicationRepository = auth ? new CentinelApplicationRepository(auth.client, auth.userId) : null;
+
+    if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
+      const service = new DynamicService(new SupabaseDynamicRepository(auth.client));
+      const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, {
+        actorId: ownerId,
+        service,
+        requireProjectMember: projectId => authGateway.requireProjectMember(auth, projectId),
+        cancelExecution: run => { if (['cancelled', 'interrupted'].includes(run.state) && run.legacySessionId) cancelSession(run.legacySessionId); },
+        prepareExecution: async projectId => {
+          const sharedProject = await applicationRepository!.getProject(projectId);
+          if (!sharedProject) throw new AuthGatewayError('Project not found.', 404, 'not_found');
+          const modelRepository = new SupabaseModelConfigurationRepository(auth.client);
+          let vision;
+          try { vision = await resolveModelProviderChain(modelRepository, { ownerId, projectId, purpose: 'vision' }); }
+          catch { throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.'); }
+          const project = await ensureDynamicWorkspace(sharedProject);
+          return run => executeMissionRun(service, run, project.workspacePath, {
+            vision: vision.primary,
+            recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
+              ownerId, projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
+              provider: usage.provider, model: usage.model, outcome: 'success', inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens, cacheReadTokens: usage.cacheReadTokens ?? null,
+              cacheCreationTokens: usage.cacheCreationTokens ?? null, durationMs: null, errorCode: null, cost: null,
+              metadata: { callKind: 'dynamic', runId: run.id, scope: usage.scope, apiFormat: usage.apiFormat },
+            }),
+          });
+        },
+      });
+      if (response) return json(res, response.status, response.body);
+    }
 
     if (auth && isPhase2ReviewRoutePath(url)) {
       const phase2ReviewRoute = await handlePhase2ReviewRoute({

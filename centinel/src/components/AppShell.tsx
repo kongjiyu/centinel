@@ -157,7 +157,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
 
   const staticActive = screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-entry' ||
     (screen.name === 'project-detail' && screen.initialAction === 'static');
-  const dynamicActive = screen.name === 'dynamic-session' ||
+  const dynamicActive = screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' ||
     (screen.name === 'project-detail' && screen.initialAction === 'dynamic');
   const projectsActive = screen.name === 'projects' || screen.name === 'evidence-browser' ||
     (screen.name === 'project-detail' && !screen.initialAction);
