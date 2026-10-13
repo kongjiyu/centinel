@@ -1,10 +1,10 @@
-# Centinel Development Plan
+# Centinel Dynamic Development Plan
 
-**Planning baseline:** 7 October 2026
+**Planning baseline:** 7 October 2026; foundation progress updated 13 October 2026
 
 **Status:** proposed delivery plan; estimates and release defaults are recommendations, not confirmed deadlines
 
-**Scope:** full project coordination, with detailed execution planning for JY's Dynamic module
+**Scope:** JY's Dynamic module and the shared infrastructure it consumes. Static implementation and acceptance are outside this plan; incoming context is supplied by an explicit development stub.
 
 **Authority:** [DESIGN.md](../DESIGN.md) → [PRD](Centinel_PRD_Revised.md) → current feature specifications → technical contracts
 
@@ -13,9 +13,16 @@
 Finish and accept the shared Codex/provider foundation first. Then deliver one
 repeatable, evidence-verified browser mission through the same project identity
 and durable records used by Review. Expand that working path into environment
-profiles, Static context, exploratory/regression testing, usability, shared
+profiles, mocked incoming context, exploratory/regression testing, usability, shared
 reports and a separate unit-test runner. Evaluate continuously and finish with
-release acceptance against a frozen application/data baseline.
+Dynamic release acceptance against a frozen application/data baseline.
+
+The user narrowed this plan on 7 October 2026. The whole-product PRD remains
+unchanged: Static is still a separate product area, but its implementation,
+provider runs and release gates are not dependencies for this Dynamic workstream.
+Use [the incoming-context stub](DYNAMIC_CONTEXT_STUB.md) and
+[Cypress Real World App](DYNAMIC_TEST_TARGET.md) as the initial development inputs.
+A future real Static export adapter is a separate integration task, not a gate here.
 
 A functioning browser agent is the starting point. The next product milestone
 is a test whose inputs, checks, verdict, evidence and rerun history can be trusted.
@@ -38,12 +45,11 @@ complete. Future commits and outward-facing actions still require authorization.
 
 | Area | Current evidence | Remaining gate |
 | --- | --- | --- |
-| Codex provider | Settings connection/model selection, text/image transport, isolated local account credentials, cancellation and HTTP tests exist. Real CLI initialization/account-read succeeded. | Real ChatGPT login, text/image generation and complete Review/Dynamic executions. See [integration record](CODEX_PROVIDER.md). |
+| Codex provider | Settings connection/model selection, text/image transport, isolated local account credentials, cancellation and HTTP tests exist. Real CLI initialization/account-read succeeded. | Real ChatGPT login, text/image generation and complete Dynamic executions. See [integration record](CODEX_PROVIDER.md). |
 | Shared model foundation | Configured API/Codex adapters, authenticated settings and usage ledger wiring exist. | Live provider/account limits, unsuccessful/retried-call accounting, refreshed/expired bearer behavior and packaged launch acceptance. |
 | Dynamic prototype | URL/goal input, smoke/journey mode, Playwright loop, screenshots, traces, cancellation and local summaries exist. | Mission revisions, independent checks, policy enforcement, environment/data lifecycle and durable reconciliation. |
 | Honest failures | Provider/runtime errors become blocked; cancellation aborts active work; duplicate finding creation was removed. | `finish_success` still finalizes success in the runner; failed-goal findings still use fixed severity/confidence and lack independent verification. |
 | Persistence and access | Dynamic routes/files check shared membership; new shared projects can acquire an additive local workspace pointer. | Dynamic records/findings/evidence remain local. Membership checks do not establish cloud synchronization, RLS/Storage acceptance or restart recovery. Duplicate-start handling still needs an atomic contract. |
-| Review platform | Supabase repositories, sources, review decisions, traceability, risk/report services and acceptance documents exist. | Static owner must recheck current live acceptance; September audits are historical and must not be treated as current failures or current completion. |
 
 The preceding implementation reported 325 sidecar tests, 172 frontend tests,
 TypeScript/build checks and three viewport checks passing. Those are recorded
@@ -59,19 +65,19 @@ Do not mark a phase complete just because its code merged.
 
 | Phase | Deliverable | Lead and coordination | Dependencies | Rough effort |
 | --- | --- | --- | --- | --- |
-| P0 | Accept shared Codex/API foundation and freeze initial contracts | JY + Static owner | Current working changes | 1–2 days |
+| P0 | Accept shared Codex/API foundation and freeze initial contracts | JY | Merged foundation (`3fdb24b`) | 1–2 days |
 | P1 | Mission/Run records, shared persistence, safe lifecycle and first verified check | JY; shared schema review | P0 | 4–6 days |
 | P2 | Environment profiles, variables, preflight and test-data lifecycle | JY; shared credential boundary | P1 | 4–6 days |
-| P3 | Versioned Static-to-Dynamic context and criterion coverage | JY + Static owner | P1; Static export contract | 2–4 days |
+| P3 | Mock incoming context and criterion coverage | JY | P1; development stub | 2–4 days |
 | P4 | Reliable browser execution, exploration and regression | JY | P1–P2; P3 for linked requirement coverage | 5–8 days |
 | P5 | Usability, reviewable findings, shared evidence and reports | JY; shared findings/report review | P3–P4; P1 private storage | 5–8 days |
 | P6 | Existing unit-test framework adapter | JY | P1–P2; can overlap P3–P5 | 3–5 days |
-| P7 | Repeated evaluation, packaged acceptance and release evidence | Both | All required phases + Static track | 5–8 days |
+| P7 | Repeated evaluation, packaged acceptance and release evidence | JY | All required Dynamic phases | 5–8 days |
 | Extension | Native desktop test adapter | JY; separately scheduled | Core release accepted | Not estimated until OS/app chosen |
 
 Estimates are engineering days for the Dynamic/shared slices: **29–47 days**
 with one Dynamic developer, before unexpected platform repairs, external waiting
-and contingency. They exclude the Static owner's independent implementation.
+and contingency. They include mock-context consumption, not Static implementation or real export integration.
 Plan roughly **8–12 calendar weeks** if JY works close to full time and shared
 reviews/live services are available; part-time availability changes that range.
 No submission date or weekly capacity has been supplied, so this is sequencing
@@ -81,15 +87,13 @@ and sizing rather than a calendar commitment. Re-estimate after P0 and P1.
 flowchart LR
   P0["P0 Provider acceptance"] --> P1["P1 Mission and Run foundation"]
   P1 --> P2["P2 Environment and test data"]
-  P1 --> P3["P3 Static context"]
+  P1 --> P3["P3 Mock context and coverage"]
   P2 --> P4["P4 Verified browser testing"]
   P3 --> P4
   P4 --> P5["P5 Usability and shared reports"]
   P2 --> P6["P6 Unit-test adapter"]
   P5 --> P7["P7 Evaluation and release"]
   P6 --> P7
-  S["Static owner's acceptance track"] --> P3
-  S --> P7
 ```
 
 Define the evaluation application, seed defects and basic scenarios in P0.
@@ -103,17 +107,17 @@ the complete report workflow lands in P5.
 
 **Tasks**
 
-- P0.1 Review and integrate the provider/shared-runtime foundation under the
-  authorized change. Record the integration revision and retained validation
-  evidence; do not discard existing local data.
+- P0.1 Foundation integrated: PR #2 merged as `3fdb24b`. Retain its validation
+  evidence and preserve existing local data; live provider acceptance remains pending.
 - P0.2 Run real Codex browser sign-in, model catalog, text and screenshot tests.
-  Run one real Review and one safe Dynamic journey; also exercise API mode.
+  Run one safe Dynamic journey; also exercise API mode.
 - P0.3 Exercise disconnected/expired auth, unavailable model/CLI, provider limits,
   cancellation while active/queued and restart/reconnect. Check both Centinel
   bearer identity and the separate local Codex connection.
 - P0.4 Agree versioned Mission/Run/check/finding/evidence/report contracts and
-  role permissions with the Static owner. Select a small authorized evaluation
-  app, record its version and create normal, seeded-defect and blocked cases.
+  role permissions for Dynamic. Use the pinned Cypress Real World App baseline
+  from [the target record](DYNAMIC_TEST_TARGET.md), and create normal,
+  seeded-defect and blocked cases. Build consumer fixtures without waiting for Static.
 - P0.5 Record packaged-launch CLI discovery requirements; a CLI launched from a
   developer terminal does not establish Tauri installation readiness.
 
@@ -189,30 +193,35 @@ unreachable target, cleanup failure and concurrent data reuse. Secrets do not
 appear in retained or provider-bound observations. Cleanup failure does not
 rewrite the functional check result, but blocks unsafe reuse until resolved.
 
-### P3 — Static context and coverage
+### P3 — Mock incoming context and coverage
 
 **Tasks**
 
-- P3.1 Agree the export contract with the Static owner: project, Review/snapshot,
-  approval state, source versions/hashes, requirements, acceptance criteria,
-  prioritized risks, contradictions and extraction limitations.
-- P3.2 Let users select criteria and edit a generated mission before execution.
-  Preserve source references and the context snapshot in each mission revision
-  and Run; reject cross-project or dangling references.
-- P3.3 Show stale, conflicting, incomplete and unapproved context explicitly.
-  Permit an explicit, attributable choice to use identified unapproved context
-  without presenting it as approved. Later source updates do not rewrite history.
-- P3.4 Add criterion-to-check mappings and a coverage denominator. Show passed,
-  failed, blocked, uncertain, not-tested and excluded criteria with reasons;
-  keep this distinct from Static implementation-completeness mappings.
-- P3.5 Keep manual mission creation available when no usable Static snapshot is
-  present. Test the consumer against a contract fixture while Static export is
-  pending, and mark real cross-module acceptance pending until it is exercised.
+- P3.1 Consume the proposed versioned `IncomingContextSource` boundary through
+  `createStaticContextStub`. It supplies project, synthetic Review/snapshot IDs,
+  approval/currency state, source versions, requirements, criteria and risk hints.
+  See [stub contract and usage](DYNAMIC_CONTEXT_STUB.md). No Static scan or export
+  implementation is part of this phase.
+- P3.2 Select criteria and edit a generated mission before execution. Preserve
+  the exact input snapshot and its `mock-static` provenance in mission revisions,
+  Runs and reports. Keep criteria IDs separate from browser check implementations.
+- P3.3 Handle normal, stale, conflicting, unapproved, incomplete and absent inputs.
+  Test cross-project and dangling-reference rejection at the future consumer
+  boundary; caller-supplied project IDs in a stub are not authorization.
+  Permit attributable use of pending context without calling it real approval.
+- P3.4 Map criteria to independently verified checks and a declared denominator.
+  Show passed, failed, blocked, uncertain, not-tested and excluded states with
+  reasons. Later source/revision changes cannot rewrite earlier coverage.
+- P3.5 Keep manual missions working with no context. The stub must be explicitly
+  injected in development/tests, never a fallback for a failed live service.
+  A future real adapter can implement the same consumer boundary after a
+  separately scheduled schema agreement and integration acceptance.
 
-**Exit gate:** select a real Review requirement, create a mission, execute it and
-trace its check/evidence back to the exact source snapshot. Updating the source
-flags stale context while retaining the earlier result; an old pass is not
-counted as validation of the changed criterion.
+**Exit gate:** load the normal mock snapshot, select a criterion, create a mission,
+execute it on the real local target and link actual browser evidence to the exact
+mock criterion. Exercise all exceptional fixtures and changed revisions; retain
+old results. Reports label synthetic source context while browser outcomes are
+real. No Static service or live Review is required for this gate.
 
 ### P4 — Browser execution, exploration and regression
 
@@ -252,7 +261,7 @@ regression after a seeded fix preserves both runs and finding lineage.
   reachability, focus/feedback and error recovery for chosen journeys. Separate
   deterministic checks from subjective suggestions; persona simulation is not a
   real-user study or a claim of complete accessibility conformance.
-- P5.2 Unify Review/Dynamic finding presentation and record expected/actual result,
+- P5.2 Reuse the existing shared findings vocabulary for Dynamic and record expected/actual result,
   reproduction steps, evidence, category, severity, priority, confidence basis,
   verification decisions and remediation history. Correlate repeated observations.
 - P5.3 Add attributable confirm/reject/needs-investigation review. Reuse shared
@@ -282,8 +291,9 @@ snapshot history instead of silently changing after later runs.
 
 **Tasks**
 
-- P6.1 Propose **Vitest** as the first supported target-project framework because
-  the team already uses it; confirm this against the evaluation app in P0.
+- P6.1 Use **Vitest** as the first supported target-project framework. The pinned
+  Cypress Real World App uses it in `test:unit:ci`; verify machine-readable
+  output against the installed target version in P0.
   This does not promise Jest, pytest or other framework support.
 - P6.2 Implement a separate runner interface with authorized workspace, explicit
   executable/arguments, timeout, cancellation, bounded/redacted output and a
@@ -309,9 +319,13 @@ denied. All outcomes appear correctly in history and reports.
 - P7.1 Freeze the authorized app commit/deployment, requirements, seeded data,
   accounts, known in-scope defects, manual/scripted baseline, model/backend and
   evaluation protocol. Choose repeat counts and metric thresholds before scoring.
-- P7.2 Run the PRD's 14 mandatory acceptance scenarios. Track implementation,
-  local verification and live acceptance independently; retain exact versions,
-  evidence and blockers for every scenario.
+- P7.2 Run the Dynamic and shared-runtime parts of the PRD acceptance scenarios.
+  Replace any Static ingestion/Review preparation with an explicitly synthetic
+  incoming snapshot. PRD scenarios 1–2 (Static Review/source updates) are outside
+  this workstream; scenario 4 uses mock context. Scenarios 3 and 5–14 remain
+  Dynamic/shared acceptance gates. Do not claim whole-product or real Static integration
+  acceptance. Track local verification and live Dynamic acceptance separately;
+  retain exact versions, evidence and blockers for every applicable scenario.
 - P7.3 Measure task completion, criterion coverage, finding precision/recall where
   ground truth permits, evidence completeness, repeatability, recovery, elapsed
   time, interventions and available usage. Report blocked/cancelled runs and
@@ -324,35 +338,36 @@ denied. All outcomes appear correctly in history and reports.
   and known limitations. Gate release on required scenarios or explicitly agree
   a scoped release with visible blockers; never report blocked work as complete.
 
-**Exit gate:** the team can repeat the full import → Review → mission → browser
-checks → human finding review → report flow on the fixed baseline, demonstrate
+**Exit gate:** repeat mock context → mission → real browser checks → human
+finding review → Dynamic report on the fixed baseline, demonstrate
 unit results and both model backends, and produce reproducible evaluation
 records. Native desktop work begins only after this gate and an explicit scope
 choice for OS, target applications, permissions and time budget.
 
-## 5. Static owner's parallel track
+## 5. Incoming-context boundary and selected test target
 
-Existing Static work is not reassigned to JY. Align it with current feature specs
-and the latest code, then coordinate these handoffs:
+Static analysis, document ingestion, source-code review, requirement extraction,
+Static reports and Static release acceptance have no tasks in this plan.
+Dynamic uses the [development stub](DYNAMIC_CONTEXT_STUB.md) to simulate received
+requirements/criteria/risk hints. Shared auth, membership, provider, findings
+vocabulary and storage remain necessary Dynamic dependencies.
 
-| Track | Static owner delivers | JY/shared handoff |
-| --- | --- | --- |
-| S1 — Source and analysis acceptance | Supported document/code ingestion, source/version currency, consistency/security analysis with evidence and limitations; real provider/source verification | Stable project/artifact/version IDs; testable requirements and evidence references |
-| S2 — Requirement and Review governance | Requirement completeness/traceability, immutable Review snapshots, attributable approval/iterations and uncertain context | P3 snapshot export and version/approval status; sample normal/stale/conflicting inputs |
-| S3 — Findings, reports and platform acceptance | Structured risk inputs/fixes, shared findings contract, reproducible Review report, current live RLS/Storage/provider acceptance | P1/P5 repository, evidence and report schema review; explicit policy before Dynamic contributes to Assessment |
-
-Agree interfaces with fixtures early so JY can build the consumer independently.
-Still require a real integration run before calling the handoff accepted.
+The selected external application is [Cypress Real World App](DYNAMIC_TEST_TARGET.md).
+Its source commit, local prerequisites, data reset constraints, scenario matrix
+and unit-test entrypoint are recorded separately. Pin the baseline before
+measurement; retain defect patches and ground truth independently of model input.
+Local target setup, inspected login/payment/logout workflows and upstream unit
+baseline passed on 13 October. Autonomous provider acceptance remains pending.
 
 ## 6. Suggested release defaults to confirm in P0/P1
 
 | Decision | Proposed default | Change when |
 | --- | --- | --- |
-| First target | Authorized local/staging web app with repeatable login, form and CRUD journeys | Evaluation app/domain requires another representative workflow |
+| First target | Local Cypress Real World App at the pinned commit; seeded login and payment workflows | Baseline setup proves unsuitable or more representative coverage is required |
 | Concurrency | One active Run per project; parallel projects only with separate data/profile resources | Locking and evaluation show safe independent execution |
 | Initial browser budget | Preserve existing 15-step default, 25-step cap and five-minute runtime initially | Fixed-case evaluation justifies a different recorded budget |
 | Test-data setup | Manual first; optional explicitly configured hooks next | A fixture/seed API enables repeatable authorized automation |
-| Unit framework | Vitest, one supported machine-readable result format | Selected evaluation project uses a different framework |
+| Unit framework | Vitest (`test:unit:ci` in the pinned target), one machine-readable format | Explicitly expand beyond the initial adapter |
 | Secrets | Local protected references; sanitized shared snapshots; no credential roaming by default | A separately specified secure sharing mechanism is required |
 | Reports | JSON plus human-readable Markdown/PDF; reuse compatible existing services | Detailed report spec documents another supported export |
 | Finding risk | Reuse existing explicit vocabulary/policy; do not invent missing historical values | A reviewed policy change has evidence and migration coverage |
@@ -360,20 +375,20 @@ Still require a real integration run before calling the handoff accepted.
 
 ## 7. Immediate backlog: next development slice
 
-The next slice is **P0 acceptance → P1 contracts → one verified rerunnable mission**.
+The next slice is **mock context + target preparation → P0 acceptance → P1 contracts → one verified rerunnable mission**.
 Do not start a broad Dynamic UI redesign before those contracts are stable.
 
 | Order | Task | Concrete result |
 | --- | --- | --- |
-| 1 | Integrate the current shared foundation | Authorized commit/push/merge, recorded revision and local validation evidence; preserve local data |
+| 1 | Record merged foundation; prepare mock input and target | Foundation merged as `3fdb24b`; stub exists; install and verify the pinned external target in a separate workspace |
 | 2 | Complete real Codex/API acceptance | Text + screenshot + one journey per backend; record live blockers separately |
-| 3 | Write Dynamic runtime/data specification | Versioned DTOs, state transitions, idempotency/locks, auth/storage and legacy-data compatibility |
+| 3 | Write Dynamic runtime/data specification | Versioned DTOs, mock-context injection, state transitions, idempotency/locks, auth/storage and legacy-data compatibility |
 | 4 | Add MissionRevision/Run/check repositories | Additive schema plus compatibility adapter for existing sessions; preserve old data |
 | 5 | Guard duplicate starts and reconcile restarts | Atomic single-start behavior, actor/lease records, durable stopped/interrupted outcomes |
 | 6 | Implement visible-text/URL criterion verification | Known pass, seeded failed check, misleading model terminal proposal and provider-blocked cases |
 | 7 | Wire the smallest mission/history/evidence UI | Create mission, run twice, inspect independent results and authorized synced evidence |
 
-Definition of the first demo: one shared project, one reusable mission, two runs,
+Definition of the first demo: one shared project, explicit mock input, one reusable mission, two runs,
 one criterion-backed pass, one seeded failure, accessible evidence and a cancelled
 or provider-blocked example. Reports can initially expose the agreed structured
 snapshot; complete presentation/export remains P5.
@@ -382,12 +397,8 @@ snapshot; complete presentation/export remains P5.
 
 | Requirement group | Primary phase/track | Acceptance emphasis |
 | --- | --- | --- |
-| STA-01, STA-02, STA-03, STA-06 | S1 | Source/version provenance, consistency/security evidence and honest currency |
-| STA-04, STA-07 | S2 | Requirement mappings, frozen context and attributable decisions |
-| STA-05 | S3 + P5 | Risk inputs/fixes, shared finding schema and verification boundaries |
-| STA-08 | S3 + P3/P5 | Reproducible Review report and exact Dynamic context export |
 | DYN-01, DYN-02, DYN-03, DYN-04 | P2; provider readiness P0 | Profiles, configuration, preflight and setup/cleanup |
-| DYN-05, DYN-13 | P3; integration P4 | Pinned Static context and criterion coverage |
+| DYN-05, DYN-13 | P3; consumer checks P4 | Pinned mock context and criterion coverage; real Static adapter acceptance deferred |
 | DYN-06 | P1 | Mission revisions and independent immutable runs |
 | DYN-07, DYN-08, DYN-09, DYN-10 | P1 + P4; recovery P7 | Controlled execution, verified outcomes, modes and restart/cancel behavior |
 | DYN-11, DYN-12, DYN-14, DYN-15 | P5; persistence/access P1 | Usability, reviewable findings, reports and collaboration |
@@ -398,7 +409,7 @@ snapshot; complete presentation/export remains P5.
 | SHR-04 | P1/P2; adversarial checks P7 | Protected secrets and redacted observations |
 | SHR-05 | P1/P4/P5 | Audit, idempotency, reruns and finding correlation |
 | SHR-06 | P0/P4; evaluation P7 | Actual usage, retry/failure accounting and enforceable budgets |
-| SHR-07, SHR-08 | S3 + P1/P5 | Explicit risk semantics and versioned portable reports/evidence |
+| SHR-07, SHR-08 | P1/P5 | Explicit risk semantics and versioned portable reports/evidence |
 | NFR-01, NFR-02, NFR-05, NFR-06, NFR-07 | P1–P7 | Bounded, reproducible, maintainable and compatible execution |
 | NFR-03, NFR-04 | P1/P2/P5/P7 | Access/privacy and DESIGN.md accessibility/layout checks |
 
@@ -411,8 +422,8 @@ mock-based or local unit tests.
 
 ## 9. Scope control and outstanding inputs
 
-Required release scope remains Web journeys/smoke/exploration/regression,
-usability, environments/test-data lifecycle, Static context, collaboration,
+Required Dynamic release scope remains Web journeys/smoke/exploration/regression,
+usability, environments/test-data lifecycle, mocked incoming context, collaboration,
 reports, existing unit tests and selectable Codex/API modes. Codex is optional
 for an individual run but supporting the mode remains a required deliverable.
 
@@ -423,7 +434,65 @@ explicitly; do not silently remove a PRD requirement or call an unverified
 prototype a complete release.
 
 Before assigning calendar dates, obtain the final demo/submission deadline,
-actual weekly availability of both members, current Static acceptance blockers,
-authorized evaluation app/data, live Supabase/provider access and the first
-unit framework. These inputs refine estimates; they do not block starting
+JY's actual weekly availability, local target setup results and live
+Supabase/provider access. The initial app and unit framework are selected above. These inputs refine estimates; they do not block starting
 contract design, fixture preparation and the reviewable next slice above.
+
+## 10. Foundation progress — 13 October 2026
+
+[Local target baseline](DYNAMIC_TEST_TARGET.md) is verified: fixed checkout,
+Node 22.20.0, running frontend/backend, 44 passing upstream unit tests and 10
+skipped tests, inspected login/payment/logout paths and retained evidence.
+
+[Mission/Run/Checker foundation](DYNAMIC_MISSION_RUN_FOUNDATION.md) is implemented:
+immutable revision snapshots, explicit mock-context authoring, separate Run state
+and verdict, atomic idempotency/active-run SQL, cancellation-safe transitions,
+three independent check kinds, local hashed evidence, authenticated backend
+routes and a bridge to the existing browser runner. A scripted real-browser demo
+produced separate passing/failing Runs; the controlled failure is not an upstream
+defect. Blocked/cancelled demo cases are synthetic. It uses an explicit test
+repository and does not establish provider or cloud acceptance.
+
+Local verification: 355 sidecar tests and TypeScript passed; additive migration
+applied twice successfully in isolated PostgreSQL; SQL lifecycle/RLS/actor checks
+and two-connection concurrent-start acceptance passed. No frontend UI changed.
+
+Later on 13 October, [local runtime setup](LOCAL_RUNTIME_SETUP.md) connected the
+existing Centinel Supabase project and, with explicit approval, applied this one
+migration. An expressly authorized QA identity passed real Codex text/image
+checks and one authenticated Web smoke Mission with durable passed results and
+readable local evidence. Duplicate request replay and basic access denial also
+passed. This accepts the bounded Codex path, not all P0/P1 gates.
+
+The next slice is now locally implemented: a saved-test/revision/history UI,
+independent result/evidence display, worker leases, heartbeat and expired-worker
+reconciliation. The recovery migration `202610130002` passed isolated PostgreSQL
+checks and repeat application, then was applied to Centinel Supabase with explicit
+user approval. Migration history/RLS/RPCs were verified and the local worker
+was restarted.
+Recovery is project-scoped on first authenticated access, records interruption
+without automatically replaying actions, and fences late worker completion.
+
+Current verification: 363 sidecar tests, 179 frontend tests, sidecar TypeScript,
+frontend production build and `git diff --check` passed. The build retains the
+existing large-chunk warning. The
+frontend's first all-suite run under simultaneous sidecar load had two Review
+loading failures; both isolated tests and the subsequent complete frontend run
+passed. Real QA-bearer history/local screenshot display and 1440×900, 1200×900,
+390×844 layout checks passed against the existing live foundation backend. A new test
+was also saved and started through the UI; configured Codex execution completed
+with an independently checked passed verdict persisted to Supabase.
+
+Live QA-bearer lease acceptance passed after deployment: claim/renewal, healthy
+worker preservation across an actual sidecar restart, natural expiry recovery,
+old completion rejection, immutable recovery and idempotent replay without
+execution. A subsequent real Codex browser smoke completed with a recorded
+lease, two independent passed checks and two evidence entries. This
+infrastructure fault-injection Run submitted no browser actions;
+active browser crashes remain a broader gate. See [runtime setup](LOCAL_RUNTIME_SETUP.md).
+
+Next: begin P2
+with reusable environment profiles and read-only preflight, followed by manual
+test-data preparation/cleanup records. API-mode journeys, private evidence
+synchronization, richer checks, credential references and complete action/origin
+policy remain separate gates. This does not mark P1 complete.

@@ -5,12 +5,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { spawn } from 'node:child_process';
-import { CodexAppServer } from '../../src/model/codex.js';
+import { CodexAppServer, type ExternalChatgptTokens } from '../../src/model/codex.js';
+import { localCodexTokenSource } from '../../src/model/localCodexAuth.js';
 import { testCodexProvider } from '../../src/model/codexTest.js';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanup.splice(0)) fn(); vi.unstubAllEnvs(); });
-function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; account?: string; hang?: boolean } = {}) {
+function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; account?: string; hang?: boolean; external?: () => ExternalChatgptTokens } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-codex-unit-'));
   const calls: any[] = [];
   const children: any[] = [];
@@ -37,7 +38,7 @@ function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; a
     });
     return child;
   });
-  const client = new CodexAppServer(home, launch as unknown as typeof spawn, options.hang ? 20 : 2000);
+  const client = new CodexAppServer(home, launch as unknown as typeof spawn, options.hang ? 20 : 2000, options.external);
   cleanup.push(() => { client.close(); fs.rmSync(home, { recursive: true, force: true }); });
   return { client, launch, calls, children, home };
 }
@@ -54,6 +55,29 @@ describe('isolated Codex app-server transport', () => {
     expect(env.CODEX_HOME).toBe(home); expect(env.OPENAI_API_KEY).toBeUndefined(); expect(env.GEMINI_API_KEY).toBeUndefined();
     expect(calls.filter(call => call.method === 'initialize')).toHaveLength(1);
     expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+  });
+  it('accepts explicitly supplied external OAuth without inheriting desktop config', async () => {
+    const external = vi.fn().mockReturnValue({ accessToken: 'fixture-access', chatgptAccountId: 'fixture-account' });
+    const { client, calls, launch, home } = fixture({ external });
+    expect(await client.status()).toMatchObject({ connected: true });
+    expect(calls.find(call => call.method === 'initialize').params.capabilities.experimentalApi).toBe(true);
+    expect(calls.find(call => call.method === 'account/login/start').params).toEqual({ type: 'chatgptAuthTokens', accessToken: 'fixture-access', chatgptAccountId: 'fixture-account' });
+    expect(launch.mock.calls[0][2].env.CODEX_HOME).toBe(home);
+    await client.logout();
+    expect(calls.some(call => call.method === 'account/logout')).toBe(false);
+  });
+  it('binds desktop access-token reads to one explicit verified owner and rejects account swaps', () => {
+    const { home } = fixture();
+    const file = path.join(home, 'desktop-auth.json');
+    fs.writeFileSync(file, JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 'fixture-access', refresh_token: 'never-copy', account_id: 'account-one' } }));
+    vi.stubEnv('CENTINEL_CODEX_LOCAL_AUTH_FILE', file);
+    expect(localCodexTokenSource('owner')).toBeUndefined();
+    vi.stubEnv('CENTINEL_CODEX_LOCAL_AUTH_OWNER_ID', 'owner');
+    expect(localCodexTokenSource('other')).toBeUndefined();
+    const source = localCodexTokenSource('owner')!;
+    expect(source()).toEqual({ accessToken: 'fixture-access', chatgptAccountId: 'account-one' });
+    fs.writeFileSync(file, JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 'changed', account_id: 'account-two' } }));
+    expect(() => source()).toThrow('account changed');
   });
   it('does not mistake API authentication for ChatGPT sign-in', async () => {
     expect(await fixture({ account: 'apiKey' }).client.status()).toMatchObject({ connected: false, accountLabel: null });

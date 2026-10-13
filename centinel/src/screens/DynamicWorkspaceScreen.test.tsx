@@ -1,0 +1,83 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { DynamicWorkspaceScreen } from './DynamicWorkspaceScreen';
+import { api } from '../api/client';
+import type { MissionRevision, DynamicRun } from '../dynamic/types';
+
+vi.mock('../api/client', () => ({ api: { dynamicMissions: vi.fn(), dynamicRevision: vi.fn(), dynamicRuns: vi.fn(), saveDynamicMission: vi.fn(), startDynamicRun: vi.fn(), stopDynamicRun: vi.fn(), listDynamicEvidence: vi.fn(), dynamicEvidenceBlob: vi.fn() } }));
+const project = { id: 'project-a', name: 'Demo web app', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
+const revision: MissionRevision = { id: 'revision-one', missionId: 'mission-one', projectId: 'project-a', revision: 1, createdBy: 'actor', createdAt: '2026-10-13T00:00:00Z', name: 'Sign-in smoke', goal: 'Inspect sign-in form', targetUrl: 'http://localhost:3000', maxSteps: 3, context: null, contextAcknowledged: false, checks: [{ id: 'heading', criterionId: 'manual-heading', description: 'Visible sign-in heading', kind: 'visible_text', expected: 'Sign in', required: true }] };
+const makeRun = (state: DynamicRun['state'] = 'completed'): DynamicRun => ({ id: 'run-one', projectId: 'project-a', missionId: 'mission-one', revision, idempotencyKey: 'one', createdBy: 'actor', createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z', state, verdict: state === 'completed' ? 'passed' : 'not_tested', checks: [], evidence: [], reason: state === 'interrupted' ? 'Execution stopped responding.' : null, legacySessionId: null });
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(api.dynamicMissions).mockResolvedValue([]); vi.mocked(api.dynamicRuns).mockResolvedValue([]);
+  vi.mocked(api.dynamicRevision).mockResolvedValue(revision);
+  vi.mocked(api.saveDynamicMission).mockResolvedValue(revision);
+});
+const renderScreen = (runId?: string) => render(<DynamicWorkspaceScreen projects={[project]} initialProjectId={project.id} initialRunId={runId} onNavigate={vi.fn()} />);
+
+async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save test' })).toBeEnabled());
+  await user.type(screen.getByLabelText('Test name'), 'Sign-in smoke');
+  await user.type(screen.getByLabelText('Website address'), 'http://localhost:3000');
+  await user.type(screen.getByLabelText('Test goal'), 'Inspect sign-in form');
+  await user.type(screen.getByLabelText('Expected visible text'), 'Sign in');
+}
+
+describe('Dynamic saved tests and run history', () => {
+  it('saves configured checks without executing a model until Run is selected', async () => {
+    const user = userEvent.setup(); renderScreen(); await fillDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Save test' }));
+    await screen.findByText('Saved revision 1. Ready to run.');
+    expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a', expect.objectContaining({ name: 'Sign-in smoke', context: null, checks: [expect.objectContaining({ kind: 'visible_text', expected: 'Sign in', required: true })] }), undefined);
+    expect(api.startDynamicRun).not.toHaveBeenCalled();
+  });
+  it('preserves form input and announces save errors', async () => {
+    vi.mocked(api.saveDynamicMission).mockRejectedValue(new Error('The test could not be saved.'));
+    const user = userEvent.setup(); renderScreen(); await fillDraft(user);
+    await user.click(screen.getByRole('button', { name: 'Save test' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be saved');
+    expect(screen.getByLabelText('Test name')).toHaveValue('Sign-in smoke');
+  });
+  it('shows interrupted state without a passing verdict and reruns the pinned revision', async () => {
+    vi.mocked(api.dynamicRuns).mockResolvedValue([makeRun('interrupted')]);
+    vi.mocked(api.startDynamicRun).mockResolvedValue({ ...makeRun('queued'), id: 'run-two' });
+    const user = userEvent.setup(); renderScreen('run-one');
+    expect(await screen.findByText('Execution stopped responding.')).toBeInTheDocument();
+    expect(screen.getByText(/not resumed automatically/)).toBeInTheDocument();
+    expect(screen.queryByText('Passed')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Run this revision again' }));
+    expect(api.startDynamicRun).toHaveBeenCalledWith('project-a', 'revision-one', expect.any(String));
+  });
+  it('reuses the request key when a start response is lost', async () => {
+    vi.mocked(api.dynamicRuns).mockResolvedValue([makeRun('interrupted')]);
+    vi.mocked(api.startDynamicRun).mockRejectedValueOnce(new Error('Temporary transport failure')).mockResolvedValueOnce({ ...makeRun('queued'), id: 'run-two' });
+    const user = userEvent.setup(); renderScreen('run-one'); await screen.findByText('Execution stopped responding.');
+    await user.click(screen.getByRole('button', { name: 'Run this revision again' }));
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'Run this revision again' }));
+    expect(vi.mocked(api.startDynamicRun).mock.calls[0][2]).toBe(vi.mocked(api.startDynamicRun).mock.calls[1][2]);
+  });
+  it('stops active work and does not show a rerun action for that run', async () => {
+    vi.mocked(api.dynamicRuns).mockResolvedValue([makeRun('running')]);
+    vi.mocked(api.stopDynamicRun).mockResolvedValue(makeRun('cancelled'));
+    const user = userEvent.setup(); renderScreen('run-one');
+    await user.click(await screen.findByRole('button', { name: 'Stop run' }));
+    expect(api.stopDynamicRun).toHaveBeenCalledWith('project-a', 'run-one');
+    expect(screen.queryByRole('button', { name: 'Run this revision again' })).not.toBeInTheDocument();
+  });
+  it('does not present an old pass as verification of the edited revision', async () => {
+    vi.mocked(api.dynamicMissions).mockResolvedValue([{ id: 'mission-one', projectId: 'project-a', currentRevisionId: 'revision-two', createdBy: 'actor', createdAt: '' }]);
+    vi.mocked(api.dynamicRevision).mockResolvedValue({ ...revision, id: 'revision-two', revision: 2 });
+    vi.mocked(api.dynamicRuns).mockResolvedValue([makeRun()]); renderScreen('run-one');
+    expect(await screen.findByText(/does not validate the current test/)).toBeInTheDocument();
+  });
+  it('labels mock input explicitly and exposes criterion selection', async () => {
+    const user = userEvent.setup(); renderScreen(); await fillDraft(user);
+    await user.click(screen.getByRole('combobox', { name: 'Criteria source' }));
+    await user.click(screen.getByRole('option', { name: 'Example requirements (mock)' }));
+    expect(screen.getByText(/No real Review or approval/)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Requirement criterion' })).toBeInTheDocument();
+  });
+});

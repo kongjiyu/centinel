@@ -202,10 +202,11 @@ export async function addEvidence(
   sessionId: string,
   type: DynamicEvidence['type'],
   filePath: string,
-  summary: string
+  summary: string,
+  evidenceId?: string
 ): Promise<void> {
   const db = await getDb();
-  const id = crypto.randomUUID();
+  const id = evidenceId ?? crypto.randomUUID();
   const now = new Date().toISOString();
   db.run(
     'INSERT INTO evidence (id, project_id, session_id, type, file_path, summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',

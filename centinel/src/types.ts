@@ -553,6 +553,7 @@ export type Screen =
     }
   | { name: 'review-entry'; projectId?: string }
   | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
+  | { name: 'dynamic-testing'; projectId?: string; runId?: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }

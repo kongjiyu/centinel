@@ -1,6 +1,8 @@
+import type { DynamicRun, Mission, MissionInput, MissionRevision } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
-const BASE = 'http://localhost:37701';
+import { SIDECAR_BASE_URL } from './transport';
+const BASE = SIDECAR_BASE_URL;
 
 /** A transport error that retains status/code without exposing response data. */
 export class ApiError extends Error {
@@ -289,6 +291,20 @@ export const api = {
   getReviewModelUsage: (projectId: string, sessionId: string) => {
     const params = new URLSearchParams({ scope: 'text', callKind: 'review', projectId, sessionId });
     return request<ReviewModelUsage>(`/settings/ai/usage?${params.toString()}`);
+  },
+
+  // Versioned Dynamic missions and independently checked runs.
+  dynamicMissions: (projectId: string) => request<Mission[]>(`/projects/${projectId}/dynamic/missions`),
+  dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
+  saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
+  dynamicRuns: (projectId: string) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`),
+  startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey }) }),
+  stopDynamicRun: (projectId: string, runId: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs/${runId}/cancel`, { method: 'POST', body: '{}' }),
+  dynamicEvidenceBlob: async (filePath: string): Promise<Blob> => {
+    const token = sessionStorage.getItem('centinel:supabase-access-token');
+    const response = await fetch(`${BASE}/evidence-file?path=${encodeURIComponent(filePath)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!response.ok) throw new ApiError('This screenshot is unavailable on this device.', response.status);
+    return response.blob();
   },
 
   // Dynamic Sessions

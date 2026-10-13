@@ -1,6 +1,6 @@
 # Codex Model Provider and Shared Runtime Foundation
 
-Status: initial implementation; authenticated inference acceptance remains pending.
+Status: authenticated text/image inference and one live Web smoke Mission accepted on 13 October 2026. Wider journeys, API mode and release gates remain pending.
 
 Centinel can use a locally installed Codex app-server as an alternative to an
 API-key text/image provider. Review and Dynamic Testing share the same model
@@ -27,10 +27,10 @@ configuration. Existing API providers remain supported.
 7. Run a small Review and a non-destructive Dynamic journey against a test app.
    Confirm structured output, screenshots, cancellation and usage reporting.
 
-The local handshake and unauthenticated account state have been verified. Real
-browser sign-in, account model entitlement, authenticated text/image generation,
-and a complete real Review/Dynamic run still require acceptance with the user's
-account. Mock-based tests do not establish those outcomes.
+Local managed-browser sign-in remains a separate acceptance path. On 13 October,
+the explicitly authorized desktop OAuth path passed real text/image tests and
+one Web smoke Mission using a real Centinel QA bearer. This does not accept
+Static Review, API-backed journeys, all failure/recovery paths or packaging.
 
 ## Credential and execution boundaries
 
@@ -39,9 +39,11 @@ account. Mock-based tests do not establish those outcomes.
 - Every verified Centinel account gets a private `data/codex/<user-hash>/`
   directory and separate `CODEX_HOME`. The CLI stores credentials locally in
   that directory; credentials are not uploaded to Supabase or sent to the UI.
-- Existing `~/.codex` credentials/configuration are not copied. Parent API-key
-  environment variables are excluded from the child process. ChatGPT login and
-  file-based credential storage are explicitly selected.
+- Default operation does not read existing `~/.codex` credentials. An optional,
+  explicitly authorized owner binding can read only its desktop access token
+  through experimental `chatgptAuthTokens`; see below. Desktop config, tools,
+  history and refresh tokens are not copied. Parent API-key environment
+  variables are excluded from the child process.
 - **Disconnect Codex** logs out only this Centinel-local integration. It retains
   saved model selections, so a later run requires reconnecting. It does not log
   out the user's separate Codex desktop/CLI session or delete project data.
@@ -69,6 +71,10 @@ account. Mock-based tests do not establish those outcomes.
 | Cancellation/error contract | Existing Review cancellation reaches transport | Cancellation aborts model calls/retry waits and closes the browser |
 | Usage | Existing Supabase ledger | New authenticated runs write the same ledger with Dynamic session metadata |
 | Project access | Existing shared-project membership | Membership checked before local sessions/evidence/cancellation |
+
+New Mission/Run metadata and immutable revisions use bearer-scoped Supabase,
+while legacy sessions and screenshot files remain local. See
+[the current foundation record](DYNAMIC_MISSION_RUN_FOUNDATION.md).
 
 No estimated ChatGPT dollar price is invented. Usage accounting is best effort;
 absent provider usage stays absent. Dynamic session/evidence records remain local
@@ -122,3 +128,33 @@ Verified on 2026-10-07:
   empty, isolated temporary home; reported available and not connected.
 - Settings layout inspected at 1440×900, 1200×900 and 390×844. Screenshot-test
   feedback was exercised with a mocked provider response.
+
+## Explicit reuse of desktop OAuth
+
+This is an opt-in local integration using the documented experimental
+[external ChatGPT token mode](https://learn.chatgpt.com/docs/app-server).
+Configure both server-only variables:
+
+- `CENTINEL_CODEX_LOCAL_AUTH_FILE`: absolute path to the explicitly authorized
+  desktop Codex `auth.json`.
+- `CENTINEL_CODEX_LOCAL_AUTH_OWNER_ID`: one canonical Centinel Auth UUID.
+
+The backend still receives a verified Centinel identity from AuthGateway.
+Only that UUID gets a token source; every other user keeps isolated sign-in.
+The source validates ChatGPT mode and pins the account ID for that adapter.
+Changed desktop accounts require reconfiguration/restart. It sends only the
+access token/account ID to app-server and reads updated tokens when requested;
+the desktop app remains responsible for refresh. Expired desktop login produces
+an actionable failure, without exchanging refresh tokens in Centinel.
+
+The isolated child retains no desktop config/tools/history. Disconnecting this
+external integration closes only its child and disables reuse for that adapter's
+lifetime; it does not call desktop logout. Removing the two config values and
+restarting disables this opt-in persistently. This route is CLI-version-specific
+and does not promise portability of desktop credentials or a public OAuth SDK.
+
+Live acceptance: CLI 0.144.4 with an explicitly bound QA user, model
+`gpt-5.6-sol`, real text/schema and known-color screenshot checks passed.
+A real authenticated sign-in-page smoke Mission then completed with two passed
+independent checks and retained local evidence. Usage was available; no dollar
+cost estimate was invented. No tokens or admin key were persisted to Supabase.

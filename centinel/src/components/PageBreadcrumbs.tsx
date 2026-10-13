@@ -23,6 +23,7 @@ function breadcrumbHref(screen: Screen): string {
     case 'review-entry':
     case 'review-activity':
     case 'requirements': return '#review';
+    case 'dynamic-testing':
     case 'dynamic-session':
     case 'evidence-browser': return '#dynamic-testing';
     case 'settings': return '#settings';
@@ -59,6 +60,8 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
         { label: screen.reviewName || 'Review' },
       ];
     }
+    case 'dynamic-testing':
+      return screen.projectId ? [product, projectsItem, { label: projectLabel(projects, screen.projectId), target: { name: 'project-detail', projectId: screen.projectId } }, { label: 'Dynamic testing' }] : [{ label: 'Activities' }, { label: 'Dynamic testing' }];
     case 'dynamic-session':
       return [
         product,

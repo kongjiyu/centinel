@@ -245,6 +245,17 @@ describe('active sidecar HTTP bearer contract', () => {
     expect(cancel.status).toBe(403);
   });
 
+  it('authenticates Mission/Run routes and denies non-members before storage', async () => {
+    for (const resource of ['missions', 'runs', 'revisions/11111111-1111-4111-8111-111111111111']) {
+      expect((await get(`/projects/${ownerProject}/dynamic/${resource}`)).status).toBe(401);
+      expect((await get(`/projects/${otherProject}/dynamic/${resource}`, 'owner-token', otherId)).status).toBe(403);
+    }
+    const deniedStart = await fetch(`${baseUrl}/projects/${otherProject}/dynamic/runs`, {
+      method: 'POST', headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    expect(deniedStart.status).toBe(403);
+  });
+
   it('denies another project registered screenshot before checking the local filesystem', async () => {
     const SQL = await initSqlJs();
     const db = new SQL.Database(); setTestDb(db);

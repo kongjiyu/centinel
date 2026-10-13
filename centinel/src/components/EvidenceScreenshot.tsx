@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ChevronLeft, ChevronRight, ImageOff, RotateCcw } from 'lucide-react';
 import type { DynamicEvidence } from '../types';
 import { Modal } from './Modal';
+import { SIDECAR_BASE_URL } from '../api/transport';
 
 function evidenceImageSrc(filePath: string, retryKey = 0): string {
   const retry = retryKey > 0 ? `&retry=${retryKey}` : '';
-  return `http://localhost:37701/evidence-file?path=${encodeURIComponent(filePath)}${retry}`;
+  return `${SIDECAR_BASE_URL}/evidence-file?path=${encodeURIComponent(filePath)}${retry}`;
 }
 
 type ThumbnailProps = {
