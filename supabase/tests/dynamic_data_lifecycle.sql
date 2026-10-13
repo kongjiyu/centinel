@@ -1,0 +1,30 @@
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+do $$
+declare project uuid:='11111111-1111-4111-8111-111111111111'; env jsonb;rev jsonb;started jsonb;state jsonb;r uuid;e uuid;
+begin
+ env:=public.save_dynamic_environment(project,'{"name":"Data lifecycle","targetUrl":"http://localhost:3000/","allowedOrigins":["http://localhost:3000"],"viewport":{"width":1280,"height":720},"accountRole":"test","requiredVariables":[],"startupInstructions":"Manual","targetVersion":"commit"}'::jsonb);e:=(env->>'id')::uuid;
+ state:=public.read_dynamic_environment_data(project,e);if state->>'state'<>'unprepared' then raise exception 'Unexpected initial state';end if;
+ state:=public.record_dynamic_environment_data(project,e,'preparation','completed','Fresh seeded baseline verified');if state->>'state'<>'ready' then raise exception 'Preparation failed';end if;
+ rev:=public.save_dynamic_revision(project,auth.uid(),'{"name":"Smoke","goal":"Observe form","targetUrl":"http://localhost:3000","maxSteps":1,"context":null,"checks":[{"id":"one","criterionId":"one","description":"Form","kind":"visible_text","expected":"Sign in","required":true}]}'::jsonb);
+ started:=public.start_dynamic_environment_run(project,auth.uid(),(rev->>'id')::uuid,'data-one',env||'{"preflight":[{"name":"Test data","ready":true}],"variableNames":[],"checkedAt":"2026-10-13T00:00:00Z"}'::jsonb);r:=(started->'run'->>'id')::uuid;
+ if started->'run'->'environment'->'preparation'->>'note'<>'Fresh seeded baseline verified' then raise exception 'Preparation not pinned';end if;
+ begin perform public.record_dynamic_environment_data(project,e,'cleanup','completed','Cleanup during running');raise exception 'Active cleanup accepted';exception when raise_exception then if sqlerrm='Active cleanup accepted' then raise;end if;end;
+ perform public.transition_dynamic_run(project,r,'queued','{"state":"cancelled","verdict":"not_tested","reason":"Interrupted fixture","checks":[],"evidence":[]}'::jsonb);
+ state:=public.read_dynamic_environment_data(project,e);if state->>'state'<>'cleanup_required' then raise exception 'Dirty lock released silently';end if;
+ begin perform public.start_dynamic_environment_run(project,auth.uid(),(rev->>'id')::uuid,'data-dirty',env||'{"preflight":[{"name":"Test data","ready":true}]}'::jsonb);raise exception 'Dirty data reused';exception when raise_exception then if sqlerrm='Dirty data reused' then raise;end if;end;
+ if exists(select 1 from public.dynamic_runs where idempotency_key='data-dirty') then raise exception 'Dirty failed start leaked Run';end if;
+ state:=public.record_dynamic_environment_data(project,e,'cleanup','failed','Cleanup fixture failed; inspect item');if state->>'state'<>'cleanup_required' then raise exception 'Failed cleanup unlocked';end if;
+ begin perform public.record_dynamic_environment_data(project,e,'preparation','completed','Preparation without cleanup');raise exception 'Dirty prepare accepted';exception when raise_exception then if sqlerrm='Dirty prepare accepted' then raise;end if;end;
+ state:=public.record_dynamic_environment_data(project,e,'cleanup','completed','Removed fixture item and verified baseline');if state->>'state'<>'unprepared' then raise exception 'Successful cleanup did not reset';end if;
+ if (select payload->>'state' from public.dynamic_runs where id=r)<>'cancelled' then raise exception 'Cleanup rewrote functional result';end if;
+ state:=public.record_dynamic_environment_data(project,e,'preparation','completed','Equivalent baseline verified again');
+ env:=public.save_dynamic_environment(project,env||'{"targetVersion":"new-version"}'::jsonb,e);
+ if public.read_dynamic_environment_data(project,e)->>'state'<>'unprepared' then raise exception 'Old preparation applied to new profile version';end if;
+ perform set_config('request.jwt.claim.sub','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true);
+ begin perform public.read_dynamic_environment_data(project,e);raise exception 'Nonmember state access';exception when insufficient_privilege then null;end;
+ if exists(select 1 from public.dynamic_environment_events where profile_id=e) then raise exception 'Nonmember ledger read';end if;
+ raise notice 'PASS: preparation snapshot, active/dirty locks, failed cleanup, history, profile invalidation and member isolation';
+end $$;
+rollback;

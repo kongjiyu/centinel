@@ -440,7 +440,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           let vision;
           try { vision = await resolveModelProviderChain(modelRepository, { ownerId, projectId, purpose: 'vision' }); }
           catch {
-            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false);
+            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false,fetch,await environments.data(projectId,profile.id));
               return {environment,execute: async run=>{await service.stop(projectId,run.id,'blocked','Environment preflight failed: configure a screenshot provider.');}};
             }
             throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.');
@@ -458,7 +458,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           });
           if (!profile) return execute;
           const ready = vision.primary.provider === 'codex' ? await getCodexBackend(ownerId).status().then(status=>status.connected).catch(()=>false) : Boolean(vision.primary.apiKey);
-          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready);
+          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready,fetch,await environments.data(projectId,profile.id));
           return {environment, execute: async run => {
             if (!environmentReady(environment)) { await service.stop(projectId,run.id,'blocked','Environment preflight failed. Inspect the saved checks and startup instructions.'); return; }
             await execute(run);

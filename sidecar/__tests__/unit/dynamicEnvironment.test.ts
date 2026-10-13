@@ -35,6 +35,12 @@ describe('Dynamic environments',()=>{
   expect(environmentReady(result)).toBe(false);expect(result.preflight.filter(check=>!check.ready)).toHaveLength(3);
   expect(reach.mock.calls[0][1]).toMatchObject({method:'HEAD',redirect:'manual'});expect(JSON.stringify(result)).not.toContain('seed-secret');
  });
+ it('keeps failed cleanup and outdated preparation blocked during preflight',async()=>{
+  const reach=vi.fn().mockResolvedValue(new Response());
+  const data={profileId:'env-a',state:'cleanup_required' as const,preparedVersion:1,preparation:null,runId:'run-one',events:[]};
+  const dirty=await checkEnvironment(profile,['TEST_PASSWORD'],true,reach,data);expect(environmentReady(dirty)).toBe(false);expect(dirty.preflight.find(item=>item.name==='Test data')?.reason).toContain('cleanup');
+  const outdated=await checkEnvironment({...profile,version:2},['TEST_PASSWORD'],true,reach,{...data,state:'ready'});expect(environmentReady(outdated)).toBe(false);
+ });
  it('does not follow foreign redirects or call an authentication response a successful journey',async()=>{
   const result=await checkEnvironment(profile,['TEST_PASSWORD'],true,vi.fn().mockResolvedValue(new Response('',{status:302,headers:{location:'https://other.example'}})));
   expect(environmentReady(result)).toBe(false);

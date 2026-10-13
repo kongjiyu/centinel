@@ -509,3 +509,15 @@ passed Codex Run after preparation, and preserved the old profile snapshot after
 an edit. Browser authentication injection and setup/cleanup are follow-up work;
 this slice does not mark P2 complete. PR/merge status is tracked in
 [development progress](DEVELOPMENT_PROGRESS.md).
+
+
+## 12. Manual data lifecycle progress — 13 October 2026
+
+[Manual preparation/cleanup](DYNAMIC_DATA_LIFECYCLE.md) records the baseline,
+actor, exact profile version and cleanup separately from functional verdicts.
+Environment-backed execution acquires an atomic dirty-data lock; stopped work
+requires explicit cleanup, failed cleanup stays locked, and profile edits invalidate
+old readiness. The additive migration was locally verified and applied. Live
+QA-bearer/UI acceptance demonstrated failed cleanup, blocked reuse and two
+independently passed read-only smoke Runs from equivalent recorded preparation.
+Workspace hooks, credential/session handling and redaction remain P2 follow-ups.

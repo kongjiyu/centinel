@@ -1,8 +1,9 @@
 # Dynamic evaluation target: Cypress Real World App
 
 Selection date: 7 October 2026. Updated: 13 October 2026. Status: local target
-running; browser and unit baselines verified. Autonomous-provider and live
-Supabase acceptance remain pending.
+running; browser and unit baselines verified. Bounded Codex/QA-bearer Supabase
+smoke and equivalent read-only repeat acceptance passed. Broader journeys, API
+mode and seeded defect evaluation remain pending.
 
 ## Repository and pinned baseline
 
