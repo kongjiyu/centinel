@@ -71,3 +71,5 @@
 .dynamic-workspace-screen .dw-environments form { margin-top: 18px; }
 .dynamic-workspace-screen .dw-environments li { font-size: 13px; line-height: 22px; overflow-wrap: anywhere; }
 .dynamic-workspace-screen .dw-environments .dw-advanced .dw-field { max-width: none; }
+.dynamic-workspace-screen .dw-environments .dw-muted { overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-environments code { background: var(--workspace-surface-subtle); color: var(--workspace-text); white-space: normal; overflow-wrap: anywhere; font-size: 12px; padding: 2px 4px; border-radius: 3px; }

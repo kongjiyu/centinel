@@ -2,3 +2,5 @@
 export type { CheckDefinition, CheckResult, CheckVerdict, DynamicRun, Mission, MissionInput, MissionRevision } from '../../../sidecar/src/dynamic/types';
 
 export type { EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData } from '../../../sidecar/src/dynamic/environment/types';
+
+export type { WorkspaceAuthorization, WorkspaceInspection } from '../../../sidecar/src/dynamic/workspace/registry';

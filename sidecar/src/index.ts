@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { WorkspaceRegistry } from './dynamic/workspace/registry.js';
+import { handleWorkspaceRoute } from './dynamic/workspace/routes.js';
 import { containsLocalValue } from './dynamic/environment/secrets.js';
 import { EnvironmentRepository } from './dynamic/environment/repository.js';
 import { EnvironmentVault } from './dynamic/environment/vault.js';
@@ -407,6 +409,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
       const environments = new EnvironmentRepository(auth.client);
       const vault = new EnvironmentVault(path.join(dataDir, 'dynamic-environment-values'));
+      const workspaceResponse=await handleWorkspaceRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
+        ownerId,registry:new WorkspaceRegistry(path.join(dataDir,'dynamic-workspaces')),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:(projectId,id)=>Object.values(vault.read(ownerId,projectId,id)),
+      });
+      if(workspaceResponse)return json(res,workspaceResponse.status,workspaceResponse.body);
       const environmentResponse = await handleEnvironmentRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
         ownerId,repository:environments,vault,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
         providerReady:async projectId=>{try {
