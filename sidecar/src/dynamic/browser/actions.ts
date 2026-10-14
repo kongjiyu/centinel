@@ -1,4 +1,5 @@
 import type {Page} from 'playwright';
+import {authorizeBrowserAction,type BrowserActionPolicy} from './actionPolicy.js';
 export type AgentAction=
  |{action:'click';targetDescription:string;selector?:string;elementRef?:string;x?:number;y?:number;fallbackReason?:string;reasoning:string}
  |{action:'type';targetDescription:string;selector?:string;elementRef?:string;x?:number;y?:number;fallbackReason?:string;text:string;reasoning:string}
@@ -18,7 +19,9 @@ export async function waitForBrowserAction(ms:number,signal?:AbortSignal){
 }
 /** One dispatch only. A failure after dispatch never becomes a second click,
  * coordinate fallback, fill, Enter or navigation request. */
-export async function executeBrowserAction(page:Page,action:AgentAction,options:{signal?:AbortSignal;bindings?:ReadonlyMap<string,ElementBinding>;hasScreenshot?:boolean}={}):Promise<ActionReceipt>{
+export async function executeBrowserAction(page:Page,action:AgentAction,options:{signal?:AbortSignal;bindings?:ReadonlyMap<string,ElementBinding>;hasScreenshot?:boolean;policy?:BrowserActionPolicy;origins?:readonly string[]}={}):Promise<ActionReceipt>{
+ stopped(options.signal);
+ if(options.policy)await authorizeBrowserAction(page,action,{policy:options.policy,origins:options.origins??[],bindings:options.bindings,signal:options.signal});
  stopped(options.signal);
  if(action.action==='click'||action.action==='type'||action.action==='select_option'||action.action==='set_checked'){
   const binding=action.elementRef?options.bindings?.get(action.elementRef):action.selector;

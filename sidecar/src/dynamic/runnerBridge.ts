@@ -1,3 +1,4 @@
+import {normalizeActionPolicy} from './browser/actionPolicy.js';
 import {normalizeBudget} from './budgets.js';
 import type {BrowserSessionState} from './environment/sessionVault.js';
 import {captureProtectedPage} from './browser/capture.js';
@@ -55,6 +56,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
       ...providers,
       budgets:limits,
       observationMode:'dom_first',
+      actionPolicy:normalizeActionPolicy(run.actionPolicy??run.environment?.actionPolicy),
       runtimeMs: Math.max(1000, Math.floor(durationMs - (performance.now() - claimStarted))),
       canForward: () => lease?.canForward() === true,
       viewport: run.environment?.viewport,

@@ -1,3 +1,4 @@
+import {BrowserPolicyBlocked,type BrowserActionPolicy} from './dynamic/browser/actionPolicy.js';
 import {buildPrompt,parseActionFromText} from './dynamic/browser/planner.js';
 export {isValidAgentAction} from './dynamic/browser/planner.js';
 import {executeBrowserAction,BrowserActionUncertain,BrowserActionUnavailable,type ElementBinding,type AgentAction} from './dynamic/browser/actions.js';
@@ -235,7 +236,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[]}) => Promise<CheckVerdict> }
+  providers: { actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[]}) => Promise<CheckVerdict> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -298,7 +299,7 @@ export async function runDynamicSession(
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];
   const consoleLogs: string[] = [];
-  let budgetReason:string|null=null;
+  let budgetReason:string|null=null;let filePolicyReason:string|null=null;
   const boundedCall=async(setting:ModelProviderSettings,prompt:string,signal:AbortSignal,images?:string[]):Promise<VisionResult>=>{
     if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
     budget.beforeCall();
@@ -320,11 +321,11 @@ export async function runDynamicSession(
     browser = await chromium.launch({ headless: false,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
-    const page = await browser.newPage({serviceWorkers:'block',...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
+    const page = await browser.newPage({serviceWorkers:'block',...(providers.actionPolicy?{acceptDownloads:false}:{}),...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
 
     const observe=(url:string)=>{try{observedOrigins.add(new URL(url.replace(/^ws:/,'http:').replace(/^wss:/,'https:')).origin);}catch{}};
     page.context().on('request',request=>observe(request.url()));
-    const watchSocket=(target:Page)=>target.on('websocket',socket=>observe(socket.url()));watchSocket(page);page.context().on('page',watchSocket);
+    const watchSocket=(target:Page)=>{target.on('websocket',socket=>observe(socket.url()));if(providers.actionPolicy){target.on('download',download=>{filePolicyReason='Download blocked by the frozen browser action policy.';void download.cancel().catch(()=>{});controller.abort();});target.on('filechooser',()=>{filePolicyReason='File selection blocked by the frozen browser action policy.';controller.abort();});}};watchSocket(page);page.context().on('page',watchSocket);
     page.on('console', msg => {
       const entry = `[${msg.type()}] ${msg.text()}`;
       if(signal.aborted)return;
@@ -385,7 +386,7 @@ export async function runDynamicSession(
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
 
-      let prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step));
+      let prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step, providers.actionPolicy));
       fs.writeFileSync(aiRequestPath, JSON.stringify({ prompt, context, step }, null, 2));
       await addEvidence(session.projectId, session.id, 'ai_request', aiRequestPath, `Step ${step} AI request`);
 
@@ -501,16 +502,16 @@ export async function runDynamicSession(
           }
         }
 
-        // Execute action with retry
+        // The frozen policy authorizes the actual target before one dispatch.
         debugLog.log('info', 'action_execute', `Executing ${action.action}`, step);
-        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot});
+        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins});
         Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
         consecutiveFailures = 0;
         debugLog.log('info', 'action_execute', `Action ${action.action} succeeded`, step);
       } catch (err) {
-        if(err instanceof BrowserActionUncertain||signal.aborted){trace.result='blocked';trace.error=sanitize(err instanceof Error?err.message:'Execution stopped');actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);controller.abort();throw err;}
+        if(err instanceof BrowserActionUncertain||err instanceof BrowserPolicyBlocked||signal.aborted){trace.result='blocked';trace.error=sanitize(err instanceof Error?err.message:'Execution stopped');actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);controller.abort();throw err;}
         trace.result = 'failure';
         trace.error = String(err);
         trace.afterUrl = page.url();
@@ -574,8 +575,8 @@ export async function runDynamicSession(
     if(err instanceof ExecutionBudgetExceeded){budgetReason=err.message;controller.abort();}
     const cancelled = CANCELLED.has(session.id);
     const status = cancelled ? 'cancelled' : 'blocked';
-    const reason = budgetReason ?? (cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : err instanceof BrowserActionUncertain||err instanceof BrowserActionUnavailable||err instanceof BrowserObservationUnavailable ? err.message : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
-    const category: DynamicFailureCategory = cancelled ? 'cancelled' : err instanceof BrowserActionUncertain?'action_execution_failed':signal.aborted?'timeout':'unknown';
+    const reason = budgetReason ?? (filePolicyReason ? filePolicyReason : cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : err instanceof BrowserPolicyBlocked||err instanceof BrowserActionUncertain||err instanceof BrowserActionUnavailable||err instanceof BrowserObservationUnavailable ? err.message : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
+    const category: DynamicFailureCategory = cancelled ? 'cancelled' : filePolicyReason ? 'action_execution_failed' : err instanceof BrowserPolicyBlocked||err instanceof BrowserActionUncertain?'action_execution_failed':signal.aborted?'timeout':'unknown';
     const summary = terminalSummary(status, reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_end', reason);
     await safeUpdate(session.id, status, summary, reason);
