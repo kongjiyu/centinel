@@ -1,0 +1,76 @@
+import type { RiskSeverity, RiskPriority } from '../../riskPolicy.js';
+import type { CheckDefinition, CheckResult, EvidenceReference } from '../types.js';
+export type VerificationDecision = 'confirmed' | 'rejected' | 'needs_investigation';
+export type DynamicFinding = {
+    id: string;
+    projectId: string;
+    missionId: string;
+    key: string;
+    version: number;
+    source: 'dynamic_checker';
+    title: string;
+    category: 'functional';
+    verification: 'unreviewed' | VerificationDecision;
+    remediation: 'open' | 'in_progress' | 'resolved';
+    severity: RiskSeverity | 'info' | null;
+    priority: RiskPriority | null;
+    confidence: 'low' | 'medium' | 'high' | null;
+    confidenceBasis: string;
+    observationCount: number;
+    createdAt: string;
+    updatedAt: string;
+};
+export type FindingObservation = {
+    id: string;
+    findingId: string;
+    projectId: string;
+    runId: string;
+    revisionId: string;
+    executorId: string;
+    checkId: string;
+    criterionId: string;
+    definition: CheckDefinition;
+    result: CheckResult;
+    evidence: EvidenceReference[];
+    targetUrl: string;
+    targetVersion: string | null;
+    goal: string;
+    createdAt: string;
+};
+export type FindingEvent = {
+    id: string;
+    findingId: string;
+    projectId: string;
+    actorId: string;
+    version: number;
+    kind: 'verification' | 'remediation' | 'recurrence';
+    automatic?: boolean;
+    decision?: VerificationDecision;
+    remediation?: DynamicFinding['remediation'];
+    regressionRunId?: string | null;
+    note: string;
+    severity?: DynamicFinding['severity'];
+    priority?: DynamicFinding['priority'];
+    confidence?: DynamicFinding['confidence'];
+    conditionChanges?: string[];
+    createdAt: string;
+};
+export type FindingDetail = {
+    finding: DynamicFinding;
+    observations: FindingObservation[];
+    events: FindingEvent[];
+};
+export type ReviewFindingInput = {
+    version: number;
+    decision: VerificationDecision;
+    note: string;
+    severity?: DynamicFinding['severity'];
+    priority?: DynamicFinding['priority'];
+    confidence?: DynamicFinding['confidence'];
+};
+export type RemediationInput = {
+    version: number;
+    status: DynamicFinding['remediation'];
+    note: string;
+    regressionRunId?: string;
+};

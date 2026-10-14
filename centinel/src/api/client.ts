@@ -1,3 +1,4 @@
+import type {DynamicFinding,FindingDetail,ReviewFindingInput,RemediationInput} from '../../../sidecar/src/dynamic/findings/types';
 import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData, WorkspaceAuthorization, WorkspaceInspection, HookOperation, HookKind } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
@@ -297,6 +298,11 @@ export const api = {
   dynamicMissions: (projectId: string) => request<Mission[]>(`/projects/${projectId}/dynamic/missions`),
   dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
   saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
+  dynamicFindings:(projectId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/findings`),
+  dynamicFinding:(projectId:string,id:string)=>request<FindingDetail>(`/projects/${projectId}/dynamic/findings/${id}`),
+  collectDynamicFindings:(projectId:string,runId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/runs/${runId}/findings`,{method:'POST',body:'{}'}),
+  reviewDynamicFinding:(projectId:string,id:string,input:ReviewFindingInput)=>request<DynamicFinding>(`/projects/${projectId}/dynamic/findings/${id}/review`,{method:'POST',body:JSON.stringify(input)}),
+  remediateDynamicFinding:(projectId:string,id:string,input:RemediationInput)=>request<DynamicFinding>(`/projects/${projectId}/dynamic/findings/${id}/remediation`,{method:'POST',body:JSON.stringify(input)}),
   dynamicRuns: (projectId: string) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`),
   startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string, environmentId?: string, baselineRunId?:string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey, ...(environmentId ? {environmentId} : {}),...(baselineRunId?{baselineRunId}:{}) }) }),
   stopDynamicRun: (projectId: string, runId: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs/${runId}/cancel`, { method: 'POST', body: '{}' }),

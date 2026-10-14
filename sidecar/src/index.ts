@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {handleFindingRoute} from './dynamic/findings/routes.js';
+import {SupabaseFindingRepository} from './dynamic/findings/repository.js';
 import {DownloadVault} from './dynamic/environment/downloadVault.js';
 import {handleDownloadRoute} from './dynamic/environment/downloadRoutes.js';
 import { HookRepository } from './dynamic/workspace/hookRepository.js';
@@ -448,6 +450,8 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         }catch{return false;}},
       });
       if(environmentResponse)return json(res,environmentResponse.status,environmentResponse.body);
+      const findingResponse=await handleFindingRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,100_000)},{repository:new SupabaseFindingRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),validatePrivate:async(projectId,value)=>{const secrets=(await environments.list(projectId)).flatMap(profile=>privateValues(projectId,profile));if(containsLocalValue(value,secrets))throw new DynamicContractError(400,'Keep private local values out of shared finding decisions.');}});
+      if(findingResponse)return json(res,findingResponse.status,findingResponse.body);
       const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, {
         actorId: ownerId,
         validateAuthoring: async (projectId,body)=>{
