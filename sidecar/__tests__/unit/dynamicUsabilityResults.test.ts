@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { beforeAll, afterAll, describe, it, expect,vi } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,6 +13,9 @@ beforeAll(async () => { browser = await chromium.launch(); });
 afterAll(async () => browser.close());
 const input = { name: 'Usability', goal: 'Observe Ready', targetUrl: 'http://localhost:3000/', maxSteps: 3, context: null, contextAcknowledged: false, checks: [{ id: 'ready', criterionId: 'one', description: 'Ready', kind: 'visible_text' as const, expected: 'Ready', required: true }], usability: { schemaVersion: 1 as const, persona: 'first_time' as const, rules: ['labels', 'keyboard', 'focus'] as ('labels' | 'keyboard' | 'focus')[], feedbackCheckIds: [], errorRecoveryCheckIds: [] } };
 describe('Retained independent usability result integration', () => {
+    it('retains acknowledged keyboard progress when cancellation prevents terminal verification',async()=>{
+      const root=fs.mkdtempSync(path.join(os.tmpdir(),'centinel-usability-progress-'));const page=await browser.newPage();try{await page.setContent('<h1>Ready</h1><input id="name"><button>Continue</button>');const service=new DynamicService(new InMemoryDynamicRepository());const rev=await service.saveMission('project','actor',input);const {run}=await service.start('project','actor',rev.id,'cancel-progress');await service.claim('project',run.id);const controller=new AbortController();const press=page.keyboard.press.bind(page.keyboard);vi.spyOn(page.keyboard,'press').mockImplementation(async key=>{await press(key);controller.abort();});await expect(verifyAndRetain(service,run,page,root,controller.signal)).rejects.toThrow('stopped');const progress=JSON.parse(fs.readFileSync(path.join(root,'usability-progress.json'),'utf8'));expect(progress).toMatchObject({criterionProof:false,phase:'stopped',keyboardActions:1,stopReason:'execution_stopped'});expect(progress.observations.some((row:any)=>row.ruleId==='labels')).toBe(true);expect(progress.observations.filter((row:any)=>row.ruleId==='keyboard').every((row:any)=>row.verdict==='not_tested')).toBe(true);expect((await service.requireRun('project',run.id)).state).toBe('running');}finally{await page.close();fs.rmSync(root,{recursive:true,force:true});}
+    });
     it('retains a rule failure with hash-matched proof independently from functional success', async () => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-usability-')); const page = await browser.newPage(); try {
         await page.setContent('<h1>Ready</h1><input tabindex="-1"><button>Continue</button>');
         const service = new DynamicService(new InMemoryDynamicRepository());

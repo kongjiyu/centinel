@@ -82,7 +82,7 @@ for (const variant of variants) {
     }
     finally {
         if (run && ['queued', 'running'].includes(run.state))
-            await req('/runs/' + run.id + '/stop', {});
+            await req('/runs/' + run.id + '/cancel', {});
         await req('/environments/' + env.id + '/cleanup', { outcome: 'completed', note: 'Public synthetic/read-only acceptance finished; browser stopped, no target persistence changes or primary data writes.' });
         fs.mkdirSync('output/playwright', { recursive: true });
         fs.writeFileSync(auditPath, JSON.stringify({ audits, primarySha256: initial }, null, 2));

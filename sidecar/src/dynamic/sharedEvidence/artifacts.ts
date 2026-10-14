@@ -6,7 +6,7 @@ import { redactObservationRecord } from '../browser/privacy.js';
 import { DownloadVault } from '../environment/downloadVault.js';
 import { publicDownloadUrl } from '../browser/fileTypes.js';
 import { loadIndependentEvidence, readBoundedArtifactSlot } from './files.js';
-export type ArtifactKind = 'partial_trace' | 'partial_network' | 'partial_console' | 'partial_budget' | 'partial_observation' | 'partial_manifest' | 'download';
+export type ArtifactKind = 'partial_trace' | 'partial_network' | 'partial_console' | 'partial_budget' | 'partial_observation' | 'partial_manifest' | 'partial_usability' | 'download';
 export type RunArtifact = {
     id: string;
     projectId: string;
@@ -99,6 +99,23 @@ export function partialArtifacts(workspace: string, run: DynamicRun, secrets: re
     }
     const manifestBytes=Buffer.from(JSON.stringify({schemaVersion:1,criterionProof:false,privacyVersion:1,captureScope:'Available bounded local artifacts at publication',slots:result.map(item=>({slot:item.input.slot,sha256:item.input.sha256,sourceSha256:item.input.sourceSha256})),omitted},null,2));
     result.push({input:{slot:'manifest',kind:'partial_manifest',sha256:hash(manifestBytes),sourceSha256:hash(manifestBytes),bytes:manifestBytes.length,mimeType:'application/json',sourceManifestId:null,permissionUrl:null,privacyVersion:1,criterionProof:false},bytes:manifestBytes});
+    // Usability is an independent extension. Keep the original immutable base
+    // manifest unchanged so older published packages remain retryable.
+    if(run.revision?.usability){
+      let frozen:LocalArtifact|undefined;
+      const cacheName='usability-shared.json';const directory=run.legacySessionId?path.join(workspace,'sessions',run.legacySessionId,'logs'):null;
+      const cache=directory?path.join(directory,cacheName):null;
+      if(cache&&fs.existsSync(cache)){
+        let snapshot:any;try{snapshot=JSON.parse(readBoundedArtifactSlot(workspace,run,cacheName).toString());}catch{throw new DynamicContractError(409,'Frozen usability diagnostic cache is unavailable; existing shared copy metadata remains readable.');}
+        if(!snapshot||snapshot.input?.kind!=='partial_usability'||snapshot.input.slot!=='usability'||snapshot.input.criterionProof!==false||snapshot.input.privacyVersion!==1||typeof snapshot.base64!=='string')throw new DynamicContractError(409,'Frozen usability diagnostic cache is invalid.');
+        const bytes=Buffer.from(snapshot.base64,'base64');if(bytes.length!==snapshot.input.bytes||hash(bytes)!==snapshot.input.sha256)throw new DynamicContractError(409,'Frozen usability diagnostic checksum changed.');
+        frozen={input:snapshot.input,bytes};result.push(frozen);
+      }else{
+        const before=result.length;retain('usability','usability-progress.json','partial_usability');
+        if(result.length>before){const entry=result[result.length-1];const original=JSON.parse(entry.bytes.toString('utf8'));const progress=original.content;if(!progress||progress.schemaVersion!==1||progress.criterionProof!==false||!['rules_running','rules_finished','advisory_pending','advisory_finished','stopped'].includes(progress.phase)||JSON.stringify(progress.config)!==JSON.stringify(run.revision.usability)||!Array.isArray(progress.observations)||progress.observations.length>160||!Number.isInteger(progress.keyboardActions)||progress.keyboardActions<0||progress.keyboardActions>42||Buffer.byteLength(JSON.stringify(progress))>400000)throw new DynamicContractError(409,'Selected bounded usability checkpoint required.');const bytes=Buffer.from(JSON.stringify({...original,runState:run.state,terminalVerification:false,limitations:['Stopped-run diagnostic only; per-rule observations do not establish a completed or verified Run.','Evidence references inside the checkpoint may refer to local captures that were never published.'],content:original.content},null,2));entry.bytes=bytes;entry.input.sha256=hash(bytes);entry.input.bytes=bytes.length;if(cache)fs.writeFileSync(cache,JSON.stringify({input:entry.input,base64:bytes.toString('base64')}),{mode:0o600,flag:'wx'});}
+      }
+    }
+    if(result.some(entry=>entry.bytes.length>4*1024*1024)||result.reduce((sum,entry)=>sum+entry.bytes.length,0)>8*1024*1024)throw new DynamicContractError(409,'Partial evidence exceeds its bounded sharing package.');
     return { artifacts: result, omitted };
 }
 export function downloadArtifacts(workspace: string, run: DynamicRun, ownerId: string, vault: DownloadVault): LocalArtifact[] {

@@ -1,3 +1,4 @@
+import {writeUsabilityProgress,type UsabilityProgress} from './usability/progress.js';
 import {assessUsability} from './usability/assessment.js';
 import {normalizeActionPolicy} from './browser/actionPolicy.js';
 import {normalizeBudget} from './budgets.js';
@@ -105,11 +106,17 @@ export async function verifyAndRetain(service: DynamicService, run: DynamicRun, 
   let usability:import('./usability/types.js').UsabilityAssessment|undefined;
   if(run.revision.usability){
     const ref:EvidenceReference={id:crypto.randomUUID(),kind:'usability',sha256:'',availability:'local',capturedAt:new Date().toISOString()};
-    usability=await assessUsability(page,run.revision.usability,{signal:signal??new AbortController().signal,canForward,reserveKeyboardAction,checks:results,evidenceIds:[screenshot.id,ref.id],secrets:privacy.sensitiveValues});
-    fs.writeFileSync(path.join(outputDirectory,'usability.json'),JSON.stringify(usability,null,2),{mode:0o600});
-    if(run.revision.usability.includeSuggestions){usability.suggestions=suggestUsability?await suggestUsability(usability):{schemaVersion:1,kind:'subjective',status:'unavailable',reason:'not_executed',model:null,sampledObservationIndexes:[],omittedObservationCount:usability.observations.length,items:[]};}
-    const content=JSON.stringify(usability,null,2);fs.writeFileSync(path.join(outputDirectory,'usability.json'),content,{mode:0o600});
-    ref.sha256=crypto.createHash('sha256').update(content).digest('hex');evidence.push(ref);
+    let progress:UsabilityProgress={schemaVersion:1,criterionProof:false,phase:'rules_running',config:run.revision.usability,observations:[],keyboardActions:0,updatedAt:new Date().toISOString()};
+    const checkpoint=(phase:UsabilityProgress['phase'],observations=progress.observations,keyboardActions=progress.keyboardActions)=>{progress={...progress,phase,observations:structuredClone(observations),keyboardActions,updatedAt:new Date().toISOString()};writeUsabilityProgress(outputDirectory,progress);};
+    checkpoint('rules_running');
+    try{
+      usability=await assessUsability(page,run.revision.usability,{signal:signal??new AbortController().signal,canForward,reserveKeyboardAction,checkpoint:(rows,count)=>checkpoint('rules_running',[...rows],count),checks:results,evidenceIds:[screenshot.id,ref.id],secrets:privacy.sensitiveValues});
+      checkpoint('rules_finished',usability.observations,usability.keyboardActions);
+      fs.writeFileSync(path.join(outputDirectory,'usability.json'),JSON.stringify(usability,null,2),{mode:0o600});
+      if(run.revision.usability.includeSuggestions){checkpoint('advisory_pending');usability.suggestions=suggestUsability?await suggestUsability(usability):{schemaVersion:1,kind:'subjective',status:'unavailable',reason:'not_executed',model:null,sampledObservationIndexes:[],omittedObservationCount:usability.observations.length,items:[]};checkpoint('advisory_finished');}
+      const content=JSON.stringify(usability,null,2);fs.writeFileSync(path.join(outputDirectory,'usability.json'),content,{mode:0o600});
+      ref.sha256=crypto.createHash('sha256').update(content).digest('hex');evidence.push(ref);
+    }catch(error){progress={...progress,phase:'stopped',updatedAt:new Date().toISOString(),stopReason:signal?.aborted||!canForward()?'execution_stopped':'assessment_unavailable'};writeUsabilityProgress(outputDirectory,progress);throw error;}
   }
   if(!canForward())throw new DOMException('Execution lease unavailable','AbortError');
   if (signal?.aborted) throw new DOMException('Execution stopped before verification persisted', 'AbortError');
