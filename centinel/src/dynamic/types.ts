@@ -4,3 +4,5 @@ export type { CheckDefinition, CheckResult, CheckVerdict, DynamicRun, Mission, M
 export type { EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData } from '../../../sidecar/src/dynamic/environment/types';
 
 export type { WorkspaceAuthorization, WorkspaceInspection } from '../../../sidecar/src/dynamic/workspace/registry';
+
+export type { HookOperation, HookKind } from '../../../sidecar/src/dynamic/workspace/operations';

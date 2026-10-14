@@ -15,7 +15,7 @@ describe('Authorized workspace execution foundation',()=>{
   if(process.platform==='win32')return;const test=fixture();try{
    const pidFile=path.join(test.root,'child.pid');
    const code='const cp=require("node:child_process");const fs=require("node:fs");const child=cp.spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});fs.writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000);';
-   const result=await runBoundedProcess({executable:process.execPath,args:['-e',code,pidFile],cwd:test.workspace,home:path.join(test.root,'home'),timeoutMs:300});expect(result.outcome).toBe('timeout');
+   const result=await runBoundedProcess({executable:process.execPath,args:['-e',code,pidFile],cwd:test.workspace,home:path.join(test.root,'home'),timeoutMs:1500});expect(result.outcome).toBe('timeout');
    const pid=Number(fs.readFileSync(pidFile,'utf8'));let alive=true;for(let i=0;i<20;i++){try{process.kill(pid,0);await new Promise(resolve=>setTimeout(resolve,50));}catch{alive=false;break;}}expect(alive).toBe(false);
   }finally{test.clean();}
  });

@@ -1,4 +1,4 @@
-import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData, WorkspaceAuthorization, WorkspaceInspection } from '../dynamic/types';
+import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData, WorkspaceAuthorization, WorkspaceInspection, HookOperation, HookKind } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
 import { SIDECAR_BASE_URL } from './transport';
@@ -309,6 +309,10 @@ export const api = {
 
   dynamicEnvironments: (projectId: string) => request<EnvironmentProfile[]>(`/projects/${projectId}/dynamic/environments`),
   saveDynamicEnvironment: (projectId: string, data: EnvironmentInput, id?: string) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments${id ? `/${id}` : ''}`, {method:'POST',body:JSON.stringify(data)}),
+  dynamicHooks: (projectId:string,id:string) => request<HookOperation[]>(`/projects/${projectId}/dynamic/environments/${id}/hooks`),
+  startDynamicHook: (projectId:string,id:string,kind:HookKind,idempotencyKey:string) => request<HookOperation>(`/projects/${projectId}/dynamic/environments/${id}/hooks`,{method:'POST',body:JSON.stringify({kind,idempotencyKey})}),
+  cancelDynamicHook: (projectId:string,id:string,operationId:string) => request<HookOperation>(`/projects/${projectId}/dynamic/environments/${id}/hooks/${operationId}/cancel`,{method:'POST',body:'{}'}),
+  dynamicHookOutput: (projectId:string,id:string,operationId:string) => request<{availability:string;partial?:boolean;output?:string;result?:HookOperation['result'];reason?:string;sha256?:string}>(`/projects/${projectId}/dynamic/environments/${id}/hooks/${operationId}/output`),
   dynamicWorkspace: (projectId:string,id:string) => request<{authorization:WorkspaceAuthorization|null}>(`/projects/${projectId}/dynamic/environments/${id}/workspace`),
   inspectDynamicWorkspace: (projectId:string,id:string,directory:string) => request<{inspection:WorkspaceInspection}>(`/projects/${projectId}/dynamic/environments/${id}/workspace`,{method:'POST',body:JSON.stringify({operation:'inspect',directory})}),
   authorizeDynamicWorkspace: (projectId:string,id:string,data:Omit<WorkspaceAuthorization,'fingerprint'|'authorizedAt'>&{allowScripts:boolean;expectedFingerprint:string}) => request<{authorization:WorkspaceAuthorization}>(`/projects/${projectId}/dynamic/environments/${id}/workspace`,{method:'POST',body:JSON.stringify({operation:'authorize',...data})}),

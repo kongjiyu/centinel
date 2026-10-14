@@ -11,8 +11,8 @@ incoming criteria. Native desktop testing remains the separately scoped extensio
 | M1 | Local target/provider acceptance; Mission revisions, Run lifecycle, independent checker, worker leases and saved-test/history UI | Merged via PR #3 (`eb0f60f`), verified locally and against QA-bearer Supabase/Codex. Broader API/provider failure and shared evidence gates remain later work. |
 | M2a | Reusable environment profiles, encrypted local variables, preflight and immutable Run conditions (P2.1–P2.3 slice) | Merged via PR #4 (`b46bdac`); locally/live verified. See DYNAMIC_ENVIRONMENT_PROFILES.md. |
 | M2b | Manual preparation/cleanup ledger, versioned readiness and exclusive dirty-data lock | Merged via PR #5 (`9b195af`); locally/live verified. See DYNAMIC_DATA_LIFECYCLE.md. |
-| M2c1 | Read-only workspace prerequisites, explicit script authorization and bounded process engine | Locally/live verified; preparing PR. See DYNAMIC_WORKSPACE_EXECUTION.md. |
-| M2c2 | Durable hook operations and automatic configured cleanup | Next |
+| M2c1 | Read-only workspace prerequisites, explicit script authorization and bounded process engine | Merged via PR #6 (`162ff3e`); locally/live verified. See DYNAMIC_WORKSPACE_EXECUTION.md. |
+| M2c2 | Durable hook operations and automatic configured cleanup | Locally/live verified; preparing PR. See DYNAMIC_HOOK_OPERATIONS.md. |
 | M2d | Credential/session references, actual browser redaction, resource keys and environment budgets | Planned |
 | M3 | Mock snapshot selection, exceptional inputs and immutable coverage (P3) | Planned |
 | M4 | Enforced browser policy, richer observations/checks, exploration, regression and budgets (P4; remaining P1 execution gates) | Planned |
@@ -43,3 +43,10 @@ acceptance when configured services support it.
   second-device private evidence and packaged launch remain explicit later gates.
 
 See DYNAMIC_MISSION_RUN_FOUNDATION.md, LOCAL_RUNTIME_SETUP.md and DYNAMIC_TEST_TARGET.md.
+
+## Current release acceptance decision
+
+On 13 October 2026 the user chose real Codex acceptance for this release. The API
+provider path remains supported and covered by local contract tests; real API
+provider acceptance is deferred until a key is configured through Settings. It is
+not counted as a passed live gate and does not block this agreed release scope.

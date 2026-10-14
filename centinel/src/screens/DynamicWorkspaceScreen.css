@@ -73,3 +73,5 @@
 .dynamic-workspace-screen .dw-environments .dw-advanced .dw-field { max-width: none; }
 .dynamic-workspace-screen .dw-environments .dw-muted { overflow-wrap: anywhere; }
 .dynamic-workspace-screen .dw-environments code { background: var(--workspace-surface-subtle); color: var(--workspace-text); white-space: normal; overflow-wrap: anywhere; font-size: 12px; padding: 2px 4px; border-radius: 3px; }
+
+.dynamic-workspace-screen .dw-command-output { padding: 12px; background: var(--workspace-surface-subtle); border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); color: var(--workspace-text-muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
