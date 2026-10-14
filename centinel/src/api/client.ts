@@ -296,6 +296,13 @@ export const api = {
   },
 
   // Versioned Dynamic missions and independently checked runs.
+  dynamicReports:(project:string,run:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSummary[]>(`/projects/${project}/dynamic/runs/${run}/reports`),
+  captureDynamicReport:(project:string,run:string,reportId:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSnapshot>(`/projects/${project}/dynamic/runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
+  dynamicReport:(project:string,id:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSnapshot>(`/projects/${project}/dynamic/reports/${id}`),
+  dynamicReportExport:async(project:string,id:string,format:'json'|'markdown'|'pdf')=>{
+    const token=sessionStorage.getItem('centinel:supabase-access-token');const response=await fetch(`${BASE}/projects/${project}/dynamic/reports/${id}/${format}`,{cache:'no-store',signal:AbortSignal.timeout(30000),headers:token?{Authorization:`Bearer ${token}`}:{}});if(!response.ok)throw new ApiError('Report export is unavailable for this account.',response.status);
+    const bound=8*1024*1024;const reader=response.body?.getReader();if(!reader)throw Error('Report body unavailable.');const chunks:Uint8Array[]=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>bound)throw Error('Report export exceeds the download bound.');chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return {bytes,sha256:response.headers.get('X-Centinel-SHA256')??'',filename:`centinel-dynamic-${id}.${format==='markdown'?'md':format}`,mimeType:response.headers.get('Content-Type')??'application/octet-stream'};
+  },
   dynamicMissions: (projectId: string) => request<Mission[]>(`/projects/${projectId}/dynamic/missions`),
   dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
   saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),

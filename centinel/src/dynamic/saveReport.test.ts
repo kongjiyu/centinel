@@ -1,0 +1,8 @@
+import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';import {webcrypto,createHash} from 'node:crypto';import {saveDynamicReport} from './saveReport';import {save} from '@tauri-apps/api/dialog';import {writeBinaryFile} from '@tauri-apps/api/fs';
+vi.mock('@tauri-apps/api/dialog',()=>({save:vi.fn()}));vi.mock('@tauri-apps/api/fs',()=>({writeBinaryFile:vi.fn()}));
+const file={bytes:new Uint8Array([116,101,115,116]),sha256:createHash('sha256').update('test').digest('hex'),filename:'centinel-dynamic-11111111-1111-4111-8111-111111111111.pdf',mimeType:'application/pdf'};
+beforeEach(()=>{vi.clearAllMocks();vi.stubGlobal('crypto',webcrypto);Object.defineProperty(window,'__TAURI_IPC__',{configurable:true,value:vi.fn()});vi.mocked(save).mockResolvedValue('/tmp/operator-selected.pdf');vi.mocked(writeBinaryFile).mockResolvedValue(undefined);});afterEach(()=>{Reflect.deleteProperty(window,'__TAURI_IPC__');vi.unstubAllGlobals();});
+describe('verified report export',()=>{
+ it('saves only checked bytes to the chosen native destination',async()=>{expect(await saveDynamicReport(file)).toBe('saved');expect(writeBinaryFile).toHaveBeenCalledWith('/tmp/operator-selected.pdf',file.bytes);});
+ it('rejects corruption and bounds before opening a dialog; prevents stale writes',async()=>{await expect(saveDynamicReport({...file,sha256:'b'.repeat(64)})).rejects.toThrow('checksum');await expect(saveDynamicReport({...file,filename:'../../private.pdf'})).rejects.toThrow('filename');expect(save).not.toHaveBeenCalled();let current=true;vi.mocked(save).mockImplementation(async()=>{current=false;return '/tmp/operator-selected.pdf';});expect(await saveDynamicReport(file,()=>current)).toBe('cancelled');expect(writeBinaryFile).not.toHaveBeenCalled();});
+});

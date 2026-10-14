@@ -55,3 +55,6 @@ supabase/.temp/
 
 # Device-local Dynamic acceptance artifacts
 /sidecar/output/
+
+# Device-local generated report acceptance exports
+output/pdf/
