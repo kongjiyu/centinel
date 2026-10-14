@@ -1,11 +1,5 @@
 --- a/backend/database.ts
 +++ b/backend/database.ts
-@@ -204,7 +204,7 @@
- export const updateUserById = (userId: string, edits: Partial<User>) => {
-   const user = getUserById(userId);
- 
+@@ -207 +207 @@
 -  db.get(USER_TABLE).find(user).assign(edits).write();
 +  db.get(USER_TABLE).find(user).assign({ ...edits, firstName: user.firstName }).write();
- };
- 
- // Contact
