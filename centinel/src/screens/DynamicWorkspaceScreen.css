@@ -94,3 +94,6 @@
 }
 
 .dynamic-workspace-screen .dw-coverage .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
+
+.dynamic-workspace-screen .dw-recorded-permissions { padding-left: 20px; overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-recorded-permissions code { white-space: normal; overflow-wrap: anywhere; }
