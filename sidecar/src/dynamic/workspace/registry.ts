@@ -2,7 +2,7 @@ import fs from 'node:fs';import path from 'node:path';import crypto from 'node:c
 import {execFileSync} from 'node:child_process';
 import {encryptSecret,decryptSecret} from '../../tokenVault.js';
 import {DynamicContractError} from '../types.js';
-export type WorkspaceAuthorization={directory:string;packageManager:'pnpm'|'yarn';runtimeBinDirectory:string;scripts:{setup?:string;cleanup?:string;unit?:string};fingerprint:string;authorizedAt:string};
+export type WorkspaceAuthorization={directory:string;packageManager:'pnpm'|'yarn';runtimeBinDirectory:string;scripts:{setup?:string;cleanup?:string;unit?:string};fingerprint:string;authorizedAt:string;automaticCleanup?:boolean};
 export type WorkspaceInspection={directory:string;scriptNames:string[];scriptDefinitions:Record<string,string>;requiredVariables:string[];packageManagerHint:string|null;nodeVersionHint:string|null;fingerprint:string;gitCommit:string|null};
 const fail=(message:string):never=>{throw new DynamicContractError(400,message);};
 /** realpath containment also rejects symlinks from named metadata into private files. */
@@ -37,9 +37,10 @@ export class WorkspaceRegistry {
   if(value.allowScripts!==true||!['pnpm','yarn'].includes(value.packageManager)||!value.scripts||typeof value.scripts!=='object')return fail('Explicitly enable the selected repository scripts.');
   const inspection=inspectWorkspace(value.directory);if(value.expectedFingerprint!==inspection.fingerprint)return fail('Repository changed after inspection. Inspect it again before authorizing.');const scripts:WorkspaceAuthorization['scripts']={};
   for(const kind of ['setup','cleanup','unit'] as const)if(value.scripts[kind]){if(!inspection.scriptNames.includes(value.scripts[kind]!))return fail('Select a script present in this repository.');scripts[kind]=value.scripts[kind];}
+  if(value.automaticCleanup&&!scripts.cleanup)return fail('Select the approved cleanup script before enabling automatic cleanup.');
   if(!Object.keys(scripts).length)return fail('Select at least one setup, cleanup or unit script.');
   let runtimeBinDirectory='';if(value.runtimeBinDirectory){try{runtimeBinDirectory=fs.realpathSync(value.runtimeBinDirectory);const node=path.join(runtimeBinDirectory,process.platform==='win32'?'node.exe':'node');if(!fs.statSync(node).isFile())return fail('Runtime folder must contain Node.');}catch{return fail('Runtime folder must contain Node.');}}
-  const authorization={directory:inspection.directory,packageManager:value.packageManager,runtimeBinDirectory,scripts,fingerprint:inspection.fingerprint,authorizedAt:new Date().toISOString()};
+  const authorization={directory:inspection.directory,packageManager:value.packageManager,runtimeBinDirectory,scripts,automaticCleanup:value.automaticCleanup===true,fingerprint:inspection.fingerprint,authorizedAt:new Date().toISOString()};
   fs.mkdirSync(this.root,{recursive:true,mode:0o700});const file=this.file(owner,project,profile);const temp=file+'.'+crypto.randomUUID();fs.writeFileSync(temp,encryptSecret(JSON.stringify(authorization)),{mode:0o600});fs.renameSync(temp,file);return authorization;
  }
  verify(owner:string,project:string,profile:string,kind:keyof WorkspaceAuthorization['scripts']) {
@@ -48,3 +49,5 @@ export class WorkspaceRegistry {
   return {authorization,inspection,script:authorization.scripts[kind]!};
  }
 }
+
+export function workspaceAuthorizationId(value:WorkspaceAuthorization){return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');}

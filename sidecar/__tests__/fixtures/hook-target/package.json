@@ -1,0 +1,1 @@
+{"name":"centinel-hook-acceptance-fixture","private":true,"version":"1.0.0","scripts":{"setup":"node setup.cjs","cleanup":"node cleanup.cjs","cleanup-fail":"node cleanup-fail.cjs","cleanup-slow":"node cleanup-slow.cjs"}}

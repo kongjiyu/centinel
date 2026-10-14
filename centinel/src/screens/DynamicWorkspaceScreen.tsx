@@ -45,6 +45,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const [missionId, setMissionId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState(initialRunId ?? '');
   const [name, setName] = useState(''); const [goal, setGoal] = useState(''); const [targetUrl, setTargetUrl] = useState('');
+  const [environmentDataBusy,setEnvironmentDataBusy]=useState(false);
   const [environmentId, setEnvironmentId] = useState('');
   const [maxSteps, setMaxSteps] = useState(15);
   const [source, setSource] = useState('manual'); const [checks, setChecks] = useState<DraftCheck[]>(() => [emptyCheck()]);
@@ -122,7 +123,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     <div className="dw-toolbar"><div><label htmlFor="dw-project">Project</label><Select id="dw-project" value={projectId} disabled={busy} options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={value => { requestKey.current = null; setProjectId(value); onNavigate({ name: 'dynamic-testing', projectId: value }); }} /></div><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'projects', initialCreate: true })}><Plus size={16} /> Create project</button></div>
     {error && <p className="dw-error" role="alert" tabIndex={-1} ref={errorRef}>{error} <button type="button" onClick={() => { setError(null); void load().catch(e => setError(userFacingError(e))); }}>Refresh</button></p>}
     {!projectId ? <p className="dw-empty">Create or select a project to save your first browser test.</p> : <>
-      <DynamicEnvironmentPanel projectId={projectId} value={environmentId} disabled={busy} onChange={id=>{requestKey.current=null;setEnvironmentId(id);}} />
+      <DynamicEnvironmentPanel projectId={projectId} value={environmentId} disabled={busy} onDataBusy={setEnvironmentDataBusy} onChange={id=>{requestKey.current=null;setEnvironmentId(id);}} />
       <div className="dw-grid">
         <section className="dw-editor" aria-labelledby="dw-editor-title">
           <div className="dw-section-heading"><div><h2 id="dw-editor-title">{missionId ? 'Edit saved test' : 'New test'}</h2><p>Required checks verify the result independently of the browser agent.</p></div>{missionId && <button type="button" className="btn-secondary" onClick={resetDraft} disabled={busy}><Plus size={16} /> New test</button>}</div>
@@ -143,7 +144,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
               <button type="button" className="btn-secondary" disabled={checks.length >= 20 || busy} onClick={() => { dirty.current = true; setChecks(previous => [...previous, emptyCheck()]); }}><Plus size={16} /> Add check</button>
             </fieldset>
             <details className="dw-advanced"><summary>Advanced options</summary><div className="dw-field"><label htmlFor="dw-steps">Step limit</label><input id="dw-steps" type="number" min={1} max={25} value={maxSteps} onChange={e => { dirty.current = true; setMaxSteps(Number(e.target.value)); }} /></div></details>
-            <div className="dw-actions"><button type="submit" className="btn-primary" disabled={busy || loading}>{busy ? 'Working…' : 'Save test'}</button>{selectedRevision && <button type="button" className="btn-secondary" disabled={busy || Boolean(activeRun) || dirty.current} onClick={() => void start(selectedRevision)}>Run saved test</button>}</div>
+            <div className="dw-actions"><button type="submit" className="btn-primary" disabled={busy || loading}>{busy ? 'Working…' : 'Save test'}</button>{selectedRevision && <button type="button" className="btn-secondary" disabled={busy || environmentDataBusy || Boolean(activeRun) || dirty.current} onClick={() => void start(selectedRevision)}>Run saved test</button>}</div>
             {feedback && <p role="status" className="dw-feedback"><CheckCircle2 size={16} /> {feedback}</p>}
             {missionId && dirty.current && <p className="dw-muted">Save your changes before running this revision.</p>}
             {activeRun && <p className="dw-muted">A test is already active in this project. Stop it or wait before starting another.</p>}
@@ -161,7 +162,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
         </aside>
       </div>
       {selectedRun && <section ref={resultRef} className="dw-result" aria-labelledby="dw-result-title">
-        <div className="dw-section-heading"><div><span className="dw-eyebrow">Selected run · revision {selectedRun.revision.revision}</span><h2 id="dw-result-title">{selectedRun.revision.name}</h2><p><Clock3 size={14} /> {dateLabel(selectedRun.createdAt)} · {stateLabel(selectedRun)}</p></div>{active(selectedRun) ? <button type="button" className="btn-secondary" disabled={busy} onClick={() => void stop(selectedRun)}><Square size={16} /> Stop run</button> : <button type="button" className="btn-secondary" disabled={busy || Boolean(activeRun)} onClick={() => void start(selectedRun.revision, selectedRun.environment?.id ?? environmentId)}>Run this revision again</button>}</div>
+        <div className="dw-section-heading"><div><span className="dw-eyebrow">Selected run · revision {selectedRun.revision.revision}</span><h2 id="dw-result-title">{selectedRun.revision.name}</h2><p><Clock3 size={14} /> {dateLabel(selectedRun.createdAt)} · {stateLabel(selectedRun)}</p></div>{active(selectedRun) ? <button type="button" className="btn-secondary" disabled={busy} onClick={() => void stop(selectedRun)}><Square size={16} /> Stop run</button> : <button type="button" className="btn-secondary" disabled={busy || environmentDataBusy || Boolean(activeRun)} onClick={() => void start(selectedRun.revision, selectedRun.environment?.id ?? environmentId)}>Run this revision again</button>}</div>
         <p className={`dw-result-verdict dw-${selectedRun.verdict}`}>{verdictLabel(selectedRun.verdict)}</p>
         {selectedRun.reason && <p className="dw-notice">{selectedRun.reason}</p>}
         {selectedRun.state === 'interrupted' && <p className="dw-muted">Execution was not resumed automatically. Check the test data before running again.</p>}

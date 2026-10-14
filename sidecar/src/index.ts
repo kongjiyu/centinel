@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { HookRepository } from './dynamic/workspace/hookRepository.js';
+import { handleHookRoute } from './dynamic/workspace/hookRoutes.js';
+import { executeHook, attemptAutomaticCleanup } from './dynamic/workspace/hookExecutor.js';
 import { WorkspaceRegistry } from './dynamic/workspace/registry.js';
 import { handleWorkspaceRoute } from './dynamic/workspace/routes.js';
 import { containsLocalValue } from './dynamic/environment/secrets.js';
@@ -409,8 +412,15 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
       const environments = new EnvironmentRepository(auth.client);
       const vault = new EnvironmentVault(path.join(dataDir, 'dynamic-environment-values'));
+      const workspaceRegistry=new WorkspaceRegistry(path.join(dataDir,'dynamic-workspaces'));
+      const hooks=new HookRepository(auth.client);const receiptRoot=path.join(dataDir,'dynamic-hook-output');
+      const hookResponse=await handleHookRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
+        ownerId,repository:hooks,registry:workspaceRegistry,receiptRoot,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),
+        execute:async operation=>{try{await executeHook({ownerId,operation,repository:hooks,registry:workspaceRegistry,vault,receiptRoot});}finally{if(operation.kind==='setup')await attemptAutomaticCleanup({ownerId,projectId:operation.projectId,profileId:operation.environmentId,sourceId:operation.id,sourceKind:'setup',repository:hooks,registry:workspaceRegistry,vault,receiptRoot,environmentRepository:environments});}},
+      });
+      if(hookResponse)return json(res,hookResponse.status,hookResponse.body);
       const workspaceResponse=await handleWorkspaceRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
-        ownerId,registry:new WorkspaceRegistry(path.join(dataDir,'dynamic-workspaces')),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:(projectId,id)=>Object.values(vault.read(ownerId,projectId,id)),
+        ownerId,registry:workspaceRegistry,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:(projectId,id)=>Object.values(vault.read(ownerId,projectId,id)),
       });
       if(workspaceResponse)return json(res,workspaceResponse.status,workspaceResponse.body);
       const environmentResponse = await handleEnvironmentRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
@@ -452,7 +462,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
             throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.');
           }
           const project = await ensureDynamicWorkspace(sharedProject);
-          const execute = (run: import('./dynamic/types.js').DynamicRun) => executeMissionRun(service, run, project.workspacePath, {
+          const browserExecute = (run: import('./dynamic/types.js').DynamicRun) => executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
             recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
               ownerId, projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
@@ -462,6 +472,12 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
               metadata: { callKind: 'dynamic', runId: run.id, scope: usage.scope, apiFormat: usage.apiFormat },
             }),
           });
+          const execute=async(run:import('./dynamic/types.js').DynamicRun)=>{
+            try{await browserExecute(run);}finally{
+              await service.recover(projectId).catch(()=>{});
+              if(run.environment)await attemptAutomaticCleanup({ownerId,projectId,profileId:run.environment.id,sourceId:run.id,sourceKind:'browser',repository:hooks,registry:workspaceRegistry,vault,receiptRoot,environmentRepository:environments});
+            }
+          };
           if (!profile) return execute;
           const ready = vision.primary.provider === 'codex' ? await getCodexBackend(ownerId).status().then(status=>status.connected).catch(()=>false) : Boolean(vision.primary.apiKey);
           const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready,fetch,await environments.data(projectId,profile.id));
