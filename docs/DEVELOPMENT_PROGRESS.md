@@ -79,3 +79,10 @@ existing Projects attention-filter label. Canonical Run/check outcomes and Stati
 behavior are unchanged. The complete frontend suite after correction passes
 247 tests / 48 files with controlled concurrency; final package readback is
 recorded in the evaluation closure.
+
+The fidelity audit additionally required representative RWA repetition beyond the
+small public fixture. Protocol 916a027 preceded six real authenticated profile
+Runs on one frozen revision: 3/3 normal passes, 3/3 no-op failures, 12/12 Reader
+proofs, source/full-data restoration and a versioned reviewed report. No eligible
+sample was replaced. See DYNAMIC_RWA_RELEASE_PROTOCOL.md and the final evaluation
+supplement; this closes the remaining representative-flow evidence gate.

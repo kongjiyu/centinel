@@ -196,3 +196,91 @@ The completed test logs, original expired-token result, native export readback,
 current native rendering and unchanged shared contracts close the required-scope
 release audit. Remaining exceptions are exactly the explicit scope decisions and
 known limitations in DYNAMIC_RELEASE_CHECKLIST.md; they are not silently passed.
+
+## Representative authenticated RWA repeat closure
+
+The complete-scope audit reopened the representative repeated-flow gate: the
+original 3+3 Ready/usability fixture alone was too narrow. Protocol commit
+`916a027` fixed the new counts, mission, expected outcome and restoration rules
+before any new eligible Run. This supplement uses the real pinned RWA on
+3014/3015, not a simplified replacement webpage. The tiny usability corpus remains
+separate; its samples were not replaced or mixed into these six outcomes.
+
+All six Runs used revision `072ec941-59f0-48f2-a774-f6805b7f76e7`, changing only a
+fictional user's First Name, submitting Save once and independently navigating
+away/back to verify persistence. Normal source produced 3/3 passes. The declared
+no-op source returned success but retained the old value, producing 3/3 independent
+failures. Source hash, exact original database hash, account, field expectation,
+allowed origins and budgets were controlled; variant names were not injected into
+the goal. Existing seeded data was preserved; no seed/reset command was run.
+
+| Variant / repeat | Run | Check verdict | Durable elapsed ms | Steps / calls | Recorded accounted tokens | Reader proof |
+| --- | --- | --- | ---: | --- | ---: | --- |
+| normal / 1 | `cf177170-366b-4a06-8c2d-89bcf18484da` | passed | 46825 | 6 / 6 | 76985 | 2 / 2 |
+| normal / 2 | `10f8c346-00e4-4a94-b9f3-c0d3be737b17` | passed | 48231 | 6 / 6 | 76991 | 2 / 2 |
+| normal / 3 | `3297ddea-09a6-4f99-a036-acdfbcbe9f2c` | passed | 43019 | 6 / 6 | 77023 | 2 / 2 |
+| defect / 1 | `fbf00e40-03ba-4aef-ae55-4b987793e5da` | failed | 43806 | 6 / 6 | 77014 | 2 / 2 |
+| defect / 2 | `d5880119-ee07-47fa-9257-4283b26738a7` | failed | 42748 | 6 / 6 | 77082 | 2 / 2 |
+| defect / 3 | `f3a7ef93-b116-499c-ae47-f17365a87298` | failed | 39573 | 6 / 6 | 76977 | 2 / 2 |
+
+Execution completion and expected-outcome agreement are 6/6. Functional task
+completion is **3/6**: the three defective submissions did not satisfy the task,
+even though their detected failures are the correct benchmark result. The selected
+manual test criterion was observed in all six; this manual mission has no incoming
+Static requirement denominator. Broader requirement coverage remains the separately
+labeled mock-source corpus, not invented real Static coverage.
+
+Every case dispatched one Save. Each normal edit was restored through the target's
+authenticated API, with the full database bytes/hash verified back to the frozen
+baseline before the next sample. Defect cases left those bytes unchanged. All six
+recorded cleanup and forgot their imported local sessions. Primary and independent
+unit databases stayed unchanged. Only the owned isolated API was stopped/restarted
+for the exact no-op patch; its original source bytes and normal service were
+restored and verified after the last sample.
+
+An independent Playwright script (no Centinel planner/checker imports) verified
+normal persistence and defective non-persistence. Task-section timings were
+805 ms normal and 1493 ms defect, with zero model calls and one Save each. Its
+pre-scripted locators and timing boundary differ from the agent Run, so this is
+not a general speed or effort comparison. Agent elapsed time has no release
+latency threshold. Costs remain unavailable; token counts are recorded budget
+receipts, not an inferred bill.
+
+All 12 check-proof slots were synchronized and downloaded by the authorized Reader
+with matching SHA-256. The three failed checks correlated into finding
+`5429e782-0d1f-4e3b-8f25-36d19c08e969`, with three retained observations. Reader
+confirmed it under an explicitly labeled QA simulation against source/scripted
+truth; this is not stakeholder approval. No normal candidate was generated.
+The finding remains distinct from remediation; removing the fixture patch does
+not silently resolve it without a pinned retest/decision. This one planted defect
+supports only this fixed-case agreement, not broad application precision/recall.
+
+Report `5596064a-ae0c-49ce-a707-2457ed95d5e9` preserves the reviewed finding and
+three observations. Reader verified authenticated JSON/Markdown/PDF exports and
+hashes. Audit: output/playwright/rwa-corpus-verified.json; every original sample
+and independent baseline is retained separately. A fixture-variable probe stopped
+before any Run; the known public seed credential was then verified against the
+frozen account's hash. No eligible Run was discarded, retried or replaced.
+
+Reproduction tooling: rwaCorpusCaseLive.ts (one numbered sample; refuses an
+existing sample journal), rwaCorpusBaseline.ts (independent truth), and
+rwaCorpusVerifyLive.ts (all samples/proofs/report readback). All require the owned
+baseline and local QA/Reader configuration. The optional fixed-label/revision and
+API-restore flags in rwaCrudLive.ts leave its existing modes available. Explicit
+online TypeScript checks passed for the changed/new harnesses. No Centinel runtime,
+UI, dependency lockfile or schema changed in this supplement; prior full-suite,
+SQL and packaged checks therefore remain applicable.
+
+This representative result closes the extra P7 gate identified by the final
+fidelity audit. The complete agreed Web Dynamic/Vitest/Codex-live scope now has
+both the required capability evidence and representative repeated-flow evidence.
+Static and native-desktop SUT remain excluded/optional; API live remains the
+user's explicit deferred item. Other documented measurement/distribution limits
+remain limitations, not untested features relabeled as passed.
+
+Source/service restoration for this supplement was performed as an explicit
+operator finalization stage after all six stopped/cleaned samples; the case harness
+itself does not automatically restart the target API on operator interruption.
+If reproducing it, retain the current sample journal and inspect/stop active work
+before restoring the exact original source and normal listener. Never discard a
+pending sample or remove a dirty resource lock to continue scoring.

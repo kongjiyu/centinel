@@ -84,3 +84,11 @@ revoked. Shared retention is enforced, but previously exported bytes remain with
 the recipient. PDF may use a Latin fallback; JSON/Markdown preserve Unicode.
 Codex cost/cache creation may be unavailable; no values are invented. Local
 package build is not signing/notarization or turnkey sidecar distribution proof.
+
+## Final-audit supplement
+
+Protocol 916a027 supplemented the initially narrow fixture. The representative
+authenticated RWA persistence flow now has 3/3 normal passes and 3/3 declared no-op
+failures on one revision, complete baseline/source restoration and 12/12 Reader
+proof hashes. The reviewed three-observation report is 5596064a-ae0c-49ce-a707-2457ed95d5e9.
+See DYNAMIC_RWA_RELEASE_PROTOCOL.md and the final evaluation supplement.
