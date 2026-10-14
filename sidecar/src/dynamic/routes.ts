@@ -1,10 +1,11 @@
 import type { EnvironmentSnapshot } from './environment/types.js';
-import { createStaticContextFixture, type StubScenario } from './testing/staticContextStub.js';
+import { createStaticContextStub, type IncomingContextSource,type StubScenario } from './testing/staticContextStub.js';
 import { DynamicService } from './service.js';
 import { DynamicContractError, type DynamicRun } from './types.js';
 
 export type DynamicRouteDependencies = {
   validateAuthoring?(projectId: string, body: Record<string, unknown>): Promise<void>;
+  incomingContextSource?(scenario:StubScenario):IncomingContextSource;
   actorId: string;
   service: DynamicService;
   requireProjectMember(projectId: string): Promise<void>;
@@ -32,7 +33,7 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
         const scenarios: StubScenario[] = ['normal', 'stale', 'conflicting', 'unapproved', 'incomplete', 'absent'];
         if (!scenarios.includes(body.contextScenario as StubScenario)) throw new DynamicContractError(400, 'Unknown mock scenario.');
         // Explicit authoring input, not a fallback for missing/failed real context.
-        body.context = createStaticContextFixture(projectId, body.contextScenario as StubScenario);
+        body.context = await (deps.incomingContextSource??createStaticContextStub)(body.contextScenario as StubScenario).load(projectId);
       }
       await deps.validateAuthoring?.(projectId,body);
       return { status: 201, body: await service.saveMission(projectId, deps.actorId, body, id) };

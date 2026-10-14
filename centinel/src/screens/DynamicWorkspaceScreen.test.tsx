@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DynamicWorkspaceScreen } from './DynamicWorkspaceScreen';
 import { api } from '../api/client';
+import {createStaticContextFixture} from '../../../sidecar/src/dynamic/testing/staticContextStub';
 import type { MissionRevision, DynamicRun } from '../dynamic/types';
 
 vi.mock('../api/client', () => ({ api: { dynamicEnvironments: vi.fn(), dynamicEnvironmentValues: vi.fn(), dynamicMissions: vi.fn(), dynamicRevision: vi.fn(), dynamicRuns: vi.fn(), saveDynamicMission: vi.fn(), startDynamicRun: vi.fn(), stopDynamicRun: vi.fn(), listDynamicEvidence: vi.fn(), dynamicEvidenceBlob: vi.fn() } }));
@@ -81,4 +82,27 @@ describe('Dynamic saved tests and run history', () => {
     expect(screen.getByText(/No real Review or approval/)).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Requirement criterion' })).toBeInTheDocument();
   });
+  it('requires acknowledgment for exceptional input and persists exclusions with reasons',async()=>{
+    const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Criteria source'}));await user.click(screen.getByRole('option',{name:'Example requirements (mock)'}));await waitFor(()=>expect(screen.getByRole('button',{name:'Save test'})).toBeEnabled());
+    await user.click(screen.getByRole('combobox',{name:'Mock input scenario'}));await user.click(screen.getByRole('option',{name:'Stale source'}));const acknowledgment=await screen.findByRole('checkbox',{name:/I acknowledge this snapshot/});expect(screen.getByRole('button',{name:'Save test'})).toBeDisabled();await user.click(acknowledgment);
+    await user.click(screen.getByRole('combobox',{name:'Requirement criterion'}));await user.click(screen.getByRole('option',{name:'After sign-out a protected page requires authentication.'}));await user.click(screen.getByText('Unselected criteria and exclusions'));await user.click(screen.getByRole('checkbox',{name:'Exclude An incomplete payment form cannot create a transaction.'}));await user.type(screen.getByLabelText('Reason for excluding MOCK-RWA-PAYMENT-01-C1'),'Payment outside read-only authentication scope');await user.click(screen.getByRole('button',{name:'Save test'}));
+    await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({context:expect.objectContaining({snapshotId:'mock-snapshot-rwa-stale'}),contextAcknowledged:true,criterionExclusions:[{criterionId:'MOCK-RWA-PAYMENT-01-C1',reason:'Payment outside read-only authentication scope'}]}),undefined));
+  });
+  it('preserves criterion options from the loaded revision instead of regenerating a normal fixture',async()=>{
+    const context=createStaticContextFixture('project-a')!;context.sources[0].version='historical-v0';context.requirements[0].criteria[1].description='Historical authentication criterion';const historical={...revision,context,checks:[{...revision.checks[0],criterionId:'MOCK-RWA-AUTH-01-C2'}]};vi.mocked(api.dynamicMissions).mockResolvedValue([{id:revision.missionId,projectId:'project-a',currentRevisionId:revision.id,createdBy:'actor',createdAt:''}]);vi.mocked(api.dynamicRevision).mockResolvedValue(historical);
+    const user=userEvent.setup();renderScreen();await user.click(await screen.findByRole('button',{name:/Sign-in smoke Revision 1/}));await user.click(screen.getByRole('combobox',{name:'Requirement criterion'}));expect(screen.getByRole('option',{name:'Historical authentication criterion'})).toBeInTheDocument();expect(screen.queryByRole('option',{name:'After sign-out a protected page requires authentication.'})).not.toBeInTheDocument();await user.keyboard('{Escape}');await user.click(screen.getByRole('button',{name:'Save test'}));await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({context:expect.objectContaining({sources:[expect.objectContaining({version:'historical-v0'})]})}),revision.missionId));
+  });
+  it('does not generate substitute context or permit a mock save after the injected source fails',async()=>{
+    const user=userEvent.setup();render(<DynamicWorkspaceScreen projects={[project]} initialProjectId={project.id} onNavigate={vi.fn()} incomingContextSource={()=>({load:async()=>{throw Error('Unavailable source');}})}/>);await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Criteria source'}));await user.click(screen.getByRole('option',{name:'Example requirements (mock)'}));await screen.findByRole('alert');expect(screen.queryByText('Incoming snapshot details')).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Save test'})).toBeDisabled();expect(screen.getByLabelText('Test goal')).toHaveValue('Inspect sign-in form');expect(api.saveDynamicMission).not.toHaveBeenCalled();
+  });
+
+  it('discards pending context when the selected project changes',async()=>{
+    let resolve!:(value:ReturnType<typeof createStaticContextFixture>)=>void;const factory=()=>({load:()=>new Promise<ReturnType<typeof createStaticContextFixture>>(done=>{resolve=done;})});const other={...project,id:'project-b',name:'Other project'};const user=userEvent.setup();const props={projects:[project,other],onNavigate:vi.fn(),incomingContextSource:factory};const {rerender}=render(<DynamicWorkspaceScreen {...props} initialProjectId={project.id}/>);await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Criteria source'}));await user.click(screen.getByRole('option',{name:'Example requirements (mock)'}));
+    rerender(<DynamicWorkspaceScreen {...props} initialProjectId={other.id}/>);await waitFor(()=>expect(screen.getByLabelText('Test name')).toHaveValue(''));resolve(createStaticContextFixture('project-a'));await waitFor(()=>expect(screen.queryByText('Incoming snapshot details')).not.toBeInTheDocument());expect(screen.queryByRole('combobox',{name:'Mock input scenario'})).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Save test'})).toBeEnabled();
+  });
+
+  it('generates an editable name and goal from a selected criterion without starting execution',async()=>{
+    const user=userEvent.setup();renderScreen();await waitFor(()=>expect(screen.getByRole('button',{name:'Save test'})).toBeEnabled());await user.click(screen.getByRole('combobox',{name:'Criteria source'}));await user.click(screen.getByRole('option',{name:'Example requirements (mock)'}));await waitFor(()=>expect(screen.getByRole('combobox',{name:'Requirement criterion'})).toBeEnabled());await user.click(screen.getByRole('combobox',{name:'Requirement criterion'}));await user.click(screen.getByRole('option',{name:'After sign-out a protected page requires authentication.'}));expect(screen.getByLabelText('Test goal')).toHaveValue('After sign-out a protected page requires authentication.');expect(screen.getByLabelText('Test name')).toHaveValue('After sign-out a protected page requires authentication.');expect(api.startDynamicRun).not.toHaveBeenCalled();
+  });
+
 });
