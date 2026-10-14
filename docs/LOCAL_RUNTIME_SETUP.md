@@ -116,9 +116,12 @@ evidence entries and a recorded worker lease. Evidence:
 The basic Mission/history UI also saved and started a real Codex smoke test,
 loaded durable check results/local screenshots, and passed three viewport checks.
 
-## Remaining acceptance
+## Current acceptance status
 
-API-provider journeys, broad browser tasks, cancellation/recovery under real
-provider failure, revoked-member access, private Storage upload, packaged desktop
-launch and third-party connector OAuth remain pending. Active browser-worker
-crashes and a second physical device remain broader recovery acceptance gates.
+This document's initial observations are dated 13 October. Later milestones
+verified active browser cancellation/crash/restart, revoked membership, private
+Storage, upload retry, broader Web tasks and packaged process launch. See
+[DYNAMIC_RELEASE_CHECKLIST.md](DYNAMIC_RELEASE_CHECKLIST.md) for exact current
+service/browser evidence and remaining native GUI/save and genuine-token-expiry
+gates. API-provider live acceptance is user-deferred; third-party connector OAuth
+and a second physical device are not claimed by the retained two-account tests.
