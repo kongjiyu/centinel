@@ -1,3 +1,4 @@
+import {validSuggestionRecord} from './suggestions.js';
 import { DynamicContractError, type EvidenceReference, type MissionRevision } from '../types.js';
 import type { UsabilityAssessment } from './types.js';
 /** Require selected rules, frozen perspective and retained assessment proof. */
@@ -6,7 +7,7 @@ export function validateUsabilityResult(value: unknown, revision: MissionRevisio
     if (!value || typeof value !== 'object' || Array.isArray(value) || !revision.usability)
         return fail();
     const input = value as UsabilityAssessment;
-    if (Object.keys(input).some(key => !['schemaVersion', 'config', 'observations', 'limitations', 'keyboardActions', 'assessedAt'].includes(key)) || input.schemaVersion !== 1 || JSON.stringify(input.config) !== JSON.stringify(revision.usability) || !Array.isArray(input.observations) || input.observations.length > 160 || !Number.isInteger(input.keyboardActions) || input.keyboardActions < 0 || input.keyboardActions > 42 || typeof input.assessedAt !== 'string' || input.assessedAt.length > 50 || !Number.isFinite(Date.parse(input.assessedAt)))
+    if (Object.keys(input).some(key => !['schemaVersion', 'config', 'observations', 'limitations', 'keyboardActions', 'assessedAt','suggestions'].includes(key)) || input.schemaVersion !== 1 || JSON.stringify(input.config) !== JSON.stringify(revision.usability) || !Array.isArray(input.observations) || input.observations.length > 160 || !Number.isInteger(input.keyboardActions) || input.keyboardActions < 0 || input.keyboardActions > 42 || typeof input.assessedAt !== 'string' || input.assessedAt.length > 50 || !Number.isFinite(Date.parse(input.assessedAt)))
         return fail();
     if (!Array.isArray(input.limitations) || !input.limitations.length || input.limitations.length > 10 || input.limitations.some(text => typeof text !== 'string' || !text.trim() || text.length > 2000))
         return fail();
@@ -30,5 +31,7 @@ export function validateUsabilityResult(value: unknown, revision: MissionRevisio
     }
     if (revision.usability.rules.some(rule => !input.observations.some(row => row.ruleId === rule)))
         return fail();
+    if(input.suggestions!==undefined&&(!revision.usability.includeSuggestions||!validSuggestionRecord(input.suggestions,input)))return fail();
+    if(revision.usability.includeSuggestions&&!input.suggestions)return fail();
     return structuredClone(input);
 }

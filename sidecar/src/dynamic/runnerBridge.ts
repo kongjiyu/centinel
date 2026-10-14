@@ -57,6 +57,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
       ...providers,
       budgets:limits,
       usabilityConfig:run.revision.usability,
+      includeUsabilitySuggestions:run.executionVersions?.usability===2&&run.revision.usability?.includeSuggestions===true,
       observationMode:'dom_first',
       ...(run.revision.mode==='exploratory'?{exploratoryChecks:run.revision.checks,checkpointExploration:async(snapshot:import('./browser/exploration.js').ExplorationSnapshot)=>{if(!lease?.canForward())throw new DOMException('Execution lease unavailable','AbortError');await service.checkpointExploration(run.projectId,run.id,snapshot);if(!lease?.canForward())throw new DOMException('Execution lease unavailable','AbortError');}}:{}),
       actionPolicy:normalizeActionPolicy(run.actionPolicy??run.environment?.actionPolicy),
@@ -67,7 +68,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
       allowedOrigins:run.environment?.allowedOrigins??[new URL(run.revision.targetUrl).origin],
       verifyOutcome: async (page, signal, privacy, budgetControl) => {
         if (!lease?.canForward() || signal.aborted) throw new DOMException('Execution lease unavailable', 'AbortError');
-        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy,()=>lease?.canForward()===true,budgetControl?.reserveKeyboardAction);
+        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy,()=>lease?.canForward()===true,budgetControl?.reserveKeyboardAction,budgetControl?.suggestUsability);
         await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
         await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
         for(const ref of result.evidence.slice(2))await addEvidence(run.projectId,session.id,'session_summary',path.join(workspace,'sessions',session.id,'logs',ref.kind==='usability'?'usability.json':'file-manifest.json'),ref.kind==='usability'?'Usability rule observations':'Independent captured-file manifest',ref.id);
@@ -90,7 +91,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
 }
 
 /** Also usable by a scripted development baseline, without pretending it is an LLM run. */
-export async function verifyAndRetain(service: DynamicService, run: DynamicRun, page: Page, outputDirectory: string, signal?: AbortSignal, privacy:{sensitiveValues?:readonly string[];sensitiveSelectors?:readonly string[];downloads?:readonly import('./browser/fileTypes.js').DownloadReceipt[]}={},canForward:()=>boolean=()=>true,reserveKeyboardAction?:()=>boolean) {
+export async function verifyAndRetain(service: DynamicService, run: DynamicRun, page: Page, outputDirectory: string, signal?: AbortSignal, privacy:{sensitiveValues?:readonly string[];sensitiveSelectors?:readonly string[];downloads?:readonly import('./browser/fileTypes.js').DownloadReceipt[]}={},canForward:()=>boolean=()=>true,reserveKeyboardAction?:()=>boolean,suggestUsability?:(assessment:import('./usability/types.js').UsabilityAssessment)=>Promise<import('./usability/types.js').UsabilitySuggestions>) {
   fs.mkdirSync(outputDirectory, { recursive: true });
   const screenshotPath = path.join(outputDirectory, 'criterion-page.png');
   await captureProtectedPage(page,screenshotPath,{secrets:privacy.sensitiveValues,sensitiveSelectors:privacy.sensitiveSelectors,signal});
@@ -105,6 +106,8 @@ export async function verifyAndRetain(service: DynamicService, run: DynamicRun, 
   if(run.revision.usability){
     const ref:EvidenceReference={id:crypto.randomUUID(),kind:'usability',sha256:'',availability:'local',capturedAt:new Date().toISOString()};
     usability=await assessUsability(page,run.revision.usability,{signal:signal??new AbortController().signal,canForward,reserveKeyboardAction,checks:results,evidenceIds:[screenshot.id,ref.id],secrets:privacy.sensitiveValues});
+    fs.writeFileSync(path.join(outputDirectory,'usability.json'),JSON.stringify(usability,null,2),{mode:0o600});
+    if(run.revision.usability.includeSuggestions){usability.suggestions=suggestUsability?await suggestUsability(usability):{schemaVersion:1,kind:'subjective',status:'unavailable',reason:'not_executed',model:null,sampledObservationIndexes:[],omittedObservationCount:usability.observations.length,items:[]};}
     const content=JSON.stringify(usability,null,2);fs.writeFileSync(path.join(outputDirectory,'usability.json'),content,{mode:0o600});
     ref.sha256=crypto.createHash('sha256').update(content).digest('hex');evidence.push(ref);
   }
