@@ -135,3 +135,8 @@
 .dynamic-workspace-screen .dw-usability caption { width: min(640px, calc(100vw - 128px)); }
 
 .dynamic-workspace-screen .dw-usability-suggestions { overflow-wrap: anywhere; }
+
+.dynamic-workspace-screen .dw-reports table { min-width: 650px; table-layout: fixed; }
+.dynamic-workspace-screen .dw-reports th:nth-child(1) { width: 25%; }
+.dynamic-workspace-screen .dw-reports th:nth-child(2) { width: 35%; }
+.dynamic-workspace-screen .dw-reports .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
