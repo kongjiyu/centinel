@@ -1,3 +1,7 @@
+import {buildPrompt,parseActionFromText} from './dynamic/browser/planner.js';
+export {isValidAgentAction} from './dynamic/browser/planner.js';
+import {executeBrowserAction,BrowserActionUncertain,BrowserActionUnavailable,type ElementBinding,type AgentAction} from './dynamic/browser/actions.js';
+import {observeBrowserPage,BrowserObservationUnavailable} from './dynamic/browser/observation.js';
 import {normalizeBudget,RunBudget,ExecutionBudgetExceeded,type ExecutionBudget} from './dynamic/budgets.js';
 import type {BrowserSessionState} from './dynamic/environment/sessionVault.js';
 import {verifySessionReadiness,SessionAuthenticationError} from './dynamic/browser/sessionReadiness.js';
@@ -25,17 +29,6 @@ import { recordTokenUsage, type CallKind, type TokenUsageInput } from './tokenUs
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type AgentAction =
-  | { action: 'click'; targetDescription: string; selector?: string; x?: number; y?: number; reasoning: string }
-  | { action: 'type'; targetDescription: string; text: string; selector?: string; x?: number; y?: number; reasoning: string }
-  | { action: 'press_key'; key: string; reasoning: string }
-  | { action: 'scroll'; direction: 'up' | 'down'; amount: 'small' | 'medium' | 'large'; reasoning: string }
-  | { action: 'wait'; milliseconds: number; reasoning: string }
-  | { action: 'navigate'; url: string; reasoning: string }
-  | { action: 'assert_visible'; text: string; reasoning: string }
-  | { action: 'finish_success'; summary: string; reasoning: string }
-  | { action: 'finish_failure'; summary: string; reasoning: string };
-
 // Shared shape returned by both callVisionModel and callVisionModelWithRetry.
 // `usage` is the parsed provider usage block; undefined when the provider
 // omitted it (e.g. some error envelopes). The call site records each call's
@@ -51,6 +44,7 @@ type ActionTraceEntry = {
   step: number;
   attempt: number;
   action: string;
+  elementRef?:string;visualFallbackReason?:string;dispatch?:string;coordinateFallbackReason?:string;requestedUrl?:string;
   targetDescription?: string;
   selector?: string;
   x?: number;
@@ -106,8 +100,6 @@ const RETRY_POLICY = {
   visionCallMaxAttempts: 3,
   visionCallBackoffMs: 1500,
   jsonParseRepairAttempts: 1,
-  actionMaxAttempts: 2,
-  navigationMaxAttempts: 2,
 };
 
 const MAX_RUNTIME_MS = 5 * 60 * 1000;
@@ -157,6 +149,8 @@ class DebugLogger {
 
   flush() {
     try {
+      // Later observations can discover previously unknown private values.
+      this.events = redactObservationRecord(this.events, this.secrets);
       fs.writeFileSync(this.logPath, JSON.stringify(this.events, null, 2));
     } catch {
       // Ignore write errors during logging
@@ -241,7 +235,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
+  providers: { observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[]}) => Promise<CheckVerdict> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -249,7 +243,7 @@ export async function runDynamicSession(
   const maximumRuntime=Math.min(providers.runtimeMs??MAX_RUNTIME_MS,limits.runtimeMs);
   if(!Number.isInteger(maximumRuntime)||maximumRuntime<1000||maximumRuntime>MAX_RUNTIME_MS)throw Error('Browser runtime budget must be 1–300 seconds.');
   let policyViolated=false;let transportFailed=false;let targetStarted=false;let deniedStartupRequests=0;let deniedOrigin='';const observedOrigins=new Set<string>();const policyTimers=new Set<ReturnType<typeof setTimeout>>();
-  const secrets=providers.sensitiveValues??[];
+  const secrets=[...(providers.sensitiveValues??[])];
   const sanitize=(text:string)=>redactObservation(text,secrets);
   const safeUpdate=(id:string,status:DynamicSessionStatus,summary?:string,reason?:string)=>updateDynamicSessionStatus(id,status,summary===undefined?undefined:sanitize(summary),reason===undefined?undefined:sanitize(reason));
   const recordUsage = providers.recordUsage ?? recordTokenUsage;
@@ -372,28 +366,42 @@ export async function runDynamicSession(
       }
 
       budget.startStep();
-      debugLog.log('info', 'screenshot', 'Taking screenshot', step);
+      debugLog.log('info', 'context_extract', providers.observationMode==='dom_first'?'Observing DOM before planning':'Taking protected screenshot before planning', step);
       const screenshotPath = path.join(screenshotsDir, `step-${String(step).padStart(3, '0')}.png`);
-      await captureProtectedPage(page,screenshotPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
-
+      let visualFallbackReason:string|undefined;
+      let hasScreenshot=providers.observationMode!=='dom_first';
+      if(hasScreenshot)await captureProtectedPage(page,screenshotPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
       debugLog.log('info', 'context_extract', 'Extracting page context', step);
-      const context = redactObservationRecord(await extractPageContext(page),secrets);
+      let bindings:ReadonlyMap<string,ElementBinding>|undefined;
+      let context: {url:string;title:string;visibleText:string;elements:string[]};
+      if(providers.observationMode==='dom_first'){
+        const observed=await observeBrowserPage(page,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});bindings=observed.bindings;
+        for(const value of observed.sensitiveValues)if(value&&!secrets.includes(value))secrets.push(value);
+        context=observed.observation;
+      }else context=redactObservationRecord(await extractPageContext(page),secrets);
       context.visibleText=context.visibleText.slice(0,2000);context.elements=context.elements.map(element=>element.slice(0,1000));
       budget.observe(context);
 
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
 
-      const prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step));
+      let prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step));
       fs.writeFileSync(aiRequestPath, JSON.stringify({ prompt, context, step }, null, 2));
       await addEvidence(session.projectId, session.id, 'ai_request', aiRequestPath, `Step ${step} AI request`);
 
       // Call vision model with retry
       debugLog.log('info', 'ai_request', 'Calling vision model', step);
-      let aiResult = await callVisionModelWithRetry(visionSetting, screenshotPath, prompt, debugLog, step, signal, boundedCall);
+      let aiResult = await callVisionModelWithRetry(visionSetting, hasScreenshot?screenshotPath:undefined, prompt, debugLog, step, signal, boundedCall);
+      if(aiResult.action?.action==='observe_visual'){
+        const visualReason=sanitize(aiResult.action.reason);visualFallbackReason=visualReason;await captureProtectedPage(page,screenshotPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});hasScreenshot=true;
+        prompt+='\nProtected screenshot requested because: '+visualReason;
+        fs.writeFileSync(aiRequestPath,JSON.stringify({prompt,context,step,visualReason},null,2));
+        aiResult=await callVisionModelWithRetry(visionSetting,screenshotPath,prompt,debugLog,step,signal,boundedCall);
+        if(aiResult.action?.action==='observe_visual')throw new BrowserObservationUnavailable('A protected screenshot was already supplied for this step. Repeated visual requests cannot replace an executable action.');
+      }
       fs.writeFileSync(aiResponsePath, JSON.stringify(redactObservationRecord(aiResult,secrets), null, 2));
       await addEvidence(session.projectId, session.id, 'ai_response', aiResponsePath, `Step ${step} AI response`);
-      await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
+      if(hasScreenshot)await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
 
       // If still no action after retry, try JSON repair
       if (!aiResult.action && aiResult.rawText) {
@@ -413,7 +421,7 @@ export async function runDynamicSession(
           step, attempt: 1, action: 'invalid',
           reasoning: `Model returned invalid response: ${errorMsg}`,
           result: 'blocked', error: errorMsg,
-          beforeUrl: context.url, screenshotPath, aiResponsePath,
+          beforeUrl: context.url, screenshotPath:hasScreenshot?screenshotPath:'', aiResponsePath,
           timestamp: new Date().toISOString(),
         });
         status = 'blocked';
@@ -429,6 +437,7 @@ export async function runDynamicSession(
         step,
         attempt: 1,
         action: action.action,
+        elementRef:'elementRef' in action?action.elementRef:undefined,visualFallbackReason,
         targetDescription: 'targetDescription' in action ? action.targetDescription : undefined,
         selector: 'selector' in action ? action.selector : undefined,
         x: 'x' in action ? action.x : undefined,
@@ -437,7 +446,7 @@ export async function runDynamicSession(
         reasoning: action.reasoning,
         result: 'success',
         beforeUrl,
-        screenshotPath,
+        screenshotPath:hasScreenshot?screenshotPath:'',
         aiResponsePath,
         timestamp: new Date().toISOString(),
       };
@@ -446,7 +455,7 @@ export async function runDynamicSession(
         // Handle terminal actions
         // Mission runs require independent checks for either model terminal proposal.
         if (providers.verifyOutcome && (action.action === 'finish_success' || action.action === 'finish_failure')) {
-          const verdict = await providers.verifyOutcome(page, signal);
+          const verdict = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors});
           status = verdict === 'passed' ? 'success' : verdict === 'failed' ? 'failure' : 'blocked';
           terminalReason = `Independent checks: ${verdict}`;
           trace.result = status === 'success' ? 'success' : status === 'failure' ? 'failure' : 'blocked';
@@ -494,12 +503,14 @@ export async function runDynamicSession(
 
         // Execute action with retry
         debugLog.log('info', 'action_execute', `Executing ${action.action}`, step);
-        await executeActionWithRetry(page, action, debugLog, step);
+        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot});
+        Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
         consecutiveFailures = 0;
         debugLog.log('info', 'action_execute', `Action ${action.action} succeeded`, step);
       } catch (err) {
+        if(err instanceof BrowserActionUncertain||signal.aborted){trace.result='blocked';trace.error=sanitize(err instanceof Error?err.message:'Execution stopped');actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);controller.abort();throw err;}
         trace.result = 'failure';
         trace.error = String(err);
         trace.afterUrl = page.url();
@@ -563,8 +574,8 @@ export async function runDynamicSession(
     if(err instanceof ExecutionBudgetExceeded){budgetReason=err.message;controller.abort();}
     const cancelled = CANCELLED.has(session.id);
     const status = cancelled ? 'cancelled' : 'blocked';
-    const reason = budgetReason ?? (cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
-    const category: DynamicFailureCategory = cancelled ? 'cancelled' : signal.aborted ? 'timeout' : 'unknown';
+    const reason = budgetReason ?? (cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : err instanceof BrowserActionUncertain||err instanceof BrowserActionUnavailable||err instanceof BrowserObservationUnavailable ? err.message : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
+    const category: DynamicFailureCategory = cancelled ? 'cancelled' : err instanceof BrowserActionUncertain?'action_execution_failed':signal.aborted?'timeout':'unknown';
     const summary = terminalSummary(status, reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_end', reason);
     await safeUpdate(session.id, status, summary, reason);
@@ -590,7 +601,7 @@ export async function runDynamicSession(
 
 async function callVisionModelWithRetry(
   setting: ModelProviderSettings,
-  screenshotPath: string,
+  screenshotPath: string|undefined,
   prompt: string,
   debugLog: DebugLogger,
   step: number,
@@ -602,7 +613,7 @@ async function callVisionModelWithRetry(
   for (let attempt = 1; attempt <= RETRY_POLICY.visionCallMaxAttempts; attempt++) {
     debugLog.log('info', 'ai_request', `Vision call attempt ${attempt}/${RETRY_POLICY.visionCallMaxAttempts}`, step);
 
-    const result = await call(setting, prompt, signal, [screenshotPath]);
+    const result = await call(setting, prompt, signal, screenshotPath?[screenshotPath]:undefined);
 
     if (result.action) {
       return result;
@@ -669,33 +680,6 @@ ${rawText.slice(0, 2000)}`;
   return { error: `JSON repair failed: ${result.error}` };
 }
 
-async function executeActionWithRetry(
-  page: Page,
-  action: AgentAction,
-  debugLog: DebugLogger,
-  step: number
-): Promise<void> {
-  let lastError = '';
-
-  for (let attempt = 1; attempt <= RETRY_POLICY.actionMaxAttempts; attempt++) {
-    try {
-      debugLog.log('info', 'action_execute', `Action attempt ${attempt}/${RETRY_POLICY.actionMaxAttempts}`, step);
-      await executeAction(page, action);
-      return;
-    } catch (err) {
-      lastError = String(err);
-      debugLog.log('warn', 'retry', `Action attempt ${attempt} failed: ${lastError}`, step);
-
-      if (attempt < RETRY_POLICY.actionMaxAttempts) {
-        // Wait a bit and try again
-        await page.waitForTimeout(500);
-      }
-    }
-  }
-
-  throw new Error(`Action failed after ${RETRY_POLICY.actionMaxAttempts} attempts: ${lastError}`);
-}
-
 // ─── Model Callers ───────────────────────────────────────────────────────────
 
 /** Static and Dynamic share the same configured text/image transport. */
@@ -724,68 +708,6 @@ function waitForRetry(milliseconds: number, signal: AbortSignal): Promise<void> 
 }
 
 // ─── JSON Parsing ────────────────────────────────────────────────────────────
-
-function parseActionFromText(text: string): { action?: AgentAction; error?: string } {
-  // Strip markdown code blocks if present
-  let cleanText = text.trim();
-  const codeBlockMatch = cleanText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (codeBlockMatch) {
-    cleanText = codeBlockMatch[1].trim();
-  }
-
-  // Try multiple parsing strategies
-  const strategies = [
-    // Direct parse
-    () => {
-      if (cleanText.startsWith('{')) {
-        return JSON.parse(cleanText);
-      }
-      return null;
-    },
-    // Balanced braces
-    () => {
-      const match = cleanText.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/);
-      return match ? JSON.parse(match[0]) : null;
-    },
-    // Greedy match
-    () => {
-      const match = cleanText.match(/\{[\s\S]*\}/);
-      return match ? JSON.parse(match[0]) : null;
-    },
-  ];
-
-  for (const strategy of strategies) {
-    try {
-      const parsed = strategy();
-      if (isValidAgentAction(parsed)) {
-        return { action: parsed as AgentAction };
-      }
-    } catch {
-      // Try next strategy
-    }
-  }
-
-  return { error: `No valid JSON action found in response: ${text.slice(0, 200)}` };
-}
-
-/** Reject unknown/incomplete actions before they reach browser automation. */
-export function isValidAgentAction(value: unknown): value is AgentAction {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const action = value as Record<string, unknown>;
-  const text = (key: string) => typeof action[key] === 'string' && !!(action[key] as string).trim();
-  if (typeof action.reasoning !== 'string') return false;
-  switch (action.action) {
-    case 'click': case 'type':
-      return text('targetDescription') && (text('selector') || (typeof action.x === 'number' && Number.isFinite(action.x) && action.x >= 0 && typeof action.y === 'number' && Number.isFinite(action.y) && action.y >= 0)) && (action.action !== 'type' || typeof action.text === 'string');
-    case 'press_key': return text('key');
-    case 'scroll': return ['up', 'down'].includes(String(action.direction)) && ['small', 'medium', 'large'].includes(String(action.amount));
-    case 'wait': return typeof action.milliseconds === 'number' && Number.isFinite(action.milliseconds) && action.milliseconds >= 0 && action.milliseconds <= 10_000;
-    case 'navigate': try { return text('url') && ['http:', 'https:'].includes(new URL(action.url as string).protocol); } catch { return false; }
-    case 'assert_visible': return text('text');
-    case 'finish_success': case 'finish_failure': return text('summary');
-    default: return false;
-  }
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -845,113 +767,6 @@ async function extractPageContext(page: Page): Promise<{
   });
 
   return { url, title, visibleText, elements };
-}
-
-function buildPrompt(
-  goal: string,
-  context: { url: string; title: string; visibleText: string; elements: string[] },
-  trace: ActionTraceEntry[],
-  step: number
-): string {
-  const prevActions = trace.slice(-5).map(t => `Step ${t.step}: ${t.action} (${t.result}) - ${t.reasoning}`).join('\n');
-
-  return `You are a QA testing agent. Your goal: ${goal}
-
-Current page: ${context.url}
-Title: ${context.title}
-
-Visible elements:
-${context.elements.map((e, i) => `${i}: ${e}`).join('\n')}
-
-Page text (truncated):
-${context.visibleText.slice(0, 1000)}
-
-${prevActions ? `Previous actions:\n${prevActions}\n` : ''}
-Step: ${step}
-
-Respond with exactly ONE JSON action. No markdown, no explanation outside JSON.
-
-Available actions:
-- click: {"action":"click","targetDescription":"...","selector":"...","reasoning":"..."}
-- type: {"action":"type","targetDescription":"...","text":"...","selector":"...","reasoning":"..."}
-- press_key: {"action":"press_key","key":"Enter","reasoning":"..."}
-- scroll: {"action":"scroll","direction":"down","amount":"medium","reasoning":"..."}
-- wait: {"action":"wait","milliseconds":2000,"reasoning":"..."}
-- navigate: {"action":"navigate","url":"...","reasoning":"..."}
-- assert_visible: {"action":"assert_visible","text":"...","reasoning":"..."}
-- finish_success: {"action":"finish_success","summary":"...","reasoning":"..."}
-- finish_failure: {"action":"finish_failure","summary":"...","reasoning":"..."}
-
-Rules:
-- Use selector when possible, fall back to x/y coordinates only if needed.
-- Never execute destructive actions (delete, payment, file upload).
-- Stay on the same origin unless following a login/demo redirect.
-- Finish when the goal is achieved or clearly impossible.
-- Respond with ONLY the JSON object, nothing else.`;
-}
-
-async function executeAction(page: Page, action: AgentAction): Promise<void> {
-  switch (action.action) {
-    case 'click': {
-      if (action.selector) {
-        try {
-          await page.click(action.selector, { timeout: 5000 });
-          return;
-        } catch { /* fall through to coordinates */ }
-      }
-      if (action.x !== undefined && action.y !== undefined) {
-        await page.mouse.click(action.x, action.y);
-        return;
-      }
-      throw new Error('No selector or coordinates for click');
-    }
-
-    case 'type': {
-      if (action.selector) {
-        try {
-          await page.fill(action.selector, action.text, { timeout: 5000 });
-          return;
-        } catch { /* fall through */ }
-      }
-      if (action.x !== undefined && action.y !== undefined) {
-        await page.mouse.click(action.x, action.y);
-        await page.keyboard.type(action.text);
-        return;
-      }
-      throw new Error('No selector or coordinates for type');
-    }
-
-    case 'press_key':
-      await page.keyboard.press(action.key);
-      break;
-
-    case 'scroll': {
-      const amounts = { small: 200, medium: 500, large: 1000 };
-      const delta = amounts[action.amount] || 500;
-      await page.mouse.wheel(0, action.direction === 'down' ? delta : -delta);
-      break;
-    }
-
-    case 'wait':
-      await page.waitForTimeout(action.milliseconds);
-      break;
-
-    case 'navigate':
-      await page.goto(action.url, { timeout: 30000, waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(2000);
-      break;
-
-    case 'assert_visible': {
-      const visible = await page.evaluate((text) => {
-        return document.body?.innerText.includes(text) ?? false;
-      }, action.text);
-      if (!visible) throw new Error(`Text "${action.text}" not visible on page`);
-      break;
-    }
-
-    default:
-      throw new Error(`Unknown action: ${(action as { action: string }).action}`);
-  }
 }
 
 function buildSummaryMd(
