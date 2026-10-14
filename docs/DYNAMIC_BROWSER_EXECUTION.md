@@ -61,7 +61,7 @@ M1–M3 provide authenticated Mission/Run persistence, independent URL/text/elem
 checks, frozen environments/budgets/context, private sessions, guarded network
 transport and criterion coverage. M4a splits DOM observation, planning and single-dispatch execution. New Mission
 Runs observe DOM first and request protected pixels only with an explicit reason.
-Legacy direct sessions retain their visual default. Uncertain dispatched actions
+Historical legacy sessions retain their evidence; M4g1 disables new direct starts. Uncertain dispatched actions
 stop the Run rather than repeating a click or falling back to coordinates.
 Exploratory modes, richer form observations, enforced action/file restrictions and
 regression/finding lineage remain implementation work, not assumed capabilities.
@@ -291,3 +291,30 @@ regression/finding lineage remain implementation work, not assumed capabilities.
   build chunk warning remains. Historical M3 criteria/source metadata preserved.
 - Approved file transfers, remaining visual/login/CRUD gates, legacy-entry
   fencing and M5–M7 still remain. This does not claim all P4 or release completion.
+
+## M4g1 entry fencing and explicit visual clicks
+
+- Project Action → Dynamic testing now opens the saved-test workspace. Authenticated
+  legacy POST starts return 409 `legacy_dynamic_start_disabled`; historical list,
+  detail, evidence and cancellation stay available. Real QA acceptance retained
+  all 41 existing sessions, historical GET returned 200 and anonymous POST 401.
+- Visual clicks use `click_visual`, current protected pixels and viewport
+  coordinates. Locator-plus-coordinate proposals fail before dispatch instead of
+  silently clicking a locator's centre. Existing origin, action consent, screenshot
+  protection, coordinate bounds and repeat ledger still apply.
+- The first canvas acceptance exposed the mixed-target bug: Run
+  `39f820bb-d3a8-4682-a9f9-9c457b3e6184` safely stopped without a successful check;
+  its original evidence remains. After correction, real Codex Run
+  `aad1048d-07f4-445c-9252-05f58c5fc5c9` requested protected pixels, dispatched one
+  explicit coordinate click, hit the internal canvas target once and passed the
+  independent visible-text check. Preparation/cleanup recorded; no RWA data changed.
+- Additive migration `202610140012` freezes visual protocol version 1 on fresh
+  Runs, preserves replay payloads and revokes access to private starter helpers.
+  Locally verified and applied/registered to Centinel Supabase.
+- 489 sidecar tests, 211 frontend tests, sidecar TypeScript, frontend build,
+  seventeen SQL suites and retained-data upgrade fixture passed. Project entry
+  screenshots inspected at 1440×900, 1200×900 and 390×844; no horizontal overflow.
+  The known build chunk warning remains.
+- Approved file transfers, remaining normal/defective login/form/CRUD and crash
+  gates, reviewed finding linkage and M5–M7 remain required. Real API provider
+  acceptance is user-deferred; this slice does not complete P4 or the release.

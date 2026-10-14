@@ -34,6 +34,7 @@ export async function authorizeBrowserAction(page:Page,action:AgentAction,option
  if(!INTERACTION_ACTIONS.includes(action.action as InteractionAction))return {repeatable:true};
  const proposal=action as Extract<AgentAction,{action:'click'|'type'|'select_option'|'set_checked'}>;
  const binding=proposal.elementRef?options.bindings?.get(proposal.elementRef):proposal.selector;
+ if(proposal.elementRef&&!binding)throw new BrowserPolicyBlocked('The element reference is unavailable in the current observation.');
  let target:Locator;
  if(binding)target=typeof binding==='string'?page.locator(binding):page.getByRole(binding.role,{name:binding.name,exact:true});
  else {

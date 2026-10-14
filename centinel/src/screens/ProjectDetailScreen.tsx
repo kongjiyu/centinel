@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { api, type ProjectReportDownloadLinks, type ProjectReportExportResult, type ProjectReportHistoryEntry } from '../api/client';
-import { DynamicTestForm } from './DynamicTestForm';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
@@ -75,7 +74,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [showDynamicForm, setShowDynamicForm] = useState(initialAction === 'dynamic');
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ProjectReportExportResult | null>(null);
@@ -132,7 +130,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const { state: activeReviewState } = useActiveReviewState();
 
   useEffect(() => {
-    setShowDynamicForm(initialAction === 'dynamic');
+    if(initialAction==='dynamic'){onNavigate({name:'dynamic-testing',projectId:project.id});return;}
     if (!initialAction) return;
     const sectionId = 'project-overview';
     setActiveSection(sectionId);
@@ -225,15 +223,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     const interval = setInterval(() => { loadDynamicSessions(); loadStaticSessions(); }, 2000);
     return () => clearInterval(interval);
   }, [dynamicSessions, staticSessions, loadDynamicSessions, loadStaticSessions]);
-
-  const handleCreateDynamic = async (data: { targetUrl: string; goal: string; missionType: 'user_journey' | 'smoke'; maxSteps: number }) => {
-    setError(null);
-    try {
-      const session = await api.createDynamicSession(project.id, data);
-      setShowDynamicForm(false);
-      onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: session.id });
-    } catch (e) { setError(userFacingError(e, 'Dynamic Testing could not be started.')); throw e; }
-  };
 
   const handleExportReport = async () => {
     setExporting(true);
@@ -726,7 +715,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                 <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); onNavigate({ name: 'review-entry', projectId: project.id }); }}>
                   <FolderOpen size={16} aria-hidden="true" /> Start Review
                 </button>
-                <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setShowDynamicForm(true); }}>
+                <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); onNavigate({name:'dynamic-testing',projectId:project.id}); }}>
                   <Play size={16} aria-hidden="true" /> Dynamic testing
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); void handleExportReport(); }} disabled={exporting}>
@@ -941,52 +930,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           <AssessmentInfoDialog page={assessmentInfoPage} onPageChange={setAssessmentInfoPage} onClose={() => setAssessmentInfoPage(null)} />
         </section>}
 
-        {/* Dynamic Testing: test runs open from Recent activity or the header action. */}
-        {false && <section className="card detail-card dynamic-card" id="project-dynamic">
-          <div className="panel-header">
-            <h3>
-              <Play size={18} /> Dynamic Testing
-            </h3>
-            {!showDynamicForm && (
-              <button className="btn-primary" onClick={() => setShowDynamicForm(true)}>
-                <Plus size={16} /> New test
-              </button>
-            )}
-          </div>
-          {showDynamicForm && (
-            <Modal
-              isOpen={showDynamicForm}
-              onClose={() => { setShowDynamicForm(false); setError(null); }}
-              title="New test"
-              width={640}
-            >
-              <DynamicTestForm
-                onSubmit={handleCreateDynamic}
-                onCancel={() => { setShowDynamicForm(false); setError(null); }}
-              />
-            </Modal>
-          )}
-          {dynamicSessions.length > 0 ? (
-            <div className="session-list">
-              {dynamicSessions.map(s => (
-                <button key={s.id} type="button" className="session-row session-row-link"
-                  onClick={() => onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: s.id })}>
-                  <div className="session-info-compact">
-                    <span className="session-name">{s.name}</span>
-                    <span className="session-type">{s.targetUrl}</span>
-                  </div>
-                  <div className="session-meta">
-                    <StatusBadge label={s.status} />
-                    <span className="session-date">{new Date(s.createdAt).toLocaleString()}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            !showDynamicForm && <p className="card-empty">No tests yet.</p>
-          )}
-        </section>}
-
         {activeSection === 'project-findings' && <div id="project-findings">
            <FindingsPanel
              projectId={project.id}
@@ -1083,20 +1026,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           </div>
         </div>}
       </Modal>
-
-      {showDynamicForm && (
-        <Modal
-          isOpen={showDynamicForm}
-          onClose={() => { setShowDynamicForm(false); setError(null); }}
-          title="New test"
-          width={640}
-        >
-          <DynamicTestForm
-            onSubmit={handleCreateDynamic}
-            onCancel={() => { setShowDynamicForm(false); setError(null); }}
-          />
-        </Modal>
-      )}
 
       <Modal
         isOpen={showCollaboratorDialog}
