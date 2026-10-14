@@ -1,7 +1,6 @@
 # Dynamic setup, demo and recovery guide
 
-Use with LOCAL_RUNTIME_SETUP.md and DYNAMIC_RELEASE_CHECKLIST.md. The release
-checkpoint is not complete until the remaining native and JWT gates pass.
+Use with LOCAL_RUNTIME_SETUP.md and DYNAMIC_RELEASE_CHECKLIST.md. Final native/JWT gate evidence is in DYNAMIC_RELEASE_EVALUATION.md.
 
 ## Setup
 
@@ -25,7 +24,7 @@ checkpoint is not complete until the remaining native and JWT gates pass.
    service. Match `.env` endpoints; don't kill another application's listener.
 6. For native local build use `pnpm build`. The current desktop requires the
    separately configured local sidecar; a build is not a bundled installation
-   readiness claim. Native launch/save acceptance remains in the checklist.
+   readiness claim. Native launch/save acceptance and its startup interventions are recorded in the checklist.
 
 ## Demo a verified journey
 
