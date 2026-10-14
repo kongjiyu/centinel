@@ -1,0 +1,50 @@
+/** Real bearer/RLS records and Storage, with a transport-scoped Storage outage. */
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
+import { requireSupabaseClient } from '../../src/supabase.js';
+import { createAuthGateway } from '../../src/auth/index.js';
+import { getSupabaseUrl, getSupabaseAnonKey } from '../../src/config.js';
+import { getProject } from '../../src/projects.js';
+import { DynamicService } from '../../src/dynamic/service.js';
+import { SupabaseDynamicRepository } from '../../src/dynamic/supabaseRepository.js';
+import { SharedEvidenceRepository } from '../../src/dynamic/sharedEvidence/repository.js';
+import { handleEvidenceCopyRoute } from '../../src/dynamic/sharedEvidence/routes.js';
+const identity = JSON.parse(fs.readFileSync('output/playwright/new-project-release.json', 'utf8')), client = requireSupabaseClient(), login = await client.auth.signInWithPassword({ email: process.env.CENTINEL_DEV_ACCOUNT_EMAIL!, password: process.env.CENTINEL_DEV_ACCOUNT_PASSWORD! });
+assert(login.data.session);
+const token = login.data.session.access_token, gateway = createAuthGateway(), auth = await gateway.authenticate({ authorization: 'Bearer ' + token }), project = await getProject(identity.projectId);
+assert(project);
+const origin = 'http://localhost:37711/projects/' + identity.projectId + '/dynamic', headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, beforeResponse = await fetch(origin + '/runs/' + identity.runId, { headers }), before = await beforeResponse.json();
+assert(beforeResponse.ok);
+const service = new DynamicService(new SupabaseDynamicRepository(auth.client));
+let blocked = 0;
+const offline = createClient(getSupabaseUrl()!, getSupabaseAnonKey()!, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: 'Bearer ' + token }, fetch: async (input, init) => { if (String(input).includes('/storage/v1/')) {
+            blocked++;
+            throw new TypeError('Deliberate acceptance Storage transport outage');
+        } return fetch(input, init); } } });
+const repository = new SharedEvidenceRepository(auth.client, offline);
+assert.equal((await repository.list(identity.projectId, identity.runId)).length, 0, 'Use a new unsynced retained Run; do not replace prior copies');
+const failed = await handleEvidenceCopyRoute({ method: 'POST', pathname: `/projects/${identity.projectId}/dynamic/runs/${identity.runId}/evidence/sync` }, { repository, service, requireMember: p => gateway.requireProjectMember(auth, p), workspace: async () => project.workspacePath });
+assert.equal(failed?.status, 503);
+assert(blocked > 0);
+const pending = await repository.list(identity.projectId, identity.runId);
+assert.equal(pending.length, 1);
+assert.equal(pending[0].availability, 'failed');
+const retryResponse = await fetch(origin + '/runs/' + identity.runId + '/evidence/sync', { method: 'POST', headers, body: '{}' });
+const copies = await retryResponse.json();
+assert(retryResponse.ok, JSON.stringify(copies));
+assert.equal(copies.length, before.evidence.length);
+assert(copies.every((c: any) => c.availability === 'available'));
+const same = copies.find((c: any) => c.id === pending[0].id);
+assert(same && same.sha256 === pending[0].sha256 && same.expiresAt === pending[0].expiresAt);
+for (const c of copies) {
+    const response = await fetch(origin + '/runs/' + identity.runId + '/evidence/' + c.id + '/content', { headers });
+    assert(response.ok);
+    assert.equal(crypto.createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex'), c.sha256);
+}
+const after = await fetch(origin + '/runs/' + identity.runId, { headers }).then(r => r.json());
+assert.deepEqual(after, before);
+const audit = { projectId: identity.projectId, runId: identity.runId, transport: 'Storage-only network fault; metadata/auth stay live', blockedStorageRequests: blocked, firstSyncStatus: 503, persistedFailure: true, failedCopyId: pending[0].id, retryStatus: 200, copies: copies.length, identityAndExpiryPreserved: true, allHashesVerified: true, runUnchanged: true };
+fs.writeFileSync('output/playwright/evidence-offline-live.json', JSON.stringify(audit, null, 2));
+console.log(JSON.stringify(audit));
