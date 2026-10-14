@@ -1,3 +1,7 @@
+import {allowedBrowserUrl} from './dynamic/browser/policy.js';
+import {createRunNetworkProxy} from './dynamic/browser/networkProxy.js';
+import {captureProtectedPage} from './dynamic/browser/capture.js';
+import {redactObservation,redactObservationRecord} from './dynamic/browser/privacy.js';
 import { chromium, type Browser, type Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -118,11 +122,12 @@ class DebugLogger {
   private events: DynamicDebugEvent[] = [];
   private logPath: string;
 
-  constructor(logPath: string) {
+  constructor(logPath: string, private readonly secrets:readonly string[] = []) {
     this.logPath = logPath;
   }
 
   log(level: DynamicDebugEvent['level'], phase: DynamicDebugEvent['phase'], message: string, step?: number, data?: unknown) {
+    message=redactObservation(message,this.secrets);data=redactObservationRecord(data,this.secrets);
     const event: DynamicDebugEvent = {
       timestamp: new Date().toISOString(),
       level,
@@ -231,8 +236,14 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
+  providers: { allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
 ): Promise<void> {
+  const maximumRuntime=providers.runtimeMs??MAX_RUNTIME_MS;
+  if(!Number.isInteger(maximumRuntime)||maximumRuntime<1000||maximumRuntime>MAX_RUNTIME_MS)throw Error('Browser runtime budget must be 1–300 seconds.');
+  let policyViolated=false;let transportFailed=false;let targetStarted=false;let deniedStartupRequests=0;let deniedOrigin='';const observedOrigins=new Set<string>();const policyTimers=new Set<ReturnType<typeof setTimeout>>();
+  const secrets=providers.sensitiveValues??[];
+  const sanitize=(text:string)=>redactObservation(text,secrets);
+  const safeUpdate=(id:string,status:DynamicSessionStatus,summary?:string,reason?:string)=>updateDynamicSessionStatus(id,status,summary===undefined?undefined:sanitize(summary),reason===undefined?undefined:sanitize(reason));
   const recordUsage = providers.recordUsage ?? recordTokenUsage;
   const sessionDir = path.join(projectWorkspacePath, 'sessions', session.id);
   const screenshotsDir = path.join(sessionDir, 'screenshots');
@@ -244,7 +255,7 @@ export async function runDynamicSession(
   fs.mkdirSync(aiDir, { recursive: true });
   fs.mkdirSync(logsDir, { recursive: true });
 
-  const debugLog = new DebugLogger(path.join(logsDir, 'session-debug.json'));
+  const debugLog = new DebugLogger(path.join(logsDir, 'session-debug.json'),secrets);
   debugLog.log('info', 'session_start', `Starting dynamic session: ${session.name}`, undefined, {
     goal: session.goal,
     targetUrl: session.targetUrl,
@@ -258,7 +269,7 @@ export async function runDynamicSession(
     const category: DynamicFailureCategory = 'missing_vision_provider';
     const summary = terminalSummary('blocked', reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_start', reason);
-    await updateDynamicSessionStatus(session.id, 'blocked', summary, reason);
+    await safeUpdate(session.id, 'blocked', summary, reason);
     return;
   }
 
@@ -270,18 +281,19 @@ export async function runDynamicSession(
     const category: DynamicFailureCategory = 'navigation_blocked';
     const summary = terminalSummary('blocked', reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_start', reason);
-    await updateDynamicSessionStatus(session.id, 'blocked', summary, reason);
+    await safeUpdate(session.id, 'blocked', summary, reason);
     return;
   }
 
-  await updateDynamicSessionStatus(session.id, 'running');
+  await safeUpdate(session.id, 'running');
 
   const controller = new AbortController();
   CONTROLLERS.set(session.id, controller);
   if (CANCELLED.has(session.id)) controller.abort();
-  const runtimeTimer = setTimeout(() => controller.abort(), MAX_RUNTIME_MS);
+  const runtimeTimer = setTimeout(() => controller.abort(), maximumRuntime);
   const signal = controller.signal;
   let browser: Browser | null = null;
+  let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];
   const consoleLogs: string[] = [];
   const startTime = Date.now();
@@ -289,16 +301,23 @@ export async function runDynamicSession(
 
   try {
     debugLog.log('info', 'navigation', 'Launching browser');
-    browser = await chromium.launch({ headless: false });
+    const origins=providers.allowedOrigins??[targetOrigin];
+    proxy=await createRunNetworkProxy(origins,(origin)=>{if(!targetStarted){deniedStartupRequests++;return;}const timer=setTimeout(()=>{policyTimers.delete(timer);if(observedOrigins.has(origin)){deniedOrigin=origin;policyViolated=true;controller.abort();}else deniedStartupRequests++;},50);policyTimers.add(timer);},()=>{if(targetStarted){transportFailed=true;controller.abort();}});
+    browser = await chromium.launch({ headless: false,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
-    const page = await browser.newPage(providers.viewport ? {viewport:providers.viewport} : {});
+    const page = await browser.newPage({serviceWorkers:'block',...(providers.viewport?{viewport:providers.viewport}:{})});
 
+    const observe=(url:string)=>{try{observedOrigins.add(new URL(url.replace(/^ws:/,'http:').replace(/^wss:/,'https:')).origin);}catch{}};
+    page.context().on('request',request=>observe(request.url()));
+    const watchSocket=(target:Page)=>target.on('websocket',socket=>observe(socket.url()));watchSocket(page);page.context().on('page',watchSocket);
     page.on('console', msg => {
       const entry = `[${msg.type()}] ${msg.text()}`;
-      consoleLogs.push(entry);
+      consoleLogs.push(sanitize(entry));
     });
 
+    if(deniedStartupRequests)debugLog.log('info','navigation','Browser initialization traffic was denied before target testing.',undefined,{deniedRequests:deniedStartupRequests});
+    targetStarted=true;
     debugLog.log('info', 'navigation', `Navigating to ${session.targetUrl}`);
     await page.goto(session.targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
@@ -320,9 +339,9 @@ export async function runDynamicSession(
       }
 
       // Check timeout
-      if (Date.now() - startTime > MAX_RUNTIME_MS) {
+      if (Date.now() - startTime > maximumRuntime) {
         status = 'blocked';
-        terminalReason = 'Session timed out after 5 minutes';
+        terminalReason = 'Session reached its configured runtime budget';
         failureCategory = 'timeout';
         debugLog.log('error', 'session_end', 'Session timed out', step);
         break;
@@ -330,22 +349,23 @@ export async function runDynamicSession(
 
       debugLog.log('info', 'screenshot', 'Taking screenshot', step);
       const screenshotPath = path.join(screenshotsDir, `step-${String(step).padStart(3, '0')}.png`);
-      await page.screenshot({ path: screenshotPath, fullPage: false });
+      await captureProtectedPage(page,screenshotPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
 
       debugLog.log('info', 'context_extract', 'Extracting page context', step);
-      const context = await extractPageContext(page);
+      const context = redactObservationRecord(await extractPageContext(page),secrets);
+      context.visibleText=context.visibleText.slice(0,2000);context.elements=context.elements.map(element=>element.slice(0,1000));
 
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
 
-      const prompt = buildPrompt(session.goal, context, actionTrace, step);
+      const prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step));
       fs.writeFileSync(aiRequestPath, JSON.stringify({ prompt, context, step }, null, 2));
       await addEvidence(session.projectId, session.id, 'ai_request', aiRequestPath, `Step ${step} AI request`);
 
       // Call vision model with retry
       debugLog.log('info', 'ai_request', 'Calling vision model', step);
       let aiResult = await callVisionModelWithRetry(visionSetting, screenshotPath, prompt, debugLog, step, signal);
-      fs.writeFileSync(aiResponsePath, JSON.stringify(aiResult, null, 2));
+      fs.writeFileSync(aiResponsePath, JSON.stringify(redactObservationRecord(aiResult,secrets), null, 2));
       await addEvidence(session.projectId, session.id, 'ai_response', aiResponsePath, `Step ${step} AI response`);
       await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
 
@@ -374,7 +394,7 @@ export async function runDynamicSession(
       // If still no action after retry, try JSON repair
       if (!aiResult.action && aiResult.rawText) {
         debugLog.log('warn', 'json_parse', 'Attempting JSON repair', step);
-        aiResult = await attemptJsonRepair(aiResult.rawText, providers.text, debugLog, step, signal);
+        aiResult = await attemptJsonRepair(sanitize(aiResult.rawText), providers.text, debugLog, step, signal);
         if (aiResult.action) {
           debugLog.log('info', 'json_parse', 'JSON repair successful', step);
         }
@@ -449,8 +469,8 @@ export async function runDynamicSession(
           trace.result = status === 'success' ? 'success' : status === 'failure' ? 'failure' : 'blocked';
           trace.afterUrl = page.url();
           actionTrace.push(trace);
-          saveActionTrace(logsDir, actionTrace);
-          await updateDynamicSessionStatus(session.id, status, terminalSummary(status, terminalReason, step, session.maxSteps), status === 'success' ? undefined : terminalReason);
+          saveActionTrace(logsDir, actionTrace,secrets);
+          await safeUpdate(session.id, status, terminalSummary(status, terminalReason, step, session.maxSteps), status === 'success' ? undefined : terminalReason);
           break;
         }
 
@@ -458,11 +478,11 @@ export async function runDynamicSession(
           trace.result = 'success';
           trace.afterUrl = page.url();
           actionTrace.push(trace);
-          saveActionTrace(logsDir, actionTrace);
+          saveActionTrace(logsDir, actionTrace,secrets);
           status = 'success';
           terminalReason = action.summary;
           debugLog.log('info', 'action_execute', `Goal achieved: ${action.summary}`, step);
-          await updateDynamicSessionStatus(session.id, 'success', terminalSummary('success', action.summary, step, session.maxSteps));
+          await safeUpdate(session.id, 'success', terminalSummary('success', action.summary, step, session.maxSteps));
           break;
         }
 
@@ -470,22 +490,21 @@ export async function runDynamicSession(
           trace.result = 'failure';
           trace.afterUrl = page.url();
           actionTrace.push(trace);
-          saveActionTrace(logsDir, actionTrace);
+          saveActionTrace(logsDir, actionTrace,secrets);
           status = 'failure';
           terminalReason = action.summary;
           failureCategory = 'action_execution_failed';
           debugLog.log('warn', 'action_execute', `Goal failed: ${action.summary}`, step);
-          await updateDynamicSessionStatus(session.id, 'failure',
+          await safeUpdate(session.id, 'failure',
             terminalSummary('failure', action.summary, step, session.maxSteps),
             action.summary
           );
           break;
         }
 
-        // Same-origin guard for navigate
+        // Explicit frozen origin guard for navigate
         if (action.action === 'navigate') {
-          const navOrigin = new URL(action.url).origin;
-          if (navOrigin !== targetOrigin) {
+          if (!allowedBrowserUrl(action.url,origins)) {
             throw new Error(`Navigate blocked: ${action.url} is outside target origin ${targetOrigin}`);
           }
         }
@@ -505,7 +524,7 @@ export async function runDynamicSession(
         debugLog.log('error', 'action_execute', `Action failed: ${String(err)}`, step, { consecutiveFailures });
         if (consecutiveFailures >= 3) {
           actionTrace.push(trace);
-          saveActionTrace(logsDir, actionTrace);
+          saveActionTrace(logsDir, actionTrace,secrets);
           status = 'blocked';
           terminalReason = `3 consecutive action failures: ${String(err)}`;
           failureCategory = 'action_execution_failed';
@@ -514,7 +533,7 @@ export async function runDynamicSession(
       }
 
       actionTrace.push(trace);
-      saveActionTrace(logsDir, actionTrace);
+      saveActionTrace(logsDir, actionTrace,secrets);
 
       await page.waitForTimeout(1000);
       step++;
@@ -532,7 +551,7 @@ export async function runDynamicSession(
     // Final screenshot
     debugLog.log('info', 'screenshot', 'Taking final screenshot');
     const finalPath = path.join(screenshotsDir, 'final.png');
-    await page.screenshot({ path: finalPath, fullPage: false });
+    await captureProtectedPage(page,finalPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
 
     // Save console logs
     fs.writeFileSync(path.join(logsDir, 'console.json'), JSON.stringify(consoleLogs, null, 2));
@@ -540,14 +559,14 @@ export async function runDynamicSession(
     // Build and save summary
     const finalSummary = terminalSummary(status, terminalReason, step, session.maxSteps, failureCategory);
     const summaryMd = buildSummaryMd(session, actionTrace, status, finalSummary, failureCategory);
-    fs.writeFileSync(path.join(sessionDir, 'summary.md'), summaryMd);
+    fs.writeFileSync(path.join(sessionDir, 'summary.md'), sanitize(summaryMd));
 
     // Update status if still running
     if (status !== 'success' && status !== 'failure') {
-      await updateDynamicSessionStatus(session.id, status, finalSummary, terminalReason);
+      await safeUpdate(session.id, status, finalSummary, terminalReason);
     }
     if (status === 'failure' && !providers.verifyOutcome) {
-      await createDynamicFinding(session.projectId, session.id, session.name, finalSummary, failureCategory);
+      await createDynamicFinding(session.projectId, session.id, sanitize(session.name), sanitize(finalSummary), failureCategory);
     }
 
     // Add final evidence entries
@@ -562,12 +581,14 @@ export async function runDynamicSession(
   } catch (err) {
     const cancelled = CANCELLED.has(session.id);
     const status = cancelled ? 'cancelled' : 'blocked';
-    const reason = cancelled ? 'Cancelled by user' : signal.aborted ? 'Session timed out' : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.';
+    const reason = cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.';
     const category: DynamicFailureCategory = cancelled ? 'cancelled' : signal.aborted ? 'timeout' : 'unknown';
     const summary = terminalSummary(status, reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_end', reason);
-    await updateDynamicSessionStatus(session.id, status, summary, reason);
+    await safeUpdate(session.id, status, summary, reason);
   } finally {
+    for(const timer of policyTimers)clearTimeout(timer);
+    await proxy?.close().catch(()=>{});
     clearTimeout(runtimeTimer);
     CONTROLLERS.delete(session.id);
     CANCELLED.delete(session.id);
@@ -776,8 +797,8 @@ export function isValidAgentAction(value: unknown): value is AgentAction {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function saveActionTrace(logsDir: string, trace: ActionTraceEntry[]) {
-  fs.writeFileSync(path.join(logsDir, 'action-trace.json'), JSON.stringify(trace, null, 2));
+function saveActionTrace(logsDir: string, trace: ActionTraceEntry[], secrets:readonly string[] = []) {
+  fs.writeFileSync(path.join(logsDir, 'action-trace.json'), JSON.stringify(redactObservationRecord(trace,secrets), null, 2));
 }
 
 async function extractPageContext(page: Page): Promise<{
@@ -792,7 +813,7 @@ async function extractPageContext(page: Page): Promise<{
   const visibleText = await page.evaluate(() => {
     const body = document.body;
     if (!body) return '';
-    return body.innerText.slice(0, 2000);
+    return body.innerText;
   });
 
   const elements = await page.evaluate(() => {
@@ -801,7 +822,7 @@ async function extractPageContext(page: Page): Promise<{
     for (let i = 0; i < Math.min(els.length, 30); i++) {
       const el = els[i] as HTMLElement;
       const tag = el.tagName.toLowerCase();
-      const text = (el.textContent || '').trim().slice(0, 60);
+      const text = (el.textContent || '').trim();
       const type = el.getAttribute('type') || '';
       const placeholder = el.getAttribute('placeholder') || '';
       const href = el.getAttribute('href') || '';
