@@ -6,3 +6,5 @@ export type { EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, Environ
 export type { WorkspaceAuthorization, WorkspaceInspection } from '../../../sidecar/src/dynamic/workspace/registry';
 
 export type { HookOperation, HookKind } from '../../../sidecar/src/dynamic/workspace/operations';
+
+export type {SessionCaptureStatus} from '../../../sidecar/src/dynamic/environment/sessionBroker';

@@ -1,0 +1,9 @@
+import type {SupabaseClient} from '@supabase/supabase-js';import {DynamicContractError} from '../types.js';
+export class SessionCaptureRepository{
+ constructor(private readonly client:SupabaseClient){}
+ private check(error:{code?:string}|null){if(error)throw new DynamicContractError(error.code==='P0001'||error.code==='23505'?409:503,'Sign-in capture lease unavailable. Stop project work or refresh cleanup readiness.');}
+ async acquire(project:string,profile:string,id:string,token:string,worker:string){const {data,error}=await this.client.rpc('acquire_dynamic_session_capture',{p_project_id:project,p_profile_id:profile,p_id:id,p_token:token,p_worker:worker});this.check(error);return data as boolean;}
+ async heartbeat(project:string,id:string,token:string){const {data,error}=await this.client.rpc('heartbeat_dynamic_session_capture',{p_project_id:project,p_id:id,p_token:token});this.check(error);return data as boolean;}
+ async finish(project:string,id:string,token:string,success:boolean){const {data,error}=await this.client.rpc('finish_dynamic_session_capture',{p_project_id:project,p_id:id,p_token:token,p_success:success});this.check(error);return data as {state:'completed'|'cancelled'}|null;}
+ async requireIdle(project:string){for(const name of ['recover_dynamic_session_captures','recover_dynamic_runs','recover_dynamic_hooks']){const {error}=await this.client.rpc(name,{p_project_id:project});this.check(error);}for(const table of ['dynamic_runs','dynamic_hook_operations','dynamic_session_captures']){const {count,error}=await this.client.from(table).select('id',{count:'exact',head:true}).eq('project_id',project).in('state',table==='dynamic_session_captures'?['open']:['queued','running']);this.check(error);if(count)throw new DynamicContractError(409,'Stop project execution or close its sign-in capture first.');}}
+}

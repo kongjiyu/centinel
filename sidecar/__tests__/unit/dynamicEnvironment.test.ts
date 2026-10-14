@@ -59,4 +59,10 @@ describe('Dynamic environments',()=>{
   await expect(handleEnvironmentRoute({method:'GET',pathname:'/projects/project-a/dynamic/environments/env-a/values',readBody:vi.fn()}, {ownerId:'actor-a',repository:repository as any,vault:vault as any,requireMember:vi.fn().mockRejectedValue(new Error('Denied')),providerReady:vi.fn()})).rejects.toThrow('Denied');
   expect(repository.get).not.toHaveBeenCalled();expect(vault.names).not.toHaveBeenCalled();
  });
+ it('requires configured session readiness without putting raw state in the snapshot',async()=>{
+  const authenticated={...profile,sessionReference:'qa-session',sessionReadySelector:'[data-ready]'};const reach=vi.fn().mockResolvedValue(new Response());
+  const missing=await checkEnvironment(authenticated,['TEST_PASSWORD'],true,reach);expect(environmentReady(missing)).toBe(false);expect(missing.preflight.find(check=>check.name==='Signed-in session')?.reason).toContain('capture');
+  const metadata={availability:'available',version:'11111111-2222-4222-8222-111111111111',expiresAt:'2030-01-01T00:00:00Z'};const ready=await checkEnvironment(authenticated,['TEST_PASSWORD'],true,reach,undefined,metadata);expect(environmentReady(ready)).toBe(true);expect(ready.sessionSnapshot).toEqual({reference:'qa-session',version:metadata.version,expiresAt:metadata.expiresAt});
+  const capturing=await checkEnvironment(authenticated,['TEST_PASSWORD'],true,reach,undefined,{...metadata,captureActive:true});expect(environmentReady(capturing)).toBe(false);expect(()=>validateEnvironment({...input,sessionReference:'qa-session'})).toThrow();expect(()=>validateEnvironment({...input,sessionReference:123,sessionReadySelector:'[data-ready]'})).toThrow();
+ });
 });

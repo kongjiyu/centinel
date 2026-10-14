@@ -6,6 +6,10 @@ import { WorkspaceRegistry } from './dynamic/workspace/registry.js';
 import { handleWorkspaceRoute } from './dynamic/workspace/routes.js';
 import { containsLocalValue } from './dynamic/environment/secrets.js';
 import { EnvironmentRepository } from './dynamic/environment/repository.js';
+import {EnvironmentSessionVault,sessionSensitiveValues,type LocalSessionRecord} from './dynamic/environment/sessionVault.js';
+import {EnvironmentSessionBroker} from './dynamic/environment/sessionBroker.js';
+import {SessionCaptureRepository} from './dynamic/environment/captureRepository.js';
+import {handleSessionRoute} from './dynamic/environment/sessionRoutes.js';
 import { EnvironmentVault } from './dynamic/environment/vault.js';
 import { handleEnvironmentRoute } from './dynamic/environment/routes.js';
 import { checkEnvironment, environmentReady } from './dynamic/environment/preflight.js';
@@ -380,7 +384,8 @@ function toClientStaticSession(review: StaticReviewRecord) {
 
 export function createSidecarServer(authGateway: AuthGateway = createAuthGateway(), options: { codexBackend?: (ownerId: string) => CodexBackend } = {}): http.Server {
   const codexBackend = options.codexBackend ?? getCodexBackend;
-  return http.createServer(async (req, res) => {
+  const sessionVault=new EnvironmentSessionVault(path.join(dataDir,'dynamic-browser-sessions'));const sessionBroker=new EnvironmentSessionBroker(sessionVault);
+  const server=http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Centinel-User-Id');
@@ -412,6 +417,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
       const environments = new EnvironmentRepository(auth.client);
       const vault = new EnvironmentVault(path.join(dataDir, 'dynamic-environment-values'));
+      const privateValues=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>[...Object.values(vault.read(ownerId,projectId,profile.id)),...(profile.sessionReference?sessionVault.knownValues(ownerId,projectId,profile.id,profile.sessionReference):[])];
+      const sessionStatus=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>({...profile.sessionReference?sessionVault.status(ownerId,projectId,profile.id,profile.sessionReference,profile.allowedOrigins):{availability:'not_configured'},captureActive:['open','opening'].includes(sessionBroker.status(ownerId,projectId,profile.id)?.state??'')});
+      const sessionResponse=await handleSessionRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)},{ownerId,repository:environments,vault:sessionVault,broker:sessionBroker,captures:new SessionCaptureRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId)});if(sessionResponse)return json(res,sessionResponse.status,sessionResponse.body);
       const workspaceRegistry=new WorkspaceRegistry(path.join(dataDir,'dynamic-workspaces'));
       const hooks=new HookRepository(auth.client);const receiptRoot=path.join(dataDir,'dynamic-hook-output');
       const hookResponse=await handleHookRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
@@ -420,11 +428,11 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       });
       if(hookResponse)return json(res,hookResponse.status,hookResponse.body);
       const workspaceResponse=await handleWorkspaceRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
-        ownerId,registry:workspaceRegistry,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:(projectId,id)=>Object.values(vault.read(ownerId,projectId,id)),
+        ownerId,registry:workspaceRegistry,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:async(projectId,id)=>privateValues(projectId,await environments.get(projectId,id)),
       });
       if(workspaceResponse)return json(res,workspaceResponse.status,workspaceResponse.body);
       const environmentResponse = await handleEnvironmentRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
-        ownerId,repository:environments,vault,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
+        ownerId,repository:environments,vault,privateValues,sessionStatus,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
         providerReady:async projectId=>{try {
           const chain=await resolveModelProviderChain(new SupabaseModelConfigurationRepository(auth.client),{ownerId,projectId,purpose:'vision'});
           return chain.primary.provider==='codex' ? (await getCodexBackend(ownerId).status()).connected : Boolean(chain.primary.apiKey);
@@ -436,7 +444,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         actorId: ownerId,
         validateAuthoring: async (projectId,body)=>{
           const profiles=await environments.list(projectId);
-          const secrets=profiles.flatMap(profile=>Object.values(vault.read(ownerId,projectId,profile.id)));
+          const secrets=profiles.flatMap(profile=>privateValues(projectId,profile));
           if(containsLocalValue(body,secrets))throw new DynamicContractError(400,'Keep local variable values out of shared test fields.');
         },
         service,
@@ -449,22 +457,26 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           if (profile) {
             const revision = await service.repository.getRevision(projectId, revisionId!);
             if (!revision || new URL(revision.targetUrl).origin !== new URL(profile.targetUrl).origin) throw new DynamicContractError(400, 'Environment and test must use the same website origin.');
-            const secrets = Object.values(vault.read(ownerId,projectId,profile.id));
+            const secrets = privateValues(projectId,profile);
             if (containsLocalValue({revision,profile},secrets)) throw new DynamicContractError(400, 'Keep local variable values out of test and shared environment fields.');
           }
+          let localSession:LocalSessionRecord|null=null;let sessionInfo:{availability:string;reason?:string;captureActive?:boolean;version?:string;expiresAt?:string}|undefined;
+          if(profile?.sessionReference){try{localSession=sessionVault.read(ownerId,projectId,profile.id,profile.sessionReference,profile.allowedOrigins);sessionInfo=localSession?{availability:'available',version:localSession.version,expiresAt:localSession.expiresAt}:{availability:'missing'};}catch(error){sessionInfo={availability:'unavailable',reason:error instanceof DynamicContractError?error.message:'Local session unavailable.'};}sessionInfo.captureActive=['open','opening'].includes(sessionBroker.status(ownerId,projectId,profile.id)?.state??'');}
+          const frozenValues=profile?Object.values(vault.read(ownerId,projectId,profile.id)):[];
           const modelRepository = new SupabaseModelConfigurationRepository(auth.client);
           let vision;
           try { vision = await resolveModelProviderChain(modelRepository, { ownerId, projectId, purpose: 'vision' }); }
           catch {
-            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false,fetch,await environments.data(projectId,profile.id));
+            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false,fetch,await environments.data(projectId,profile.id),sessionInfo);
               return {environment,execute: async run=>{await service.stop(projectId,run.id,'blocked','Environment preflight failed: configure a screenshot provider.');}};
             }
             throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.');
           }
           const project = await ensureDynamicWorkspace(sharedProject);
-          const browserExecute = (run: import('./dynamic/types.js').DynamicRun) => executeMissionRun(service, run, project.workspacePath, {
+          const browserExecute = async(run: import('./dynamic/types.js').DynamicRun) => {if(localSession&&Date.parse(localSession.expiresAt)<=Date.now()){await service.stop(projectId,run.id,'blocked','Local session expired before browser execution. Renew it on this device.');return;}return executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
-            sensitiveValues:profile?Object.values(vault.read(ownerId,projectId,profile.id)):[],
+            sensitiveValues:[...frozenValues,...(localSession?sessionSensitiveValues(localSession):[])],
+            storageState:localSession?.state,
             recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
               ownerId, projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
               provider: usage.provider, model: usage.model, outcome: 'success', inputTokens: usage.inputTokens,
@@ -472,7 +484,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
               cacheCreationTokens: usage.cacheCreationTokens ?? null, durationMs: null, errorCode: null, cost: null,
               metadata: { callKind: 'dynamic', runId: run.id, scope: usage.scope, apiFormat: usage.apiFormat },
             }),
-          });
+          });};
           const execute=async(run:import('./dynamic/types.js').DynamicRun)=>{
             try{await browserExecute(run);}finally{
               await service.recover(projectId).catch(()=>{});
@@ -481,7 +493,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           };
           if (!profile) return execute;
           const ready = vision.primary.provider === 'codex' ? await getCodexBackend(ownerId).status().then(status=>status.connected).catch(()=>false) : Boolean(vision.primary.apiKey);
-          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready,fetch,await environments.data(projectId,profile.id));
+          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready,fetch,await environments.data(projectId,profile.id),sessionInfo);
           return {environment, execute: async run => {
             if (!environmentReady(environment)) { await service.stop(projectId,run.id,'blocked','Environment preflight failed. Inspect the saved checks and startup instructions.'); return; }
             await execute(run);
@@ -1437,6 +1449,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     json(res, 500, { error: 'Internal server error' });
   }
   });
+  server.on('close',()=>{void sessionBroker.dispose();});return server;
 }
 
 // Importing this module for authenticated HTTP tests must not open the fixed

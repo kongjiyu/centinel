@@ -1,6 +1,8 @@
+import type {BrowserSessionState} from './dynamic/environment/sessionVault.js';
+import {verifySessionReadiness,SessionAuthenticationError} from './dynamic/browser/sessionReadiness.js';
 import {allowedBrowserUrl} from './dynamic/browser/policy.js';
 import {createRunNetworkProxy} from './dynamic/browser/networkProxy.js';
-import {captureProtectedPage} from './dynamic/browser/capture.js';
+import {captureProtectedPage,UnsafeVisualObservation} from './dynamic/browser/capture.js';
 import {redactObservation,redactObservationRecord} from './dynamic/browser/privacy.js';
 import { chromium, type Browser, type Page } from 'playwright';
 import fs from 'fs';
@@ -236,7 +238,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
+  providers: { storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
 ): Promise<void> {
   const maximumRuntime=providers.runtimeMs??MAX_RUNTIME_MS;
   if(!Number.isInteger(maximumRuntime)||maximumRuntime<1000||maximumRuntime>MAX_RUNTIME_MS)throw Error('Browser runtime budget must be 1–300 seconds.');
@@ -306,7 +308,7 @@ export async function runDynamicSession(
     browser = await chromium.launch({ headless: false,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
-    const page = await browser.newPage({serviceWorkers:'block',...(providers.viewport?{viewport:providers.viewport}:{})});
+    const page = await browser.newPage({serviceWorkers:'block',...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
 
     const observe=(url:string)=>{try{observedOrigins.add(new URL(url.replace(/^ws:/,'http:').replace(/^wss:/,'https:')).origin);}catch{}};
     page.context().on('request',request=>observe(request.url()));
@@ -321,6 +323,7 @@ export async function runDynamicSession(
     debugLog.log('info', 'navigation', `Navigating to ${session.targetUrl}`);
     await page.goto(session.targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
+    if(providers.sessionReadySelector)await verifySessionReadiness(page,providers.sessionReadySelector);
     debugLog.log('info', 'navigation', 'Page loaded successfully');
 
     let step = 0;
@@ -581,7 +584,7 @@ export async function runDynamicSession(
   } catch (err) {
     const cancelled = CANCELLED.has(session.id);
     const status = cancelled ? 'cancelled' : 'blocked';
-    const reason = cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.';
+    const reason = cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.';
     const category: DynamicFailureCategory = cancelled ? 'cancelled' : signal.aborted ? 'timeout' : 'unknown';
     const summary = terminalSummary(status, reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_end', reason);
