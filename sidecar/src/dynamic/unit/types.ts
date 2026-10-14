@@ -31,6 +31,7 @@ export type UnitExecutionResult = {
     framework: {
         name: 'vitest';
         version: string | null;
+        nodeVersion?: string;
     };
     command: {
         program: 'node';
@@ -41,6 +42,7 @@ export type UnitExecutionResult = {
         fingerprint: string | null;
         gitCommit: string | null;
         authorizationId: string | null;
+        cliSha256?: string;
     };
     outcome: UnitOutcome;
     process: ProcessResult | null;
@@ -49,4 +51,40 @@ export type UnitExecutionResult = {
     startedAt: string;
     finishedAt: string;
     limitations: string[];
+};
+export type UnitCommand = {
+    program: 'node';
+    script: string | null;
+    fingerprint: string | null;
+    authorizationId: string | null;
+    gitCommit: string | null;
+    frameworkVersion: string | null;
+    cliSha256: string | null;
+    nodeVersion: string | null;
+};
+export type DynamicUnitRun = {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    kind: 'unit';
+    state: import('../types.js').RunState;
+    verdict: import('../types.js').CheckVerdict;
+    createdBy: string;
+    createdAt: string;
+    updatedAt: string;
+    idempotencyKey: string;
+    command: UnitCommand;
+    timeoutMs: number;
+    environment: import('../environment/types.js').EnvironmentProfile & {
+        preparation: import('../environment/types.js').EnvironmentData['preparation'];
+        resourceKey: string;
+    };
+    result: UnitExecutionResult | null;
+    reason: string | null;
+    cancelRequested?: boolean;
+    lease?: {
+        workerId: string;
+        heartbeatAt: string;
+        expiresAt: string;
+    };
 };

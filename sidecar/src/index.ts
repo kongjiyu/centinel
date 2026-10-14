@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import {UnitRepository} from './dynamic/unit/repository.js';
+import {handleUnitRoute} from './dynamic/unit/routes.js';
+import {executeUnit,cancelUnit} from './dynamic/unit/executor.js';
+import {UnitReportRepository,handleUnitReportRoute} from './dynamic/unit/reports.js';
 import {SupabaseDynamicReportRepository} from './dynamic/reports/repository.js';
 import {handleDynamicReportRoute} from './dynamic/reports/routes.js';
 import {SharedEvidenceRepository} from './dynamic/sharedEvidence/repository.js';
@@ -443,6 +447,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         execute:async operation=>{try{await executeHook({ownerId,operation,repository:hooks,registry:workspaceRegistry,vault,receiptRoot});}finally{if(operation.kind==='setup')await attemptAutomaticCleanup({ownerId,projectId:operation.projectId,profileId:operation.environmentId,sourceId:operation.id,sourceKind:'setup',repository:hooks,registry:workspaceRegistry,vault,receiptRoot,environmentRepository:environments});}},
       });
       if(hookResponse)return json(res,hookResponse.status,hookResponse.body);
+      const unitResponse=await handleUnitRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,10000)},{ownerId,registry:workspaceRegistry,repository:new UnitRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),cancel:cancelUnit,prepare:async(projectId,profileId)=>{const profile=await environments.get(projectId,profileId),values=vault.read(ownerId,projectId,profileId);if(profile.requiredVariables.some(name=>!values[name]))throw new DynamicContractError(409,'Configure this environment’s required local variables before unit execution.');},execute:async run=>{try{await executeUnit({ownerId,run,registry:workspaceRegistry,repository:new UnitRepository(auth.client),vault,receiptRoot:path.join(dataDir,'dynamic-unit-output')});}finally{await attemptAutomaticCleanup({ownerId,projectId:run.projectId,profileId:run.environmentId,sourceId:run.id,sourceKind:'unit',repository:hooks,registry:workspaceRegistry,vault,receiptRoot,environmentRepository:environments});}}});
+      if(unitResponse)return json(res,unitResponse.status,unitResponse.body);
+      const unitReportResponse=await handleUnitReportRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,10000)},{repository:new UnitReportRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId)});
+      if(unitReportResponse){if('mimeType' in unitReportResponse&&Buffer.isBuffer(unitReportResponse.body)){res.writeHead(200,{'Content-Type':unitReportResponse.mimeType,'Content-Length':unitReportResponse.body.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename="${unitReportResponse.filename}"`,'X-Centinel-SHA256':unitReportResponse.sha256,'Access-Control-Expose-Headers':'X-Centinel-SHA256, Content-Disposition'});res.end(unitReportResponse.body);return;}return json(res,unitReportResponse.status,unitReportResponse.body);}
       const workspaceResponse=await handleWorkspaceRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
         ownerId,registry:workspaceRegistry,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:async(projectId,id)=>privateValues(projectId,await environments.get(projectId,id)),
       });

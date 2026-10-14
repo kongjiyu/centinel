@@ -25,11 +25,11 @@ export async function executeHook(input:{ownerId:string;operation:HookOperation;
 }
 
 /** Only a matching stopped source may trigger an explicitly configured cleanup. */
-export async function attemptAutomaticCleanup(input:{ownerId:string;projectId:string;profileId:string;sourceId:string;sourceKind:'browser'|'setup';repository:HookRepository;registry:WorkspaceRegistry;vault:EnvironmentVault;receiptRoot:string;environmentRepository:import('../environment/repository.js').EnvironmentRepository}){
+export async function attemptAutomaticCleanup(input:{ownerId:string;projectId:string;profileId:string;sourceId:string;sourceKind:'browser'|'setup'|'unit';repository:HookRepository;registry:WorkspaceRegistry;vault:EnvironmentVault;receiptRoot:string;environmentRepository:import('../environment/repository.js').EnvironmentRepository}){
  try{
   const config=input.registry.read(input.ownerId,input.projectId,input.profileId);if(!config?.automaticCleanup||!config.scripts.cleanup)return;
   const data=await input.environmentRepository.data(input.projectId,input.profileId);
-  if(data.state!=='cleanup_required'||(input.sourceKind==='browser'?data.runId!==input.sourceId:data.operationId!==input.sourceId))return;
+  if(data.state!=='cleanup_required'||(input.sourceKind==='browser'?data.runId!==input.sourceId:input.sourceKind==='unit'?data.unitRunId!==input.sourceId:data.operationId!==input.sourceId))return;
   const {authorization,inspection,script}=input.registry.verify(input.ownerId,input.projectId,input.profileId,'cleanup');
   const started=await input.repository.start(input.projectId,input.profileId,'cleanup','automatic-'+input.sourceKind+'-'+input.sourceId,{program:authorization.packageManager,script,fingerprint:authorization.fingerprint,authorizationId:workspaceAuthorizationId(authorization),gitCommit:inspection.gitCommit});
   if(!started.reused)await executeHook({ownerId:input.ownerId,operation:started.operation,repository:input.repository,registry:input.registry,vault:input.vault,receiptRoot:input.receiptRoot});

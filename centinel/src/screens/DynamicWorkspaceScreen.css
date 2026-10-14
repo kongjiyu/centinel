@@ -140,3 +140,6 @@
 .dynamic-workspace-screen .dw-reports th:nth-child(1) { width: 25%; }
 .dynamic-workspace-screen .dw-reports th:nth-child(2) { width: 35%; }
 .dynamic-workspace-screen .dw-reports .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
+
+.dynamic-workspace-screen .dw-unit table { min-width: 650px; table-layout: fixed; }
+.dynamic-workspace-screen .dw-unit .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }

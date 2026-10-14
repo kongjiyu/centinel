@@ -1,0 +1,56 @@
+begin;
+set local role authenticated;select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+do $$
+declare p uuid:='11111111-1111-4111-8111-111111111111';env jsonb;started jsonb;uid uuid;command jsonb;token uuid:=gen_random_uuid();ret jsonb;revision jsonb;result jsonb;before_report jsonb;after_report jsonb;report_id uuid:=gen_random_uuid();preflight jsonb;
+begin
+ env:=public.save_dynamic_environment(p,'{"name":"Unit environment","targetUrl":"http://localhost:3000/","allowedOrigins":["http://localhost:3000"],"viewport":{"width":1280,"height":720},"accountRole":"Public test","requiredVariables":[],"startupInstructions":"Unit only","targetVersion":"unit-fixture"}');
+ perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'preparation','completed','Unit test fixture prepared');
+ preflight:=public.record_dynamic_unit_preflight(p,(env->>'id')::uuid,'missing-dependencies',1000,'missing_dependencies','Target Vitest dependency missing.');
+ if preflight->>'state'<>'blocked' or preflight->>'verdict'<>'not_tested' or preflight->'command'->>'frameworkVersion' is not null or public.read_dynamic_environment_data(p,(env->>'id')::uuid)->>'state'<>'ready' then raise exception 'Preflight execution or data claim invented';end if;
+ if public.record_dynamic_unit_preflight(p,(env->>'id')::uuid,'missing-dependencies',1000,'missing_dependencies','Target Vitest dependency missing.') is distinct from preflight then raise exception 'Preflight replay changed';end if;
+ perform public.capture_dynamic_unit_report(p,(preflight->>'id')::uuid,gen_random_uuid());
+ command:=jsonb_build_object('program','node','script','unit','fingerprint',repeat('a',64),'authorizationId',repeat('b',64),'gitCommit',null,'frameworkVersion','4.1.8','cliSha256',repeat('c',64),'nodeVersion','v22.20.0');
+ started:=public.start_dynamic_unit_run(p,(env->>'id')::uuid,'unit-key',command,1000);uid:=(started->'run'->>'id')::uuid;
+ if public.start_dynamic_unit_run(p,(env->>'id')::uuid,'unit-key',command,1000)->>'reused'<>'true' then raise exception 'Duplicate unit start';end if;
+ if public.read_dynamic_environment_data(p,(env->>'id')::uuid)->>'unitRunId'<>uid::text then raise exception 'Unit ownership missing';end if;
+ revision:=public.save_dynamic_revision(p,auth.uid(),'{"name":"Browser guard","goal":"Inspect","targetUrl":"http://localhost:3000/","maxSteps":1,"context":null,"checks":[{"id":"ready","criterionId":"ready","description":"Ready","kind":"visible_text","expected":"Ready","required":true}]}');
+ begin perform public.start_dynamic_run(p,auth.uid(),(revision->>'id')::uuid,'browser-key');raise exception 'Browser started during unit work';exception when raise_exception then if sqlerrm='Browser started during unit work' then raise;end if;end;
+ begin perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'cleanup','completed','Claim cleaned while active');raise exception 'Cleaned active unit';exception when raise_exception then if sqlerrm='Cleaned active unit' then raise;end if;end;
+ perform public.claim_dynamic_unit_run(p,uid,'unit-worker',token);
+ if public.heartbeat_dynamic_unit_run(p,uid,'wrong',token) then raise exception 'Wrong unit worker renewed';end if;
+ result:='{"schemaVersion":1,"framework":{"name":"vitest","version":"4.1.8"},"outcome":"passed","reason":"Validated unit success","process":{"outcome":"passed","exitCode":0,"signal":null},"assessment":{"success":true,"counts":{"total":1,"passed":1,"failed":0,"pending":0,"todo":0,"totalSuites":1,"failedSuites":0},"tests":[{"status":"passed"}]}}';
+ begin perform public.finish_dynamic_unit_run(p,uid,token,jsonb_set(result,'{assessment,counts,total}','2'));raise exception 'Incorrect counts accepted';exception when raise_exception then if sqlerrm='Incorrect counts accepted' then raise;end if;end;
+ ret:=public.finish_dynamic_unit_run(p,uid,token,result);if ret->>'state'<>'completed' or ret->>'verdict'<>'passed' then raise exception 'Unit final verdict wrong';end if;
+ before_report:=public.capture_dynamic_unit_report(p,uid,report_id);
+ if public.read_dynamic_environment_data(p,(env->>'id')::uuid)->>'state'<>'cleanup_required' then raise exception 'Unit success silently cleaned data';end if;
+ perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'cleanup','failed','Cleanup needs investigation');if public.read_dynamic_environment_data(p,(env->>'id')::uuid)->>'state'<>'cleanup_required' then raise exception 'Failed cleanup released data';end if;
+ perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'cleanup','completed','Unit fixture baseline restored');if public.read_dynamic_environment_data(p,(env->>'id')::uuid)->>'unitRunId' is not null then raise exception 'Unit pointer not cleared';end if;
+ after_report:=public.capture_dynamic_unit_report(p,uid,gen_random_uuid());if jsonb_array_length(before_report->'cleanupEvents')<>0 or jsonb_array_length(after_report->'cleanupEvents')<>2 or public.capture_dynamic_unit_report(p,uid,report_id) is distinct from before_report then raise exception 'Unit report history changed';end if;
+ if (select count(*) from public.dynamic_unit_data_events where unit_run_id=uid)<>2 then raise exception 'Unit cleanup history lost';end if;
+ perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'preparation','completed','Unit fixture prepared again');started:=public.start_dynamic_unit_run(p,(env->>'id')::uuid,'unit-cancel',command,1000);uid:=(started->'run'->>'id')::uuid;perform public.claim_dynamic_unit_run(p,uid,'unit-worker',token);perform public.cancel_dynamic_unit_run(p,uid);
+ if public.heartbeat_dynamic_unit_run(p,uid,'unit-worker',token) then raise exception 'Cancelled worker renewed';end if;
+ ret:=public.finish_dynamic_unit_run(p,uid,token,result);if ret->>'state'<>'cancelled' or ret->>'verdict'<>'not_tested' then raise exception 'Cancellation overwritten by late pass';end if;
+ perform set_config('request.jwt.claim.sub','cccccccc-cccc-4ccc-8ccc-cccccccccccc',true);if not exists(select 1 from public.dynamic_unit_reports where id=report_id) then raise exception 'Member unit report missing';end if;if not exists(select 1 from public.dynamic_unit_runs where id=uid) then raise exception 'Member cannot read unit history';end if;
+ perform set_config('request.jwt.claim.sub','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true);if exists(select 1 from public.dynamic_unit_reports where id=report_id) then raise exception 'Nonmember unit report';end if;if exists(select 1 from public.dynamic_unit_runs where id=uid) then raise exception 'Nonmember unit history';end if;
+ perform set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+ perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'cleanup','completed','Cancelled fixture restored');perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'preparation','completed','Recovery fixture prepared');
+ started:=public.start_dynamic_unit_run(p,(env->>'id')::uuid,'unit-recover',command,1000);uid:=(started->'run'->>'id')::uuid;perform public.claim_dynamic_unit_run(p,uid,'unit-worker',token);perform set_config('centinel.unit_recovery_id',uid::text,true);perform set_config('centinel.unit_recovery_token',token::text,true);perform set_config('centinel.unit_recovery_profile',env->>'id',true);
+ raise notice 'PASS: separate unit lifecycle, project exclusion, counts, cleanup ownership/events, member access and cancellation fencing';
+end $$;
+reset role;
+update public.dynamic_unit_runs set expires_at=clock_timestamp()-interval '1 second' where id=current_setting('centinel.unit_recovery_id')::uuid;
+set local role authenticated;
+do $$declare p uuid:='11111111-1111-4111-8111-111111111111';rid uuid:=current_setting('centinel.unit_recovery_id')::uuid;begin
+ perform public.recover_dynamic_unit_runs(p);
+ if (select payload->>'state' from public.dynamic_unit_runs where id=rid)<>'interrupted' then raise exception 'Expired unit did not interrupt';end if;
+ if public.read_dynamic_environment_data(p,current_setting('centinel.unit_recovery_profile')::uuid)->>'state'<>'cleanup_required' then raise exception 'Recovered unit silently released data';end if;
+ if public.finish_dynamic_unit_run(p,rid,current_setting('centinel.unit_recovery_token')::uuid,'{"schemaVersion":1,"outcome":"passed"}') is not null then raise exception 'Expired worker overwrote interruption';end if;
+end $$;
+reset role;
+delete from public.project_members where project_id='11111111-1111-4111-8111-111111111111' and user_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+set local role authenticated;select set_config('request.jwt.claim.sub','cccccccc-cccc-4ccc-8ccc-cccccccccccc',true);
+do $$begin
+ if exists(select 1 from public.dynamic_unit_runs where project_id='11111111-1111-4111-8111-111111111111') or exists(select 1 from public.dynamic_unit_reports where project_id='11111111-1111-4111-8111-111111111111') then raise exception 'Revoked unit access';end if;
+ begin perform public.recover_dynamic_unit_runs('11111111-1111-4111-8111-111111111111');raise exception 'Revoked worker access';exception when insufficient_privilege then null;end;
+end $$;
+rollback;
