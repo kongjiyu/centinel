@@ -134,6 +134,10 @@ export type ProjectReportDownloadLinks = {
   downloads: { json: string; markdown: string; pdf: string };
 };
 
+async function downloadReport(endpoint:string,id:string,format:'json'|'markdown'|'pdf'){
+    const token=sessionStorage.getItem('centinel:supabase-access-token');const response=await fetch(`${BASE}${endpoint}`,{cache:'no-store',signal:AbortSignal.timeout(30000),headers:token?{Authorization:`Bearer ${token}`}:{}});if(!response.ok)throw new ApiError('Report export is unavailable for this account.',response.status);
+    const bound=8*1024*1024;const reader=response.body?.getReader();if(!reader)throw Error('Report body unavailable.');const chunks:Uint8Array[]=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>bound)throw Error('Report export exceeds the download bound.');chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return {bytes,sha256:response.headers.get('X-Centinel-SHA256')??'',filename:`centinel-dynamic-${id}.${format==='markdown'?'md':format}`,mimeType:response.headers.get('Content-Type')??'application/octet-stream'};
+}
 export const api = {
   health: () => request<{ status: string }>('/health'),
 
@@ -299,10 +303,13 @@ export const api = {
   dynamicReports:(project:string,run:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSummary[]>(`/projects/${project}/dynamic/runs/${run}/reports`),
   captureDynamicReport:(project:string,run:string,reportId:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSnapshot>(`/projects/${project}/dynamic/runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
   dynamicReport:(project:string,id:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSnapshot>(`/projects/${project}/dynamic/reports/${id}`),
-  dynamicReportExport:async(project:string,id:string,format:'json'|'markdown'|'pdf')=>{
-    const token=sessionStorage.getItem('centinel:supabase-access-token');const response=await fetch(`${BASE}/projects/${project}/dynamic/reports/${id}/${format}`,{cache:'no-store',signal:AbortSignal.timeout(30000),headers:token?{Authorization:`Bearer ${token}`}:{}});if(!response.ok)throw new ApiError('Report export is unavailable for this account.',response.status);
-    const bound=8*1024*1024;const reader=response.body?.getReader();if(!reader)throw Error('Report body unavailable.');const chunks:Uint8Array[]=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>bound)throw Error('Report export exceeds the download bound.');chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return {bytes,sha256:response.headers.get('X-Centinel-SHA256')??'',filename:`centinel-dynamic-${id}.${format==='markdown'?'md':format}`,mimeType:response.headers.get('Content-Type')??'application/octet-stream'};
-  },
+  dynamicReportExport:(project:string,id:string,format:'json'|'markdown'|'pdf')=>downloadReport(`/projects/${project}/dynamic/reports/${id}/${format}`,id,format),
+  unitRuns:(project:string,profile:string)=>request<import('../../../sidecar/src/dynamic/unit/types').DynamicUnitRun[]>(`/projects/${project}/dynamic/environments/${profile}/unit-runs`),
+  startUnitRun:(project:string,profile:string,idempotencyKey:string,timeoutMs:number)=>request<import('../../../sidecar/src/dynamic/unit/types').DynamicUnitRun>(`/projects/${project}/dynamic/environments/${profile}/unit-runs`,{method:'POST',body:JSON.stringify({idempotencyKey,timeoutMs})}),
+  cancelUnitRun:(project:string,profile:string,id:string)=>request<import('../../../sidecar/src/dynamic/unit/types').DynamicUnitRun>(`/projects/${project}/dynamic/environments/${profile}/unit-runs/${id}/cancel`,{method:'POST',body:'{}'}),
+  unitReports:(project:string,run:string)=>request<import('../../../sidecar/src/dynamic/unit/reports').UnitReportSnapshot['metadata'][]>(`/projects/${project}/dynamic/unit-runs/${run}/reports`),
+  captureUnitReport:(project:string,run:string,reportId:string)=>request<import('../../../sidecar/src/dynamic/unit/reports').UnitReportSnapshot>(`/projects/${project}/dynamic/unit-runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
+  unitReportExport:(project:string,id:string,format:'json'|'markdown'|'pdf')=>downloadReport(`/projects/${project}/dynamic/unit-reports/${id}/${format}`,id,format),
   dynamicMissions: (projectId: string) => request<Mission[]>(`/projects/${projectId}/dynamic/missions`),
   dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
   saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),

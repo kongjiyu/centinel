@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { workspaceAuthorizationId, type WorkspaceRegistry } from '../workspace/registry.js';
 import { runBoundedProcess } from '../workspace/process.js';
 import { MAX_UNIT_REPORT_BYTES, parseVitestReport, unitText } from './parser.js';
@@ -49,7 +51,17 @@ export function resolveVitestWorkspace(input: {
     const executable = authorization.runtimeBinDirectory ? path.join(authorization.runtimeBinDirectory, process.platform === 'win32' ? 'node.exe' : 'node') : process.execPath;
     if (!fs.existsSync(executable))
         throw new UnitPrerequisiteError('missing_dependencies', 'Selected Node runtime is missing.');
-    return { ...verified, version: manifest.version as string, executable, cli };
+    let nodeVersion: string;
+    try {
+        nodeVersion = execFileSync(executable, ['--version'], { timeout: 2000, maxBuffer: 100, env: { PATH: process.env.PATH ?? '' }, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        if (!/^v\d+\.\d+\.\d+$/.test(nodeVersion))
+            throw Error();
+    }
+    catch {
+        throw new UnitPrerequisiteError('missing_dependencies', 'Selected Node runtime version could not be verified.');
+    }
+    const cliSha256 = crypto.createHash('sha256').update(fs.readFileSync(cli)).digest('hex');
+    return { ...verified, version: manifest.version as string, executable, cli, nodeVersion, cliSha256 };
 }
 export async function runVitestWorkspace(input: {
     registry: WorkspaceRegistry;
@@ -62,6 +74,9 @@ export async function runVitestWorkspace(input: {
     signal?: AbortSignal;
     onOutput?(value: string): void;
     expectedAuthorizationId?: string;
+    expectedFrameworkVersion?: string;
+    expectedCliSha256?: string;
+    expectedNodeVersion?: string;
 }): Promise<UnitExecutionResult> {
     const startedAt = new Date().toISOString();
     const result: UnitExecutionResult = { schemaVersion: 1, framework: { name: 'vitest', version: null }, command: { program: 'node', script: null, args: ['vitest.mjs', 'run', '--reporter=json', '--outputFile=[private report]', '--cache=false'] }, workspace: { fingerprint: null, gitCommit: null, authorizationId: null }, outcome: 'configuration_error', process: null, assessment: null, reason: 'Unit execution was not started.', startedAt, finishedAt: startedAt, limitations: ['Authorized repository tests execute local code; this adapter is not an operating-system sandbox.', 'No model-generated tests, dependency installation, browser checks or performance benchmark is implied.', 'Logs and machine reports are bounded; missing results never establish a passing suite.'] };
@@ -75,9 +90,12 @@ export async function runVitestWorkspace(input: {
         const authorizationId = workspaceAuthorizationId(resolved.authorization);
         if (input.expectedAuthorizationId && authorizationId !== input.expectedAuthorizationId)
             return finish('configuration_error', 'Workspace authorization changed before execution.');
+        if ((input.expectedFrameworkVersion && input.expectedFrameworkVersion !== resolved.version) || (input.expectedCliSha256 && input.expectedCliSha256 !== resolved.cliSha256) || (input.expectedNodeVersion && input.expectedNodeVersion !== resolved.nodeVersion))
+            return finish('configuration_error', 'Installed framework changed after the unit command was frozen.');
         result.framework.version = resolved.version;
+        result.framework.nodeVersion = resolved.nodeVersion;
         result.command.script = resolved.script;
-        result.workspace = { fingerprint: resolved.inspection.fingerprint, gitCommit: resolved.inspection.gitCommit, authorizationId };
+        result.workspace = { fingerprint: resolved.inspection.fingerprint, gitCommit: resolved.inspection.gitCommit, authorizationId, cliSha256: resolved.cliSha256 };
         fs.mkdirSync(input.receiptRoot, { recursive: true, mode: 0o700 });
         directory = fs.mkdtempSync(path.join(input.receiptRoot, 'vitest-'));
         fs.chmodSync(directory, 0o700);
