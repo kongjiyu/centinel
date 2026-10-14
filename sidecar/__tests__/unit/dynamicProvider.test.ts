@@ -19,11 +19,12 @@ vi.mock('../../src/dynamicSessions.js', () => ({ updateDynamicSessionStatus: vi.
 vi.mock('../../src/tokenUsage.js', () => ({ recordTokenUsage: vi.fn() }));
 const setting = { ownerId: 'verified-user', provider: 'codex' as const, apiFormat: 'codex-app-server' as const, model: 'account-model', apiKey: '', baseUrl: '' };
 const session = { id: 'session-1', projectId: 'project-1', type: 'dynamic' as const, name: 'Demo', status: 'queued' as const, targetUrl: 'https://example.test', goal: 'Check page', missionType: 'smoke' as const, browserMode: 'headed' as const, maxSteps: 1, finalSummary: '', failureReason: '', createdAt: '', updatedAt: '' };
-let workspace: string;
+let workspace: string;let pageStub:any;
 beforeEach(() => {
   vi.clearAllMocks(); model.options.length = 0;
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-dynamic-unit-'));
-  const page = { on: vi.fn(), goto: vi.fn(), waitForTimeout: vi.fn(), screenshot: vi.fn(async ({ path: file }: { path: string }) => fs.writeFileSync(file, 'fixture')), url: () => 'https://example.test', title: async () => 'Demo', evaluate: async () => 'Demo content' };
+  const page = { context:()=>({pages:()=>[],on:vi.fn(),route:vi.fn(),routeWebSocket:vi.fn()}), frames:()=>[], on: vi.fn(), goto: vi.fn(), waitForTimeout: vi.fn(), screenshot: vi.fn(async ({ path: file }: { path: string }) => fs.writeFileSync(file, 'fixture')), url: () => 'https://example.test', title: async () => 'Demo', evaluate: async () => 'Demo content' };
+  pageStub=page;
   vi.mocked(chromium.launch).mockResolvedValue({ newPage: async () => page, close: vi.fn().mockResolvedValue(undefined) } as any);
   model.analyze.mockResolvedValue({ result: { action: 'finish_failure', summary: 'Expected content missing', reasoning: 'Compared to goal' }, usage: { inputTokens: 10, outputTokens: 2 } });
   // The page-context helper expects its second evaluation to return elements.
@@ -40,6 +41,14 @@ describe('Dynamic shared provider and run basics', () => {
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex', inputTokens: 10, outputTokens: 2, callKind: 'dynamic' }));
     expect(db.run.mock.calls.filter(([sql]) => sql.includes('INSERT INTO findings'))).toHaveLength(1);
     expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id, 'failure', expect.any(String), 'Expected content missing');
+  });
+  it('sanitizes provider-bound goals and retained model/trace output',async()=>{
+    const secret='qa-provider-seed-918';pageStub.evaluate=vi.fn().mockResolvedValueOnce('x'.repeat(1990)+secret).mockResolvedValueOnce([]);model.analyze.mockResolvedValue({result:{action:'finish_failure',summary:secret,reasoning:'Observed '+secret}});
+    await runDynamicSession({...session,goal:'Inspect '+secret+' at https://example.test/?code=unknown'},workspace,{vision:setting,sensitiveValues:[secret]});
+    const request=JSON.stringify(model.analyze.mock.calls[0][0]);expect(request).not.toContain(secret);expect(request).not.toContain('qa-provider');expect(request).not.toContain('code=unknown');
+    const folder=path.join(workspace,'sessions',session.id);const files=fs.readdirSync(folder,{recursive:true}).filter((name)=>typeof name==='string'&&/\.(json|md)$/.test(name));
+    expect(files.length).toBeGreaterThan(3);for(const file of files)expect(fs.readFileSync(path.join(folder,String(file)),'utf8')).not.toContain(secret);
+    expect(JSON.stringify(vi.mocked(updateDynamicSessionStatus).mock.calls)).not.toContain(secret);expect(JSON.stringify(db.run.mock.calls)).not.toContain(secret);
   });
   it('marks model/auth failures blocked without creating a product finding', async () => {
     model.analyze.mockRejectedValue(new ModelProviderError('Reconnect Codex.', { code: 'codex_not_connected', retryable: false }));

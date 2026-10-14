@@ -1,3 +1,5 @@
+import {captureProtectedPage} from './browser/capture.js';
+import {redactObservationRecord} from './browser/privacy.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,7 +15,7 @@ import type { DynamicRun, EvidenceReference } from './types.js';
 
 /** Attach a frozen Mission revision to the existing local browser executor. */
 export async function executeMissionRun(service: DynamicService, run: DynamicRun, workspace: string,
-  providers: { vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown> }) {
+  providers: { runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown> }) {
   let legacySessionId: string | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let heartbeatPending = false;
@@ -34,8 +36,9 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     await runDynamicSession(session, workspace, {
       ...providers,
       viewport: run.environment?.viewport,
+      allowedOrigins:run.environment?.allowedOrigins??[new URL(run.revision.targetUrl).origin],
       verifyOutcome: async (page, signal) => {
-        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal);
+        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,providers);
         await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
         await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
         return result.verdict;
@@ -57,12 +60,12 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
 }
 
 /** Also usable by a scripted development baseline, without pretending it is an LLM run. */
-export async function verifyAndRetain(service: DynamicService, run: DynamicRun, page: Page, outputDirectory: string, signal?: AbortSignal) {
+export async function verifyAndRetain(service: DynamicService, run: DynamicRun, page: Page, outputDirectory: string, signal?: AbortSignal, privacy:{sensitiveValues?:readonly string[];sensitiveSelectors?:readonly string[]}={}) {
   fs.mkdirSync(outputDirectory, { recursive: true });
   const screenshotPath = path.join(outputDirectory, 'criterion-page.png');
-  await page.screenshot({ path: screenshotPath, fullPage: false });
+  await captureProtectedPage(page,screenshotPath,{secrets:privacy.sensitiveValues,sensitiveSelectors:privacy.sensitiveSelectors,signal});
   const screenshot: EvidenceReference = { id: crypto.randomUUID(), kind: 'screenshot', sha256: crypto.createHash('sha256').update(fs.readFileSync(screenshotPath)).digest('hex'), availability: 'local', capturedAt: new Date().toISOString() };
-  const results = await checkPage(page, run.revision.checks, [screenshot.id], signal);
+  const results = redactObservationRecord(await checkPage(page, run.revision.checks, [screenshot.id], signal),privacy.sensitiveValues??[]);
   const resultsPath = path.join(outputDirectory, 'checks.json');
   fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
   const evidence: EvidenceReference[] = [screenshot, { id: crypto.randomUUID(), kind: 'checks', sha256: crypto.createHash('sha256').update(fs.readFileSync(resultsPath)).digest('hex'), availability: 'local', capturedAt: new Date().toISOString() }];

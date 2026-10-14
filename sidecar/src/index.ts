@@ -464,6 +464,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const project = await ensureDynamicWorkspace(sharedProject);
           const browserExecute = (run: import('./dynamic/types.js').DynamicRun) => executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
+            sensitiveValues:profile?Object.values(vault.read(ownerId,projectId,profile.id)):[],
             recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
               ownerId, projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
               provider: usage.provider, model: usage.model, outcome: 'success', inputTokens: usage.inputTokens,
