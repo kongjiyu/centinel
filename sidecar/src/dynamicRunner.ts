@@ -1,3 +1,4 @@
+import {PERSONAS,type UsabilityConfig} from './dynamic/usability/types.js';
 import {ApprovedDownloads} from './dynamic/browser/downloads.js';
 import {ExplorationJournal,type ExplorationSnapshot} from './dynamic/browser/exploration.js';
 import {NetworkDiagnostics} from './dynamic/browser/networkDiagnostics.js';
@@ -242,7 +243,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
+  providers: { usabilityConfig?:UsabilityConfig;resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}, budgetControl?:{reserveKeyboardAction():boolean}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -409,7 +410,7 @@ export async function runDynamicSession(
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
 
-      let prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step, providers.actionPolicy));
+      let prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step, providers.actionPolicy)+(providers.usabilityConfig?`\nSimulated usability perspective: ${PERSONAS[providers.usabilityConfig.persona].description} Selected rules: ${providers.usabilityConfig.rules.join(', ')}. This perspective does not authorize additional actions or establish a real-user study. Complete only the declared goal within the recorded permissions.`:''));
       if(exploration)prompt+=sanitize('\nBounded exploratory task: prioritize relevant untried approved controls for selected objectives. Do not claim exhaustive coverage. Snapshot: '+exploration.planningContext());
       fs.writeFileSync(aiRequestPath, JSON.stringify({ prompt, context, step }, null, 2));
       await addEvidence(session.projectId, session.id, 'ai_request', aiRequestPath, `Step ${step} AI request`);
@@ -488,7 +489,9 @@ export async function runDynamicSession(
           status='blocked';terminalReason=sanitize('Agent stopped before completing the requested scope: '+action.summary);failureCategory='unknown';break;
         }
         if (providers.verifyOutcome && (action.action === 'finish_success' || action.action === 'finish_failure')) {
-          const verifiedOutcome = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors,downloads:downloads?.receipts,...(exploration?{exploration:exploration.snapshot()}: {})});
+          const verificationPrivacy={sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors,downloads:downloads?.receipts,...(exploration?{exploration:exploration.snapshot()}: {})};
+          const budgetControl={reserveKeyboardAction:()=>{try{budget.startStep();return true;}catch(error){if(error instanceof ExecutionBudgetExceeded)return false;throw error;}}};
+          const verifiedOutcome = await (providers.usabilityConfig?providers.verifyOutcome(page,signal,verificationPrivacy,budgetControl):providers.verifyOutcome(page,signal,verificationPrivacy));
           const verdict=typeof verifiedOutcome==='string'?verifiedOutcome:verifiedOutcome.verdict;
           if(exploration&&typeof verifiedOutcome!=='string')exploration.setIndependentResults(verifiedOutcome.checks);
           status = verdict === 'passed' ? 'success' : verdict === 'failed' ? 'failure' : 'blocked';

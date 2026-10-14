@@ -1,4 +1,4 @@
-import type {UsabilityConfig} from './usability/types.js';
+import type {UsabilityConfig,UsabilityAssessment} from './usability/types.js';
 import type {RegressionBaseline} from './regression.js';
 import type {ExplorationSnapshot} from './browser/exploration.js';
 import type {BrowserActionPolicy} from './browser/actionPolicy.js';
@@ -17,7 +17,7 @@ export type CheckDefinition = {
  | {kind:'selected_values';selector:string;expected:string[]}|{kind:'download_sha256';url:string;expected:string});
 export type CheckVerdict = 'passed' | 'failed' | 'uncertain' | 'not_tested';
 export type RunState = 'queued' | 'running' | 'completed' | 'blocked' | 'cancelled' | 'interrupted';
-export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks' | 'file_manifest'; sha256: string; availability: 'local'; capturedAt: string };
+export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks' | 'file_manifest' | 'usability'; sha256: string; availability: 'local'; capturedAt: string };
 export type CheckResult = { checkId: string; criterionId: string; verdict: CheckVerdict; observed: string | null; reason: string; evidenceIds: string[]; checkedAt: string };
 export type CriterionExclusion = {criterionId:string;reason:string};
 export type MissionInput = {usability?:UsabilityConfig;mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
@@ -31,10 +31,11 @@ export type DynamicRun = {
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   regression?:RegressionBaseline;
   exploration?:ExplorationSnapshot;
+  usability?:UsabilityAssessment;
   state: RunState; verdict: CheckVerdict; reason: string | null;
   checks: CheckResult[]; evidence: EvidenceReference[]; legacySessionId: string | null;
 };
-export type RunPatch = Pick<DynamicRun, 'state' | 'verdict' | 'reason' | 'checks' | 'evidence' | 'updatedAt' | 'legacySessionId'> & { leaseToken?: string;exploration?:ExplorationSnapshot };
+export type RunPatch = Pick<DynamicRun, 'state' | 'verdict' | 'reason' | 'checks' | 'evidence' | 'updatedAt' | 'legacySessionId'> & { leaseToken?: string;exploration?:ExplorationSnapshot;usability?:UsabilityAssessment };
 export interface DynamicRepository {
   saveRevision(projectId: string, actorId: string, input: MissionInput, missionId?: string): Promise<MissionRevision>;
   listMissions(projectId: string): Promise<Mission[]>;

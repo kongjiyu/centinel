@@ -1,3 +1,4 @@
+import {assessUsability} from './usability/assessment.js';
 import {normalizeActionPolicy} from './browser/actionPolicy.js';
 import {normalizeBudget} from './budgets.js';
 import type {BrowserSessionState} from './environment/sessionVault.js';
@@ -55,6 +56,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     await runDynamicSession(session, workspace, {
       ...providers,
       budgets:limits,
+      usabilityConfig:run.revision.usability,
       observationMode:'dom_first',
       ...(run.revision.mode==='exploratory'?{exploratoryChecks:run.revision.checks,checkpointExploration:async(snapshot:import('./browser/exploration.js').ExplorationSnapshot)=>{if(!lease?.canForward())throw new DOMException('Execution lease unavailable','AbortError');await service.checkpointExploration(run.projectId,run.id,snapshot);if(!lease?.canForward())throw new DOMException('Execution lease unavailable','AbortError');}}:{}),
       actionPolicy:normalizeActionPolicy(run.actionPolicy??run.environment?.actionPolicy),
@@ -63,12 +65,12 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
       viewport: run.environment?.viewport,
       sessionReadySelector:run.environment?.sessionReadySelector,
       allowedOrigins:run.environment?.allowedOrigins??[new URL(run.revision.targetUrl).origin],
-      verifyOutcome: async (page, signal, privacy) => {
+      verifyOutcome: async (page, signal, privacy, budgetControl) => {
         if (!lease?.canForward() || signal.aborted) throw new DOMException('Execution lease unavailable', 'AbortError');
-        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy);
+        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy,()=>lease?.canForward()===true,budgetControl?.reserveKeyboardAction);
         await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
         await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
-        if(result.evidence[2])await addEvidence(run.projectId,session.id,'session_summary',path.join(workspace,'sessions',session.id,'logs','file-manifest.json'),'Independent captured-file manifest',result.evidence[2].id);
+        for(const ref of result.evidence.slice(2))await addEvidence(run.projectId,session.id,'session_summary',path.join(workspace,'sessions',session.id,'logs',ref.kind==='usability'?'usability.json':'file-manifest.json'),ref.kind==='usability'?'Usability rule observations':'Independent captured-file manifest',ref.id);
         return {verdict:result.verdict,checks:result.checks};
       },
     });
@@ -88,7 +90,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
 }
 
 /** Also usable by a scripted development baseline, without pretending it is an LLM run. */
-export async function verifyAndRetain(service: DynamicService, run: DynamicRun, page: Page, outputDirectory: string, signal?: AbortSignal, privacy:{sensitiveValues?:readonly string[];sensitiveSelectors?:readonly string[];downloads?:readonly import('./browser/fileTypes.js').DownloadReceipt[]}={}) {
+export async function verifyAndRetain(service: DynamicService, run: DynamicRun, page: Page, outputDirectory: string, signal?: AbortSignal, privacy:{sensitiveValues?:readonly string[];sensitiveSelectors?:readonly string[];downloads?:readonly import('./browser/fileTypes.js').DownloadReceipt[]}={},canForward:()=>boolean=()=>true,reserveKeyboardAction?:()=>boolean) {
   fs.mkdirSync(outputDirectory, { recursive: true });
   const screenshotPath = path.join(outputDirectory, 'criterion-page.png');
   await captureProtectedPage(page,screenshotPath,{secrets:privacy.sensitiveValues,sensitiveSelectors:privacy.sensitiveSelectors,signal});
@@ -99,6 +101,14 @@ export async function verifyAndRetain(service: DynamicService, run: DynamicRun, 
   const resultsPath = path.join(outputDirectory, 'checks.json');
   fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
   const evidence: EvidenceReference[] = [screenshot, { id: crypto.randomUUID(), kind: 'checks', sha256: crypto.createHash('sha256').update(fs.readFileSync(resultsPath)).digest('hex'), availability: 'local', capturedAt: new Date().toISOString() },...(manifest?[manifest]:[])];
+  let usability:import('./usability/types.js').UsabilityAssessment|undefined;
+  if(run.revision.usability){
+    const ref:EvidenceReference={id:crypto.randomUUID(),kind:'usability',sha256:'',availability:'local',capturedAt:new Date().toISOString()};
+    usability=await assessUsability(page,run.revision.usability,{signal:signal??new AbortController().signal,canForward,reserveKeyboardAction,checks:results,evidenceIds:[screenshot.id,ref.id],secrets:privacy.sensitiveValues});
+    const content=JSON.stringify(usability,null,2);fs.writeFileSync(path.join(outputDirectory,'usability.json'),content,{mode:0o600});
+    ref.sha256=crypto.createHash('sha256').update(content).digest('hex');evidence.push(ref);
+  }
+  if(!canForward())throw new DOMException('Execution lease unavailable','AbortError');
   if (signal?.aborted) throw new DOMException('Execution stopped before verification persisted', 'AbortError');
-  return service.finish(run.projectId, run.id, results, evidence);
+  return service.finish(run.projectId, run.id, results, evidence,usability);
 }

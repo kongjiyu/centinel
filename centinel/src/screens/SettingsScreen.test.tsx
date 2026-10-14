@@ -85,7 +85,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByText('Import and review shared documents and requirements.')).toBeInTheDocument();
     expect(screen.getByText('Connect repositories and pull request context to reviews.')).toBeInTheDocument();
     expect(screen.getByText('Share review updates and collaborate with your team.')).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Connect Codex' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Connect Codex' })).toBeEnabled());
     expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
     expect(screen.getByText('Current version')).toBeInTheDocument();
     expect(screen.getByText('Latest version')).toBeInTheDocument();

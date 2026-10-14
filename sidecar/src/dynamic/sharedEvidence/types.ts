@@ -5,7 +5,7 @@ export type EvidenceCopy = {
     projectId: string;
     runId: string;
     evidenceId: string;
-    kind: 'screenshot' | 'checks' | 'file_manifest' | import('./artifacts.js').ArtifactKind;
+    kind: 'screenshot' | 'checks' | 'file_manifest' | 'usability' | import('./artifacts.js').ArtifactKind;
     sha256: string;
     bytes: number;
     mimeType: string;

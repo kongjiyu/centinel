@@ -1,3 +1,5 @@
+import {DynamicUsabilityEditor,DynamicUsabilityResults} from './DynamicUsabilityPanel';
+import type {UsabilityConfig} from '../../../sidecar/src/dynamic/usability/types';
 import {RunEvidencePanel} from './RunEvidencePanel';
 import {DynamicFindingsPanel} from './DynamicFindingsPanel';
 import {RunDownloadedFiles} from './RunDownloadedFiles';
@@ -38,6 +40,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const [name, setName] = useState(''); const [goal, setGoal] = useState(''); const [targetUrl, setTargetUrl] = useState('');
   const [environmentDataBusy,setEnvironmentDataBusy]=useState(false);
   const [environmentId, setEnvironmentId] = useState('');
+  const [usability,setUsability]=useState<UsabilityConfig|undefined>();
   const [mode,setMode]=useState<'guided'|'exploratory'>('guided');
   const [maxSteps, setMaxSteps] = useState(15);
   const [draftContext,setDraftContext]=useState<StaticContextFixture|null>(null);
@@ -59,7 +62,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const activeRun = runs.find(active);
   const criteria=draftContext?.requirements.flatMap(requirement=>requirement.criteria)??[];
 
-  const resetDraft = useCallback(() => { setMissionId(null);setMode('guided'); setName(''); setGoal(''); setTargetUrl(''); setMaxSteps(15); setSource('manual');contextSequence.current++;setContextLoading(false);setDraftContext(null);setContextScenario('normal');setContextAcknowledged(false);setCriterionExclusions([]); setChecks([emptyCheck()]); dirty.current = false; setFeedback(''); }, []);
+  const resetDraft = useCallback(() => { setMissionId(null);setUsability(undefined);setMode('guided'); setName(''); setGoal(''); setTargetUrl(''); setMaxSteps(15); setSource('manual');contextSequence.current++;setContextLoading(false);setDraftContext(null);setContextScenario('normal');setContextAcknowledged(false);setCriterionExclusions([]); setChecks([emptyCheck()]); dirty.current = false; setFeedback(''); }, []);
   const load = useCallback(async () => {
     if (!projectId) return;
     const generation = loadGeneration.current;
@@ -103,7 +106,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const edit = (revision: MissionRevision) => {
     setSelectedRunId('');
     onNavigate({ name: 'dynamic-testing', projectId });
-    setMissionId(revision.missionId);setMode(revision.mode??'guided'); setName(revision.name); setGoal(revision.goal); setTargetUrl(revision.targetUrl); setMaxSteps(revision.maxSteps);
+    setMissionId(revision.missionId);setUsability(revision.usability?structuredClone(revision.usability):undefined);setMode(revision.mode??'guided'); setName(revision.name); setGoal(revision.goal); setTargetUrl(revision.targetUrl); setMaxSteps(revision.maxSteps);
     contextSequence.current++;setContextLoading(false);setContextScenario('recorded');setContextAcknowledged(revision.contextAcknowledged);setCriterionExclusions(revision.criterionExclusions??[]);
     try{setDraftContext(validateIncomingContext(revision.context,projectId));}catch{setDraftContext(null);}
     setSource(revision.context ? 'mock' : 'manual');
@@ -123,7 +126,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     try {
       if(source==='mock'&&(!draftContext||(contextNeedsAcknowledgment(draftContext)&&!contextAcknowledged)))throw new Error('Load and acknowledge the incoming mock snapshot, or choose manual criteria.');
       const definitions=checks.map(check=>draftToCheck(check,source==='mock'?check.criterionId:`manual-${check.id}`));
-      const revision = await api.saveDynamicMission(projectId, { mode,name, goal, targetUrl, maxSteps, checks: definitions, context:source==='mock'?draftContext:null,contextAcknowledged:source==='mock'&&contextAcknowledged,criterionExclusions:source==='mock'?criterionExclusions:[] }, missionId ?? undefined);
+      const revision = await api.saveDynamicMission(projectId, { ...(usability?{usability}:{}),mode,name, goal, targetUrl, maxSteps, checks: definitions, context:source==='mock'?draftContext:null,contextAcknowledged:source==='mock'&&contextAcknowledged,criterionExclusions:source==='mock'?criterionExclusions:[] }, missionId ?? undefined);
       if(generation!==loadGeneration.current)return;await load();if(generation!==loadGeneration.current)return; edit(revision); setFeedback(`Saved revision ${revision.revision}. Ready to run.`);
     } catch (e) { if(generation===loadGeneration.current)setError(userFacingError(e, 'The test could not be saved. Your inputs are preserved.')); }
     finally { if(generation===loadGeneration.current)setBusy(false); }
@@ -167,6 +170,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
               </div>)}
               <button type="button" className="btn-secondary" disabled={checks.length >= 20 || busy} onClick={() => { dirty.current = true; setChecks(previous => [...previous, emptyCheck()]); }}><Plus size={16} /> Add check</button>
             </fieldset>
+            <DynamicUsabilityEditor value={usability} checks={checks} onChange={value=>{dirty.current=true;setUsability(value);}}/>
             <details className="dw-advanced"><summary>Advanced options</summary><div className="dw-field"><label htmlFor="dw-steps">Step limit</label><input id="dw-steps" type="number" min={1} max={25} value={maxSteps} onChange={e => { dirty.current = true; setMaxSteps(Number(e.target.value)); }} /></div></details>
             <div className="dw-actions"><button type="submit" className="btn-primary" disabled={busy||loading||contextLoading||(source==='mock'&&(!draftContext||(contextNeedsAcknowledgment(draftContext)&&!contextAcknowledged)))}>{busy ? 'Working…' : 'Save test'}</button>{selectedRevision && <button type="button" className="btn-secondary" disabled={busy || environmentDataBusy || Boolean(activeRun) || dirty.current} onClick={() => void start(selectedRevision)}>Run saved test</button>}</div>
             {feedback && <p role="status" className="dw-feedback"><CheckCircle2 size={16} /> {feedback}</p>}
@@ -193,6 +197,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
         {revisions.some(revision => revision.missionId === selectedRun.missionId && revision.id !== selectedRun.revision.id) && <p className="dw-notice">This result belongs to an earlier revision and does not validate the current test.</p>}
         {selectedRun.revision.context && <p className="dw-muted">Criteria source: example requirements (mock). Browser observations are recorded separately.</p>}
         <DynamicCoveragePanel run={selectedRun}/>
+        <DynamicUsabilityResults run={selectedRun}/>
         <details className="dw-advanced"><summary>Recorded browser permissions</summary>{selectedRun.actionPolicy?<><p>{selectedRun.actionPolicy.interactions.length} ordinary controls · Coordinates {selectedRun.actionPolicy.allowCoordinates?'enabled for approved controls':'disabled'}</p>{selectedRun.actionPolicy.interactions.length>0&&<ul className="dw-recorded-permissions">{selectedRun.actionPolicy.interactions.map(grant=><li key={grant.selector}><code>{grant.selector}</code> · {grant.actions.join(', ')}{grant.actions.includes('click')?(grant.repeatable?' · repeatable click approved':' · click repetition not approved'):''}</li>)}</ul>}<p>Ordinary grants do not approve file controls, downloads or implicit keyboard submissions.</p></>:<p>Permissions were not recorded for this historical Run. Current environment settings do not establish its original conditions.</p>}{selectedRun.actionPolicy?.uploads?.length?<ul className="dw-recorded-permissions">{selectedRun.actionPolicy.uploads.map(grant=><li key={grant.selector}>Approved upload <code>{grant.selector}</code> · {grant.bytes} bytes · SHA-256 {grant.sha256}</li>)}</ul>:null}{selectedRun.actionPolicy?.downloads?.length?<ul className="dw-recorded-permissions">{selectedRun.actionPolicy.downloads.map(grant=><li key={grant.selector}>Approved download <code>{grant.selector}</code> · {grant.url} · {grant.mimeType} · up to {grant.maxBytes} bytes</li>)}</ul>:null}{selectedRun.actionPolicy?.privateInputs?.length?<ul className="dw-recorded-permissions">{selectedRun.actionPolicy.privateInputs.map(grant=><li key={grant.origin+grant.selector}>Private input <code>{grant.selector}</code> · {grant.variable} · {grant.origin} · value withheld</li>)}</ul>:null}{selectedRun.executionVersions&&<p>Engine versions: observer {selectedRun.executionVersions.observer} · planner {selectedRun.executionVersions.planner} · policy {selectedRun.executionVersions.policy} · executor {selectedRun.executionVersions.executor} · checker {selectedRun.executionVersions.checker}{selectedRun.executionVersions.files?` · files ${selectedRun.executionVersions.files}`:''}</p>}</details>
         <DynamicRegressionPanel run={selectedRun}/>
         <DynamicFindingsPanel key={projectId+selectedRun.missionId} projectId={projectId} run={selectedRun} runs={runs}/>

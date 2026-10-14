@@ -4,7 +4,7 @@ import { saveDownloadedCopy } from '../dynamic/saveDownloadedCopy';
 import { userFacingError } from '../utils/userFacingError';
 import type { DynamicRun } from '../dynamic/types';
 import type { EvidenceCopy } from '../../../sidecar/src/dynamic/sharedEvidence/types';
-const copyLabel = (kind: EvidenceCopy['kind']) => ({ screenshot: 'Check screenshot', checks: 'Independent check results', file_manifest: 'Captured-file manifest', partial_trace: 'Partial action trace', partial_network: 'Partial network diagnostics', partial_console: 'Partial console logs', partial_budget: 'Partial execution budget', partial_observation: 'Partial page observation',partial_manifest:'Partial artifact availability manifest', download: 'Captured test file' }[kind]);
+const copyLabel = (kind: EvidenceCopy['kind']) => ({ screenshot: 'Check screenshot', checks: 'Independent check results', usability:'Usability rule observations', file_manifest: 'Captured-file manifest', partial_trace: 'Partial action trace', partial_network: 'Partial network diagnostics', partial_console: 'Partial console logs', partial_budget: 'Partial execution budget', partial_observation: 'Partial page observation',partial_manifest:'Partial artifact availability manifest', download: 'Captured test file' }[kind]);
 export function RunEvidencePanel({ projectId, run }: {
     projectId: string;
     run: DynamicRun;
