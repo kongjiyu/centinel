@@ -85,3 +85,70 @@ shared evidence and exports remain their own later milestone.
 
 Local retained record: sidecar/output/playwright/network-policy-live.json.
 Static implementation and native desktop testing remain excluded.
+
+## M2d2a delivered session workflow
+
+Profiles optionally declare a bounded session reference and a uniquely visible
+signed-in readiness selector. Save both to enable authentication. Cookie/localStorage
+state is validated against approved origins, encrypted with the desktop key and
+stored in mode-0600 files bound to account/project/environment/reference. Import is
+restricted to the local loopback service; malformed input never exposes file
+contents. Unsupported IndexedDB/partition-cookie formats are rejected. Session
+lifetimes are 1 hour to 7 days in the UI, with a seven-day backend maximum. An
+explicit Forget local session action removes only that account-scoped record; it
+does not pretend to revoke the target server account. No real saved session was
+deleted during acceptance.
+
+Open sign-in browser → sign in manually → Save signed-in session closes the browser
+before its durable lease completes. The plaintext state never enters cloud records
+or model prompts. Every session write creates an opaque version; reference/version/
+expiry are frozen into the Run snapshot. Local expiry and availability participate
+in preflight, and a uniquely visible signed-in element is checked before model work.
+Missing authentication becomes blocked rather than a website finding. Session
+values also participate in shared-field and retained-observation redaction.
+
+Capture owns a private nonce, ten-second heartbeat, five-minute deadline and
+project-wide durable lease. Run/Hook/data preparation and profile edits cannot
+bypass that lease; original implementations are private behind authenticated
+wrappers. Cancellation holds the reservation until the browser stops. Successful
+capture leaves data unprepared; cancellation/expiry leaves cleanup required.
+Monotonic request-start timing prevents late heartbeat replies from extending
+local freshness. The local five-minute capture deadline starts with lease acquisition.
+Loss of heartbeat stops network forwarding before lease expiry, including existing
+TLS/WebSocket streams. Browser restart never silently treats interrupted capture
+as a clean baseline. Close abandoned sign-in windows before verifying cleanup.
+
+The proxy now owns its HTTP connection pool and tracks reused sockets once;
+closing one execution cannot destroy another proxy's pooled connection. This fixed
+listener warnings observed in the first real capture. No listener limit was raised.
+
+Migrations 202610140001 and 202610140002 were applied transactionally to Centinel
+Supabase and registered without resetting or deleting existing data. Isolated SQL
+checks prove reference-only snapshots, raw-state exclusion, capture/Run/Hook
+exclusion, private nonce permissions, other-member fencing, stop acknowledgement,
+expiry recovery and unverified data readiness. All earlier Dynamic SQL regression
+checks passed against the extended schema.
+
+## M2d2a actual acceptance, 14 October 2026
+
+- Normal Centinel QA login and session controls opened an actual headed RWA browser.
+  The fictional existing account was signed in through native UI; readiness was
+  visually confirmed. Saving captured encrypted state and closed the browser.
+- The first attempt correctly blocked an undeclared avatar origin. Only this QA
+  environment was updated to the fixture's declared https://api.dicebear.com origin;
+  the rejection and cleanup history were retained. No global policy was widened.
+- Run b6e4065a-3680-4f27-a51d-c3891d3cbc7c and repeat
+  ad7a26ea-7e5d-4947-82c9-b4492abbebc8 used the same session version and equivalent
+  read-only data baseline, and passed actual Codex plus independent checks.
+- Fourteen actual retained JSON/Markdown artifacts contained no session values.
+  RWA's existing business-data SHA-256 was unchanged. No seed/reset command ran.
+- Expired-reference Run a432420a-a7ad-46ca-ae55-10520314ea1e was blocked before any
+  browser session existed; its saved preflight explicitly recorded session expiry.
+- UI was verified at 1440×900, 1200×900 and 390×844, without horizontal overflow.
+  Complete suites: 411 sidecar tests and 192 frontend tests, plus sidecar
+  TypeScript and frontend production build. The existing Vite bundle-size warning remains.
+
+Local records: output/playwright/session-ui-acceptance.json and
+sidecar/output/playwright/session-repeat-acceptance.json. Shared resource keys,
+frozen profile budgets and generic worker liveness remain M2d2b; shared evidence,
+exports, revocation and packaged acceptance retain their later gates.

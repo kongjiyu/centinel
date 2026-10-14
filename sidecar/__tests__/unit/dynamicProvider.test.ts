@@ -25,7 +25,7 @@ beforeEach(() => {
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-dynamic-unit-'));
   const page = { context:()=>({pages:()=>[],on:vi.fn(),route:vi.fn(),routeWebSocket:vi.fn()}), frames:()=>[], on: vi.fn(), goto: vi.fn(), waitForTimeout: vi.fn(), screenshot: vi.fn(async ({ path: file }: { path: string }) => fs.writeFileSync(file, 'fixture')), url: () => 'https://example.test', title: async () => 'Demo', evaluate: async () => 'Demo content' };
   pageStub=page;
-  vi.mocked(chromium.launch).mockResolvedValue({ newPage: async () => page, close: vi.fn().mockResolvedValue(undefined) } as any);
+  vi.mocked(chromium.launch).mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page), close: vi.fn().mockResolvedValue(undefined) } as any);
   model.analyze.mockResolvedValue({ result: { action: 'finish_failure', summary: 'Expected content missing', reasoning: 'Compared to goal' }, usage: { inputTokens: 10, outputTokens: 2 } });
   // The page-context helper expects its second evaluation to return elements.
   (page as any).evaluate = vi.fn().mockResolvedValueOnce('Demo content').mockResolvedValueOnce([]);
@@ -50,6 +50,12 @@ describe('Dynamic shared provider and run basics', () => {
     expect(files.length).toBeGreaterThan(3);for(const file of files)expect(fs.readFileSync(path.join(folder,String(file)),'utf8')).not.toContain(secret);
     expect(JSON.stringify(vi.mocked(updateDynamicSessionStatus).mock.calls)).not.toContain(secret);expect(JSON.stringify(db.run.mock.calls)).not.toContain(secret);
   });
+  it('blocks missing signed-in readiness before any model call or website finding',async()=>{
+    pageStub.locator=vi.fn(()=>({waitFor:vi.fn().mockRejectedValue(new Error('Not signed in')),count:vi.fn().mockResolvedValue(0)}));
+    await runDynamicSession(session,workspace,{vision:setting,sessionReadySelector:'[data-ready]',storageState:{cookies:[],origins:[]}});
+    expect(model.analyze).not.toHaveBeenCalled();expect(db.run).not.toHaveBeenCalled();expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('Signed-in readiness could not be verified'));
+  });
+  it('discloses missing visual coverage before sending an unsafe capture to the model',async()=>{pageStub.frames=()=>[{locator:()=>({count:vi.fn().mockResolvedValue(1),nth:()=>({isVisible:vi.fn().mockResolvedValue(true)})})}];await runDynamicSession(session,workspace,{vision:setting,sensitiveValues:['qa-private-cookie']});expect(model.analyze).not.toHaveBeenCalled();expect(db.run).not.toHaveBeenCalled();expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('Sensitive visual observation cannot be safely captured'));});
   it('marks model/auth failures blocked without creating a product finding', async () => {
     model.analyze.mockRejectedValue(new ModelProviderError('Reconnect Codex.', { code: 'codex_not_connected', retryable: false }));
     await runDynamicSession(session, workspace, { vision: setting });

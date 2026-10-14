@@ -1,3 +1,4 @@
+import type {BrowserSessionState} from './environment/sessionVault.js';
 import {captureProtectedPage} from './browser/capture.js';
 import {redactObservationRecord} from './browser/privacy.js';
 import crypto from 'node:crypto';
@@ -15,7 +16,7 @@ import type { DynamicRun, EvidenceReference } from './types.js';
 
 /** Attach a frozen Mission revision to the existing local browser executor. */
 export async function executeMissionRun(service: DynamicService, run: DynamicRun, workspace: string,
-  providers: { runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown> }) {
+  providers: { storageState?:BrowserSessionState; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown> }) {
   let legacySessionId: string | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let heartbeatPending = false;
@@ -36,6 +37,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     await runDynamicSession(session, workspace, {
       ...providers,
       viewport: run.environment?.viewport,
+      sessionReadySelector:run.environment?.sessionReadySelector,
       allowedOrigins:run.environment?.allowedOrigins??[new URL(run.revision.targetUrl).origin],
       verifyOutcome: async (page, signal) => {
         const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,providers);
