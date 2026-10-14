@@ -19,6 +19,26 @@ export async function observeBrowserPage(page:Page,options:{secrets?:readonly st
    const tag=el.tagName.toLowerCase();const labelledBy=el.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>document.getElementById(id)?.textContent??'').join(' ');
    const name=el.getAttribute('aria-label')||labelledBy||el.getAttribute('placeholder')||(html as HTMLInputElement).labels?.[0]?.textContent||el.textContent||el.getAttribute('name')||'';
    let selector:string|undefined;for(const attribute of ['data-testid','data-test','id','name']){const value=el.getAttribute(attribute);if(!value)continue;if(value.length>1000)return {oversized:true} as const;const candidate=attribute==='id'?'#'+CSS.escape(value):tag+'['+attribute+'='+JSON.stringify(value)+']';try{if(document.querySelectorAll(candidate).length===1){selector=candidate;break;}}catch{}}
+   // Repeated list controls can be identified by a unique nearby row. Never
+   // select by position: later DOM changes must still fail the uniqueness gate.
+   if(!selector){
+    let ancestor=el.parentElement;
+    for(let depth=0;ancestor&&depth<5&&!selector;depth++,ancestor=ancestor.parentElement){
+     for(const attribute of ['data-testid','data-test','id']){
+      const value=ancestor.getAttribute(attribute);if(!value)continue;
+      const parent=attribute==='id'?'#'+CSS.escape(value):'['+attribute+'='+JSON.stringify(value)+']';
+      if(parent.length>1000)continue;
+      try{if(document.querySelectorAll(parent).length!==1)continue;}catch{continue;}
+      for(const childAttribute of ['data-testid','data-test','id','name']){
+       const childValue=el.getAttribute(childAttribute);if(!childValue)continue;
+       const candidate=parent+' '+tag+'['+childAttribute+'='+JSON.stringify(childValue)+']';
+       if(candidate.length>1000)continue;
+       try{const matches=document.querySelectorAll(candidate);if(matches.length===1&&matches[0]===el){selector=candidate;break;}}catch{}
+      }
+      if(selector)break;
+     }
+    }
+   }
    if(!selector&&document.querySelectorAll(tag).length===1)selector=tag;
    if(name.length>10000)return {oversized:true} as const;
    const type=el.getAttribute('type')?.toLowerCase();

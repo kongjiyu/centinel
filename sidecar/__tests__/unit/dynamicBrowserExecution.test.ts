@@ -1,3 +1,4 @@
+import {authorizeBrowserAction} from '../../src/dynamic/browser/actionPolicy.js';
 import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';import {chromium,type Browser} from 'playwright';
 import {executeBrowserAction,BrowserActionUncertain} from '../../src/dynamic/browser/actions.js';import {observeBrowserPage,privateTypingTarget} from '../../src/dynamic/browser/observation.js';
 let browser:Browser;beforeAll(async()=>{browser=await chromium.launch({headless:true});});afterAll(async()=>{await browser.close();});
@@ -17,4 +18,19 @@ describe('DOM observations and single-dispatch browser execution',()=>{
  it('requires same-observation pixels and valid viewport bounds for coordinate fallback',async()=>{const page=await browser.newPage({viewport:{width:640,height:480}});try{await page.setContent('<button style="position:absolute;left:20px;top:20px" onclick="document.body.dataset.clicked=\'yes\'">Visual target</button>');const action={action:'click' as const,targetDescription:'Visual',x:30,y:30,reasoning:'Fallback',fallbackReason:'Custom visual widget'};await expect(executeBrowserAction(page,action)).rejects.toThrow('protected screenshot');await expect(executeBrowserAction(page,{...action,x:641},{hasScreenshot:true})).rejects.toThrow('viewport');const receipt=await executeBrowserAction(page,action,{hasScreenshot:true});expect(receipt.coordinateFallbackReason).toBe('Custom visual widget');expect(await page.locator('body').getAttribute('data-clicked')).toBe('yes');}finally{await page.close();}});
  it('aborts active waits and prevents dispatch after cancellation',async()=>{const page=await browser.newPage();try{const controller=new AbortController();const wait=executeBrowserAction(page,{action:'wait',milliseconds:10000,reasoning:'Pending'},{signal:controller.signal});controller.abort();await expect(wait).rejects.toThrow('Execution stopped');await expect(executeBrowserAction(page,{action:'navigate',url:'http://localhost:3000',reasoning:'Stopped'},{signal:controller.signal})).rejects.toThrow('Execution stopped');}finally{await page.close();}});
  it('fails oversized extraction before exposing a truncated secret prefix',async()=>{const page=await browser.newPage();try{await page.setContent('<div>'+('x'.repeat(100001))+'</div>');await expect(observeBrowserPage(page)).rejects.toThrow('bounded extraction');}finally{await page.close();}});
+});
+
+it('binds repeated buttons to unique rows and rejects newly ambiguous rows before dispatch', async () => {
+ const page=await browser.newPage();try{
+  await page.setContent('<section data-test="row-a"><button data-test="delete" onclick="document.body.dataset.deleted=&quot;a&quot;">Delete</button></section><section data-test="row-b"><button data-test="delete" onclick="document.body.dataset.deleted=&quot;b&quot;">Delete</button></section>');
+  const {observation,bindings}=await observeBrowserPage(page);
+  const control=observation.controls.find(item=>item.selector?.startsWith('[data-test="row-b"]'))!;
+  expect(control).toBeDefined();
+  const action={action:'click' as const,elementRef:control.ref,targetDescription:'Owned row',reasoning:'One explicit click'};
+  const options={bindings,origins:[],policy:{schemaVersion:1 as const,allowCoordinates:false,interactions:[{selector:'[data-test="row-b"] button[data-test="delete"]',actions:['click' as const]}]}};
+  await authorizeBrowserAction(page,action,options);await executeBrowserAction(page,action,{bindings});
+  expect(await page.locator('body').getAttribute('data-deleted')).toBe('b');
+  await page.locator('[data-test="row-b"]').evaluate(row=>row.after(row.cloneNode(true)));
+  await expect(authorizeBrowserAction(page,action,options)).rejects.toThrow('unique');
+ }finally{await page.close();}
 });
