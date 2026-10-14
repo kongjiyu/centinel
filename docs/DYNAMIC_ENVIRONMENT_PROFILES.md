@@ -18,8 +18,10 @@ a name. Missing/unreadable values fail closed. Values are not supplied to the
 model, shared profile, Run DTO or screenshot. Known local values in shared fields
 are rejected. Do not enter passwords in profile notes or test goals.
 
-Variables currently establish prerequisites only. Browser authentication/session
-injection is a separately controlled follow-up. An account-role note is not proof
+Variables establish prerequisites and remain encrypted locally. Approved
+[private browser inputs](DYNAMIC_BROWSER_CREDENTIALS.md) can fill named references
+into frozen field/origin grants; captured sessions remain separately controlled.
+An account-role note is not proof
 that a browser is authenticated. No environment command is automatically run.
 Startup instructions are explicit manual text; inspection of authorized target
 workspace templates and approved hooks comes with the preparation lifecycle.

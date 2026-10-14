@@ -50,7 +50,7 @@ type ActionTraceEntry = {
   step: number;
   attempt: number;
   action: string;
-  fileTransfer?:import('./dynamic/browser/actions.js').ActionReceipt['fileTransfer'];elementRef?:string;visualFallbackReason?:string;dispatch?:string;alreadyMatched?:boolean;coordinateFallbackReason?:string;requestedUrl?:string;
+  fileTransfer?:import('./dynamic/browser/actions.js').ActionReceipt['fileTransfer'];privateVariable?:string;elementRef?:string;visualFallbackReason?:string;dispatch?:string;alreadyMatched?:boolean;coordinateFallbackReason?:string;requestedUrl?:string;
   beforeObservationPath?:string;afterObservationPath?:string;
   targetDescription?: string;
   selector?: string;
@@ -242,7 +242,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
+  providers: { resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -534,7 +534,7 @@ export async function runDynamicSession(
 
         // The frozen policy authorizes the actual target before one dispatch.
         debugLog.log('info', 'action_execute', `Executing ${action.action}`, step);
-        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger,downloads,resolveUpload:providers.resolveUpload,onUploadPrivateValue:value=>discoverPrivateValues([value])});
+        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger,downloads,resolvePrivateValue:providers.resolvePrivateValue,onPrivateValue:value=>discoverPrivateValues([value]),resolveUpload:providers.resolveUpload,onUploadPrivateValue:value=>discoverPrivateValues([value])});
         Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
@@ -702,6 +702,7 @@ Do not add explanation. Only output the JSON object.
 
 Available actions:
 - click: {"action":"click","targetDescription":"...","selector":"...","reasoning":"..."}
+- type_secret: {"action":"type_secret","selector":"approved input","variable":"APPROVED_VARIABLE_NAME","reasoning":"..."}
 - download_file: {"action":"download_file","selector":"approved download control","reasoning":"..."}
 - upload_file: {"action":"upload_file","selector":"input[type=file]","fixtureId":"approved fixture uuid","reasoning":"..."}
 - click_visual: {"action":"click_visual","targetDescription":"...","x":100,"y":150,"fallbackReason":"Visual subregion","reasoning":"..."}

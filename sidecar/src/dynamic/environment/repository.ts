@@ -6,6 +6,9 @@ import {containsLocalValue} from './secrets.js';
 import type { EnvironmentProfile, EnvironmentData } from './types.js';
 export class EnvironmentRepository {
   constructor(private readonly client: SupabaseClient) {}
+  async savePrivateInputs(projectId:string,id:string,version:number,grants:unknown):Promise<EnvironmentProfile>{
+    if(!Number.isInteger(version)||version<1||version>2147483647)throw new DynamicContractError(400,'Refresh the environment before editing private input permissions.');const policy=normalizeActionPolicy({schemaVersion:1,interactions:[],allowCoordinates:false,privateInputs:grants});const {data,error}=await this.client.rpc('save_dynamic_private_inputs',{p_project_id:projectId,p_profile_id:id,p_version:version,p_grants:policy.privateInputs});if(error)throw new DynamicContractError(error.code==='P0001'?409:503,'Environment changed or private input references are invalid. Refresh and check allowed origins/required variables.');return data;
+  }
   async saveDownloadPermissions(projectId:string,id:string,version:number,downloads:unknown,secrets:readonly string[]=[]):Promise<EnvironmentProfile>{
     if(!Number.isInteger(version)||version<1||version>2147483647)throw new DynamicContractError(400,'Refresh the saved environment before changing download permissions.');const policy=normalizeActionPolicy({schemaVersion:1,interactions:[],allowCoordinates:false,downloads});if(containsLocalValue(policy,[...secrets]))throw new DynamicContractError(400,'Keep private values out of shared download permissions.');
     const {data,error}=await this.client.rpc('save_dynamic_download_permissions',{p_project_id:projectId,p_profile_id:id,p_version:version,p_downloads:policy.downloads});if(error)throw new DynamicContractError(error.code==='P0001'?409:503,'Environment changed or test data is still in use. Refresh before changing download permissions.');return data;

@@ -74,6 +74,16 @@ RWA-04 uses fictional local payments only. Upstream mutations may not support
 per-record deletion; do not assume a generic CRUD cleanup flow. Use a dedicated
 single-run target instance or a serialized, explicitly configured baseline reset.
 
+### Isolated release instance
+
+M4h1 extracted the pinned commit into a separate `rwa-dynamic-release-20261014`
+evaluation directory with its own database, Vite cache and ports 3014/3015. The
+primary instance on 3000/3001 stays running and is not reseeded or mutated. Real
+Codex correct/incorrect-password checks and the recorded login bypass defect
+were verified there; authentication source was restored afterward. See
+[private input/authentication acceptance](DYNAMIC_BROWSER_CREDENTIALS.md) for
+exact Run IDs, isolation evidence, retained patch and remaining release gates.
+
 ## Repeatability and evaluation ground truth
 
 Application startup reseeds the development database. The upstream
