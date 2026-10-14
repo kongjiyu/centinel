@@ -5,10 +5,10 @@ import { userFacingError } from '../utils/userFacingError';
 import type { DynamicRun } from '../dynamic/types';
 import type { DynamicFinding, FindingDetail, ReviewFindingInput, VerificationDecision } from '../../../sidecar/src/dynamic/findings/types';
 const label = (value: string) => ({ unreviewed: 'Unreviewed', confirmed: 'Confirmed', rejected: 'Rejected', needs_investigation: 'Needs investigation', open: 'Open', in_progress: 'In progress', resolved: 'Resolved' }[value] ?? value);
-export function DynamicFindingsPanel({ projectId, run, runs }: {
+export function DynamicFindingsPanel({ projectId, run, runs,onOpenRun }: {
     projectId: string;
     run: DynamicRun;
-    runs: DynamicRun[];
+    runs: DynamicRun[];onOpenRun?(id:string):void;
 }) {
     const [findings, setFindings] = useState<DynamicFinding[]>([]);
     const [detail, setDetail] = useState<FindingDetail | null>(null);
@@ -57,7 +57,7 @@ export function DynamicFindingsPanel({ projectId, run, runs }: {
         if (ticket !== generation.current)
             return;
         setFindings(all.filter(row => row.missionId === run.missionId));
-        setMessage(next.length ? `${next.length} candidate${next.length === 1 ? '' : 's'} recorded. Review the observation before confirming an issue.` : 'No failed checks with sufficient recorded evidence.');
+        setMessage(next.length ? `${next.length} candidate${next.length === 1 ? '' : 's'} recorded. Review the observation before confirming an issue.` : 'No failed checks or rules with sufficient recorded evidence.');
         if (next[0])
             await select(next[0].id);
     }
@@ -91,16 +91,17 @@ export function DynamicFindingsPanel({ projectId, run, runs }: {
         if (ticket === generation.current)
             setBusy(false);
     } }
-    const regressionRuns = detail ? runs.filter(item => item.state === 'completed' && item.verdict === 'passed' && item.regression && detail.observations.some(observation => observation.runId === item.regression!.runId && observation.revisionId === item.revision.id)) : [];
+    const failedRules=run.usability?.observations.filter(row=>row.kind==='deterministic'&&row.verdict==='failed')??[];
+    const regressionRuns = detail ? runs.filter(item => item.state === 'completed' && item.verdict === 'passed' && item.regression && detail.observations.some(observation => observation.runId === item.regression!.runId && observation.revisionId === item.revision.id && (!observation.usability || item.usability?.observations.some(row=>row.verdict==='passed'&&row.ruleId===observation.usability!.ruleId&&row.persona===observation.usability!.persona&&(observation.usability!.correlation==='stable_control'?row.controlKey===observation.usability!.controlKey:observation.usability!.correlation==='explicit_check'?row.checkId===observation.usability!.checkId:false))))) : [];
     return <section className="dw-findings" aria-labelledby="dw-findings-heading">
     <div className="dw-section-heading">
     <div>
     <h3 id="dw-findings-heading">Finding verification</h3>
-    <p>Failed checks need human verification. Dynamic findings remain separate from Project Assessment.</p>
+    <p>Failed checks and usability rules need human verification. Dynamic findings remain separate from Project Assessment.</p>
     </div>
     </div>
  <div className="dw-actions">
-    <button type="button" className="btn-secondary" disabled={busy || active || run.state !== 'completed' || !run.checks.some(check => check.verdict === 'failed')} onClick={() => void collect()}>Record failed-check candidates</button>{detail && <button type="button" className="btn-secondary" disabled={busy} onClick={() => void select(detail.finding.id)}>Refresh finding</button>}</div>
+    <button type="button" className="btn-secondary" disabled={busy || active || run.state !== 'completed' || (!run.checks.some(check => check.verdict === 'failed')&&!failedRules.length)} onClick={() => void collect()}>{failedRules.length?'Record failed-check and rule candidates':'Record failed-check candidates'}</button>{detail && <button type="button" className="btn-secondary" disabled={busy} onClick={() => void select(detail.finding.id)}>Refresh finding</button>}</div>
  {error && <p role="alert" className="dw-error">{error}</p>}{message && <p role="status" className="dw-feedback">{message}</p>}
  {!findings.length && <p className="dw-muted">{busy ? 'Loading finding records…' : 'No candidates recorded for this saved test.'}</p>}
  {findings.length > 0 && <div className="dw-table-scroll" tabIndex={0} role="region" aria-label="Finding records table">
@@ -116,7 +117,7 @@ export function DynamicFindingsPanel({ projectId, run, runs }: {
         </tr>
         </thead>
         <tbody>{findings.map(finding => <tr key={finding.id}>
-            <th scope="row">{finding.title}</th>
+            <th scope="row">{finding.title}<small className="dw-muted"> · {finding.category}</small></th>
             <td>{label(finding.verification)}</td>
             <td>{label(finding.remediation)}</td>
             <td>{finding.observationCount}</td>
@@ -140,14 +141,17 @@ export function DynamicFindingsPanel({ projectId, run, runs }: {
             <dt>Target version</dt>
             <dd>{observation.targetVersion ?? 'Not recorded'}</dd>
             <dt>Expected</dt>
-            <dd>{'expected' in observation.definition ? JSON.stringify(observation.definition.expected) : 'Visible element'}</dd>
+            <dd>{observation.usability?.expected ?? ('expected' in observation.definition ? JSON.stringify(observation.definition.expected) : 'Visible element')}</dd>
             <dt>Observed</dt>
             <dd>{observation.result.observed ?? observation.result.reason}</dd>
+            {observation.usability&&<><dt>Rule / perspective</dt><dd>{observation.usability.ruleId} · {observation.usability.persona} · {observation.usability.controlRef??observation.usability.checkId??'sampled rule'}</dd><dt>Correlation</dt><dd>{observation.usability.correlation==='run_only'?'This Run only; no stable identity was retained. Verified resolution needs a stable control or explicit check.':'Stable identity retained; DOM positions are not used to match later Runs.'}</dd></>}
             <dt>Reproduce</dt>
             <dd>{observation.targetUrl} — {observation.goal}</dd>
             <dt>Evidence</dt>
-            <dd>{observation.evidence.map(item => <p key={item.id}>{item.kind} · {item.id} · local to executing device</p>)}</dd>
+            <dd>{observation.evidence.map(item => <p key={item.id}>{item.kind} · {item.id} · captured locally; inspect shared-copy availability in the source Run</p>)}</dd>
             </dl>
+            {onOpenRun&&<button type="button" className="btn-secondary" onClick={()=>onOpenRun(observation.runId)}>Open source Run and evidence</button>}
+            {observation.suggestions?.length?<><h5>Related subjective suggestions</h5><p>Reference only; these do not confirm the finding.</p><ul>{observation.suggestions.map((hint,index)=><li key={index}>{hint.suggestion}<p className="dw-muted">{hint.rationale}</p></li>)}</ul></>:null}
             </details>)}
  <div className="dw-check-fields">
         <div className="dw-field">
@@ -173,7 +177,7 @@ export function DynamicFindingsPanel({ projectId, run, runs }: {
         </div>{status === 'resolved' && <div className="dw-field">
             <label htmlFor="dw-finding-regression">Passed pinned regression</label>
             <Select id="dw-finding-regression" value={regressionId || 'unselected'} onChange={value => setRegressionId(value === 'unselected' ? '' : value)} options={[{ value: 'unselected', label: 'Choose a regression' }, ...regressionRuns.map(item => ({ value: item.id, label: item.revision.name + ' · ' + new Date(item.createdAt).toLocaleString() }))]}/>
-            <p className="dw-muted">Confirmation and matching independent check evidence are required. Recorded configuration differences remain in the resolution history.</p>
+            <p className="dw-muted">Confirmation and matching independent check or usability-rule evidence are required. Recorded configuration differences remain in the resolution history.</p>
             </div>}<div className="dw-field">
         <label htmlFor="dw-finding-remediation-note">Remediation reason</label>
         <textarea id="dw-finding-remediation-note" value={remediationNote} maxLength={4000} onChange={event => setRemediationNote(event.target.value)}/>

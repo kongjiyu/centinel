@@ -99,8 +99,7 @@ prompt; it does not authorize additional actions or replace the declared task.
 The editor defaults usability off, provides the three fixed perspectives and five
 rules, and requires explicit feedback/recovery check references. Removed/changed
 references are visible and can be cleared. Results expose recorded counts,
-expected/observed rule behavior, proof references and limitations. M5c4 below adds optional subjective suggestions. Usability finding decisions
-remain a required delivery gate.
+expected/observed rule behavior, proof references and limitations. M5c4 below adds optional subjective suggestions. M5c5 below adds usability finding decisions and pinned remediation.
 
 Private evidence transport supports a fourth fixed slot alongside screenshot,
 checks and an optional file manifest. Sharing uses the same checksum, membership,
@@ -220,10 +219,87 @@ project and isolated-target variables. `CENTINEL_USABILITY_MAX_MODEL_CALLS=1` wi
 Audits are separate ignored `usability-suggestions-live.json`,
 `usability-suggestions-budget-live.json` and usage/UI JSON/screenshots.
 
+## M5c5: usability candidates, review and pinned remediation
+
+Completed failed deterministic usability observations can now be recorded as
+`dynamic_usability` candidates alongside functional candidates. Each observation
+retains rule, perspective, expected/observed result, original Run/revision,
+control/check identity, evidence and related subjective suggestions. The synthetic
+check DTO is presentation compatibility for finding history; it is not inserted
+into the Mission's acceptance checks or used to change functional verdicts.
+
+Candidates start unreviewed with null severity/priority/confidence. They use the
+existing member review policy, explicit triage, reason and version-conflict guard.
+Subjective suggestions remain reference material and cannot create or confirm a
+candidate on their own. Dynamic findings remain separate from Project Assessment.
+
+For main-document controls with a unique non-generated ID, the executor derives
+an opaque SHA-256 key from page origin/path, tag, type, role and ID. Raw IDs are not
+retained. Duplicate IDs, known sensitive IDs and common framework-generated IDs
+are excluded. DOM ordinal references may change while this key remains the same.
+Reviewers must still inspect application identity semantics across target versions;
+a unique ID alone is not a universal guarantee about the application's meaning.
+Explicit feedback/recovery check references use their frozen check identity.
+Unanchored observations remain Run-specific and cannot be resolved through a
+position-only passing comparison.
+
+Resolution requires confirmation and a completed, functionally passed pinned
+regression using the original frozen revision. The same rule/perspective and
+stable control or explicit check must have one independently passed observation
+with retained proof. Wrong identities, ambiguous matches and unanchored positional
+claims are rejected. A pass does not automatically resolve a finding. A later
+matched failure reopens investigation and preserves prior decisions/remediation.
+
+Migration `202610150005_dynamic_usability_findings.sql` atomically adds an
+observation source column and replaces Run/check uniqueness with
+Run/source/check uniqueness. This prevents caller-supplied functional check IDs
+from colliding with usability identities. Existing functional payloads and review
+RPC contracts remain unchanged. It also extends result validation and the
+collector/remediation functions. The migration was applied and registered on
+Centinel Supabase. Both existing observations retained their exact payload hash
+`35842000029d188d31d928f228284dd25cf45596cc06b4c2c475f719a28c7a7d`
+immediately before/after migration; no payload rewrite or reset occurred.
+
+### Final-code real Codex acceptance
+
+| Stage | Run | Evidence |
+| --- | --- | --- |
+| Seeded label / Tab defect | `5ecc87e4-5044-4009-91c5-545c496a3cf5` | Functional pass, two failed rules and two unreviewed candidates. |
+| Controls reordered | `0ef46c48-b887-4926-afe3-c12ef0b98c61` | Source control reference changed u0→u1; same two finding IDs and stable control keys, two observations each. |
+| Label / Tab fixed | `652851f1-8278-4e0a-bf6e-266e76bcff61` | Same frozen revision and matching control keys passed; Reader explicitly confirmed then recorded resolution with changed environment/fixture conditions. |
+| Defect recurred | `113e965b-ef58-4a39-bdf8-0174ded5b5c8` | Same findings reopened for investigation with three observations and preserved confirmation/resolution/recurrence history. |
+
+The final Mission is `f8627e1a-db29-46f9-896c-a8b03f55a48d`.
+Finding IDs are `a5eae5b7-cddd-470a-9e9c-4c1cfce5c523` (labels) and
+`9aa86346-65e1-4208-9482-b6950d6d5116` (keyboard). The Reader verified hash-matched
+private usability proof for all four Runs. Original baseline JSON and primary RWA
+data were preserved, and preparation/cleanup recorded. These are agent-operated
+QA fixture decisions, explicitly not stakeholder sign-off or a production defect
+claim. An earlier prototype identity run was superseded by this final-code round;
+its records remain preserved.
+
+The Reader then opened the actual finding UI, navigated to its source Run/shared
+proof and recorded an attributable investigation decision. History displayed four
+events for the label finding. The UI exposes rule/perspective, identity limitations
+and separate subjective references; source proof availability is inspected in the
+Run. Screenshots at 1440×900, 1200×900 and 390×844 were inspected, with no page
+horizontal overflow. No unrelated screen CSS was changed.
+
+Validation: sidecar TypeScript and 563 tests; frontend build and 240 tests; all 28
+SQL suites and retained upgrade-data checks. Cases include stable reordering,
+private/generated ID exclusion, wrong-control regression, unanchored rejection,
+stale review, member/non-member guards, recurrence and functional/usability check
+ID namespace collisions. The Vite chunk-size warning remains.
+
+The checked-in `usabilityFindingLive.ts` uses the owned fixture's bounded
+in-memory `/fixture` modes (defect/reordered/fixed). It never writes target or
+primary RWA data. Set the previously documented QA project/primary database/sidecar
+variables and load the ignored root `.env`. Audits and UI screenshots remain in
+ignored `output/playwright/usability-findings-*.json/png`.
+
 ## Remaining M5c gates
 
 - Retain/share stopped partial assessment diagnostics without claiming completed
   rules or changing terminal functional outcomes.
-- Correlate evidence-backed usability candidates with the human review lifecycle.
-- Complete live acceptance of usability finding review;
-  include these results in versioned reports and the broader release corpus.
+- Include usability results/decisions in versioned reports and the broader
+  repeated release corpus.

@@ -14,12 +14,14 @@ export function validateUsabilityResult(value: unknown, revision: MissionRevisio
     const proof = evidence.filter(ref => ref.kind === 'usability');
     if (proof.length !== 1)
         return fail();
-    const keys = new Set<string>();
+    const keys = new Set<string>();const identities=new Set<string>();
     for (const row of input.observations) {
-        if (!row || typeof row !== 'object' || Object.keys(row).some(key => !['ruleId', 'persona', 'kind', 'verdict', 'expected', 'observed', 'controlRef', 'checkId', 'evidenceIds'].includes(key)) || !revision.usability.rules.includes(row.ruleId) || row.persona !== revision.usability.persona || row.kind !== 'deterministic' || !['passed', 'failed', 'uncertain', 'not_tested'].includes(row.verdict) || typeof row.expected !== 'string' || !row.expected.trim() || row.expected.length > 2000 || typeof row.observed !== 'string' || !row.observed.trim() || row.observed.length > 2000)
+        if (!row || typeof row !== 'object' || Object.keys(row).some(key => !['ruleId', 'persona', 'kind', 'verdict', 'expected', 'observed', 'controlRef','controlKey', 'checkId', 'evidenceIds'].includes(key)) || !revision.usability.rules.includes(row.ruleId) || row.persona !== revision.usability.persona || row.kind !== 'deterministic' || !['passed', 'failed', 'uncertain', 'not_tested'].includes(row.verdict) || typeof row.expected !== 'string' || !row.expected.trim() || row.expected.length > 2000 || typeof row.observed !== 'string' || !row.observed.trim() || row.observed.length > 2000)
             return fail();
         if (row.controlRef !== undefined && (typeof row.controlRef !== 'string' || !/^u(?:[0-9]|[1-3][0-9])$/.test(row.controlRef)))
             return fail();
+        if(row.controlKey!==undefined&&(!row.controlRef||typeof row.controlKey!=='string'||!/^[a-f0-9]{64}$/.test(row.controlKey)))return fail();
+        if(row.controlKey){const identity=row.ruleId+':'+row.controlKey;if(identities.has(identity))return fail();identities.add(identity);}
         if (row.checkId !== undefined && (typeof row.checkId !== 'string' || !(row.ruleId === 'feedback' ? revision.usability.feedbackCheckIds : row.ruleId === 'error_recovery' ? revision.usability.errorRecoveryCheckIds : []).includes(row.checkId)))
             return fail();
         const key = [row.ruleId, row.controlRef ?? '', row.checkId ?? ''].join(':');
