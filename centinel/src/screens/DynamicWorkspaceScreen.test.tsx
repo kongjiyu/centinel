@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DynamicWorkspaceScreen } from './DynamicWorkspaceScreen';
 import { api } from '../api/client';
 import {createStaticContextFixture} from '../../../sidecar/src/dynamic/testing/staticContextStub';
 import type { MissionRevision, DynamicRun } from '../dynamic/types';
 
-vi.mock('../api/client', () => ({ api: { dynamicEnvironments: vi.fn(), dynamicEnvironmentValues: vi.fn(), dynamicMissions: vi.fn(), dynamicRevision: vi.fn(), dynamicRuns: vi.fn(), dynamicFindings:vi.fn().mockResolvedValue([]), saveDynamicMission: vi.fn(), startDynamicRun: vi.fn(), stopDynamicRun: vi.fn(), listDynamicEvidence: vi.fn(), dynamicEvidenceBlob: vi.fn() } }));
+vi.mock('../api/client', () => ({ api: { dynamicEnvironments: vi.fn(), dynamicEnvironmentValues: vi.fn(), dynamicMissions: vi.fn(), dynamicRevision: vi.fn(), dynamicRuns: vi.fn(), dynamicFindings:vi.fn().mockResolvedValue([]),dynamicEvidenceCopies:vi.fn().mockResolvedValue([]),dynamicRecordedEvidenceBlob:vi.fn().mockRejectedValue(Error("No local proof")), saveDynamicMission: vi.fn(), startDynamicRun: vi.fn(), stopDynamicRun: vi.fn(), listDynamicEvidence: vi.fn(), dynamicEvidenceBlob: vi.fn() } }));
 const project = { id: 'project-a', name: 'Demo web app', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
 const revision: MissionRevision = { id: 'revision-one', missionId: 'mission-one', projectId: 'project-a', revision: 1, createdBy: 'actor', createdAt: '2026-10-13T00:00:00Z', name: 'Sign-in smoke', goal: 'Inspect sign-in form', targetUrl: 'http://localhost:3000', maxSteps: 3, context: null, contextAcknowledged: false, checks: [{ id: 'heading', criterionId: 'manual-heading', description: 'Visible sign-in heading', kind: 'visible_text', expected: 'Sign in', required: true }] };
 const makeRun = (state: DynamicRun['state'] = 'completed'): DynamicRun => ({ id: 'run-one', projectId: 'project-a', missionId: 'mission-one', revision, idempotencyKey: 'one', createdBy: 'actor', createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z', state, verdict: state === 'completed' ? 'passed' : 'not_tested', checks: [], evidence: [], reason: state === 'interrupted' ? 'Execution stopped responding.' : null, legacySessionId: null });
@@ -110,4 +110,21 @@ describe('Dynamic saved tests and run history', () => {
     const user=userEvent.setup();renderScreen();await waitFor(()=>expect(screen.getByRole('button',{name:'Save test'})).toBeEnabled());await user.click(screen.getByRole('combobox',{name:'Criteria source'}));await user.click(screen.getByRole('option',{name:'Example requirements (mock)'}));await waitFor(()=>expect(screen.getByRole('combobox',{name:'Requirement criterion'})).toBeEnabled());await user.click(screen.getByRole('combobox',{name:'Requirement criterion'}));await user.click(screen.getByRole('option',{name:'After sign-out a protected page requires authentication.'}));expect(screen.getByLabelText('Test goal')).toHaveValue('After sign-out a protected page requires authentication.');expect(screen.getByLabelText('Test name')).toHaveValue('After sign-out a protected page requires authentication.');expect(api.startDynamicRun).not.toHaveBeenCalled();
   });
 
+});
+
+it('publishes Run history before slow revisions and coalesces polling during hydration',async()=>{
+ vi.useFakeTimers();let resolveRevision:(revision:MissionRevision)=>void=()=>{};
+ vi.mocked(api.dynamicMissions).mockResolvedValue([{id:revision.missionId,projectId:project.id,currentRevisionId:revision.id,createdBy:'actor',createdAt:revision.createdAt}]);
+ vi.mocked(api.dynamicRuns).mockResolvedValue([makeRun()]);
+ vi.mocked(api.dynamicRevision).mockImplementation(()=>new Promise(resolve=>{resolveRevision=resolve;}));
+ try{render(<DynamicWorkspaceScreen projects={[project]} initialProjectId={project.id} onNavigate={vi.fn()}/>);
+  await act(async()=>{await Promise.resolve();await Promise.resolve();});
+  expect(screen.getByRole('button',{name:/Sign-in smoke.*Completed.*Passed/})).toBeInTheDocument();
+  await act(async()=>{vi.advanceTimersByTime(15000);});
+  expect(api.dynamicRuns).toHaveBeenCalledOnce();expect(api.dynamicRevision).toHaveBeenCalledOnce();
+  await act(async()=>{resolveRevision(revision);});
+  expect(screen.getByRole('button',{name:/Sign-in smoke.*Revision 1 · 1 checks/})).toBeInTheDocument();
+  await act(async()=>{vi.advanceTimersByTime(5000);});
+  expect(api.dynamicRuns).toHaveBeenCalledTimes(2);expect(api.dynamicRevision).toHaveBeenCalledOnce();
+ }finally{vi.useRealTimers();}
 });

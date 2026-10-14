@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import {SharedEvidenceRepository} from './dynamic/sharedEvidence/repository.js';
+import {handleEvidenceCopyRoute} from './dynamic/sharedEvidence/routes.js';
+import {evidenceStorageClient} from './dynamic/sharedEvidence/client.js';
 import {handleFindingRoute} from './dynamic/findings/routes.js';
 import {SupabaseFindingRepository} from './dynamic/findings/repository.js';
 import {DownloadVault} from './dynamic/environment/downloadVault.js';
@@ -450,6 +453,8 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         }catch{return false;}},
       });
       if(environmentResponse)return json(res,environmentResponse.status,environmentResponse.body);
+      const evidenceResponse=await handleEvidenceCopyRoute({method:req.method??'GET',pathname:url},{repository:new SharedEvidenceRepository(auth.client,evidenceStorageClient(auth.accessToken)),service,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),workspace:async projectId=>{const project=await getProject(projectId);if(!project)throw new DynamicContractError(409,'This device has no local execution workspace for the project.');return project.workspacePath;}});
+      if(evidenceResponse){if('mimeType' in evidenceResponse&&Buffer.isBuffer(evidenceResponse.body)){res.writeHead(200,{'Content-Type':evidenceResponse.mimeType,'Content-Length':evidenceResponse.body.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(evidenceResponse.body);return;}return json(res,evidenceResponse.status,evidenceResponse.body);}
       const findingResponse=await handleFindingRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,100_000)},{repository:new SupabaseFindingRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),validatePrivate:async(projectId,value)=>{const secrets=(await environments.list(projectId)).flatMap(profile=>privateValues(projectId,profile));if(containsLocalValue(value,secrets))throw new DynamicContractError(400,'Keep private local values out of shared finding decisions.');}});
       if(findingResponse)return json(res,findingResponse.status,findingResponse.body);
       const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, {
