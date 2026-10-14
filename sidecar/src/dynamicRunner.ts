@@ -698,6 +698,7 @@ Do not add explanation. Only output the JSON object.
 
 Available actions:
 - click: {"action":"click","targetDescription":"...","selector":"...","reasoning":"..."}
+- click_visual: {"action":"click_visual","targetDescription":"...","x":100,"y":150,"fallbackReason":"Visual subregion","reasoning":"..."}
 - type: {"action":"type","targetDescription":"...","text":"...","selector":"...","reasoning":"..."}
 - press_key: {"action":"press_key","key":"Enter","reasoning":"..."}
 - scroll: {"action":"scroll","direction":"down","amount":"medium","reasoning":"..."}

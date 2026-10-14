@@ -203,18 +203,8 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await waitFor(() => expect(api.inviteCollaborator).toHaveBeenCalledWith(project.id, 'dev'));
   });
 
-  it('opens Dynamic Testing setup in the shared dialog shell without a duplicate form header', async () => {
-    const user = userEvent.setup();
-    renderProject();
-
-    await user.click(screen.getByRole('button', { name: 'Action' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Dynamic testing' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'New test' });
-    expect(dialog).toContainElement(screen.getByLabelText('Website address'));
-    expect(dialog).toContainElement(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('button', { name: 'Close test form' })).not.toBeInTheDocument();
-    expect(dialog.querySelector('.panel-header')).not.toBeInTheDocument();
+  it('opens the durable Dynamic Testing workspace from the project action without a direct-session dialog',async()=>{
+    const user=userEvent.setup();const navigate=vi.fn();renderProject(navigate);await user.click(screen.getByRole('button',{name:'Action'}));await user.click(screen.getByRole('menuitem',{name:'Dynamic testing'}));expect(navigate).toHaveBeenCalledWith({name:'dynamic-testing',projectId:project.id});expect(screen.queryByRole('dialog',{name:'New test'})).not.toBeInTheDocument();
   });
 
   it('exposes Export report as the third project action and reuses the report handler', async () => {

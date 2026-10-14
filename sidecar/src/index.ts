@@ -34,15 +34,13 @@ import { ModelProviderError } from './review/retry.js';
 import { ModelConfigurationError, resolveModelProviderChain, SupabaseModelConfigurationRepository } from './review/modelProviderResolver.js';
 import { testTextProvider, testVisionProvider } from './aiClient';
 import {
-  createDynamicSession,
   listDynamicSessions,
   getDynamicSession,
-  getActiveSession,
   listDynamicEvidence,
   updateDynamicSessionStatus,
   getEvidenceProjectId,
 } from './dynamicSessions';
-import { runDynamicSession, cancelSession } from './dynamicRunner';
+import { cancelSession } from './dynamicRunner';
 import { detectArtifactType } from './artifacts';
 import { generateProjectReport } from './reportExport';
 import { logRuntimeConfigStatus } from './config.js';
@@ -831,50 +829,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       return json(res, 200, await listDynamicSessions(dsMatch.projectId));
     }
 
-    // Dynamic sessions - create
+    // Keep authenticated legacy reads/cancellation; new execution requires a
+    // durable Mission/Run, frozen policy, worker lease and independent checks.
     if (dsMatch && req.method === 'POST') {
-      const body = await parseJsonBody(req);
-      const targetUrl = typeof body.targetUrl === 'string' ? body.targetUrl.trim() : '';
-      const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
-      const missionType = body.missionType === 'smoke' ? 'smoke' : 'user_journey';
-      const maxSteps = Math.min(25, Math.max(1, typeof body.maxSteps === 'number' ? body.maxSteps : 15));
-
-      if (!targetUrl) return json(res, 400, { error: 'targetUrl is required' });
-      try { if (!['http:', 'https:'].includes(new URL(targetUrl).protocol)) throw new Error(); } catch { return json(res, 400, { error: 'targetUrl must be an HTTP or HTTPS URL' }); }
-      if (!goal) return json(res, 400, { error: 'goal is required' });
-
-      const active = await getActiveSession(dsMatch.projectId);
-      if (active) return json(res, 409, { error: 'A dynamic session is already running' });
-
-      const sharedProject = await applicationRepository!.getProject(dsMatch.projectId);
-      if (!sharedProject) return json(res, 404, { error: 'Project not found' });
-      const repository = new SupabaseModelConfigurationRepository(auth!.client);
-      let vision;
-      try { vision = await resolveModelProviderChain(repository, { ownerId, projectId: dsMatch.projectId, purpose: 'vision' }); }
-      catch { return json(res, 409, { error: 'Configure a Dynamic screenshot model in Settings before starting a run.', code: 'vision_provider_required' }); }
-      let textProvider;
-      try { textProvider = (await resolveModelProviderChain(repository, { ownerId, projectId: dsMatch.projectId, purpose: 'static_review' })).primary; }
-      catch (error) { if (!(error instanceof ModelConfigurationError && ['not_configured', 'disabled'].includes(error.code))) throw error; }
-      const project = await ensureDynamicWorkspace(sharedProject);
-
-      const session = await createDynamicSession(dsMatch.projectId, targetUrl, goal, missionType, maxSteps);
-
-      // Run asynchronously
-      runDynamicSession(session, project.workspacePath, { vision: vision.primary, text: textProvider,
-        recordUsage: usage => new SupabaseCentinelStore(auth!.client).saveModelUsage({
-          ownerId, projectId: session.projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
-          provider: usage.provider, model: usage.model, outcome: 'success',
-          inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
-          cacheReadTokens: usage.cacheReadTokens ?? null, cacheCreationTokens: usage.cacheCreationTokens ?? null,
-          durationMs: null, errorCode: null, cost: null,
-          metadata: { callKind: 'dynamic', scope: usage.scope, apiFormat: usage.apiFormat, dynamicSessionId: session.id },
-        }),
-      }).catch(err => {
-        console.error('[runner] error:', err);
-        updateDynamicSessionStatus(session.id, 'blocked', '', 'The testing runtime could not complete this session.').catch(() => {});
-      });
-
-      return json(res, 201, session);
+      return json(res, 409, {error:'Save a test and start a Run in Dynamic Testing. Direct session execution is no longer available.',code:'legacy_dynamic_start_disabled',replacement:`/projects/${dsMatch.projectId}/dynamic/missions`});
     }
 
     // Dynamic session - cancel (must be before get)
