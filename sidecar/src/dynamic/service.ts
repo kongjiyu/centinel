@@ -1,3 +1,5 @@
+import {resolveExplorationObjectives} from './browser/exploration.js';
+import type {ExplorationSnapshot} from './browser/exploration.js';
 import {validateIncomingContext,validateCriterionExclusions,contextNeedsAcknowledgment} from './context.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import crypto from 'node:crypto';
@@ -9,6 +11,7 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   const fail = (message: string): never => { throw new DynamicContractError(400, message); };
   if (!value || typeof value !== 'object') fail('Mission body is required.');
   const input = value as MissionInput;
+  if(input.mode!==undefined&&!['guided','exploratory'].includes(input.mode))fail('Choose guided or exploratory mode.');
   if(input.contextAcknowledged!==undefined&&typeof input.contextAcknowledged!=='boolean')fail('Context acknowledgment must be explicit.');
   for (const key of ['name', 'goal', 'targetUrl'] as const) if (typeof input[key] !== 'string' || !input[key].trim() || input[key].length > 4000) fail(`${key} is required and must be bounded.`);
   try { if (!['http:', 'https:'].includes(new URL(input.targetUrl).protocol) || new URL(input.targetUrl).username || new URL(input.targetUrl).password) fail('Target URL must be HTTP(S) without credentials.'); }
@@ -44,7 +47,7 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   }
   const criterionExclusions=validateCriterionExclusions(input.criterionExclusions,context,input.checks);
   // Construct only the supported fields so arbitrary caller metadata is not persisted.
-  return structuredClone({ name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({id:check.id,criterionId:check.criterionId,description:check.description,required:check.required,kind:check.kind,...(!['url','visible_text'].includes(check.kind)&&'selector' in check?{selector:check.selector}:{}),...(check.kind!=='element_visible'&&'expected' in check?{expected:check.expected}:{})} as import('./types.js').CheckDefinition)), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
+  return structuredClone({mode:input.mode??'guided', name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({id:check.id,criterionId:check.criterionId,description:check.description,required:check.required,kind:check.kind,...(!['url','visible_text'].includes(check.kind)&&'selector' in check?{selector:check.selector}:{}),...(check.kind!=='element_visible'&&'expected' in check?{expected:check.expected}:{})} as import('./types.js').CheckDefinition)), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
 }
 
 export class DynamicService {
@@ -86,7 +89,7 @@ export class DynamicService {
       ? result.evidenceIds.length ? result : { ...result, verdict: 'uncertain' as const, reason: 'No retained evidence supports this observation.' }
       : result);
     const verdict = aggregateChecks(checks, verified);
-    const updated = await this.repository.compareAndSetRun(projectId, runId, 'running', this.patch(run, { state: 'completed', verdict, checks: verified, evidence, reason: null }));
+    const updated = await this.repository.compareAndSetRun(projectId, runId, 'running', this.patch(run, { state: 'completed', verdict, checks: verified, evidence, reason: null,...(run.exploration?{exploration:resolveExplorationObjectives(run.exploration,checks,verified)}:{}) }));
     if (!updated) throw new DynamicContractError(409, 'Run was stopped while verification completed.');
     return updated;
   }
@@ -96,6 +99,7 @@ export class DynamicService {
     const result = await this.repository.compareAndSetRun(projectId, runId, run.state, this.patch(run, { state, verdict: 'not_tested', reason }));
     return result ?? this.requireRun(projectId, runId);
   }
+  async checkpointExploration(projectId:string,runId:string,snapshot:ExplorationSnapshot){const token=this.leaseTokens.get(runId);if(!token||!this.repository.checkpointExploration||!await this.repository.checkpointExploration(projectId,runId,this.workerId,token,snapshot))throw new DynamicContractError(409,'Exploration checkpoint unavailable or worker fenced; no further browser action is allowed.');}
   async requireRun(projectId: string, runId: string) {
     const run = await this.repository.getRun(projectId, runId);
     if (!run) throw new DynamicContractError(404, 'Run not found.');

@@ -97,3 +97,6 @@
 
 .dynamic-workspace-screen .dw-recorded-permissions { padding-left: 20px; overflow-wrap: anywhere; }
 .dynamic-workspace-screen .dw-recorded-permissions code { white-space: normal; overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-exploration { margin: 16px 0; }
+.dynamic-workspace-screen .dw-exploration li { overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-exploration small { display: block; color: var(--workspace-text-muted); }

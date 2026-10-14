@@ -1,3 +1,4 @@
+import type {ExplorationSnapshot} from './browser/exploration.js';
 import type {BrowserActionPolicy} from './browser/actionPolicy.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import type { StaticContextFixture } from './testing/staticContextStub.js';
@@ -17,19 +18,20 @@ export type RunState = 'queued' | 'running' | 'completed' | 'blocked' | 'cancell
 export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks'; sha256: string; availability: 'local'; capturedAt: string };
 export type CheckResult = { checkId: string; criterionId: string; verdict: CheckVerdict; observed: string | null; reason: string; evidenceIds: string[]; checkedAt: string };
 export type CriterionExclusion = {criterionId:string;reason:string};
-export type MissionInput = { criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
+export type MissionInput = {mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
 export type MissionRevision = MissionInput & { id: string; missionId: string; projectId: string; revision: number; createdBy: string; createdAt: string };
 export type Mission = { id: string; projectId: string; currentRevisionId: string; createdBy: string; createdAt: string };
 export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
+  exploration?:ExplorationSnapshot;
   state: RunState; verdict: CheckVerdict; reason: string | null;
   checks: CheckResult[]; evidence: EvidenceReference[]; legacySessionId: string | null;
 };
-export type RunPatch = Pick<DynamicRun, 'state' | 'verdict' | 'reason' | 'checks' | 'evidence' | 'updatedAt' | 'legacySessionId'> & { leaseToken?: string };
+export type RunPatch = Pick<DynamicRun, 'state' | 'verdict' | 'reason' | 'checks' | 'evidence' | 'updatedAt' | 'legacySessionId'> & { leaseToken?: string;exploration?:ExplorationSnapshot };
 export interface DynamicRepository {
   saveRevision(projectId: string, actorId: string, input: MissionInput, missionId?: string): Promise<MissionRevision>;
   listMissions(projectId: string): Promise<Mission[]>;
@@ -41,6 +43,7 @@ export interface DynamicRepository {
   claimRun(projectId: string, runId: string, workerId: string, leaseToken: string, sessionId: string | null): Promise<DynamicRun | null>;
   heartbeatRun(projectId: string, runId: string, workerId: string, leaseToken: string): Promise<boolean>;
   recoverRuns(projectId: string): Promise<DynamicRun[]>;
+  checkpointExploration?(projectId:string,runId:string,workerId:string,token:string,snapshot:ExplorationSnapshot):Promise<boolean>;
   compareAndSetRun(projectId: string, runId: string, expected: RunState, patch: RunPatch): Promise<DynamicRun | null>;
 }
 export class DynamicContractError extends Error {

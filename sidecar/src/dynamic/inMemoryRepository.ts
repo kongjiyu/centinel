@@ -1,3 +1,4 @@
+import type {ExplorationSnapshot} from './browser/exploration.js';
 import {normalizeBudget} from './budgets.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import { DYNAMIC_LEASE_MS, DYNAMIC_QUEUE_GRACE_MS, DYNAMIC_LEGACY_GRACE_MS } from './recovery.js';
@@ -69,6 +70,7 @@ export class InMemoryDynamicRepository implements DynamicRepository {
     }
     return changed;
   }
+  async checkpointExploration(projectId:string,id:string,workerId:string,token:string,snapshot:ExplorationSnapshot){const row=this.runs.get(id);if(!row||row.projectId!==projectId||row.state!=='running'||row.revision.mode!=='exploratory'||row.lease?.workerId!==workerId||token!==this.leaseTokens.get(id)||Date.parse(row.lease.expiresAt)<=this.now())return false;row.exploration=structuredClone(snapshot);return true;}
   async compareAndSetRun(projectId: string, id: string, expected: RunState, patch: RunPatch) {
     const row = this.runs.get(id);
     if (!row || row.projectId !== projectId || row.state !== expected || !['queued', 'running'].includes(expected)) return null;
