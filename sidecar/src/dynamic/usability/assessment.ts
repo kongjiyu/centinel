@@ -1,0 +1,33 @@
+import type {Page} from 'playwright';import type {CheckResult} from '../types.js';import {redactObservation} from '../browser/privacy.js';import type {UsabilityAssessment,UsabilityConfig,UsabilityObservation} from './types.js';
+/** Bounded DOM/keyboard observations; no activation, form submission or invented study results. */
+export async function assessUsability(page:Page,config:UsabilityConfig,options:{signal:AbortSignal;canForward():boolean;checks:readonly CheckResult[];evidenceIds:readonly string[];secrets?:readonly string[]}):Promise<UsabilityAssessment>{
+ const alive=()=>{if(options.signal.aborted||!options.canForward())throw new DOMException('Usability execution stopped','AbortError');};alive();
+ const snapshot=await page.evaluateHandle(()=>{
+  const candidates=[...document.querySelectorAll('a[href],button,input:not([type="hidden"]),textarea,select,[role="button"],[role="link"],[tabindex]')];
+  if(candidates.length>2000)return {omitted:true,elements:[] as Element[],controls:[]};
+  const visible=candidates.filter(el=>{const rect=el.getBoundingClientRect(),style=getComputedStyle(el);return rect.width>0&&rect.height>0&&style.display!=='none'&&style.visibility!=='hidden';});
+  if(visible.length>40)return {omitted:true,elements:[] as Element[],controls:[]} as const;
+  return {omitted:false,elements:visible,controls:visible.map((el,index)=>{const html=el as HTMLElement;const tag=el.tagName.toLowerCase();const names=el.getAttribute('aria-label')||el.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>document.getElementById(id)?.textContent??'').join(' ')||(el as HTMLInputElement).labels?.[0]?.textContent||(tag==='button'||tag==='a'?el.textContent:'')||'';return {ref:'u'+index,index,named:Boolean(names.trim()),disabled:el.matches(':disabled')||el.getAttribute('aria-disabled')==='true',tabIndex:html.tabIndex};})};
+ });
+ try {
+ const raw=await snapshot.evaluate(value=>({omitted:value.omitted,controls:value.controls}));alive();
+ const observations:UsabilityObservation[]=[];const add=(ruleId:UsabilityObservation['ruleId'],verdict:UsabilityObservation['verdict'],expected:string,observed:string,controlRef?:string)=>observations.push({ruleId,persona:config.persona,kind:'deterministic',verdict,expected,observed:redactObservation(observed,options.secrets??[]),...(controlRef?{controlRef}:{}),evidenceIds:[...options.evidenceIds]});
+ if(raw.omitted){for(const rule of config.rules)add(rule,'uncertain','Assess the declared rule within bounded sampled controls','More than forty visible controls; this surface was not fully assessed.');return {schemaVersion:1,config,observations,limitations:['Bounded surface exceeded; no complete usability or accessibility claim.'],keyboardActions:0,assessedAt:new Date().toISOString()};}
+ if(config.rules.includes('labels')){const controls=raw.controls.filter(control=>!control.disabled);if(!controls.length)add('labels','not_tested','Controls expose associated labels or names','No enabled control was sampled.');for(const control of controls)add('labels',control.named?'passed':'failed','Associated label/aria name or button/link text is present',control.named?'A configured label source was observed.':'No configured label source was observed.',control.ref);}
+ let keyboardActions=0;
+ if(config.rules.includes('keyboard')||config.rules.includes('focus')){
+  const targets=raw.controls.filter(control=>!control.disabled);const visited=new Set<number>();const focusStyled=new Set<number>();
+  // Resolve by current DOM identity only inside evaluate; no attributes are written.
+  const original=(await page.locator(':focus').elementHandles())[0];
+  try{for(let step=0;step<Math.min(42,targets.length+2);step++){
+   alive();await page.keyboard.press('Tab');keyboardActions++;alive();
+   const current=await snapshot.evaluate(value=>{const active=document.activeElement;const index=value.elements.indexOf(active as Element);if(index<0)return {index,style:false};const s=getComputedStyle(active!);return {index,style:(s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=='none'};});
+   if(current.index>=0){visited.add(current.index);if(current.style)focusStyled.add(current.index);}
+  }}finally{if(original&&!options.signal.aborted&&options.canForward())await original.evaluate(el=>(el as HTMLElement).focus()).catch(()=>{});await original?.dispose();}
+  const attached=await snapshot.evaluate(value=>value.elements.map(el=>el.isConnected));alive();
+  for(const control of targets){if(config.rules.includes('keyboard'))add('keyboard',visited.has(control.index)?'passed':attached[control.index]?'failed':'uncertain','Safe Tab traversal reaches the sampled control',visited.has(control.index)?'Control received keyboard focus.':attached[control.index]?'Control was not reached within the declared traversal bound.':'Original control detached during traversal; reachability is uncertain.',control.ref);if(config.rules.includes('focus'))add('focus',!visited.has(control.index)?'not_tested':focusStyled.has(control.index)?'passed':'uncertain','Keyboard focus exposes an observable outline or shadow',!visited.has(control.index)?'Control was not focused.':focusStyled.has(control.index)?'Outline/shadow styling was observed.':'No outline/shadow observed; other visual focus mechanisms require review.',control.ref);}
+ }
+ for(const [rule,ids] of [['feedback',config.feedbackCheckIds],['error_recovery',config.errorRecoveryCheckIds]] as const){if(!config.rules.includes(rule))continue;for(const id of ids){const check=options.checks.find(result=>result.checkId===id);add(rule,check?.verdict??'not_tested',rule==='feedback'?'Declared feedback criterion is observed':'Declared recovery criterion is observed',check?`Configured criterion ${id}: ${check.reason}`:`Configured criterion ${id} was not tested.`);}}
+ alive();return {schemaVersion:1,config,observations,keyboardActions,assessedAt:new Date().toISOString(),limitations:['Persona simulation is not a real-user study.','This rule set is not complete accessibility conformance.','Feedback/recovery results refer only to explicitly configured criteria; no unobserved error scenario is inferred.','Focus measurement samples outline/shadow only; absence is uncertain rather than a confirmed defect.','Only main-document controls are sampled; frames and shadow roots require separate assessment.']};
+ } finally {await snapshot.dispose();}
+}
