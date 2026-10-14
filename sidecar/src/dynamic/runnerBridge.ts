@@ -54,14 +54,15 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     await runDynamicSession(session, workspace, {
       ...providers,
       budgets:limits,
+      observationMode:'dom_first',
       runtimeMs: Math.max(1000, Math.floor(durationMs - (performance.now() - claimStarted))),
       canForward: () => lease?.canForward() === true,
       viewport: run.environment?.viewport,
       sessionReadySelector:run.environment?.sessionReadySelector,
       allowedOrigins:run.environment?.allowedOrigins??[new URL(run.revision.targetUrl).origin],
-      verifyOutcome: async (page, signal) => {
+      verifyOutcome: async (page, signal, privacy) => {
         if (!lease?.canForward() || signal.aborted) throw new DOMException('Execution lease unavailable', 'AbortError');
-        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,providers);
+        const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy);
         await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
         await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
         return result.verdict;
