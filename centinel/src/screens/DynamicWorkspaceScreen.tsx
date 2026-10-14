@@ -1,3 +1,4 @@
+import {DynamicExplorationPanel} from './DynamicExplorationPanel';
 import {checkToDraft,draftToCheck,isBooleanFormCheck,type DraftCheck} from '../dynamic/checkDraft';
 import {DynamicFormExpectation} from './DynamicFormExpectation';
 import { DynamicEnvironmentPanel } from './DynamicEnvironmentPanel';
@@ -52,6 +53,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const [name, setName] = useState(''); const [goal, setGoal] = useState(''); const [targetUrl, setTargetUrl] = useState('');
   const [environmentDataBusy,setEnvironmentDataBusy]=useState(false);
   const [environmentId, setEnvironmentId] = useState('');
+  const [mode,setMode]=useState<'guided'|'exploratory'>('guided');
   const [maxSteps, setMaxSteps] = useState(15);
   const [draftContext,setDraftContext]=useState<StaticContextFixture|null>(null);
   const [contextScenario,setContextScenario]=useState('normal');
@@ -70,7 +72,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const activeRun = runs.find(active);
   const criteria=draftContext?.requirements.flatMap(requirement=>requirement.criteria)??[];
 
-  const resetDraft = useCallback(() => { setMissionId(null); setName(''); setGoal(''); setTargetUrl(''); setMaxSteps(15); setSource('manual');contextSequence.current++;setContextLoading(false);setDraftContext(null);setContextScenario('normal');setContextAcknowledged(false);setCriterionExclusions([]); setChecks([emptyCheck()]); dirty.current = false; setFeedback(''); }, []);
+  const resetDraft = useCallback(() => { setMissionId(null);setMode('guided'); setName(''); setGoal(''); setTargetUrl(''); setMaxSteps(15); setSource('manual');contextSequence.current++;setContextLoading(false);setDraftContext(null);setContextScenario('normal');setContextAcknowledged(false);setCriterionExclusions([]); setChecks([emptyCheck()]); dirty.current = false; setFeedback(''); }, []);
   const load = useCallback(async () => {
     if (!projectId) return;
     const generation = loadGeneration.current; const sequence = ++loadSequence.current;
@@ -99,7 +101,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const edit = (revision: MissionRevision) => {
     setSelectedRunId('');
     onNavigate({ name: 'dynamic-testing', projectId });
-    setMissionId(revision.missionId); setName(revision.name); setGoal(revision.goal); setTargetUrl(revision.targetUrl); setMaxSteps(revision.maxSteps);
+    setMissionId(revision.missionId);setMode(revision.mode??'guided'); setName(revision.name); setGoal(revision.goal); setTargetUrl(revision.targetUrl); setMaxSteps(revision.maxSteps);
     contextSequence.current++;setContextLoading(false);setContextScenario('recorded');setContextAcknowledged(revision.contextAcknowledged);setCriterionExclusions(revision.criterionExclusions??[]);
     try{setDraftContext(validateIncomingContext(revision.context,projectId));}catch{setDraftContext(null);}
     setSource(revision.context ? 'mock' : 'manual');
@@ -119,7 +121,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     try {
       if(source==='mock'&&(!draftContext||(contextNeedsAcknowledgment(draftContext)&&!contextAcknowledged)))throw new Error('Load and acknowledge the incoming mock snapshot, or choose manual criteria.');
       const definitions=checks.map(check=>draftToCheck(check,source==='mock'?check.criterionId:`manual-${check.id}`));
-      const revision = await api.saveDynamicMission(projectId, { name, goal, targetUrl, maxSteps, checks: definitions, context:source==='mock'?draftContext:null,contextAcknowledged:source==='mock'&&contextAcknowledged,criterionExclusions:source==='mock'?criterionExclusions:[] }, missionId ?? undefined);
+      const revision = await api.saveDynamicMission(projectId, { mode,name, goal, targetUrl, maxSteps, checks: definitions, context:source==='mock'?draftContext:null,contextAcknowledged:source==='mock'&&contextAcknowledged,criterionExclusions:source==='mock'?criterionExclusions:[] }, missionId ?? undefined);
       if(generation!==loadGeneration.current)return;await load();if(generation!==loadGeneration.current)return; edit(revision); setFeedback(`Saved revision ${revision.revision}. Ready to run.`);
     } catch (e) { if(generation===loadGeneration.current)setError(userFacingError(e, 'The test could not be saved. Your inputs are preserved.')); }
     finally { if(generation===loadGeneration.current)setBusy(false); }
@@ -149,6 +151,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
             <div className="dw-field"><label htmlFor="dw-name">Test name</label><input id="dw-name" required maxLength={120} value={name} onChange={e => { dirty.current = true; setName(e.target.value); }} placeholder="Sign-in page smoke test" /></div>
             <div className="dw-field"><label htmlFor="dw-url"><Globe size={16} /> Website address</label><input id="dw-url" required type="url" value={targetUrl} onChange={e => { dirty.current = true; setTargetUrl(e.target.value); }} placeholder="http://localhost:3000" /></div>
             <div className="dw-field"><label htmlFor="dw-goal">Test goal</label><textarea id="dw-goal" required rows={3} value={goal} onChange={e => { dirty.current = true; setGoal(e.target.value); }} placeholder="Describe what the browser should do and verify." /></div>
+            <div className="dw-field"><label htmlFor="dw-mode">Testing mode</label><Select id="dw-mode" value={mode} options={[{value:'guided',label:'Guided task'},{value:'exploratory',label:'Bounded exploration'}]} onChange={value=>{dirty.current=true;setMode(value as 'guided'|'exploratory');}}/>{mode==='exploratory'&&<p className="dw-muted">Explore the selected objectives within the recorded action rules and limits. Visited states and unvisited observed controls are recorded; this does not establish complete website coverage.</p>}</div>
             <div className="dw-field"><label htmlFor="dw-source">Criteria source</label><Select id="dw-source" value={source} options={[{ value: 'manual', label: 'Write my own criteria' }, { value: 'mock', label: 'Example requirements (mock)' }]} onChange={value=>{dirty.current=true;setSource(value);if(value==='mock'&&!draftContext)void loadContext('normal');if(value==='manual'){contextSequence.current++;setContextLoading(false);}}} /></div>
             {source==='mock'&&<DynamicContextPanel context={draftContext} scenario={contextScenario} onScenario={scenario=>void loadContext(scenario)} acknowledged={contextAcknowledged} onAcknowledgment={value=>{dirty.current=true;setContextAcknowledged(value);}} exclusions={criterionExclusions} onExclusions={value=>{dirty.current=true;setCriterionExclusions(value);}} selectedCriteria={checks.map(check=>check.criterionId)}/>}
             <fieldset className="dw-checks"><legend><FileCheck2 size={16} /> Acceptance checks</legend>
@@ -189,6 +192,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
         {selectedRun.revision.context && <p className="dw-muted">Criteria source: example requirements (mock). Browser observations are recorded separately.</p>}
         <DynamicCoveragePanel run={selectedRun}/>
         <details className="dw-advanced"><summary>Recorded browser permissions</summary>{selectedRun.actionPolicy?<><p>{selectedRun.actionPolicy.interactions.length} approved controls · Coordinates {selectedRun.actionPolicy.allowCoordinates?'enabled for approved controls':'disabled'}</p>{selectedRun.actionPolicy.interactions.length>0&&<ul className="dw-recorded-permissions">{selectedRun.actionPolicy.interactions.map(grant=><li key={grant.selector}><code>{grant.selector}</code> · {grant.actions.join(', ')}{grant.actions.includes('click')?(grant.repeatable?' · repeatable click approved':' · click repetition not approved'):''}</li>)}</ul>}<p>File controls, downloads and implicit keyboard submissions are not approved by these grants.</p></>:<p>Permissions were not recorded for this historical Run. Current environment settings do not establish its original conditions.</p>}{selectedRun.executionVersions&&<p>Engine versions: observer {selectedRun.executionVersions.observer} · planner {selectedRun.executionVersions.planner} · policy {selectedRun.executionVersions.policy} · executor {selectedRun.executionVersions.executor} · checker {selectedRun.executionVersions.checker}</p>}</details>
+        <DynamicExplorationPanel run={selectedRun}/>
         {selectedRun.executionBudget&&<details className="dw-advanced"><summary>Recorded execution limits</summary><p>{selectedRun.executionBudget.runtimeMs/1000} seconds · {selectedRun.executionBudget.maxSteps} steps · {selectedRun.executionBudget.maxModelCalls} model calls</p><p>Page observation: {selectedRun.executionBudget.maxObservationChars} characters · Console: {selectedRun.executionBudget.maxConsoleBytes} bytes</p><p>Accounted-token stop limit: {selectedRun.executionBudget.maxAccountedTokens??'Not set'}. Provider usage is checked after each request; this is not a billing cap.</p></details>}
         {selectedRun.environment && <details className="dw-advanced"><summary>Recorded environment · {selectedRun.environment.name} v{selectedRun.environment.version}</summary><p>{selectedRun.environment.targetUrl} · {selectedRun.environment.viewport.width}×{selectedRun.environment.viewport.height} · Target version: {selectedRun.environment.targetVersion || 'Not recorded'}</p>{selectedRun.environment.preparation&&<p>Recorded preparation: {selectedRun.environment.preparation.note} · profile v{selectedRun.environment.preparation.profileVersion}</p>}<p>Required names: {selectedRun.environment.requiredVariables.join(', ') || 'None'}. Values remain local and are not part of this record.</p><ul>{selectedRun.environment.preflight.map(check=><li key={check.name}>{check.name}: {check.ready?'Ready':'Needs attention'} — {check.reason}</li>)}</ul></details>}
         <div className="dw-table-scroll"><table><caption>Independent check results</caption><thead><tr><th>Check</th><th>Result</th><th>Observation</th></tr></thead><tbody>{selectedRun.revision.checks.map(check => { const result = selectedRun.checks.find(item => item.checkId === check.id); return <tr key={check.id}><th scope="row">{check.description}</th><td><span className={`dw-verdict dw-${result?.verdict ?? 'not_tested'}`}>{verdictLabel(result?.verdict ?? 'not_tested')}</span></td><td>{result?.observed || result?.reason || 'No observation recorded.'}</td></tr>; })}</tbody></table></div>

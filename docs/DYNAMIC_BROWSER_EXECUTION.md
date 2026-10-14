@@ -216,3 +216,45 @@ regression/finding lineage remain implementation work, not assumed capabilities.
 - Exploration, pinned regression, approved file transfers, live visual/CRUD
   gates and legacy-entry fencing remain required. This is bounded M4d evidence,
   not completion of P4 or the overall Dynamic release.
+
+## M4e bounded exploration
+
+- New revisions explicitly choose guided or exploratory mode; old history remains
+  unchanged. Selected objectives come from frozen acceptance checks. Exploratory
+  planning receives bounded visited-state/action context and remaining observed
+  controls, while existing permissions, repetition guards and budgets stay fixed.
+- The journal records sampled DOM state identities, actual actions, confirmed
+  interactions, uncertain targets and controls with no confirmed interaction.
+  Unresolved targeting and recording truncation are disclosed. These are sampled
+  state/control pairs, not a full application inventory or exhaustive coverage.
+- Progress checkpoints require project membership, the initiating actor, correct
+  non-null worker/token and an unexpired running lease. They cannot renew the
+  lease, change frozen inputs/outcome or supply objective passes. Invalid/dangling
+  scope fields and exhaustive claims are rejected. Checkpoint failure stops
+  further provider/browser activity while retaining recoverable local scope.
+- Completed objective outcomes derive from frozen required checks and retained
+  evidence. A caller's scope pass cannot replace a retained failed observation.
+  Local journal and durable results resolve consistently; cancellation, budget
+  exhaustion and incomplete execution leave unverified objectives not tested.
+- Migration `202610140009_dynamic_exploration.sql` was locally verified, applied
+  and registered on Centinel Supabase. Follow-up migration
+  `202610140010_dynamic_worker_null_fence.sql` closes inherited SQL NULL
+  credential comparisons for heartbeat/finalization, preserving healthy worker
+  requests and member cancellation; it was also locally verified and applied.
+  Fresh exploratory Runs identify explorer
+  v1. Guided and historical Runs are not retroactively labeled exploratory.
+- Real Codex Run `292fd4e1-4691-41b0-8a0d-725a11a38c2c` passed the selected
+  first-panel objective, recording two sampled states, one action and five
+  remaining state/control pairs. Run `3aecc46d-585b-4433-ba0d-11bf19e837e0`
+  stopped at its one-step budget as blocked/not_tested, retaining one actually
+  observed state, one action and two remaining pairs. The asynchronous response
+  did not justify inventing another sampled state. Shared/local records matched.
+  Both isolated path counters were first=1, secondary=0, delete=0; cleanup recorded
+  and the owned fixture stopped after acceptance. No RWA/production data changed.
+- 486 sidecar tests, 210 frontend tests, TypeScript/build, all fifteen Dynamic
+  SQL suites and retained-data upgrade fixture passed. Actual partial-scope UI
+  checked at 1440×900, 1200×900 and 390×844 without document overflow. Existing
+  chunk-size warning remains; historical M3 criteria/source metadata preserved.
+- Pinned regression/finding lineage, approved file transfers, remaining live
+  visual/CRUD gates, legacy-entry fencing and the later M5–M7 deliverables remain
+  required. This is M4e acceptance, not completion of all P4 or the release.

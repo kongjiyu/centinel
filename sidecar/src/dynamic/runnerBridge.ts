@@ -56,6 +56,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
       ...providers,
       budgets:limits,
       observationMode:'dom_first',
+      ...(run.revision.mode==='exploratory'?{exploratoryChecks:run.revision.checks,checkpointExploration:async(snapshot:import('./browser/exploration.js').ExplorationSnapshot)=>{if(!lease?.canForward())throw new DOMException('Execution lease unavailable','AbortError');await service.checkpointExploration(run.projectId,run.id,snapshot);if(!lease?.canForward())throw new DOMException('Execution lease unavailable','AbortError');}}:{}),
       actionPolicy:normalizeActionPolicy(run.actionPolicy??run.environment?.actionPolicy),
       runtimeMs: Math.max(1000, Math.floor(durationMs - (performance.now() - claimStarted))),
       canForward: () => lease?.canForward() === true,
@@ -67,7 +68,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
         const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy);
         await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
         await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
-        return result.verdict;
+        return {verdict:result.verdict,checks:result.checks};
       },
     });
     const final = await service.requireRun(run.projectId, run.id);

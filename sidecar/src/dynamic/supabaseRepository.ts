@@ -1,3 +1,4 @@
+import type {ExplorationSnapshot} from './browser/exploration.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DynamicContractError, type DynamicRepository, type DynamicRun, type Mission, type MissionInput, type MissionRevision, type RunPatch, type RunState } from './types.js';
@@ -63,6 +64,7 @@ export class SupabaseDynamicRepository implements DynamicRepository {
     if (error) storageError(error);
     return data ?? [];
   }
+  async checkpointExploration(projectId:string,runId:string,workerId:string,token:string,snapshot:ExplorationSnapshot){const {data,error}=await this.client.rpc('checkpoint_dynamic_exploration',{p_project_id:projectId,p_run_id:runId,p_worker_id:workerId,p_token:token,p_snapshot:snapshot});if(error)storageError(error);return data===true;}
   async compareAndSetRun(projectId: string, runId: string, expected: RunState, patch: RunPatch): Promise<DynamicRun | null> {
     const { data, error } = await this.client.rpc('transition_dynamic_run', { p_project_id: projectId, p_run_id: runId, p_expected: expected, p_patch: patch });
     if (error) storageError(error);

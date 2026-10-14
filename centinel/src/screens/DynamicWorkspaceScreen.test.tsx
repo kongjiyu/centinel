@@ -28,6 +28,7 @@ async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('Dynamic saved tests and run history', () => {
+  it('saves explicit bounded exploration mode rather than changing historical execution implicitly',async()=>{const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Testing mode'}));await user.click(screen.getByRole('option',{name:'Bounded exploration'}));await user.click(screen.getByRole('button',{name:'Save test'}));await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({mode:'exploratory'}),undefined));});
   it('saves an explicit unchecked expectation with its CSS target',async()=>{
     const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Verify'}));await user.click(screen.getByRole('option',{name:'Checked state'}));const selector=screen.getByLabelText('CSS selector');await user.clear(selector);await user.type(selector,'#agree');await user.click(screen.getByRole('combobox',{name:'Expected form state'}));await user.click(screen.getByRole('option',{name:'Not checked'}));await user.click(screen.getByRole('button',{name:'Save test'}));await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({checks:[expect.objectContaining({kind:'field_checked',selector:'#agree',expected:false,required:true})]}),undefined));
   });

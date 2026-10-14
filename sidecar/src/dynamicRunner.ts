@@ -1,3 +1,4 @@
+import {ExplorationJournal,type ExplorationSnapshot} from './dynamic/browser/exploration.js';
 import {NetworkDiagnostics} from './dynamic/browser/networkDiagnostics.js';
 import {ActionLedger} from './dynamic/browser/actionLedger.js';
 import {rescrubRunText} from './dynamic/browser/retainedPrivacy.js';
@@ -240,7 +241,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[]}) => Promise<CheckVerdict> }
+  providers: { checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -302,7 +303,7 @@ export async function runDynamicSession(
   const signal = controller.signal;
   let browser: Browser | null = null;
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
-  const actionTrace: ActionTraceEntry[] = [];const actionLedger=new ActionLedger();
+  const actionTrace: ActionTraceEntry[] = [];const actionLedger=new ActionLedger();const exploration=providers.exploratoryChecks?new ExplorationJournal(providers.exploratoryChecks,secrets):undefined;let explorationStateId:string|undefined;
   const consoleLogs: string[] = [];const networkDiagnostics=new NetworkDiagnostics(secrets);
   let privacyObservationComplete=providers.observationMode!=='dom_first';
   const retainedConsole=()=>privacyObservationComplete?redactObservationRecord(consoleLogs,secrets):[{withheldEntries:consoleLogs.length,reason:'Console text withheld because a complete sanitized page observation was unavailable.'}];
@@ -318,6 +319,7 @@ export async function runDynamicSession(
     if (result.rawText && result.rawText.length > 64_000) throw new ExecutionBudgetExceeded('Model response output limit reached; oversized output was excluded from retained evidence.');
     return result;
   };
+  const checkpointExploration=async()=>{if(!exploration)return;const snapshot=exploration.snapshot();fs.writeFileSync(path.join(logsDir,'exploration.json'),JSON.stringify(snapshot,null,2));try{await providers.checkpointExploration?.(snapshot);}catch{controller.abort();throw new BrowserObservationUnavailable('Exploratory progress could not be persisted; execution stopped before further actions.');}};
   const startTime = Date.now();
   let consecutiveFailures = 0;
 
@@ -388,7 +390,7 @@ export async function runDynamicSession(
         privacyObservationComplete=false;
         const observed=await observeBrowserPage(page,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});bindings=observed.bindings;
         discoverPrivateValues(observed.sensitiveValues);privacyObservationComplete=true;
-        context=observed.observation;
+        context=observed.observation;explorationStateId=exploration?.observe(observed.observation);
       }else context=redactObservationRecord(await extractPageContext(page),secrets);
       context.visibleText=context.visibleText.slice(0,2000);context.elements=context.elements.map(element=>element.slice(0,1000));
       budget.observe(context);
@@ -396,10 +398,13 @@ export async function runDynamicSession(
       fs.writeFileSync(beforeObservationPath,JSON.stringify({capturedAt:new Date().toISOString(),observation:context},null,2));
       await addEvidence(session.projectId,session.id,'session_summary',beforeObservationPath,`Step ${step} before observation`);
 
+      await checkpointExploration();
+      const explorationBeforeStateId=explorationStateId;
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
 
       let prompt = sanitize(buildPrompt(session.goal, context, actionTrace, step, providers.actionPolicy));
+      if(exploration)prompt+=sanitize('\nBounded exploratory task: prioritize relevant untried approved controls for selected objectives. Do not claim exhaustive coverage. Snapshot: '+exploration.planningContext());
       fs.writeFileSync(aiRequestPath, JSON.stringify({ prompt, context, step }, null, 2));
       await addEvidence(session.projectId, session.id, 'ai_request', aiRequestPath, `Step ${step} AI request`);
 
@@ -468,6 +473,7 @@ export async function runDynamicSession(
         timestamp: new Date().toISOString(),
       };
 
+      let explorationActionRecorded=false;
       try {
         // Handle terminal actions
         // Mission runs require independent checks for either model terminal proposal.
@@ -476,7 +482,9 @@ export async function runDynamicSession(
           status='blocked';terminalReason=sanitize('Agent stopped before completing the requested scope: '+action.summary);failureCategory='unknown';break;
         }
         if (providers.verifyOutcome && (action.action === 'finish_success' || action.action === 'finish_failure')) {
-          const verdict = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors});
+          const verifiedOutcome = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors,...(exploration?{exploration:exploration.snapshot()}: {})});
+          const verdict=typeof verifiedOutcome==='string'?verifiedOutcome:verifiedOutcome.verdict;
+          if(exploration&&typeof verifiedOutcome!=='string')exploration.setIndependentResults(verifiedOutcome.checks);
           status = verdict === 'passed' ? 'success' : verdict === 'failed' ? 'failure' : 'blocked';
           terminalReason = `Independent checks: ${verdict}`;
           trace.result = status === 'success' ? 'success' : status === 'failure' ? 'failure' : 'blocked';
@@ -532,15 +540,19 @@ export async function runDynamicSession(
           try{
             privacyObservationComplete=false;
             const after=await observeBrowserPage(page,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
-            discoverPrivateValues(after.sensitiveValues);privacyObservationComplete=true;budget.observe(after.observation);
+            discoverPrivateValues(after.sensitiveValues);privacyObservationComplete=true;explorationStateId=exploration?.observe(after.observation);budget.observe(after.observation);
             trace.afterObservationPath=path.join(logsDir,`step-${String(step).padStart(3,'0')}-after.json`);
             fs.writeFileSync(trace.afterObservationPath,JSON.stringify({capturedAt:new Date().toISOString(),observation:after.observation},null,2));
             await addEvidence(session.projectId,session.id,'session_summary',trace.afterObservationPath,`Step ${step} after observation`);
           }catch(error){if(error instanceof ExecutionBudgetExceeded)throw error;throw new BrowserActionUncertain();}
         }
+        if(exploration&&explorationBeforeStateId)exploration.action({step,action:action.action,beforeStateId:explorationBeforeStateId,afterStateId:explorationStateId,targetRef:'elementRef' in action?action.elementRef:undefined,status:receipt.alreadyMatched?'skipped':'dispatched'});
+        explorationActionRecorded=true;
+        await checkpointExploration();
         consecutiveFailures = 0;
         debugLog.log('info', 'action_execute', `Action ${action.action} succeeded`, step);
       } catch (err) {
+        if(exploration&&explorationBeforeStateId&&!explorationActionRecorded)exploration.action({step,action:action.action,beforeStateId:explorationBeforeStateId,targetRef:'elementRef' in action?action.elementRef:undefined,status:err instanceof BrowserActionUncertain?'uncertain':err instanceof BrowserActionUnavailable?'unavailable':'blocked'});
         if(err instanceof BrowserActionUncertain||err instanceof BrowserPolicyBlocked||err instanceof ExecutionBudgetExceeded||signal.aborted){trace.result='blocked';trace.error=sanitize(err instanceof Error?err.message:'Execution stopped');actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);controller.abort();throw err;}
         trace.result = 'failure';
         trace.error = String(err);
@@ -614,6 +626,7 @@ export async function runDynamicSession(
     await safeUpdate(session.id, status, summary, reason);
   } finally {
     try{
+      if(exploration){fs.writeFileSync(path.join(logsDir,'exploration.json'),JSON.stringify(exploration.snapshot(),null,2));await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'exploration.json'),'Bounded exploratory visits and unvisited scope');}
       fs.writeFileSync(path.join(logsDir,'network.json'),JSON.stringify(networkDiagnostics.snapshot(privacyObservationComplete),null,2));
       await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'network.json'),'Retained partial network diagnostics');
       fs.writeFileSync(path.join(logsDir,'console.json'),JSON.stringify(retainedConsole()));
