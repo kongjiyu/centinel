@@ -56,11 +56,12 @@ export class DynamicService {
   saveMission(projectId: string, actorId: string, input: unknown, missionId?: string) {
     return this.repository.saveRevision(projectId, actorId, validateMission(input, projectId), missionId);
   }
-  async start(projectId: string, actorId: string, revisionId: string, idempotencyKey: string, environment?: EnvironmentSnapshot) {
+  async start(projectId: string, actorId: string, revisionId: string, idempotencyKey: string, environment?: EnvironmentSnapshot, baselineRunId?:string) {
     if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128) throw new DynamicContractError(400, 'A bounded idempotencyKey is required.');
     const revision = await this.repository.getRevision(projectId, revisionId);
     if (!revision) throw new DynamicContractError(404, 'Mission revision not found.');
-    return this.repository.createRun(projectId, actorId, revision, idempotencyKey.trim(), environment);
+    if(baselineRunId!==undefined){if(typeof baselineRunId!=='string'||!/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.test(baselineRunId))throw new DynamicContractError(400,'Choose a valid regression baseline.');baselineRunId=baselineRunId.toLowerCase();const baseline=await this.repository.getRun(projectId,baselineRunId);if(!baseline)throw new DynamicContractError(404,'Regression baseline not found in this project.');if(baseline.state!=='completed'||baseline.revision.id!==revision.id||!baseline.checks.length||!baseline.evidence.length)throw new DynamicContractError(409,'Regression must use the baseline’s frozen revision and retained completed observations.');}
+    return this.repository.createRun(projectId, actorId, revision, idempotencyKey.trim(), environment,baselineRunId);
   }
   async claim(projectId: string, runId: string, legacySessionId: string | null = null) {
     const run = await this.requireRun(projectId, runId);

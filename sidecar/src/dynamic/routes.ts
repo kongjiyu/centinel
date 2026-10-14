@@ -51,7 +51,10 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
       if (typeof body.idempotencyKey !== 'string' || !body.idempotencyKey.trim() || body.idempotencyKey.length > 128) throw new DynamicContractError(400, 'A bounded idempotencyKey is required.');
       const old = await service.repository.getRunByKey(projectId, body.idempotencyKey.trim());
       if ('environmentId' in body && (typeof body.environmentId !== 'string' || !body.environmentId)) throw new DynamicContractError(400, 'Select a valid environment.');
+      if('baselineRunId' in body&&(typeof body.baselineRunId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(body.baselineRunId)))throw new DynamicContractError(400,'Choose a valid regression baseline.');
+      if(typeof body.baselineRunId==='string')body.baselineRunId=body.baselineRunId.toLowerCase();
       if (old) {
+        if(old.regression?.runId!==body.baselineRunId)throw new DynamicContractError(409,'Idempotency regression baseline conflict.');
         if (old.environment?.id !== body.environmentId) throw new DynamicContractError(409, 'Idempotency environment conflict.');
         if (old.revision.id !== body.revisionId || old.createdBy !== deps.actorId) throw new DynamicContractError(409, 'Idempotency key belongs to a different request.');
         return { status: 200, body: old };
@@ -59,7 +62,7 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
       const prepared = await deps.prepareExecution(projectId, body.revisionId, body.environmentId as string | undefined);
       const execute = typeof prepared === 'function' ? prepared : prepared.execute;
       const environment = typeof prepared === 'function' ? undefined : prepared.environment;
-      const result = await service.start(projectId, deps.actorId, body.revisionId, body.idempotencyKey as string, environment);
+      const result = await service.start(projectId, deps.actorId, body.revisionId, body.idempotencyKey as string, environment,body.baselineRunId as string|undefined);
       if (!result.reused) void execute(result.run).catch(async () => { await service.stop(projectId, result.run.id, 'blocked', 'Execution unavailable.').catch(() => {}); });
       return { status: result.reused ? 200 : 201, body: result.run };
     }

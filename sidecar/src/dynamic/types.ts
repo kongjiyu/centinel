@@ -1,3 +1,4 @@
+import type {RegressionBaseline} from './regression.js';
 import type {ExplorationSnapshot} from './browser/exploration.js';
 import type {BrowserActionPolicy} from './browser/actionPolicy.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
@@ -27,6 +28,7 @@ export type DynamicRun = {
   environment?: EnvironmentSnapshot;
   executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
+  regression?:RegressionBaseline;
   exploration?:ExplorationSnapshot;
   state: RunState; verdict: CheckVerdict; reason: string | null;
   checks: CheckResult[]; evidence: EvidenceReference[]; legacySessionId: string | null;
@@ -39,7 +41,7 @@ export interface DynamicRepository {
   getRun(projectId: string, runId: string): Promise<DynamicRun | null>;
   listRuns(projectId: string, missionId?: string): Promise<DynamicRun[]>;
   getRunByKey(projectId: string, key: string): Promise<DynamicRun | null>;
-  createRun(projectId: string, actorId: string, revision: MissionRevision, key: string, environment?: EnvironmentSnapshot): Promise<{ run: DynamicRun; reused: boolean }>;
+  createRun(projectId: string, actorId: string, revision: MissionRevision, key: string, environment?: EnvironmentSnapshot, baselineRunId?:string): Promise<{ run: DynamicRun; reused: boolean }>;
   claimRun(projectId: string, runId: string, workerId: string, leaseToken: string, sessionId: string | null): Promise<DynamicRun | null>;
   heartbeatRun(projectId: string, runId: string, workerId: string, leaseToken: string): Promise<boolean>;
   recoverRuns(projectId: string): Promise<DynamicRun[]>;
