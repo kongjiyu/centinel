@@ -1,0 +1,5 @@
+--- a/backend/database.ts
++++ b/backend/database.ts
+@@ -207 +207 @@
+-  db.get(USER_TABLE).find(user).assign(edits).write();
++  db.get(USER_TABLE).find(user).assign({ ...edits, firstName: user.firstName }).write();
