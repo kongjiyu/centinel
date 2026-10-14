@@ -8,7 +8,10 @@ export type CheckDefinition = {
   criterionId: string;
   description: string;
   required: boolean;
-} & ({ kind: 'url'; expected: string } | { kind: 'visible_text'; expected: string } | { kind: 'element_visible'; selector: string });
+} & ({ kind: 'url'; expected: string } | { kind: 'visible_text'; expected: string } | { kind: 'element_visible'; selector: string }
+ | {kind:'field_value';selector:string;expected:string}
+ | {kind:'field_checked'|'field_enabled'|'field_valid';selector:string;expected:boolean}
+ | {kind:'selected_values';selector:string;expected:string[]});
 export type CheckVerdict = 'passed' | 'failed' | 'uncertain' | 'not_tested';
 export type RunState = 'queued' | 'running' | 'completed' | 'blocked' | 'cancelled' | 'interrupted';
 export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks'; sha256: string; availability: 'local'; capturedAt: string };
@@ -21,7 +24,7 @@ export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{observer:1;planner:1;policy:1;executor:1;checker:1};
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{observer:1|2;planner:1;policy:1;executor:1;checker:1|2};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   state: RunState; verdict: CheckVerdict; reason: string | null;
   checks: CheckResult[]; evidence: EvidenceReference[]; legacySessionId: string | null;

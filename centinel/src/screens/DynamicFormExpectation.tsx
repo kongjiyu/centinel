@@ -1,0 +1,9 @@
+import type {DraftCheck} from '../dynamic/checkDraft';
+import {isBooleanFormCheck} from '../dynamic/checkDraft';
+import {Select} from '../components/Select';
+export function DynamicFormExpectation({check,onChange}:{check:DraftCheck;onChange(patch:Partial<DraftCheck>):void}){
+ if(!['field_value','field_checked','field_enabled','field_valid','selected_values'].includes(check.kind))return null;
+ return <div className="dw-field"><label htmlFor={'dw-form-expected-'+check.id}>{check.kind==='field_value'?'Expected field value':check.kind==='selected_values'?'Expected option values (one per line)':'Expected form state'}</label>
+ {isBooleanFormCheck(check.kind)?<Select id={'dw-form-expected-'+check.id} value={check.formExpected} options={[{value:'true',label:check.kind==='field_checked'?'Checked':check.kind==='field_enabled'?'Enabled':'Valid'},{value:'false',label:check.kind==='field_checked'?'Not checked':check.kind==='field_enabled'?'Disabled':'Invalid'}]} onChange={value=>onChange({formExpected:value})}/>:check.kind==='selected_values'?<><textarea id={'dw-form-expected-'+check.id} rows={2} maxLength={30000} value={check.formExpected} onChange={event=>onChange({formExpected:event.target.value})}/><label className="dw-required"><input type="checkbox" checked={check.includeEmptyOption} onChange={event=>onChange({includeEmptyOption:event.target.checked})}/>Include the empty option value</label><p className="dw-muted">Leave the list blank for no selected values. Comparison ignores option order.</p></>:<><input id={'dw-form-expected-'+check.id} maxLength={1000} value={check.formExpected} onChange={event=>onChange({formExpected:event.target.value})}/><p className="dw-muted">An empty value is allowed. Expectations are shared; use synthetic test data, never passwords or private values.</p></>}
+ </div>;
+}

@@ -20,9 +20,18 @@ export function validateMission(value: unknown, projectId: string): MissionInput
     if (!check || typeof check.id !== 'string' || !check.id || ids.has(check.id) || typeof check.criterionId !== 'string' || !check.criterionId || typeof check.description !== 'string' || !check.description || typeof check.required !== 'boolean') fail('Checks require unique IDs, criterion IDs, descriptions and required flags.');
     if(check.id.length>200||check.criterionId.length>200||check.description.length>4000)fail('Check identities and descriptions must be bounded.');
     ids.add(check.id);
-    if (!['url', 'visible_text', 'element_visible'].includes(check.kind)) fail('Unsupported check kind.');
-    const expectation = check.kind === 'element_visible' ? check.selector : check.expected;
-    if (typeof expectation !== 'string' || !expectation.trim() || expectation.length > 1000) fail('Check expectation must be non-empty and bounded.');
+    if (!['url','visible_text','element_visible','field_value','field_checked','field_enabled','field_valid','selected_values'].includes(check.kind)) fail('Unsupported check kind.');
+    const selector='selector' in check?check.selector:undefined;
+    if(!['url','visible_text'].includes(check.kind)&&(typeof selector!=='string'||!selector.trim()||selector.length>1000))fail('Check selector must be non-empty and bounded.');
+    if(check.kind==='url'||check.kind==='visible_text'){
+      if(typeof check.expected!=='string'||!check.expected.trim()||check.expected.length>1000)fail('Check expectation must be non-empty and bounded.');
+    }else if(check.kind==='field_value'){
+      if(typeof check.expected!=='string'||check.expected.length>1000)fail('Expected field value must be a bounded string, including an empty value.');
+    }else if(['field_checked','field_enabled','field_valid'].includes(check.kind)){
+      if(typeof (check as {expected:unknown}).expected!=='boolean')fail('Expected form state must be an explicit boolean.');
+    }else if(check.kind==='selected_values'){
+      if(!Array.isArray(check.expected)||check.expected.length>30||check.expected.some(value=>typeof value!=='string'||value.length>1000)||new Set(check.expected).size!==check.expected.length)fail('Selected values must be a bounded unique string list.');
+    }
     if (check.kind === 'url') {
       try { if (new URL(check.expected).origin !== new URL(input.targetUrl).origin) fail('URL check must belong to the target origin.'); }
       catch { fail('URL check must belong to the target origin.'); }
@@ -35,7 +44,7 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   }
   const criterionExclusions=validateCriterionExclusions(input.criterionExclusions,context,input.checks);
   // Construct only the supported fields so arbitrary caller metadata is not persisted.
-  return structuredClone({ name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({ id: check.id, criterionId: check.criterionId, description: check.description, required: check.required, ...(check.kind === 'element_visible' ? { kind: check.kind, selector: check.selector } : { kind: check.kind, expected: check.expected }) })), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
+  return structuredClone({ name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({id:check.id,criterionId:check.criterionId,description:check.description,required:check.required,kind:check.kind,...(!['url','visible_text'].includes(check.kind)&&'selector' in check?{selector:check.selector}:{}),...(check.kind!=='element_visible'&&'expected' in check?{expected:check.expected}:{})} as import('./types.js').CheckDefinition)), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
 }
 
 export class DynamicService {
