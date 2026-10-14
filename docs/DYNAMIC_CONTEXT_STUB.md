@@ -1,6 +1,6 @@
 # Dynamic incoming-context development stub
 
-Status: fixture implemented; explicit Mission-authoring HTTP input wired on 13 October 2026. Mission UI and real Static export remain outside this slice.
+Status: M3 mock consumer, editable Mission UI and frozen criterion coverage implemented and verified on 14 October 2026. Real Static export remains excluded. See [M3 implementation and acceptance](DYNAMIC_CONTEXT_COVERAGE.md).
 
 This simulates Static sending context to Dynamic. It does not scan sources, call
 an LLM, persist a Review, authenticate a user or invent an application verdict.
@@ -65,5 +65,5 @@ belong there when it exists, not in a fake authorization service.
 Fixture and Mission tests verify reference consistency, scenario contents, JSON
 serialization, project binding, independent copies, absence handling, Mission
 authoring and scoped API access. The scripted real-browser baseline verifies
-criterion outcomes with explicit mock provenance. Coverage UI and real Static
-integration remain pending.
+criterion outcomes with explicit mock provenance. Coverage UI is implemented through M3; real Static integration remains excluded
+and versioned report retention/sharing remains M5.

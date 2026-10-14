@@ -81,3 +81,16 @@
   .app-shell.has-window-chrome.command-mode.workspace-mode:has(.dynamic-workspace-screen) .sidebar { flex: 0 0 72px; width: 72px; min-width: 72px; }
   .dynamic-workspace-screen .dw-session-panel .dw-actions button { min-width: 0; max-width: 100%; white-space: normal; }
 }
+
+.dynamic-workspace-screen .dw-coverage table { min-width: 760px; table-layout: fixed; }
+.dynamic-workspace-screen .dw-coverage thead th:nth-child(1) { width: 40%; }
+.dynamic-workspace-screen .dw-coverage thead th:nth-child(2) { width: 14%; }
+.dynamic-workspace-screen .dw-coverage thead th:nth-child(3) { width: 12%; }
+.dynamic-workspace-screen .dw-coverage thead th:nth-child(4) { width: 34%; }
+.dynamic-workspace-screen .dw-coverage small { display: block; margin-top: 4px; color: var(--workspace-text-muted); font-weight: 400; }
+.dynamic-workspace-screen .dw-coverage-scroll-hint { display: none; }
+@media (max-width: 720px) {
+  .dynamic-workspace-screen .dw-coverage-scroll-hint { display: block; }
+}
+
+.dynamic-workspace-screen .dw-coverage .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }

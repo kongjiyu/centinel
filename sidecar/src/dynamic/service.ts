@@ -1,3 +1,4 @@
+import {validateIncomingContext,validateCriterionExclusions,contextNeedsAcknowledgment} from './context.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import crypto from 'node:crypto';
 import { dynamicWorkerId } from './recovery.js';
@@ -8,6 +9,7 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   const fail = (message: string): never => { throw new DynamicContractError(400, message); };
   if (!value || typeof value !== 'object') fail('Mission body is required.');
   const input = value as MissionInput;
+  if(input.contextAcknowledged!==undefined&&typeof input.contextAcknowledged!=='boolean')fail('Context acknowledgment must be explicit.');
   for (const key of ['name', 'goal', 'targetUrl'] as const) if (typeof input[key] !== 'string' || !input[key].trim() || input[key].length > 4000) fail(`${key} is required and must be bounded.`);
   try { if (!['http:', 'https:'].includes(new URL(input.targetUrl).protocol) || new URL(input.targetUrl).username || new URL(input.targetUrl).password) fail('Target URL must be HTTP(S) without credentials.'); }
   catch { fail('Target URL must be HTTP(S) without credentials.'); }
@@ -16,6 +18,7 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   const ids = new Set<string>();
   for (const check of input.checks) {
     if (!check || typeof check.id !== 'string' || !check.id || ids.has(check.id) || typeof check.criterionId !== 'string' || !check.criterionId || typeof check.description !== 'string' || !check.description || typeof check.required !== 'boolean') fail('Checks require unique IDs, criterion IDs, descriptions and required flags.');
+    if(check.id.length>200||check.criterionId.length>200||check.description.length>4000)fail('Check identities and descriptions must be bounded.');
     ids.add(check.id);
     if (!['url', 'visible_text', 'element_visible'].includes(check.kind)) fail('Unsupported check kind.');
     const expectation = check.kind === 'element_visible' ? check.selector : check.expected;
@@ -25,21 +28,14 @@ export function validateMission(value: unknown, projectId: string): MissionInput
       catch { fail('URL check must belong to the target origin.'); }
     }
   }
-  if (input.context != null) {
-    const context = input.context;
-    if (['reviewId', 'snapshotId'].some(key => typeof context[key as 'reviewId' | 'snapshotId'] !== 'string' || !context[key as 'reviewId' | 'snapshotId'])) fail('Incoming snapshot identifiers are required.');
-    if (typeof context !== 'object' || Array.isArray(context) || context.schemaVersion !== 1 || context.provenance !== 'mock-static' || context.projectId !== projectId || !Array.isArray(context.requirements) || !Array.isArray(context.sources) || !Array.isArray(context.conflicts)) fail('Invalid or cross-project incoming context.');
-    if (!['approved', 'pending'].includes(context.approvalState) || context.sources.some(source => !source || typeof source.id !== 'string' || !source.id || typeof source.version !== 'string' || !source.version || !['current', 'stale', 'unknown'].includes(source.currency))) fail('Invalid incoming context metadata.');
-    const sources = new Set(context.sources.map(source => source.id));
-    if (sources.size !== context.sources.length) fail('Duplicate incoming source IDs.');
-    if (context.requirements.some(requirement => !requirement || typeof requirement.id !== 'string' || !requirement.id || !Number.isInteger(requirement.revision) || requirement.revision < 1 || !sources.has(requirement.sourceId) || !Array.isArray(requirement.criteria) || requirement.criteria.some(criterion => !criterion || typeof criterion.id !== 'string' || !criterion.id))) fail('Incoming context contains dangling sources or missing criteria.');
-    const criteria = new Set(context.requirements.flatMap(requirement => requirement.criteria.map(criterion => criterion.id)));
-    if (input.checks.some(check => !criteria.has(check.criterionId))) fail('Check references a criterion absent from the incoming snapshot.');
-    const warnings = context.approvalState !== 'approved' || context.conflicts.length > 0 || context.sources.some(source => source.currency !== 'current');
-    if (warnings && input.contextAcknowledged !== true) fail('Acknowledge stale, conflicting or unapproved mock context before use.');
+  const context=validateIncomingContext(input.context,projectId);
+  if(context){const criteria=new Set(context.requirements.flatMap(requirement=>requirement.criteria.map(criterion=>criterion.id)));
+    if(input.checks.some(check=>!criteria.has(check.criterionId)))fail('Check references a criterion absent from the incoming snapshot.');
+    if(contextNeedsAcknowledgment(context)&&input.contextAcknowledged!==true)fail('Acknowledge stale, conflicting, pending or incomplete mock context before use.');
   }
+  const criterionExclusions=validateCriterionExclusions(input.criterionExclusions,context,input.checks);
   // Construct only the supported fields so arbitrary caller metadata is not persisted.
-  return structuredClone({ name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({ id: check.id, criterionId: check.criterionId, description: check.description, required: check.required, ...(check.kind === 'element_visible' ? { kind: check.kind, selector: check.selector } : { kind: check.kind, expected: check.expected }) })), context: input.context ?? null, contextAcknowledged: input.contextAcknowledged === true });
+  return structuredClone({ name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({ id: check.id, criterionId: check.criterionId, description: check.description, required: check.required, ...(check.kind === 'element_visible' ? { kind: check.kind, selector: check.selector } : { kind: check.kind, expected: check.expected }) })), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
 }
 
 export class DynamicService {

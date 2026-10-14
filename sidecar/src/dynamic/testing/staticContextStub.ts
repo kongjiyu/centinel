@@ -1,5 +1,6 @@
 /** Development-only incoming Static context. Never fall back to this on a live error. */
-export type StubScenario = 'normal' | 'stale' | 'conflicting' | 'unapproved' | 'incomplete' | 'absent';
+export const STUB_SCENARIOS=['normal','stale','conflicting','unapproved','incomplete','absent'] as const;
+export type StubScenario = typeof STUB_SCENARIOS[number];
 
 export interface StaticContextFixture {
   schemaVersion: 1;
@@ -37,6 +38,7 @@ export function createStaticContextFixture(
   scenario: StubScenario = 'normal',
 ): StaticContextFixture | null {
   if (!projectId.trim()) throw new Error('A project ID is required');
+  if(!STUB_SCENARIOS.includes(scenario))throw new Error('Unknown mock scenario.');
   if (scenario === 'absent') return null;
   const context: StaticContextFixture = {
     schemaVersion: 1,
@@ -81,6 +83,7 @@ export function createStaticContextFixture(
     limitations: ['Synthetic requirements authored for Dynamic development; no Static analysis or approval occurred.',
       'Criteria require baseline verification against the running app before evaluation; repository commit does not establish deployment version.'],
   };
+  if(scenario!=='normal')context.snapshotId='mock-snapshot-rwa-'+scenario;
   switch (scenario) {
     case 'stale':
       context.sources[0].currency = 'stale';

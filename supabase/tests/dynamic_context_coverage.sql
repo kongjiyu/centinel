@@ -1,0 +1,24 @@
+begin;
+set local role authenticated;select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+do $$
+declare p uuid:='11111111-1111-4111-8111-111111111111';ctx jsonb;body jsonb;bad jsonb;revision jsonb;next_revision jsonb;run jsonb;stored jsonb;
+begin
+ ctx:='{"schemaVersion":1,"provenance":"mock-static","projectId":"11111111-1111-4111-8111-111111111111","reviewId":"mock-review","snapshotId":"mock-v1","approvalState":"approved","sources":[{"id":"source","version":"v1","currency":"current","uri":"mock://fixture/v1"}],"target":{"repository":"https://github.com/cypress-io/cypress-realworld-app","commit":"9dfcb9869533ce8a8963c556facc0d80457f9d39","deploymentVersion":null},"requirements":[{"id":"REQ","revision":1,"description":"Sign-in boundary","sourceId":"source","criteria":[{"id":"C1","description":"Protected page requires authentication"},{"id":"C2","description":"Signed-in page is visible"}]}],"risks":[],"conflicts":[],"limitations":["Synthetic context; no real Static approval."]}';
+ body:=jsonb_build_object('name','Mock coverage','goal','Read heading','targetUrl','http://localhost:3000','maxSteps',3,'context',ctx,'contextAcknowledged',false,'checks','[{"id":"one","criterionId":"C1","description":"Sign-in boundary","kind":"visible_text","expected":"Sign in","required":true}]'::jsonb,'criterionExclusions','[{"criterionId":"C2","reason":"Authenticated journey is outside this signed-out test"}]'::jsonb);
+ revision:=public.save_dynamic_revision(p,auth.uid(),body);
+ if revision->'criterionExclusions'->0->>'criterionId'<>'C2' then raise exception 'Exclusion was not retained';end if;
+ foreach bad in array array[jsonb_set(ctx,'{projectId}','"22222222-2222-4222-8222-222222222222"'),jsonb_set(ctx,'{sources}',(ctx->'sources')||(ctx->'sources')),jsonb_set(ctx,'{requirements,0,sourceId}','"missing"'),jsonb_set(ctx,'{requirements,0,criteria}',(ctx->'requirements'->0->'criteria')||(ctx->'requirements'->0->'criteria')),jsonb_set(ctx,'{requirements,0,revision}','0'),jsonb_set(ctx,'{risks}','[{"id":"risk","requirementId":"missing","priority":"high","rationale":"Fixture"}]'),jsonb_set(ctx,'{target,commit}','"wrong"')] loop
+  begin perform public.save_dynamic_revision(p,auth.uid(),body||jsonb_build_object('context',bad));raise exception 'Malformed context accepted';exception when raise_exception then if sqlerrm='Malformed context accepted' then raise;end if;end;
+ end loop;
+ begin perform public.save_dynamic_revision(p,auth.uid(),body||'{"criterionExclusions":[{"criterionId":"C1","reason":"Conflicting exclusion"}]}');raise exception 'Executing criterion excluded';exception when raise_exception then if sqlerrm='Executing criterion excluded' then raise;end if;end;
+ begin perform public.save_dynamic_revision(p,auth.uid(),body||'{"criterionExclusions":[{"criterionId":"absent","reason":"Dangling exclusion"}]}');raise exception 'Dangling exclusion accepted';exception when raise_exception then if sqlerrm='Dangling exclusion accepted' then raise;end if;end;
+ bad:=jsonb_set(ctx,'{approvalState}','"pending"');begin perform public.save_dynamic_revision(p,auth.uid(),body||jsonb_build_object('context',bad));raise exception 'Pending context used without acknowledgment';exception when raise_exception then if sqlerrm='Pending context used without acknowledgment' then raise;end if;end;
+ stored:=public.save_dynamic_revision(p,auth.uid(),body||jsonb_build_object('context',bad,'contextAcknowledged',true));if stored->'context'->>'approvalState'<>'pending' or stored->>'createdBy'<>auth.uid()::text then raise exception 'Attribution or synthetic pending state altered';end if;
+ run:=public.start_dynamic_run(p,auth.uid(),(revision->>'id')::uuid,'mock-coverage-run');perform public.transition_dynamic_run(p,(run->'run'->>'id')::uuid,'queued','{"state":"cancelled","verdict":"not_tested","checks":[],"evidence":[]}');
+ next_revision:=public.save_dynamic_revision(p,auth.uid(),body||jsonb_build_object('context',jsonb_set(ctx,'{sources,0,version}','"v2"'),'criterionExclusions','[]'::jsonb),(revision->>'missionId')::uuid);
+ select payload into stored from public.dynamic_runs where id=(run->'run'->>'id')::uuid;
+ if stored->'revision'->'context'->'sources'->0->>'version'<>'v1' or stored->'revision'->'criterionExclusions' is distinct from revision->'criterionExclusions' then raise exception 'New source/revision altered historical coverage input';end if;
+ if has_function_privilege('authenticated','public.save_dynamic_revision_without_context_contract(uuid,uuid,jsonb,uuid)','execute') or has_function_privilege('authenticated','public.normalize_dynamic_incoming_context(uuid,jsonb)','execute') then raise exception 'Private context helper exposed';end if;
+ raise notice 'PASS: context schema, references, exclusions, acknowledgment, attribution and frozen history';
+end $$;
+rollback;
