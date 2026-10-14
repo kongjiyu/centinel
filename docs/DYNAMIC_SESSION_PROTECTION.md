@@ -112,6 +112,8 @@ project-wide durable lease. Run/Hook/data preparation and profile edits cannot
 bypass that lease; original implementations are private behind authenticated
 wrappers. Cancellation holds the reservation until the browser stops. Successful
 capture leaves data unprepared; cancellation/expiry leaves cleanup required.
+Monotonic request-start timing prevents late heartbeat replies from extending
+local freshness. The local five-minute capture deadline starts with lease acquisition.
 Loss of heartbeat stops network forwarding before lease expiry, including existing
 TLS/WebSocket streams. Browser restart never silently treats interrupted capture
 as a clean baseline. Close abandoned sign-in windows before verifying cleanup.
@@ -143,7 +145,7 @@ checks passed against the extended schema.
 - Expired-reference Run a432420a-a7ad-46ca-ae55-10520314ea1e was blocked before any
   browser session existed; its saved preflight explicitly recorded session expiry.
 - UI was verified at 1440×900, 1200×900 and 390×844, without horizontal overflow.
-  Complete suites: 410 sidecar tests and 192 frontend tests, plus sidecar
+  Complete suites: 411 sidecar tests and 192 frontend tests, plus sidecar
   TypeScript and frontend production build. The existing Vite bundle-size warning remains.
 
 Local records: output/playwright/session-ui-acceptance.json and
