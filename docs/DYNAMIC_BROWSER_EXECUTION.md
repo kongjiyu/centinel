@@ -170,3 +170,49 @@ regression/finding lineage remain implementation work, not assumed capabilities.
   network diagnostics, exploration, regression, approved file transfers,
   legacy-entry fencing or the remaining live visual/CRUD gates. Those remain
   required work; P4 and the overall Dynamic release are not yet complete.
+
+## M4d repeat guards and network diagnostics
+
+- Every new Mission Run has a click ledger. Each granted control is single-use
+  per origin/path unless every matching selector rule explicitly approves
+  `repeatable: true`. Query/hash changes and alternate locator aliases do not
+  grant another activation. Reservations precede dispatch and are not refunded
+  after an ambiguous result. The ledger does not promise server idempotency or
+  prevent all target-side effects. Cleanup remains required before another Run.
+- The environment editor exposes optional repeatable click selectors, which must
+  already have click approval. Repeat consent is SQL-validated and frozen from
+  the database, never startup caller/model/page data. Already-matched fill,
+  select and check operations return an observation receipt without re-emitting
+  events. Approved changes to a different form state remain executable.
+- `finish_blocked` is an operational abstention: the agent reports unfinished
+  scope and no independent website verdict is claimed. It does not bypass a
+  failed website check with a pass. Existing success/failure proposals continue
+  through independent verification. Actual policy blocks remain code-enforced.
+- Network diagnostics retain method/resource type, sanitized URL, status,
+  transport error and time to observed response/failure. Headers, cookies, bodies
+  and payloads are never read. Missing request starts have no invented duration.
+  The capture window and unanswered response count are recorded. A 1000-event/
+  256-KiB cap discloses omissions; URLs/details are withheld if safe DOM
+  observation was unavailable. Diagnostics alone do not assign a defect verdict.
+- Migration `202610140008_dynamic_repeat_consent.sql` was applied/registered on
+  Centinel Supabase after local verification. New Runs record planner/policy/
+  executor v2; prior snapshots/replays and existing data remain unchanged.
+- Real Codex Run `1b32e7b2-25a5-4607-9a92-504bc0c0ecf5` abstained as
+  blocked/not_tested when a twice-activation goal exceeded single-use consent,
+  without changing the counter. Run `1ad5b4f7-b363-4508-8857-801239f24c4f`
+  activated the explicitly repeatable control twice and passed. Run
+  `7bdcdbd4-900b-4baf-8c5a-d1a68bf2e27a` attempted once, retained POST/500
+  metadata and failed its independent success criterion. The synthetic query
+  value is absent from retained diagnostics; no RWA/production data is involved.
+  Cleanup recorded and the owned fixture process stopped after acceptance.
+- Real Chromium tests attempt actual second dispatches through aliases/query
+  changes and prove one effect, explicit-repeat behavior and conflicting-rule
+  denial. Already-matched form operations do not re-emit events.
+- 481 sidecar tests, 207 frontend tests, TypeScript/build, all thirteen Dynamic
+  SQL suites and retained-data upgrade fixture passed. Real repeat-consent editor
+  checked at 1440×900, 1200×900 and 390×844 without document overflow. Known
+  build chunk warning remains. Historical M3 results/source versions remain
+  consistent and missing historical permissions are not invented.
+- Exploration, pinned regression, approved file transfers, live visual/CRUD
+  gates and legacy-entry fencing remain required. This is bounded M4d evidence,
+  not completion of P4 or the overall Dynamic release.
