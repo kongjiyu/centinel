@@ -3,7 +3,7 @@ import {BrowserPolicyBlocked,type BrowserActionPolicy} from './dynamic/browser/a
 import {buildPrompt,parseActionFromText} from './dynamic/browser/planner.js';
 export {isValidAgentAction} from './dynamic/browser/planner.js';
 import {executeBrowserAction,BrowserActionUncertain,BrowserActionUnavailable,type ElementBinding,type AgentAction} from './dynamic/browser/actions.js';
-import {observeBrowserPage,BrowserObservationUnavailable} from './dynamic/browser/observation.js';
+import {observeBrowserPage,privateTypingTarget,BrowserObservationUnavailable} from './dynamic/browser/observation.js';
 import {normalizeBudget,RunBudget,ExecutionBudgetExceeded,type ExecutionBudget} from './dynamic/budgets.js';
 import type {BrowserSessionState} from './dynamic/environment/sessionVault.js';
 import {verifySessionReadiness,SessionAuthenticationError} from './dynamic/browser/sessionReadiness.js';
@@ -409,6 +409,7 @@ export async function runDynamicSession(
         aiResult=await callVisionModelWithRetry(visionSetting,screenshotPath,prompt,debugLog,step,signal,boundedCall);
         if(aiResult.action?.action==='observe_visual')throw new BrowserObservationUnavailable('A protected screenshot was already supplied for this step. Repeated visual requests cannot replace an executable action.');
       }
+      if(aiResult.action?.action==='type'&&await privateTypingTarget(page,aiResult.action,bindings,providers.sensitiveSelectors))discoverPrivateValues([aiResult.action.text]);
       fs.writeFileSync(aiResponsePath, JSON.stringify(redactObservationRecord(aiResult,secrets), null, 2));
       await addEvidence(session.projectId, session.id, 'ai_response', aiResponsePath, `Step ${step} AI response`);
       if(hasScreenshot)await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
@@ -441,6 +442,8 @@ export async function runDynamicSession(
 
       if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
       const action = aiResult.action as AgentAction;
+      // Repairs are also proposals and must pass the same private-value boundary.
+      if(action.action==='type'&&await privateTypingTarget(page,action,bindings,providers.sensitiveSelectors))discoverPrivateValues([action.text]);
       const beforeUrl = page.url();
 
       const trace: ActionTraceEntry = {

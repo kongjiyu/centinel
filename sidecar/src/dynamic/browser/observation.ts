@@ -43,3 +43,15 @@ export async function observeBrowserPage(page:Page,options:{secrets?:readonly st
  const controls=raw.controls.map((item,index)=>{const ref='e'+index;if(item.selector)bindings.set(ref,item.selector);else if(['button','link','checkbox','radio','combobox','textbox'].includes(item.role)&&item.name.trim())bindings.set(ref,{role:item.role as Parameters<Page['getByRole']>[0],name:item.name.trim()});const clean=redactObservationRecord(item,secrets);return {ref,role:clean.role,name:clean.name.trim().slice(0,250),disabled:clean.disabled,...(clean.state?{state:{...clean.state,value:clean.state.value?.slice(0,1000)}}:{}),...(clean.selector===item.selector&&item.selector?{selector:item.selector}:{})};});
  return {bindings,sensitiveValues:raw.privateTexts,observation:{schemaVersion:1,url:redactObservation(page.url(),secrets),title:redactObservation(await page.title(),secrets),visibleText:redactObservation(raw.body,secrets).slice(0,2000),controls,elements:controls.map(item=>`[${item.ref}] ${item.role} ${item.name}${item.disabled?' (disabled)':''}${item.state?' state='+JSON.stringify(item.state):''}${item.selector?' selector='+item.selector:''}`),omittedControls:raw.omittedControls}};
 }
+
+/** Classify the real type target before retaining the proposed value. A lost
+ * dispatch acknowledgement must not leave a newly typed password in logs. */
+export async function privateTypingTarget(page:Page,action:Extract<import('./actions.js').AgentAction,{action:'type'}>,bindings:ReadonlyMap<string,ElementBinding>|undefined,sensitiveSelectors:readonly string[]=[]):Promise<boolean>{
+ const sensitive='input[type="password"],input[type="file"],[autocomplete="current-password"],[autocomplete="new-password"],[autocomplete^="cc-"],[data-centinel-sensitive]';
+ try{
+  const binding=action.elementRef?bindings?.get(action.elementRef):action.selector;
+  if(binding){const target=typeof binding==='string'?page.locator(binding):page.getByRole(binding.role,{name:binding.name,exact:true});if(await target.count()!==1)return true;return await target.evaluate((element,{sensitive,selectors})=>!!element.closest(sensitive)||selectors.some(selector=>!!element.closest(selector)),{sensitive,selectors:[...sensitiveSelectors]});}
+  if(action.x===undefined||action.y===undefined)return true;
+  return await page.evaluate(({x,y,sensitive,selectors})=>{const element=document.elementFromPoint(x,y);return !element||!!element.closest(sensitive)||selectors.some(selector=>!!element.closest(selector));},{x:action.x,y:action.y,sensitive,selectors:[...sensitiveSelectors]});
+ }catch{return true;}
+}

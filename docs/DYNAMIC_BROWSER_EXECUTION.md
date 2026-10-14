@@ -143,7 +143,9 @@ regression/finding lineage remain implementation work, not assumed capabilities.
   executed DOM action retains a timestamped before/after observation pair.
   Element bindings/private raw values stay outside serialized observations.
   New private values rescrub this Run's bounded JSON/Markdown artifacts and
-  final console output. Console text is withheld if complete sanitized page
+  final console output. Private type proposals (including repaired proposals) are
+  identified before retention/dispatch so lost acknowledgements cannot leave
+  newly typed private values in logs. Console text is withheld if complete sanitized page
   observation was unavailable. Dispatched actions stop on missing after-observation
   rather than guessing an outcome or continuing to retry.
 - Migration `202610140007_dynamic_form_checks.sql` sanitizes typed checks and
@@ -159,7 +161,7 @@ regression/finding lineage remain implementation work, not assumed capabilities.
   four before/after action pairs, including actual empty → populated name state.
   These isolated `/form-state` fixtures have no RWA/production connection;
   cleanup was recorded and the owned fixture process stopped after acceptance.
-- 471 sidecar tests, 206 frontend tests, TypeScript/build, all twelve Dynamic SQL
+- 473 sidecar tests, 206 frontend tests, TypeScript/build, all twelve Dynamic SQL
   suites and retained-data upgrade fixture passed. Form values and option editor
   checked at 1440×900, 1200×900 and 390×844 with no document overflow. Existing
   build chunk-size warning remains. Historical M3 criteria/source versions and
