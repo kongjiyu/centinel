@@ -4,14 +4,21 @@ import { DynamicContractError } from '../types.js';
 import { SHARED_EVIDENCE_BUCKET, MAX_SHARED_EVIDENCE_BYTES, type EvidenceCopy, type EvidenceTransfer } from './types.js';
 export class SharedEvidenceRepository {
     constructor(private readonly client: SupabaseClient, private readonly storageClient: SupabaseClient = client) { }
-    private async rpc(name: string, args: Record<string, unknown>) { const { data, error } = await this.client.rpc(name, args).abortSignal(AbortSignal.timeout(15000)); if (error)
-        throw new DynamicContractError(error.code === 'P0001' ? 409 : 503, error.code === 'P0001' ? 'Evidence changed, expired or is already transferring. Refresh before trying again.' : 'Private evidence storage is unavailable.'); return data; }
+    private async rpc(name: string, args: Record<string, unknown>) {
+        const { data, error } = await this.client.rpc(name, args).abortSignal(AbortSignal.timeout(15000));
+        if (error)
+            throw new DynamicContractError(error.code === 'P0001' ? 409 : 503, error.code === 'P0001' ? 'Evidence changed, expired or is already transferring. Refresh before trying again.' : 'Private evidence storage is unavailable.');
+        return data;
+    }
     list(projectId: string, runId: string): Promise<EvidenceCopy[]> { return this.rpc('list_dynamic_evidence_copies', { p_project_id: projectId, p_run_id: runId }); }
+    async artifacts(projectId: string, runId: string): Promise<import('./artifacts.js').RunArtifact[]> { const { data, error } = await this.client.from('dynamic_run_artifacts').select('payload').eq('project_id', projectId).eq('run_id', runId).order('created_at').abortSignal(AbortSignal.timeout(15000)); if (error)
+        throw new DynamicContractError(503, 'Shared artifact registry unavailable.'); return (data ?? []).map(row => row.payload); }
+    registerArtifact(projectId: string, runId: string, input: import('./artifacts.js').ArtifactInput): Promise<import('./artifacts.js').RunArtifact> { return this.rpc('register_dynamic_run_artifact', { p_project_id: projectId, p_run_id: runId, p_input: input }); }
     prepare(projectId: string, runId: string, evidenceId: string, bytes: number): Promise<EvidenceTransfer> { return this.rpc('prepare_dynamic_evidence_copy', { p_project_id: projectId, p_run_id: runId, p_evidence_id: evidenceId, p_bytes: bytes }); }
     finish(projectId: string, id: string, token: string, outcome: 'available' | 'failed' | 'deleted'): Promise<EvidenceCopy> { return this.rpc('finish_dynamic_evidence_copy', { p_project_id: projectId, p_copy_id: id, p_token: token, p_outcome: outcome }); }
     prepareDelete(projectId: string, runId: string, id: string): Promise<EvidenceTransfer> { return this.rpc('delete_dynamic_evidence_copy', { p_project_id: projectId, p_run_id: runId, p_copy_id: id }); }
     async download(objectPath: string, expected: Pick<EvidenceCopy, 'sha256' | 'bytes'>): Promise<Buffer> {
-        const { data, error } = await this.storageClient.storage.from(SHARED_EVIDENCE_BUCKET).download(objectPath, {cacheNonce:crypto.randomUUID()}, {signal:AbortSignal.timeout(15000),cache:'no-store'}).asStream();
+        const { data, error } = await this.storageClient.storage.from(SHARED_EVIDENCE_BUCKET).download(objectPath, { cacheNonce: crypto.randomUUID() }, { signal: AbortSignal.timeout(15000), cache: 'no-store' }).asStream();
         if (error || !data)
             throw new DynamicContractError(503, 'Private evidence is unavailable for this account.');
         const reader = data.getReader();
@@ -50,6 +57,9 @@ export class SharedEvidenceRepository {
         else
             await this.download(transfer.objectPath, transfer.copy);
     }
-    async remove(transfer: EvidenceTransfer) { const { error } = await this.storageClient.storage.from(SHARED_EVIDENCE_BUCKET).remove([transfer.objectPath]); if (error)
-        throw new DynamicContractError(503, 'Shared-copy removal could not be confirmed; retry the recorded deletion.'); }
+    async remove(transfer: EvidenceTransfer) {
+        const { error } = await this.storageClient.storage.from(SHARED_EVIDENCE_BUCKET).remove([transfer.objectPath]);
+        if (error)
+            throw new DynamicContractError(503, 'Shared-copy removal could not be confirmed; retry the recorded deletion.');
+    }
 }

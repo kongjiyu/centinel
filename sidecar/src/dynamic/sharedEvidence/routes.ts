@@ -1,3 +1,5 @@
+import { partialArtifacts, downloadArtifacts } from './artifacts.js';
+import type { DownloadVault } from '../environment/downloadVault.js';
 import type { DynamicService } from '../service.js';
 import { DynamicContractError } from '../types.js';
 import type { SharedEvidenceRepository } from './repository.js';
@@ -7,6 +9,9 @@ export async function handleEvidenceCopyRoute(request: {
     pathname: string;
 }, deps: {
     repository: SharedEvidenceRepository;
+    ownerId?: string;
+    downloadVault?: DownloadVault;
+    privateValues?(projectId: string): Promise<string[]>;
     service: DynamicService;
     requireMember(projectId: string): Promise<void>;
     workspace(projectId: string): Promise<string>;
@@ -24,6 +29,38 @@ export async function handleEvidenceCopyRoute(request: {
                 throw new DynamicContractError(404, 'Evidence not recorded in this Run.');
             const bytes = loadIndependentEvidence(await deps.workspace(projectId), run, ref);
             return { status: 200, body: bytes, mimeType: ref.kind === 'screenshot' ? 'image/png' : 'application/json' };
+        }
+        if (id === 'artifacts' && !action && request.method === 'GET')
+            return { status: 200, body: await deps.repository.artifacts(projectId, runId) };
+        if (id === 'artifacts' && !action && request.method === 'POST') {
+            if (run.createdBy !== deps.ownerId)
+                throw new DynamicContractError(409, 'Publish diagnostic and captured-file artifacts from the original executing account.');
+            if (!['completed', 'blocked', 'cancelled', 'interrupted'].includes(run.state))
+                throw new DynamicContractError(409, 'Stop the Run before publishing artifacts.');
+            const workspace = await deps.workspace(projectId);
+            const partial = partialArtifacts(workspace, run, await deps.privateValues?.(projectId) ?? []);
+            const downloads = deps.downloadVault ? downloadArtifacts(workspace, run, deps.ownerId, deps.downloadVault) : [];
+            const local = [...partial.artifacts, ...downloads];
+            const copies = [];
+            const registered = [];
+            for (const artifact of local) {
+                const entry = await deps.repository.registerArtifact(projectId, runId, artifact.input);
+                registered.push(entry);
+                const transfer = await deps.repository.prepare(projectId, runId, entry.id, artifact.bytes.length);
+                if (!transfer.token) {
+                    copies.push(transfer.copy);
+                    continue;
+                }
+                try {
+                    await deps.repository.upload(transfer, artifact.bytes);
+                    copies.push(await deps.repository.finish(projectId, transfer.copy.id, transfer.token, 'available'));
+                }
+                catch {
+                    await deps.repository.finish(projectId, transfer.copy.id, transfer.token, 'failed').catch(() => { });
+                    throw new DynamicContractError(503, 'Artifact sharing stopped. Registry and copy status remain available for explicit retry.');
+                }
+            }
+            return { status: 200, body: { artifacts: registered, copies, omitted: partial.omitted } };
         }
         if (!id && request.method === 'GET')
             return { status: 200, body: await deps.repository.list(projectId, runId) };
@@ -58,9 +95,9 @@ export async function handleEvidenceCopyRoute(request: {
                 throw new DynamicContractError(404, 'Evidence copy not found in this Run.');
             if (copy.availability !== 'available')
                 throw new DynamicContractError(409, 'Shared evidence is pending, expired or unavailable.');
-            const ext = copy.mimeType === 'image/png' ? '.png' : '.json';
+            const ext = copy.kind === 'download' ? '.bin' : copy.mimeType === 'image/png' ? '.png' : '.json';
             const objectPath = projectId + '/dynamic-v1/' + runId + '/' + copy.id + '/' + copy.sha256 + ext;
-            return { status: 200, body: await deps.repository.download(objectPath, copy), mimeType: copy.mimeType };
+            return { status: 200, body: await deps.repository.download(objectPath, copy), mimeType: copy.mimeType, ...(copy.kind === 'download' ? { attachment: true } : {}) };
         }
         if (id && action === 'delete' && request.method === 'POST') {
             const transfer = await deps.repository.prepareDelete(projectId, runId, id);

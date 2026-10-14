@@ -5,11 +5,10 @@ import { DynamicContractError, type DynamicRun, type EvidenceReference } from '.
 import { MAX_SHARED_EVIDENCE_BYTES } from './types.js';
 const names = { screenshot: 'criterion-page.png', checks: 'checks.json', file_manifest: 'file-manifest.json' };
 /** Clients provide Run IDs only. Local filenames come from verified artifact kinds. */
-export function loadIndependentEvidence(workspace: string, run: DynamicRun, ref: EvidenceReference): Buffer {
-    if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !Object.hasOwn(names, ref.kind))
-        throw new DynamicContractError(409, 'Independent evidence is unavailable on this device.');
-    const folder = path.join(workspace, 'sessions', run.legacySessionId, 'logs');
-    const file = path.join(folder, names[ref.kind]);
+export function readBoundedArtifactSlot(workspace: string, run: DynamicRun, name: string): Buffer {
+    if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !(/^[a-z0-9-]+\.(json|png)$/.test(name)))
+        throw new DynamicContractError(409, 'Recorded artifact slot is unavailable.');
+    const file = path.join(workspace, 'sessions', run.legacySessionId, 'logs', name);
     let data: Buffer;
     let fd: number | undefined;
     try {
@@ -40,6 +39,12 @@ export function loadIndependentEvidence(workspace: string, run: DynamicRun, ref:
         if (fd !== undefined)
             fs.closeSync(fd);
     }
+    return data;
+}
+export function loadIndependentEvidence(workspace: string, run: DynamicRun, ref: EvidenceReference): Buffer {
+    if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !Object.hasOwn(names, ref.kind))
+        throw new DynamicContractError(409, 'Independent evidence is unavailable on this device.');
+    const data = readBoundedArtifactSlot(workspace, run, names[ref.kind]);
     if (crypto.createHash('sha256').update(data).digest('hex') !== ref.sha256)
         throw new DynamicContractError(409, 'Local evidence no longer matches the immutable Run checksum.');
     if (ref.kind === 'screenshot') {
