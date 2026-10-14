@@ -1,4 +1,6 @@
+import type { ExecutionBudget } from '../budgetLimits.js';
 export type EnvironmentInput = {
+  budgets?: ExecutionBudget;
   dataResourceKey?:string;sessionReference?:string;sessionReadySelector?:string;
   name: string; targetUrl: string; allowedOrigins: string[];
   viewport: { width: number; height: number }; accountRole: string;

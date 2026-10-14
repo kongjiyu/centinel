@@ -1,3 +1,4 @@
+import {normalizeBudget} from '../budgets.js';
 import type { EnvironmentProfile, EnvironmentSnapshot, PreflightCheck, EnvironmentData } from './types.js';
 /** Read-only preflight: instructions are suggestions and never shell commands. */
 export async function checkEnvironment(profile: EnvironmentProfile, variableNames: string[], providerReady: boolean, reach: typeof fetch = fetch, data?: EnvironmentData,session?:{availability:string;reason?:string;captureActive?:boolean;version?:string;expiresAt?:string}): Promise<EnvironmentSnapshot> {
@@ -13,6 +14,6 @@ export async function checkEnvironment(profile: EnvironmentProfile, variableName
     const ready=allowed&&response.status<500;
     checks.push({name:'Website reachable',ready,reason:!allowed?'Website redirects outside the allowed origins.':ready?'Website responded. Authentication/permissions are checked during the journey.':'Website is unavailable. Follow the documented startup instructions.'});
   } catch { checks.push({name:'Website reachable',ready:false,reason:'Website could not be reached within five seconds. Start it locally or check its address.'}); }
-  return {...structuredClone(profile),...(profile.sessionReference&&session?.availability==='available'&&session.version&&session.expiresAt?{sessionSnapshot:{reference:profile.sessionReference,version:session.version,expiresAt:session.expiresAt}}:{}),...(data?{preparation:data.preparation}:{}),variableNames:[...variableNames].sort(),preflight:checks,checkedAt:new Date().toISOString()};
+  return {...structuredClone(profile),budgets:normalizeBudget(profile.budgets),...(profile.sessionReference&&session?.availability==='available'&&session.version&&session.expiresAt?{sessionSnapshot:{reference:profile.sessionReference,version:session.version,expiresAt:session.expiresAt}}:{}),...(data?{preparation:data.preparation}:{}),variableNames:[...variableNames].sort(),preflight:checks,checkedAt:new Date().toISOString()};
 }
 export const environmentReady = (snapshot: EnvironmentSnapshot) => snapshot.preflight.every(check=>check.ready);

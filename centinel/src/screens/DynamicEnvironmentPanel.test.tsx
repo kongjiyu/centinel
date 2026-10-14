@@ -38,4 +38,12 @@ describe('Environment workspace',()=>{
   await waitFor(()=>expect(api.dynamicEnvironments).toHaveBeenCalledTimes(2));const user=userEvent.setup();await user.click(screen.getByRole('combobox',{name:'Run environment'}));expect(screen.queryByRole('option',{name:'Local · v1'})).not.toBeInTheDocument();
  });
  it('shows shared ownership and blocks preparing data reserved by another profile',async()=>{vi.mocked(api.dynamicEnvironmentData).mockResolvedValue({profileId:'env-one',state:'unprepared',preparedVersion:null,preparation:null,runId:null,events:[],resource:{key:'shared:qa-payments',reserved:false,available:false,ownerProfileId:'other-env',ownerName:'Prepared QA',ownerState:'cleanup_required'}});const user=userEvent.setup();render(<DynamicEnvironmentPanel projectId="project-a" value="env-one" onChange={vi.fn()} disabled={false}/>);await user.click(screen.getByText('Manage environments and local values'));await screen.findByText(/Shared data is reserved by Prepared QA/);expect(screen.getByRole('button',{name:'Record preparation'})).toBeDisabled();});
+ it('saves actual execution limits and removes an optional token stop limit when cleared',async()=>{
+  vi.mocked(api.saveDynamicEnvironment).mockResolvedValue(profile);const user=userEvent.setup();render(<DynamicEnvironmentPanel projectId="project-a" value="env-one" onChange={vi.fn()} disabled={false}/>);
+  await user.click(screen.getByText('Manage environments and local values'));await user.click(screen.getByRole('button',{name:'Edit selected environment'}));await user.click(screen.getByText('Execution limits',{exact:true}));
+  const duration=screen.getByLabelText('Maximum duration (seconds)');await user.clear(duration);await user.type(duration,'20');const calls=screen.getByLabelText('Maximum model calls');await user.clear(calls);await user.type(calls,'2');const tokens=screen.getByLabelText('Accounted-token stop limit (optional)');await user.type(tokens,'1000');await user.clear(tokens);
+  await user.click(screen.getByRole('button',{name:'Save environment'}));await waitFor(()=>expect(api.saveDynamicEnvironment).toHaveBeenCalledWith('project-a',expect.objectContaining({budgets:expect.objectContaining({runtimeMs:20000,maxModelCalls:2})}),'env-one'));
+  expect(vi.mocked(api.saveDynamicEnvironment).mock.calls.at(-1)?.[1].budgets).not.toHaveProperty('maxAccountedTokens');
+ });
+
 });

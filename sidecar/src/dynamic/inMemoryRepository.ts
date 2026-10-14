@@ -1,3 +1,4 @@
+import {normalizeBudget} from './budgets.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import { DYNAMIC_LEASE_MS, DYNAMIC_QUEUE_GRACE_MS, DYNAMIC_LEGACY_GRACE_MS } from './recovery.js';
 import crypto from 'node:crypto';
@@ -34,7 +35,8 @@ export class InMemoryDynamicRepository implements DynamicRepository {
     }
     if ([...this.runs.values()].some(run => run.projectId === projectId && ['queued', 'running'].includes(run.state))) throw new DynamicContractError(409, 'A Run is already active in this project.');
     const now = new Date(this.now()).toISOString();
-    const run: DynamicRun = { ...(environment ? {environment:structuredClone(environment)} : {}), id: crypto.randomUUID(), projectId, missionId: revision.missionId, revision: structuredClone(revision), idempotencyKey: key, createdBy: actorId, createdAt: now, updatedAt: now, state: 'queued', verdict: 'not_tested', checks: [], evidence: [], reason: null, legacySessionId: null };
+    const limits=normalizeBudget(environment?.budgets);limits.maxSteps=Math.min(limits.maxSteps,revision.maxSteps);
+    const run: DynamicRun = { executionBudget:limits, ...(environment ? {environment:structuredClone(environment)} : {}), id: crypto.randomUUID(), projectId, missionId: revision.missionId, revision: structuredClone(revision), idempotencyKey: key, createdBy: actorId, createdAt: now, updatedAt: now, state: 'queued', verdict: 'not_tested', checks: [], evidence: [], reason: null, legacySessionId: null };
     this.runs.set(run.id, run);
     return { run: structuredClone(run), reused: false };
   }

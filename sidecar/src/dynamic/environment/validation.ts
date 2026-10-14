@@ -1,4 +1,5 @@
 import { DynamicContractError } from '../types.js';
+import { normalizeBudget } from '../budgets.js';
 import type { EnvironmentInput } from './types.js';
 export const variableName = (name: string) => /^[A-Z][A-Z0-9_]{0,63}$/.test(name);
 export function validateEnvironment(value: unknown): EnvironmentInput {
@@ -17,5 +18,5 @@ export function validateEnvironment(value: unknown): EnvironmentInput {
   const dataResourceKey=input.dataResourceKey?.trim().toLowerCase();
   const sessionReference=input.sessionReference?.trim();const sessionReadySelector=input.sessionReadySelector?.trim();
   if(Boolean(sessionReference)!==Boolean(sessionReadySelector)||sessionReference&&!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(sessionReference)||sessionReadySelector&&sessionReadySelector.length>500)fail();
-  return structuredClone({...(dataResourceKey?{dataResourceKey}:{}),...(sessionReference?{sessionReference,sessionReadySelector}:{}),name: input.name.trim(), targetUrl: target.href, allowedOrigins: input.allowedOrigins, viewport: input.viewport, accountRole: input.accountRole.trim(), requiredVariables: input.requiredVariables, startupInstructions: input.startupInstructions.trim(), targetVersion: input.targetVersion.trim()});
+  return structuredClone({budgets:normalizeBudget(input.budgets),...(dataResourceKey?{dataResourceKey}:{}),...(sessionReference?{sessionReference,sessionReadySelector}:{}),name: input.name.trim(), targetUrl: target.href, allowedOrigins: input.allowedOrigins, viewport: input.viewport, accountRole: input.accountRole.trim(), requiredVariables: input.requiredVariables, startupInstructions: input.startupInstructions.trim(), targetVersion: input.targetVersion.trim()});
 }

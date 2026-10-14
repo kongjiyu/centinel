@@ -1,3 +1,4 @@
+import {normalizeBudget,RunBudget,ExecutionBudgetExceeded,type ExecutionBudget} from './dynamic/budgets.js';
 import type {BrowserSessionState} from './dynamic/environment/sessionVault.js';
 import {verifySessionReadiness,SessionAuthenticationError} from './dynamic/browser/sessionReadiness.js';
 import {allowedBrowserUrl} from './dynamic/browser/policy.js';
@@ -129,7 +130,8 @@ class DebugLogger {
   }
 
   log(level: DynamicDebugEvent['level'], phase: DynamicDebugEvent['phase'], message: string, step?: number, data?: unknown) {
-    message=redactObservation(message,this.secrets);data=redactObservationRecord(data,this.secrets);
+    message=redactObservation(message,this.secrets).slice(0,2000);data=redactObservationRecord(data,this.secrets);
+    if(data!==undefined&&JSON.stringify(data).length>4000)data=JSON.stringify(data).slice(0,4000)+' [diagnostic truncated]';
     const event: DynamicDebugEvent = {
       timestamp: new Date().toISOString(),
       level,
@@ -139,6 +141,7 @@ class DebugLogger {
       data,
     };
     this.events.push(event);
+    while(this.events.length>256||Buffer.byteLength(JSON.stringify(this.events))>262144)this.events.shift();
 
     const prefix = `[${level.toUpperCase()}][${phase}]${step !== undefined ? `[step-${step}]` : ''}`;
     if (level === 'error') {
@@ -238,9 +241,12 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
+  providers: { budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal) => Promise<CheckVerdict> }
 ): Promise<void> {
-  const maximumRuntime=providers.runtimeMs??MAX_RUNTIME_MS;
+  const limits=normalizeBudget(providers.budgets);
+  const budget=new RunBudget(limits);
+  const maximumSteps=Math.min(session.maxSteps,limits.maxSteps);
+  const maximumRuntime=Math.min(providers.runtimeMs??MAX_RUNTIME_MS,limits.runtimeMs);
   if(!Number.isInteger(maximumRuntime)||maximumRuntime<1000||maximumRuntime>MAX_RUNTIME_MS)throw Error('Browser runtime budget must be 1–300 seconds.');
   let policyViolated=false;let transportFailed=false;let targetStarted=false;let deniedStartupRequests=0;let deniedOrigin='';const observedOrigins=new Set<string>();const policyTimers=new Set<ReturnType<typeof setTimeout>>();
   const secrets=providers.sensitiveValues??[];
@@ -298,13 +304,25 @@ export async function runDynamicSession(
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];
   const consoleLogs: string[] = [];
+  let budgetReason:string|null=null;
+  const boundedCall=async(setting:ModelProviderSettings,prompt:string,signal:AbortSignal,images?:string[]):Promise<VisionResult>=>{
+    if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
+    budget.beforeCall();
+    let result:VisionResult;
+    try{result=await callActionModel(setting,prompt,signal,images);}catch(error){budget.recordUsage();throw error;}
+    budget.recordUsage(result.usage);
+    if(result.usage)try{await recordUsage({...result.usage,scope:images?'vision':'text',callKind:'dynamic',projectId:session.projectId,sessionId:session.id,stage:`request_${budget.modelCalls}`,provider:setting.provider,apiFormat:setting.apiFormat,model:setting.model});}catch{debugLog.log('warn','token_usage','Request usage could not be persisted.');}
+    budget.assertAccountedLimit();
+    if (result.rawText && result.rawText.length > 64_000) throw new ExecutionBudgetExceeded('Model response output limit reached; oversized output was excluded from retained evidence.');
+    return result;
+  };
   const startTime = Date.now();
   let consecutiveFailures = 0;
 
   try {
     debugLog.log('info', 'navigation', 'Launching browser');
     const origins=providers.allowedOrigins??[targetOrigin];
-    proxy=await createRunNetworkProxy(origins,(origin)=>{if(!targetStarted){deniedStartupRequests++;return;}const timer=setTimeout(()=>{policyTimers.delete(timer);if(observedOrigins.has(origin)){deniedOrigin=origin;policyViolated=true;controller.abort();}else deniedStartupRequests++;},50);policyTimers.add(timer);},()=>{if(targetStarted){transportFailed=true;controller.abort();}});
+    proxy=await createRunNetworkProxy(origins,(origin)=>{if(!targetStarted){deniedStartupRequests++;return;}const timer=setTimeout(()=>{policyTimers.delete(timer);if(observedOrigins.has(origin)){deniedOrigin=origin;policyViolated=true;controller.abort();}else deniedStartupRequests++;},50);policyTimers.add(timer);},()=>{if(targetStarted){transportFailed=true;controller.abort();}},()=>!signal.aborted&&(providers.canForward?.()??true));
     browser = await chromium.launch({ headless: false,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
@@ -315,7 +333,9 @@ export async function runDynamicSession(
     const watchSocket=(target:Page)=>target.on('websocket',socket=>observe(socket.url()));watchSocket(page);page.context().on('page',watchSocket);
     page.on('console', msg => {
       const entry = `[${msg.type()}] ${msg.text()}`;
-      consoleLogs.push(sanitize(entry));
+      if(signal.aborted)return;
+      const clean=sanitize(entry);
+      try{budget.console(clean);consoleLogs.push(clean);}catch(error){budgetReason=error instanceof Error?error.message:'Console budget exceeded';controller.abort();}
     });
 
     if(deniedStartupRequests)debugLog.log('info','navigation','Browser initialization traffic was denied before target testing.',undefined,{deniedRequests:deniedStartupRequests});
@@ -331,7 +351,8 @@ export async function runDynamicSession(
     let terminalReason = '';
     let failureCategory: DynamicFailureCategory | undefined;
 
-    while (step < session.maxSteps && status === 'running') {
+    while (step < maximumSteps && status === 'running') {
+      if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
       // Check cancellation
       if (CANCELLED.has(session.id)) {
         status = 'cancelled';
@@ -350,6 +371,7 @@ export async function runDynamicSession(
         break;
       }
 
+      budget.startStep();
       debugLog.log('info', 'screenshot', 'Taking screenshot', step);
       const screenshotPath = path.join(screenshotsDir, `step-${String(step).padStart(3, '0')}.png`);
       await captureProtectedPage(page,screenshotPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
@@ -357,6 +379,7 @@ export async function runDynamicSession(
       debugLog.log('info', 'context_extract', 'Extracting page context', step);
       const context = redactObservationRecord(await extractPageContext(page),secrets);
       context.visibleText=context.visibleText.slice(0,2000);context.elements=context.elements.map(element=>element.slice(0,1000));
+      budget.observe(context);
 
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
@@ -367,63 +390,19 @@ export async function runDynamicSession(
 
       // Call vision model with retry
       debugLog.log('info', 'ai_request', 'Calling vision model', step);
-      let aiResult = await callVisionModelWithRetry(visionSetting, screenshotPath, prompt, debugLog, step, signal);
+      let aiResult = await callVisionModelWithRetry(visionSetting, screenshotPath, prompt, debugLog, step, signal, boundedCall);
       fs.writeFileSync(aiResponsePath, JSON.stringify(redactObservationRecord(aiResult,secrets), null, 2));
       await addEvidence(session.projectId, session.id, 'ai_response', aiResponsePath, `Step ${step} AI response`);
       await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
 
-      // Record the vision call's usage (vision scope). Token failures are
-      // logged but never thrown — accounting is best-effort and must not
-      // break the session if the DB is briefly unavailable.
-      if (aiResult.usage) {
-        try {
-          await recordUsage({
-            ...aiResult.usage,
-            scope: 'vision',
-            callKind: 'dynamic' as CallKind,
-            projectId: session.projectId,
-            sessionId: session.id,
-            stage: `step_${step}`,
-            roundNumber: null,
-            provider: visionSetting.provider,
-            apiFormat: visionSetting.apiFormat,
-            model: visionSetting.model,
-          });
-        } catch (err) {
-          debugLog.log('warn', 'token_usage', 'Vision usage could not be recorded.', step);
-        }
-      }
-
       // If still no action after retry, try JSON repair
       if (!aiResult.action && aiResult.rawText) {
         debugLog.log('warn', 'json_parse', 'Attempting JSON repair', step);
-        aiResult = await attemptJsonRepair(sanitize(aiResult.rawText), providers.text, debugLog, step, signal);
+        aiResult = await attemptJsonRepair(sanitize(aiResult.rawText), providers.text, debugLog, step, signal, boundedCall);
         if (aiResult.action) {
           debugLog.log('info', 'json_parse', 'JSON repair successful', step);
         }
-        // attemptJsonRepair uses the text provider — record under the text
-        // scope so the dashboard splits vision vs text usage correctly.
-        if (aiResult.usage) {
-          try {
-            const textSetting = providers.text;
-            if (textSetting) {
-              await recordUsage({
-                ...aiResult.usage,
-                scope: 'text',
-                callKind: 'dynamic' as CallKind,
-                projectId: session.projectId,
-                sessionId: session.id,
-                stage: `step_${step}_repair`,
-                roundNumber: null,
-                provider: textSetting.provider,
-                apiFormat: textSetting.apiFormat,
-                model: textSetting.model,
-              });
-            }
-          } catch (err) {
-            debugLog.log('warn', 'token_usage', 'Text usage could not be recorded.', step);
-          }
-        }
+
       }
 
       if (!aiResult.action) {
@@ -442,6 +421,7 @@ export async function runDynamicSession(
         break;
       }
 
+      if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
       const action = aiResult.action as AgentAction;
       const beforeUrl = page.url();
 
@@ -544,10 +524,8 @@ export async function runDynamicSession(
 
     // Handle loop exit without terminal status
     if (status === 'running') {
-      if (step >= session.maxSteps) {
-        status = 'blocked';
-        terminalReason = `Reached max steps (${session.maxSteps})`;
-        failureCategory = 'max_steps_reached';
+      if (step >= maximumSteps) {
+        throw new ExecutionBudgetExceeded(`Step limit reached (${maximumSteps}); unfinished criteria were not tested.`);
       }
     }
 
@@ -582,14 +560,23 @@ export async function runDynamicSession(
     debugLog.log('info', 'session_end', `Session ended: ${status}`, step, { failureCategory, terminalReason });
 
   } catch (err) {
+    if(err instanceof ExecutionBudgetExceeded){budgetReason=err.message;controller.abort();}
     const cancelled = CANCELLED.has(session.id);
     const status = cancelled ? 'cancelled' : 'blocked';
-    const reason = cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.';
+    const reason = budgetReason ?? (cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
     const category: DynamicFailureCategory = cancelled ? 'cancelled' : signal.aborted ? 'timeout' : 'unknown';
     const summary = terminalSummary(status, reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_end', reason);
     await safeUpdate(session.id, status, summary, reason);
   } finally {
+    try{
+      fs.writeFileSync(path.join(logsDir,'console.json'),JSON.stringify(consoleLogs));
+      fs.writeFileSync(path.join(logsDir,'execution-budget.json'),JSON.stringify(budget.snapshot(),null,2));
+      saveActionTrace(logsDir,actionTrace,secrets);
+      await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'execution-budget.json'),'Recorded execution budget and available usage');
+      await addEvidence(session.projectId,session.id,'console_log',path.join(logsDir,'console.json'),'Retained partial console logs');
+      await addEvidence(session.projectId,session.id,'action_trace',path.join(logsDir,'action-trace.json'),'Retained partial action trace');
+    }catch{debugLog.log('warn','session_end','Partial execution evidence could not be retained.');}
     for(const timer of policyTimers)clearTimeout(timer);
     await proxy?.close().catch(()=>{});
     clearTimeout(runtimeTimer);
@@ -607,14 +594,15 @@ async function callVisionModelWithRetry(
   prompt: string,
   debugLog: DebugLogger,
   step: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  call:typeof callActionModel=callActionModel
 ): Promise<VisionResult> {
   let lastError = '';
 
   for (let attempt = 1; attempt <= RETRY_POLICY.visionCallMaxAttempts; attempt++) {
     debugLog.log('info', 'ai_request', `Vision call attempt ${attempt}/${RETRY_POLICY.visionCallMaxAttempts}`, step);
 
-    const result = await callActionModel(setting, prompt, signal, [screenshotPath]);
+    const result = await call(setting, prompt, signal, [screenshotPath]);
 
     if (result.action) {
       return result;
@@ -643,7 +631,8 @@ async function attemptJsonRepair(
   setting: ModelProviderSettings | undefined,
   debugLog: DebugLogger,
   step: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  call:typeof callActionModel=callActionModel
 ): Promise<VisionResult> {
   const repairPrompt = `Convert the following response into exactly one valid JSON action object.
 Do not add explanation. Only output the JSON object.
@@ -670,7 +659,7 @@ ${rawText.slice(0, 2000)}`;
   }
 
   debugLog.log('info', 'json_parse', 'Calling text model for JSON repair', step);
-  const result = await callActionModel(textSetting, repairPrompt, signal);
+  const result = await call(textSetting, repairPrompt, signal);
 
   if (result.action) {
     return result;
