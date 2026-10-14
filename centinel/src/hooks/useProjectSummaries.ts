@@ -171,7 +171,8 @@ function getDynamicAction(project: Project, sessions: DynamicSession[], unavaila
     id: `dynamic:${session.id}`,
     project,
     module: 'Dynamic Testing',
-    state: 'Failed',
+    // Legacy failure includes uncertain checker outcomes; only Run details prove a verdict.
+    state: session.status === 'blocked' ? 'Blocked' : 'Needs attention',
     action: 'Inspect',
     tone: session.status === 'blocked' ? 'warning' : 'danger',
     reason: userFacingError(session.failureReason, `${session.name} ended before its test goal could be verified.`),

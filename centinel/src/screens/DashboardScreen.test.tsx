@@ -124,6 +124,14 @@ describe('DashboardScreen', () => {
     ]);
   });
 
+  it('does not label an uncertain independent result as a failed application test', async () => {
+    vi.mocked(api.listDynamicSessions).mockResolvedValue([{ ...dynamicSession, failureReason: 'Independent checks: uncertain' }]);
+    render(<DashboardScreen projects={[project]} aiSettings={settings} onNavigate={vi.fn()} />);
+    expect(await screen.findByRole('heading', { name: 'Needs attention' })).toBeInTheDocument();
+    expect(screen.getByText('Independent checks: uncertain')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Failed' })).not.toBeInTheDocument();
+  });
+
   it('shows actionable highlights and direct quick-action routes', async () => {
     const onNavigate = vi.fn();
     const user = userEvent.setup();
@@ -135,7 +143,7 @@ describe('DashboardScreen', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Failed' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Needs attention' })).toBeInTheDocument());
     expect(screen.queryByRole('heading', { name: /good (morning|afternoon|evening)/i })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Action required' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Recommendations' })).toBeInTheDocument();
@@ -158,7 +166,7 @@ describe('DashboardScreen', () => {
     expect(screen.queryByText('Why this is recommended')).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: /review current sources workflow/i })).not.toBeInTheDocument();
 
-    const failedAction = screen.getAllByRole('article').find(item => item.textContent?.includes('Failed'));
+    const failedAction = screen.getAllByRole('article').find(item => item.textContent?.includes('Needs attention'));
     if (!failedAction) throw new Error('Expected a failed action row');
     expect(failedAction).toHaveTextContent('Website refresh');
     expect(failedAction).toHaveTextContent('Dynamic Testing');
@@ -196,7 +204,7 @@ describe('DashboardScreen', () => {
     const projectRow = await screen.findByRole('row', { name: /website refresh/i });
     expect(within(projectRow).queryByText('Office website')).not.toBeInTheDocument();
     expect(projectRow).toHaveTextContent('Release review');
-    expect(projectRow).toHaveTextContent('Failed');
+    expect(projectRow).toHaveTextContent('Needs attention');
     expect(projectRow).not.toHaveTextContent(/\d+ review/);
     expect(projectRow).not.toHaveTextContent(/\d+ dynamic/);
     expect(within(projectRow).getByText('Release review').closest('.project-activity-message')).toBeNull();
@@ -279,7 +287,7 @@ describe('DashboardScreen', () => {
     const table = await screen.findByRole('table', { name: 'Recent projects' });
     expect(within(table).getByText('Completed')).toBeInTheDocument();
     expect(within(table).getByText('In progress')).toBeInTheDocument();
-    expect(within(table).getByText('Failed')).toBeInTheDocument();
+    expect(within(table).getByText('Blocked')).toBeInTheDocument();
     expect(within(table).getByText('No activity')).toBeInTheDocument();
     expect(within(table).getAllByRole('row')).toHaveLength(5);
 
