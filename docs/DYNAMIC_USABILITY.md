@@ -80,12 +80,87 @@ the separate Reader account read the frozen configuration. The configuration-onl
 Run was cancelled with `not_tested`: no browser or model request was dispatched.
 This is configuration acceptance, not live usability acceptance.
 
+## M5c3: real Run assessment, private proof and UI
+
+Selected rule assessments now execute before terminal Run persistence. They retain
+`usability.json` with its SHA-256 as a fixed evidence slot, plus separate structured
+Run observations. The finalizer requires the frozen configuration, each selected
+rule, bounded observations, known proof references and the live execution lease.
+Failed rule observations remain separate from the functional acceptance verdict.
+Cancellation/fencing prevents a terminal assessment write; a Run without retained
+assessment displays Not tested. Stopped local partial assessment sharing remains
+outside this slice; no completed record is fabricated from it.
+
+Tab dispatch and focus restoration reserve steps from the same Run budget as the
+browser executor. Reaching the action limit stops sampling and records unvisited
+controls as uncertain. It does not mark them failed or claim complete keyboard
+coverage. The fixed task perspective is included in the existing bounded planner
+prompt; it does not authorize additional actions or replace the declared task.
+
+The editor defaults usability off, provides the three fixed perspectives and five
+rules, and requires explicit feedback/recovery check references. Removed/changed
+references are visible and can be cleared. Results expose recorded counts,
+expected/observed rule behavior, proof references and limitations. Subjective model
+suggestions and usability finding decisions are not represented as implemented.
+
+Private evidence transport supports a fourth fixed slot alongside screenshot,
+checks and an optional file manifest. Sharing uses the same checksum, membership,
+transfer lease and seven-day retention contract. No public link or runtime admin
+key is added. Migration `202610150003_dynamic_usability_results.sql` was locally
+verified, applied and registered on Centinel Supabase.
+
+### Live Codex acceptance (15 October 2026 local time)
+
+| Case | Run | Observed result |
+| --- | --- | --- |
+| Public normal fixture | `20207b47-28ba-491b-bedb-f8ce8e9da5bf` | Functional pass, zero rule failures; four Tab actions; five total budgeted steps and one model call. |
+| Public seeded label/Tab exclusion | `22eb29ca-7caa-4a01-b7b5-8101c643eebf` | Functional pass and two independent rule failures; four Tab actions; five steps and one model call. |
+| Explicit error then retry | `7b9e366b-9d52-4752-b9f3-3cf9ed24787b` | Error page retained in intermediate observations; exactly two approved clicks then Recovered; feedback/recovery criteria passed; three steps/model calls. |
+| Pinned RWA sign-in surface | `2c741e9c-e387-4d57-a9cf-a9ce439701e2` | Functional pass; one label-source observation failed and seven Tab actions reached the eight-step limit; incomplete keyboard sampling explicitly recorded. This is not a confirmed RWA defect. |
+
+All four proof copies were downloaded by the separate Reader account and verified
+against their hashes and structured Run observations. Original Run JSON and the
+primary RWA database checksum were preserved. Preparation/cleanup outcomes were
+recorded. The primary repository HEAD and isolated baseline marker were checked
+against `9dfcb9869533ce8a8963c556facc0d80457f9d39`.
+
+The Reader authored revision `449b6bef-943e-44bf-94a5-3099613c9e8d` through the
+actual UI with an explicit feedback reference, then inspected the seeded rule
+failure and shared JSON proof. Screenshots were inspected at 1440×900, 1200×900 and
+390×844. Narrow results use a focusable horizontal table with readable verdicts;
+checkbox touch areas are larger on narrow screens. CSS is confined to usability
+sections. No unrelated screen styles changed.
+
+Validation: sidecar TypeScript and 553 sidecar tests; frontend build and 238
+frontend tests; all 26 SQL suites and retained upgrade-data checks. The existing
+Vite chunk-size warning remains. A Settings test race was corrected to wait for
+Codex status to enable its button, rather than merely waiting for the button to
+exist; no Settings behavior changed.
+
+Reproduction uses the checked-in public fixture and live harness:
+
+```sh
+pnpm --filter @centinel/sidecar exec tsx src/dynamic/testing/usabilityTarget.ts
+# In a second terminal, load the ignored root .env and explicitly configure:
+# CENTINEL_RWA_QA_PROJECT, CENTINEL_RWA_PRIMARY_DATABASE,
+# CENTINEL_RWA_EVALUATION_ROOT and optional CENTINEL_RWA_SIDECAR_URL.
+# QA/Reader account values remain in the ignored .env, never in this document.
+node --env-file=.env sidecar/node_modules/tsx/dist/cli.mjs \
+  sidecar/__tests__/acceptance/usabilityLive.ts
+```
+
+The public fixture is synthetic acceptance data and complements the pinned RWA;
+it does not replace the required broader release corpus. Live JSON/screenshots
+remain in ignored `output/playwright/`. API-provider live acceptance remains
+explicitly deferred per the user's release decision.
+
 ## Remaining M5c gates
 
-- Run assessment before terminal persistence under the existing runtime/budgets;
-  retain reproducible proof, partial outcomes and limitations.
-- Add persona/rule authoring and distinct deterministic/subjective result views.
+- Retain/share stopped partial assessment diagnostics without claiming completed
+  rules or changing terminal functional outcomes.
+- Add a distinct subjective model-suggestion view alongside the rule results.
 - Generate bounded Codex suggestions through existing call/usage accounting;
   label them subjective, with uncertain claims and no invented study outcomes.
 - Correlate evidence-backed usability candidates with the human review lifecycle.
-- Verify normal/seeded defects with real Codex and UI at three required viewports.
+- Complete live acceptance of subjective suggestions and usability finding review;
+  include these results in versioned reports and the broader release corpus.

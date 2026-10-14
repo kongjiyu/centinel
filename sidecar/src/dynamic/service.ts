@@ -1,3 +1,5 @@
+import {validateUsabilityResult} from './usability/resultValidation.js';
+import type {UsabilityAssessment} from './usability/types.js';
 import {validateUsability} from './usability/validation.js';
 import {resolveExplorationObjectives} from './browser/exploration.js';
 import type {ExplorationSnapshot} from './browser/exploration.js';
@@ -79,7 +81,7 @@ export class DynamicService {
     return token ? this.repository.heartbeatRun(projectId, runId, this.workerId, token) : false;
   }
   recover(projectId: string) { return this.repository.recoverRuns(projectId); }
-  async finish(projectId: string, runId: string, results: CheckResult[], evidence: EvidenceReference[]) {
+  async finish(projectId: string, runId: string, results: CheckResult[], evidence: EvidenceReference[], usability?:UsabilityAssessment) {
     const run = await this.requireRun(projectId, runId);
     if (run.state !== 'running') throw new DynamicContractError(409, 'Only a running Run can be verified.');
     const evidenceIds = new Set(evidence.map(item => item.id));
@@ -89,11 +91,13 @@ export class DynamicService {
       if (result.evidenceIds.some(id => !evidenceIds.has(id))) throw new DynamicContractError(400, 'Dangling evidence reference.');
     }
     if (evidence.some(item => !/^[a-f0-9]{64}$/.test(item.sha256)) || evidenceIds.size !== evidence.length) throw new DynamicContractError(400, 'Evidence requires unique IDs and SHA-256 hashes.');
+    const assessment=usability===undefined?undefined:validateUsabilityResult(usability,run.revision,evidence);
+    if(run.revision.usability&&!assessment)throw new DynamicContractError(400,'Selected usability rules require retained results before completion.');
     const verified = results.map(result => result.verdict === 'passed' || result.verdict === 'failed'
       ? result.evidenceIds.length ? result : { ...result, verdict: 'uncertain' as const, reason: 'No retained evidence supports this observation.' }
       : result);
     const verdict = aggregateChecks(checks, verified);
-    const updated = await this.repository.compareAndSetRun(projectId, runId, 'running', this.patch(run, { state: 'completed', verdict, checks: verified, evidence, reason: null,...(run.exploration?{exploration:resolveExplorationObjectives(run.exploration,checks,verified)}:{}) }));
+    const updated = await this.repository.compareAndSetRun(projectId, runId, 'running', this.patch(run, { state: 'completed', verdict, checks: verified, evidence, reason: null,...(assessment?{usability:assessment}:{}),...(run.exploration?{exploration:resolveExplorationObjectives(run.exploration,checks,verified)}:{}) }));
     if (!updated) throw new DynamicContractError(409, 'Run was stopped while verification completed.');
     return updated;
   }

@@ -67,7 +67,7 @@ export async function handleEvidenceCopyRoute(request: {
         if (id === 'sync' && !action && request.method === 'POST') {
             if (run.state !== 'completed')
                 throw new DynamicContractError(409, 'Independent evidence is available only after checking completes.');
-            if (run.evidence.length > 3 || new Set(run.evidence.map(ref => ref.id)).size !== run.evidence.length || new Set(run.evidence.map(ref => ref.kind)).size !== run.evidence.length)
+            if (run.evidence.length > 4 || new Set(run.evidence.map(ref => ref.id)).size !== run.evidence.length || new Set(run.evidence.map(ref => ref.kind)).size !== run.evidence.length)
                 throw new DynamicContractError(409, 'The independent evidence set is invalid or exceeds its bounded slots.');
             const workspace = await deps.workspace(projectId);
             const files = run.evidence.map(ref => ({ ref, bytes: loadIndependentEvidence(workspace, run, ref) }));

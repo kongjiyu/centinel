@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DynamicContractError, type DynamicRun, type EvidenceReference } from '../types.js';
 import { MAX_SHARED_EVIDENCE_BYTES } from './types.js';
-const names = { screenshot: 'criterion-page.png', checks: 'checks.json', file_manifest: 'file-manifest.json' };
+const names = { screenshot: 'criterion-page.png', checks: 'checks.json', file_manifest: 'file-manifest.json', usability:'usability.json' };
 /** Clients provide Run IDs only. Local filenames come from verified artifact kinds. */
 export function readBoundedArtifactSlot(workspace: string, run: DynamicRun, name: string): Buffer {
     if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !(/^[a-z0-9-]+\.(json|png)$/.test(name)))

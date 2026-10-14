@@ -121,3 +121,15 @@
 .dynamic-workspace-screen .dw-shared-evidence { min-width: 0; }
 
 .dynamic-workspace-screen .dw-json-preview { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; background: var(--workspace-surface-subtle); border: 1px solid var(--workspace-border); font-size: 12px; }
+
+.dynamic-workspace-screen .dw-usability-editor .dw-required { min-height: 32px; }
+.dynamic-workspace-screen .dw-usability table { min-width: 640px; }
+.dynamic-workspace-screen .dw-usability .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
+@media (max-width: 720px) {
+  .dynamic-workspace-screen .dw-usability-editor .dw-required { min-height: 44px; }
+}
+.dynamic-workspace-screen .dw-usability table { table-layout: fixed; }
+.dynamic-workspace-screen .dw-usability th:first-child { width: 24%; }
+.dynamic-workspace-screen .dw-usability th:nth-child(2) { width: 16%; }
+.dynamic-workspace-screen .dw-usability td:nth-child(2) { white-space: nowrap; }
+.dynamic-workspace-screen .dw-usability caption { width: min(640px, calc(100vw - 128px)); }
