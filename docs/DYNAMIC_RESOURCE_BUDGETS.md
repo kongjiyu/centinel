@@ -3,7 +3,8 @@
 M2d2b delivery contract, 14 October 2026. Authority: DESIGN.md, revised PRD and
 DEVELOPMENT_PLAN.md P2.1/P2.3/P2.5/P2.6 plus remaining P1 lifecycle gates. This is
 a split delivery: resource ownership (M2d2b1) is implemented and verified below;
-frozen budgets and generic worker liveness (M2d2b2) remain planned. Static remains
+frozen budgets and generic worker liveness (M2d2b2) are implemented and verified
+below. Static remains
 excluded.
 
 ## Data ownership
@@ -94,5 +95,59 @@ may have expired. Preserve healthy workers and fence stale completion after rest
   executing the approved fixture cleanup and checking marker removal, **Release
   prepared data** released B and made A available. Local screenshots and JSON
   acceptance metadata are retained in ignored `output/playwright/`.
-- Budgets, generic Run lease freshness, P3–P7 and cross-user acceptance remain
-  outstanding. API live acceptance is explicitly user-deferred for this release.
+- At this milestone boundary, budgets and generic Run freshness remained for
+  M2d2b2 below. P3–P7 and cross-user acceptance remain outstanding. API live acceptance is explicitly user-deferred for this release.
+
+## M2d2b2 retained acceptance, 14 October 2026
+
+- Shared profiles now save integer execution limits. The database owns sanitation
+  and the immutable Run snapshot, including URL-only defaults and the stricter
+  Mission/environment step limit. Caller-supplied snapshot limits cannot overwrite
+  the stored profile. Editing a profile and replaying a prior start preserve history.
+- Compatible defaults: 300 seconds, 25 environment steps (Mission default remains
+  15), 100 model requests including retries/repairs, 32,000 characters per page
+  observation and 262,144 bytes for the retained console JSON. UI exposes these
+  bounds inside the environment's advanced form and in recorded Run conditions.
+- Optional accounted-token stop limit uses actual returned input/output/cache or
+  total usage. It is evaluated after the completed request and can overshoot by
+  that request; it is explicitly **not a billing cap**. Missing/invalid usage is
+  recorded as unknown and blocks further action when this optional limit is set.
+  Unknown usage is never inferred as a known zero. Every attempted request counts,
+  including errors and repair requests; known usage from retries is retained.
+- Observations/logs are redacted before bounds/retention. Oversized console messages
+  are excluded and abort execution; provider responses above 64,000 characters are
+  excluded before persistence/repair. Debug diagnostics retain at most 256 bounded
+  events / 262,144 bytes. Budget termination retains console, action trace and
+  available usage metadata even when a final screenshot is unavailable. These
+  limits do not claim exhaustive page coverage or a screenshot byte-size cap.
+- Generic workers use claim/heartbeat request initiation and monotonic freshness.
+  Pending renewal independently expires at 45 seconds, before the 60-second durable
+  lease. Late acknowledgment cannot resurrect execution. A separate deadline timer
+  includes claim latency. Provider/browser cancellation and live proxy gates apply
+  to fresh requests and existing HTTP, CONNECT/TLS and WebSocket streams in both
+  directions. Existing database fencing prevents expired completion.
+- All nine transactional Postgres suites passed; additive upgrade preserved prior
+  ready/dirty states, preparation snapshots, events and cancelled Run history.
+  Migration `202610140004` applied/registered on Centinel Supabase. Helper RPCs are
+  private; no runtime service-role credential is used.
+- Final verification: 430 sidecar tests, 194 frontend tests, sidecar TypeScript and
+  frontend build. Deterministic heartbeat, claim latency, model retry/repair,
+  unavailable usage, oversized output and open-response fencing tests complement
+  real browser acceptance. Existing large-chunk build warning remains.
+- Real QA bearer → Codex → Playwright → independent checker passed twice on an
+  equivalent ephemeral read-only fixture (`61f532c0-1922-4299-9016-5f5aa97c975c`,
+  `14884e09-2815-4b47-995a-23245b87df3a`). Real console/observation/model-call/step/
+  duration exhaustion returned blocked/not_tested and retained the data lock until
+  cleanup. Duration Run `39ed5266-bdc1-42db-b48b-51c71418b0a3` aborted an active
+  Codex request; its unavailable usage was explicitly recorded.
+- Approved automatic cleanup after an absolute deadline stopped the Run, removed
+  only its isolated marker and released the resource: final Run
+  `6e17e94a-d865-403e-81e4-dd78d297d3a3`, cleanup
+  `a260eabf-08bd-4683-bd62-646a0a16ece1` passed. RWA SHA-256 remained unchanged.
+- Logged-in UI at 1440×900, 1200×900 and 390×844 showed actual saved limits without
+  document overflow. Saving profile v2 at 20 seconds/2 requests preserved the old
+  Run's 90 seconds/10 requests. Screenshots and metadata are retained in ignored
+  root/sidecar `output/playwright/` directories. Styles are inherited and scoped to
+  Dynamic; no unrelated screen behavior changed.
+- P3–P7, richer action policy/observations and cross-user release acceptance remain
+  outstanding. API-provider live acceptance remains explicitly user-deferred.

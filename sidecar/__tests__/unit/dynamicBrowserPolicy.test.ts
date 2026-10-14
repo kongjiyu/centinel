@@ -37,4 +37,12 @@ describe('Browser request origin policy',()=>{
   try{const page=await browser.newPage({serviceWorkers:'block'});await page.goto(origin);const message=await page.evaluate(url=>new Promise<string>(resolve=>{const ws=new WebSocket(url);const timer=setTimeout(()=>{ws.close();resolve('message-timeout');},2000);ws.onerror=()=>{clearTimeout(timer);resolve('connection-error');};ws.onmessage=event=>{clearTimeout(timer);resolve(event.data);ws.close();};}),origin.replace('http:','ws:'));expect(message).toBe('ready');await page.evaluate(url=>new Promise<void>(resolve=>{const ws=new WebSocket(url);ws.onerror=()=>resolve();}),deniedWs);expect(deniedUpgrades).toBe(0);expect(violations).toBeGreaterThan(0);
   }finally{await browser.close();await proxy.close();await Promise.all([new Promise<void>(r=>permitted.close(()=>r())),new Promise<void>(r=>denied.close(()=>r()))]);}
  });
+ it('fences an already-open HTTP response stream after local execution expires',async()=>{
+  let alive=true;let response:http.ServerResponse|undefined;let stopped=0;
+  const target=http.createServer((_req,res)=>{response=res;res.writeHead(200);res.write('first');});await new Promise<void>(resolve=>target.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+((target.address() as any).port);
+  const proxy=await createRunNetworkProxy([origin],()=>{},()=>stopped++,()=>alive);let received='';
+  try{await new Promise<void>((resolve,reject)=>{const request=http.get(proxy.server,{path:origin},res=>{res.on('error',()=>resolve());res.on('close',()=>resolve());res.on('data',chunk=>{received+=chunk.toString();if(received==='first'){alive=false;response!.write('forbidden-after-expiry');}});});request.on('error',reject);});expect(received).toBe('first');expect(stopped).toBeGreaterThan(0);
+  }finally{await proxy.close();target.closeAllConnections();await new Promise<void>(resolve=>target.close(()=>resolve()));}
+ });
+
 });

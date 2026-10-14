@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ModelProviderError } from '../../src/review/retry.js';
 import { cancelSession, isValidAgentAction, runDynamicSession } from '../../src/dynamicRunner.js';
+import {normalizeBudget} from '../../src/dynamic/budgets.js';
 import { chromium } from 'playwright';
 import { updateDynamicSessionStatus } from '../../src/dynamicSessions.js';
 
@@ -90,6 +91,35 @@ describe('Dynamic shared provider and run basics', () => {
     await runDynamicSession(session, workspace, { vision: setting, verifyOutcome: vi.fn().mockResolvedValue('uncertain') });
     expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id, 'blocked', expect.any(String), 'Independent checks: uncertain');
     expect(db.run).not.toHaveBeenCalled();
+  });
+  it('counts repair requests and blocks before another model call at the limit',async()=>{
+    model.analyze.mockResolvedValue({result:{unexpected:'invalid'},usage:{inputTokens:10,outputTokens:2}});
+    await runDynamicSession(session,workspace,{vision:setting,text:setting,budgets:normalizeBudget({maxModelCalls:1})});
+    expect(model.analyze).toHaveBeenCalledTimes(1);expect(db.run).not.toHaveBeenCalled();
+    expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('Model call limit'));
+    const budget=JSON.parse(fs.readFileSync(path.join(workspace,'sessions',session.id,'logs','execution-budget.json'),'utf8'));expect(budget).toMatchObject({modelCalls:1,accountedTokens:12});
+  });
+  it('rejects unaccounted-token execution before any proposed action is verified',async()=>{
+    model.analyze.mockResolvedValue({result:{action:'finish_success',summary:'Done',reasoning:'Proposal'}});const verify=vi.fn();
+    await runDynamicSession(session,workspace,{vision:setting,verifyOutcome:verify,budgets:normalizeBudget({maxAccountedTokens:10})});
+    expect(model.analyze).toHaveBeenCalledTimes(1);expect(verify).not.toHaveBeenCalled();expect(db.run).not.toHaveBeenCalled();
+    expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('token usage unavailable'));
+  });
+  it('excludes oversized provider output before persisting or sending a repair request',async()=>{
+    model.analyze.mockResolvedValue({result:{unexpected:'x'.repeat(64000)},usage:{inputTokens:20,outputTokens:10}});
+    await runDynamicSession(session,workspace,{vision:setting,text:setting});
+    expect(model.analyze).toHaveBeenCalledTimes(1);expect(db.run).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(workspace,'sessions',session.id,'ai','step-000-response.json'))).toBe(false);
+    expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('response output limit'));
+  });
+  it('stops observation and console overflow before calling the model, preserving redacted partial logs',async()=>{
+    pageStub.evaluate=vi.fn().mockResolvedValueOnce('x'.repeat(300)).mockResolvedValueOnce([]);
+    await runDynamicSession(session,workspace,{vision:setting,budgets:normalizeBudget({maxObservationChars:256})});expect(model.analyze).not.toHaveBeenCalled();
+    expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('observation limit'));
+    // A new run installs a fresh handler and emits console overflow during navigation.
+    pageStub.evaluate=vi.fn().mockResolvedValueOnce('Demo').mockResolvedValueOnce([]);pageStub.goto.mockImplementation(()=>{const handler=pageStub.on.mock.calls.filter(([name]:string[])=>name==='console').at(-1)[1];handler({type:()=> 'log',text:()=> 'qa-seed-918'});handler({type:()=> 'log',text:()=> 'x'.repeat(2000)});});
+    await runDynamicSession(session,workspace,{vision:setting,sensitiveValues:['qa-seed-918'],budgets:normalizeBudget({maxConsoleBytes:1024})});
+    expect(model.analyze).not.toHaveBeenCalled();const logs=fs.readFileSync(path.join(workspace,'sessions',session.id,'logs','console.json'),'utf8');expect(logs).not.toContain('qa-seed-918');expect(Buffer.byteLength(logs)).toBeLessThan(1024);expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('Console output limit'));
   });
   it('rejects unknown, incomplete, non-http and unbounded browser actions', () => {
     for (const value of [{ action: 'delete' }, { action: 'click', reasoning: '' }, { action: 'navigate', url: 'file:///private', reasoning: '' }, { action: 'wait', milliseconds: 1e9, reasoning: '' }, { action: 'type', targetDescription: 'field', selector: 'input', text: 1, reasoning: '' }]) expect(isValidAgentAction(value)).toBe(false);

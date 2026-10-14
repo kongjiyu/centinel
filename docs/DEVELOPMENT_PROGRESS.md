@@ -15,8 +15,8 @@ incoming criteria. Native desktop testing remains the separately scoped extensio
 | M2c2 | Durable hook operations and automatic configured cleanup | Merged via PR #7 (`33206e5`); locally/live verified. See DYNAMIC_HOOK_OPERATIONS.md. |
 | M2d1 | Network-origin enforcement and protected observations | Merged via PR #8 (`5e0576e`); locally/live verified. See DYNAMIC_SESSION_PROTECTION.md. |
 | M2d2a | Device-local sessions, manual capture, lease fencing, preflight and authenticated execution | Merged via PR #9 (`bf316c6`); locally/live verified. See DYNAMIC_SESSION_PROTECTION.md. |
-| M2d2b1 | Shared target-data resource keys and durable ownership | Verified for PR; SQL, Codex, hook recovery and three viewports passed. See DYNAMIC_RESOURCE_BUDGETS.md. |
-| M2d2b2 | Frozen execution budgets and generic worker liveness | Next; not yet delivered. See DYNAMIC_RESOURCE_BUDGETS.md. |
+| M2d2b1 | Shared target-data resource keys and durable ownership | Merged via PR #10 (`cc788eb`); SQL, Codex, hook recovery and three viewports passed. See DYNAMIC_RESOURCE_BUDGETS.md. |
+| M2d2b2 | Frozen execution budgets and generic worker liveness | Verified for PR: frozen budgets, initiation-based worker liveness, stream fencing and live cancellation/cleanup passed. See DYNAMIC_RESOURCE_BUDGETS.md. |
 | M3 | Mock snapshot selection, exceptional inputs and immutable coverage (P3) | Planned |
 | M4 | Enforced browser policy, richer observations/checks, exploration, regression and budgets (P4; remaining P1 execution gates) | Planned |
 | M5 | Usability, reviewed findings, private shared evidence and versioned reports (P5; remaining P1 storage gates) | Planned |
