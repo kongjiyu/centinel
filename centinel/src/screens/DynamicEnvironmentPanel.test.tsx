@@ -7,6 +7,14 @@ vi.mock('../api/client',()=>({api:{dynamicHooks:vi.fn(),dynamicWorkspace:vi.fn()
 const profile={id:'env-one',projectId:'project-a',version:1,updatedBy:'actor',updatedAt:'',name:'Local',targetUrl:'http://localhost:3000/',allowedOrigins:['http://localhost:3000'],viewport:{width:1280,height:720},accountRole:'Seeded account',requiredVariables:['TEST_PASSWORD'],startupInstructions:'Start manually',targetVersion:'commit'};
 beforeEach(()=>{vi.clearAllMocks();vi.mocked(api.dynamicHooks).mockResolvedValue([]);vi.mocked(api.dynamicWorkspace).mockResolvedValue({authorization:null});vi.mocked(api.dynamicEnvironmentData).mockResolvedValue({profileId:'env-one',state:'unprepared',preparedVersion:null,preparation:null,runId:null,events:[]});vi.mocked(api.dynamicEnvironments).mockResolvedValue([profile]);vi.mocked(api.dynamicEnvironmentValues).mockResolvedValue({variableNames:[]});});
 describe('Environment workspace',()=>{
+ it('saves explicit action grants, preserves multiline input and resets them when editing an older profile',async()=>{
+  vi.mocked(api.saveDynamicEnvironment).mockResolvedValue(profile);const user=userEvent.setup();render(<DynamicEnvironmentPanel projectId="project-a" value="env-one" onChange={vi.fn()} disabled={false}/>);
+  await user.click(screen.getByText('Manage environments and local values'));await user.click(screen.getByRole('button',{name:'Edit selected environment'}));await user.click(screen.getByText('Browser action permissions',{exact:true}));
+  await user.type(screen.getByLabelText('Controls allowed to click'),'#save\n#next');await user.type(screen.getByLabelText('Fields allowed to fill'),'#name\n#save');await user.click(screen.getByLabelText('Allow screenshot coordinates for approved controls'));
+  await user.click(screen.getByRole('button',{name:'Save environment'}));await waitFor(()=>expect(api.saveDynamicEnvironment).toHaveBeenCalledWith('project-a',expect.objectContaining({actionPolicy:{schemaVersion:1,interactions:[{selector:'#save',actions:['click','type']},{selector:'#next',actions:['click']},{selector:'#name',actions:['type']}],allowCoordinates:true}}),'env-one'));
+  expect(screen.getByLabelText('Controls allowed to click')).toHaveValue('');expect(screen.getByLabelText('Allow screenshot coordinates for approved controls')).not.toBeChecked();
+ });
+
  it('saves a shared profile separately from local variable values',async()=>{
   vi.mocked(api.saveDynamicEnvironment).mockResolvedValue(profile);const change=vi.fn();const user=userEvent.setup();
   render(<DynamicEnvironmentPanel projectId="project-a" value="" onChange={change} disabled={false}/>);

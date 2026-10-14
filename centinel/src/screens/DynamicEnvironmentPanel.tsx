@@ -1,3 +1,5 @@
+import {DynamicActionPermissions,emptyInteractionSelectors} from './DynamicActionPermissions';
+import type {BrowserActionPolicy,InteractionAction} from '../../../sidecar/src/dynamic/browser/actionPolicy';
 import {DEFAULT_EXECUTION_BUDGET} from '../../../sidecar/src/dynamic/budgetLimits';
 import {DynamicSessionPanel} from './DynamicSessionPanel';
 import {DynamicHookPanel} from './DynamicHookPanel';
@@ -10,6 +12,7 @@ import type {EnvironmentInput,EnvironmentProfile,EnvironmentSnapshot,Environment
 const blank = ():EnvironmentInput=>({budgets:{...DEFAULT_EXECUTION_BUDGET},name:'',targetUrl:'',allowedOrigins:[],viewport:{width:1280,height:720},accountRole:'',requiredVariables:[],startupInstructions:'',targetVersion:''});
 export function DynamicEnvironmentPanel({projectId,value,onChange,disabled,onDataBusy}:{projectId:string;value:string;onChange(id:string):void;disabled:boolean;onDataBusy?(busy:boolean):void}) {
  const [profiles,setProfiles]=useState<EnvironmentProfile[]>([]);const [editing,setEditing]=useState<string|undefined>();
+ const [interactionSelectors,setInteractionSelectors]=useState(emptyInteractionSelectors);
  const [draft,setDraft]=useState(blank);const [origins,setOrigins]=useState('');const [variables,setVariables]=useState('');
  const [secretName,setSecretName]=useState('');const [secretValue,setSecretValue]=useState('');const [available,setAvailable]=useState<string[]>([]);
  const [preflight,setPreflight]=useState<EnvironmentSnapshot|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
@@ -17,7 +20,7 @@ export function DynamicEnvironmentPanel({projectId,value,onChange,disabled,onDat
  const [dataState,setDataState]=useState<EnvironmentData|null>(null);const [dataNote,setDataNote]=useState('');const [dataOutcome,setDataOutcome]=useState<'completed'|'failed'>('completed');
  const dataSequence=useRef(0);
  const scope=useRef(0);const errorRef=useRef<HTMLParagraphElement>(null);
- useEffect(()=>{const generation=++scope.current;setProfiles([]);setCaptureBusy(false);setDraft(blank());setEditing(undefined);setOrigins('');setVariables('');setSecretName('');setSecretValue('');setError('');setPreflight(null);setNotice('');setBusy(false);
+ useEffect(()=>{const generation=++scope.current;setProfiles([]);setCaptureBusy(false);setDraft(blank());setInteractionSelectors(emptyInteractionSelectors());setEditing(undefined);setOrigins('');setVariables('');setSecretName('');setSecretValue('');setError('');setPreflight(null);setNotice('');setBusy(false);
   void api.dynamicEnvironments(projectId).then(rows=>{if(generation===scope.current)setProfiles(rows);}).catch(e=>{if(generation===scope.current)setError(userFacingError(e,'Environments could not be loaded.'));});
   return()=>{scope.current++;};
  },[projectId]);
@@ -32,12 +35,14 @@ export function DynamicEnvironmentPanel({projectId,value,onChange,disabled,onDat
  useEffect(()=>{onDataBusy?.(captureBusy||Boolean(dataState&&['in_use','preparing','cleaning'].includes(dataState.state)));},[dataState?.state,captureBusy,onDataBusy]);
  const recordData=async(event:React.SyntheticEvent,cleanup=false)=>{event.preventDefault();dataSequence.current++;const generation=scope.current;setBusy(true);setError('');try{const result=await api.recordDynamicEnvironmentData(projectId,value,dataState?.state==='cleanup_required'||cleanup?'cleanup':'preparation',dataOutcome,dataNote);if(generation!==scope.current)return;dataSequence.current++;setDataState(result);setDataNote('');setPreflight(null);setNotice('Manual data outcome recorded. Browser results are unchanged.');}catch(e){if(generation===scope.current)setError(userFacingError(e));}finally{if(generation===scope.current)setBusy(false);}};
  useEffect(()=>{if(error)errorRef.current?.focus();},[error]);
- const edit=(profile?:EnvironmentProfile)=>{setDraft(profile?{...profile,budgets:profile.budgets??{...DEFAULT_EXECUTION_BUDGET}}:blank());setEditing(profile?.id);setOrigins(profile?.allowedOrigins.join('\n')??'');setVariables(profile?.requiredVariables.join('\n')??'');setError('');setNotice('');};
+ const edit=(profile?:EnvironmentProfile)=>{const selectors=emptyInteractionSelectors();for(const row of profile?.actionPolicy?.interactions??[])for(const action of row.actions)selectors[action]+=(selectors[action]?'\n':'')+row.selector;setInteractionSelectors(selectors);setDraft(profile?{...profile,budgets:profile.budgets??{...DEFAULT_EXECUTION_BUDGET}}:blank());setEditing(profile?.id);setOrigins(profile?.allowedOrigins.join('\n')??'');setVariables(profile?.requiredVariables.join('\n')??'');setError('');setNotice('');};
  const limits=draft.budgets??DEFAULT_EXECUTION_BUDGET;
  const setLimit=(name:keyof typeof limits,value:number|undefined)=>{const next={...limits};if(value===undefined)delete next[name];else next[name]=value;setDraft({...draft,budgets:next});};
  const save=async(event:React.FormEvent)=>{event.preventDefault();const generation=scope.current;setBusy(true);setError('');try{
   const allowedOrigins=origins.trim()?origins.split(/\s+/).filter(Boolean):[new URL(draft.targetUrl).origin];
-  const profile=await api.saveDynamicEnvironment(projectId,{...draft,allowedOrigins,requiredVariables:variables.split(/[\s,]+/).filter(Boolean)},editing);
+  const grants=new Map<string,InteractionAction[]>();for(const [action,text] of Object.entries(interactionSelectors))for(const selector of new Set(text.split('\n').map(item=>item.trim()).filter(Boolean)))grants.set(selector,[...(grants.get(selector)??[]),action as InteractionAction]);
+  const actionPolicy:BrowserActionPolicy={schemaVersion:1,interactions:[...grants].map(([selector,actions])=>({selector,actions})),allowCoordinates:draft.actionPolicy?.allowCoordinates??false};
+  const profile=await api.saveDynamicEnvironment(projectId,{...draft,actionPolicy,allowedOrigins,requiredVariables:variables.split(/[\s,]+/).filter(Boolean)},editing);
   if(generation!==scope.current)return;
   setProfiles(previous=>[profile,...previous.filter(item=>item.id!==profile.id)]);edit(profile);onChange(profile.id);setNotice(`Environment version ${profile.version} saved. Run conditions will be frozen at start.`);
  }catch(e){if(generation===scope.current)setError(userFacingError(e,'Environment could not be saved.'));}finally{if(generation===scope.current)setBusy(false);}};
@@ -64,6 +69,7 @@ export function DynamicEnvironmentPanel({projectId,value,onChange,disabled,onDat
      <div className="dw-field"><label htmlFor="dw-budget-console">Maximum console bytes</label><input id="dw-budget-console" type="number" required min={1024} max={262144} step={1} value={limits.maxConsoleBytes} onChange={e=>setLimit('maxConsoleBytes',Number(e.target.value))}/></div>
      <div className="dw-field"><label htmlFor="dw-budget-tokens">Accounted-token stop limit (optional)</label><input id="dw-budget-tokens" type="number" min={1} max={1000000} step={1} value={limits.maxAccountedTokens??''} onChange={e=>setLimit('maxAccountedTokens',e.target.value?Number(e.target.value):undefined)}/></div>
     </div><p className="dw-muted">Retries and response repairs count as model calls. Token usage is checked after each request; a request can exceed this stop limit. Missing usage stops the Run when this optional limit is set. It is not a billing cap.</p></details>
+    <DynamicActionPermissions selectors={interactionSelectors} onChange={(action,value)=>setInteractionSelectors(previous=>({...previous,[action]:value}))} allowCoordinates={draft.actionPolicy?.allowCoordinates??false} onCoordinatesChange={value=>setDraft({...draft,actionPolicy:{schemaVersion:1,interactions:draft.actionPolicy?.interactions??[],allowCoordinates:value}})}/>
     <div className="dw-field"><label htmlFor="dw-env-startup">Local startup instructions</label><textarea id="dw-env-startup" rows={2} value={draft.startupInstructions} onChange={e=>setDraft({...draft,startupInstructions:e.target.value})}/></div><p className="dw-muted">Keep values and passwords out of shared profile fields. Instructions are shown for manual use; no command runs automatically.</p>
     <button type="submit" className="btn-secondary">Save environment</button>
    </fieldset></form>

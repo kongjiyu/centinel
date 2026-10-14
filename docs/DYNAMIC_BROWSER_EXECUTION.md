@@ -84,3 +84,45 @@ regression/finding lineage remain implementation work, not assumed capabilities.
 - Explicit visual fallback is covered with provider-contract tests; live visual
   fallback and normal/defective form/CRUD gates remain required in later M4 work.
 - No schema migration or historical data rewrite is introduced by M4a.
+
+## M4b frozen action permissions
+
+- Saved environments configure at most 20 unique CSS controls with explicit
+  click/fill/select/check grants and optional coordinates. Empty grants allow
+  observation and allowed-origin navigation only. Origins never promise a
+  read-only server; approved controls can affect test data. Page claims, target
+  descriptions and model proposals cannot add grants.
+- The executor authorizes the actual resolved DOM target before dispatch.
+  Coordinates require opt-in, protected pixels and a unique granted target.
+  Enter/Space submission is denied; use a granted explicit control. File inputs,
+  their labels and download links are denied even with ordinary click grants.
+  Unexpected chooser/download events on main pages or popups stop execution;
+  downloads are not accepted for saving. Approved upload/download operations
+  are not implemented by this permission editor.
+- Migration `202610140006_dynamic_action_policy.sql` sanitizes grants at SQL
+  boundaries and freezes database-owned policy plus observer/planner/policy/
+  executor/checker versions in new Runs. Forged startup permissions are ignored,
+  replay preserves original snapshots and helper RPCs remain private. The
+  migration was applied/registered on Centinel Supabase after local verification.
+  Existing Run histories are not rewritten or assigned invented permissions.
+- Real Codex form Run `ffb274d5-b9b2-4d96-b858-2edf64d73996` filled a synthetic
+  name and clicked the granted save control once; independent confirmation passed.
+  Run `cdc00e35-592a-437f-aaee-76aab86560d7` clicked a granted control that
+  unexpectedly triggered a download: execution stopped as blocked/not_tested,
+  with one download attempt, no forbidden mutation and no automatic retry.
+  Both use the isolated `sidecar/__tests__/fixtures/dynamicPolicyTarget.mjs`,
+  never the RWA business database, and have recorded cleanup. Stop the owned
+  fixture process after acceptance to discard its explicitly ephemeral records.
+- 466 sidecar and 203 frontend tests, TypeScript and frontend build passed. All
+  eleven Dynamic SQL suites and the retained-data upgrade fixture passed. Real
+  profile UI checks at 1440×900, 1200×900 and 390×844 found no document overflow;
+  action selectors and coordinate consent round-trip in component tests.
+- Historical M3 criterion counts/results/source versions remain consistent with
+  retained evidence. Historical permissions remain unavailable rather than
+  inferred from today's profile. Live API-provider acceptance remains deferred.
+- Rich form-state checking, detailed before/after observations, safe repeated
+  interaction semantics, live visual fallback, bounded exploration, regression
+  and approved file-transfer support remain explicit M4 work. This slice does
+  not establish completion of P4. Legacy direct-session entry points retain their
+  compatibility behavior and must be audited/fenced before release; new Mission
+  Runs are the validated permission-controlled product path.

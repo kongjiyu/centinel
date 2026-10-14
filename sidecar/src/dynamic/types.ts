@@ -1,3 +1,4 @@
+import type {BrowserActionPolicy} from './browser/actionPolicy.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import type { StaticContextFixture } from './testing/staticContextStub.js';
 import type { ExecutionBudget } from './budgetLimits.js';
@@ -20,7 +21,7 @@ export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{observer:1;planner:1;policy:1;executor:1;checker:1};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   state: RunState; verdict: CheckVerdict; reason: string | null;
   checks: CheckResult[]; evidence: EvidenceReference[]; legacySessionId: string | null;
