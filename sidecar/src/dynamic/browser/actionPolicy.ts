@@ -3,11 +3,11 @@ import type {Locator, Page} from 'playwright';
 import type {AgentAction, ElementBinding} from './actions.js';
 import {allowedBrowserUrl} from './policy.js';
 import {DynamicContractError} from '../types.js';
-import {MAX_UPLOAD_BYTES,type UploadGrant} from './fileTypes.js';
+import {MAX_UPLOAD_BYTES,MAX_DOWNLOAD_BYTES,publicDownloadUrl,type UploadGrant,type DownloadGrant} from './fileTypes.js';
 
 export const INTERACTION_ACTIONS=['click','type','select_option','set_checked'] as const;
 export type InteractionAction=typeof INTERACTION_ACTIONS[number];
-export type BrowserActionPolicy={schemaVersion:1;interactions:Array<{selector:string;actions:InteractionAction[];repeatable?:boolean}>;allowCoordinates:boolean;uploads?:UploadGrant[]};
+export type BrowserActionPolicy={schemaVersion:1;interactions:Array<{selector:string;actions:InteractionAction[];repeatable?:boolean}>;allowCoordinates:boolean;uploads?:UploadGrant[];downloads?:DownloadGrant[]};
 export class BrowserPolicyBlocked extends Error {}
 /** Environment settings are authoritative. Page/model content cannot add grants. */
 export function normalizeActionPolicy(value?:unknown):BrowserActionPolicy {
@@ -15,7 +15,7 @@ export function normalizeActionPolicy(value?:unknown):BrowserActionPolicy {
  if(value===undefined)return {schemaVersion:1,interactions:[],allowCoordinates:false};
  if(!value||typeof value!=='object'||Array.isArray(value))return fail();
  const input=value as Record<string,unknown>;
- if(Object.keys(input).some(key=>!['schemaVersion','interactions','allowCoordinates','uploads'].includes(key))||input.schemaVersion!==1||typeof input.allowCoordinates!=='boolean'||!Array.isArray(input.interactions)||input.interactions.length>20)return fail();
+ if(Object.keys(input).some(key=>!['schemaVersion','interactions','allowCoordinates','uploads','downloads'].includes(key))||input.schemaVersion!==1||typeof input.allowCoordinates!=='boolean'||!Array.isArray(input.interactions)||input.interactions.length>20)return fail();
  const seen=new Set<string>();const interactions=input.interactions.map((raw:unknown)=>{
   if(!raw||typeof raw!=='object'||Array.isArray(raw))return fail();const row=raw as Record<string,unknown>;
   if(Object.keys(row).some(key=>!['selector','actions','repeatable'].includes(key))||typeof row.selector!=='string'||!row.selector.trim()||row.selector.length>500||!Array.isArray(row.actions)||!row.actions.length||row.actions.length>4||new Set(row.actions).size!==row.actions.length||row.actions.some(action=>!INTERACTION_ACTIONS.includes(action as InteractionAction)))return fail();
@@ -30,7 +30,8 @@ export function normalizeActionPolicy(value?:unknown):BrowserActionPolicy {
    const selector=row.selector.trim();if(targets.has(selector))return fail();targets.add(selector);return {selector,id:row.id,sha256:row.sha256,bytes:row.bytes,mimeType:row.mimeType};
   });
  }
- return {schemaVersion:1,interactions,allowCoordinates:input.allowCoordinates,...(uploads?{uploads}:{})};
+ let downloads:DownloadGrant[]|undefined;if(input.downloads!==undefined){if(!Array.isArray(input.downloads)||input.downloads.length>10)return fail();const selectors=new Set<string>();downloads=input.downloads.map((value:unknown)=>{if(!value||typeof value!=='object'||Array.isArray(value))return fail();const row=value as Record<string,unknown>;if(Object.keys(row).some(key=>!['selector','url','maxBytes','mimeType','publicTestData'].includes(key))||typeof row.selector!=='string'||!row.selector.trim()||row.selector.length>500||!publicDownloadUrl(row.url)||typeof row.maxBytes!=='number'||!Number.isInteger(row.maxBytes)||row.maxBytes<1||row.maxBytes>MAX_DOWNLOAD_BYTES||typeof row.mimeType!=='string'||row.mimeType.length>100||!(/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/).test(row.mimeType)||row.publicTestData!==true)return fail();const selector=row.selector.trim();if(selectors.has(selector))return fail();selectors.add(selector);return {selector,url:row.url,maxBytes:row.maxBytes,mimeType:row.mimeType,publicTestData:true};});}
+ return {schemaVersion:1,interactions,allowCoordinates:input.allowCoordinates,...(uploads?{uploads}:{}),...(downloads?{downloads}:{})};
 }
 const checkStopped=(signal?:AbortSignal)=>{if(signal?.aborted)throw new DOMException('Policy check stopped','AbortError');};
 /** Authorize the actual resolved target, never its model-supplied description.

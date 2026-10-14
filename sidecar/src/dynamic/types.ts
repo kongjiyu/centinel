@@ -13,10 +13,10 @@ export type CheckDefinition = {
 } & ({ kind: 'url'; expected: string } | { kind: 'visible_text'; expected: string } | { kind: 'element_visible'; selector: string }
  | {kind:'field_value';selector:string;expected:string}
  | {kind:'field_checked'|'field_enabled'|'field_valid';selector:string;expected:boolean}
- | {kind:'selected_values';selector:string;expected:string[]});
+ | {kind:'selected_values';selector:string;expected:string[]}|{kind:'download_sha256';url:string;expected:string});
 export type CheckVerdict = 'passed' | 'failed' | 'uncertain' | 'not_tested';
 export type RunState = 'queued' | 'running' | 'completed' | 'blocked' | 'cancelled' | 'interrupted';
-export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks'; sha256: string; availability: 'local'; capturedAt: string };
+export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks' | 'file_manifest'; sha256: string; availability: 'local'; capturedAt: string };
 export type CheckResult = { checkId: string; criterionId: string; verdict: CheckVerdict; observed: string | null; reason: string; evidenceIds: string[]; checkedAt: string };
 export type CriterionExclusion = {criterionId:string;reason:string};
 export type MissionInput = {mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
@@ -26,7 +26,7 @@ export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{visual?:1;files?:1;explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{visual?:1;files?:1|2;explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2|3};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   regression?:RegressionBaseline;
   exploration?:ExplorationSnapshot;

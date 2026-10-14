@@ -13,7 +13,7 @@ begin
  perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'preparation','completed','Public synthetic upload baseline');
  rev:=public.save_dynamic_revision(p,auth.uid(),'{"name":"Frozen uploads","goal":"Upload fixture","targetUrl":"http://localhost:3000/","maxSteps":2,"context":null,"checks":[{"id":"one","criterionId":"one","description":"Upload state","kind":"visible_text","expected":"Uploaded","required":true}]}');
  started:=public.start_dynamic_environment_run(p,auth.uid(),(rev->>'id')::uuid,'upload-permission-run',env||'{"variableNames":[],"preflight":[{"name":"ready","ready":true}],"actionPolicy":{"schemaVersion":1,"interactions":[],"allowCoordinates":false,"uploads":[]}}');old_run:=started->'run';
- if old_run->'actionPolicy'->'uploads' is distinct from uploads or old_run->'executionVersions'->>'files'<>'1' then raise exception 'Caller changed frozen upload permissions';end if;
+ if old_run->'actionPolicy'->'uploads' is distinct from uploads or old_run->'executionVersions'->>'files'<>'2' then raise exception 'Caller changed frozen upload permissions';end if;
  perform public.transition_dynamic_run(p,(old_run->>'id')::uuid,'queued','{"state":"cancelled","verdict":"not_tested","checks":[],"evidence":[]}');
  env:=public.save_dynamic_upload_permissions(p,(env->>'id')::uuid,(env->>'version')::integer,'[]');
  replay:=public.start_dynamic_environment_run(p,auth.uid(),(rev->>'id')::uuid,'upload-permission-run',env);

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {DownloadVault} from './dynamic/environment/downloadVault.js';
+import {handleDownloadRoute} from './dynamic/environment/downloadRoutes.js';
 import { HookRepository } from './dynamic/workspace/hookRepository.js';
 import { handleHookRoute } from './dynamic/workspace/hookRoutes.js';
 import { executeHook, attemptAutomaticCleanup } from './dynamic/workspace/hookExecutor.js';
@@ -423,6 +425,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const privateValues=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>[...Object.values(vault.read(ownerId,projectId,profile.id)),...uploads.list(ownerId,projectId,profile.id).map(file=>file.name),...(profile.sessionReference?sessionVault.knownValues(ownerId,projectId,profile.id,profile.sessionReference):[])];
       const uploadsReady=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>{try{for(const grant of profile.actionPolicy?.uploads??[])uploads.resolve(ownerId,projectId,profile.id,grant);return true;}catch{return false;}};
       const sessionStatus=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>({...profile.sessionReference?sessionVault.status(ownerId,projectId,profile.id,profile.sessionReference,profile.allowedOrigins):{availability:'not_configured'},captureActive:['open','opening'].includes(sessionBroker.status(ownerId,projectId,profile.id)?.state??'')});
+      const downloadedFiles=new DownloadVault(path.join(dataDir,'dynamic-downloads'));
+      const service = new DynamicService(new SupabaseDynamicRepository(auth.client));
+      const downloadResponse=await handleDownloadRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,100_000)},{ownerId,vault:downloadedFiles,environments,service,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),privateValues:async projectId=>(await environments.list(projectId)).flatMap(profile=>privateValues(projectId,profile))});if(downloadResponse)return json(res,downloadResponse.status,downloadResponse.body);
       const sessionResponse=await handleSessionRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)},{ownerId,repository:environments,vault:sessionVault,broker:sessionBroker,captures:new SessionCaptureRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId)});if(sessionResponse)return json(res,sessionResponse.status,sessionResponse.body);
       const workspaceRegistry=new WorkspaceRegistry(path.join(dataDir,'dynamic-workspaces'));
       const hooks=new HookRepository(auth.client);const receiptRoot=path.join(dataDir,'dynamic-hook-output');
@@ -443,7 +448,6 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         }catch{return false;}},
       });
       if(environmentResponse)return json(res,environmentResponse.status,environmentResponse.body);
-      const service = new DynamicService(new SupabaseDynamicRepository(auth.client));
       const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, {
         actorId: ownerId,
         validateAuthoring: async (projectId,body)=>{
@@ -480,6 +484,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const project = await ensureDynamicWorkspace(sharedProject);
           const browserExecute = async(run: import('./dynamic/types.js').DynamicRun) => {if(localSession&&Date.parse(localSession.expiresAt)<=Date.now()){await service.stop(projectId,run.id,'blocked','Local session expired before browser execution. Renew it on this device.');return;}return executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
+            retainDownload:(metadata,buffer)=>downloadedFiles.retain(ownerId,projectId,run.id,metadata,buffer),
             ...(run.environment?{resolveUpload:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>uploads.resolve(ownerId,projectId,run.environment!.id,grant)}:{}),
             sensitiveValues:[...frozenValues,...(localSession?sessionSensitiveValues(localSession):[])],
             storageState:localSession?.state,

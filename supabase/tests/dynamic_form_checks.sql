@@ -9,7 +9,7 @@ begin
   begin perform public.save_dynamic_revision(p,auth.uid(),base||jsonb_build_object('checks',jsonb_build_array((checks->0)||bad)));raise exception 'Invalid form check accepted';exception when raise_exception then if sqlerrm='Invalid form check accepted' then raise;end if;end;
  end loop;
  started:=public.start_dynamic_run(p,auth.uid(),(rev->>'id')::uuid,'form-version');old_run:=started->'run';
- if old_run->'executionVersions'->>'observer'<>'2' or old_run->'executionVersions'->>'checker'<>'2' or old_run->'executionVersions'->>'policy'<>'2' then raise exception 'New engine versions absent';end if;
+ if old_run->'executionVersions'->>'observer'<>'2' or old_run->'executionVersions'->>'checker'<>'3' or old_run->'executionVersions'->>'policy'<>'2' then raise exception 'New engine versions absent';end if;
  perform public.transition_dynamic_run(p,(old_run->>'id')::uuid,'queued','{"state":"cancelled","verdict":"not_tested","checks":[],"evidence":[]}');replay:=public.start_dynamic_run(p,auth.uid(),(rev->>'id')::uuid,'form-version');
  if replay->'run'->'executionVersions' is distinct from old_run->'executionVersions' or replay->'run'->'revision'->'checks' is distinct from old_run->'revision'->'checks' then raise exception 'Replay changed frozen form contract';end if;
  if has_function_privilege('authenticated','public.normalize_dynamic_check_definitions(jsonb)','execute') or has_function_privilege('authenticated','public.save_dynamic_revision_without_form_checks(uuid,uuid,jsonb,uuid)','execute') or has_function_privilege('authenticated','public.start_dynamic_run_without_form_checker_version(uuid,uuid,uuid,text)','execute') then raise exception 'Private form helpers exposed';end if;

@@ -1,3 +1,4 @@
+import {ApprovedDownloads} from './dynamic/browser/downloads.js';
 import {ExplorationJournal,type ExplorationSnapshot} from './dynamic/browser/exploration.js';
 import {NetworkDiagnostics} from './dynamic/browser/networkDiagnostics.js';
 import {ActionLedger} from './dynamic/browser/actionLedger.js';
@@ -241,7 +242,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
+  providers: { retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -301,7 +302,7 @@ export async function runDynamicSession(
   if (CANCELLED.has(session.id)) controller.abort();
   const runtimeTimer = setTimeout(() => controller.abort(), maximumRuntime);
   const signal = controller.signal;
-  let browser: Browser | null = null;
+  let browser: Browser | null = null;let downloads:ApprovedDownloads|undefined;
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];const actionLedger=new ActionLedger();const exploration=providers.exploratoryChecks?new ExplorationJournal(providers.exploratoryChecks,secrets):undefined;let explorationStateId:string|undefined;
   const consoleLogs: string[] = [];const networkDiagnostics=new NetworkDiagnostics(secrets);
@@ -332,11 +333,12 @@ export async function runDynamicSession(
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
     const page = await browser.newPage({serviceWorkers:'block',...(providers.actionPolicy?{acceptDownloads:false}:{}),...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
 
+    if(providers.actionPolicy?.downloads?.length&&providers.retainDownload){downloads=new ApprovedDownloads({signal,canForward:providers.canForward,secrets,onPrivateValue:value=>discoverPrivateValues([value]),onViolation:reason=>{filePolicyReason=reason;controller.abort();},retain:providers.retainDownload});await downloads.attach(page);}
     const observe=(url:string)=>{try{observedOrigins.add(new URL(url.replace(/^ws:/,'http:').replace(/^wss:/,'https:')).origin);}catch{}};
     page.context().on('request',request=>{observe(request.url());if(targetStarted&&!signal.aborted)networkDiagnostics.request(request);});
     page.context().on('response',response=>{if(targetStarted&&!signal.aborted)networkDiagnostics.response(response);});
     page.context().on('requestfailed',request=>{if(targetStarted&&!signal.aborted)networkDiagnostics.failed(request);});
-    const watchSocket=(target:Page)=>{target.on('websocket',socket=>observe(socket.url()));if(providers.actionPolicy){target.on('download',download=>{filePolicyReason='Download blocked by the frozen browser action policy.';void download.cancel().catch(()=>{});controller.abort();});target.on('filechooser',()=>{filePolicyReason='File selection blocked by the frozen browser action policy.';controller.abort();});}};watchSocket(page);page.context().on('page',watchSocket);
+    const watchSocket=(target:Page)=>{target.on('websocket',socket=>observe(socket.url()));if(providers.actionPolicy){target.on('download',download=>{if(downloads){downloads.nativeDownload(target,download);return;}filePolicyReason='Download blocked by the frozen browser action policy.';void download.cancel().catch(()=>{});controller.abort();});target.on('filechooser',()=>{filePolicyReason='File selection blocked by the frozen browser action policy.';controller.abort();});}};watchSocket(page);page.context().on('page',target=>{watchSocket(target);if(downloads)void downloads.attach(target).catch(()=>{filePolicyReason='Popup download capture unavailable.';controller.abort();});});
     page.on('console', msg => {
       const entry = `[${msg.type()}] ${msg.text()}`;
       if(signal.aborted)return;
@@ -482,7 +484,7 @@ export async function runDynamicSession(
           status='blocked';terminalReason=sanitize('Agent stopped before completing the requested scope: '+action.summary);failureCategory='unknown';break;
         }
         if (providers.verifyOutcome && (action.action === 'finish_success' || action.action === 'finish_failure')) {
-          const verifiedOutcome = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors,...(exploration?{exploration:exploration.snapshot()}: {})});
+          const verifiedOutcome = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors,downloads:downloads?.receipts,...(exploration?{exploration:exploration.snapshot()}: {})});
           const verdict=typeof verifiedOutcome==='string'?verifiedOutcome:verifiedOutcome.verdict;
           if(exploration&&typeof verifiedOutcome!=='string')exploration.setIndependentResults(verifiedOutcome.checks);
           status = verdict === 'passed' ? 'success' : verdict === 'failed' ? 'failure' : 'blocked';
@@ -532,7 +534,7 @@ export async function runDynamicSession(
 
         // The frozen policy authorizes the actual target before one dispatch.
         debugLog.log('info', 'action_execute', `Executing ${action.action}`, step);
-        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger,resolveUpload:providers.resolveUpload,onUploadPrivateValue:value=>discoverPrivateValues([value])});
+        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger,downloads,resolveUpload:providers.resolveUpload,onUploadPrivateValue:value=>discoverPrivateValues([value])});
         Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
@@ -627,6 +629,7 @@ export async function runDynamicSession(
   } finally {
     try{
       if(exploration){fs.writeFileSync(path.join(logsDir,'exploration.json'),JSON.stringify(exploration.snapshot(),null,2));await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'exploration.json'),'Bounded exploratory visits and unvisited scope');}
+      if(downloads){fs.writeFileSync(path.join(logsDir,'file-manifest.json'),JSON.stringify({schemaVersion:1,downloads:downloads.receipts},null,2),{mode:0o600});await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'file-manifest.json'),'Retained captured-file manifest');}
       fs.writeFileSync(path.join(logsDir,'network.json'),JSON.stringify(networkDiagnostics.snapshot(privacyObservationComplete),null,2));
       await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'network.json'),'Retained partial network diagnostics');
       fs.writeFileSync(path.join(logsDir,'console.json'),JSON.stringify(retainedConsole()));
@@ -637,6 +640,7 @@ export async function runDynamicSession(
       await addEvidence(session.projectId,session.id,'action_trace',path.join(logsDir,'action-trace.json'),'Retained partial action trace');
     }catch{debugLog.log('warn','session_end','Partial execution evidence could not be retained.');}
     for(const timer of policyTimers)clearTimeout(timer);
+    downloads?.close();
     await proxy?.close().catch(()=>{});
     clearTimeout(runtimeTimer);
     CONTROLLERS.delete(session.id);
@@ -698,6 +702,7 @@ Do not add explanation. Only output the JSON object.
 
 Available actions:
 - click: {"action":"click","targetDescription":"...","selector":"...","reasoning":"..."}
+- download_file: {"action":"download_file","selector":"approved download control","reasoning":"..."}
 - upload_file: {"action":"upload_file","selector":"input[type=file]","fixtureId":"approved fixture uuid","reasoning":"..."}
 - click_visual: {"action":"click_visual","targetDescription":"...","x":100,"y":150,"fallbackReason":"Visual subregion","reasoning":"..."}
 - type: {"action":"type","targetDescription":"...","text":"...","selector":"...","reasoning":"..."}

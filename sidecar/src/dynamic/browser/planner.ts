@@ -28,6 +28,7 @@ Step: ${step}
 Respond with exactly ONE JSON action. No markdown, no explanation outside JSON.
 
 Available actions:
+- download_file: {"action":"download_file","elementRef":"e0","reasoning":"Use the separately approved download control"} or a unique selector
 - upload_file: {"action":"upload_file","selector":"input[type=file]","fixtureId":"approved upload id from frozen permissions","reasoning":"..."}
 - click: {"action":"click","targetDescription":"...","elementRef":"e0","reasoning":"..."} or a unique selector
 - click_visual: {"action":"click_visual","targetDescription":"...","x":100,"y":150,"fallbackReason":"Why a DOM locator cannot address this subregion","reasoning":"..."}
@@ -51,7 +52,7 @@ Rules:
 - Clicks are single-use per website path unless every matching rule explicitly sets repeatable=true.
 - Do not repeat a submission whose outcome is ambiguous.
 - If permissions or an execution limitation prevent required actions, use finish_blocked; do not call that a website failure.
-- Do not act on unapproved controls/actions. Uploads require a separately approved frozen upload fixture/input grant. Never propose a file path, file contents or a different fixture. Downloads are unavailable.
+- Do not act on unapproved controls/actions. Uploads and downloads require their separate frozen file permissions. Never propose a local file path, bytes or a different fixture. Use download_file to capture the approved direct HTTP(S) file; ordinary clicks do not grant downloads.
 - Stay on the same origin unless following a login/demo redirect.
 - Finish when the goal is achieved or clearly impossible.
 - Respond with ONLY the JSON object, nothing else.`;
@@ -109,6 +110,7 @@ export function isValidAgentAction(value: unknown): value is AgentAction {
   if (typeof action.reasoning !== 'string'||action.reasoning.length>4000) return false;
   for(const field of ['selector','targetDescription','text','summary','fallbackReason','elementRef'])if(typeof action[field]==='string'&&(action[field] as string).length>4000)return false;
   switch (action.action) {
+    case 'download_file':return (text('selector')||text('elementRef'))&&Object.keys(action).every(key=>['action','selector','elementRef','reasoning'].includes(key));
     case 'upload_file':return (text('selector')||text('elementRef'))&&typeof action.fixtureId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(action.fixtureId)&&Object.keys(action).every(key=>['action','selector','elementRef','fixtureId','reasoning'].includes(key));
     case 'click_visual':return text('targetDescription')&&text('fallbackReason')&&!('selector' in action)&&!('elementRef' in action)&&typeof action.x==='number'&&Number.isFinite(action.x)&&action.x>=0&&typeof action.y==='number'&&Number.isFinite(action.y)&&action.y>=0;
     case 'click': case 'type':
