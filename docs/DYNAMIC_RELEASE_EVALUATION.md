@@ -131,16 +131,68 @@ Static scenarios 1–2 remain excluded; scenario 4 uses mock provenance; scenari
 P0–P7 required implementation and bounded acceptance gates are satisfied.
 
 Current sidecar TypeScript passes; the process-change suite passed 582 tests / 83
-files. Final frontend suite passed 246 tests / 48 files. The 31 Dynamic SQL suites
-were rerun successfully against the isolated PostgreSQL upgrade fixture. No client
-or SQL source changed since the packaged/corpus engine 44916ff; the later runtime
+files. Before the summary correction, the frontend suite passed 246 tests / 48 files;
+afterward the complete suite passed 247 tests / 48 files with two workers and
+a 15-second test bound. A default-parallel attempt had 16 unrelated 5-second
+timeouts, all retained in the local log; no assertion failures were suppressed. The 31 Dynamic SQL suites
+were rerun successfully against the isolated PostgreSQL upgrade fixture. No SQL source changed since engine 44916ff; client changes after that package
+are limited to the explicitly recorded summary correction below; the later runtime
 change is local process exclusion, with actual worker SIGKILL/restart and post-change
 RWA unit acceptance retained in DYNAMIC_RELEASE_RESILIENCE.md. Runtime sidecar is
-8e2f849 plus documentation/harness-only commits. This closure introduces no
-runtime/UI/schema change. There are no hosted CI checks; these are local/live checks.
+8e2f849 plus documentation/harness-only commits. The acceptance harness/records do not change execution or persisted schemas. There are no hosted CI checks; these are local/live checks.
 
 This is the agreed local Web Dynamic release, not whole-product Static acceptance,
 API live acceptance, a native-desktop SUT adapter, a signed/notarized installer,
 a bundled-sidecar distribution, broad accessibility certification, real-user
 research or a general defect-recall benchmark. Known limits in the checklist
 remain visible; no missing metrics are inferred as zero.
+
+### Late native-discovered summary correction
+
+The restored Home screen exposed a misleading legacy summary: a blocked private
+check with reason Independent checks: uncertain was titled Failed. Commit
+029c778 keeps blocked Dynamic sessions labeled Blocked and generic legacy failures
+labeled Needs attention. The canonical Run still displays its independent verdict;
+no free-text reason is parsed into an invented verdict. Projects' existing
+needs_attention filter now uses the matching Needs attention label. Static
+session status/logic, CSS, risk aggregation and persisted contracts are unchanged.
+A focused uncertain-result regression joins the existing blocked/filter tests.
+
+Live browser Home was inspected at 1440×900, 1200×900 and 390×844: actual blocked
+state and uncertain reason remain visible, no Failed heading and no page overflow.
+This revealed an acceptance-harness assumption that the actual blocked fixture
+should be Needs attention; the assertion was corrected to Blocked without changing
+the retained data. The existing package's native workflow above remains evidence
+for the unchanged sign-in/provider/run/export implementation; the final label-only
+package build and rendered status check are recorded below.
+
+During a diagnostic process listing, command arguments inadvertently exposed the
+dedicated synthetic QA password. It was immediately rotated through authenticated
+Supabase Auth, repository-root ignored .env updated (0600), and this run's CLI text
+artifacts checked (no password found). No other account was changed. Subsequent
+process observations omit command arguments containing credentials. No password,
+token or refresh secret is included in committed evidence. This operator incident
+is distinct from the seeded private-input engine acceptance.
+
+### Final package after summary correction
+
+`pnpm build` completed both bundles with the existing large-chunk warning; no
+signing/notarization claim is made. Source commit 029c778, final DMG SHA-256:
+`d35dcc609b301750640d8db81257cb55bb2e9b2fc00855e94174ba0704486fb2`.
+The exact rebuilt bundle was relaunched and signed in with the rotated QA
+credential. Synthetic keystroke entry initially produced invalid credentials;
+replacing the secure field with bound-app paste succeeded. A brief authentication
+loading error was superseded by the rendered workspace without a successful Retry
+click. The final native Home shows Blocked with Independent checks: uncertain;
+no Failed heading. Screenshot: output/playwright/native-summary-final.png.
+No sign-in/provider/execution/report-save implementation changed in the summary
+commit, so the preceding full native workflow/three-format readback remains
+applicable to those unchanged paths. The label fix additionally passed the full
+247-test suite, production build and Home/Projects screenshot/overflow checks at
+1440×900, 1200×900 and 390×844. CSS was unchanged and unrelated screens' existing
+full tests stayed passing. Audit: output/playwright/summary-final-acceptance.json.
+
+The completed test logs, original expired-token result, native export readback,
+current native rendering and unchanged shared contracts close the required-scope
+release audit. Remaining exceptions are exactly the explicit scope decisions and
+known limitations in DYNAMIC_RELEASE_CHECKLIST.md; they are not silently passed.

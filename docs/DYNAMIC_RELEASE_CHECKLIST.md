@@ -60,9 +60,9 @@ are recorded in DYNAMIC_RELEASE_RESILIENCE.md.
   actual text/image tests, native-started independent-check Run, shared proof,
   immutable report and native JSON/Markdown/PDF save with byte-for-byte readback.
   One initial Reload and one transient JWT-future Retry are disclosed; a separate
-  owned process relaunch restored session/rendering directly. The client package
-  source is unchanged since 44916ff, while the current sidecar includes process
-  exclusion and its verified worker recovery.
+  owned process relaunch restored session/rendering directly. The client execution/export source is unchanged since 44916ff; a later summary-label
+  correction was rebuilt and inspected natively (029c778), while the current
+  sidecar includes process exclusion and its verified worker recovery.
 - Final required-scope evidence audit is recorded in DYNAMIC_RELEASE_EVALUATION.md.
   API live remains user-deferred, Static excluded and native SUT optional. These
   are scope decisions, not passed tests. Existing corpus/production limits remain.
