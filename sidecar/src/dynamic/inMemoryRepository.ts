@@ -39,6 +39,7 @@ export class InMemoryDynamicRepository implements DynamicRepository {
     const now = new Date(this.now()).toISOString();
     const limits=normalizeBudget(environment?.budgets);limits.maxSteps=Math.min(limits.maxSteps,revision.maxSteps);
     const run: DynamicRun = { executionBudget:limits, ...(environment ? {environment:structuredClone(environment)} : {}), id: crypto.randomUUID(), projectId, missionId: revision.missionId, revision: structuredClone(revision), idempotencyKey: key, createdBy: actorId, createdAt: now, updatedAt: now, state: 'queued', verdict: 'not_tested', checks: [], evidence: [], reason: null, legacySessionId: null };
+    if(revision.usability)run.executionVersions={observer:2,planner:2,policy:2,executor:2,checker:3,usability:1};
     if(baselineRunId){const baseline=this.runs.get(baselineRunId);if(!baseline||baseline.projectId!==projectId||baseline.state!=='completed'||baseline.revision.id!==revision.id)throw new DynamicContractError(409,'Invalid regression baseline.');run.regression=freezeRegressionBaseline(baseline);}
     this.runs.set(run.id, run);
     return { run: structuredClone(run), reused: false };

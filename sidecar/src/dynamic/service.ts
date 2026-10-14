@@ -1,3 +1,4 @@
+import {validateUsability} from './usability/validation.js';
 import {resolveExplorationObjectives} from './browser/exploration.js';
 import type {ExplorationSnapshot} from './browser/exploration.js';
 import {validateIncomingContext,validateCriterionExclusions,contextNeedsAcknowledgment} from './context.js';
@@ -49,7 +50,7 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   }
   const criterionExclusions=validateCriterionExclusions(input.criterionExclusions,context,input.checks);
   // Construct only the supported fields so arbitrary caller metadata is not persisted.
-  return structuredClone({mode:input.mode??'guided', name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({id:check.id,criterionId:check.criterionId,description:check.description,required:check.required,kind:check.kind,...(!['url','visible_text'].includes(check.kind)&&'selector' in check?{selector:check.selector}:{}),...(check.kind==='download_sha256'?{url:check.url}:{}),...(check.kind!=='element_visible'&&'expected' in check?{expected:check.expected}:{})} as import('./types.js').CheckDefinition)), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
+  return structuredClone({...(input.usability!==undefined?{usability:validateUsability(input.usability,input.checks)}:{}),mode:input.mode??'guided', name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({id:check.id,criterionId:check.criterionId,description:check.description,required:check.required,kind:check.kind,...(!['url','visible_text'].includes(check.kind)&&'selector' in check?{selector:check.selector}:{}),...(check.kind==='download_sha256'?{url:check.url}:{}),...(check.kind!=='element_visible'&&'expected' in check?{expected:check.expected}:{})} as import('./types.js').CheckDefinition)), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
 }
 
 export class DynamicService {

@@ -1,3 +1,4 @@
+import type {UsabilityConfig} from './usability/types.js';
 import type {RegressionBaseline} from './regression.js';
 import type {ExplorationSnapshot} from './browser/exploration.js';
 import type {BrowserActionPolicy} from './browser/actionPolicy.js';
@@ -19,14 +20,14 @@ export type RunState = 'queued' | 'running' | 'completed' | 'blocked' | 'cancell
 export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks' | 'file_manifest'; sha256: string; availability: 'local'; capturedAt: string };
 export type CheckResult = { checkId: string; criterionId: string; verdict: CheckVerdict; observed: string | null; reason: string; evidenceIds: string[]; checkedAt: string };
 export type CriterionExclusion = {criterionId:string;reason:string};
-export type MissionInput = {mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
+export type MissionInput = {usability?:UsabilityConfig;mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
 export type MissionRevision = MissionInput & { id: string; missionId: string; projectId: string; revision: number; createdBy: string; createdAt: string };
 export type Mission = { id: string; projectId: string; currentRevisionId: string; createdBy: string; createdAt: string };
 export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{privateInputs?:1;visual?:1;files?:1|2;explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2|3};
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{usability?:1;privateInputs?:1;visual?:1;files?:1|2;explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2|3};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   regression?:RegressionBaseline;
   exploration?:ExplorationSnapshot;
