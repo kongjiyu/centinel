@@ -258,3 +258,36 @@ regression/finding lineage remain implementation work, not assumed capabilities.
 - Pinned regression/finding lineage, approved file transfers, remaining live
   visual/CRUD gates, legacy-entry fencing and the later M5–M7 deliverables remain
   required. This is M4e acceptance, not completion of all P4 or the release.
+
+## M4f pinned regression observations
+
+- Retests explicitly reference a completed baseline with retained checks/evidence
+  and use its exact immutable Mission revision. New Runs preserve baseline ID,
+  original verdict/checks/evidence and recorded environment/execution metadata.
+  Baseline and new evidence remain separate; old histories are not rewritten.
+- Baseline/project/revision validation and idempotency checks occur at the service
+  and SQL boundary. Changed baseline parameters cannot reuse a request key.
+  Execution still requires fresh provider/environment/data/session preflight.
+  Baseline private values/session contents are never copied to the executing user.
+- Comparison uses the pinned check IDs and supported retained observations.
+  Failed → passed is an observation change, never automatic finding resolution
+  or proof of a causal fix. Environment/target declarations, actor, policy,
+  budgets and engine metadata differences are shown. Matching configuration
+  does not establish identical private state or target contents.
+- Migration `202610140011_dynamic_regression.sql` was locally verified, applied
+  and registered on Centinel Supabase. Current execution conditions are frozen
+  independently of baseline conditions; caller-supplied baseline summaries are
+  not accepted. M5 will attach this Run/check lineage to reviewed findings.
+- Real Codex baseline `35d09ef0-7a1f-41a8-816f-03f9d16d1399` failed against
+  the controlled broken fixture. Retest `1f0d42aa-d110-4deb-b7ca-d105a5dc773a`
+  used the same revision after an explicit seeded fix and passed. Recorded target
+  version/profile version changed and were disclosed. The entire old Run payload
+  stayed identical; idempotent replay returned the same new Run without another
+  save. Each fixture version received one actual save. Cleanup recorded and
+  owned fixture stopped; no RWA/production data changed.
+- 488 sidecar tests, 211 frontend tests, TypeScript/build, all sixteen Dynamic
+  SQL suites and retained-data upgrade fixture passed. Actual before/after
+  comparison checked at 1440×900, 1200×900 and 390×844 without overflow. Known
+  build chunk warning remains. Historical M3 criteria/source metadata preserved.
+- Approved file transfers, remaining visual/login/CRUD gates, legacy-entry
+  fencing and M5–M7 still remain. This does not claim all P4 or release completion.

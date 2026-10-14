@@ -100,3 +100,5 @@
 .dynamic-workspace-screen .dw-exploration { margin: 16px 0; }
 .dynamic-workspace-screen .dw-exploration li { overflow-wrap: anywhere; }
 .dynamic-workspace-screen .dw-exploration small { display: block; color: var(--workspace-text-muted); }
+.dynamic-workspace-screen .dw-regression { margin: 16px 0; }
+.dynamic-workspace-screen .dw-regression p, .dynamic-workspace-screen .dw-regression li { overflow-wrap: anywhere; }

@@ -1,3 +1,4 @@
+import {freezeRegressionBaseline} from './regression.js';
 import type {ExplorationSnapshot} from './browser/exploration.js';
 import {normalizeBudget} from './budgets.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
@@ -28,16 +29,17 @@ export class InMemoryDynamicRepository implements DynamicRepository {
   async getRun(projectId: string, id: string) { const row = this.runs.get(id); return row?.projectId === projectId ? structuredClone(row) : null; }
   async listRuns(projectId: string, missionId?: string) { return structuredClone([...this.runs.values()].filter(row => row.projectId === projectId && (!missionId || row.missionId === missionId))); }
   async getRunByKey(projectId: string, key: string) { const row = [...this.runs.values()].find(run => run.projectId === projectId && run.idempotencyKey === key); return row ? structuredClone(row) : null; }
-  async createRun(projectId: string, actorId: string, revision: MissionRevision, key: string, environment?: EnvironmentSnapshot) {
+  async createRun(projectId: string, actorId: string, revision: MissionRevision, key: string, environment?: EnvironmentSnapshot, baselineRunId?:string) {
     const existing = [...this.runs.values()].find(run => run.projectId === projectId && run.idempotencyKey === key);
     if (existing) {
-      if (existing.revision.id !== revision.id || existing.createdBy !== actorId || existing.environment?.id !== environment?.id) throw new DynamicContractError(409, 'Idempotency key belongs to a different request.');
+      if (existing.revision.id !== revision.id || existing.createdBy !== actorId || existing.environment?.id !== environment?.id||existing.regression?.runId!==baselineRunId) throw new DynamicContractError(409, 'Idempotency key belongs to a different request.');
       return { run: structuredClone(existing), reused: true };
     }
     if ([...this.runs.values()].some(run => run.projectId === projectId && ['queued', 'running'].includes(run.state))) throw new DynamicContractError(409, 'A Run is already active in this project.');
     const now = new Date(this.now()).toISOString();
     const limits=normalizeBudget(environment?.budgets);limits.maxSteps=Math.min(limits.maxSteps,revision.maxSteps);
     const run: DynamicRun = { executionBudget:limits, ...(environment ? {environment:structuredClone(environment)} : {}), id: crypto.randomUUID(), projectId, missionId: revision.missionId, revision: structuredClone(revision), idempotencyKey: key, createdBy: actorId, createdAt: now, updatedAt: now, state: 'queued', verdict: 'not_tested', checks: [], evidence: [], reason: null, legacySessionId: null };
+    if(baselineRunId){const baseline=this.runs.get(baselineRunId);if(!baseline||baseline.projectId!==projectId||baseline.state!=='completed'||baseline.revision.id!==revision.id)throw new DynamicContractError(409,'Invalid regression baseline.');run.regression=freezeRegressionBaseline(baseline);}
     this.runs.set(run.id, run);
     return { run: structuredClone(run), reused: false };
   }

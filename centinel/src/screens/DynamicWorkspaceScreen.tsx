@@ -1,3 +1,4 @@
+import {DynamicRegressionPanel} from './DynamicRegressionPanel';
 import {DynamicExplorationPanel} from './DynamicExplorationPanel';
 import {checkToDraft,draftToCheck,isBooleanFormCheck,type DraftCheck} from '../dynamic/checkDraft';
 import {DynamicFormExpectation} from './DynamicFormExpectation';
@@ -63,7 +64,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const [source, setSource] = useState('manual'); const [checks, setChecks] = useState<DraftCheck[]>(() => [emptyCheck()]);
   const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null); const [feedback, setFeedback] = useState('');
-  const requestKey = useRef<{ revisionId: string; environmentId: string; key: string } | null>(null);
+  const requestKey = useRef<{ revisionId: string; environmentId: string; baselineRunId?:string;key: string } | null>(null);
   const loadGeneration = useRef(0); const loadSequence = useRef(0); const errorRef = useRef<HTMLParagraphElement>(null);
   const dirty = useRef(false);
   const resultRef = useRef<HTMLElement>(null);
@@ -126,11 +127,11 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     } catch (e) { if(generation===loadGeneration.current)setError(userFacingError(e, 'The test could not be saved. Your inputs are preserved.')); }
     finally { if(generation===loadGeneration.current)setBusy(false); }
   };
-  const start = async (revision: MissionRevision, selectedEnvironment = environmentId) => {
+  const start = async (revision: MissionRevision, selectedEnvironment = environmentId,baselineRunId?:string) => {
     const generation=loadGeneration.current;setBusy(true); setError(null);
-    if (!requestKey.current || requestKey.current.revisionId !== revision.id || requestKey.current.environmentId !== selectedEnvironment) requestKey.current = { revisionId: revision.id, environmentId: selectedEnvironment, key: key() };
+    if (!requestKey.current || requestKey.current.revisionId !== revision.id || requestKey.current.environmentId !== selectedEnvironment||requestKey.current.baselineRunId!==baselineRunId) requestKey.current = { revisionId: revision.id, environmentId: selectedEnvironment,baselineRunId,key: key() };
     try {
-      const run = selectedEnvironment ? await api.startDynamicRun(projectId, revision.id, requestKey.current.key, selectedEnvironment) : await api.startDynamicRun(projectId, revision.id, requestKey.current.key);
+      const run=baselineRunId?await api.startDynamicRun(projectId,revision.id,requestKey.current.key,selectedEnvironment||undefined,baselineRunId):selectedEnvironment?await api.startDynamicRun(projectId,revision.id,requestKey.current.key,selectedEnvironment):await api.startDynamicRun(projectId,revision.id,requestKey.current.key);
       if(generation!==loadGeneration.current)return;requestKey.current = null; setSelectedRunId(run.id); await load();if(generation!==loadGeneration.current)return;
       onNavigate({ name: 'dynamic-testing', projectId, runId: run.id });
     } catch (e) { if(generation===loadGeneration.current)setError(userFacingError(e, 'The run could not start. Retry uses the same request.')); }
@@ -192,6 +193,8 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
         {selectedRun.revision.context && <p className="dw-muted">Criteria source: example requirements (mock). Browser observations are recorded separately.</p>}
         <DynamicCoveragePanel run={selectedRun}/>
         <details className="dw-advanced"><summary>Recorded browser permissions</summary>{selectedRun.actionPolicy?<><p>{selectedRun.actionPolicy.interactions.length} approved controls · Coordinates {selectedRun.actionPolicy.allowCoordinates?'enabled for approved controls':'disabled'}</p>{selectedRun.actionPolicy.interactions.length>0&&<ul className="dw-recorded-permissions">{selectedRun.actionPolicy.interactions.map(grant=><li key={grant.selector}><code>{grant.selector}</code> · {grant.actions.join(', ')}{grant.actions.includes('click')?(grant.repeatable?' · repeatable click approved':' · click repetition not approved'):''}</li>)}</ul>}<p>File controls, downloads and implicit keyboard submissions are not approved by these grants.</p></>:<p>Permissions were not recorded for this historical Run. Current environment settings do not establish its original conditions.</p>}{selectedRun.executionVersions&&<p>Engine versions: observer {selectedRun.executionVersions.observer} · planner {selectedRun.executionVersions.planner} · policy {selectedRun.executionVersions.policy} · executor {selectedRun.executionVersions.executor} · checker {selectedRun.executionVersions.checker}</p>}</details>
+        <DynamicRegressionPanel run={selectedRun}/>
+        {selectedRun.state==='completed'&&selectedRun.checks.length>0&&selectedRun.evidence.length>0&&<div className="dw-actions"><button type="button" className="btn-secondary" disabled={busy||environmentDataBusy||Boolean(activeRun)} onClick={()=>void start(selectedRun.revision,environmentId||selectedRun.environment?.id||'',selectedRun.id)}>Retest from this baseline</button><p className="dw-muted">Pins this Run's original test revision. Uses the selected environment or the baseline profile's current configuration; preparation and your local session are checked again. Private values are not copied.</p></div>}
         <DynamicExplorationPanel run={selectedRun}/>
         {selectedRun.executionBudget&&<details className="dw-advanced"><summary>Recorded execution limits</summary><p>{selectedRun.executionBudget.runtimeMs/1000} seconds · {selectedRun.executionBudget.maxSteps} steps · {selectedRun.executionBudget.maxModelCalls} model calls</p><p>Page observation: {selectedRun.executionBudget.maxObservationChars} characters · Console: {selectedRun.executionBudget.maxConsoleBytes} bytes</p><p>Accounted-token stop limit: {selectedRun.executionBudget.maxAccountedTokens??'Not set'}. Provider usage is checked after each request; this is not a billing cap.</p></details>}
         {selectedRun.environment && <details className="dw-advanced"><summary>Recorded environment · {selectedRun.environment.name} v{selectedRun.environment.version}</summary><p>{selectedRun.environment.targetUrl} · {selectedRun.environment.viewport.width}×{selectedRun.environment.viewport.height} · Target version: {selectedRun.environment.targetVersion || 'Not recorded'}</p>{selectedRun.environment.preparation&&<p>Recorded preparation: {selectedRun.environment.preparation.note} · profile v{selectedRun.environment.preparation.profileVersion}</p>}<p>Required names: {selectedRun.environment.requiredVariables.join(', ') || 'None'}. Values remain local and are not part of this record.</p><ul>{selectedRun.environment.preflight.map(check=><li key={check.name}>{check.name}: {check.ready?'Ready':'Needs attention'} — {check.reason}</li>)}</ul></details>}
