@@ -133,3 +133,5 @@
 .dynamic-workspace-screen .dw-usability th:nth-child(2) { width: 16%; }
 .dynamic-workspace-screen .dw-usability td:nth-child(2) { white-space: nowrap; }
 .dynamic-workspace-screen .dw-usability caption { width: min(640px, calc(100vw - 128px)); }
+
+.dynamic-workspace-screen .dw-usability-suggestions { overflow-wrap: anywhere; }

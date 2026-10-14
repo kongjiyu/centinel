@@ -1,0 +1,26 @@
+import { describe, it, expect, vi } from 'vitest';
+import { collectUsabilitySuggestions, validSuggestionRecord } from '../../src/dynamic/usability/suggestions.js';
+import { ExecutionBudgetExceeded } from '../../src/dynamic/budgets.js';
+import type { UsabilityAssessment } from '../../src/dynamic/usability/types.js';
+const assessment: UsabilityAssessment = { schemaVersion: 1, config: { schemaVersion: 1, includeSuggestions: true, persona: 'first_time', rules: ['labels'], feedbackCheckIds: [], errorRecoveryCheckIds: [] }, observations: [{ ruleId: 'labels', kind: 'deterministic', persona: 'first_time', verdict: 'failed', expected: 'Label', observed: 'No configured label source', controlRef: 'u0', evidenceIds: ['proof', 'assessment'] }], limitations: ['Not a real-user study'], keyboardActions: 0, assessedAt: new Date().toISOString() };
+const model = { provider: 'codex', apiFormat: 'codex-local', model: 'configured-model' };
+const options = (request: any) => ({ request, model, signal: new AbortController().signal, canForward: () => true });
+describe('Bounded subjective usability suggestions', () => {
+    it('binds supplied observation indexes and proof, redacts secrets and labels subjective output', async () => { const request = vi.fn().mockResolvedValue({ items: [{ ruleId: 'labels', suggestion: 'Add label secret-fixture-123', rationale: 'An improvement suggestion, not a confirmed defect', observationIndexes: [0] }] }); const result = await collectUsabilitySuggestions(assessment, { ...options(request), secrets: ['secret-fixture-123'] }); expect(request).toHaveBeenCalledOnce(); expect(result).toMatchObject({ status: 'completed', kind: 'subjective', model }); expect(result.items[0].evidenceIds).toEqual(['proof', 'assessment']); expect(result.items[0].suggestion).not.toContain('secret-fixture-123'); expect(validSuggestionRecord(result, assessment)).toBe(true); });
+    it('rejects invented sources, additional triage, malformed replies and excessive items', async () => { for (const raw of [{ items: [{ ruleId: 'labels', suggestion: 'Fix', rationale: 'Maybe', observationIndexes: [1] }] }, { items: [{ ruleId: 'labels', suggestion: 'Fix', rationale: 'Maybe', observationIndexes: [0], severity: 'high' }] }, { items: Array.from({ length: 6 }, () => ({ ruleId: 'labels', suggestion: 'Fix', rationale: 'Maybe', observationIndexes: [0] })) }, { items: 'bad' }, null]) {
+        const result = await collectUsabilitySuggestions(assessment, options(vi.fn().mockResolvedValue(raw)));
+        expect(result).toMatchObject({ status: 'unavailable', reason: 'invalid_response', items: [] });
+        expect(validSuggestionRecord(result, assessment)).toBe(true);
+    } });
+    it('retains explicit unavailable budget/provider outcomes without retry or fabricated suggestions', async () => { for (const [error, reason] of [[new ExecutionBudgetExceeded('Call limit'), 'budget_limit'], [Error('provider token private'), 'provider_unavailable']] as const) {
+        const request = vi.fn().mockRejectedValue(error);
+        const result = await collectUsabilitySuggestions(assessment, options(request));
+        expect(result).toMatchObject({ status: 'unavailable', reason, items: [] });
+        expect(JSON.stringify(result)).not.toContain('provider token');
+        expect(request).toHaveBeenCalledOnce();
+    } });
+    it('bounds the advisory sample and discloses omitted observations', async () => { const large = { ...assessment, observations: Array.from({ length: 40 }, (_, index) => ({ ...assessment.observations[0], controlRef: 'u' + index })) }; const request = vi.fn().mockResolvedValue({ items: [] }); const result = await collectUsabilitySuggestions(large, options(request)); expect(result.sampledObservationIndexes.length).toBeLessThanOrEqual(20); expect(result.omittedObservationCount).toBe(40 - result.sampledObservationIndexes.length); expect(request.mock.calls[0][0].length).toBeLessThan(13000); expect(result.status).toBe('completed'); });
+    it('never returns a completed result after cancellation or fencing', async () => { const controller = new AbortController(); const request = vi.fn(async () => { controller.abort(); return { items: [] }; }); await expect(collectUsabilitySuggestions(assessment, { ...options(request), signal: controller.signal })).rejects.toThrow('stopped'); const denied = vi.fn(); await expect(collectUsabilitySuggestions(assessment, { ...options(denied), canForward: () => false })).rejects.toThrow('stopped'); expect(denied).not.toHaveBeenCalled(); });
+    it('rejects forged stored metadata and proof substitutions', async () => { const result = await collectUsabilitySuggestions(assessment, options(vi.fn().mockResolvedValue({ items: [{ ruleId: 'labels', suggestion: 'Add label', rationale: 'Maybe helpful', observationIndexes: [0] }] }))); for (const bad of [{ ...result, kind: 'deterministic' }, { ...result, omittedObservationCount: 50 }, { ...result, model: { ...model, apiKey: 'secret' } }, { ...result, items: result.items.map(row => ({ ...row, evidenceIds: ['invented'] })) }, { ...result, items: result.items.map(row => ({ ...row, evidenceIds: ['proof'] })) }])
+        expect(validSuggestionRecord(bad, assessment)).toBe(false); });
+});

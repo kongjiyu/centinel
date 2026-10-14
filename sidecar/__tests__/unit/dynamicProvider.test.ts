@@ -22,7 +22,7 @@ const setting = { ownerId: 'verified-user', provider: 'codex' as const, apiForma
 const session = { id: 'session-1', projectId: 'project-1', type: 'dynamic' as const, name: 'Demo', status: 'queued' as const, targetUrl: 'https://example.test', goal: 'Check page', missionType: 'smoke' as const, browserMode: 'headed' as const, maxSteps: 1, finalSummary: '', failureReason: '', createdAt: '', updatedAt: '' };
 let workspace: string;let pageStub:any;
 beforeEach(() => {
-  vi.clearAllMocks(); model.options.length = 0;
+  vi.clearAllMocks(); model.analyze.mockReset(); model.options.length = 0;
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-dynamic-unit-'));
   const page = { context:()=>({pages:()=>[],on:vi.fn(),route:vi.fn(),routeWebSocket:vi.fn()}), frames:()=>[], on: vi.fn(), goto: vi.fn(), waitForTimeout: vi.fn(), screenshot: vi.fn(async ({ path: file }: { path: string }) => fs.writeFileSync(file, 'fixture')), url: () => 'https://example.test', title: async () => 'Demo', evaluate: async () => 'Demo content' };
   pageStub=page;
@@ -34,6 +34,14 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(workspace, { recursive: true, force: true }));
 
 describe('Dynamic shared provider and run basics', () => {
+  it.each([1,2])('meters advisory calls under a %i-call budget with the shared usage recorder',async(maxModelCalls)=>{
+    const assessment={schemaVersion:1,config:{schemaVersion:1,includeSuggestions:true,persona:'first_time',rules:['labels'],feedbackCheckIds:[],errorRecoveryCheckIds:[]},observations:[{ruleId:'labels',persona:'first_time',kind:'deterministic',verdict:'failed',expected:'Label',observed:'No label',evidenceIds:['proof']}],limitations:['Not a real-user study'],keyboardActions:0,assessedAt:new Date().toISOString()} as import('../../src/dynamic/usability/types.js').UsabilityAssessment;
+      model.analyze.mockReset().mockResolvedValueOnce({result:{action:'finish_success',summary:'Ready',reasoning:'Ready observed'},usage:{inputTokens:10,outputTokens:2,totalTokens:12}}).mockResolvedValueOnce({result:{items:[{ruleId:'labels',suggestion:'Consider a label',rationale:'Qualified improvement',observationIndexes:[0]}]},usage:{inputTokens:5,outputTokens:2,totalTokens:7}});
+      const recordUsage=vi.fn();let advisory:import('../../src/dynamic/usability/types.js').UsabilitySuggestions|undefined;
+      await runDynamicSession(session,workspace,{vision:setting,recordUsage,usabilityConfig:assessment.config,includeUsabilitySuggestions:true,budgets:normalizeBudget({maxModelCalls}),verifyOutcome:async(_page,_signal,_privacy,controls)=>{advisory=await controls!.suggestUsability!(assessment);return 'passed';}});
+      expect(advisory?.status).toBe(maxModelCalls===1?'unavailable':'completed');expect(advisory?.reason).toBe(maxModelCalls===1?'budget_limit':null);expect(model.analyze).toHaveBeenCalledTimes(maxModelCalls);expect(recordUsage).toHaveBeenCalledTimes(maxModelCalls);
+      const budget=JSON.parse(fs.readFileSync(path.join(workspace,'sessions',session.id,'logs','execution-budget.json'),'utf8'));expect(budget.modelCalls).toBe(maxModelCalls);expect(budget.accountedTokens).toBe(maxModelCalls===1?12:19);if(maxModelCalls===2)expect(recordUsage.mock.calls[1][0]).toMatchObject({stage:'usability_suggestions',scope:'text',provider:'codex'});
+  });
   it('uses the authenticated screenshot provider, records usage, and creates one finding', async () => {
     const recordUsage = vi.fn();
     await runDynamicSession(session, workspace, { vision: setting, recordUsage });

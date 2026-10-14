@@ -5,9 +5,8 @@ Authority: DESIGN.md → Centinel_PRD_Revised.md → DEVELOPMENT_PLAN.md P5.
 ## M5c1: bounded browser rule engine
 
 This slice adds an internal Playwright assessment engine and strict configuration
-validator. M5c1 merged through PR #28 (`8ab59fb`). Browser assessment execution,
-Run result persistence, model suggestions, usability finding review and reports
-remain required delivery gates.
+validator. M5c1 merged through PR #28 (`8ab59fb`). Subsequent delivery slices are recorded
+below; outstanding requirements remain listed in the final section.
 
 The explicit personas are first-time, keyboard-only and returning task-focused
 visitors. They describe simulated task perspectives, not demographic claims or
@@ -100,8 +99,8 @@ prompt; it does not authorize additional actions or replace the declared task.
 The editor defaults usability off, provides the three fixed perspectives and five
 rules, and requires explicit feedback/recovery check references. Removed/changed
 references are visible and can be cleared. Results expose recorded counts,
-expected/observed rule behavior, proof references and limitations. Subjective model
-suggestions and usability finding decisions are not represented as implemented.
+expected/observed rule behavior, proof references and limitations. M5c4 below adds optional subjective suggestions. Usability finding decisions
+remain a required delivery gate.
 
 Private evidence transport supports a fourth fixed slot alongside screenshot,
 checks and an optional file manifest. Sharing uses the same checksum, membership,
@@ -154,13 +153,77 @@ it does not replace the required broader release corpus. Live JSON/screenshots
 remain in ignored `output/playwright/`. API-provider live acceptance remains
 explicitly deferred per the user's release decision.
 
+## M5c4: optional subjective suggestions
+
+The editor now offers an explicit **Include subjective model suggestions** option,
+which defaults off. Selecting it freezes `includeSuggestions: true` in a new
+revision. Only fresh selected Runs record usability protocol version 2; old
+revisions, version-1 Runs and duplicate requests retain their original snapshots.
+
+After deterministic assessment, one advisory request uses the configured provider
+through the same model-call/token/runtime lease accounting as the browser planner.
+It prepares up to 20 rule observations within a 10,000-character JSON sample and
+bounded limitation excerpts. Failures/unassessed observations are prioritized;
+omitted observation counts remain explicit. The advisory prompt/proof omits raw field values, provider credentials,
+endpoints and raw model reasoning. The request does not attach a screenshot. All observation text remains untrusted data.
+
+The model may return at most five qualified improvement suggestions. Each must
+cite supplied original observation indexes from the same selected rule; the server
+binds their complete proof-reference union. Unsupported fields, triage values,
+invented indexes/proof and malformed output are rejected. Suggestions are labeled
+subjective and do not change deterministic checks, functional verdicts, severity,
+confirmation or remediation. Empty valid replies remain distinguishable from
+unavailable suggestions.
+
+Budget, provider and malformed-response failures are retained as explicit advisory
+unavailability, without retries or invented items. Cancellation/fencing aborts
+terminal persistence. Deterministic local JSON is written before the advisory
+request; sharing that stopped partial assessment remains a separate required gate.
+A scripted path that did not execute an advisory request records `not_executed`
+with null model provenance. The UI describes observations as **prepared**, since a
+budget limit can prevent them from being sent.
+
+Migration `202610150004_dynamic_usability_suggestions.sql` adds strict selection,
+source/proof/model validation and fresh-Run versioning without table resets or
+historical rewrites. It was applied and registered on Centinel Supabase after
+local SQL validation. Private helpers remain inaccessible to application roles.
+
+### Live acceptance
+
+| Case | Run | Actual evidence |
+| --- | --- | --- |
+| Seeded label/keyboard fixture | `a9aa7447-3c08-49fc-b1f4-f4ff8e04c9fb` | Three subjective suggestions, two total model calls, one persisted `usability_suggestions` usage record; functional pass and original two rule failures unchanged. |
+| Pinned RWA surface | `a8aece47-ef17-4633-a1cb-7eceef1e7f7d` | Four qualified suggestions with source references, two model calls and one advisory usage record; the eight-step keyboard limit remained explicit. No RWA defect confirmation was performed. |
+| One-call budget | `688821ff-6319-4ec6-8abe-7ae3dd92ba9c` | Functional/rule checks passed, advisory `budget_limit`, zero items, exactly one total model call and zero advisory usage records. |
+
+Real QA-bearer Supabase usage rows were checked by Run ID. Both successful cases
+used the authenticated Codex `gpt-5.6-sol` provider. The separate Reader downloaded
+hash-matched proof JSON containing the same suggestion records. Run JSON and the
+primary RWA data checksum were preserved; preparation/cleanup were recorded.
+
+Reader UI revision `5054a8d2-4d9f-45af-9cb6-ff4f12f2c91b` froze the explicit
+option through the actual editor. Successful and budget-unavailable displays and
+private JSON inspection were verified at 1440×900, 1200×900 and 390×844; screenshots
+were inspected and no page overflow was observed. CSS changes are confined to
+suggestion text wrapping. API live acceptance remains deferred as agreed.
+
+Validation: sidecar TypeScript, 561 sidecar tests, frontend build, 239 frontend tests
+and all 27 SQL suites. Tests cover real accounting integration, call-budget denial,
+strict sources, malformed output, secret redaction, sample limits and
+cancellation/fencing. A test mock was reset per case to avoid leftover one-shot
+responses affecting the subsequent provider tests. The Vite chunk warning remains.
+
+For the checked-in live harness, use `CENTINEL_USABILITY_SUGGESTIONS=true` and
+`CENTINEL_USABILITY_VARIANTS=defect,rwa` with the previously documented fixture,
+project and isolated-target variables. `CENTINEL_USABILITY_MAX_MODEL_CALLS=1` with
+`CENTINEL_USABILITY_VARIANTS=normal` exercises the blocked advisory budget.
+Audits are separate ignored `usability-suggestions-live.json`,
+`usability-suggestions-budget-live.json` and usage/UI JSON/screenshots.
+
 ## Remaining M5c gates
 
 - Retain/share stopped partial assessment diagnostics without claiming completed
   rules or changing terminal functional outcomes.
-- Add a distinct subjective model-suggestion view alongside the rule results.
-- Generate bounded Codex suggestions through existing call/usage accounting;
-  label them subjective, with uncertain claims and no invented study outcomes.
 - Correlate evidence-backed usability candidates with the human review lifecycle.
-- Complete live acceptance of subjective suggestions and usability finding review;
+- Complete live acceptance of usability finding review;
   include these results in versioned reports and the broader release corpus.
