@@ -102,3 +102,16 @@
 .dynamic-workspace-screen .dw-exploration small { display: block; color: var(--workspace-text-muted); }
 .dynamic-workspace-screen .dw-regression { margin: 16px 0; }
 .dynamic-workspace-screen .dw-regression p, .dynamic-workspace-screen .dw-regression li { overflow-wrap: anywhere; }
+
+.dynamic-workspace-screen .dw-findings { border-top: 1px solid var(--workspace-border); margin-top: 24px; padding-top: 22px; min-width: 0; }
+.dynamic-workspace-screen .dw-finding-detail { margin-top: 20px; overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-finding-triage { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+@media (max-width: 700px) { .dynamic-workspace-screen .dw-finding-triage { grid-template-columns: minmax(0,1fr); } }
+
+.dynamic-workspace-screen .dw-findings .dw-table-scroll table { min-width: 720px; table-layout: fixed; }
+.dynamic-workspace-screen .dw-findings .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
+
+.dynamic-workspace-screen .dw-findings tbody th { width: auto; }
+.dynamic-workspace-screen .dw-findings thead th:nth-child(1) { width: 32%; }
+.dynamic-workspace-screen .dw-findings thead th:nth-child(2), .dynamic-workspace-screen .dw-findings thead th:nth-child(3), .dynamic-workspace-screen .dw-findings thead th:nth-child(5) { width: 18%; }
+.dynamic-workspace-screen .dw-findings thead th:nth-child(4) { width: 14%; }
