@@ -302,6 +302,7 @@ export async function runDynamicSession(
   if (CANCELLED.has(session.id)) controller.abort();
   const runtimeTimer = setTimeout(() => controller.abort(), maximumRuntime);
   const signal = controller.signal;
+  let browserDisconnected = false; let closingBrowser = false;
   let browser: Browser | null = null;let downloads:ApprovedDownloads|undefined;
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];const actionLedger=new ActionLedger();const exploration=providers.exploratoryChecks?new ExplorationJournal(providers.exploratoryChecks,secrets):undefined;let explorationStateId:string|undefined;
@@ -329,6 +330,9 @@ export async function runDynamicSession(
     const origins=providers.allowedOrigins??[targetOrigin];
     proxy=await createRunNetworkProxy(origins,(origin)=>{if(!targetStarted){deniedStartupRequests++;return;}const timer=setTimeout(()=>{policyTimers.delete(timer);if(observedOrigins.has(origin)){deniedOrigin=origin;policyViolated=true;controller.abort();}else deniedStartupRequests++;},50);policyTimers.add(timer);},()=>{if(targetStarted){transportFailed=true;controller.abort();}},()=>!signal.aborted&&(providers.canForward?.()??true));
     browser = await chromium.launch({ headless: false,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
+    browser.on('disconnected', () => {
+      if (!closingBrowser && !signal.aborted) { browserDisconnected = true; controller.abort(); }
+    });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
     const page = await browser.newPage({serviceWorkers:'block',...(providers.actionPolicy?{acceptDownloads:false}:{}),...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
@@ -621,8 +625,8 @@ export async function runDynamicSession(
     if(err instanceof ExecutionBudgetExceeded){budgetReason=err.message;controller.abort();}
     const cancelled = CANCELLED.has(session.id);
     const status = cancelled ? 'cancelled' : 'blocked';
-    const reason = budgetReason ?? (filePolicyReason ? filePolicyReason : cancelled ? 'Cancelled by user' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : err instanceof BrowserPolicyBlocked||err instanceof BrowserActionUncertain||err instanceof BrowserActionUnavailable||err instanceof BrowserObservationUnavailable ? err.message : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
-    const category: DynamicFailureCategory = cancelled ? 'cancelled' : filePolicyReason ? 'action_execution_failed' : err instanceof BrowserPolicyBlocked||err instanceof BrowserActionUncertain?'action_execution_failed':signal.aborted?'timeout':'unknown';
+    const reason = budgetReason ?? (filePolicyReason ? filePolicyReason : cancelled ? 'Cancelled by user' : browserDisconnected ? 'Browser disconnected; execution stopped. Inspect retained partial evidence before retrying.' : policyViolated ? `Browser request blocked outside the allowed origins (${deniedOrigin}). Review environment origins before retrying.` : transportFailed ? 'Browser target connection unavailable.' : err instanceof BrowserPolicyBlocked||err instanceof BrowserActionUncertain||err instanceof BrowserActionUnavailable||err instanceof BrowserObservationUnavailable ? err.message : signal.aborted ? 'Session reached its configured runtime budget' : err instanceof UnsafeVisualObservation ? err.message : err instanceof SessionAuthenticationError ? err.message : err instanceof ModelProviderError ? err.message : 'The testing runtime could not complete this session. Check the environment and retry.');
+    const category: DynamicFailureCategory = cancelled ? 'cancelled' : filePolicyReason ? 'action_execution_failed' : err instanceof BrowserPolicyBlocked||err instanceof BrowserActionUncertain?'action_execution_failed':browserDisconnected?'unknown':signal.aborted?'timeout':'unknown';
     const summary = terminalSummary(status, reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_end', reason);
     await safeUpdate(session.id, status, summary, reason);
@@ -645,6 +649,7 @@ export async function runDynamicSession(
     clearTimeout(runtimeTimer);
     CONTROLLERS.delete(session.id);
     CANCELLED.delete(session.id);
+    closingBrowser = true;
     if (browser) await browser.close().catch(() => {});
   }
 }
