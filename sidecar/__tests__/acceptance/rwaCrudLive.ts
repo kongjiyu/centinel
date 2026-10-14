@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { chromium } from 'playwright';
+import { chromium, request } from 'playwright';
 import { requireSupabaseClient } from '../../src/supabase.js';
 import { getProject } from '../../src/projects.js';
 const required = (name: string) => { const value = process.env[name]; assert(value, `Set ${name} before real acceptance.`); return value; };
@@ -28,9 +28,15 @@ const mode = process.argv[2] ?? 'create';
 const variant = process.argv[3] ?? 'normal';
 assert(['create', 'delete', 'update', 'read'].includes(mode));
 assert(['normal', 'defect'].includes(variant));
-const label = 'Centinel_' + crypto.randomUUID().slice(0, 8);
+if (process.env.CENTINEL_RWA_RESTORE_PROFILE === 'true') assert.equal(mode, 'update');
+const label = process.env.CENTINEL_RWA_FIXED_LABEL ?? ('Centinel_' + crypto.randomUUID().slice(0, 8));
+assert(/^[A-Za-z0-9_]{1,64}$/.test(label));
+if (mode === 'update') assert.notEqual(label, user.firstName, 'Update must change the initial value');
 const auditDirectory = path.resolve('output/playwright');
 fs.mkdirSync(auditDirectory, { recursive: true });
+const auditFile = process.env.CENTINEL_RWA_AUDIT_FILE ? path.resolve(process.env.CENTINEL_RWA_AUDIT_FILE) : path.join(auditDirectory, `rwa-${mode}-${variant}-live.json`);
+assert(auditFile.startsWith(auditDirectory + path.sep));
+const initialDatabaseHash = hash(database);
 const client = requireSupabaseClient();
 const auth = await client.auth.signInWithPassword({ email: required('CENTINEL_DEV_ACCOUNT_EMAIL'), password: required('CENTINEL_DEV_ACCOUNT_PASSWORD') });
 assert(auth.data.session);
@@ -61,14 +67,17 @@ if (mode === 'delete' || mode === 'read') {
 const target = mode === 'create' ? origin + '/bankaccounts/new' : mode === 'update' ? origin + '/user/settings' : origin + '/bankaccounts';
 const bankSelector = lastCreated ? `[data-test="bankaccount-list-item-${lastCreated.id}"]` : '';
 const interactions = mode === 'create' ? [{ selector: '#bankaccount-bankName-input', actions: ['type'] }, { selector: '#bankaccount-routingNumber-input', actions: ['type'] }, { selector: '#bankaccount-accountNumber-input', actions: ['type'] }, { selector: '[data-test="bankaccount-submit"]', actions: ['click'] }] : mode === 'update' ? [{ selector: '#user-settings-firstName-input', actions: ['type'] }, { selector: '[data-test="user-settings-submit"]', actions: ['click'] }] : mode === 'delete' ? [{ selector: bankSelector + ' [data-test="bankaccount-delete"]', actions: ['click'] }] : [];
-let env = await req('/environments', { name: `M4 RWA ${mode} ${variant} ${label}`, targetUrl: target, allowedOrigins: [origin, apiOrigin, 'https://api.dicebear.com'], viewport: { width: 1280, height: 720 }, accountRole: 'Seeded fictional account in an owned disposable RWA instance', requiredVariables: [], startupInstructions: 'Owned evaluation copy, direct servers on 3014/3015; no seed/reset command.', targetVersion: marker.sourceCommit + (variant === 'defect' ? '+declared-' + mode + '-defect' : ''), dataResourceKey: 'rwa-release-20261014', sessionReference: 'rwaRelease', sessionReadySelector: '[data-test="sidenav-signout"]', budgets: { runtimeMs: 240000, maxSteps: 10, maxModelCalls: 18 }, actionPolicy: { schemaVersion: 1, interactions, allowCoordinates: false } });
+let env = await req('/environments', { name: process.env.CENTINEL_RWA_CASE_NAME ?? `M4 RWA ${mode} ${variant} ${label}`, targetUrl: target, allowedOrigins: [origin, apiOrigin, 'https://api.dicebear.com'], viewport: { width: 1280, height: 720 }, accountRole: 'Seeded fictional account in an owned disposable RWA instance', requiredVariables: [], startupInstructions: 'Owned evaluation copy, direct servers on 3014/3015; no seed/reset command.', targetVersion: process.env.CENTINEL_RWA_TARGET_VERSION ?? (marker.sourceCommit + (variant === 'defect' ? '+declared-' + mode + '-defect' : '')), dataResourceKey: 'rwa-release-20261014', sessionReference: 'rwaRelease', sessionReadySelector: '[data-test="sidenav-signout"]', budgets: { runtimeMs: 240000, maxSteps: 10, maxModelCalls: 18 }, actionPolicy: { schemaVersion: 1, interactions, allowCoordinates: false } });
 await req('/environments/' + env.id + '/session', { operation: 'import', storageState: state, expiresAt: new Date(Date.now() + 3600000).toISOString() });
 await req('/environments/' + env.id + '/preparation', { outcome: 'completed', note: 'Isolated RWA resource reserved, account state verified, pre-action database snapshot retained. Only explicitly owned synthetic data will be modified.' });
 const expectedName = mode === 'create' ? label : mode === 'update' ? label : lastCreated.bankName;
 const checks = mode === 'create' ? [{ id: 'listed', criterionId: 'bank', description: 'Created bank is listed', required: true, kind: 'visible_text', expected: label }, { id: 'page', criterionId: 'bank', description: 'Bank list reached', required: true, kind: 'url', expected: origin + '/bankaccounts' }] : mode === 'delete' ? [{ id: 'deleted', criterionId: 'bank', description: 'Owned bank marked deleted', required: true, kind: 'visible_text', expected: lastCreated.bankName + ' (Deleted)' }] : mode === 'read' ? [{ id: 'read', criterionId: 'bank', description: 'Owned bank remains listed', required: true, kind: 'visible_text', expected: lastCreated.bankName }] : [{ id: 'persisted', criterionId: 'profile', description: 'Profile field persisted after independent navigation', required: true, kind: 'field_value', selector: '#user-settings-firstName-input', expected: label }];
 const goal = mode === 'create' ? `Fill Bank Name with ${label}, Routing Number with 123456789, Account Number with 123456789. Click Save exactly once. Wait for the bank list and finish even if the name is unexpected; independent checks verify it. Never create another account or replay Save.` : mode === 'delete' ? `Click Delete for the one owned synthetic bank ${lastCreated.bankName} exactly once. Wait for its response, then finish even if it remains active. Never delete any other record or repeat the click.` : mode === 'update' ? `Change only First Name to ${label}, click Save exactly once, wait for its response, navigate to ${origin}/bankaccounts and back to ${origin}/user/settings to obtain persisted data, then finish even if it did not persist. Do not edit other fields or repeat Save.` : `Read the bank list and finish. Do not modify any data.`;
-const revision = await req('/missions', { name: `M4 RWA ${mode} ${variant} ${label}`, goal: "Use only elementRef identifiers from the current observation, never CSS selectors as elementRef. " + goal, targetUrl: target, maxSteps: 10, context: null, contextAcknowledged: false, checks });
+const revision = process.env.CENTINEL_RWA_REUSE_REVISION ? await req('/revisions/' + process.env.CENTINEL_RWA_REUSE_REVISION) : await req('/missions', { name: process.env.CENTINEL_RWA_CASE_NAME ?? `M4 RWA ${mode} ${variant} ${label}`, goal: "Use only elementRef identifiers from the current observation, never CSS selectors as elementRef. " + goal, targetUrl: target, maxSteps: 10, context: null, contextAcknowledged: false, checks });
+if (mode === 'update') assert.equal(revision.checks[0].expected, expectedName);
+const startedAt = Date.now();
 let run = await req('/runs', { revisionId: revision.id, environmentId: env.id, idempotencyKey: crypto.randomUUID() });
+fs.writeFileSync(auditFile, JSON.stringify({ pending: true, runId: run.id, environmentId: env.id, revisionId: revision.id, initialDatabaseHash }, null, 2));
 const deadline = Date.now() + 270000;
 while (['queued', 'running'].includes(run.state) && Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -77,8 +86,8 @@ while (['queued', 'running'].includes(run.state) && Date.now() < deadline) {
 const after = db();
 const added = after.bankaccounts.filter((row: any) => !before.bankaccounts.some((old: any) => old.id === row.id));
 const updatedUser = after.users.find((row: any) => row.id === user.id);
-const result = { mode, variant, runId: run.id, environmentId: env.id, verdict: run.verdict, state: run.state, label, bankId: mode === 'create' ? added[0]?.id : lastCreated?.id, bankName: mode === 'create' ? added[0]?.bankName : lastCreated?.bankName, initialFirstName: user.firstName, actualFirstName: updatedUser.firstName, sourceCommit: marker.sourceCommit, originalHash, primaryUnchanged: hash(primary) === originalHash, cleanupRecorded: false, unrelatedDataPreserved: false };
-fs.writeFileSync(path.join(auditDirectory, `rwa-${mode}-${variant}-live.json`), JSON.stringify({ result, run }, null, 2));
+const result = { revisionId: revision.id, initialDatabaseHash, elapsedMs: Date.now() - startedAt, mode, variant, runId: run.id, environmentId: env.id, verdict: run.verdict, state: run.state, label, bankId: mode === 'create' ? added[0]?.id : lastCreated?.id, bankName: mode === 'create' ? added[0]?.bankName : lastCreated?.bankName, initialFirstName: user.firstName, actualFirstName: updatedUser.firstName, sourceCommit: marker.sourceCommit, originalHash, primaryUnchanged: hash(primary) === originalHash, cleanupRecorded: false, unrelatedDataPreserved: false };
+fs.writeFileSync(auditFile, JSON.stringify({ result, run }, null, 2));
 assert.equal(run.verdict, variant === 'defect' ? 'failed' : 'passed');
 assert.equal(run.state, 'completed');
 if (mode === 'create') {
@@ -111,9 +120,18 @@ for (const sub of ['ai', 'logs'])
         assert(!text.includes(password));
         assert(!state.cookies.some(cookie => cookie.value && text.includes(cookie.value)));
     }
+if (process.env.CENTINEL_RWA_RESTORE_PROFILE === 'true') {
+    assert.equal(mode, 'update');
+    if (variant === 'normal') {
+        const context = await request.newContext({ storageState: state });
+        try { assert.equal((await context.patch(apiOrigin + '/users/' + user.id, { data: { firstName: user.firstName } })).status(), 204); } finally { await context.dispose(); }
+    }
+    assert.deepEqual(db(), before, 'Profile baseline restore changed unrelated fields');
+    assert.equal(hash(database), initialDatabaseHash, 'Profile baseline bytes not restored');
+}
 // Target writes remain in the disposable copy as auditable soft-delete/history.
-await req('/environments/' + env.id + '/cleanup', { outcome: 'completed', note: 'Browser stopped, exact owned mutation and preserved unrelated rows verified. Persistent test changes remain in the disposable copy; no shared/primary target writes. Next case explicitly inspects this new baseline.' });
+await req('/environments/' + env.id + '/cleanup', { outcome: 'completed', note: process.env.CENTINEL_RWA_RESTORE_PROFILE === 'true' ? 'Owned profile restored through authenticated target API; complete original database bytes/hash verified, no unrelated writes.' : 'Browser stopped, exact owned mutation and preserved unrelated rows verified. Persistent test changes remain in the disposable copy; no shared/primary target writes. Next case explicitly inspects this new baseline.' });
 await req('/environments/' + env.id + '/session', { operation: 'forget' });
 result.cleanupRecorded = true;
-fs.writeFileSync(path.join(auditDirectory, `rwa-${mode}-${variant}-live.json`), JSON.stringify({ result, run }, null, 2));
+fs.writeFileSync(auditFile, JSON.stringify({ result, run }, null, 2));
 console.log(JSON.stringify(result));

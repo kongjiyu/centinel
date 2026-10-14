@@ -87,7 +87,8 @@ package build is not signing/notarization or turnkey sidecar distribution proof.
 
 ## Final-audit supplement
 
-The representative authenticated RWA persistence repeat protocol is now explicitly
-required before whole P7 completion. The previous fixture/component/native gate
-closures remain valid, but the small fixture is insufficient on its own for this
-representative repeated-flow requirement. See DYNAMIC_RWA_RELEASE_PROTOCOL.md.
+Protocol 916a027 supplemented the initially narrow fixture. The representative
+authenticated RWA persistence flow now has 3/3 normal passes and 3/3 declared no-op
+failures on one revision, complete baseline/source restoration and 12/12 Reader
+proof hashes. The reviewed three-observation report is 5596064a-ae0c-49ce-a707-2457ed95d5e9.
+See DYNAMIC_RWA_RELEASE_PROTOCOL.md and the final evaluation supplement.
