@@ -29,7 +29,7 @@ export class EnvironmentRepository {
   async save(projectId: string, value: unknown, id?: string): Promise<EnvironmentProfile> {
     const input=validateEnvironment(value);
     const {data,error}=await this.client.rpc('save_dynamic_environment',{p_project_id:projectId,p_input:input,p_id:id??null});
-    if(error)throw new DynamicContractError(error.code==='P0002'?404:503,'Environment could not be saved. Verify project access and migration.');
+    if(error)throw new DynamicContractError(error.code==='P0002'?404:error.code==='P0001'?409:503,error.code==='P0001'?'Environment state changed. Finish active work and clean its reserved data before changing the resource key.':'Environment could not be saved. Verify project access and migration.');
     return data;
   }
 }

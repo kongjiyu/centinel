@@ -13,7 +13,9 @@ export function validateEnvironment(value: unknown): EnvironmentInput {
   if (!Array.isArray(input.requiredVariables) || input.requiredVariables.length > 30 || input.requiredVariables.some(name => typeof name !== 'string' || !variableName(name)) || new Set(input.requiredVariables).size !== input.requiredVariables.length) fail();
   for (const name of ['accountRole', 'startupInstructions', 'targetVersion'] as const) if (typeof input[name] !== 'string' || input[name].length > (name === 'startupInstructions' ? 2000 : 200)) fail();
   if(input.sessionReference!==undefined&&typeof input.sessionReference!=='string'||input.sessionReadySelector!==undefined&&typeof input.sessionReadySelector!=='string')fail();
+  if(input.dataResourceKey!==undefined&&(typeof input.dataResourceKey!=='string'||input.dataResourceKey.trim()&&!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/.test(input.dataResourceKey.trim())))fail();
+  const dataResourceKey=input.dataResourceKey?.trim().toLowerCase();
   const sessionReference=input.sessionReference?.trim();const sessionReadySelector=input.sessionReadySelector?.trim();
   if(Boolean(sessionReference)!==Boolean(sessionReadySelector)||sessionReference&&!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(sessionReference)||sessionReadySelector&&sessionReadySelector.length>500)fail();
-  return structuredClone({...(sessionReference?{sessionReference,sessionReadySelector}:{}),name: input.name.trim(), targetUrl: target.href, allowedOrigins: input.allowedOrigins, viewport: input.viewport, accountRole: input.accountRole.trim(), requiredVariables: input.requiredVariables, startupInstructions: input.startupInstructions.trim(), targetVersion: input.targetVersion.trim()});
+  return structuredClone({...(dataResourceKey?{dataResourceKey}:{}),...(sessionReference?{sessionReference,sessionReadySelector}:{}),name: input.name.trim(), targetUrl: target.href, allowedOrigins: input.allowedOrigins, viewport: input.viewport, accountRole: input.accountRole.trim(), requiredVariables: input.requiredVariables, startupInstructions: input.startupInstructions.trim(), targetVersion: input.targetVersion.trim()});
 }
