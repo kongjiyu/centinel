@@ -7,9 +7,9 @@ export type DynamicFinding = {
     missionId: string;
     key: string;
     version: number;
-    source: 'dynamic_checker';
+    source: 'dynamic_checker'|'dynamic_usability';
     title: string;
-    category: 'functional';
+    category: 'functional'|'usability';
     verification: 'unreviewed' | VerificationDecision;
     remediation: 'open' | 'in_progress' | 'resolved';
     severity: RiskSeverity | 'info' | null;
@@ -35,6 +35,8 @@ export type FindingObservation = {
     targetUrl: string;
     targetVersion: string | null;
     goal: string;
+    usability?:import('../usability/types.js').UsabilityObservation & {observationIndex:number;correlation:'stable_control'|'explicit_check'|'run_only'};
+    suggestions?:import('../usability/types.js').UsabilitySuggestion[];
     createdAt: string;
 };
 export type FindingEvent = {
