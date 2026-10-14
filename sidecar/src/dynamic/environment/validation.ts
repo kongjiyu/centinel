@@ -20,5 +20,6 @@ export function validateEnvironment(value: unknown): EnvironmentInput {
   const sessionReference=input.sessionReference?.trim();const sessionReadySelector=input.sessionReadySelector?.trim();
   if(Boolean(sessionReference)!==Boolean(sessionReadySelector)||sessionReference&&!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(sessionReference)||sessionReadySelector&&sessionReadySelector.length>500)fail();
   const policy=normalizeActionPolicy(input.actionPolicy);if(policy.downloads?.some(grant=>!input.allowedOrigins.includes(new URL(grant.url).origin)))fail();
+  if(policy.privateInputs?.some(grant=>!input.allowedOrigins.includes(grant.origin)||!input.requiredVariables.includes(grant.variable)))fail();
   return structuredClone({actionPolicy:policy,budgets:normalizeBudget(input.budgets),...(dataResourceKey?{dataResourceKey}:{}),...(sessionReference?{sessionReference,sessionReadySelector}:{}),name: input.name.trim(), targetUrl: target.href, allowedOrigins: input.allowedOrigins, viewport: input.viewport, accountRole: input.accountRole.trim(), requiredVariables: input.requiredVariables, startupInstructions: input.startupInstructions.trim(), targetVersion: input.targetVersion.trim()});
 }

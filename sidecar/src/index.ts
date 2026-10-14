@@ -471,7 +471,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           if(!profile){const revision=await service.repository.getRevision(projectId,revisionId!);if(revision){const targetOrigin=new URL(revision.targetUrl).origin;for(const candidate of await environments.list(projectId)){if(candidate.dataResourceKey&&new URL(candidate.targetUrl).origin===targetOrigin&&(await environments.data(projectId,candidate.id)).resource?.reserved)throw new DynamicContractError(409,'Choose a saved environment for this reserved target data. Finish the owning environment cleanup first.');}}}
           let localSession:LocalSessionRecord|null=null;let sessionInfo:{availability:string;reason?:string;captureActive?:boolean;version?:string;expiresAt?:string}|undefined;
           if(profile?.sessionReference){try{localSession=sessionVault.read(ownerId,projectId,profile.id,profile.sessionReference,profile.allowedOrigins);sessionInfo=localSession?{availability:'available',version:localSession.version,expiresAt:localSession.expiresAt}:{availability:'missing'};}catch(error){sessionInfo={availability:'unavailable',reason:error instanceof DynamicContractError?error.message:'Local session unavailable.'};}sessionInfo.captureActive=['open','opening'].includes(sessionBroker.status(ownerId,projectId,profile.id)?.state??'');}
-          const frozenValues=profile?Object.values(vault.read(ownerId,projectId,profile.id)):[];
+          const frozenVariables=profile?vault.read(ownerId,projectId,profile.id):{};const frozenValues=Object.values(frozenVariables);
           const modelRepository = new SupabaseModelConfigurationRepository(auth.client);
           let vision;
           try { vision = await resolveModelProviderChain(modelRepository, { ownerId, projectId, purpose: 'vision' }); }
@@ -484,6 +484,8 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const project = await ensureDynamicWorkspace(sharedProject);
           const browserExecute = async(run: import('./dynamic/types.js').DynamicRun) => {if(localSession&&Date.parse(localSession.expiresAt)<=Date.now()){await service.stop(projectId,run.id,'blocked','Local session expired before browser execution. Renew it on this device.');return;}return executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
+            resolvePrivateValue:name=>profile?.requiredVariables.includes(name)?frozenVariables[name]:undefined,
+            sensitiveSelectors:run.actionPolicy?.privateInputs?.map(grant=>grant.selector),
             retainDownload:(metadata,buffer)=>downloadedFiles.retain(ownerId,projectId,run.id,metadata,buffer),
             ...(run.environment?{resolveUpload:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>uploads.resolve(ownerId,projectId,run.environment!.id,grant)}:{}),
             sensitiveValues:[...frozenValues,...(localSession?sessionSensitiveValues(localSession):[])],

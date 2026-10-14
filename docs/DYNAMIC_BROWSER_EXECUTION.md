@@ -348,3 +348,19 @@ removal. Stale general profile edits were found and fenced atomically.
 suites, preserved-data upgrade and three UI viewports passed. Migrations
 `202610140014`/`202610140015` applied/registered. Browser login/form/CRUD and active
 crash/cancellation release gates, reviewed findings and M5–M7 remain required.
+
+## M4h1 private references and real RWA authentication
+
+[Private browser inputs](DYNAMIC_BROWSER_CREDENTIALS.md) add `type_secret` with
+frozen origin/selector/required-variable grants and device-local value resolution.
+No credential value is provided to the model or shared Run payload. Real Codex
+on a disposable pinned RWA copy passed correct-login and invalid-password-rejection
+checks; a deliberately bypassed password validator failed independent rejection
+checks. Original target data stayed unchanged, the defect patch was restored and
+historical results retained. The evaluator's initial backend/UI wording mismatch
+was corrected in a new test rather than rewriting the original failed Run.
+
+518 sidecar tests, 221 frontend tests, TypeScript/build, twenty-one SQL suites,
+retained-data upgrade and three UI viewports passed. Migration `202610140016`
+applied/registered. Remaining form/CRUD, active cancellation/crash release gates,
+finding linkage and M5–M7 are still required.
