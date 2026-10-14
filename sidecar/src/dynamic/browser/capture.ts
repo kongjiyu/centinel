@@ -10,7 +10,7 @@ export async function captureProtectedPage(page:Page,outputPath:string,options:{
  for(const frame of page.frames()){
   // Canvas/video pixels cannot be checked against known values through the DOM.
   if(secrets.length){const opaque=frame.locator('canvas,video');for(let i=0;i<await opaque.count();i++)if(await opaque.nth(i).isVisible())throw new UnsafeVisualObservation();}
-  masks.push(frame.locator('input[type="password"], [data-centinel-sensitive], [autocomplete="current-password"], [autocomplete="new-password"]'));
+  masks.push(frame.locator('input[type="password"], input[type="file"], [data-centinel-sensitive], [autocomplete="current-password"], [autocomplete="new-password"]'));
   for(const selector of options.sensitiveSelectors??[]){try{const locator=frame.locator(selector);await locator.count();masks.push(locator);}catch{throw new UnsafeVisualObservation();}}
   for(const secret of [...new Set(secrets.filter(Boolean).flatMap(value=>[value,encodeURIComponent(value),JSON.stringify(value).slice(1,-1)]))]){
    masks.push(frame.getByText(secret,{exact:false}));

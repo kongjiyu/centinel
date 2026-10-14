@@ -1,8 +1,9 @@
+import {rescrubRunText} from './dynamic/browser/retainedPrivacy.js';
 import {BrowserPolicyBlocked,type BrowserActionPolicy} from './dynamic/browser/actionPolicy.js';
 import {buildPrompt,parseActionFromText} from './dynamic/browser/planner.js';
 export {isValidAgentAction} from './dynamic/browser/planner.js';
 import {executeBrowserAction,BrowserActionUncertain,BrowserActionUnavailable,type ElementBinding,type AgentAction} from './dynamic/browser/actions.js';
-import {observeBrowserPage,BrowserObservationUnavailable} from './dynamic/browser/observation.js';
+import {observeBrowserPage,privateTypingTarget,BrowserObservationUnavailable} from './dynamic/browser/observation.js';
 import {normalizeBudget,RunBudget,ExecutionBudgetExceeded,type ExecutionBudget} from './dynamic/budgets.js';
 import type {BrowserSessionState} from './dynamic/environment/sessionVault.js';
 import {verifySessionReadiness,SessionAuthenticationError} from './dynamic/browser/sessionReadiness.js';
@@ -46,6 +47,7 @@ type ActionTraceEntry = {
   attempt: number;
   action: string;
   elementRef?:string;visualFallbackReason?:string;dispatch?:string;coordinateFallbackReason?:string;requestedUrl?:string;
+  beforeObservationPath?:string;afterObservationPath?:string;
   targetDescription?: string;
   selector?: string;
   x?: number;
@@ -258,6 +260,7 @@ export async function runDynamicSession(
   fs.mkdirSync(aiDir, { recursive: true });
   fs.mkdirSync(logsDir, { recursive: true });
 
+  const discoverPrivateValues=(values:readonly string[])=>{let changed=false;for(const value of values)if(value&&!secrets.includes(value)){secrets.push(value);changed=true;}if(changed)rescrubRunText([aiDir,logsDir],secrets);};
   const debugLog = new DebugLogger(path.join(logsDir, 'session-debug.json'),secrets);
   debugLog.log('info', 'session_start', `Starting dynamic session: ${session.name}`, undefined, {
     goal: session.goal,
@@ -299,6 +302,8 @@ export async function runDynamicSession(
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];
   const consoleLogs: string[] = [];
+  let privacyObservationComplete=providers.observationMode!=='dom_first';
+  const retainedConsole=()=>privacyObservationComplete?redactObservationRecord(consoleLogs,secrets):[{withheldEntries:consoleLogs.length,reason:'Console text withheld because a complete sanitized page observation was unavailable.'}];
   let budgetReason:string|null=null;let filePolicyReason:string|null=null;
   const boundedCall=async(setting:ModelProviderSettings,prompt:string,signal:AbortSignal,images?:string[]):Promise<VisionResult>=>{
     if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
@@ -376,12 +381,16 @@ export async function runDynamicSession(
       let bindings:ReadonlyMap<string,ElementBinding>|undefined;
       let context: {url:string;title:string;visibleText:string;elements:string[]};
       if(providers.observationMode==='dom_first'){
+        privacyObservationComplete=false;
         const observed=await observeBrowserPage(page,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});bindings=observed.bindings;
-        for(const value of observed.sensitiveValues)if(value&&!secrets.includes(value))secrets.push(value);
+        discoverPrivateValues(observed.sensitiveValues);privacyObservationComplete=true;
         context=observed.observation;
       }else context=redactObservationRecord(await extractPageContext(page),secrets);
       context.visibleText=context.visibleText.slice(0,2000);context.elements=context.elements.map(element=>element.slice(0,1000));
       budget.observe(context);
+      const beforeObservationPath=path.join(logsDir,`step-${String(step).padStart(3,'0')}-before.json`);
+      fs.writeFileSync(beforeObservationPath,JSON.stringify({capturedAt:new Date().toISOString(),observation:context},null,2));
+      await addEvidence(session.projectId,session.id,'session_summary',beforeObservationPath,`Step ${step} before observation`);
 
       const aiRequestPath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-request.json`);
       const aiResponsePath = path.join(aiDir, `step-${String(step).padStart(3, '0')}-response.json`);
@@ -400,6 +409,7 @@ export async function runDynamicSession(
         aiResult=await callVisionModelWithRetry(visionSetting,screenshotPath,prompt,debugLog,step,signal,boundedCall);
         if(aiResult.action?.action==='observe_visual')throw new BrowserObservationUnavailable('A protected screenshot was already supplied for this step. Repeated visual requests cannot replace an executable action.');
       }
+      if(aiResult.action?.action==='type'&&await privateTypingTarget(page,aiResult.action,bindings,providers.sensitiveSelectors))discoverPrivateValues([aiResult.action.text]);
       fs.writeFileSync(aiResponsePath, JSON.stringify(redactObservationRecord(aiResult,secrets), null, 2));
       await addEvidence(session.projectId, session.id, 'ai_response', aiResponsePath, `Step ${step} AI response`);
       if(hasScreenshot)await addEvidence(session.projectId, session.id, 'screenshot', screenshotPath, `Step ${step} screenshot`);
@@ -432,13 +442,15 @@ export async function runDynamicSession(
 
       if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
       const action = aiResult.action as AgentAction;
+      // Repairs are also proposals and must pass the same private-value boundary.
+      if(action.action==='type'&&await privateTypingTarget(page,action,bindings,providers.sensitiveSelectors))discoverPrivateValues([action.text]);
       const beforeUrl = page.url();
 
       const trace: ActionTraceEntry = {
         step,
         attempt: 1,
         action: action.action,
-        elementRef:'elementRef' in action?action.elementRef:undefined,visualFallbackReason,
+        beforeObservationPath,elementRef:'elementRef' in action?action.elementRef:undefined,visualFallbackReason,
         targetDescription: 'targetDescription' in action ? action.targetDescription : undefined,
         selector: 'selector' in action ? action.selector : undefined,
         x: 'x' in action ? action.x : undefined,
@@ -508,10 +520,20 @@ export async function runDynamicSession(
         Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
+        if(providers.observationMode==='dom_first'){
+          try{
+            privacyObservationComplete=false;
+            const after=await observeBrowserPage(page,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
+            discoverPrivateValues(after.sensitiveValues);privacyObservationComplete=true;budget.observe(after.observation);
+            trace.afterObservationPath=path.join(logsDir,`step-${String(step).padStart(3,'0')}-after.json`);
+            fs.writeFileSync(trace.afterObservationPath,JSON.stringify({capturedAt:new Date().toISOString(),observation:after.observation},null,2));
+            await addEvidence(session.projectId,session.id,'session_summary',trace.afterObservationPath,`Step ${step} after observation`);
+          }catch(error){if(error instanceof ExecutionBudgetExceeded)throw error;throw new BrowserActionUncertain();}
+        }
         consecutiveFailures = 0;
         debugLog.log('info', 'action_execute', `Action ${action.action} succeeded`, step);
       } catch (err) {
-        if(err instanceof BrowserActionUncertain||err instanceof BrowserPolicyBlocked||signal.aborted){trace.result='blocked';trace.error=sanitize(err instanceof Error?err.message:'Execution stopped');actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);controller.abort();throw err;}
+        if(err instanceof BrowserActionUncertain||err instanceof BrowserPolicyBlocked||err instanceof ExecutionBudgetExceeded||signal.aborted){trace.result='blocked';trace.error=sanitize(err instanceof Error?err.message:'Execution stopped');actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);controller.abort();throw err;}
         trace.result = 'failure';
         trace.error = String(err);
         trace.afterUrl = page.url();
@@ -547,7 +569,7 @@ export async function runDynamicSession(
     await captureProtectedPage(page,finalPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
 
     // Save console logs
-    fs.writeFileSync(path.join(logsDir, 'console.json'), JSON.stringify(consoleLogs, null, 2));
+    fs.writeFileSync(path.join(logsDir, 'console.json'), JSON.stringify(retainedConsole(), null, 2));
 
     // Build and save summary
     const finalSummary = terminalSummary(status, terminalReason, step, session.maxSteps, failureCategory);
@@ -582,7 +604,7 @@ export async function runDynamicSession(
     await safeUpdate(session.id, status, summary, reason);
   } finally {
     try{
-      fs.writeFileSync(path.join(logsDir,'console.json'),JSON.stringify(consoleLogs));
+      fs.writeFileSync(path.join(logsDir,'console.json'),JSON.stringify(retainedConsole()));
       fs.writeFileSync(path.join(logsDir,'execution-budget.json'),JSON.stringify(budget.snapshot(),null,2));
       saveActionTrace(logsDir,actionTrace,secrets);
       await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'execution-budget.json'),'Recorded execution budget and available usage');

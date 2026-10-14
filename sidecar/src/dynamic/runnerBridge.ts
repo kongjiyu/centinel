@@ -91,7 +91,7 @@ export async function verifyAndRetain(service: DynamicService, run: DynamicRun, 
   const screenshotPath = path.join(outputDirectory, 'criterion-page.png');
   await captureProtectedPage(page,screenshotPath,{secrets:privacy.sensitiveValues,sensitiveSelectors:privacy.sensitiveSelectors,signal});
   const screenshot: EvidenceReference = { id: crypto.randomUUID(), kind: 'screenshot', sha256: crypto.createHash('sha256').update(fs.readFileSync(screenshotPath)).digest('hex'), availability: 'local', capturedAt: new Date().toISOString() };
-  const results = redactObservationRecord(await checkPage(page, run.revision.checks, [screenshot.id], signal),privacy.sensitiveValues??[]);
+  const results = redactObservationRecord(await checkPage(page, run.revision.checks, [screenshot.id], signal,privacy),privacy.sensitiveValues??[]);
   const resultsPath = path.join(outputDirectory, 'checks.json');
   fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
   const evidence: EvidenceReference[] = [screenshot, { id: crypto.randomUUID(), kind: 'checks', sha256: crypto.createHash('sha256').update(fs.readFileSync(resultsPath)).digest('hex'), availability: 'local', capturedAt: new Date().toISOString() }];

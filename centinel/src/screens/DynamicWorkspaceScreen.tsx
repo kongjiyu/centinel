@@ -1,3 +1,5 @@
+import {checkToDraft,draftToCheck,isBooleanFormCheck,type DraftCheck} from '../dynamic/checkDraft';
+import {DynamicFormExpectation} from './DynamicFormExpectation';
 import { DynamicEnvironmentPanel } from './DynamicEnvironmentPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock3, FileCheck2, Globe, History, Plus, RefreshCw, Square, Trash2 } from 'lucide-react';
@@ -14,9 +16,8 @@ import { userFacingError } from '../utils/userFacingError';
 import './DynamicWorkspaceScreen.css';
 
 type Props = {incomingContextSource?(scenario:StubScenario):IncomingContextSource; projects: Project[]; initialProjectId?: string; initialRunId?: string; onNavigate(screen: Screen): void };
-type DraftCheck = { id: string; criterionId: string; description: string; kind: CheckDefinition['kind']; value: string; required: boolean };
 const key = () => crypto.randomUUID();
-const emptyCheck = (): DraftCheck => ({ id: key(), criterionId: '', description: '', kind: 'visible_text', value: '', required: true });
+const emptyCheck = (): DraftCheck => ({ id: key(), criterionId: '', description: '', kind: 'visible_text', value: '', formExpected:'',includeEmptyOption:false,required: true });
 const stateLabel = (run: DynamicRun) => ({ queued: 'Queued', running: 'In progress', completed: 'Completed', blocked: 'Needs attention', interrupted: 'Needs attention', cancelled: 'Cancelled' }[run.state]);
 const verdictLabel = (value: string) => ({ passed: 'Passed', failed: 'Failed', uncertain: 'Uncertain', not_tested: 'Not tested' }[value] ?? value);
 const dateLabel = (value: string) => new Date(value).toLocaleString();
@@ -102,7 +103,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     contextSequence.current++;setContextLoading(false);setContextScenario('recorded');setContextAcknowledged(revision.contextAcknowledged);setCriterionExclusions(revision.criterionExclusions??[]);
     try{setDraftContext(validateIncomingContext(revision.context,projectId));}catch{setDraftContext(null);}
     setSource(revision.context ? 'mock' : 'manual');
-    setChecks(revision.checks.map(check => ({ id: check.id, criterionId: check.criterionId, description: check.description, kind: check.kind, value: check.kind === 'element_visible' ? check.selector : check.expected, required: check.required })));
+    setChecks(revision.checks.map(checkToDraft));
     dirty.current = false; setFeedback(`Loaded revision ${revision.revision}. Saving edits creates a new revision.`); setError(null);
   };
   const loadContext=async(scenario:StubScenario)=>{
@@ -117,8 +118,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     event.preventDefault();const generation=loadGeneration.current; setBusy(true); setError(null); setFeedback('');
     try {
       if(source==='mock'&&(!draftContext||(contextNeedsAcknowledgment(draftContext)&&!contextAcknowledged)))throw new Error('Load and acknowledge the incoming mock snapshot, or choose manual criteria.');
-      const definitions: CheckDefinition[] = checks.map(check => ({ id: check.id, criterionId: source === 'mock' ? check.criterionId : `manual-${check.id}`, description: check.description.trim() || (check.kind === 'url' ? 'Expected page address' : check.kind === 'visible_text' ? 'Expected visible text' : 'Expected visible element'), required: check.required,
-        ...(check.kind === 'element_visible' ? { kind: check.kind, selector: check.value.trim() } : { kind: check.kind, expected: check.value.trim() }) }));
+      const definitions=checks.map(check=>draftToCheck(check,source==='mock'?check.criterionId:`manual-${check.id}`));
       const revision = await api.saveDynamicMission(projectId, { name, goal, targetUrl, maxSteps, checks: definitions, context:source==='mock'?draftContext:null,contextAcknowledged:source==='mock'&&contextAcknowledged,criterionExclusions:source==='mock'?criterionExclusions:[] }, missionId ?? undefined);
       if(generation!==loadGeneration.current)return;await load();if(generation!==loadGeneration.current)return; edit(revision); setFeedback(`Saved revision ${revision.revision}. Ready to run.`);
     } catch (e) { if(generation===loadGeneration.current)setError(userFacingError(e, 'The test could not be saved. Your inputs are preserved.')); }
@@ -155,8 +155,9 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
               {checks.map((check, index) => <div className="dw-check" key={check.id}>
                 <div className="dw-check-top"><strong>Check {index + 1}</strong><button type="button" aria-label={`Remove check ${index + 1}`} disabled={checks.length === 1 || busy} onClick={() => { dirty.current = true; setChecks(previous => previous.filter(item => item.id !== check.id)); }}><Trash2 size={16} /></button></div>
                 {source === 'mock' && <div className="dw-field"><label htmlFor={`dw-criterion-${check.id}`}>Requirement criterion</label><Select id={`dw-criterion-${check.id}`} value={check.criterionId} required placeholder="Select a criterion" options={criteria.map(criterion => ({ value: criterion.id, label: criterion.description,disabled:criterionExclusions.some(item=>item.criterionId===criterion.id) }))} onChange={value=>{const criterion=criteria.find(item=>item.id===value);change(check.id,{criterionId:value,description:check.description||criterion?.description||''});if(criterion&&!goal.trim())setGoal(criterion.description);if(criterion&&!name.trim())setName(criterion.description.slice(0,120));}} /></div>}
-                <div className="dw-check-fields"><div className="dw-field"><label htmlFor={`dw-kind-${check.id}`}>Verify</label><Select id={`dw-kind-${check.id}`} value={check.kind} options={[{ value: 'visible_text', label: 'Visible text' }, { value: 'url', label: 'Page address' }, { value: 'element_visible', label: 'Visible element (CSS selector)' }]} onChange={value => change(check.id, { kind: value as CheckDefinition['kind'] })} /></div>
+                <div className="dw-check-fields"><div className="dw-field"><label htmlFor={`dw-kind-${check.id}`}>Verify</label><Select id={`dw-kind-${check.id}`} value={check.kind} options={[{ value: 'visible_text', label: 'Visible text' }, { value: 'url', label: 'Page address' }, { value: 'element_visible', label: 'Visible element (CSS selector)' },{value:'field_value',label:'Field value'},{value:'field_checked',label:'Checked state'},{value:'field_enabled',label:'Enabled state'},{value:'field_valid',label:'Native field validity'},{value:'selected_values',label:'Selected option values'}]} onChange={value => change(check.id, { kind: value as CheckDefinition['kind'],formExpected:isBooleanFormCheck(value as CheckDefinition['kind'])?'true':'',includeEmptyOption:false })} /></div>
                   <div className="dw-field"><label htmlFor={`dw-value-${check.id}`}>{check.kind === 'url' ? 'Expected page address' : check.kind === 'visible_text' ? 'Expected visible text' : 'CSS selector'}</label><input id={`dw-value-${check.id}`} required value={check.value} onChange={e => change(check.id, { value: e.target.value })} placeholder={check.kind === 'url' ? 'http://localhost:3000/signin' : check.kind === 'visible_text' ? 'Sign in' : 'input[name="username"]'} /></div></div>
+                <DynamicFormExpectation check={check} onChange={patch=>change(check.id,patch)}/>
                 <label className="dw-required"><input type="checkbox" checked={check.required} onChange={e => change(check.id, { required: e.target.checked })} /> Required for a passing result</label>
               </div>)}
               <button type="button" className="btn-secondary" disabled={checks.length >= 20 || busy} onClick={() => { dirty.current = true; setChecks(previous => [...previous, emptyCheck()]); }}><Plus size={16} /> Add check</button>

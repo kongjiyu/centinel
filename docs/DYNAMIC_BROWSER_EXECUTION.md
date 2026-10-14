@@ -126,3 +126,47 @@ regression/finding lineage remain implementation work, not assumed capabilities.
   not establish completion of P4. Legacy direct-session entry points retain their
   compatibility behavior and must be audited/fenced before release; new Mission
   Runs are the validated permission-controlled product path.
+
+## M4c independent form state and retained observations
+
+- Independent checks support `field_value`, `field_checked`, `field_enabled`,
+  `field_valid` (native browser validity) and `selected_values`, alongside existing
+  URL/text/visibility checks. A unique visible supported control is required.
+  Missing, ambiguous, unavailable, private or unsupported form observations are
+  uncertain. Results contain only match/mismatch, never arbitrary field values.
+  Native validity does not establish server/business-rule validity.
+- The editor round-trips exact values (including empty strings), explicit boolean
+  expectations, order-independent selected-value lists and an empty-option flag.
+  Expectations are shared configuration and must use synthetic data. Unknown
+  caller fields are discarded; selectors and expectations are bounded/typed.
+- DOM observer v2 includes public form state and omits private field state. Each
+  executed DOM action retains a timestamped before/after observation pair.
+  Element bindings/private raw values stay outside serialized observations.
+  New private values rescrub this Run's bounded JSON/Markdown artifacts and
+  final console output. Private type proposals (including repaired proposals) are
+  identified before retention/dispatch so lost acknowledgements cannot leave
+  newly typed private values in logs. Console text is withheld if complete sanitized page
+  observation was unavailable. Dispatched actions stop on missing after-observation
+  rather than guessing an outcome or continuing to retry.
+- Migration `202610140007_dynamic_form_checks.sql` sanitizes typed checks and
+  records observer/checker version 2 only for newly started Runs. Old direct
+  RPC clients that omitted descriptions receive a generic description on new
+  saves; old histories are not rewritten. Private helper RPCs remain revoked.
+  The migration was applied and registered on Centinel Supabase.
+- Real Codex normal form Run `52b49347-82f1-464b-bc7f-2f4e585b0a4c` passed
+  six independent checks. Defective Run `22ac1b50-171d-45a8-8266-a6436aa747b1`
+  failed the required saved-consent check after a controlled reset. Both model
+  terminal proposals were finish_success: independent checks overrode the
+  misleading proposal for the defective form. Each submitted once and retained
+  four before/after action pairs, including actual empty → populated name state.
+  These isolated `/form-state` fixtures have no RWA/production connection;
+  cleanup was recorded and the owned fixture process stopped after acceptance.
+- 473 sidecar tests, 206 frontend tests, TypeScript/build, all twelve Dynamic SQL
+  suites and retained-data upgrade fixture passed. Form values and option editor
+  checked at 1440×900, 1200×900 and 390×844 with no document overflow. Existing
+  build chunk-size warning remains. Historical M3 criteria/source versions and
+  absent historical permissions remain consistent with retained evidence.
+- This slice does not implement general repeated-submission consent/ledger,
+  network diagnostics, exploration, regression, approved file transfers,
+  legacy-entry fencing or the remaining live visual/CRUD gates. Those remain
+  required work; P4 and the overall Dynamic release are not yet complete.
