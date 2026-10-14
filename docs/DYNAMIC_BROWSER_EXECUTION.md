@@ -333,3 +333,18 @@ normal file clicks, repeated uploads and unauthorized requests are rejected.
 preserved-data upgrade checks, live privacy API and three UI viewports passed.
 Migration `202610140013` applied/registered. Approved downloads and the remaining
 browser and M5–M7 release gates still require implementation and acceptance.
+
+## M4g3 bounded downloads and file checks
+
+The [file-transfer contract](DYNAMIC_FILE_TRANSFERS.md) now covers approved direct
+HTTP(S) downloads, response streaming before native persistence, encrypted local
+copies, single-use actions, independent SHA-256 checks and hashed file manifests.
+Real Codex normal/defective/oversized cases produced passed/failed/blocked outcomes
+respectively, with one target request each. Browser export retained the captured
+fingerprint; original Run payloads stayed identical after profile edits and copy
+removal. Stale general profile edits were found and fenced atomically.
+
+515 sidecar tests, 219 frontend tests, TypeScript/build, Rust check, twenty SQL
+suites, preserved-data upgrade and three UI viewports passed. Migrations
+`202610140014`/`202610140015` applied/registered. Browser login/form/CRUD and active
+crash/cancellation release gates, reviewed findings and M5–M7 remain required.

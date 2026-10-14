@@ -2,9 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { DynamicContractError } from '../types.js';
 import { validateEnvironment } from './validation.js';
 import {normalizeActionPolicy} from '../browser/actionPolicy.js';
+import {containsLocalValue} from './secrets.js';
 import type { EnvironmentProfile, EnvironmentData } from './types.js';
 export class EnvironmentRepository {
   constructor(private readonly client: SupabaseClient) {}
+  async saveDownloadPermissions(projectId:string,id:string,version:number,downloads:unknown,secrets:readonly string[]=[]):Promise<EnvironmentProfile>{
+    if(!Number.isInteger(version)||version<1||version>2147483647)throw new DynamicContractError(400,'Refresh the saved environment before changing download permissions.');const policy=normalizeActionPolicy({schemaVersion:1,interactions:[],allowCoordinates:false,downloads});if(containsLocalValue(policy,[...secrets]))throw new DynamicContractError(400,'Keep private values out of shared download permissions.');
+    const {data,error}=await this.client.rpc('save_dynamic_download_permissions',{p_project_id:projectId,p_profile_id:id,p_version:version,p_downloads:policy.downloads});if(error)throw new DynamicContractError(error.code==='P0001'?409:503,'Environment changed or test data is still in use. Refresh before changing download permissions.');return data;
+  }
   async saveUploadPermissions(projectId:string,id:string,version:number,uploads:unknown):Promise<EnvironmentProfile>{
     const policy=normalizeActionPolicy({schemaVersion:1,interactions:[],allowCoordinates:false,uploads});
     const {data,error}=await this.client.rpc('save_dynamic_upload_permissions',{p_project_id:projectId,p_profile_id:id,p_version:version,p_uploads:policy.uploads});
@@ -34,8 +39,10 @@ export class EnvironmentRepository {
   }
   async save(projectId: string, value: unknown, id?: string): Promise<EnvironmentProfile> {
     const input=validateEnvironment(value);
-    const {data,error}=await this.client.rpc('save_dynamic_environment',{p_project_id:projectId,p_input:input,p_id:id??null});
-    if(error)throw new DynamicContractError(error.code==='P0002'?404:error.code==='P0001'?409:503,error.code==='P0001'?'Environment state changed. Finish active work and clean its reserved data before changing the resource key.':'Environment could not be saved. Verify project access and migration.');
+    const version=(value as {version?:unknown}).version;
+    if(id&&version!==undefined&&(!Number.isInteger(version)||typeof version!=='number'||version<1||version>2147483647))throw new DynamicContractError(400,'Refresh the saved environment before editing its version.');
+    const {data,error}=await this.client.rpc('save_dynamic_environment',{p_project_id:projectId,p_input:{...input,...(id&&version!==undefined?{_expectedVersion:version}:{})},p_id:id??null});
+    if(error)throw new DynamicContractError(error.code==='P0002'?404:error.code==='P0001'?409:503,error.code==='P0001'?'Environment changed. Refresh it and check active work or required cleanup before saving.':'Environment could not be saved. Verify project access and migration.');
     return data;
   }
 }

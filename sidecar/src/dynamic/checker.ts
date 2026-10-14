@@ -2,7 +2,7 @@ import type { Page } from 'playwright';
 import type { CheckDefinition, CheckResult, CheckVerdict } from './types.js';
 
 /** Checks use configured expectations, never a model's terminal declaration. */
-export async function checkPage(page: Page, definitions: CheckDefinition[], evidenceIds: string[], signal?: AbortSignal, privacy:{sensitiveSelectors?:readonly string[]}={}): Promise<CheckResult[]> {
+export async function checkPage(page: Page, definitions: CheckDefinition[], evidenceIds: string[], signal?: AbortSignal, privacy:{sensitiveSelectors?:readonly string[];downloads?:readonly import('./browser/fileTypes.js').DownloadReceipt[];downloadEvidenceIds?:string[]}={}): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   for (const check of definitions) {
     const result: CheckResult = { checkId: check.id, criterionId: check.criterionId, verdict: 'uncertain', observed: null, reason: '', evidenceIds: [...evidenceIds], checkedAt: new Date().toISOString() };
@@ -11,7 +11,10 @@ export async function checkPage(page: Page, definitions: CheckDefinition[], evid
     } else {
       try {
         let pass: boolean;
-        if (check.kind === 'url') {
+        if(check.kind==='download_sha256'){
+          result.evidenceIds=[...(privacy.downloadEvidenceIds??[])];const files=(privacy.downloads??[]).filter(file=>file.permissionUrl===check.url);
+          if(files.length!==1||!result.evidenceIds.length||!/^[a-f0-9]{64}$/.test(files[0].sha256))throw new Error('No unique independently captured download');pass=files[0].sha256===check.expected;result.observed='Captured SHA-256: '+files[0].sha256;
+        }else if (check.kind === 'url') {
           result.observed = page.url();
           pass = result.observed === check.expected;
         } else if (check.kind === 'visible_text') {
@@ -51,7 +54,7 @@ export async function checkPage(page: Page, definitions: CheckDefinition[], evid
         }
         if (signal?.aborted || page.isClosed()) throw new Error('stopped');
         result.verdict = pass ? 'passed' : 'failed';
-        result.reason = pass ? 'Configured criterion matched the observed page.' : 'Configured criterion did not match the observed page.';
+        result.reason = check.kind==='download_sha256'?(pass?'Configured fingerprint matched the independently captured file.':'Configured fingerprint did not match the independently captured file.'):(pass ? 'Configured criterion matched the observed page.' : 'Configured criterion did not match the observed page.');
       } catch {
         result.reason = 'The checker could not obtain an unambiguous observation.';
       }

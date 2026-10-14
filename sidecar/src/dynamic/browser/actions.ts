@@ -3,7 +3,9 @@ import type {Page} from 'playwright';
 import {authorizeBrowserAction,type BrowserActionPolicy} from './actionPolicy.js';
 import {executeApprovedUpload} from './uploads.js';
 import type {UploadGrant,UploadPayload} from './fileTypes.js';
+import type {ApprovedDownloads} from './downloads.js';
 export type AgentAction=
+ |{action:'download_file';selector?:string;elementRef?:string;reasoning:string}
  |{action:'upload_file';selector?:string;elementRef?:string;fixtureId:string;reasoning:string}
  |{action:'click_visual';targetDescription:string;x:number;y:number;fallbackReason:string;reasoning:string}
  |{action:'click';targetDescription:string;selector?:string;elementRef?:string;x?:number;y?:number;fallbackReason?:string;reasoning:string}
@@ -17,15 +19,16 @@ export class BrowserActionUncertain extends Error {
  constructor(){super('Action outcome is uncertain. The action was not repeated; inspect the target and test data before retrying.');}
 }
 export type ElementBinding=string|{role:Parameters<Page['getByRole']>[0];name:string};
-export type ActionReceipt={dispatch:'locator'|'coordinate'|'keyboard'|'navigation'|'observation'|'upload';selector?:string;coordinateFallbackReason?:string;requestedUrl?:string;alreadyMatched?:boolean;fileTransfer?:{kind:'upload';fixtureId:string;sha256:string;bytes:number;mimeType:string}};
+export type ActionReceipt={dispatch:'locator'|'coordinate'|'keyboard'|'navigation'|'observation'|'upload'|'download';selector?:string;coordinateFallbackReason?:string;requestedUrl?:string;alreadyMatched?:boolean;fileTransfer?:{kind:'upload';fixtureId:string;sha256:string;bytes:number;mimeType:string}|import('./fileTypes.js').DownloadReceipt};
 const stopped=(signal?:AbortSignal)=>{if(signal?.aborted)throw new DOMException('Execution stopped','AbortError');};
 export async function waitForBrowserAction(ms:number,signal?:AbortSignal){
  stopped(signal);await new Promise<void>((resolve,reject)=>{const abort=()=>{clearTimeout(timer);reject(new DOMException('Execution stopped','AbortError'));};const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},ms);signal?.addEventListener('abort',abort,{once:true});});
 }
 /** One dispatch only. A failure after dispatch never becomes a second click,
  * coordinate fallback, fill, Enter or navigation request. */
-export async function executeBrowserAction(page:Page,action:AgentAction,options:{signal?:AbortSignal;bindings?:ReadonlyMap<string,ElementBinding>;hasScreenshot?:boolean;policy?:BrowserActionPolicy;origins?:readonly string[];ledger?:ActionLedger;resolveUpload?:(grant:UploadGrant)=>UploadPayload;onUploadPrivateValue?:(value:string)=>void}={}):Promise<ActionReceipt>{
+export async function executeBrowserAction(page:Page,action:AgentAction,options:{signal?:AbortSignal;bindings?:ReadonlyMap<string,ElementBinding>;hasScreenshot?:boolean;policy?:BrowserActionPolicy;origins?:readonly string[];ledger?:ActionLedger;resolveUpload?:(grant:UploadGrant)=>UploadPayload;onUploadPrivateValue?:(value:string)=>void;downloads?:ApprovedDownloads}={}):Promise<ActionReceipt>{
  stopped(options.signal);
+ if(action.action==='download_file'){if(!options.downloads)throw new BrowserActionUnavailable('Approved download capture is unavailable.');return {dispatch:'download',fileTransfer:await options.downloads.execute(page,action,options)};}
  if(action.action==='upload_file')return executeApprovedUpload(page,action,options);
  if(action.action==='click_visual')action={action:'click',targetDescription:action.targetDescription,x:action.x,y:action.y,fallbackReason:action.fallbackReason,reasoning:action.reasoning};
  if((action.action==='click'||action.action==='type')&&(action.selector||action.elementRef)&&(action.x!==undefined||action.y!==undefined))throw new BrowserActionUnavailable('Locator and coordinate targets cannot be combined. Use click_visual with viewport coordinates for visual targets.');
