@@ -318,3 +318,18 @@ regression/finding lineage remain implementation work, not assumed capabilities.
 - Approved file transfers, remaining normal/defective login/form/CRUD and crash
   gates, reviewed finding linkage and M5–M7 remain required. Real API provider
   acceptance is user-deferred; this slice does not complete P4 or the release.
+
+## M4g2 approved uploads
+
+The [file-transfer contract](DYNAMIC_FILE_TRANSFERS.md) delivers encrypted local
+test-file selection, versioned upload permissions, immutable Run fingerprints,
+fresh file preflight and single-dispatch `upload_file` execution. Real Codex Run
+`860f2102-a103-47dc-bc8b-818d0ffaa442` passed with exactly one server upload and
+matching SHA-256. Independent criteria determine the verdict; a file receipt is
+not an automatic pass. Known private values, expired/missing/mismatched files,
+normal file clicks, repeated uploads and unauthorized requests are rejected.
+
+495 sidecar tests, 213 frontend tests, TypeScript/build, eighteen SQL suites,
+preserved-data upgrade checks, live privacy API and three UI viewports passed.
+Migration `202610140013` applied/registered. Approved downloads and the remaining
+browser and M5–M7 release gates still require implementation and acceptance.

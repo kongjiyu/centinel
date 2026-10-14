@@ -3,7 +3,7 @@ import type { EnvironmentRepository } from './repository.js';
 import type { EnvironmentVault } from './vault.js';
 import { checkEnvironment } from './preflight.js';
 import { DynamicContractError } from '../types.js';
-export async function handleEnvironmentRoute(request:{method:string;pathname:string;readBody():Promise<Record<string,unknown>>},deps:{ownerId:string;repository:EnvironmentRepository;vault:EnvironmentVault;requireMember(projectId:string):Promise<void>;providerReady(projectId:string):Promise<boolean>;privateValues?(projectId:string,profile:import('./types.js').EnvironmentProfile):string[];sessionStatus?(projectId:string,profile:import('./types.js').EnvironmentProfile):{availability:string;reason?:string;captureActive?:boolean;version?:string;expiresAt?:string}}) {
+export async function handleEnvironmentRoute(request:{method:string;pathname:string;readBody():Promise<Record<string,unknown>>},deps:{ownerId:string;repository:EnvironmentRepository;vault:EnvironmentVault;requireMember(projectId:string):Promise<void>;providerReady(projectId:string):Promise<boolean>;uploadsReady?(projectId:string,profile:import('./types.js').EnvironmentProfile):boolean;privateValues?(projectId:string,profile:import('./types.js').EnvironmentProfile):string[];sessionStatus?(projectId:string,profile:import('./types.js').EnvironmentProfile):{availability:string;reason?:string;captureActive?:boolean;version?:string;expiresAt?:string}}) {
   const match=request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/environments(?:\/([^/]+))?(?:\/(values|preflight|data|preparation|cleanup))?$/);
   if(!match)return null;
   const [,projectId,id,action]=match; await deps.requireMember(projectId);
@@ -31,7 +31,7 @@ export async function handleEnvironmentRoute(request:{method:string;pathname:str
         return {status:200,body:deps.vault.write(deps.ownerId,projectId,id,values)};
       }
       if(action==='values'&&request.method==='GET')return {status:200,body:{variableNames:deps.vault.names(deps.ownerId,projectId,id)}};
-      if(action==='preflight'&&request.method==='POST')return {status:200,body:await checkEnvironment(profile,deps.vault.names(deps.ownerId,projectId,id),await deps.providerReady(projectId),fetch,await deps.repository.data(projectId,id),deps.sessionStatus?.(projectId,profile))};
+      if(action==='preflight'&&request.method==='POST')return {status:200,body:await checkEnvironment(profile,deps.vault.names(deps.ownerId,projectId,id),await deps.providerReady(projectId),fetch,await deps.repository.data(projectId,id),deps.sessionStatus?.(projectId,profile),deps.uploadsReady?.(projectId,profile))};
     }
     return {status:405,body:{error:'Unsupported environment operation.'}};
   }catch(error){if(error instanceof DynamicContractError)return {status:error.status,body:{error:error.message}};throw error;}

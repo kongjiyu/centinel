@@ -26,7 +26,7 @@ export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{visual?:1;explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{visual?:1;files?:1;explorer?:1;observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   regression?:RegressionBaseline;
   exploration?:ExplorationSnapshot;
