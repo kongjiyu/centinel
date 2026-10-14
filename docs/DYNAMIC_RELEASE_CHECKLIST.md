@@ -4,7 +4,7 @@ Checkpoint: 15 October 2026, engine `8e2f849`. Required scope is Web Dynamic and
 shared dependencies. Static implementation/scenarios 1–2 and native desktop SUT
 adapter DYN-18 are excluded. The packaged Centinel client is still a required
 gate. Real API-provider acceptance is deferred by direct user decision; local
-adapter tests remain required. This is a checkpoint, not a release declaration.
+adapter tests remain required. Final agreed-scope closure is in DYNAMIC_RELEASE_EVALUATION.md; historical checkpoint details remain below.
 
 ## PRD acceptance scenarios
 
@@ -28,7 +28,7 @@ are recorded in DYNAMIC_RELEASE_RESILIENCE.md.
 | 10 Usability | Declared labels/keyboard defects repeat 3/3; deterministic violations separate from metered optional suggestions. DYNAMIC_USABILITY.md and DYNAMIC_RELEASE_EVALUATION.md | Passed tiny fixture; no full accessibility or real-user-study claim |
 | 11 Existing unit tests | Shared pass/fail/timeout/cancel/config/dependency/no-tests/parser histories and reports; actual RWA 54 total, 44 pass, 10 skipped. DYNAMIC_UNIT_TESTS.md and DYNAMIC_RELEASE_RESILIENCE.md | Passed Vitest-only bounded scope |
 | 12 Providers | Real Codex text/image/action, failure and cancellation; API contracts tested locally. CODEX_PROVIDER.md and LOCAL_RUNTIME_SETUP.md | Codex live passed; API live user-deferred |
-| 13 Shared report/proof | Reader verified JSON/Markdown/PDF and proof hashes; anonymous/nonmember/direct signed access denied; exact same-bearer membership revocation denies report/proof/Storage and exact restore succeeds. DYNAMIC_REPORTS.md, DYNAMIC_PRIVATE_EVIDENCE.md, DYNAMIC_RELEASE_RESILIENCE.md | Service/browser gates passed; native save pending |
+| 13 Shared report/proof | Reader verified JSON/Markdown/PDF and proof hashes; anonymous/nonmember/direct signed access denied; exact same-bearer membership revocation denies report/proof/Storage and exact restore succeeds. DYNAMIC_REPORTS.md, DYNAMIC_PRIVATE_EVIDENCE.md, DYNAMIC_RELEASE_RESILIENCE.md | Passed service/browser and native JSON/Markdown/PDF save with byte verification |
 | 14 Privacy/auth | Real private-input dispatch, 13 text artifacts plus shared JSON/report exact sentinel scan; viewed screenshot fully masks field; uncertain private-state check not counted as pass. Cross-project/file and revocation checks retained. DYNAMIC_SESSION_PROTECTION.md, DYNAMIC_FILE_TRANSFERS.md, DYNAMIC_RELEASE_RESILIENCE.md | Passed synthetic sentinel case; not universal privacy guarantee |
 
 ## Requirement map
@@ -50,20 +50,22 @@ are recorded in DYNAMIC_RELEASE_RESILIENCE.md.
 | NFR-01–02,05–07 | Focused runtime/SQL suites, pinned target baselines, repeated protocol, additive upgrades and recovery evidence |
 | NFR-03–04 | Two-user/private-file/security evidence and per-screen 1440×900, 1200×900, 390×844 checks in implementation records |
 
-## Open release gates
+## Final gate closure
 
-- Genuine issued JWT expiry then explicit refresh: original Reader token is held
-  only in memory by accessExpiryLive.ts, with auto-refresh disabled. Expires
-  2026-10-14 21:44:34 UTC. This is pending, not passed; wait for the retained final
-  audit before updating the gate. Existing revocation is a distinct passed case.
-- Packaged Centinel sign-in, configured Codex discovery/use and verified native
-  report save: local app/DMG build and exact executable launch passed; native UI
-  remains blocked by Mac lock/automation availability. Browser downloads do not
-  satisfy this gate. Original package identifies engine 44916ff; rebuild if final
-  client changes require it, retain new hash and engine identity.
-- Final evidence readback and explicit completion audit after both gates close.
-  No release/whole-plan completion claim until required gates pass or the user
-  explicitly changes release scope.
+- Genuine issued JWT expiry/explicit refresh passed at 05:44:40 on 15 October
+  (Asia/Kuala_Lumpur): expired report/proof 401; legitimate refresh restores report
+  200 and exact proof SHA. Original one-hour token wait completed without forgery
+  or project Auth changes.
+- Packaged client passed Supabase sign-in, configured Codex discovery/catalog,
+  actual text/image tests, native-started independent-check Run, shared proof,
+  immutable report and native JSON/Markdown/PDF save with byte-for-byte readback.
+  One initial Reload and one transient JWT-future Retry are disclosed; a separate
+  owned process relaunch restored session/rendering directly. The client execution/export source is unchanged since 44916ff; a later summary-label
+  correction was rebuilt and inspected natively (029c778), while the current
+  sidecar includes process exclusion and its verified worker recovery.
+- Final required-scope evidence audit is recorded in DYNAMIC_RELEASE_EVALUATION.md.
+  API live remains user-deferred, Static excluded and native SUT optional. These
+  are scope decisions, not passed tests. Existing corpus/production limits remain.
 
 ## Known limits
 

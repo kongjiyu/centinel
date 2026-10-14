@@ -1,6 +1,6 @@
 # Dynamic release evaluation checkpoint
 
-This checkpoint records the predeclared six-sample Codex corpus on engine `44916ff991439a6f824a1347798e3578c9ce88e6`. It is not final release acceptance. Static is excluded; real API-provider acceptance is deferred by direct user decision. Native Centinel GUI/export is still unverified because the Mac is locked and the CLI automation binary lacks Accessibility permission.
+Historical checkpoint: this records the predeclared six-sample Codex corpus on engine `44916ff991439a6f824a1347798e3578c9ce88e6`. Final agreed-scope acceptance is recorded in the closure below. Static is excluded; real API-provider acceptance is deferred by direct user decision. At that checkpoint native Centinel GUI/export was blocked by Mac lock and CLI Accessibility; the later native closure below supersedes that status.
 
 ## Fixed-corpus outcomes
 
@@ -55,3 +55,144 @@ Launched the built app in the background through the native launcher and verifie
 - Setup/demo/recovery guide, known limitations, release checklist and full completion audit.
 
 Raw snapshots and audit JSON remain ignored under output/playwright and output/pdf. No primary or browser-target data was changed by this read-only corpus.
+
+## Final agreed-scope acceptance — 15 October 2026
+
+The two remaining gates were exercised after the user unlocked the Mac. Native
+UI actions used the available bound-app computer-use tool; the separate
+cua-driver CLI still lacks Accessibility permission and was not used to bypass it.
+No application permissions or security settings were weakened.
+
+### Genuine expired and refreshed access
+
+The original Reader token issued at 2026-10-14 20:44:35 UTC expired at 21:44:34 UTC.
+At 21:44:40 UTC (05:44:40 on 15 October, Asia/Kuala_Lumpur), the same expired JWT
+received 401 for both retained report and private proof. Explicit refresh returned
+a new legitimate token, report access returned 200, and proof SHA-256 matched.
+No project-wide Auth setting changed; no token was forged/logged or replaced to
+avoid the actual expiry wait. Audit: output/playwright/access-expiry-live.json.
+
+### Packaged native client
+
+The exact local app bundle described above was inspected through its native
+WKWebView (`tauri://localhost`). The previously locked/backgrounded window first
+appeared blank; one normal Reload displayed sign-in. QA email/password sign-in
+succeeded. The first workspace load encountered a transient server-side
+`JWT issued at future`; one visible Retry loaded the workspace. These are retained
+interventions, not a claim of flawless unattended cold startup. After the workflow,
+the exact owned app was terminated/relaunched; persisted sign-in and rendered
+workspace restored directly without either intervention. No startup code changed.
+
+Settings discovered the configured Codex CLI, showed Connected, loaded the real
+model catalog and passed both Test text and Test screenshot with `gpt-5.6-sol`.
+Review settings and API provider configuration were left unchanged.
+
+Through the packaged UI, selected the new shared project and reran its immutable
+read-only Ready mission. Run `6b8f4ce3-62cc-4a14-ae05-a95556b31b8a` completed/passed
+with one independently passed check and two evidence slots. Model usage records
+one successful Codex/gpt-5.6-sol call. This manual mission deliberately has no
+incoming source denominator and no saved environment; it adds no sample to the
+predeclared six-Run corpus and performs no writes to the target fixture.
+
+Native UI synchronized both proof slots, displayed verified shared screenshot,
+and captured report `f9880041-ba15-4b19-8e0c-2cf108c19438`. Keyboard focus exposed
+the JSON/Markdown/PDF export buttons, and all three were saved through actual
+macOS Save Dynamic report dialogs. The UI reported Report saved. Files were read
+back from Documents and compared byte-for-byte with authenticated downloads:
+
+| Format | Bytes | SHA-256 |
+| --- | ---: | --- |
+| JSON | 5613 | fffaa341b2975748e9ced9c06d4145c890307734de2f554cee0af6a8c11b2f32 |
+| Markdown | 5490 | 90fff3689273138afd81be0e11b624027cde69788f0ed898a36871461a8ce981 |
+| PDF | 5273 | 52d1c20f99cf0310e4f2ed595778eb555e9e9040853015ffc3cb7f81c1e6ce7a |
+
+The snapshot's retained Run fields matched the shared Run, and both private proof
+hashes matched. The other project's Reader remains intentionally a nonmember of
+this new project and was denied report/proof access (403); authorized Reader
+exports on the original QA project are recorded in the earlier corpus/report
+gates. No membership was expanded for this test.
+
+The readback harness initially assumed that Reader belonged to this new project,
+and then compared the report's deliberately reduced Run projection with the full
+Run DTO. Those two assertions were corrected to the actual membership/projection
+contracts; original files, Run, report and permissions were preserved. Final
+readback passed without rerunning/replacing the native mission. Harness:
+`nativeExportVerifyLive.ts`, requiring CENTINEL_NATIVE_EXPORT_DIRECTORY. Audit:
+output/playwright/native-export-verified.json; observed final UI screenshot:
+output/playwright/native-report-saved.png. Native artifacts remain in Documents
+with the report ID in their filenames and are not committed.
+
+### Completion audit and limits
+
+The requirement/scenario map in DYNAMIC_RELEASE_CHECKLIST.md was inspected against
+retained browser, lifecycle, finding, report, unit, corpus and security audits.
+Static scenarios 1–2 remain excluded; scenario 4 uses mock provenance; scenario
+12's real API portion remains explicitly user-deferred. Within that agreed scope,
+P0–P7 required implementation and bounded acceptance gates are satisfied.
+
+Current sidecar TypeScript passes; the process-change suite passed 582 tests / 83
+files. Before the summary correction, the frontend suite passed 246 tests / 48 files;
+afterward the complete suite passed 247 tests / 48 files with two workers and
+a 15-second test bound. A default-parallel attempt had 16 unrelated 5-second
+timeouts, all retained in the local log; no assertion failures were suppressed. The 31 Dynamic SQL suites
+were rerun successfully against the isolated PostgreSQL upgrade fixture. No SQL source changed since engine 44916ff; client changes after that package
+are limited to the explicitly recorded summary correction below; the later runtime
+change is local process exclusion, with actual worker SIGKILL/restart and post-change
+RWA unit acceptance retained in DYNAMIC_RELEASE_RESILIENCE.md. Runtime sidecar is
+8e2f849 plus documentation/harness-only commits. The acceptance harness/records do not change execution or persisted schemas. There are no hosted CI checks; these are local/live checks.
+
+This is the agreed local Web Dynamic release, not whole-product Static acceptance,
+API live acceptance, a native-desktop SUT adapter, a signed/notarized installer,
+a bundled-sidecar distribution, broad accessibility certification, real-user
+research or a general defect-recall benchmark. Known limits in the checklist
+remain visible; no missing metrics are inferred as zero.
+
+### Late native-discovered summary correction
+
+The restored Home screen exposed a misleading legacy summary: a blocked private
+check with reason Independent checks: uncertain was titled Failed. Commit
+029c778 keeps blocked Dynamic sessions labeled Blocked and generic legacy failures
+labeled Needs attention. The canonical Run still displays its independent verdict;
+no free-text reason is parsed into an invented verdict. Projects' existing
+needs_attention filter now uses the matching Needs attention label. Static
+session status/logic, CSS, risk aggregation and persisted contracts are unchanged.
+A focused uncertain-result regression joins the existing blocked/filter tests.
+
+Live browser Home was inspected at 1440×900, 1200×900 and 390×844: actual blocked
+state and uncertain reason remain visible, no Failed heading and no page overflow.
+This revealed an acceptance-harness assumption that the actual blocked fixture
+should be Needs attention; the assertion was corrected to Blocked without changing
+the retained data. The existing package's native workflow above remains evidence
+for the unchanged sign-in/provider/run/export implementation; the final label-only
+package build and rendered status check are recorded below.
+
+During a diagnostic process listing, command arguments inadvertently exposed the
+dedicated synthetic QA password. It was immediately rotated through authenticated
+Supabase Auth, repository-root ignored .env updated (0600), and this run's CLI text
+artifacts checked (no password found). No other account was changed. Subsequent
+process observations omit command arguments containing credentials. No password,
+token or refresh secret is included in committed evidence. This operator incident
+is distinct from the seeded private-input engine acceptance.
+
+### Final package after summary correction
+
+`pnpm build` completed both bundles with the existing large-chunk warning; no
+signing/notarization claim is made. Source commit 029c778, final DMG SHA-256:
+`d35dcc609b301750640d8db81257cb55bb2e9b2fc00855e94174ba0704486fb2`.
+The exact rebuilt bundle was relaunched and signed in with the rotated QA
+credential. Synthetic keystroke entry initially produced invalid credentials;
+replacing the secure field with bound-app paste succeeded. A brief authentication
+loading error was superseded by the rendered workspace without a successful Retry
+click. The final native Home shows Blocked with Independent checks: uncertain;
+no Failed heading. Screenshot: output/playwright/native-summary-final.png.
+No sign-in/provider/execution/report-save implementation changed in the summary
+commit, so the preceding full native workflow/three-format readback remains
+applicable to those unchanged paths. The label fix additionally passed the full
+247-test suite, production build and Home/Projects screenshot/overflow checks at
+1440×900, 1200×900 and 390×844. CSS was unchanged and unrelated screens' existing
+full tests stayed passing. Audit: output/playwright/summary-final-acceptance.json.
+
+The completed test logs, original expired-token result, native export readback,
+current native rendering and unchanged shared contracts close the required-scope
+release audit. Remaining exceptions are exactly the explicit scope decisions and
+known limitations in DYNAMIC_RELEASE_CHECKLIST.md; they are not silently passed.

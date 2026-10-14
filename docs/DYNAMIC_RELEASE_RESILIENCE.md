@@ -2,7 +2,7 @@
 
 Scope: Dynamic/shared runtime only. This follows the frozen release protocol;
 Static remains excluded and real API-provider acceptance remains user-deferred.
-It does not close the native packaged UI/save gate.
+Native packaged UI/save and actual JWT expiry were subsequently closed in DYNAMIC_RELEASE_EVALUATION.md.
 
 ## Local process exclusion
 
@@ -101,6 +101,5 @@ Live harnesses under sidecar/__tests__/acceptance:
 
 Sidecar TypeScript and 582 tests / 83 files passed after the process change. No UI
 behavior or persisted-data schema changed in this checkpoint. Generated audits,
-protected screenshots and exports remain ignored. Native UI/save remains pending
-Mac unlock/automation availability. The real-expiry job is pending until
-2026-10-14 21:44:34 UTC; it is not yet a passed gate.
+protected screenshots and exports remain ignored. Native UI/save and the original real-expiry job subsequently passed; exact outcomes
+and interventions are in DYNAMIC_RELEASE_EVALUATION.md.
