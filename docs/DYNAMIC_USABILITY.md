@@ -297,9 +297,62 @@ primary RWA data. Set the previously documented QA project/primary database/side
 variables and load the ignored root `.env`. Audits and UI screenshots remain in
 ignored `output/playwright/usability-findings-*.json/png`.
 
+## M5c6: stopped assessment diagnostics
+
+The executor now writes atomic mode-0600 `usability-progress.json` checkpoints
+before rules, after label observations and acknowledged Tab dispatch/focus samples,
+after rules, and around the optional advisory request. Cancellation or fencing
+records a generic stopped reason without raw provider errors. A process kill can
+leave the last observed phase; it is historical progress, not proof that a worker
+is still running. No checkpoint finalizes a Run, criterion or candidate.
+
+The producer may publish this fixed `usability` slot only for a stopped Run with
+selected usability scope. The sanitized `partial_usability` derivative retains
+source/hash provenance and explicitly records `criterionProof: false`,
+`terminalVerification: false`, authoritative Run state and partial limitations.
+Internal proof references may point to local captures that were never published.
+Readers do not infer a completed check/finding from the checkpoint's per-rule data.
+
+A private local `usability-shared.json` cache freezes the first diagnostic package
+for checksum-stable upload recovery, even if later teardown updates the progress
+file. The cache itself is bounded and checksum-checked on retry. Existing shared
+copies and historical Run metadata remain unchanged. The original browser-log
+availability manifest retains its immutable contents; usability is an independent
+extension with its own availability/omission in the current publication response.
+The total package and per-file sharing limits still apply after this extension.
+
+Migration `202610150006_dynamic_usability_progress.sql` extends only the fixed
+artifact validator. It requires selected scope, producer identity, stopped state,
+JSON/size limits and the non-criterion marker. It was locally verified, applied
+and registered on Centinel Supabase; existing storage/retention policies remain.
+
+Real Codex cancellation Run `763fe3b8-1da3-4b74-bd8e-4e2ee69a6b15` reached
+`advisory_pending` and was stopped through the actual `/cancel` endpoint. It retained
+four acknowledged keyboard actions and captured rule observations, with terminal
+state `cancelled / not_tested` and no completed usability result. The separate
+Reader downloaded the diagnostic and verified its hash, stopped phase and false
+verification markers. Repeat publication was identical, terminal Run JSON was
+unchanged, and finding collection returned 409. Preparation/cleanup were recorded.
+
+The first acceptance script used the incorrect `/stop` path. Its Run
+`80116890-d9f5-4750-8655-4f7554f16119` completed normally; that outcome and cleanup
+were preserved and it is not counted as cancellation acceptance. All usability
+live harnesses now use the actual `/cancel` route for failure cleanup.
+
+Actual Reader UI showed Not tested separately from the partial diagnostic and
+inspected its JSON at 1440×900, 1200×900 and 390×844 without page overflow. Screenshots
+were inspected. The new artifact uses the existing evidence UI; no screen CSS
+changes are included. The checked-in `usabilityPartialLive.ts` reproduces the
+controlled advisory cancellation with the previously documented project/sidecar
+variables and ignored account configuration.
+
+Validation: sidecar TypeScript and 565 tests, frontend build and 240 frontend tests,
+all 29 SQL suites. Real Chromium verifies cancellation immediately after one
+acknowledged Tab retains that count but no unobserved focus pass. Sharing tests
+verify redaction, raw-file preservation, frozen retry bytes, unchanged legacy
+manifest and terminal-state separation. The Vite chunk warning remains.
+
 ## Remaining M5c gates
 
-- Retain/share stopped partial assessment diagnostics without claiming completed
-  rules or changing terminal functional outcomes.
 - Include usability results/decisions in versioned reports and the broader
   repeated release corpus.
