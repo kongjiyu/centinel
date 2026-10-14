@@ -1,0 +1,1 @@
+{"name":"centinel-public-unit-fixture","private":true,"scripts":{"unit":"vitest --run"},"devDependencies":{"vitest":"4.1.8"}}
