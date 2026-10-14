@@ -1,3 +1,4 @@
+import type {EvidenceCopy} from '../../../sidecar/src/dynamic/sharedEvidence/types';
 import type {DynamicFinding,FindingDetail,ReviewFindingInput,RemediationInput} from '../../../sidecar/src/dynamic/findings/types';
 import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData, WorkspaceAuthorization, WorkspaceInspection, HookOperation, HookKind } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
@@ -298,6 +299,13 @@ export const api = {
   dynamicMissions: (projectId: string) => request<Mission[]>(`/projects/${projectId}/dynamic/missions`),
   dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
   saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
+  dynamicEvidenceCopies:(projectId:string,runId:string)=>request<EvidenceCopy[]>(`/projects/${projectId}/dynamic/runs/${runId}/evidence`),
+  syncDynamicEvidence:(projectId:string,runId:string)=>request<EvidenceCopy[]>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/sync`,{method:'POST',body:'{}'}),
+  deleteDynamicEvidenceCopy:(projectId:string,runId:string,id:string)=>request<EvidenceCopy>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/${id}/delete`,{method:'POST',body:'{}'}),
+  dynamicRecordedEvidenceBlob:async(projectId:string,runId:string,id:string,source:'local'|'shared'):Promise<Blob>=>{
+    const token=sessionStorage.getItem('centinel:supabase-access-token');const suffix=source==='local'?`local/${id}`:`${id}/content`;
+    const response=await fetch(`${BASE}/projects/${projectId}/dynamic/runs/${runId}/evidence/${suffix}`,{cache:'no-store',headers:token?{Authorization:`Bearer ${token}`}:{}});if(!response.ok)throw new ApiError('Recorded evidence is unavailable for this account or device.',response.status);return response.blob();
+  },
   dynamicFindings:(projectId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/findings`),
   dynamicFinding:(projectId:string,id:string)=>request<FindingDetail>(`/projects/${projectId}/dynamic/findings/${id}`),
   collectDynamicFindings:(projectId:string,runId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/runs/${runId}/findings`,{method:'POST',body:'{}'}),

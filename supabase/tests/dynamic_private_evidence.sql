@@ -1,0 +1,53 @@
+-- Isolated fixture exercises the exact restrictive Storage policies too.
+begin;
+create schema if not exists storage;
+create table if not exists storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
+alter table storage.objects enable row level security;
+create or replace function storage.allow_any_operation(expected text[]) returns boolean language sql stable as $$select regexp_replace(coalesce(current_setting('storage.operation',true),''),'^storage\.','')=any(expected)$$;
+grant usage on schema storage to authenticated;grant select,insert,update,delete on storage.objects to authenticated;
+drop policy if exists evidence_test_member on storage.objects;
+create policy evidence_test_member on storage.objects for all to authenticated using(public.is_project_member(split_part(name,'/',1)::uuid)) with check(public.is_project_member(split_part(name,'/',1)::uuid));
+\i supabase/migrations/202610140018_dynamic_private_evidence.sql
+create function pg_temp.expire_copy(p_id uuid) returns void language sql security definer set search_path=public as $$update public.dynamic_evidence_copies set expires_at=now()-interval '1 minute' where id=p_id$$;
+create function pg_temp.expire_copy_lease(p_id uuid) returns void language sql security definer set search_path=public as $$update public.dynamic_evidence_copy_leases set expires_at=now()-interval '1 minute' where copy_id=p_id$$;
+set local role authenticated;select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+do $$
+declare p uuid:='11111111-1111-4111-8111-111111111111';rev jsonb;started jsonb;rid uuid;transfer jsonb;copy_id uuid;token uuid;old_token uuid;path text;final jsonb;run_token uuid:='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';n integer;
+begin
+ rev:=public.save_dynamic_revision(p,auth.uid(),'{"name":"Private proof","goal":"Read","targetUrl":"http://localhost:3000/","maxSteps":2,"context":null,"checks":[{"id":"one","criterionId":"one","description":"Ready","kind":"visible_text","expected":"Ready","required":true}]}');started:=public.start_dynamic_run(p,auth.uid(),(rev->>'id')::uuid,'private-proof');rid:=(started->'run'->>'id')::uuid;perform public.claim_dynamic_run(p,rid,'worker',run_token,'private-proof');perform public.transition_dynamic_run(p,rid,'running',jsonb_build_object('state','completed','verdict','passed','leaseToken',run_token,'checks','[]'::jsonb,'evidence',jsonb_build_array(jsonb_build_object('id','proof','kind','screenshot','sha256',repeat('a',64),'availability','local','capturedAt',now()))));
+ transfer:=public.prepare_dynamic_evidence_copy(p,rid,'proof',100);copy_id:=(transfer->'copy'->>'id')::uuid;token:=(transfer->>'token')::uuid;path:=transfer->>'objectPath';
+ if transfer->'copy'->>'availability'<>'pending' or token is null then raise exception 'Missing pending lease';end if;
+ if public.prepare_dynamic_evidence_copy(p,rid,'proof',100)->>'token'<>token::text then raise exception 'Same-owner replay changed lease';end if;
+ begin perform public.prepare_dynamic_evidence_copy(p,rid,'missing',100);raise exception 'Unrecorded evidence accepted';exception when raise_exception then if sqlerrm='Unrecorded evidence accepted' then raise;end if;end;
+ begin perform public.prepare_dynamic_evidence_copy(p,rid,'proof',101);raise exception 'Changed descriptor accepted';exception when raise_exception then if sqlerrm='Changed descriptor accepted' then raise;end if;end;
+ perform set_config('storage.operation','storage.object.upload',true);
+ insert into storage.objects(bucket_id,name) values('dynamic-evidence',path);
+ perform set_config('storage.operation','storage.object.get_authenticated',true);
+ perform set_config('request.jwt.claim.sub','cccccccc-cccc-4ccc-8ccc-cccccccccccc',true);
+ if exists(select 1 from storage.objects where name=path) then raise exception 'Pending object readable by another member';end if;
+ begin perform public.prepare_dynamic_evidence_copy(p,rid,'proof',100);raise exception 'Concurrent owner accepted';exception when raise_exception then if sqlerrm='Concurrent owner accepted' then raise;end if;end;
+ perform pg_temp.expire_copy_lease(copy_id);transfer:=public.prepare_dynamic_evidence_copy(p,rid,'proof',100);old_token:=token;token:=(transfer->>'token')::uuid;
+ if token=old_token then raise exception 'Expired token reused';end if;
+ perform set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
+ begin perform public.finish_dynamic_evidence_copy(p,copy_id,old_token,'available');raise exception 'Old upload acknowledged';exception when raise_exception then if sqlerrm='Old upload acknowledged' then raise;end if;end;
+ perform set_config('storage.operation','storage.object.get_authenticated',true);
+ perform set_config('request.jwt.claim.sub','cccccccc-cccc-4ccc-8ccc-cccccccccccc',true);
+ final:=public.finish_dynamic_evidence_copy(p,copy_id,token,'available');if final->>'availability'<>'available' then raise exception 'Available state missing';end if;
+ if not exists(select 1 from storage.objects where name=path) then raise exception 'Member cannot retrieve available object';end if;
+ perform set_config('storage.operation','storage.object.sign',true);if exists(select 1 from storage.objects where name=path) then raise exception 'Signed download could bypass later revocation';end if;
+ perform set_config('storage.operation','storage.object.get_authenticated',true);
+ update storage.objects set name=p::text||'/renamed.png' where name=path;get diagnostics n=row_count;if n<>0 then raise exception 'Immutable object renamed';end if;
+ if public.prepare_dynamic_evidence_copy(p,rid,'proof',100)->>'token' is not null then raise exception 'Synced replay starts another upload';end if;
+ perform pg_temp.expire_copy(copy_id);
+ if public.list_dynamic_evidence_copies(p,rid)->0->>'availability'<>'expired' or exists(select 1 from storage.objects where name=path) then raise exception 'Expired evidence readable or mislabeled';end if;
+ if public.prepare_dynamic_evidence_copy(p,rid,'proof',100)->>'token' is not null then raise exception 'Retry extended retention';end if;
+ transfer:=public.delete_dynamic_evidence_copy(p,rid,copy_id);token:=(transfer->>'token')::uuid;if exists(select 1 from storage.objects where name=path) then raise exception 'Deleting expired object allows download';end if;perform set_config('storage.operation','storage.object.delete_many',true);delete from storage.objects where name=path;get diagnostics n=row_count;if n<>1 then raise exception 'Recorded deletion not allowed';end if;
+ final:=public.finish_dynamic_evidence_copy(p,copy_id,token,'deleted');if final->>'availability'<>'deleted' then raise exception 'Deleted metadata lost';end if;
+ if public.delete_dynamic_evidence_copy(p,rid,copy_id)->>'token' is not null then raise exception 'Deletion replay duplicated';end if;
+ perform set_config('request.jwt.claim.sub','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true);
+ if exists(select 1 from public.dynamic_evidence_copies where id=copy_id) then raise exception 'Non-member metadata read';end if;
+ begin perform public.list_dynamic_evidence_copies(p,rid);raise exception 'Non-member listing';exception when insufficient_privilege then null;end;
+ begin perform public.prepare_dynamic_evidence_copy(p,rid,'proof',100);raise exception 'Non-member transfer';exception when insufficient_privilege then null;end;
+ raise notice 'PASS: private metadata, upload replay, expiry/reclaim fences, member Storage access, immutable objects, retention and deletion';
+end $$;
+rollback;

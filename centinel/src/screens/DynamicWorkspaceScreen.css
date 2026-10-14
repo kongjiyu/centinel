@@ -115,3 +115,7 @@
 .dynamic-workspace-screen .dw-findings thead th:nth-child(1) { width: 32%; }
 .dynamic-workspace-screen .dw-findings thead th:nth-child(2), .dynamic-workspace-screen .dw-findings thead th:nth-child(3), .dynamic-workspace-screen .dw-findings thead th:nth-child(5) { width: 18%; }
 .dynamic-workspace-screen .dw-findings thead th:nth-child(4) { width: 14%; }
+
+.dynamic-workspace-screen .dw-evidence-copies { list-style: none; margin: 18px 0; padding: 0; }
+.dynamic-workspace-screen .dw-evidence-copies > li { padding: 16px 0; border-top: 1px solid var(--workspace-border); overflow-wrap: anywhere; }
+.dynamic-workspace-screen .dw-shared-evidence { min-width: 0; }

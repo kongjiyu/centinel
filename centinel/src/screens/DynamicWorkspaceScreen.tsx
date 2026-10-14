@@ -1,3 +1,4 @@
+import {RunEvidencePanel} from './RunEvidencePanel';
 import {DynamicFindingsPanel} from './DynamicFindingsPanel';
 import {RunDownloadedFiles} from './RunDownloadedFiles';
 import {DynamicRegressionPanel} from './DynamicRegressionPanel';
@@ -27,25 +28,6 @@ const verdictLabel = (value: string) => ({ passed: 'Passed', failed: 'Failed', u
 const dateLabel = (value: string) => new Date(value).toLocaleString();
 const active = (run: DynamicRun) => ['queued', 'running'].includes(run.state);
 
-function RunScreenshot({ projectId, run }: { projectId: string; run: DynamicRun }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [message, setMessage] = useState('Loading local evidence…');
-  const evidenceKey = run.evidence.map(item => item.id + item.sha256).join(':');
-  useEffect(() => {
-    let current = true; let objectUrl: string | null = null;
-    setUrl(null); setMessage('Loading local evidence…');
-    if (!run.legacySessionId) { setMessage('No local screenshot was recorded.'); return; }
-    void api.listDynamicEvidence(projectId, run.legacySessionId).then(async evidence => {
-      const screenshot = evidence.find(item => item.type === 'screenshot' && run.evidence.some(ref => ref.id === item.id));
-      if (!screenshot) throw new Error('Local evidence unavailable');
-      const blob = await api.dynamicEvidenceBlob(screenshot.filePath);
-      if (!current) return;
-      objectUrl = URL.createObjectURL(blob); setUrl(objectUrl);
-    }).catch(() => { if (current) setMessage('Screenshot unavailable on this device. Run metadata remains available.'); });
-    return () => { current = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [projectId, run.id, run.legacySessionId, evidenceKey]);
-  return url ? <img className="dw-screenshot" src={url} alt="Page captured for the selected run's independent checks" /> : <p className="dw-muted">{message}</p>;
-}
 
 export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunId, onNavigate,incomingContextSource=createStaticContextStub }: Props) {
   const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
@@ -67,6 +49,8 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null); const [feedback, setFeedback] = useState('');
   const requestKey = useRef<{ revisionId: string; environmentId: string; baselineRunId?:string;key: string } | null>(null);
+  const loadFlight=useRef<{projectId:string;generation:number;promise:Promise<void>}|null>(null);
+  const revisionCache=useRef(new Map<string,MissionRevision>());
   const loadGeneration = useRef(0); const loadSequence = useRef(0); const errorRef = useRef<HTMLParagraphElement>(null);
   const dirty = useRef(false);
   const resultRef = useRef<HTMLElement>(null);
@@ -78,12 +62,27 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
   const resetDraft = useCallback(() => { setMissionId(null);setMode('guided'); setName(''); setGoal(''); setTargetUrl(''); setMaxSteps(15); setSource('manual');contextSequence.current++;setContextLoading(false);setDraftContext(null);setContextScenario('normal');setContextAcknowledged(false);setCriterionExclusions([]); setChecks([emptyCheck()]); dirty.current = false; setFeedback(''); }, []);
   const load = useCallback(async () => {
     if (!projectId) return;
-    const generation = loadGeneration.current; const sequence = ++loadSequence.current;
-    const [missions, history] = await Promise.all([api.dynamicMissions(projectId), api.dynamicRuns(projectId)]);
-    const latest = await Promise.all(missions.map(mission => api.dynamicRevision(projectId, mission.currentRevisionId)));
-    if (generation !== loadGeneration.current || sequence !== loadSequence.current) return;
-    setRevisions(latest); setRuns(history);
+    const generation = loadGeneration.current;
+    if(loadFlight.current?.projectId===projectId&&loadFlight.current.generation===generation)return loadFlight.current.promise;
+    const sequence=++loadSequence.current;
+    const pending=(async()=>{
+      const [missions,history]=await Promise.all([api.dynamicMissions(projectId),api.dynamicRuns(projectId)]);
+      if(generation!==loadGeneration.current||sequence!==loadSequence.current)return;
+      // History is independently usable while immutable saved revisions hydrate.
+      setRuns(history);
+      const latest=await Promise.all(missions.map(async mission=>{
+        const cacheKey=projectId+':'+mission.currentRevisionId;const cached=revisionCache.current.get(cacheKey);if(cached)return cached;
+        const revision=await api.dynamicRevision(projectId,mission.currentRevisionId);
+        if(generation===loadGeneration.current)revisionCache.current.set(cacheKey,revision);
+        return revision;
+      }));
+      if(generation!==loadGeneration.current||sequence!==loadSequence.current)return;
+      setRevisions(latest);
+    })();
+    loadFlight.current={projectId,generation,promise:pending};
+    try{await pending;}finally{if(loadFlight.current?.promise===pending)loadFlight.current=null;}
   }, [projectId]);
+
   useEffect(() => {
     loadGeneration.current++; let current = true;
     resetDraft();setBusy(false);requestKey.current=null; setEnvironmentId(''); setRuns([]); setRevisions([]); setSelectedRunId(initialRunId ?? ''); setError(null);
@@ -203,7 +202,7 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
         {selectedRun.executionVersions?.files===2&&<RunDownloadedFiles projectId={projectId} run={selectedRun}/>}
         {selectedRun.environment && <details className="dw-advanced"><summary>Recorded environment · {selectedRun.environment.name} v{selectedRun.environment.version}</summary><p>{selectedRun.environment.targetUrl} · {selectedRun.environment.viewport.width}×{selectedRun.environment.viewport.height} · Target version: {selectedRun.environment.targetVersion || 'Not recorded'}</p>{selectedRun.environment.preparation&&<p>Recorded preparation: {selectedRun.environment.preparation.note} · profile v{selectedRun.environment.preparation.profileVersion}</p>}<p>Required names: {selectedRun.environment.requiredVariables.join(', ') || 'None'}. Values remain local and are not part of this record.</p><ul>{selectedRun.environment.preflight.map(check=><li key={check.name}>{check.name}: {check.ready?'Ready':'Needs attention'} — {check.reason}</li>)}</ul></details>}
         <div className="dw-table-scroll"><table><caption>Independent check results</caption><thead><tr><th>Check</th><th>Result</th><th>Observation</th></tr></thead><tbody>{selectedRun.revision.checks.map(check => { const result = selectedRun.checks.find(item => item.checkId === check.id); return <tr key={check.id}><th scope="row">{check.description}</th><td><span className={`dw-verdict dw-${result?.verdict ?? 'not_tested'}`}>{verdictLabel(result?.verdict ?? 'not_tested')}</span></td><td>{result?.observed || result?.reason || 'No observation recorded.'}</td></tr>; })}</tbody></table></div>
-        {selectedRun.evidence.length > 0 && <details className="dw-evidence"><summary>Screenshot evidence · local to the executing device</summary><RunScreenshot projectId={projectId} run={selectedRun} /></details>}
+        {selectedRun.evidence.length > 0 && <details className="dw-evidence"><summary>Recorded evidence · local and shared availability</summary><RunEvidencePanel projectId={projectId} run={selectedRun} /></details>}
         <details className="dw-advanced"><summary>Run details</summary><dl><dt>Run ID</dt><dd>{selectedRun.id}</dd><dt>Started by</dt><dd>{selectedRun.createdBy}</dd><dt>Website</dt><dd>{selectedRun.revision.targetUrl}</dd><dt>Test goal</dt><dd>{selectedRun.revision.goal}</dd><dt>Last worker activity</dt><dd>{selectedRun.lease?.heartbeatAt ? dateLabel(selectedRun.lease.heartbeatAt) : 'Unavailable'}</dd></dl></details>
       </section>}
     </>}
