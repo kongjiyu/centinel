@@ -84,3 +84,10 @@ revoked. Shared retention is enforced, but previously exported bytes remain with
 the recipient. PDF may use a Latin fallback; JSON/Markdown preserve Unicode.
 Codex cost/cache creation may be unavailable; no values are invented. Local
 package build is not signing/notarization or turnkey sidecar distribution proof.
+
+## Final-audit supplement
+
+The representative authenticated RWA persistence repeat protocol is now explicitly
+required before whole P7 completion. The previous fixture/component/native gate
+closures remain valid, but the small fixture is insufficient on its own for this
+representative repeated-flow requirement. See DYNAMIC_RWA_RELEASE_PROTOCOL.md.
