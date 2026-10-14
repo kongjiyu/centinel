@@ -24,7 +24,7 @@ export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
-  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{observer:1|2;planner:1;policy:1;executor:1;checker:1|2};
+  executionBudget?: ExecutionBudget;actionPolicy?:BrowserActionPolicy;executionVersions?:{observer:1|2;planner:1|2;policy:1|2;executor:1|2;checker:1|2};
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string } | null;
   state: RunState; verdict: CheckVerdict; reason: string | null;
   checks: CheckResult[]; evidence: EvidenceReference[]; legacySessionId: string | null;

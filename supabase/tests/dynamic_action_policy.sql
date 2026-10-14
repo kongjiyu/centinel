@@ -11,7 +11,7 @@ begin
  perform public.record_dynamic_environment_data(p,(env->>'id')::uuid,'preparation','completed','Clean fixture baseline');
  rev:=public.save_dynamic_revision(p,auth.uid(),'{"name":"Frozen action policy","goal":"Observe controls","targetUrl":"http://localhost:3000/","maxSteps":2,"context":null,"checks":[{"id":"one","criterionId":"one","description":"Heading","kind":"visible_text","expected":"Sign in","required":true}]}');
  started:=public.start_dynamic_environment_run(p,auth.uid(),(rev->>'id')::uuid,'action-policy-run',env||'{"variableNames":[],"preflight":[{"name":"ready","ready":true}],"actionPolicy":{"schemaVersion":1,"interactions":[{"selector":"*","actions":["click"]}],"allowCoordinates":true}}');old_run:=started->'run';
- if old_run->'actionPolicy' is distinct from policy or old_run->'environment'->'actionPolicy' is distinct from policy or old_run->'executionVersions'->>'policy'<>'1' then raise exception 'Caller changed frozen authority or versions missing';end if;
+ if old_run->'actionPolicy' is distinct from policy or old_run->'environment'->'actionPolicy' is distinct from policy or old_run->'executionVersions'->>'policy'<>'2' then raise exception 'Caller changed frozen authority or versions missing';end if;
  perform public.transition_dynamic_run(p,(old_run->>'id')::uuid,'queued','{"state":"cancelled","verdict":"not_tested","checks":[],"evidence":[]}');
  env:=public.save_dynamic_environment(p,env||'{"actionPolicy":{"schemaVersion":1,"interactions":[],"allowCoordinates":false}}',(env->>'id')::uuid);
  replay:=public.start_dynamic_environment_run(p,auth.uid(),(rev->>'id')::uuid,'action-policy-run',env);

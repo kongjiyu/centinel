@@ -1,0 +1,16 @@
+import type {Request,Response} from 'playwright';
+import {redactObservation,redactObservationRecord} from './privacy.js';
+export type NetworkEvent={id:number;phase:'request'|'response'|'failed';method:string;resourceType:string;url:string;at:string;status?:number;durationMs?:number;error?:string};
+/** Metadata only: never read headers, cookies, request payloads or response bodies.
+ * Truncation is explicit; this log is not a website-verdict checker. */
+export class NetworkDiagnostics {
+ private events:NetworkEvent[]=[];private bytes=0;private omitted=0;private nextId=0;private requestsObserved=0;private responsesObserved=0;private failuresObserved=0;private pending=new Set<number>();private startedAt=new Date().toISOString();
+ private requests=new WeakMap<Request,{id:number;start?:number;method:string;resourceType:string;url:string}>();
+ constructor(private readonly secrets:readonly string[],private readonly maxEvents=1000,private readonly maxBytes=262144){}
+ private push(event:NetworkEvent){const clean=redactObservationRecord(event,this.secrets);const size=Buffer.byteLength(JSON.stringify(clean));if(this.events.length>=this.maxEvents||this.bytes+size>this.maxBytes){this.omitted++;return;}this.events.push(clean);this.bytes+=size;}
+ private info(request:Request){let info=this.requests.get(request);if(!info){info={id:++this.nextId,method:request.method().slice(0,20),resourceType:request.resourceType().slice(0,40),url:redactObservation(request.url(),this.secrets).slice(0,2048)};this.requests.set(request,info);}return info;}
+ request(request:Request){const info=this.info(request);info.start=performance.now();this.requestsObserved++;this.pending.add(info.id);this.push({id:info.id,phase:'request',method:info.method,resourceType:info.resourceType,url:info.url,at:new Date().toISOString()});}
+ response(response:Response){const info=this.info(response.request());this.responsesObserved++;this.pending.delete(info.id);this.push({id:info.id,phase:'response',method:info.method,resourceType:info.resourceType,url:info.url,at:new Date().toISOString(),status:response.status(),...(info.start!==undefined?{durationMs:Math.max(0,Math.round(performance.now()-info.start))}:{})});}
+ failed(request:Request){const info=this.info(request);this.failuresObserved++;this.pending.delete(info.id);this.push({id:info.id,phase:'failed',method:info.method,resourceType:info.resourceType,url:info.url,at:new Date().toISOString(),...(info.start!==undefined?{durationMs:Math.max(0,Math.round(performance.now()-info.start))}:{}),error:redactObservation(request.failure()?.errorText??'Transport failed',this.secrets).slice(0,300)});}
+ snapshot(includeUrls=true){const events=redactObservationRecord(this.events,this.secrets).map(event=>includeUrls?event:{...event,url:'[URL withheld]',...(event.error?{error:'[Transport detail withheld]'}:{})});return {schemaVersion:1,requestsObserved:this.requestsObserved,responsesObserved:this.responsesObserved,failuresObserved:this.failuresObserved,pendingResponses:this.pending.size,captureWindow:{startedAt:this.startedAt,snapshotAt:new Date().toISOString()},events,omittedEvents:this.omitted,truncated:this.omitted>0,privacy:includeUrls?'sanitized':'urls_withheld',limits:{maxEvents:this.maxEvents,maxBytes:this.maxBytes},retainedBytes:Buffer.byteLength(JSON.stringify(events))};}
+}

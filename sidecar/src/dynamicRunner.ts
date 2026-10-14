@@ -1,3 +1,5 @@
+import {NetworkDiagnostics} from './dynamic/browser/networkDiagnostics.js';
+import {ActionLedger} from './dynamic/browser/actionLedger.js';
 import {rescrubRunText} from './dynamic/browser/retainedPrivacy.js';
 import {BrowserPolicyBlocked,type BrowserActionPolicy} from './dynamic/browser/actionPolicy.js';
 import {buildPrompt,parseActionFromText} from './dynamic/browser/planner.js';
@@ -46,7 +48,7 @@ type ActionTraceEntry = {
   step: number;
   attempt: number;
   action: string;
-  elementRef?:string;visualFallbackReason?:string;dispatch?:string;coordinateFallbackReason?:string;requestedUrl?:string;
+  elementRef?:string;visualFallbackReason?:string;dispatch?:string;alreadyMatched?:boolean;coordinateFallbackReason?:string;requestedUrl?:string;
   beforeObservationPath?:string;afterObservationPath?:string;
   targetDescription?: string;
   selector?: string;
@@ -300,8 +302,8 @@ export async function runDynamicSession(
   const signal = controller.signal;
   let browser: Browser | null = null;
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
-  const actionTrace: ActionTraceEntry[] = [];
-  const consoleLogs: string[] = [];
+  const actionTrace: ActionTraceEntry[] = [];const actionLedger=new ActionLedger();
+  const consoleLogs: string[] = [];const networkDiagnostics=new NetworkDiagnostics(secrets);
   let privacyObservationComplete=providers.observationMode!=='dom_first';
   const retainedConsole=()=>privacyObservationComplete?redactObservationRecord(consoleLogs,secrets):[{withheldEntries:consoleLogs.length,reason:'Console text withheld because a complete sanitized page observation was unavailable.'}];
   let budgetReason:string|null=null;let filePolicyReason:string|null=null;
@@ -329,7 +331,9 @@ export async function runDynamicSession(
     const page = await browser.newPage({serviceWorkers:'block',...(providers.actionPolicy?{acceptDownloads:false}:{}),...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
 
     const observe=(url:string)=>{try{observedOrigins.add(new URL(url.replace(/^ws:/,'http:').replace(/^wss:/,'https:')).origin);}catch{}};
-    page.context().on('request',request=>observe(request.url()));
+    page.context().on('request',request=>{observe(request.url());if(targetStarted&&!signal.aborted)networkDiagnostics.request(request);});
+    page.context().on('response',response=>{if(targetStarted&&!signal.aborted)networkDiagnostics.response(response);});
+    page.context().on('requestfailed',request=>{if(targetStarted&&!signal.aborted)networkDiagnostics.failed(request);});
     const watchSocket=(target:Page)=>{target.on('websocket',socket=>observe(socket.url()));if(providers.actionPolicy){target.on('download',download=>{filePolicyReason='Download blocked by the frozen browser action policy.';void download.cancel().catch(()=>{});controller.abort();});target.on('filechooser',()=>{filePolicyReason='File selection blocked by the frozen browser action policy.';controller.abort();});}};watchSocket(page);page.context().on('page',watchSocket);
     page.on('console', msg => {
       const entry = `[${msg.type()}] ${msg.text()}`;
@@ -467,6 +471,10 @@ export async function runDynamicSession(
       try {
         // Handle terminal actions
         // Mission runs require independent checks for either model terminal proposal.
+        if(action.action==='finish_blocked'){
+          trace.result='blocked';trace.afterUrl=page.url();actionTrace.push(trace);saveActionTrace(logsDir,actionTrace,secrets);
+          status='blocked';terminalReason=sanitize('Agent stopped before completing the requested scope: '+action.summary);failureCategory='unknown';break;
+        }
         if (providers.verifyOutcome && (action.action === 'finish_success' || action.action === 'finish_failure')) {
           const verdict = await providers.verifyOutcome(page, signal, {sensitiveValues:secrets,sensitiveSelectors:providers.sensitiveSelectors});
           status = verdict === 'passed' ? 'success' : verdict === 'failed' ? 'failure' : 'blocked';
@@ -516,7 +524,7 @@ export async function runDynamicSession(
 
         // The frozen policy authorizes the actual target before one dispatch.
         debugLog.log('info', 'action_execute', `Executing ${action.action}`, step);
-        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins});
+        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger});
         Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
@@ -569,6 +577,8 @@ export async function runDynamicSession(
     await captureProtectedPage(page,finalPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});
 
     // Save console logs
+    fs.writeFileSync(path.join(logsDir,'network.json'),JSON.stringify(networkDiagnostics.snapshot(privacyObservationComplete),null,2));
+    await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'network.json'),'Sanitized network diagnostics');
     fs.writeFileSync(path.join(logsDir, 'console.json'), JSON.stringify(retainedConsole(), null, 2));
 
     // Build and save summary
@@ -604,6 +614,8 @@ export async function runDynamicSession(
     await safeUpdate(session.id, status, summary, reason);
   } finally {
     try{
+      fs.writeFileSync(path.join(logsDir,'network.json'),JSON.stringify(networkDiagnostics.snapshot(privacyObservationComplete),null,2));
+      await addEvidence(session.projectId,session.id,'session_summary',path.join(logsDir,'network.json'),'Retained partial network diagnostics');
       fs.writeFileSync(path.join(logsDir,'console.json'),JSON.stringify(retainedConsole()));
       fs.writeFileSync(path.join(logsDir,'execution-budget.json'),JSON.stringify(budget.snapshot(),null,2));
       saveActionTrace(logsDir,actionTrace,secrets);
@@ -680,6 +692,7 @@ Available actions:
 - navigate: {"action":"navigate","url":"...","reasoning":"..."}
 - assert_visible: {"action":"assert_visible","text":"...","reasoning":"..."}
 - finish_success: {"action":"finish_success","summary":"...","reasoning":"..."}
+- finish_blocked: {"action":"finish_blocked","summary":"Execution limitation","reasoning":"..."}
 - finish_failure: {"action":"finish_failure","summary":"...","reasoning":"..."}
 
 Response to repair:
