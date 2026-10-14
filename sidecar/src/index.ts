@@ -10,6 +10,8 @@ import {EnvironmentSessionVault,sessionSensitiveValues,type LocalSessionRecord} 
 import {EnvironmentSessionBroker} from './dynamic/environment/sessionBroker.js';
 import {SessionCaptureRepository} from './dynamic/environment/captureRepository.js';
 import {handleSessionRoute} from './dynamic/environment/sessionRoutes.js';
+import {UploadVault} from './dynamic/environment/uploadVault.js';
+import {handleUploadRoute} from './dynamic/environment/uploadRoutes.js';
 import { EnvironmentVault } from './dynamic/environment/vault.js';
 import { handleEnvironmentRoute } from './dynamic/environment/routes.js';
 import { checkEnvironment, environmentReady } from './dynamic/environment/preflight.js';
@@ -83,11 +85,12 @@ logRuntimeConfigStatus();
 const evidenceDir = path.resolve(__dirname, '../../evidence/phase-0');
 const dataDir = path.resolve(__dirname, '../../data');
 
-function parseJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+function parseJsonBody(req: http.IncomingMessage, maximumBytes?:number): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let body = '';let bytes=0;let oversized=false;
+    req.on('data', chunk => {if(oversized)return;bytes+=Buffer.byteLength(chunk);if(maximumBytes!==undefined&&bytes>maximumBytes){oversized=true;body='';reject(new DynamicContractError(400,'Local upload request exceeds its size limit.'));return;}body += chunk; });
     req.on('end', () => {
+      if(oversized)return;
       try { resolve(JSON.parse(body)); }
       catch (e) { reject(e); }
     });
@@ -415,7 +418,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
       const environments = new EnvironmentRepository(auth.client);
       const vault = new EnvironmentVault(path.join(dataDir, 'dynamic-environment-values'));
-      const privateValues=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>[...Object.values(vault.read(ownerId,projectId,profile.id)),...(profile.sessionReference?sessionVault.knownValues(ownerId,projectId,profile.id,profile.sessionReference):[])];
+      const uploads=new UploadVault(path.join(dataDir,'dynamic-uploads'));
+      const uploadResponse=await handleUploadRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,1_500_000)}, {ownerId,vault:uploads,repository:environments,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),secretValues:async projectId=>(await environments.list(projectId)).flatMap(profile=>[...Object.values(vault.read(ownerId,projectId,profile.id)),...(profile.sessionReference?sessionVault.knownValues(ownerId,projectId,profile.id,profile.sessionReference):[])])});if(uploadResponse)return json(res,uploadResponse.status,uploadResponse.body);
+      const privateValues=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>[...Object.values(vault.read(ownerId,projectId,profile.id)),...uploads.list(ownerId,projectId,profile.id).map(file=>file.name),...(profile.sessionReference?sessionVault.knownValues(ownerId,projectId,profile.id,profile.sessionReference):[])];
+      const uploadsReady=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>{try{for(const grant of profile.actionPolicy?.uploads??[])uploads.resolve(ownerId,projectId,profile.id,grant);return true;}catch{return false;}};
       const sessionStatus=(projectId:string,profile:import('./dynamic/environment/types.js').EnvironmentProfile)=>({...profile.sessionReference?sessionVault.status(ownerId,projectId,profile.id,profile.sessionReference,profile.allowedOrigins):{availability:'not_configured'},captureActive:['open','opening'].includes(sessionBroker.status(ownerId,projectId,profile.id)?.state??'')});
       const sessionResponse=await handleSessionRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)},{ownerId,repository:environments,vault:sessionVault,broker:sessionBroker,captures:new SessionCaptureRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId)});if(sessionResponse)return json(res,sessionResponse.status,sessionResponse.body);
       const workspaceRegistry=new WorkspaceRegistry(path.join(dataDir,'dynamic-workspaces'));
@@ -430,7 +436,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       });
       if(workspaceResponse)return json(res,workspaceResponse.status,workspaceResponse.body);
       const environmentResponse = await handleEnvironmentRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
-        ownerId,repository:environments,vault,privateValues,sessionStatus,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
+        ownerId,repository:environments,vault,privateValues,sessionStatus,uploadsReady,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
         providerReady:async projectId=>{try {
           const chain=await resolveModelProviderChain(new SupabaseModelConfigurationRepository(auth.client),{ownerId,projectId,purpose:'vision'});
           return chain.primary.provider==='codex' ? (await getCodexBackend(ownerId).status()).connected : Boolean(chain.primary.apiKey);
@@ -466,7 +472,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           let vision;
           try { vision = await resolveModelProviderChain(modelRepository, { ownerId, projectId, purpose: 'vision' }); }
           catch {
-            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false,fetch,await environments.data(projectId,profile.id),sessionInfo);
+            if (profile) { const environment = await checkEnvironment(profile,vault.names(ownerId,projectId,profile.id),false,fetch,await environments.data(projectId,profile.id),sessionInfo,uploadsReady(projectId,profile));
               return {environment,execute: async run=>{await service.stop(projectId,run.id,'blocked','Environment preflight failed: configure a screenshot provider.');}};
             }
             throw new DynamicContractError(409, 'Configure and connect a Dynamic screenshot provider in Settings.');
@@ -474,6 +480,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const project = await ensureDynamicWorkspace(sharedProject);
           const browserExecute = async(run: import('./dynamic/types.js').DynamicRun) => {if(localSession&&Date.parse(localSession.expiresAt)<=Date.now()){await service.stop(projectId,run.id,'blocked','Local session expired before browser execution. Renew it on this device.');return;}return executeMissionRun(service, run, project.workspacePath, {
             vision: vision.primary,
+            ...(run.environment?{resolveUpload:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>uploads.resolve(ownerId,projectId,run.environment!.id,grant)}:{}),
             sensitiveValues:[...frozenValues,...(localSession?sessionSensitiveValues(localSession):[])],
             storageState:localSession?.state,
             recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
@@ -492,7 +499,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           };
           if (!profile) return execute;
           const ready = vision.primary.provider === 'codex' ? await getCodexBackend(ownerId).status().then(status=>status.connected).catch(()=>false) : Boolean(vision.primary.apiKey);
-          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready,fetch,await environments.data(projectId,profile.id),sessionInfo);
+          const environment = await checkEnvironment(profile, vault.names(ownerId, projectId, profile.id), ready,fetch,await environments.data(projectId,profile.id),sessionInfo,uploadsReady(projectId,profile));
           return {environment, execute: async run => {
             if (!environmentReady(environment)) { await service.stop(projectId,run.id,'blocked','Environment preflight failed. Inspect the saved checks and startup instructions.'); return; }
             await execute(run);

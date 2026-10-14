@@ -1,9 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DynamicContractError } from '../types.js';
 import { validateEnvironment } from './validation.js';
+import {normalizeActionPolicy} from '../browser/actionPolicy.js';
 import type { EnvironmentProfile, EnvironmentData } from './types.js';
 export class EnvironmentRepository {
   constructor(private readonly client: SupabaseClient) {}
+  async saveUploadPermissions(projectId:string,id:string,version:number,uploads:unknown):Promise<EnvironmentProfile>{
+    const policy=normalizeActionPolicy({schemaVersion:1,interactions:[],allowCoordinates:false,uploads});
+    const {data,error}=await this.client.rpc('save_dynamic_upload_permissions',{p_project_id:projectId,p_profile_id:id,p_version:version,p_uploads:policy.uploads});
+    if(error)throw new DynamicContractError(error.code==='P0001'?409:503,'Environment changed or test data is still in use. Refresh before changing upload permissions.');return data;
+  }
   async list(projectId: string): Promise<EnvironmentProfile[]> {
     const {data,error}=await this.client.from('dynamic_environments').select('payload').eq('project_id',projectId).order('updated_at',{ascending:false});
     if(error)throw new DynamicContractError(503,'Environment storage unavailable. Apply the environment migration.');

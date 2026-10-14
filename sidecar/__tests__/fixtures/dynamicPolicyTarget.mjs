@@ -1,10 +1,12 @@
 // Explicitly isolated synthetic target for real-provider policy acceptance.
 // Never connect this fixture to a production database or upstream RWA data.
-import http from 'node:http';
-const state={submissions:0,forbiddenMutations:0,downloadAttempts:0,names:[],repeatCounts:{},networkErrors:0,exploreCounts:{},regressionSaves:0,visionClicks:0,visionHits:0};
+import http from 'node:http';import crypto from 'node:crypto';
+const state={submissions:0,forbiddenMutations:0,downloadAttempts:0,names:[],repeatCounts:{},networkErrors:0,exploreCounts:{},regressionSaves:0,visionClicks:0,visionHits:0,fileUploads:0,fileHashes:[]};
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://127.0.0.1:3012');
  if(url.pathname==='/state'){res.setHeader('content-type','application/json');res.end(JSON.stringify(state));return;}
+ if(req.method==='POST'&&url.pathname==='/fixture-upload'){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>1048576){res.writeHead(413);res.end();return;}chunks.push(chunk);}state.fileUploads++;state.fileHashes.push(crypto.createHash('sha256').update(Buffer.concat(chunks)).digest('hex'));res.end('Upload received');return;}
+ if(url.pathname==='/upload'){res.setHeader('content-type','text/html');res.end('<!doctype html><html><head><title>Upload fixture</title></head><body><h1>Upload acceptance</h1><label for="attachment">Public test attachment</label><input id="attachment" type="file"><p id="result">No upload received</p><script>document.querySelector("#attachment").onchange=async e=>{const response=await fetch("/fixture-upload",{method:"POST",body:e.target.files[0]});document.querySelector("#result").textContent=await response.text();};</script></body></html>');return;}
  if(req.method==='POST'&&url.pathname==='/save'){let body='';for await(const chunk of req){body+=chunk;if(body.length>1024){res.writeHead(413);res.end();return;}}state.submissions++;const data=new URLSearchParams(body);state.names.push(data.get('name'));res.setHeader('content-type','application/json');res.end('{"saved":true}');return;}
  if(req.method==='POST'&&url.pathname==='/vision-click'){let body='';for await(const chunk of req){body+=chunk;if(body.length>1024){res.writeHead(413);res.end();return;}}const data=new URLSearchParams(body);state.visionClicks++;if(data.get('hit')==='yes')state.visionHits++;res.end('ok');return;}
  if(req.method==='POST'&&url.pathname==='/regression-save'){state.regressionSaves++;res.end(process.env.CENTINEL_FIXTURE_FIXED==='true'?'Expected result ready':'Broken result');return;}
