@@ -26,7 +26,7 @@ beforeEach(() => {
   workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-dynamic-unit-'));
   const page = { context:()=>({pages:()=>[],on:vi.fn(),route:vi.fn(),routeWebSocket:vi.fn()}), frames:()=>[], on: vi.fn(), goto: vi.fn(), waitForTimeout: vi.fn(), screenshot: vi.fn(async ({ path: file }: { path: string }) => fs.writeFileSync(file, 'fixture')), url: () => 'https://example.test', title: async () => 'Demo', evaluate: async () => 'Demo content' };
   pageStub=page;
-  vi.mocked(chromium.launch).mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page), close: vi.fn().mockResolvedValue(undefined) } as any);
+  vi.mocked(chromium.launch).mockResolvedValue({ on: vi.fn(), newPage: vi.fn().mockResolvedValue(page), close: vi.fn().mockResolvedValue(undefined) } as any);
   model.analyze.mockResolvedValue({ result: { action: 'finish_failure', summary: 'Expected content missing', reasoning: 'Compared to goal' }, usage: { inputTokens: 10, outputTokens: 2 } });
   // The page-context helper expects its second evaluation to return elements.
   (page as any).evaluate = vi.fn().mockResolvedValueOnce('Demo content').mockResolvedValueOnce([]);
@@ -152,4 +152,18 @@ describe('Dynamic shared provider and run basics', () => {
     for (const value of [{ action: 'delete' }, { action: 'click', reasoning: '' }, { action: 'navigate', url: 'file:///private', reasoning: '' }, { action: 'wait', milliseconds: 1e9, reasoning: '' }, { action: 'type', targetDescription: 'field', selector: 'input', text: 1, reasoning: '' }]) expect(isValidAgentAction(value)).toBe(false);
     expect(isValidAgentAction({ action: 'assert_visible', text: 'Success', reasoning: 'Verify goal' })).toBe(true);
   });
+});
+
+it('aborts the pending provider when its browser disconnects, retaining partial evidence without a product finding', async () => {
+ let disconnected:()=>void=()=>{};
+ const runtime:any={newPage:vi.fn().mockResolvedValue(pageStub),close:vi.fn().mockResolvedValue(undefined)};
+ runtime.on=vi.fn((event:string,callback:()=>void)=>{if(event==='disconnected')disconnected=callback;});
+ vi.mocked(chromium.launch).mockResolvedValue(runtime);
+ model.analyze.mockImplementation(({signal}:{signal:AbortSignal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true})));
+ const running=runDynamicSession(session,workspace,{vision:setting});
+ await vi.waitFor(()=>expect(model.analyze).toHaveBeenCalled());disconnected();await running;
+ expect(model.analyze).toHaveBeenCalledOnce();
+ expect(updateDynamicSessionStatus).toHaveBeenLastCalledWith(session.id,'blocked',expect.any(String),expect.stringContaining('Browser disconnected'));
+ expect(db.run).not.toHaveBeenCalled();
+ for(const name of ['action-trace.json','network.json','console.json','execution-budget.json'])expect(fs.existsSync(path.join(workspace,'sessions',session.id,'logs',name))).toBe(true);
 });
