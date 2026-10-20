@@ -7,7 +7,7 @@ import {
   parseRequirementCandidateDrafts,
   parseStandardRules,
 } from '../../src/review/grounding.js';
-import { assessEvidenceSufficiency, type EvidenceSufficiencyInput } from '../../src/review/evidenceSufficiency.js';
+import { assessEvidenceSufficiency, extractEvidenceClaims, type EvidenceSufficiencyInput } from '../../src/review/evidenceSufficiency.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
 import { createStaticReviewOrchestrator } from '../../src/review/orchestrator.js';
 import type { StaticAnalysisModelProvider } from '../../src/review/types.js';
@@ -88,6 +88,33 @@ function evidenceInput(overrides: Partial<EvidenceSufficiencyInput> = {}): Evide
     ...overrides,
   };
 }
+
+describe('Prose evidence boundaries', () => {
+  const tests = "describe('acceptRanges: false', function () {\n  it('should not include Accept-Ranges', function (done) {})\n})\ndescribe('acceptRanges: true', function () {\n  it('should include Accept-Ranges', function (done) {})\n})";
+  it.each(['source_code', 'requirement'] as const)('does not turn option-specific JavaScript tests into conflicting requirements (%s)', type => {
+    const source = { artifact: { ...codeArtifact, type, filePath: 'test/test.js' }, content: tests };
+    expect(extractEvidenceClaims([source])).toEqual([]);
+    expect(assessEvidenceSufficiency(evidenceInput({ artifacts: [source] })).contradictions).toEqual([]);
+  });
+
+  it.each(['```', '~~~~'])('ignores fenced examples while retaining prose conflicts and original lines (%s)', fence => {
+    const content = [fence + 'javascript', tests, fence, 'The server must include the response header.', 'The server must not include the response header.'].join('\n');
+    const source = { artifact: requirementArtifact, content };
+    const claims = extractEvidenceClaims([source]);
+    expect(claims).toHaveLength(2);
+    expect(claims.map(item => item.locator?.lineStart)).toEqual([9, 10]);
+    expect(assessEvidenceSufficiency(evidenceInput({ artifacts: [source] })).contradictions).toHaveLength(1);
+  });
+
+  it('ignores indented examples and configuration strings without discarding explicit claims', () => {
+    expect(extractEvidenceClaims([{ artifact: requirementArtifact, content: '    The server must include the response header.\n\tThe server must not include the response header.' }])).toEqual([]);
+    const result = assessEvidenceSufficiency(evidenceInput({
+      artifacts: [{ artifact: { ...codeArtifact, type: 'other', filePath: 'package.json' }, content: tests }],
+      claims: [{ id: 'yes', text: 'The server must include the response header.' }, { id: 'no', text: 'The server must not include the response header.' }],
+    }));
+    expect(result.contradictions).toHaveLength(1);
+  });
+});
 
 describe('deterministic evidence sufficiency', () => {
   it('returns ready for sufficient frozen code evidence', () => {

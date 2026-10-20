@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CentinelApplicationRepository } from './applicationRepository.js';
 import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType } from './artifacts.js';
-import type { StoreArtifact } from './store/types.js';
+import type { StoreArtifact, StoreArtifactVersion } from './store/types.js';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'vendor', 'target', 'bin', 'obj', '.idea', '.vscode']);
 const MAX_IMPORT_FILES = 2_000;
@@ -15,6 +15,8 @@ function validArtifactType(value: unknown): value is ArtifactType {
 }
 
 function displaySource(artifact: StoreArtifact): ArtifactSource {
+  if (artifact.metadata.provider === 'github') return 'repository';
+  if (artifact.metadata.provider === 'google_drive') return 'drive';
   const value = artifact.metadata.source;
   return value === 'repository' || value === 'directory' || value === 'drive' ? value : 'documents';
 }
@@ -22,6 +24,10 @@ function displaySource(artifact: StoreArtifact): ArtifactSource {
 export async function toClientArtifact(repository: CentinelApplicationRepository, artifact: StoreArtifact, signal?: AbortSignal): Promise<Artifact> {
   const versions = await repository.listArtifactVersions(artifact.projectId, artifact.id, signal);
   const latest = versions.at(-1);
+  return clientArtifact(artifact, latest);
+}
+
+function clientArtifact(artifact: StoreArtifact, latest?: StoreArtifactVersion): Artifact {
   const type = validArtifactType(artifact.kind)
     ? artifact.kind
     : validArtifactType(artifact.metadata.type) ? artifact.metadata.type : detectArtifactType(artifact.name);
@@ -40,8 +46,18 @@ export async function toClientArtifact(repository: CentinelApplicationRepository
 }
 
 export async function listClientArtifacts(repository: CentinelApplicationRepository, projectId: string, signal?: AbortSignal): Promise<Artifact[]> {
-  const artifacts = await repository.listArtifacts(projectId, signal);
-  return Promise.all(artifacts.map(artifact => toClientArtifact(repository, artifact, signal)));
+  const [artifacts, versions] = await Promise.all([
+    repository.listArtifacts(projectId, signal), repository.listProjectArtifactVersions(projectId, signal),
+  ]);
+  const latestVersions = new Map<string, StoreArtifactVersion>();
+  for (const version of versions) {
+    const previous = latestVersions.get(version.artifactId);
+    if (!previous || version.versionNumber > previous.versionNumber
+      || version.versionNumber === previous.versionNumber && version.id.localeCompare(previous.id) > 0) {
+      latestVersions.set(version.artifactId, version);
+    }
+  }
+  return artifacts.map(artifact => clientArtifact(artifact, latestVersions.get(artifact.id)));
 }
 
 export async function getClientArtifact(client: SupabaseClient, userId: string, artifactId: string, signal?: AbortSignal): Promise<Artifact | null> {
@@ -116,7 +132,7 @@ export async function importLocalRepositoryArtifacts(
         continue;
       }
       if (!entry.isFile()) continue;
-      if (detectArtifactType(entry.name) === 'other') continue;
+      if (detectArtifactType(entry.name) === 'other' && !['.json', '.jsonc', '.yaml', '.yml', '.xml', '.toml', '.ini', '.mod', '.csproj', '.gradle', '.kts', '.swift', '.kt', '.scala', '.dart', '.vue', '.svelte', '.sql', '.sh', '.bash', '.lua'].includes(path.extname(entry.name).toLowerCase()) && !['.editorconfig', 'Gemfile', 'Dockerfile', 'Makefile'].includes(entry.name)) { skipped.push(relativePath); continue; }
       if (imported.length >= MAX_IMPORT_FILES) { skipped.push(relativePath); continue; }
       const fileStat = await fs.stat(fullPath);
       if (fileStat.size > MAX_IMPORT_FILE_BYTES) { skipped.push(relativePath); continue; }
@@ -130,6 +146,17 @@ export async function importLocalRepositoryArtifacts(
         skipped.push(relativePath);
       }
     }
+  }
+  // Record only coverage metadata, never paths or source bodies. A bounded or
+  // partial local import must not silently become a complete readiness result.
+  try {
+    const coverage = await repository.client.from('audit_events').insert({ id: crypto.randomUUID(), project_id: projectId,
+      actor_id: repository.userId, event_type: 'local_import_coverage', entity_type: 'project', entity_id: projectId,
+      payload: { rootHash: crypto.createHash('sha256').update(root.toLowerCase()).digest('hex'), imported: imported.length,
+        skipped: skipped.length, artifactIds: imported.map(artifact => artifact.id) } });
+    if (coverage.error) throw new Error('Coverage write failed');
+  } catch {
+    throw new Error('Local import coverage could not be recorded. Retry the import before assessing readiness.');
   }
   return { imported, skipped };
 }

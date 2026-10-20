@@ -42,6 +42,7 @@ export type StaticReviewScope = {
 
 export type ReviewProgressState = {
   stage: string;
+  pauseCode?: import('./providerPause.js').ProviderPauseCode;
   completedStages: string[];
   message?: string;
   updatedAt: string;
@@ -193,6 +194,7 @@ export interface StaticAnalysisModelProvider {
 }
 
 export type ModelAttemptOutcome =
+  | 'in_progress'
   | 'success'
   | 'retryable_error'
   | 'permanent_error'
@@ -284,6 +286,8 @@ export type StaticReviewStartInput = {
   name?: string;
   reviewType: StaticReviewType;
   scope?: StaticReviewScope;
+  /** Optional completed Review to compare against while capturing fresh sources. */
+  comparisonParentReviewId?: string;
   idempotencyKey?: string;
   /** Validate a new Review's selected source IDs after idempotency lookup and before persistence. */
   validateScopeBeforeCreate?: () => Promise<void>;

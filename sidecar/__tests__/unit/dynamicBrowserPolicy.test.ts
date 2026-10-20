@@ -1,4 +1,4 @@
-import {describe,it,expect} from 'vitest';import {chromium} from 'playwright';import http from 'node:http';import https from 'node:https';import crypto from 'node:crypto';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {execFileSync} from 'node:child_process';
+import {describe,it,expect} from 'vitest';import {chromium} from 'playwright';import http from 'node:http';import https from 'node:https';import crypto from 'node:crypto';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createLocalTlsFixture} from '../helpers/tlsFixture.js';
 import {allowedBrowserUrl} from '../../src/dynamic/browser/policy.js';
 import {createRunNetworkProxy} from '../../src/dynamic/browser/networkProxy.js';
 describe('Browser request origin policy',()=>{
@@ -25,7 +25,7 @@ describe('Browser request origin policy',()=>{
   }finally{await browser.close();await proxy.close();await new Promise<void>(r=>local.close(()=>r()));}
  });
  it('guards HTTPS CONNECT destinations without decrypting credentials or response content',async()=>{
-  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'centinel-proxy-tls-'));execFileSync('/usr/bin/openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',path.join(folder,'key.pem'),'-out',path.join(folder,'cert.pem'),'-days','1','-subj','/CN=127.0.0.1'],{stdio:'ignore'});const tls={key:fs.readFileSync(path.join(folder,'key.pem')),cert:fs.readFileSync(path.join(folder,'cert.pem'))};
+  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'centinel-proxy-tls-'));const tls=createLocalTlsFixture(folder,'127.0.0.1');
   let foreign=0;const denied=https.createServer(tls,(_req,res)=>{foreign++;res.end('foreign');});await new Promise<void>(r=>denied.listen(0,'127.0.0.1',r));const deniedOrigin='https://127.0.0.1:'+((denied.address() as any).port);
   const permitted=https.createServer(tls,(req,res)=>{if(req.url==='/redirect'){res.writeHead(302,{location:deniedOrigin});res.end();}else res.end('<p>Secure permitted</p>');});await new Promise<void>(r=>permitted.listen(0,'127.0.0.1',r));const origin='https://127.0.0.1:'+((permitted.address() as any).port);let violations=0;const proxy=await createRunNetworkProxy([origin],()=>violations++);const browser=await chromium.launch({headless:true,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-http2','--disable-quic']});
   try{const page=await browser.newPage({ignoreHTTPSErrors:true,serviceWorkers:'block'});await page.goto(origin);expect(await page.locator('p').innerText()).toBe('Secure permitted');await page.goto(origin+'/redirect').catch(()=>null);expect(foreign).toBe(0);expect(violations).toBeGreaterThan(0);

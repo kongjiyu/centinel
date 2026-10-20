@@ -127,7 +127,7 @@ export function ProjectSummaryTable({
                     </div>
                   ) : (
                     <div className="project-activity-stack project-activity-empty">
-                      <span>No review or dynamic testing activity yet</span>
+                      <span>{summary.loading ? 'Loading activity…' : summary.unavailable ? 'Activity unavailable' : 'No review or dynamic testing activity yet'}</span>
                     </div>
                   )}
                 </td>

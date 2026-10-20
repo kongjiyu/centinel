@@ -5,12 +5,13 @@ import { CommandPageHeader } from '../components/CommandUI';
 import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
-import type { Artifact, Project, Requirement, Screen, StaticSession } from '../types';
+import type { Artifact, Project, Requirement, ReviewScopeSelection, ReviewSourceManifest, Screen, StaticSession } from '../types';
 import './ReviewEntryScreen.css';
 
 type Props = {
   projects: Project[];
   initialProjectId?: string;
+  comparisonParentReviewId?: string;
   onNavigate: (screen: Screen) => void;
   onCreateProject: (name: string, description: string, workspacePath: string, source: ProjectCreateSource) => Promise<Project | void>;
 };
@@ -75,8 +76,61 @@ function requirementItems(requirements: Requirement[]): ScopeItem[] {
   }));
 }
 
-export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCreateProject }: Props) {
+function parseReviewConfig(session: StaticSession): Record<string, unknown> {
+  try {
+    const config = JSON.parse(session.configJson) as unknown;
+    return config && typeof config === 'object' && !Array.isArray(config) ? config as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringIds(value: unknown): string[] {
+  return Array.isArray(value) ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean))) : [];
+}
+
+function priorScope(session: StaticSession, config: Record<string, unknown>): ReviewScopeSelection | null {
+  const savedScope = session.scope && typeof session.scope === 'object'
+    ? session.scope as Record<string, unknown>
+    : config.scope && typeof config.scope === 'object' && !Array.isArray(config.scope)
+      ? config.scope as Record<string, unknown>
+      : {};
+  const scope: ReviewScopeSelection = {
+    artifactIds: stringIds(savedScope.artifactIds ?? config.artifactIds ?? config.selectedArtifactIds),
+    requirementIds: stringIds(savedScope.requirementIds ?? config.requirementIds ?? config.selectedRequirementIds),
+    standardIds: stringIds(savedScope.standardIds ?? config.standardIds ?? config.selectedStandardIds),
+  };
+  return scope.artifactIds.length + scope.requirementIds.length + scope.standardIds.length > 0 ? scope : null;
+}
+
+function comparisonFailure(session: StaticSession, projectId: string, manifest: ReviewSourceManifest | null): string | null {
+  if (session.projectId !== projectId) return 'The saved Review is not part of this project.';
+  const eligibleStatus = ['pending_approval', 'completed', 'approved', 'changes_requested'].includes(session.status);
+  if (!eligibleStatus || session.modelStatus !== 'succeeded') {
+    return 'The saved Review does not have the completed model evidence required for comparison.';
+  }
+  let progressComplete = false;
+  try {
+    const progress = JSON.parse(session.progressJson) as { stage?: unknown };
+    progressComplete = progress.stage === 'complete';
+  } catch { /* Older sessions may not have structured progress. */ }
+  if (!progressComplete) {
+    return 'The saved Review has no confirmed successful completion record for comparison.';
+  }
+  const hasSavedArtifacts = Boolean(manifest?.sources.some(source => source.artifactIds.length > 0));
+  if (!manifest || manifest.projectId !== projectId || manifest.sessionId !== session.id || manifest.status !== 'available' || !hasSavedArtifacts) {
+    return 'The saved Review source manifest is unavailable for comparison.';
+  }
+  return null;
+}
+
+export function ReviewEntryScreen({ projects, initialProjectId, comparisonParentReviewId: initialComparisonParentReviewId, onNavigate, onCreateProject }: Props) {
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId || projects[0]?.id || '');
+  const [comparisonParentReviewId, setComparisonParentReviewId] = useState<string | null>(initialComparisonParentReviewId || null);
+  const [comparisonParentReview, setComparisonParentReview] = useState<StaticSession | null>(null);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const comparisonPrefilledFor = useRef<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<Set<string>>(new Set());
@@ -96,18 +150,63 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
   const [submitting, setSubmitting] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const idempotencyKey = useRef<string>(makeIdempotencyKey());
+  const scopeRequestId = useRef(0);
+  const lastInitialProjectId = useRef(initialProjectId);
+  const comparisonProjectId = useRef(initialProjectId || projects[0]?.id || '');
+  const routeComparisonParentReviewId = useRef(initialComparisonParentReviewId || null);
 
   useEffect(() => {
-    if (initialProjectId && projects.some(project => project.id === initialProjectId)) {
-      setSelectedProjectId(initialProjectId);
+    if (lastInitialProjectId.current !== initialProjectId) {
+      lastInitialProjectId.current = initialProjectId;
+      if (initialProjectId && projects.some(project => project.id === initialProjectId)) {
+        setSelectedProjectId(initialProjectId);
+      }
       return;
     }
     if (!projects.some(project => project.id === selectedProjectId)) setSelectedProjectId(projects[0]?.id || '');
   }, [initialProjectId, projects, selectedProjectId]);
 
+  useEffect(() => {
+    const nextParentId = initialComparisonParentReviewId || null;
+    if (routeComparisonParentReviewId.current === nextParentId) return;
+    routeComparisonParentReviewId.current = nextParentId;
+    setComparisonParentReviewId(nextParentId);
+    setComparisonParentReview(null);
+    setComparisonError(null);
+    setComparisonLoading(false);
+    comparisonPrefilledFor.current = null;
+    comparisonProjectId.current = initialProjectId || selectedProjectId;
+    setReviewName('');
+    setObjective('');
+    setBaseRef('');
+    setHeadRef('');
+    setPullRequest('');
+  }, [initialComparisonParentReviewId, initialProjectId, selectedProjectId]);
+
+  useEffect(() => {
+    if (!comparisonParentReviewId) {
+      comparisonProjectId.current = selectedProjectId;
+      return;
+    }
+    if (comparisonProjectId.current && comparisonProjectId.current !== selectedProjectId) {
+      setComparisonParentReviewId(null);
+      setComparisonParentReview(null);
+      setComparisonError(null);
+      setComparisonLoading(false);
+      comparisonPrefilledFor.current = null;
+      setReviewName('');
+      setObjective('');
+      setBaseRef('');
+      setHeadRef('');
+      setPullRequest('');
+    }
+  }, [comparisonParentReviewId, selectedProjectId]);
+
   const selectedProject = projects.find(project => project.id === selectedProjectId) ?? null;
 
   const loadScope = useCallback(async () => {
+    const requestId = ++scopeRequestId.current;
+    const isCurrentRequest = () => scopeRequestId.current === requestId;
     if (!selectedProjectId) {
       setArtifacts([]);
       setRequirements([]);
@@ -116,17 +215,24 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       setSelectedStandardIds(new Set());
       setActiveSession(null);
       setScopeError(null);
+      setComparisonParentReview(null);
+      setComparisonError(null);
+      setComparisonLoading(false);
       setLoadingScope(false);
       return;
     }
     setLoadingScope(true);
     setScopeError(null);
     setActiveSession(null);
+    setComparisonParentReview(null);
+    setComparisonError(null);
+    setComparisonLoading(Boolean(comparisonParentReviewId));
     try {
       const [nextArtifacts, nextRequirements] = await Promise.all([
         api.listArtifacts(selectedProjectId),
         typeof api.listRequirements === 'function' ? api.listRequirements(selectedProjectId) : Promise.resolve([] as Requirement[]),
       ]);
+      if (!isCurrentRequest()) return;
       const activeArtifacts = nextArtifacts.filter(artifact => !isDeprecated(artifact));
       setArtifacts(activeArtifacts);
       setRequirements(nextRequirements);
@@ -134,18 +240,64 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       setSelectedStandardIds(new Set(activeArtifacts.filter(artifact => artifact.type === 'coding_standard').map(artifact => artifact.id)));
       setSelectedRequirementIds(new Set(nextRequirements.map(requirement => requirement.id)));
 
+      if (comparisonParentReviewId) {
+        try {
+          const reviews = await api.listStaticSessions(selectedProjectId);
+          if (!isCurrentRequest()) return;
+          const parentReview = reviews.find(review => review.id === comparisonParentReviewId && review.projectId === selectedProjectId);
+          if (!parentReview) {
+            setComparisonError('The prior Review could not be found in this project. Retry the lookup or clear the comparison before starting an independent Review.');
+          } else {
+            const manifest = await api.getReviewSourceManifest(selectedProjectId, parentReview.id);
+            if (!isCurrentRequest()) return;
+            const failure = comparisonFailure(parentReview, selectedProjectId, manifest ?? null);
+            const config = parseReviewConfig(parentReview);
+            const savedScope = priorScope(parentReview, config);
+            if (failure) {
+              setComparisonError(`${failure} Retry the lookup or clear the comparison before starting an independent Review.`);
+            } else if (!savedScope) {
+              setComparisonError('The saved Review scope is unavailable for comparison. Retry the lookup or clear the comparison before starting an independent Review.');
+            } else {
+              setComparisonParentReview(parentReview);
+              if (comparisonPrefilledFor.current !== parentReview.id) {
+                const prefilledName = parentReview.name.trim().slice(0, 120);
+                setReviewName(prefilledName);
+                setObjective(typeof config.instructions === 'string' ? config.instructions : '');
+                setBaseRef(typeof config.baseRef === 'string' ? config.baseRef : '');
+                setHeadRef(typeof config.headRef === 'string' ? config.headRef : '');
+                setPullRequest(typeof config.pullRequest === 'string' ? config.pullRequest : '');
+                const artifactIds = new Set(savedScope.artifactIds ?? []);
+                const standardIds = new Set(savedScope.standardIds ?? []);
+                const requirementIds = new Set(savedScope.requirementIds ?? []);
+                setSelectedArtifactIds(new Set(activeArtifacts.filter(artifact => artifact.type !== 'coding_standard' && artifactIds.has(artifact.id)).map(artifact => artifact.id)));
+                setSelectedStandardIds(new Set(activeArtifacts.filter(artifact => artifact.type === 'coding_standard' && standardIds.has(artifact.id)).map(artifact => artifact.id)));
+                setSelectedRequirementIds(new Set(nextRequirements.filter(requirement => requirementIds.has(requirement.id)).map(requirement => requirement.id)));
+                comparisonPrefilledFor.current = parentReview.id;
+              }
+            }
+          }
+        } catch (cause) {
+          if (isCurrentRequest()) {
+            setComparisonParentReview(null);
+            setComparisonError(`${userFacingError(cause, 'The prior Review could not be loaded.')} Retry the lookup or clear the comparison before starting an independent Review.`);
+          }
+        }
+      }
+
       // This check is advisory. A sidecar that has not implemented the list
       // endpoint yet must not turn otherwise valid source context into a fake
       // source failure; the create route remains the final authority.
       if (typeof api.listActiveStaticSessions === 'function') {
         try {
           const active = await api.listActiveStaticSessions();
+          if (!isCurrentRequest()) return;
           setActiveSession(active.find(session => session.projectId === selectedProjectId) ?? null);
         } catch {
-          setActiveSession(null);
+          if (isCurrentRequest()) setActiveSession(null);
         }
       }
     } catch (cause) {
+      if (!isCurrentRequest()) return;
       setArtifacts([]);
       setRequirements([]);
       setSelectedArtifactIds(new Set());
@@ -153,19 +305,52 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       setSelectedStandardIds(new Set());
       setScopeError(userFacingError(cause, 'Project scope could not be loaded.'));
     } finally {
-      setLoadingScope(false);
+      if (isCurrentRequest()) {
+        setComparisonLoading(false);
+        setLoadingScope(false);
+      }
     }
-  }, [selectedProjectId]);
+  }, [comparisonParentReviewId, selectedProjectId]);
 
   useEffect(() => { void loadScope(); }, [loadScope]);
   useEffect(() => { if (formError) errorRef.current?.focus(); }, [formError]);
+
+  const clearComparison = useCallback(() => {
+    scopeRequestId.current += 1;
+    setComparisonParentReviewId(null);
+    setComparisonParentReview(null);
+    setComparisonError(null);
+    setComparisonLoading(false);
+    comparisonPrefilledFor.current = null;
+    comparisonProjectId.current = selectedProjectId;
+    setFormError(null);
+  }, [selectedProjectId]);
+
+  const handleProjectSelection = (nextProjectId: string) => {
+    if (nextProjectId !== selectedProjectId && comparisonParentReviewId) {
+      scopeRequestId.current += 1;
+      setComparisonParentReviewId(null);
+      setComparisonParentReview(null);
+      setComparisonError(null);
+      setComparisonLoading(false);
+      comparisonPrefilledFor.current = null;
+      comparisonProjectId.current = nextProjectId;
+      setReviewName('');
+      setObjective('');
+      setBaseRef('');
+      setHeadRef('');
+      setPullRequest('');
+    }
+    setSelectedProjectId(nextProjectId);
+  };
 
   const groups = useMemo(() => groupArtifacts(artifacts), [artifacts]);
   const requirementsScope = useMemo(() => requirementItems(requirements), [requirements]);
   const selectedCount = selectedArtifactIds.size + selectedRequirementIds.size + selectedStandardIds.size;
   const staleSourceCount = useMemo(() => artifacts.filter(isStale).length, [artifacts]);
   const hasScope = artifacts.length > 0 || requirements.length > 0;
-  const sourceBlocked = !selectedProject || loadingScope || Boolean(scopeError) || !hasScope || selectedCount === 0 || Boolean(activeSession);
+  const comparisonBlocked = Boolean(comparisonParentReviewId && (!comparisonParentReview || comparisonLoading || comparisonError));
+  const sourceBlocked = !selectedProject || loadingScope || Boolean(scopeError) || !hasScope || selectedCount === 0 || Boolean(activeSession) || comparisonBlocked;
 
   const blockingReason = !selectedProject
     ? 'Create or select a project before starting this review.'
@@ -173,6 +358,12 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       ? 'Checking the project scope…'
       : scopeError
         ? 'Project scope could not be checked. Retry the scope request before starting.'
+        : comparisonParentReviewId && comparisonLoading
+          ? 'Checking the prior Review comparison…'
+          : comparisonParentReviewId && comparisonError
+            ? 'The prior Review comparison is unavailable. Retry the lookup or choose an independent Review.'
+            : comparisonParentReviewId && !comparisonParentReview
+              ? 'The prior Review comparison must be verified before starting.'
         : activeSession
           ? 'A review is already active for this project. Open its activity before starting another review.'
           : !hasScope
@@ -251,20 +442,26 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
       selectedRequirementIds: requirementIds,
       selectedStandardIds: standardIds,
       idempotencyKey: idempotencyKey.current,
+      ...(comparisonParentReview && comparisonParentReview.id === comparisonParentReviewId
+        ? { comparisonParentReviewId: comparisonParentReview.id }
+        : {}),
     };
     setSubmitting(true);
     try {
       const session = await api.createStaticSession(selectedProject.id, payload);
       onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id, reviewName: session.name });
     } catch (cause) {
-      setFormError(userFacingError(cause, 'The review could not be started. Check the project sources and try again.'));
+      const errorMessage = userFacingError(cause, 'The review could not be started. Check the project sources and try again.');
+      setFormError(comparisonParentReviewId
+        ? `The linked Review could not be verified, so no new Review was started. ${errorMessage} Retry the comparison or clear it before starting an independent Review.`
+        : errorMessage);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleProjectCreated = (project: Project) => {
-    setSelectedProjectId(project.id);
+    handleProjectSelection(project.id);
     setShowProjectModal(false);
   };
 
@@ -287,10 +484,13 @@ export function ReviewEntryScreen({ projects, initialProjectId, onNavigate, onCr
           <div className="review-entry-field form-field">
             <label htmlFor="review-entry-project">Project <span className="field-required" aria-hidden="true">*</span></label>
             <div className="review-project-row">
-              <Select id="review-entry-project" aria-label="Project" value={selectedProjectId} onChange={setSelectedProjectId} disabled={projects.length === 0} placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'} options={projects.map(project => ({ value: project.id, label: project.name }))} />
+              <Select id="review-entry-project" aria-label="Project" value={selectedProjectId} onChange={handleProjectSelection} disabled={projects.length === 0} placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'} options={projects.map(project => ({ value: project.id, label: project.name }))} />
               <button type="button" className="btn-secondary review-create-project-button" onClick={() => setShowProjectModal(true)}><Plus size={15} aria-hidden="true" /> Create project</button>
             </div>
             {selectedProject && <p className="field-help review-project-context"><FolderOpen size={14} aria-hidden="true" /> {selectedProject.workspacePath || 'Workspace path not supplied'}</p>}
+            {comparisonLoading && comparisonParentReviewId && <p className="review-comparison-loading" role="status">Checking the saved Review comparison…</p>}
+            {comparisonError && comparisonParentReviewId && <div className="review-comparison-error" role="alert"><strong>Comparison unavailable</strong><p>{comparisonError}</p><div><button type="button" className="btn-link" onClick={() => void loadScope()}>Retry comparison</button><button type="button" className="btn-link" onClick={clearComparison}>Start an independent Review</button></div></div>}
+            {comparisonParentReview && comparisonParentReview.id === comparisonParentReviewId && <div className="review-comparison-context" role="note"><strong>Review updated sources against {comparisonParentReview.name}.</strong><p>Current versions from its saved scope are preselected. Keep the scope and objective to preserve comparison; edits may prevent automatic resolution of existing findings.</p><button type="button" className="btn-link" onClick={clearComparison}>Start an independent Review</button></div>}
           </div>
         </section>
 

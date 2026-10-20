@@ -1,9 +1,35 @@
 import type { StaticAnalysisModelProvider, StaticModelRequest, StaticModelResult, ModelAttemptOutcome, ModelAttemptRecord } from './types.js';
+import { providerPause } from './providerPause.js';
 
-export const MAX_MODEL_ATTEMPTS = 3;
+export const MAX_MODEL_ATTEMPTS = 5;
+export const MAX_EXTERNAL_ATTEMPTS = 3;
+export const MODEL_RETRY_DELAYS_MS = [1_000, 3_000, 7_000, 15_000] as const;
+export const EXTERNAL_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+
+export type ExternalRetryScheduledEvent = {
+  service: string;
+  operation: string;
+  /** The upcoming, one-based request attempt. */
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  nextAttemptAt: string;
+  errorCode: string;
+};
+
+export type ExternalRetryOptions = {
+  service: string;
+  operation: string;
+  signal?: AbortSignal;
+  /** Callers may lower the limit, but cannot raise the product maximum. */
+  maxAttempts?: number;
+  sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+  now?: () => Date;
+  onRetry?: (event: ExternalRetryScheduledEvent) => void | Promise<void>;
+};
 
 export type RetryClassification = {
-  kind: 'retryable' | 'permanent' | 'cancelled' | 'malformed';
+  kind: 'retryable' | 'permanent' | 'cancelled' | 'malformed' | 'paused';
   code: string;
   statusCode?: number;
   retryAfterMs?: number;
@@ -72,10 +98,22 @@ function errorStatus(error: unknown): number | undefined {
 }
 
 function parseRetryAfter(error: unknown): number | undefined {
-  const raw = (error as { retryAfterMs?: unknown; retryAfter?: unknown })?.retryAfterMs
-    ?? (error as { retryAfter?: unknown })?.retryAfter;
+  const values = error as { retryAfterMs?: unknown; retryAfter?: unknown; headers?: Headers | Record<string, unknown> };
+  const retryAfterMs = Number(values?.retryAfterMs);
+  if (values?.retryAfterMs != null && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) return retryAfterMs;
+  const headers = values?.headers;
+  const retryAfterHeader = headers && typeof headers === 'object' && 'get' in headers && typeof headers.get === 'function'
+    ? headers.get('retry-after')
+    : Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === 'retry-after')?.[1];
+  const raw = values?.retryAfter ?? retryAfterHeader;
+  if (typeof raw === 'string' && !/^\s*\d+(?:\.\d+)?\s*$/.test(raw)) {
+    const date = Date.parse(raw);
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+  }
   const number = Number(raw);
-  if (Number.isFinite(number) && number >= 0) return number;
+  // `retryAfter` and the HTTP Retry-After header are seconds; the explicit
+  // `retryAfterMs` field above is already milliseconds.
+  if (raw != null && Number.isFinite(number) && number >= 0) return number * 1_000;
   return undefined;
 }
 
@@ -89,39 +127,41 @@ export function classifyModelError(error: unknown, signal?: AbortSignal): RetryC
     return { kind: 'cancelled', code: 'cancelled' };
   }
 
-  if (error instanceof ModelProviderError) {
-    if (error.malformed || error.code === 'malformed_response') {
-      return {
-        kind: 'malformed',
-        code: error.code,
-        statusCode: error.statusCode,
-        retryAfterMs: error.retryAfterMs,
-      };
-    }
-    if (error.retryable === false) {
-      return { kind: 'permanent', code: error.code, statusCode: error.statusCode };
-    }
-    if (error.retryable === true) {
-      return {
-        kind: 'retryable',
-        code: error.code,
-        statusCode: error.statusCode,
-        retryAfterMs: error.retryAfterMs,
-      };
-    }
+  const pause = providerPause(error);
+  if (pause) return { kind: 'paused', code: pause.code, statusCode: errorStatus(error), retryAfterMs: parseRetryAfter(error) };
+
+  const providerError = error as { code?: unknown; retryable?: unknown; malformed?: unknown; statusCode?: unknown; retryAfterMs?: unknown };
+  if (providerError && providerError.retryable === false) {
+    return { kind: 'permanent', code: typeof providerError.code === 'string' ? providerError.code : 'provider_error', statusCode: errorStatus(error) };
   }
 
   const statusCode = errorStatus(error);
   const retryAfterMs = parseRetryAfter(error);
   if (statusCode !== undefined) {
-    // Provider throttling and transient server/network statuses are safe to
-    // retry. Authentication, permission, malformed request, and unsupported
-    // model responses are not.
-    const retryableStatuses = new Set([408, 409, 425, 429, 500, 502, 503, 504, 507, 529]);
+    // Capacity blocks above require manual recovery. Other transient statuses
+    // retain bounded retry behavior; auth/configuration failures do not.
+    const retryableStatuses = new Set([408, 409, 425, 500, 502, 503, 504, 507, 529]);
     if (retryableStatuses.has(statusCode)) {
       return { kind: 'retryable', code: `http_${statusCode}`, statusCode, retryAfterMs };
     }
     return { kind: 'permanent', code: `http_${statusCode}`, statusCode };
+  }
+
+  if (providerError && (providerError.malformed === true || providerError.code === 'malformed_response')) {
+    return {
+      kind: 'malformed',
+      code: typeof providerError.code === 'string' ? providerError.code : 'malformed_response',
+      statusCode: errorStatus(error),
+      retryAfterMs: parseRetryAfter(error),
+    };
+  }
+  if (providerError && providerError.retryable === true) {
+    return {
+      kind: 'retryable',
+      code: typeof providerError.code === 'string' ? providerError.code : 'provider_error',
+      statusCode: errorStatus(error),
+      retryAfterMs: parseRetryAfter(error),
+    };
   }
 
   const message = errorMessage(error).toLowerCase();
@@ -148,6 +188,7 @@ export type RetryPolicyOptions = {
   random?: () => number;
   signal?: AbortSignal;
   sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+  onRetry?: (event: ExternalRetryScheduledEvent) => void | Promise<void>;
 };
 
 export function calculateBackoffMs(
@@ -186,6 +227,88 @@ export function sleepWithCancellation(delayMs: number, signal?: AbortSignal): Pr
   });
 }
 
+function externalErrorClassification(error: unknown, signal?: AbortSignal): RetryClassification {
+  if (signal?.aborted || isAbortError(error)) return { kind: 'cancelled', code: 'cancelled' };
+
+  const value = error as { code?: unknown; retryable?: unknown };
+  const code = typeof value?.code === 'string' ? value.code : undefined;
+  const message = errorMessage(error).toLowerCase();
+  const statusCode = errorStatus(error);
+  const retryAfterMs = parseRetryAfter(error);
+
+  // SQLSTATE integrity/authentication failures are permanent even if a
+  // surrounding transport reports a generic retryable flag or HTTP 5xx.
+  if (code && /^(?:23|28)\d{3}$/.test(code)) {
+    return { kind: 'permanent', code: code.toLowerCase(), statusCode };
+  }
+  if (/invalid\s*(?:api\s*)?key|authentication|unauthori[sz]ed|forbidden|permission|credential|unsupported\s+model|invalid\s+(?:model|configuration|request)|bad\s+request|not-null constraint|foreign key constraint|check constraint/.test(message)) {
+    return { kind: 'permanent', code: code ?? (statusCode ? `http_${statusCode}` : 'permanent_external_error'), statusCode };
+  }
+
+  if (statusCode !== undefined) {
+    const retryableStatus = statusCode === 408 || statusCode === 425 || statusCode === 429
+      || (statusCode >= 500 && statusCode <= 599 && ![501, 505].includes(statusCode));
+    if (retryableStatus && value?.retryable !== false) {
+      return { kind: 'retryable', code: `http_${statusCode}`, statusCode, retryAfterMs };
+    }
+    return { kind: 'permanent', code: `http_${statusCode}`, statusCode };
+  }
+
+  // Postgres connection-exception SQLSTATE class 08 is transient; constraint,
+  // authorization, and invalid-input classes are not.
+  if (code && /^08\d{3}$/.test(code)) return { kind: 'retryable', code: code.toLowerCase(), retryAfterMs };
+  if (value?.retryable === false) return { kind: 'permanent', code: code ?? 'external_error' };
+  if (value?.retryable === true) return { kind: 'retryable', code: code ?? 'external_error', retryAfterMs };
+  if (error instanceof TypeError || /network|timed? out|timeout|econn|enotfound|socket|temporar|connection reset|rate limit|overloaded/.test(message)) {
+    return { kind: 'retryable', code: code ?? 'transient_network_error', retryAfterMs };
+  }
+  return { kind: 'permanent', code: code ?? 'external_error' };
+}
+
+function safeRetryLabel(value: string, fallback: string): string {
+  const safe = value.trim().replace(/[^a-z0-9_. -]/gi, '').replace(/\s+/g, ' ').slice(0, 80);
+  return safe || fallback;
+}
+
+/** Retry one external request unit only. The caller must keep compound or
+ * non-idempotent operations outside this helper unless the request has a
+ * stable idempotency key. Retry status is emitted before each backoff wait. */
+export async function runExternalOperation<T>(
+  operation: (attempt: number, signal?: AbortSignal) => Promise<T>,
+  options: ExternalRetryOptions,
+): Promise<T> {
+  const maxAttempts = Math.max(1, Math.min(MAX_EXTERNAL_ATTEMPTS, Math.floor(options.maxAttempts ?? MAX_EXTERNAL_ATTEMPTS)));
+  const now = options.now ?? (() => new Date());
+  const service = safeRetryLabel(options.service, 'external service');
+  const operationLabel = safeRetryLabel(options.operation, 'external request');
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (options.signal?.aborted) throw new ReviewCancelledError();
+    try {
+      return await operation(attempt, options.signal);
+    } catch (error) {
+      const classification = externalErrorClassification(error, options.signal);
+      if (classification.kind === 'cancelled') throw new ReviewCancelledError(errorMessage(error));
+      if (classification.kind !== 'retryable' || attempt >= maxAttempts) throw error;
+
+      const nominalDelayMs = EXTERNAL_RETRY_DELAYS_MS[Math.min(attempt - 1, EXTERNAL_RETRY_DELAYS_MS.length - 1)];
+      const hintedDelayMs = classification.retryAfterMs ?? 0;
+      const delayMs = Math.min(EXTERNAL_RETRY_DELAYS_MS.at(-1)!, Math.max(nominalDelayMs, hintedDelayMs));
+      const nextAttemptAt = new Date(now().getTime() + delayMs).toISOString();
+      await options.onRetry?.({
+        service,
+        operation: operationLabel,
+        attempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        errorCode: classification.code,
+      });
+      await (options.sleep ?? sleepWithCancellation)(delayMs, options.signal);
+    }
+  }
+  throw new Error('External retry loop terminated unexpectedly');
+}
+
 export type ModelAttemptContext = {
   reviewId: string;
   projectId: string;
@@ -206,6 +329,9 @@ export type ModelOperationResult = {
 
 export type ModelOperationOptions = RetryPolicyOptions & ModelAttemptContext & {
   fallback?: StaticAnalysisModelProvider;
+  /** Durable reservation written before a provider request. A crash after
+   * reservation consumes this slot on recovery instead of risking a duplicate paid call. */
+  onAttemptStarted?: (attempt: ModelAttemptRecord) => void | Promise<void>;
   fallbackContext?: Partial<Pick<ModelAttemptContext, 'provider' | 'apiFormat' | 'model'>>;
   /** The hard product budget is shared by primary and fallback. Every network
    * request, including a constrained JSON repair, consumes one slot. */
@@ -213,10 +339,109 @@ export type ModelOperationOptions = RetryPolicyOptions & ModelAttemptContext & {
   /** Persisted high-water mark from a prior worker before recovery. */
   attemptOffset?: number;
   /** Reserve slots for the fallback when one is configured. The default keeps
-   * one slot available so a three-total-attempt operation can use two primary
+   * one slot available so a five-total-attempt operation can use four primary
    * attempts followed by one fallback attempt. */
   fallbackReserveAttempts?: number;
 };
+
+export type AiRequestAttempt<T> = {
+  attempt: number;
+  outcome: ModelAttemptOutcome;
+  durationMs: number;
+  errorCode?: string;
+  statusCode?: number;
+  retryAfterMs?: number;
+  /** Available only to the in-memory callback on success; never audit this value. */
+  result?: T;
+};
+
+export type AiRequestOptions = RetryPolicyOptions & {
+  now?: () => Date;
+  service: string;
+  operation: string;
+  /** Maximum total provider requests, including the first call. Hard-capped at five. */
+  maxAttempts?: number;
+  /** Paid request reservations already persisted for this same operation. */
+  attemptOffset?: number;
+  onAttemptStarted?: (attempt: number) => void | Promise<void>;
+  onAttempt?: (attempt: AiRequestAttempt<TypedNever>) => void | Promise<void>;
+};
+
+// Keep the generic callback options expressible without coupling the retry
+// policy to a particular provider response shape.
+type TypedNever = unknown;
+
+/** Retry a single AI request unit (for example one embedding input). Compound
+ * operations and their persistence stay outside this helper. Reservation and
+ * completion callbacks are outside the provider try/catch so ledger failures
+ * can never trigger a duplicate paid request. */
+export async function runAiRequest<T>(
+  operation: (attempt: number, signal?: AbortSignal) => Promise<T>,
+  options: Omit<AiRequestOptions, 'onAttempt'> & { onAttempt?: (attempt: AiRequestAttempt<T>) => void | Promise<void> },
+): Promise<T> {
+  const maxAttempts = Math.max(1, Math.min(MAX_MODEL_ATTEMPTS, Math.floor(options.maxAttempts ?? MAX_MODEL_ATTEMPTS)));
+  const attemptOffset = Math.max(0, Math.floor(options.attemptOffset ?? 0));
+  const remainingAttempts = Math.max(0, maxAttempts - attemptOffset);
+  if (!remainingAttempts) {
+    throw new ModelProviderError('AI provider exhausted the persisted Review attempt budget', {
+      code: 'retry_exhausted', retryable: true,
+    });
+  }
+  const now = options.now ?? (() => new Date());
+  const service = safeRetryLabel(options.service, 'AI provider');
+  const operationLabel = safeRetryLabel(options.operation, 'AI request');
+  for (let localAttempt = 1; localAttempt <= remainingAttempts; localAttempt++) {
+    if (options.signal?.aborted) throw new ReviewCancelledError();
+    const attempt = attemptOffset + localAttempt;
+    // Persist before entering the paid provider operation. A crash can consume
+    // an unused slot, but cannot cause the same slot to be billed twice.
+    await options.onAttemptStarted?.(attempt);
+    const started = Date.now();
+    let result: T;
+    try {
+      result = await operation(attempt, options.signal);
+      if (options.signal?.aborted) throw new ReviewCancelledError();
+    } catch (error) {
+      const classification = classifyModelError(error, options.signal);
+      const outcome: ModelAttemptOutcome = classification.kind === 'cancelled' ? 'cancelled'
+        : classification.kind === 'malformed' ? 'malformed_response'
+        : classification.kind === 'retryable' ? 'retryable_error' : 'permanent_error';
+      await options.onAttempt?.({
+        attempt,
+        outcome,
+        durationMs: Date.now() - started,
+        errorCode: classification.code,
+        statusCode: classification.statusCode,
+        retryAfterMs: classification.retryAfterMs,
+      });
+      if (classification.kind === 'cancelled') throw new ReviewCancelledError(errorMessage(error));
+      if (classification.kind === 'paused') throw new ModelProviderError(providerPause(error)!.message, {
+        code: classification.code, statusCode: classification.statusCode, retryAfterMs: classification.retryAfterMs, retryable: false,
+      });
+      if (classification.kind !== 'retryable' && classification.kind !== 'malformed') throw error;
+      if (localAttempt >= remainingAttempts) throw error;
+      const delayMs = Math.min(MODEL_RETRY_DELAYS_MS.at(-1)!, Math.max(
+        MODEL_RETRY_DELAYS_MS[Math.min(attempt - 1, MODEL_RETRY_DELAYS_MS.length - 1)],
+        classification.retryAfterMs ?? 0,
+      ));
+      await options.onRetry?.({
+        service,
+        operation: operationLabel,
+        attempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt: new Date(now().getTime() + delayMs).toISOString(),
+        errorCode: classification.code,
+      });
+      await (options.sleep ?? sleepWithCancellation)(delayMs, options.signal);
+      continue;
+    }
+
+    await options.onAttempt?.({ attempt, outcome: 'success', durationMs: Date.now() - started, result });
+    return result;
+  }
+  throw new ModelProviderError('AI provider exhausted eligible attempts', { code: 'retry_exhausted', retryable: true });
+}
 
 /**
  * Execute one structured model operation with bounded, classified retries.
@@ -262,8 +487,22 @@ export async function runModelOperation(
     for (let providerAttempt = 1; providerAttempt <= attemptLimit && totalAttempts < remainingAttempts; providerAttempt++) {
       if (options.signal?.aborted || request.signal?.aborted) throw new ReviewCancelledError();
       totalAttempts++;
-      const started = Date.now();
       const attemptNumber = attemptOffset + totalAttempts;
+      const reservation = makeAttemptRecord({
+        ...options,
+        ...providerContext,
+        reviewId: options.reviewId,
+        projectId: options.projectId,
+        stage: options.stage,
+        attempt: attemptNumber,
+        outcome: 'in_progress',
+        durationMs: 0,
+        now,
+      });
+      // Reservation persistence is outside the paid provider try block: if it
+      // fails, no request is sent and no retry is attempted.
+      await options.onAttemptStarted?.(reservation);
+      const started = Date.now();
       let result: StaticModelResult;
       try {
         result = await provider.analyze({
@@ -282,7 +521,7 @@ export async function runModelOperation(
           : classification.kind === 'malformed' ? 'malformed_response'
           : classification.kind === 'retryable' ? 'retryable_error' : 'permanent_error';
         const errorCode = classification.code;
-        const errorMessageValue = safeErrorMessage(error);
+        const errorMessageValue = providerPause(error)?.message ?? safeErrorMessage(error);
         const statusCode = classification.statusCode;
         const retryAfterMs = classification.retryAfterMs;
         const record = makeAttemptRecord({
@@ -306,9 +545,25 @@ export async function runModelOperation(
         // and cause another paid request.
         await options.onAttempt?.(record);
         if (classification.kind === 'cancelled') throw new ReviewCancelledError(errorMessageValue);
+        if (classification.kind === 'paused') throw new ModelProviderError(providerPause(error)!.message, {
+          code: classification.code, statusCode, retryAfterMs, retryable: false,
+        });
         if (classification.kind === 'permanent') throw error;
-        if (providerAttempt >= maxAttempts || totalAttempts >= remainingAttempts) break;
-        const delayMs = calculateBackoffMs(providerAttempt, options, retryAfterMs);
+        const fallbackCanFollow = providerKind === 'primary' && !!options.fallback && fallbackReserveAttempts > 0;
+        const hasNextAttempt = totalAttempts < remainingAttempts && (providerAttempt < attemptLimit || fallbackCanFollow);
+        if (!hasNextAttempt) break;
+        const nominalDelayMs = MODEL_RETRY_DELAYS_MS[Math.min(totalAttempts - 1, MODEL_RETRY_DELAYS_MS.length - 1)];
+        const delayMs = Math.min(MODEL_RETRY_DELAYS_MS.at(-1)!, Math.max(nominalDelayMs, retryAfterMs ?? 0));
+        const nextAttempt: ExternalRetryScheduledEvent = {
+          service: safeRetryLabel(providerContext.provider, 'model provider'),
+          operation: safeRetryLabel(options.stage, 'model request'),
+          attempt: attemptOffset + totalAttempts + 1,
+          maxAttempts: maxTotalAttempts,
+          delayMs,
+          nextAttemptAt: new Date(now().getTime() + delayMs).toISOString(),
+          errorCode,
+        };
+        await options.onRetry?.(nextAttempt);
         await (options.sleep ?? sleepWithCancellation)(delayMs, options.signal ?? request.signal);
         continue;
       }

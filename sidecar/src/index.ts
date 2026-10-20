@@ -79,6 +79,7 @@ import { accessTokenFingerprint, createRefreshableStaticReviewRuntime, Refreshab
 import { indexFrozenArtifacts, retrieveFrozenContext } from './review/knowledgeIndex.js';
 import { createGroundingModelProvider } from './review/groundingProvider.js';
 import { runStaticAnalysis } from './staticEngine.js';
+import { REVIEW_HARNESS } from './review/harness.js';
 import { handlePhase2ReviewRoute, isPhase2ReviewRoutePath } from './review/phase2Routes.js';
 import { SupabaseCentinelStore } from './store/index.js';
 import {
@@ -90,6 +91,13 @@ import {
   startIntegrationOAuth,
 } from './integrations.js';
 import { ConnectedSourceImporter, SupabaseConnectedSourceRepository, handleConnectedSourceRoute } from './integrations/index.js';
+import { queueGitHubProjectImport } from './integrations/projectImport.js';
+import { ConnectedSourceWorkerCoordinator } from './integrations/sourceWorker.js';
+import { isSupabaseJwtIssuedAtFuture } from './supabase.js';
+import { createProjectReadinessCoordinator } from './readiness/runtime.js';
+import { handleProjectReadinessRoute } from './readiness/routes.js';
+import type { ProjectReadinessCoordinator } from './readiness/service.js';
+import { reconcileProjectFindings, type ReconciliationManifest } from './review/findingReconciliation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 readEnv({ path: path.resolve(__dirname, '../../.env') });
@@ -97,6 +105,18 @@ logRuntimeConfigStatus();
 
 const evidenceDir = path.resolve(__dirname, '../../evidence/phase-0');
 const dataDir = path.resolve(__dirname, '../../data');
+const FUTURE_JWT_MESSAGE = 'Supabase rejected the signed session as not yet valid. Verify that the device date and time are correct, then retry. If the device time is correct, this may be a temporary Supabase Auth/PostgREST time-validation issue.';
+
+function sendConnectionStatusUnavailable(res: http.ServerResponse, cause: unknown): void {
+  if (isSupabaseJwtIssuedAtFuture(cause)) {
+    json(res, 503, { code: 'supabase_jwt_future', error: FUTURE_JWT_MESSAGE });
+    return;
+  }
+  json(res, 503, {
+    code: 'connection_status_unavailable',
+    error: 'Connection status could not be verified. Your saved connection has not been changed. Retry shortly.',
+  });
+}
 
 function parseJsonBody(req: http.IncomingMessage, maximumBytes?:number): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -345,9 +365,10 @@ async function reviewRuntime(auth: AuthenticatedRequest): Promise<StaticReviewOr
       indexFrozenArtifacts(client, auth.userId, projectId, artifacts, signal, reviewId)),
     context: (projectId, _reviewType, maxTokens, signal, artifacts, reviewId, queryText) => authRuntime.withClient(client =>
       retrieveFrozenContext(client, auth.userId, projectId, artifacts ?? [], maxTokens, signal, reviewId, queryText)),
-    deterministic: (projectId, artifacts, reviewId, signal) => authRuntime.withClient(async client => ({
+    deterministic: (projectId, artifacts, reviewId, signal, harness) => authRuntime.withClient(async client => ({
       findings: await runStaticAnalysis(projectId, artifacts, reviewId, {
         signal,
+        harness,
         contentReader: (artifact, contentSignal) => readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, contentSignal),
       }),
       persisted: false,
@@ -387,6 +408,8 @@ function toClientStaticSession(review: StaticReviewRecord) {
     failureReason: review.failureReason,
     createdAt: review.createdAt,
     updatedAt: review.updatedAt,
+    completedAt: review.progress?.stage === 'complete' ? review.progress.updatedAt : null,
+    modelStatus: review.modelStatus,
     baseRef: typeof config.baseRef === 'string' ? config.baseRef : '',
     headRef: typeof config.headRef === 'string' ? config.headRef : '',
     changedFilesJson: JSON.stringify([]),
@@ -396,9 +419,20 @@ function toClientStaticSession(review: StaticReviewRecord) {
   };
 }
 
-export function createSidecarServer(authGateway: AuthGateway = createAuthGateway(), options: { codexBackend?: (ownerId: string) => CodexBackend } = {}): http.Server {
+export function createSidecarServer(authGateway: AuthGateway = createAuthGateway(), options: { codexBackend?: (ownerId: string) => CodexBackend; readinessCoordinator?: ProjectReadinessCoordinator } = {}): http.Server {
   const codexBackend = options.codexBackend ?? getCodexBackend;
+  const readiness = options.readinessCoordinator ?? createProjectReadinessCoordinator();
   const sessionVault=new EnvironmentSessionVault(path.join(dataDir,'dynamic-browser-sessions'));const sessionBroker=new EnvironmentSessionBroker(sessionVault);
+  const sourceWorker = new ConnectedSourceWorkerCoordinator({
+    createImporter: connectedSourceImporter,
+    onRunFinished: (auth, job) => readiness.notify(auth, job.projectId, 'source_sync_finished'),
+    onRunFailed: (auth, job) => readiness.notify(auth, job.projectId, 'source_sync_failed'),
+    onUnexpectedError: cause => {
+      const record = cause && typeof cause === 'object' ? cause as { code?: unknown; name?: unknown } : {};
+      const code = typeof record.code === 'string' ? record.code : typeof record.name === 'string' ? record.name : 'source_worker_error';
+      console.error('[sources] background import stopped:', code);
+    },
+  });
   const server=http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -415,7 +449,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
   try {
     // Health
     if (req.method === 'GET' && url === '/health') {
-      return json(res, 200, { status: 'ok' });
+      return json(res, 200, { status: 'ok', service: 'centinel-sidecar', workspace: path.resolve(__dirname, '../..') });
     }
 
     // Provider callbacks are authenticated by their short-lived OAuth state.
@@ -424,9 +458,21 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     // and can never grant access.
     const oauthCallback = req.method === 'GET' && Boolean(matchIntegrationCallback(url));
     const auth = oauthCallback ? null : await authGateway.authenticate(req.headers);
+    if (auth) sourceWorker.adoptSession(auth);
+    if (auth) readiness.adoptSession(auth);
     const accessToken = auth?.accessToken ?? null;
     const ownerId = auth?.userId ?? '';
     const applicationRepository = auth ? new CentinelApplicationRepository(auth.client, auth.userId) : null;
+    if (auth) {
+      const readinessResponse = await handleProjectReadinessRoute({ method: req.method ?? 'GET', pathname: url, auth }, {
+        coordinator: readiness, requireMember: (context, projectId) => authGateway.requireProjectMember(context, projectId),
+        recoverSources: options.readinessCoordinator ? undefined : async (context, projectId) => {
+          const sources = await new SupabaseConnectedSourceRepository(context.client).listSources(projectId);
+          sourceWorker.recoverProject(context, projectId, sources);
+        },
+      });
+      if (readinessResponse) return json(res, readinessResponse.status, readinessResponse.body);
+    }
 
     if (auth && /^\/projects\/[^/]+\/dynamic\//.test(url)) {
       const environments = new EnvironmentRepository(auth.client);
@@ -556,7 +602,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           void completion.catch(error => console.error(`[review] ${label}:`, error));
         },
       });
-      if (phase2ReviewRoute) return json(res, phase2ReviewRoute.status, phase2ReviewRoute.body);
+      if (phase2ReviewRoute) {
+        if (phase2ReviewRoute.status < 300 && req.method === 'POST' && /\/requirement-candidates\/[^/]+\/confirm$/.test(url)) readiness.notify(auth, url.split('/')[2], 'requirements_changed');
+        return json(res, phase2ReviewRoute.status, phase2ReviewRoute.body);
+      }
     }
 
     const contradictionMatch = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/contradictions\/([a-f0-9]{64})$/i);
@@ -597,17 +646,27 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     }
 
     if (req.method === 'GET' && url === '/github/status') {
-      const integration = await getIntegration('github', ownerId, accessToken);
-      if (integration?.status === 'connected') {
-        return json(res, 200, { connected: true, login: integration.accountLabel.replace(/^@/, ''), message: `Connected to GitHub as ${integration.accountLabel}.` });
+      try {
+        const integration = await getIntegration('github', ownerId, accessToken);
+        if (integration?.status === 'connected') {
+          return json(res, 200, { connected: true, login: integration.accountLabel.replace(/^@/, ''), message: `Connected to GitHub as ${integration.accountLabel}.` });
+        }
+        return json(res, 200, { connected: false, login: null, message: integration ? 'GitHub repository access expired. Reconnect it in Settings.' : 'GitHub repository access is not connected.' });
+      } catch (cause) {
+        sendConnectionStatusUnavailable(res, cause);
+        return;
       }
-      return json(res, 200, { connected: false, login: null, message: integration ? 'GitHub repository access expired. Reconnect it in Settings.' : 'GitHub repository access is not connected.' });
     }
 
     // External integrations. Tokens stay encrypted in the sidecar database;
     // these routes return metadata or an OAuth URL only.
     if (req.method === 'GET' && url === '/integrations') {
-      return json(res, 200, await listIntegrations(ownerId, accessToken));
+      try {
+        return json(res, 200, await listIntegrations(ownerId, accessToken));
+      } catch (cause) {
+        sendConnectionStatusUnavailable(res, cause);
+        return;
+      }
     }
     const integrationConnectMatch = matchIntegrationConnect(url);
     if (integrationConnectMatch && req.method === 'POST') {
@@ -640,9 +699,35 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       {
         createImporter: connectedSourceImporter,
         requireProjectMember: (context, projectId) => authGateway.requireProjectMember(context, projectId),
+        onSourcesRead: (context, projectId, sources) => sourceWorker.recoverProject(context, projectId, sources),
       },
     );
-    if (connectedSourceResponse) return json(res, connectedSourceResponse.statusCode, connectedSourceResponse.body);
+    if (connectedSourceResponse) {
+      const responseBody = connectedSourceResponse.body && typeof connectedSourceResponse.body === 'object'
+        ? connectedSourceResponse.body as Record<string, unknown>
+        : {};
+      const syncResult = responseBody.syncResult && typeof responseBody.syncResult === 'object'
+        ? responseBody.syncResult as Record<string, unknown>
+        : {};
+      const run = (responseBody.run ?? syncResult.run) && typeof (responseBody.run ?? syncResult.run) === 'object'
+        ? (responseBody.run ?? syncResult.run) as Record<string, unknown>
+        : {};
+      const projectSourcesMatch = url.match(/^\/projects\/([^/]+)\/sources(?:\/([^/]+)(?:\/sync)?)?$/);
+      const source = responseBody.source && typeof responseBody.source === 'object'
+        ? responseBody.source as Record<string, unknown>
+        : {};
+      const sourceId = projectSourcesMatch?.[2] ?? (typeof source.id === 'string' ? source.id : '');
+      const runId = typeof run.id === 'string' ? run.id : '';
+      if (projectSourcesMatch && auth && connectedSourceResponse.statusCode < 300
+        && (req.method === 'POST' || req.method === 'DELETE')) readiness.notify(auth, projectSourcesMatch[1], 'source_changed');
+      if (req.method === 'POST' && connectedSourceResponse.statusCode < 300 && run.status === 'partial'
+        && !run.errorCode && projectSourcesMatch && sourceId && runId && auth) {
+        json(res, connectedSourceResponse.statusCode, connectedSourceResponse.body);
+        sourceWorker.enqueue(auth, { projectId: projectSourcesMatch[1], sourceId, runId });
+        return;
+      }
+      return json(res, connectedSourceResponse.statusCode, connectedSourceResponse.body);
+    }
 
     const integrationMatch = matchIntegration(url);
     if (integrationMatch) {
@@ -830,26 +915,44 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           return json(res, 400, { error: 'Workspace path must be a directory.' });
         }
         const githubImporter = sourceType === 'github' ? connectedSourceImporter(auth!) : null;
-        if (githubImporter && !(await githubImporter.status(ownerId, 'github')).connected) {
-          return json(res, 409, { error: 'Connect GitHub repository access before importing a GitHub project.' });
+        if (githubImporter) {
+          try {
+            if (!(await githubImporter.status(ownerId, 'github')).connected) {
+              return json(res, 409, { error: 'Connect GitHub repository access before importing a GitHub project.' });
+            }
+          } catch (cause) {
+            sendConnectionStatusUnavailable(res, cause);
+            return;
+          }
         }
-        const project = await applicationRepository!.createProject({ name, description, workspacePath });
         if (sourceType === 'local-repository') {
+          const project = await applicationRepository!.createProject({ name, description, workspacePath });
           await applicationRepository!.saveSource({
             projectId: project.id, integrationId: null, kind: 'local_repository',
             name, remoteId: null, remoteUrl: null, syncStatus: 'idle', lastSyncedAt: null,
           });
           await importLocalRepositoryArtifacts(applicationRepository!, project.id, workspacePath);
-        } else if (githubImporter) {
-          const remoteId = new URL(repoUrl).pathname.replace(/^\//, '').replace(/\/$/, '').replace(/\.git$/i, '');
-          await githubImporter.importSource({
-            ownerId, projectId: project.id, provider: 'github', kind: 'github_repository',
-            remoteId, remoteUrl: repoUrl,
-            name: remoteId.split('/')[1] || name, sync: true,
-          });
+          readiness.notify(auth!, project.id, 'project_created');
+          return json(res, 201, project);
         }
-        return json(res, 201, project);
+        if (githubImporter) {
+          const handoff = await queueGitHubProjectImport({
+            project: { name, description, workspacePath, repoUrl },
+            ownerId,
+            createProject: project => applicationRepository!.createProject(project),
+            importer: githubImporter,
+          });
+          json(res, 201, handoff.project);
+          sourceWorker.enqueue(auth!, { projectId: handoff.project.id, sourceId: handoff.source.id, runId: handoff.run.id });
+          readiness.notify(auth!, handoff.project.id, 'project_created');
+          return;
+        }
+        return json(res, 400, { error: 'A supported project source is required.' });
       } catch (error) {
+        if (isSupabaseJwtIssuedAtFuture(error)) {
+          sendConnectionStatusUnavailable(res, error);
+          return;
+        }
         return json(res, 400, { error: String(error) });
       }
     }
@@ -985,6 +1088,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       try {
         const updated = await applicationRepository!.updateProject(projectId, { name, description, workspacePath });
         if (!updated) return json(res, 404, { error: 'Project not found' });
+        readiness.notify(auth!, projectId, 'project_updated');
         return json(res, 200, updated);
       } catch (cause) {
         return json(res, 400, { error: cause instanceof Error ? cause.message : 'Project could not be updated' });
@@ -1008,6 +1112,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       if (!repoPath) return json(res, 400, { error: 'repoPath is required' });
       try {
         const result = await importLocalRepositoryArtifacts(applicationRepository!, importMatch.projectId, repoPath);
+        readiness.notify(auth!, importMatch.projectId, 'repository_imported');
         return json(res, 200, result);
       } catch (e) {
         return json(res, 400, { error: String(e) });
@@ -1031,6 +1136,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const artifactType = type || detectArtifactType(fileName);
       const buffer = Buffer.from(content, 'base64');
       const artifact = await uploadClientArtifact(applicationRepository!, { projectId: artMatch.projectId, type: artifactType as any, fileName, content: buffer });
+      readiness.notify(auth!, artMatch.projectId, 'document_uploaded');
       return json(res, 201, artifact);
     }
 
@@ -1054,10 +1160,22 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (artIdMatch && req.method === 'DELETE') {
       const deleted = await applicationRepository!.deleteArtifact(artIdMatch.projectId, artIdMatch.artifactId);
       if (!deleted) return json(res, 404, { error: 'Artifact not found' });
+      readiness.notify(auth!, artIdMatch.projectId, 'source_removed');
       return json(res, 200, { ok: true });
     }
 
     // === Static Sessions ===
+
+    const harnessMatch = url.match(/^\/projects\/([a-f0-9-]+)\/static-sessions\/([a-f0-9-]+)\/harness$/);
+    if (harnessMatch && req.method === 'GET') {
+      const [, projectId, reviewId] = harnessMatch;
+      await authGateway.requireProjectMember(auth!, projectId);
+      const repository = reviewRepository(auth!.client);
+      const review = await repository.getReview(reviewId);
+      if (!review || review.projectId !== projectId) return json(res, 404, { error: 'Review not found' });
+      const events = await repository.getHarnessEvents(projectId, reviewId);
+      return json(res, 200, { workflow: REVIEW_HARNESS, review: { id: review.id, name: review.name, status: review.status, progress: review.progress, modelStatus: review.modelStatus, updatedAt: review.updatedAt }, events });
+    }
 
     // List static sessions
     const ssMatch = matchStaticSessions(url);
@@ -1090,12 +1208,20 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       }
       const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Static Review';
       const reviewType = typeof body.reviewType === 'string' ? body.reviewType : 'code_review';
+      let comparisonParentReviewId: string | undefined;
+      if (Object.prototype.hasOwnProperty.call(body, 'comparisonParentReviewId')) {
+        if (typeof body.comparisonParentReviewId !== 'string' || !body.comparisonParentReviewId.trim()) {
+          return json(res, 400, { error: 'comparisonParentReviewId must be a non-empty Review id when supplied.', code: 'invalid_comparison_parent' });
+        }
+        comparisonParentReviewId = body.comparisonParentReviewId.trim();
+      }
       const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : undefined;
       const result = await (await reviewRuntime(auth!)).start({
         projectId: ssMatch.projectId,
         name,
         reviewType,
         scope,
+        comparisonParentReviewId,
         idempotencyKey,
         validateScopeBeforeCreate: () => applicationRepository!.validateReviewScope(ssMatch.projectId, scope),
         config: {
@@ -1229,13 +1355,104 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (fMatch && req.method === 'GET') {
       await authGateway.requireProjectMember(auth!, fMatch.projectId);
       const findings = await new SupabaseCentinelStore(auth!.client).listFindings(fMatch.projectId);
-      return json(res, 200, findings.map(finding => ({
+      let projectFindings: unknown[] = findings.map(finding => ({
         ...finding,
         sessionId: finding.reviewSessionId,
         filePath: typeof finding.location.filePath === 'string' ? finding.location.filePath : '',
         lineNumber: typeof finding.location.lineNumber === 'number' ? finding.location.lineNumber : null,
         fromRemarks: false,
-      })));
+      }));
+      try {
+        const repository = reviewRepository(auth!.client);
+        const reviews = await repository.listReviews(fMatch.projectId);
+        const parentByChild = new Map(reviews.flatMap(review => {
+          const parentId = review.iteration?.parentReviewId ?? review.lineage.parentReviewId;
+          return parentId ? [[review.id, parentId] as const] : [];
+        }));
+        const snapshotCandidates = await Promise.all([...parentByChild.keys()].map(async childReviewId => ({
+          childReviewId,
+          snapshot: await repository.getFindingCorrelationSnapshot(childReviewId),
+        })));
+        const snapshots = snapshotCandidates.flatMap(item => {
+          const snapshot = item.snapshot;
+          if (!snapshot || snapshot.childReviewId !== item.childReviewId
+            || snapshot.parentReviewId !== parentByChild.get(item.childReviewId)
+            || !snapshot.correlations.every(correlation => correlation.childReviewId === item.childReviewId && correlation.parentReviewId === snapshot.parentReviewId)) return [];
+          return [{ childReviewId: item.childReviewId, snapshot }];
+        });
+        const correlations = snapshots.flatMap(item => item.snapshot.correlations);
+        const reviewsById = new Map(reviews.map(review => [review.id, review]));
+        const relevantReviewIds = new Set<string>();
+        for (const correlation of correlations) {
+          relevantReviewIds.add(correlation.parentReviewId);
+          relevantReviewIds.add(correlation.childReviewId);
+        }
+        const manifests: ReconciliationManifest[] = [];
+        for (const reviewId of relevantReviewIds) {
+          const review = reviewsById.get(reviewId);
+          if (!review?.sourceManifestId) continue;
+          const { data, error } = await auth!.client.from('review_source_snapshots').select('*')
+            .eq('project_id', fMatch.projectId).eq('review_session_id', review.id).eq('id', review.sourceManifestId).maybeSingle();
+          if (error) throw error;
+          if (!data || typeof data !== 'object') continue;
+          const row = data as Record<string, unknown>;
+          const snapshot = row.snapshot && typeof row.snapshot === 'object' && !Array.isArray(row.snapshot)
+            ? row.snapshot as Record<string, unknown>
+            : {};
+          const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts.flatMap(value => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+            const artifact = value as Record<string, unknown>;
+            const metadata = artifact.metadata && typeof artifact.metadata === 'object' && !Array.isArray(artifact.metadata)
+              ? artifact.metadata as Record<string, unknown>
+              : {};
+            const id = typeof artifact.id === 'string' ? artifact.id : '';
+            const filePath = typeof artifact.path === 'string' ? artifact.path : typeof artifact.filePath === 'string' ? artifact.filePath : '';
+            const contentHash = typeof metadata.contentHash === 'string' ? metadata.contentHash : typeof artifact.contentHash === 'string' ? artifact.contentHash : '';
+            if (!id || !filePath || !contentHash) return [];
+            return [{ id, filePath, originalPath: typeof metadata.originalPath === 'string' ? metadata.originalPath : null, contentHash }];
+          }) : [];
+          manifests.push({ id: review.sourceManifestId, reviewId: review.id, status: typeof row.status === 'string' ? row.status : 'unavailable', artifacts });
+        }
+        const reconciled = reconcileProjectFindings({
+          findings: findings.map(finding => ({
+            id: finding.id,
+            projectId: finding.projectId,
+            sessionId: finding.reviewSessionId,
+            source: finding.source,
+            status: finding.status,
+            artifactId: finding.artifactId,
+            sourceIdentity: typeof finding.location.sourceIdentity === 'string' ? finding.location.sourceIdentity : null,
+            sourceVersion: typeof finding.location.sourceVersion === 'string' ? finding.location.sourceVersion : null,
+            filePath: typeof finding.location.filePath === 'string' ? finding.location.filePath : '',
+            title: finding.title,
+            severity: finding.severity,
+            createdAt: finding.createdAt,
+          })),
+          reviews,
+          manifests,
+          correlations,
+          snapshotChildReviewIds: snapshots.map(item => item.childReviewId),
+        });
+        const reconciledById = new Map(reconciled.map(finding => [finding.id, finding]));
+        projectFindings = findings.flatMap(finding => {
+          const current = reconciledById.get(finding.id);
+          if (!current) return [];
+          return [{
+            ...finding,
+            sessionId: finding.reviewSessionId,
+            filePath: typeof finding.location.filePath === 'string' ? finding.location.filePath : '',
+            lineNumber: typeof finding.location.lineNumber === 'number' ? finding.location.lineNumber : null,
+            fromRemarks: false,
+            ...(current.resolutionEvidence ? { resolutionEvidence: current.resolutionEvidence } : {}),
+            ...(current.lineageHistory ? { lineageHistory: current.lineageHistory } : {}),
+          }];
+        });
+      } catch {
+        // Lineage is presentation evidence only. If any durable source or
+        // correlation input is unavailable, show the saved finding rows as-is.
+        console.warn('[findings] Review lineage evidence unavailable; showing saved finding states only.');
+      }
+      return json(res, 200, projectFindings);
     }
 
     const assessmentMatch = url.match(/^\/projects\/([^/]+)\/assessment$/);
@@ -1302,6 +1519,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const priority = typeof body.priority === 'string' ? body.priority.trim() : 'medium';
       if (!title) return json(res, 400, { error: 'title is required' });
       const requirement = await applicationRepository!.saveRequirement({ projectId: reqListMatch.projectId, title, description, category, priority });
+      readiness.notify(auth!, reqListMatch.projectId, 'requirements_changed');
       return json(res, 201, requirement);
     }
 
@@ -1340,6 +1558,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       try {
         const updated = await applicationRepository!.updateRequirement(reqUpdateMatch.projectId, reqUpdateMatch.reqId, updates);
         if (!updated) return json(res, 404, { error: 'Requirement not found' });
+        readiness.notify(auth!, reqUpdateMatch.projectId, 'requirements_changed');
         return json(res, 200, updated);
       } catch (e) {
         return json(res, 404, { error: String(e) });
@@ -1350,6 +1569,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (reqUpdateMatch && req.method === 'DELETE') {
       const deleted = await applicationRepository!.deleteRequirement(reqUpdateMatch.projectId, reqUpdateMatch.reqId);
       if (!deleted) return json(res, 404, { error: 'Requirement not found' });
+      readiness.notify(auth!, reqUpdateMatch.projectId, 'requirements_changed');
       return json(res, 200, { ok: true });
     }
 
@@ -1424,6 +1644,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     json(res, 404, { error: 'Not found' });
   } catch (e) {
     if (e instanceof ModelProviderError) return json(res, 409, { error: e.message, code: e.code });
+    if (isSupabaseJwtIssuedAtFuture(e)) {
+      return json(res, 503, { code: 'supabase_jwt_future', error: FUTURE_JWT_MESSAGE });
+    }
     if (e instanceof AuthGatewayError) {
       return json(res, e.statusCode, { error: e.message, code: e.code });
     }
@@ -1443,7 +1666,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     json(res, 500, { error: 'Internal server error' });
   }
   });
-  server.on('close',()=>{void sessionBroker.dispose();});return server;
+  server.on('close',()=>{readiness.close();void sessionBroker.dispose();});return server;
 }
 
 // Importing this module for authenticated HTTP tests must not open the fixed
@@ -1454,6 +1677,12 @@ if (launchedDirectly) {
   fs.mkdirSync(dataDir, { recursive: true });
   // Dynamic Testing initializes its local database when a Dynamic route needs it.
   const server = createSidecarServer();
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    console.error(error.code === 'EADDRINUSE'
+      ? `[server] Port ${PORT} is already occupied. Use pnpm dev to reuse healthy development services, or stop the existing sidecar before starting it directly.`
+      : `[server] Could not start: ${error.message}`);
+    process.exitCode = 1;
+  });
   server.listen(Number(PORT), HOST, () => {
     console.error(`[server] Centinel sidecar listening on ${HOST}:${PORT}`);
   });

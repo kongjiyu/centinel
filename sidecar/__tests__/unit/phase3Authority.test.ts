@@ -3,8 +3,44 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildProjectReportSnapshot } from '../../src/report/snapshot.js';
 import { createSupabaseReportSnapshotSource } from '../../src/report/supabaseSnapshot.js';
 import { CentinelApplicationRepository } from '../../src/applicationRepository.js';
+import { listClientArtifacts } from '../../src/applicationApi.js';
 
 type AnyRow = Record<string, unknown>;
+
+describe('project loading latency boundaries', () => {
+  it('returns project rows without waiting for pending Storage cleanup', async () => {
+    const fake = fakeClient({ projects: [{ id: 'project-1', owner_id: 'user-1', name: 'Ready project' }] });
+    const from = vi.mocked(fake.client.from).getMockImplementation()!;
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(fake.client.from).mockImplementation(((table: string) => {
+      const query = from(table) as any;
+      if (table === 'storage_deletion_jobs') {
+        const originalThen = query.then;
+        query.then = (resolve: any, reject: any) => blocked.then(() => originalThen(resolve, reject));
+      }
+      return query;
+    }) as any);
+    const repository = new CentinelApplicationRepository(fake.client, 'user-1');
+    let returned = false;
+    const request = repository.listProjects().then(rows => { returned = true; return rows; });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    try { expect(returned).toBe(true); }
+    finally { release(); }
+    expect((await request)[0].name).toBe('Ready project');
+  });
+
+  it('loads 272 artifacts with bulk project-scoped versions instead of per-file queries', async () => {
+    const artifacts = Array.from({ length: 272 }, (_, index) => ({ id: `artifact-${index}`, project_id: 'project-1', path: `src/${index}.ts`, name: `${index}.ts`, kind: 'source_code', metadata: { source: 'repository' } }));
+    const versions = artifacts.flatMap(artifact => [1, 2].map(number => ({ id: `${artifact.id}-v${number}`, artifact_id: artifact.id, project_id: 'project-1', version_number: number, content_hash: `hash-${number}` })));
+    const fake = fakeClient({ projects: [{ id: 'project-1', owner_id: 'user-1' }], artifacts,
+      artifact_versions: [...versions, { id: 'foreign', artifact_id: artifacts[0].id, project_id: 'other-project', version_number: 100, content_hash: 'foreign' }] });
+    const loaded = await listClientArtifacts(new CentinelApplicationRepository(fake.client, 'user-1'), 'project-1');
+    expect(loaded).toHaveLength(272);
+    expect(vi.mocked(fake.client.from).mock.calls.filter(([table]) => table === 'artifact_versions').length).toBeLessThanOrEqual(3);
+    expect(loaded.every(artifact => artifact.versionId?.endsWith('-v2') && artifact.contentHash === 'hash-2')).toBe(true);
+  });
+});
 
 function fakeClient(initial: Record<string, AnyRow[]> = {}) {
   const tables: Record<string, AnyRow[]> = Object.fromEntries(Object.entries(initial).map(([key, value]) => [key, value.map(item => ({ ...item }))]));
@@ -282,8 +318,8 @@ describe('Phase 3A Supabase authority seams', () => {
     expect(fake.storageObjects.has('project-artifacts:project-1/artifact-1/hash')).toBe(true);
     fake.setStorageRemoveFailure(false);
     await repository.listProjects();
-    expect(fake.storageObjects.size).toBe(0);
-    expect(fake.tables.storage_deletion_jobs).toHaveLength(0);
+    await vi.waitFor(() => expect(fake.storageObjects.size).toBe(0));
+    await vi.waitFor(() => expect(fake.tables.storage_deletion_jobs).toHaveLength(0));
   });
 
   it('cleans a large project manifest in bounded Storage batches', async () => {
@@ -313,8 +349,8 @@ describe('Phase 3A Supabase authority seams', () => {
     expect(fake.tables.storage_deletion_jobs).toHaveLength(1);
     fake.setStorageRemoveFailure(false);
     await repository.listProjects();
-    expect(fake.storageObjects.size).toBe(0);
-    expect(fake.tables.storage_deletion_jobs).toHaveLength(0);
+    await vi.waitFor(() => expect(fake.storageObjects.size).toBe(0));
+    await vi.waitFor(() => expect(fake.tables.storage_deletion_jobs).toHaveLength(0));
   });
 
   it('cannot delete another owned project’s artifact through the requested project scope', async () => {

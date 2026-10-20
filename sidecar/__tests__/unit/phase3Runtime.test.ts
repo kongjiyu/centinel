@@ -121,7 +121,7 @@ describe('Phase 3 model/runtime contracts', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  it('keeps primary and fallback under one three-total-attempt budget', async () => {
+  it('keeps primary and fallback under one five-total-attempt budget', async () => {
     const calls: string[] = [];
     const primary = provider(async () => {
       calls.push('primary');
@@ -139,9 +139,12 @@ describe('Phase 3 model/runtime contracts', () => {
       onAttempt: item => attempts.push(`${item.provider}:${item.attempt}:${item.outcome}`),
     });
     expect(result.providerUsed).toBe('fallback');
-    expect(calls).toEqual(['primary', 'primary', 'fallback']);
-    expect(result.attempts).toHaveLength(3);
-    expect(attempts).toEqual(['mimo:1:retryable_error', 'mimo:2:retryable_error', 'custom:3:success']);
+    expect(calls).toEqual(['primary', 'primary', 'primary', 'primary', 'fallback']);
+    expect(result.attempts).toHaveLength(5);
+    expect(attempts).toEqual([
+      'mimo:1:retryable_error', 'mimo:2:retryable_error', 'mimo:3:retryable_error', 'mimo:4:retryable_error',
+      'custom:5:success',
+    ]);
   });
 
   it('records each attempt once and summarizes failed/cancelled usage without secret fields', async () => {
@@ -197,8 +200,8 @@ describe('Phase 3 model/runtime contracts', () => {
     };
     const artifactItem = { project_id: 'project-1', artifact_id: 'artifact-1', source_id: 'source-1', status: 'available', error: null, updated_at: '2026-09-22T11:30:00.000Z' };
     const sourceRow = { project_id: 'project-1', id: 'source-1', status: 'active', sync_status: 'ready', last_successful_sync_at: '2026-09-22T11:30:00.000Z', last_error: null };
-    const client1 = scopedClient({ review_sessions: reviewRow, model_configurations: modelRow, connected_source_items: artifactItem, project_sources: sourceRow }, firstCalls);
-    const client2 = scopedClient({ review_sessions: reviewRow, model_configurations: modelRow, connected_source_items: artifactItem, project_sources: sourceRow }, secondCalls);
+    const client1 = scopedClient({ review_sessions: reviewRow, model_configurations: modelRow, source_items: artifactItem, project_sources: sourceRow }, firstCalls);
+    const client2 = scopedClient({ review_sessions: reviewRow, model_configurations: modelRow, source_items: artifactItem, project_sources: sourceRow }, secondCalls);
     const runtime = new RefreshableSupabaseRuntime({
       userId: 'user-1', accessToken: 'token-1', clientFactory: token => token === 'token-1' ? client1 : client2,
     });
@@ -218,7 +221,7 @@ describe('Phase 3 model/runtime contracts', () => {
     );
     expect(resolved.primaryMetadata).toEqual({ provider: 'mimo', apiFormat: 'openai-compatible', model: 'review-model' });
     expect(state).toEqual({ state: 'available' });
-    expect(secondCalls).toEqual(expect.arrayContaining(['model_configurations', 'connected_source_items', 'project_sources']));
+    expect(secondCalls).toEqual(expect.arrayContaining(['model_configurations', 'source_items', 'project_sources']));
     expect(firstCalls).toEqual(['review_sessions']);
   });
 });

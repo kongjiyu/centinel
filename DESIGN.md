@@ -38,6 +38,21 @@ The following later decisions supersede conflicting Review navigation, lifecycle
 
 The project risk and Review evidence refinement is additive to the visual and accessibility system above. Assessment is the single project-level risk destination and uses the versioned Centinel Severity + Priority matrix over Review/static findings; Dynamic Testing remains a separate evidence area until a comparable cross-module policy exists. Informational findings stay in Findings but are not promoted to Low Risk. Review Overview remains session-scoped and reports only persisted findings, source-manifest artifact counts, and traceability attention for that Review. Sources Used is a full-width evidence section below the existing Overview/Decision 8/4 row. Historical Reviews without the new evidence snapshots use explicit unavailable copy rather than zero. Recurring finding patterns may appear in Project Overview's short Need attention list, but full risk distributions and traceability tables remain in their dedicated destinations.
 
+Project Overview may also show a concise **Sources changed** reminder when the latest technically successful Review has an available source manifest and one or more artifacts named by that manifest have changed or been removed. Compare frozen artifact IDs and hashes from current project source records; sources outside the manifest do not establish that a reviewed source changed. Separately label artifacts absent from the manifest as **New sources need review** only when their recorded creation time is after the manifest capture time, and explain that they may fall outside the Review's scope. Preexisting unselected artifacts do not trigger this reminder. Updates are detectable after sources have been imported or synchronized into those records; this reminder does not poll connected repositories or document providers. If the manifest or current source versions are unavailable or incomplete, say **Review needs checking** and explain that source currency could not be verified. A newer failed or blocked Review does not replace the last successful source basis. This reminder is about whether the saved Review covers current source versions; it is separate from the 90-day source currency confirmation and does not change finding or Review decisions.
+
+### Review explanation refinement (18 October 2026)
+
+- Objective presents the authored instructions as sentence-level points, preserving business rules, decision wording, identifiers, and source references. Formatting does not invent confirmed requirements or requirement mappings.
+- Summary separates the overall review outcome, recorded blockers and coverage gaps, and the next action. Automated completion, human approval, and finding disposition remain distinct.
+- Activity explains saved checks through their purpose, source or feature, rule, review aspect (Security, Business rules, or Technical), recorded outcome, and supporting finding evidence. Sources and check details use accessible disclosures. Missing history and incomplete checks remain explicit; raw model chain-of-thought is excluded.
+
+### Simplified Review messages (18 October 2026, later refinement)
+
+- Use plain, higher-level terms in Objective and Summary; preserve the original instructions in the expanded objective dialog. Remove Model Usage from Review Overview.
+- Put a horizontal divider before Activity messages. Use concise engineer-style explanations of where the review starts and what comes next. Show only the kinds/names of findings from each stage, with links that select their full details in Findings; source excerpts and repeated technical check disclosures stay out of Activity.
+- Show total execution duration in Overview and Activity, and a recorded duration for each stage. Derive elapsed time from saved execution boundaries, not later human-decision timestamps or a sum of overlapping steps. Missing timing stays explicit.
+- Include saved document insufficiency in the review's Findings workspace and totals. A document gap is a limitation of the recorded review, distinct from a confirmed code defect; resolving it requires updated documents and a subsequent review.
+
 ### Dashboard, Projects, and Review entry refinement (September 2026)
 
 The approved refinement keeps the interface neutral-first: white and light-grey surfaces and black/neutral text carry most of the hierarchy. Centinel green is reserved for primary actions, active selection, focus, success, and restrained hover feedback; semantic warning and danger colors remain limited to the state they communicate.
@@ -63,6 +78,25 @@ The latest dashboard and shell requirements supersede the earlier Home table/fil
 - The approved refinement removes the Home greeting block, keeps the dashboard right rail deterministic with a fixed desktop recommendation height, removes the visible Navigation label and shell divider lines, and uses a semantic page-width Review form rather than a nested setup card. These are presentation refinements only; existing navigation and service contracts remain unchanged.
 
 ## 1. Product experience
+
+### Project Readiness refinement (19 October 2026)
+
+- Keep the existing Readiness card with four rows: Repository, Requirement specification, Design documentation, and Coding standards. Display Missing, Incomplete, or Completed from a saved assessment; use a dash before the first valid result.
+- Place Start and the active-work loading indicator on the right of the title. Disable Start during active work. Preserve previous results on failure with explicit feedback and Retry. Do not add a separate readiness screen or technical logs to the card.
+- Show current readiness gaps in the existing Project Findings workspace, with Project Readiness origin, source evidence, recommended action, and immutable assessment context. Keep them outside the persisted Project Assessment risk aggregation and Review approval state.
+
+### Provider capacity pause (20 October 2026)
+
+- Provider rate-limit, quota, credit and billing blocks pause the affected workflow; never present them as completed assessment or approval-ready Review results.
+- Readiness preserves its earlier category states with an explicit pause reason and a manual **Resume** action. Category states remain Missing, Incomplete and Completed; the pause is execution status.
+- Review detail, dashboard/project summaries and completion toast show **Paused** with recovery guidance. Use the existing **Retry review** action to create a new linked attempt; preserve the earlier execution and findings.
+- Capacity pauses do not automatically retry, switch providers, or resume after source updates, status refreshes or restart. A generic rate limit does not imply depleted account allowance or credits.
+
+### Review Playground amendment (11 October 2026)
+
+- Activities includes an explicitly requested **Playground** entry for engineering inspection of Review executions.
+- Playground uses the production bearer-scoped Review workflow, durable execution events, shared controls, and neutral-first tokens. It shows source selection, gates, each recorded step, model attempts, validation outcomes, and durations; optional/unreached or historical steps are labelled honestly.
+- Starting a Review from Playground uses the existing scope form and returns to its live trace. Credentials, source bodies, model prompts, and private reasoning are not displayed. Detailed metadata uses progressive disclosure.
 
 Centinel helps a team answer two plain questions:
 

@@ -1,6 +1,8 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { createSupabaseClient } from '../supabase.js';
+import { createSupabaseClient, isSupabaseJwtIssuedAtFuture } from '../supabase.js';
+
+const FUTURE_JWT_MESSAGE = 'Supabase rejected the signed session as not yet valid. Verify that the device date and time are correct, then retry. If the device time is correct, this may be a temporary Supabase Auth/PostgREST time-validation issue.';
 
 export type AuthHeaders = Partial<Pick<IncomingHttpHeaders, 'authorization' | 'x-centinel-user-id'>> & Record<string, string | string[] | undefined>;
 
@@ -19,7 +21,7 @@ export type AuthenticatedRequest = {
 
 export class AuthGatewayError extends Error {
   readonly statusCode: 401 | 403 | 404 | 503;
-  readonly code: 'unauthenticated' | 'forbidden' | 'not_found' | 'auth_unavailable';
+  readonly code: 'unauthenticated' | 'forbidden' | 'not_found' | 'auth_unavailable' | 'supabase_jwt_future';
 
   constructor(message: string, statusCode: 401 | 403 | 404 | 503, code: AuthGatewayError['code']) {
     super(message);
@@ -67,13 +69,30 @@ export class AuthGateway {
       throw new AuthGatewayError('Authentication service is not configured.', 503, 'auth_unavailable');
     }
 
-    let result: { data: { user: User | null }; error: { message?: string } | null };
+    let result: { data: { user: User | null }; error: { message?: string; code?: string; status?: number } | null };
     try {
       result = await client.auth.getUser(accessToken);
-    } catch {
-      throw new AuthGatewayError('Authentication could not be verified.', 401, 'unauthenticated');
+    } catch (cause) {
+      if (isSupabaseJwtIssuedAtFuture(cause)) {
+        throw new AuthGatewayError(FUTURE_JWT_MESSAGE, 503, 'supabase_jwt_future');
+      }
+      // A transport failure cannot establish that the bearer is invalid. Keep
+      // the user signed in and report the verification service as unavailable.
+      throw new AuthGatewayError('Authentication verification is temporarily unavailable. Retry in a moment.', 503, 'auth_unavailable');
     }
-    if (result.error || !result.data?.user) {
+    if (result.error && isSupabaseJwtIssuedAtFuture(result.error)) {
+      throw new AuthGatewayError(FUTURE_JWT_MESSAGE, 503, 'supabase_jwt_future');
+    }
+    if (result.error) {
+      const status = result.error.status;
+      const message = result.error.message?.toLowerCase() ?? '';
+      if (status === 0 || status === 429 || (typeof status === 'number' && status >= 500)
+        || /fetch failed|network|timeout|temporarily unavailable/.test(message)) {
+        throw new AuthGatewayError('Authentication verification is temporarily unavailable. Retry in a moment.', 503, 'auth_unavailable');
+      }
+      throw new AuthGatewayError('Your session is missing or expired. Sign in again.', 401, 'unauthenticated');
+    }
+    if (!result.data?.user) {
       throw new AuthGatewayError('Your session is missing or expired. Sign in again.', 401, 'unauthenticated');
     }
 
@@ -99,6 +118,7 @@ export class AuthGateway {
    */
   async requireProjectMember(context: AuthenticatedRequest, projectId: string): Promise<void> {
     const { data, error } = await context.client.from('projects').select('id').eq('id', projectId).maybeSingle();
+    if (error && isSupabaseJwtIssuedAtFuture(error)) throw new AuthGatewayError(FUTURE_JWT_MESSAGE, 503, 'supabase_jwt_future');
     if (error) throw new AuthGatewayError('Authorization service is unavailable.', 503, 'auth_unavailable');
     if (!data) throw new AuthGatewayError('You do not have access to this project.', 403, 'forbidden');
   }

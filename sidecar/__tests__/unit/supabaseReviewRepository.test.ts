@@ -50,6 +50,12 @@ class FakeQuery implements PromiseLike<any> {
       if (kind === 'not_is') return row[key] !== value && row[key] !== undefined;
       return (value as any[]).includes(row[key]);
     }));
+    if (this.operation === 'insert' || this.operation === 'upsert') {
+      const incoming = Array.isArray(this.payload) ? this.payload : [this.payload];
+      if (this.table === 'review_sessions' && incoming.some(item => item.iteration == null)) {
+        return { data: null, error: { code: '23502', message: 'null value in column "iteration" of relation "review_sessions" violates not-null constraint' } };
+      }
+    }
     if (this.operation === 'insert') {
       const incoming = Array.isArray(this.payload) ? this.payload : [this.payload];
       const inserted = incoming.map((item, index) => ({ ...item, id: item.id ?? `${this.table}-${rows.length + index + 1}` }));
@@ -77,6 +83,10 @@ class FakeQuery implements PromiseLike<any> {
       for (const row of matches) Object.assign(row, this.payload);
       return { data: single ? (matches[0] ?? null) : matches, error: null };
     }
+    if (this.operation === 'select') {
+      const error = this.db.consumeReadFailure(this.table);
+      if (error) return { data: null, error };
+    }
     const sorted = this.orderBy.length ? [...matches].sort((a, b) => String(a[this.orderBy[0]])?.localeCompare(String(b[this.orderBy[0]]))) : matches;
     const limited = this.maxRows === undefined ? sorted : sorted.slice(0, this.maxRows);
     const ranged = this.offsetRange ? limited.slice(this.offsetRange[0], this.offsetRange[1] + 1) : limited;
@@ -89,13 +99,21 @@ class FakeQuery implements PromiseLike<any> {
 class FakeDb {
   readonly rows = new Map<string, Row[]>();
   abortSignalCount = 0;
+  readonly transientReadFailures = new Map<string, number>();
   constructor(readonly rowCap = Infinity) {}
   from(table: string) { return new FakeQuery(this, table); }
   seed(table: string, rows: Row[]) { this.rows.set(table, rows.map(row => ({ ...row }))); }
+  failNextReads(table: string, count: number) { this.transientReadFailures.set(table, count); }
+  consumeReadFailure(table: string): Row | null {
+    const remaining = this.transientReadFailures.get(table) ?? 0;
+    if (remaining <= 0) return null;
+    this.transientReadFailures.set(table, remaining - 1);
+    return { status: 503, message: 'temporary upstream failure' };
+  }
 }
 
-function repository(db: FakeDb): SupabaseStaticReviewRepository {
-  return new SupabaseStaticReviewRepository(db as unknown as SupabaseClient);
+function repository(db: FakeDb, retryRuntime?: { sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>; now?: () => Date }): SupabaseStaticReviewRepository {
+  return new SupabaseStaticReviewRepository(db as unknown as SupabaseClient, undefined, retryRuntime);
 }
 
 const input: NewStaticReview = {
@@ -106,6 +124,36 @@ const input: NewStaticReview = {
 const artifact: Artifact = { id: 'artifact-1', projectId: 'project-1', type: 'source_code', source: 'repository', fileName: 'auth.ts', filePath: 'src/auth.ts', originalPath: null, contentHash: 'hash', createdAt: '2026-09-21T00:00:00.000Z' };
 
 describe('SupabaseStaticReviewRepository', () => {
+  it('writes the schema non-null empty iteration object for a root Review', async () => {
+    const db = new FakeDb();
+    const repo = repository(db);
+
+    const created = await repo.createReview(input);
+
+    expect(db.rows.get('review_sessions')?.[0].iteration).toEqual({});
+    expect(created.iteration).toBeNull();
+  });
+
+  it('retries an individual bearer-scoped Review read and records safe retry timing in the harness audit', async () => {
+    const db = new FakeDb();
+    db.seed('review_sessions', [{ id: 'review-1', project_id: 'project-1', name: 'Review', review_type: 'code_review', status: 'running', iteration: {}, scope: {}, config: {}, lineage: {}, created_at: '2026-09-21T00:00:00Z', updated_at: '2026-09-21T00:00:00Z' }]);
+    db.failNextReads('review_sessions', 2);
+    const waits: number[] = [];
+    const repo = repository(db, {
+      sleep: async delayMs => { waits.push(delayMs); },
+      now: () => new Date('2026-10-13T00:00:00.000Z'),
+    });
+
+    const result = await repo.withReviewRetryContext({ reviewId: 'review-1', projectId: 'project-1' }, () => repo.getReview('review-1'));
+
+    expect(result?.status).toBe('running');
+    expect(waits).toEqual([1_000, 3_000]);
+    expect(db.rows.get('audit_events')).toHaveLength(2);
+    expect(db.rows.get('audit_events')?.map(row => row.event_type)).toEqual(['review_retry_scheduled', 'review_retry_scheduled']);
+    expect(db.rows.get('audit_events')?.[0].payload.detail).toMatchObject({ kind: 'external', service: 'Supabase', operation: 'review lookup', attempt: 2, maxAttempts: 3, delayMs: 1_000, errorCode: 'http_503' });
+    expect(JSON.stringify(db.rows.get('audit_events'))).not.toMatch(/temporary upstream failure/);
+  });
+
   it('persists reviews and rejects a stale compare-and-set transition', async () => {
     const db = new FakeDb();
     const repo = repository(db);

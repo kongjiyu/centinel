@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProjectDateTime, ProjectDetailScreen } from './ProjectDetailScreen';
 import { api } from '../api/client';
-import type { Artifact, CollaborationStatus, DynamicSession, Finding, Project, Screen, StaticSession } from '../types';
+import type { Artifact, CollaborationStatus, DynamicSession, Finding, Project, ProjectReadinessStatus, ReviewSourceManifest, Screen, StaticSession } from '../types';
 
 const folderPicker = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/dialog', () => ({ open: folderPicker }));
@@ -12,6 +12,7 @@ vi.mock('../api/client', () => ({
     listDynamicSessions: vi.fn(),
     listStaticSessions: vi.fn(),
     listArtifacts: vi.fn(),
+    getReviewSourceManifest: vi.fn(),
     listFindings: vi.fn(),
     deleteProject: vi.fn(),
     updateProject: vi.fn(),
@@ -19,6 +20,8 @@ vi.mock('../api/client', () => ({
     listProjectReportHistory: vi.fn(),
     renewProjectReportLinks: vi.fn(),
     getCollaborationStatus: vi.fn(),
+    getProjectReadiness: vi.fn(),
+    startProjectReadiness: vi.fn(),
     getProjectCollaborators: vi.fn(),
     syncGithubCollaborators: vi.fn(),
     searchCollaborators: vi.fn(),
@@ -50,6 +53,41 @@ const project: Project = {
 const availableCollaboration: CollaborationStatus = { available: true, repository: { owner: 'acme', repo: 'website', remoteUrl: 'https://github.com/acme/website.git' } };
 const unavailableCollaboration: CollaborationStatus = { available: false, repository: null, message: 'Collaboration data is not connected' };
 
+const emptyReadinessStatus: ProjectReadinessStatus = {
+  projectId: project.id, requestId: null, status: 'idle', trigger: null,
+  requestedAt: null, startedAt: null, completedAt: null, error: null, snapshot: null, stale: false,
+};
+
+function sourceCurrencyReview(id = 'review-1', status: StaticSession['status'] = 'success', updatedAt = '2026-10-01T10:00:00.000Z'): StaticSession {
+  return {
+    id, projectId: project.id, name: 'Latest review', reviewType: 'code_review', status,
+    configJson: '{}', progressJson: '{}', remarks: '', finalSummary: '', failureReason: '',
+    createdAt: '2026-09-30T10:00:00.000Z', updatedAt, baseRef: '', headRef: '', changedFilesJson: '[]', parentSessionId: '', reviewDiffJson: '',
+  };
+}
+
+function sourceCurrencyManifest(
+  reviewId = 'review-1',
+  status: ReviewSourceManifest['status'] = 'available',
+  artifactIds = ['source-1'],
+  contentHashes = ['old-hash'],
+): ReviewSourceManifest {
+  return {
+    sessionId: reviewId, projectId: project.id, status, capturedAt: '2026-10-01T10:00:00.000Z', updatedAt: '2026-10-01T10:00:00.000Z',
+    sources: artifactIds.length ? [{
+      id: 'manifest-source-1', sessionId: reviewId, sourceId: 'manifest-source-1', sourceKind: 'document', label: 'Requirements',
+      artifactIds, filesReviewed: artifactIds.length, contentHashes, capturedAt: '2026-10-01T10:00:00.000Z',
+    }] : [],
+    artifactCount: artifactIds.length,
+  };
+}
+
+function sourceCurrencyArtifact(id: string, contentHash: string, source: Artifact['source'] = 'documents', type: Artifact['type'] = 'requirement'): Artifact {
+  return {
+    id, projectId: project.id, type, source, fileName: `${id}.md`, filePath: `${id}.md`, originalPath: null, contentHash, createdAt: '2026-10-01T10:00:00.000Z',
+  };
+}
+
 function renderProject(
   onNavigate: (screen: Screen) => void = vi.fn(),
   projectArtifacts: Artifact[] = [],
@@ -72,7 +110,12 @@ function renderProject(
 beforeEach(() => {
   vi.clearAllMocks();
   folderPicker.mockReset();
+  vi.mocked(api.getReviewSourceManifest).mockImplementation(async (projectId, reviewId) => ({
+    sessionId: reviewId, projectId, status: 'unavailable', sources: [], artifactCount: null,
+  }));
   vi.mocked(api.listProjectReportHistory).mockResolvedValue([]);
+  vi.mocked(api.getProjectReadiness).mockResolvedValue(emptyReadinessStatus);
+  vi.mocked(api.startProjectReadiness).mockResolvedValue({ ...emptyReadinessStatus, status: 'queued', requestId: 'request-1', trigger: 'manual' });
 });
 
 describe('ProjectDetailScreen refinement surfaces', () => {
@@ -291,7 +334,11 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(await screen.findByRole('heading', { name: 'Need attention' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Readiness' })).toBeInTheDocument();
     expect(screen.getByText('Requirement specification')).toBeInTheDocument();
-    expect(screen.getByText('1 source available')).toBeInTheDocument();
+    const readinessCard = screen.getByRole('heading', { name: 'Readiness' }).closest('section');
+    expect(readinessCard).not.toBeNull();
+    expect(within(readinessCard as HTMLElement).getAllByText('—')).toHaveLength(4);
+    expect(within(readinessCard as HTMLElement).getByRole('button', { name: 'Start' })).toBeEnabled();
+    expect(within(readinessCard as HTMLElement).queryByText(/source[s]? available/i)).not.toBeInTheDocument();
     expect(screen.getByText('Start the first Review')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByRole('heading', { name: 'Assessment' })).toBeInTheDocument();
@@ -299,6 +346,132 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.queryByText(/Current unresolved project risk derived from persisted Severity and Priority/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Risk Level is derived using the Centinel Severity \+ Priority policy/i)).not.toBeInTheDocument();
     expect(screen.getByText('Requirement traceability attention')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['document', sourceCurrencyArtifact('source-1', 'new-hash', 'documents', 'requirement')],
+    ['repository file', sourceCurrencyArtifact('source-1', 'new-hash', 'repository', 'source_code')],
+  ])('reminds the project member to review an updated %s', async (_kind, currentArtifact) => {
+    const onNavigate = vi.fn();
+    const successfulReview = sourceCurrencyReview();
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(sourceCurrencyManifest());
+    renderProject(onNavigate, [currentArtifact], undefined, [successfulReview]);
+
+    expect(await screen.findByText('Sources changed')).toBeInTheDocument();
+    expect(screen.getByText(/1 reviewed source version changed or were removed/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Start Review' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: successfulReview.id });
+  });
+
+  it('does not remind when every source in the frozen manifest has the same version', async () => {
+    const successfulReview = sourceCurrencyReview();
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(sourceCurrencyManifest());
+    renderProject(vi.fn(), [sourceCurrencyArtifact('source-1', 'old-hash')], undefined, [successfulReview]);
+
+    await waitFor(() => expect(api.getReviewSourceManifest).toHaveBeenCalledWith(project.id, successfulReview.id));
+    await waitFor(() => expect(screen.queryByText('Sources changed')).not.toBeInTheDocument());
+    expect(screen.queryByText('Review needs checking')).not.toBeInTheDocument();
+  });
+
+  it('refreshes the currency check after returning from Source', async () => {
+    const user = userEvent.setup();
+    const successfulReview = sourceCurrencyReview();
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(sourceCurrencyManifest());
+    renderProject(vi.fn(), [sourceCurrencyArtifact('source-1', 'old-hash')], undefined, [successfulReview]);
+    await waitFor(() => expect(api.listArtifacts).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.listStaticSessions).toHaveBeenCalledTimes(1));
+    vi.mocked(api.listArtifacts).mockResolvedValue([sourceCurrencyArtifact('source-1', 'new-hash')]);
+
+    await user.click(screen.getByRole('button', { name: 'Source' }));
+    await waitFor(() => expect(api.listArtifacts).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole('button', { name: 'Overview' }));
+
+    expect(await screen.findByText('Sources changed')).toBeInTheDocument();
+    await waitFor(() => expect(api.listStaticSessions).toHaveBeenCalledTimes(2));
+  });
+
+  it('labels sources added after the manifest without implying they were in the Review scope', async () => {
+    const successfulReview = sourceCurrencyReview();
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(sourceCurrencyManifest());
+    renderProject(vi.fn(), [
+      sourceCurrencyArtifact('source-1', 'old-hash'),
+      { ...sourceCurrencyArtifact('new-source', 'new-hash', 'repository', 'source_code'), createdAt: '2026-10-02T10:00:00.000Z' },
+    ], undefined, [successfulReview]);
+
+    expect(await screen.findByText('New sources need review')).toBeInTheDocument();
+    expect(screen.queryByText('Sources changed')).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /See More/ }));
+    const detailDialog = screen.getByRole('dialog', { name: 'New sources need review' });
+    expect(detailDialog).toHaveTextContent(/1 new project source was imported after/);
+    expect(detailDialog).toHaveTextContent(/may not be covered by that Review/);
+  });
+
+  it.each([
+    ['unavailable historical manifest', sourceCurrencyManifest('review-1', 'unavailable', [], [])],
+    ['empty manifest', sourceCurrencyManifest('review-1', 'available', [], [])],
+    ['manifest without hashes', sourceCurrencyManifest('review-1', 'available', ['source-1'], [])],
+    ['incomplete manifest', sourceCurrencyManifest('review-1', 'incomplete', ['source-1'], ['old-hash'])],
+  ])('says source currency cannot be verified for an %s', async (_label, savedManifest) => {
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(savedManifest);
+    renderProject(vi.fn(), [sourceCurrencyArtifact('source-1', 'old-hash')], undefined, [sourceCurrencyReview()]);
+
+    expect(await screen.findByText('Review needs checking')).toBeInTheDocument();
+    expect(screen.getByText(/Source currency cannot be verified from the saved Review evidence/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Review' })).toBeInTheDocument();
+  });
+
+  it('keeps the older successful source basis when a newer Review failed', async () => {
+    const successfulReview = sourceCurrencyReview('review-success', 'success', '2026-10-01T10:00:00.000Z');
+    const failedReview = sourceCurrencyReview('review-failed', 'failure', '2026-10-10T10:00:00.000Z');
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(sourceCurrencyManifest(successfulReview.id));
+    renderProject(vi.fn(), [sourceCurrencyArtifact('source-1', 'new-hash')], undefined, [successfulReview, failedReview]);
+
+    expect(await screen.findByText('Sources changed')).toBeInTheDocument();
+    expect(api.getReviewSourceManifest).toHaveBeenCalledTimes(1);
+    expect(api.getReviewSourceManifest).toHaveBeenCalledWith(project.id, successfulReview.id);
+  });
+
+  it('shows current readiness gaps in Project Findings as immutable readiness-origin items', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listFindings).mockResolvedValue([]);
+    vi.mocked(api.getProjectReadiness).mockResolvedValue({
+      ...emptyReadinessStatus,
+      status: 'completed',
+      completedAt: '2026-10-19T10:00:08.000Z',
+      snapshot: {
+        id: 'readiness-snapshot-1', projectId: project.id, sourceFingerprint: 'fingerprint-1', assessedAt: '2026-10-19T10:00:08.000Z',
+        categories: [
+          { id: 'repository', label: 'Repository', state: 'completed', sourceCount: 1, checksPassed: 2, checksTotal: 2, gapIds: [] },
+          { id: 'requirements', label: 'Requirement specification', state: 'incomplete', sourceCount: 1, checksPassed: 1, checksTotal: 2, gapIds: ['gap-requirements'] },
+          { id: 'design', label: 'Design documentation', state: 'missing', sourceCount: 0, checksPassed: 0, checksTotal: 1, gapIds: ['gap-design'] },
+          { id: 'standards', label: 'Coding standards', state: 'missing', sourceCount: 0, checksPassed: 0, checksTotal: 1, gapIds: ['gap-standards'] },
+        ],
+        findings: [{
+          id: 'gap-requirements', category: 'requirements', title: 'Clarify acceptance criteria',
+          description: 'The expected result cannot be verified.', recommendation: 'Add an observable pass condition.',
+          severity: 'blocking', references: [{ artifactId: 'artifact-1', path: 'requirements.md', excerpt: 'Make the page easy to use.' }],
+        }],
+      },
+    });
+    renderProject();
+
+    const readinessCard = screen.getByRole('heading', { name: 'Readiness' }).closest('section');
+    expect(readinessCard).not.toBeNull();
+    await within(readinessCard as HTMLElement).findByText('Incomplete');
+    await user.click(screen.getByRole('button', { name: 'Findings' }));
+
+    const gapRow = await screen.findByRole('row', { name: /Clarify acceptance criteria/i });
+    await user.click(within(gapRow).getByRole('button', { name: /See more about Clarify acceptance criteria/i }));
+    expect(screen.getByText('Project Readiness')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Clarify acceptance criteria' })).toBeInTheDocument();
+    expect(screen.getAllByText('requirements.md')).toHaveLength(2);
+    expect(screen.getByText(/immutable snapshot from Project Readiness/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Assessment' }));
+    expect(screen.getByText('0 classified')).toBeInTheDocument();
+    expect(screen.getByText('No classified unresolved risk items.')).toBeInTheDocument();
   });
 
   it('shows the four highest-risk unresolved findings in Assessment', async () => {
@@ -336,6 +509,100 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(5);
     expect(within(table).getByText('Critical finding')).toBeInTheDocument();
     expect(within(table).queryByText('Zeta finding')).not.toBeInTheDocument();
+  });
+
+  it('excludes review-verified resolutions and persisted resolved or dismissed findings from current risk', async () => {
+    const user = userEvent.setup();
+    const makeFinding = (id: string, status: Finding['status'], title: string): Finding => ({
+      id,
+      projectId: project.id,
+      sessionId: 'review-1',
+      source: 'static',
+      severity: 'high',
+      priority: 'High',
+      title,
+      description: title,
+      status,
+      createdAt: project.updatedAt,
+      artifactId: null,
+      category: 'security',
+      evidenceText: '',
+      recommendation: '',
+      confidence: 'medium',
+      fromRemarks: false,
+      filePath: 'src/example.ts',
+      lineNumber: 1,
+    });
+    const findings: Finding[] = [
+      {
+        ...makeFinding('derived-resolved', 'carryover', 'Not reproduced after source update'),
+        resolutionEvidence: {
+          status: 'resolved',
+          basis: 'not_reproduced_in_comparable_review',
+          reviewId: 'review-new',
+          reviewName: 'Re-review',
+          sourceManifestId: 'manifest-new',
+          previousSourceVersion: 'sha256:old',
+          reviewedSourceVersion: 'sha256:new',
+        },
+      },
+      makeFinding('manual-resolved', 'fixed', 'Manually resolved'),
+      makeFinding('dismissed', 'dismissed', 'Dismissed finding'),
+      makeFinding('active', 'new', 'Still active'),
+    ];
+    renderProject(vi.fn(), [], undefined, [], [], findings);
+
+    await user.click(screen.getByRole('button', { name: 'Assessment' }));
+
+    const table = await screen.findByRole('table', { name: 'Current risk items' });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(within(table).getByText('Still active')).toBeInTheDocument();
+    expect(within(table).queryByText('Not reproduced after source update')).not.toBeInTheDocument();
+    expect(within(table).queryByText('Manually resolved')).not.toBeInTheDocument();
+    expect(within(table).queryByText('Dismissed finding')).not.toBeInTheDocument();
+    expect(screen.getByText('1 classified')).toBeInTheDocument();
+  });
+
+  it('opens the comparable Review attached to derived resolution evidence', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const reReview = { ...sourceCurrencyReview('review-new'), name: 'Re-review' };
+    const finding: Finding = {
+      id: 'derived-resolved',
+      projectId: project.id,
+      sessionId: 'review-1',
+      source: 'static',
+      severity: 'high',
+      priority: 'High',
+      title: 'Not reproduced after source update',
+      description: 'The comparable re-review did not reproduce this issue.',
+      status: 'carryover',
+      createdAt: project.updatedAt,
+      artifactId: null,
+      category: 'security',
+      evidenceText: '',
+      recommendation: '',
+      confidence: 'medium',
+      fromRemarks: false,
+      filePath: 'src/example.ts',
+      lineNumber: 1,
+      resolutionEvidence: {
+        status: 'resolved',
+        basis: 'not_reproduced_in_comparable_review',
+        reviewId: reReview.id,
+        reviewName: reReview.name,
+        sourceManifestId: 'manifest-new',
+        previousSourceVersion: 'sha256:old',
+        reviewedSourceVersion: 'sha256:new',
+      },
+    };
+    renderProject(onNavigate, [], undefined, [reReview], [], [finding]);
+
+    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    await user.click(await screen.findByRole('button', { name: /See more about Not reproduced after source update/i }));
+    await user.click(screen.getByRole('button', { name: 'Open review Re-review' }));
+
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: 'review-new', reviewName: 'Re-review' });
   });
 
   it('filters recent activity by the type toggle and datetime, with stable timestamp formatting', async () => {

@@ -97,6 +97,16 @@
 .review-project-row .select-trigger { width: 100%; }
 .review-create-project-button { min-height: 40px; white-space: nowrap; }
 .review-project-context { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.review-comparison-context,
+.review-comparison-error { display: grid; gap: 4px; margin-top: 12px; padding: 11px 13px; font-size: 12px; line-height: 19px; }
+.review-comparison-context { border-left: 3px solid var(--workspace-primary); background: var(--workspace-primary-subtle); color: var(--workspace-text-muted); }
+.review-comparison-context strong,
+.review-comparison-error strong { color: var(--workspace-text); }
+.review-comparison-context p,
+.review-comparison-error p { margin: 0; }
+.review-comparison-error { border: 1px solid var(--workspace-danger); border-radius: var(--workspace-radius-control, 8px); background: var(--workspace-danger-subtle); color: var(--workspace-text-muted); }
+.review-comparison-error > div { display: flex; flex-wrap: wrap; gap: 12px; }
+.review-comparison-loading { margin: 10px 0 0; color: var(--workspace-text-muted); font-size: 12px; }
 
 .review-scope-heading { align-items: flex-start; }
 .review-scope-selection-note { flex: 0 0 auto; color: var(--workspace-text-subtle); font-size: 12px; font-variant-numeric: tabular-nums; }

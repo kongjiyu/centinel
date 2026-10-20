@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfiguredTextModelProvider } from '../../src/review/modelProvider.js';
 import { ModelProviderError } from '../../src/review/retry.js';
 
@@ -8,6 +8,20 @@ const request = {
 };
 
 describe('ConfiguredTextModelProvider', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(['codex-app-server', 'openai-compatible'] as const)('holds %s assessment before configuration or network access', async apiFormat => {
+    vi.stubEnv('CENTINEL_AI_ASSESSMENT_PAUSED', '1');
+    const resolveSettings = vi.fn(async () => ({ ownerId: 'test-user', provider: apiFormat === 'codex-app-server' ? 'codex' as const : 'custom' as const,
+      apiFormat, apiKey: 'fixture-key', baseUrl: 'https://provider.example.test', model: 'fixture-model' }));
+    const generate = vi.fn();
+    const fetchImpl = vi.fn<typeof fetch>();
+    const provider = new ConfiguredTextModelProvider({ resolveSettings, fetchImpl, codexBackend: { generate } as any });
+    await expect(provider.analyze(request)).rejects.toMatchObject({ code: 'assessment_paused', retryable: false });
+    expect(resolveSettings).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
   it('passes text, screenshots and cancellation through Codex without an API key', async () => {
     const generate = vi.fn().mockResolvedValue({ text: '{"findings":[]}', model: 'codex-model', usage: { inputTokens: 5, outputTokens: 2 } });
     const controller = new AbortController();
@@ -87,7 +101,7 @@ describe('ConfiguredTextModelProvider', () => {
       }, fetchImpl,
     });
     await expect(provider.analyze(request)).rejects.toMatchObject({
-      code: 'http_429', statusCode: 429, retryable: true, retryAfterMs: 2000,
+      code: 'rate_limited', statusCode: 429, retryable: false, retryAfterMs: 2000,
     });
   });
 

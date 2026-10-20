@@ -66,6 +66,7 @@ export type ConnectedSource = {
   lastSyncedAt: string | null;
   lastSuccessfulSyncAt: string | null;
   lastError: string | null;
+  latestSyncRun?: ConnectedSourceSyncRun | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -108,8 +109,17 @@ export type ConnectedSourceSyncRun = {
   unchangedCount: number;
   removedCount: number;
   inaccessibleCount: number;
+  attemptCount?: number;
+  errorCode?: string | null;
   errorMessage: string | null;
   retryable: boolean;
+  retryService?: string | null;
+  retryOperation?: string | null;
+  retryAttempt?: number | null;
+  retryLimit?: number | null;
+  retryDelayMs?: number | null;
+  nextAttemptAt?: string | null;
+  leaseExpiresAt?: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -207,7 +217,7 @@ export type Artifact = {
   createdAt: string;
 };
 
-export type StaticSessionStatus = 'prepared' | 'queued' | 'running' | 'success' | 'failure' | 'blocked' | 'cancelled' | 'pending_approval';
+export type StaticSessionStatus = 'prepared' | 'queued' | 'running' | 'success' | 'failure' | 'failed' | 'blocked' | 'cancelled' | 'pending_approval' | 'completed' | 'approved' | 'changes_requested';
 
 /**
  * The immutable input selection sent when a Review starts.  The service may
@@ -271,6 +281,8 @@ export type StaticSession = {
   name: string;
   reviewType: ReviewType;
   status: StaticSessionStatus;
+  completedAt?: string | null;
+  modelStatus?: 'not_requested' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
   configJson: string;
   progressJson: string;
   remarks: string;
@@ -410,7 +422,33 @@ export type ReviewDecisionAttachmentInput = {
   content: string;
 };
 
+export type FindingResolutionEvidence = {
+  status: 'resolved';
+  basis: 'not_reproduced_in_comparable_review';
+  reviewId: string;
+  reviewName: string;
+  sourceManifestId: string;
+  previousSourceVersion: string;
+  reviewedSourceVersion: string;
+};
+
+export type FindingLineageHistoryEntry = {
+  findingId: string;
+  reviewId: string | null;
+  reviewName?: string;
+  classification: 'recurring' | 'regressed';
+  status: 'new' | 'accepted' | 'dismissed' | 'fixed' | 'carryover';
+  title: string;
+  severity: string;
+  sourceVersion?: string | null;
+  createdAt: string;
+};
+
 export type Finding = {
+  /** Saved analysis origin, when supplied by the service. */
+  verifier?: string | null;
+  /** A finding derived from this review's saved document assessment. */
+  evidenceGap?: { assessmentId: string; code: string };
   id: string;
   projectId: string;
   sessionId: string | null;
@@ -434,6 +472,10 @@ export type Finding = {
   fromRemarks: boolean;
   filePath: string;
   lineNumber: number | null;
+  /** Validated, derived project-list evidence; never a persisted decision. */
+  resolutionEvidence?: FindingResolutionEvidence;
+  /** Prior immutable findings represented by this latest linked row. */
+  lineageHistory?: FindingLineageHistoryEntry[];
 };
 
 export type ReviewStageId =
@@ -453,6 +495,9 @@ export type ReviewStageProgress = {
 };
 
 export type ReviewProgress = {
+  /** Production orchestrator progress; older payloads use currentStage/stages. */
+  stage?: string;
+  pauseCode?: string;
   currentStage: ReviewStageId;
   stages: ReviewStageProgress[];
   startedAt: string;
@@ -548,15 +593,17 @@ export type Screen =
   | {
       name: 'project-detail';
       projectId: string;
+      initialSection?: 'source';
       initialAction?: 'static' | 'dynamic';
       initialStaticSessionId?: string;
     }
-  | { name: 'review-entry'; projectId?: string }
+  | { name: 'review-entry'; projectId?: string; comparisonParentReviewId?: string; returnToPlayground?: boolean }
   | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
   | { name: 'dynamic-testing'; projectId?: string; runId?: string }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
+  | { name: 'review-playground'; projectId?: string; sessionId?: string }
   | { name: 'settings' }
   | { name: 'profile' };
 
@@ -626,3 +673,4 @@ export type StandardRule = {
   createdAt: string;
   updatedAt: string;
 };
+export type { ReadinessStatus as ProjectReadinessStatus, ReadinessAssessment, ReadinessCategoryResult, ReadinessGap } from '../../sidecar/src/readiness/types';

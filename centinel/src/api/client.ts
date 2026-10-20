@@ -45,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const payload = json && typeof json === 'object' ? json as { error?: unknown; code?: unknown } : {};
     const message = typeof payload.error === 'string' ? payload.error : `HTTP ${res.status}`;
     const code = typeof payload.code === 'string' ? payload.code : null;
-    if (res.status === 401 && typeof window !== 'undefined') {
+    if (res.status === 401 && code === 'unauthenticated' && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('centinel:auth-expired'));
     }
     throw new ApiError(message, res.status, code);
@@ -94,6 +94,8 @@ export type CreateStaticSessionPayload = {
   temporaryArtifactIds?: string[];
   supportiveDocuments?: Array<{ id?: string; name: string }>;
   parentSessionId?: string;
+  /** Links an explicitly submitted fresh-scope Review to a comparable completed parent. */
+  comparisonParentReviewId?: string;
 };
 
 export type ProjectReportExportResult = {
@@ -139,6 +141,8 @@ async function downloadReport(endpoint:string,id:string,format:'json'|'markdown'
     const bound=8*1024*1024;const reader=response.body?.getReader();if(!reader)throw Error('Report body unavailable.');const chunks:Uint8Array[]=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>bound)throw Error('Report export exceeds the download bound.');chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return {bytes,sha256:response.headers.get('X-Centinel-SHA256')??'',filename:`centinel-dynamic-${id}.${format==='markdown'?'md':format}`,mimeType:response.headers.get('Content-Type')??'application/octet-stream'};
 }
 export const api = {
+  getReviewHarness: (projectId: string, sessionId: string) =>
+    request<import('../reviewHarness').ReviewHarnessTrace>(`/projects/${encodeURIComponent(projectId)}/static-sessions/${encodeURIComponent(sessionId)}/harness`),
   health: () => request<{ status: string }>('/health'),
 
   // Projects
@@ -298,6 +302,8 @@ export const api = {
     const params = new URLSearchParams({ scope: 'text', callKind: 'review', projectId, sessionId });
     return request<ReviewModelUsage>(`/settings/ai/usage?${params.toString()}`);
   },
+  getProjectReadiness: (projectId: string) => request<ProjectReadinessStatus>(`/projects/${projectId}/readiness`),
+  startProjectReadiness: (projectId: string) => request<ProjectReadinessStatus>(`/projects/${projectId}/readiness`, { method: 'POST', body: JSON.stringify({ trigger: 'manual' }) }),
 
   // Versioned Dynamic missions and independently checked runs.
   dynamicReports:(project:string,run:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSummary[]>(`/projects/${project}/dynamic/runs/${run}/reports`),
@@ -532,3 +538,4 @@ export const api = {
   listRequirementMappings: (projectId: string, reqId: string) =>
     request<RequirementMapping[]>(`/projects/${projectId}/requirements/${reqId}/mappings`),
 };
+import type { ProjectReadinessStatus } from '../types';

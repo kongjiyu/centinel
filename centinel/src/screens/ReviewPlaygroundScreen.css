@@ -1,0 +1,31 @@
+.review-playground { max-width: 1440px; }
+.review-playground .playground-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.review-playground .playground-toolbar label { display: grid; gap: 8px; flex: 1 1 240px; min-width: 0; color: var(--workspace-text); font-size: 13px; font-weight: 600; }
+.review-playground .playground-toolbar .select-trigger { width: 100%; }
+.review-playground .playground-run { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 20px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-panel); background: var(--workspace-surface); margin-bottom: 20px; }
+.review-playground .playground-run > div { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.review-playground h2 { margin: 0; color: var(--workspace-text); font-size: 18px; line-height: 26px; }
+.review-playground p { color: var(--workspace-text-muted); line-height: 1.6; }
+.review-playground .playground-run p { margin: 6px 0 0; font-size: 13px; }
+.review-playground .playground-layout { display: grid; grid-template-columns: minmax(230px, 3fr) minmax(0, 9fr); gap: 20px; align-items: start; }
+.review-playground .playground-stages { display: grid; gap: 8px; }
+.review-playground .playground-stages button { display: flex; gap: 12px; padding: 16px; border: 1px solid transparent; border-radius: var(--workspace-radius-control); background: transparent; text-align: left; color: var(--workspace-text); font: inherit; cursor: pointer; }
+.review-playground .playground-stages button:hover { background: var(--workspace-surface-hover); }
+.review-playground .playground-stages button[aria-current] { background: var(--workspace-surface-selected); border-color: var(--workspace-border-strong); }
+.review-playground .playground-stages button:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 2px; }
+.review-playground .playground-stage-index { font-variant-numeric: tabular-nums; color: var(--workspace-text-muted); }
+.review-playground .playground-stages strong { display: block; font-size: 14px; line-height: 22px; }
+.review-playground .playground-stages small { display: block; margin-top: 4px; font-size: 12px; color: var(--workspace-text-muted); }
+.review-playground .playground-detail { min-width: 0; padding: 24px; background: var(--workspace-surface); border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-panel); }
+.review-playground .playground-steps { list-style: none; padding: 0; margin: 16px 0 0; }
+.review-playground .playground-steps li + li { border-top: 1px solid var(--workspace-border); }
+.review-playground summary { cursor: pointer; padding: 14px 0; color: var(--workspace-text); font-size: 14px; }
+.review-playground summary .command-status { margin-left: 12px; }
+.review-playground .playground-event { margin-bottom: 16px; }
+.review-playground .playground-event > div { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--workspace-text-muted); }
+.review-playground pre { max-height: 360px; overflow: auto; padding: 16px; border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); color: var(--workspace-text); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-playground .playground-notice { padding: 12px 16px; background: var(--workspace-surface-subtle); border-radius: var(--workspace-radius-control); }
+.review-playground .playground-footnote { margin-top: 24px; font-size: 13px; }
+.review-playground .playground-footnote a { color: var(--workspace-primary); text-decoration: underline; }
+@media (max-width: 960px) { .review-playground .playground-layout { grid-template-columns: 1fr; } .review-playground .playground-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .review-playground .playground-stages { grid-template-columns: 1fr; } .review-playground .playground-detail { padding: 16px; } .review-playground .playground-toolbar > button { min-height: 44px; } }

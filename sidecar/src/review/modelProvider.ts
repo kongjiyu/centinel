@@ -10,6 +10,7 @@ import {
   type TokenUsage,
 } from '../aiClient.js';
 import { ModelProviderError } from './retry.js';
+import { responseProviderPause } from './providerPause.js';
 import type {
   ModelProviderSettings,
   StaticAnalysisModelProvider,
@@ -133,6 +134,11 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
   }
 
   async analyze(request: ModelRequest): Promise<StaticModelResult> {
+    if (process.env.CENTINEL_AI_ASSESSMENT_PAUSED === '1') {
+      throw new ModelProviderError('AI assessment is paused in local configuration. Source imports and static checks can continue.', {
+        code: 'assessment_paused', retryable: false,
+      });
+    }
     const settings = await this.resolve();
     if (!settings) {
       throw new ModelProviderError('Text Model Provider is not configured', {
@@ -171,6 +177,10 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
       signal: request.signal,
     });
     if (!response.ok) {
+      const pause = await responseProviderPause(response);
+      if (pause) throw new ModelProviderError(pause.message, {
+        code: pause.code, statusCode: response.status, retryable: false, retryAfterMs: parseRetryAfterHeader(response),
+      });
       // Upstream bodies may echo private prompts or credential details.
       throw new ModelProviderError(`Model Provider request failed with HTTP ${response.status}`, {
         code: `http_${response.status}`,

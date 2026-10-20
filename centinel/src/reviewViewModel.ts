@@ -19,6 +19,7 @@ export type ReviewLifecycleState =
   | 'Need Approval'
   | 'Completed'
   | 'Blocked'
+  | 'Paused'
   | 'Cancelled'
   | 'Failed';
 
@@ -33,6 +34,7 @@ export type ProjectActivityLifecycle =
   | 'Need Approval'
   | 'Completed'
   | 'Cancelled'
+  | 'Paused'
   | 'Failed';
 
 export type ReviewCapabilities = {
@@ -114,8 +116,9 @@ export function reviewLifecycleState(
   if (currentDecision?.decision === 'approved') return 'Completed';
   if (session.status === 'queued') return 'Queued';
   if (session.status === 'running') return 'In progress';
+  if (session.status === 'blocked' && parseReviewProgress(session.progressJson)?.stage === 'provider_paused') return 'Paused';
   if (session.status === 'blocked') return 'Blocked';
-  if (session.status === 'failure') return 'Failed';
+  if (session.status === 'failure' || session.status === 'failed') return 'Failed';
   if (session.status === 'cancelled') return 'Cancelled';
   // A rejected/commented activity is still the same activity and must not be
   // described as automatically reprocessing. It remains available for review.
@@ -129,16 +132,17 @@ export function reviewLifecycleState(
  * an explicit approval before they become completed.
  */
 export function projectActivityLifecycle(
-  session: { status: string; currentDecision?: ReviewDecisionRecord | null; reviewType?: string },
+  session: { status: string; currentDecision?: ReviewDecisionRecord | null; reviewType?: string; progressJson?: string },
   kind?: 'review' | 'dynamic',
 ): ProjectActivityLifecycle {
   const isReview = kind === 'review' || (kind === undefined && 'reviewType' in session);
   if (isReview) {
     if (session.currentDecision?.decision === 'approved') return 'Completed';
+    if (session.status === 'blocked' && parseReviewProgress(session.progressJson)?.stage === 'provider_paused') return 'Paused';
     if (session.status === 'queued') return 'Queued';
     if (session.status === 'running') return 'In progress';
     if (session.status === 'cancelled') return 'Cancelled';
-    if (session.status === 'failure' || session.status === 'blocked') return 'Failed';
+    if (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked') return 'Failed';
     // A successful review without an approved decision (including requested
     // changes) remains in the approval workspace.
     return 'Need Approval';

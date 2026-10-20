@@ -13,13 +13,15 @@ const codeQualityRules: Rule[] = [
     analyze(content: string, filePath: string): Finding[] {
       const findings: Finding[] = [];
       const lines = content.split('\n');
-      const pattern = /\b(TODO|FIXME|HACK|XXX)\b[:\s]*(.*)/i;
+      // A filename/path such as /todo.txt is not a task marker. Require a
+      // note separator (or end of line) instead of accepting any punctuation.
+      const pattern = /\b(TODO|FIXME|HACK|XXX)\b(?:[:\s]+(.*)|$)/i;
 
       for (let i = 0; i < lines.length; i++) {
         const m = lines[i].match(pattern);
         if (m) {
           const tag = m[1].toUpperCase();
-          const note = m[2].trim();
+          const note = (m[2] ?? '').trim();
           findings.push({
             ruleId: 'cq-todo-comments',
             filePath,

@@ -18,6 +18,13 @@ const server = http.createServer((req, res) => {
   }
 });
 
+server.on('error', (error: NodeJS.ErrnoException) => {
+  console.error(error.code === 'EADDRINUSE'
+    ? `[demo] Port ${PORT} is already occupied. Use pnpm dev to reuse healthy development services, or stop the existing demo server.`
+    : `[demo] Could not start: ${error.message}`);
+  process.exitCode = 1;
+});
+
 server.listen(PORT, 'localhost', () => {
   console.log(`[demo] Demo app running at http://localhost:${PORT}`);
 });

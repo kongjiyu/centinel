@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { projectActivityLifecycle } from './reviewViewModel';
+import { projectActivityLifecycle, reviewLifecycleState } from './reviewViewModel';
+import type { StaticSession } from './types';
 
 describe('projectActivityLifecycle', () => {
+  it('distinguishes a provider pause from evidence blocking without allowing approval', () => {
+    const session = { status: 'blocked', reviewType: 'code_review', progressJson: JSON.stringify({ stage: 'provider_paused' }) } as StaticSession;
+    expect(reviewLifecycleState(session)).toBe('Paused');
+    expect(projectActivityLifecycle(session)).toBe('Paused');
+    expect(reviewLifecycleState({ ...session, progressJson: '{}' })).toBe('Blocked');
+  });
+  it.each(['failed', 'failure'] as const)('keeps %s execution out of the approval workflow', status => {
+    expect(projectActivityLifecycle({ status, reviewType: 'code_review' })).toBe('Failed');
+    expect(reviewLifecycleState({ status } as StaticSession)).toBe('Failed');
+  });
   it('keeps a successful review in approval even when list payload omits currentDecision', () => {
     expect(projectActivityLifecycle({ status: 'success', reviewType: 'code_review' })).toBe('Need Approval');
     expect(projectActivityLifecycle({ status: 'success' }, 'review')).toBe('Need Approval');

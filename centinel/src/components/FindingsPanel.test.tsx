@@ -136,6 +136,33 @@ describe('FindingsPanel', () => {
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
   });
 
+  it('shows derived resolution evidence and opens its Review without writing a finding decision', async () => {
+    const findingWithEvidence: Finding = {
+      ...baseFinding,
+      resolutionEvidence: {
+        status: 'resolved', basis: 'not_reproduced_in_comparable_review', reviewId: 'review-new',
+        reviewName: 'Re-review', sourceManifestId: 'manifest-new',
+        previousSourceVersion: 'sha256:old', reviewedSourceVersion: 'sha256:new',
+      },
+    };
+    vi.mocked(api.listFindings).mockResolvedValue([findingWithEvidence]);
+    const onOpenReview = vi.fn();
+    const user = userEvent.setup();
+    render(<FindingsPanel projectId="p-1" presentation="project" onOpenReview={onOpenReview} />);
+    const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
+    expect(within(row).getByText('Resolved')).toBeInTheDocument();
+    await user.click(row);
+    const details = screen.getByRole('complementary', { name: 'Finding details' });
+    expect(within(details).getByText(/Not reproduced in the comparable re-review/)).toBeInTheDocument();
+    expect(within(details).getByText('sha256:old')).toBeInTheDocument();
+    expect(within(details).getByText('sha256:new')).toBeInTheDocument();
+    expect(within(details).getByText('manifest-new')).toBeInTheDocument();
+    expect(within(details).queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();
+    await user.click(within(details).getByRole('button', { name: 'Open review Re-review' }));
+    expect(onOpenReview).toHaveBeenCalledWith('review-new');
+    expect(api.updateFinding).not.toHaveBeenCalled();
+  });
+
   it('supports numbered pages and ordered detail fields for Project Detail', async () => {
     const findings = Array.from({ length: 6 }, (_, index) => ({ ...baseFinding, id: `f-page-${index}`, title: `Paged finding ${index + 1}`, severity: index === 0 ? 'critical' : 'low' }));
     vi.mocked(api.listFindings).mockResolvedValue(findings);

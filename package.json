@@ -2,8 +2,10 @@
   "name": "centinel-root",
   "private": true,
   "scripts": {
-    "dev": "pnpm dev:all",
-    "dev:all": "concurrently --names sidecar,demo,app --prefix-colors blue,yellow,green \"pnpm --filter @centinel/sidecar start\" \"pnpm --filter @centinel/sidecar demo\" \"cd centinel && pnpm tauri dev\"",
+    "dev": "node scripts/dev.mjs",
+    "dev:all": "node scripts/dev.mjs",
+    "dev:check": "node scripts/dev.mjs --check",
+    "test:dev": "node --test scripts/dev.test.mjs",
     "smoke": "pnpm --filter @centinel/sidecar smoke",
     "build": "cd centinel && pnpm tauri build",
     "install:all": "pnpm install"

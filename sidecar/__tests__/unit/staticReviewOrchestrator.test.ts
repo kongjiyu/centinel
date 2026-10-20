@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
-import { createStaticReviewOrchestrator, ReviewLifecycleConflictError } from '../../src/review/orchestrator.js';
+import { createStaticReviewOrchestrator, ReviewLifecycleConflictError, STATIC_REVIEW_MODEL_POLICY_VERSION } from '../../src/review/orchestrator.js';
 import { InMemoryReviewLeaseRepository, ReviewLeaseCoordinator } from '../../src/review/lease.js';
 import { ModelProviderError } from '../../src/review/retry.js';
 import { resolveModelProviderChain } from '../../src/review/modelProviderResolver.js';
@@ -46,6 +46,78 @@ function baseDependencies(repository: InMemoryStaticReviewRepository) {
   };
 }
 
+describe('Provider capacity lifecycle', () => {
+  it('also stops at source indexing before deterministic checks or model analysis', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const deterministic = vi.fn();
+    const analyze = vi.fn();
+    const index = vi.fn(async () => { throw new ModelProviderError('Paused provider', { code: 'credits_exhausted', retryable: false }); });
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), deterministic, modelProvider: { analyze }, index });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'index-capacity-stop' });
+    expect(await started.completion).toMatchObject({ status: 'blocked', progress: { stage: 'provider_paused', pauseCode: 'credits_exhausted' } });
+    expect(index).toHaveBeenCalledOnce();
+    expect(deterministic).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+  });
+  it.each(['rate_limited', 'quota_exhausted', 'credits_exhausted', 'billing_required'])('stops %s before completion/approval even when deterministic-only completion is permitted', async code => {
+    const repository = new InMemoryStaticReviewRepository();
+    const analyze = vi.fn<StaticAnalysisModelProvider['analyze']>(async () => { throw new ModelProviderError('private provider payload', { code, retryable: true }); });
+    const sleep = vi.fn();
+    const correlate = vi.spyOn(repository, 'saveFindingCorrelations');
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), modelProvider: { analyze }, allowDeterministicOnly: true, retry: { sleep } });
+    const start = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'capacity-' + code });
+    const result = await start.completion;
+    expect(result.status).toBe('blocked');
+    expect(result.progress).toMatchObject({ stage: 'provider_paused', pauseCode: code });
+    expect(result.progress?.completedStages).toContain('deterministic_analysis');
+    expect(result.progress?.completedStages).not.toContain('model_analysis');
+    expect(result.modelStatus).toBe('partial');
+    expect(result.failureReason).toContain('Paused:');
+    expect(JSON.stringify(result)).not.toContain('private provider');
+    expect(repository.findings).toHaveLength(1);
+    expect(result.deterministicFindingCount).toBe(1);
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+    expect(correlate).not.toHaveBeenCalled();
+    await expect(orchestrator.resumeQueuedReview(result.id)).rejects.toThrow('cannot resume');
+
+    analyze.mockImplementation(successfulModel().analyze);
+    const resumed = await orchestrator.retry({ reviewId: result.id, artifacts: [artifact], idempotencyKey: 'manual-' + code });
+    expect((await resumed.completion).status).toBe('pending_approval');
+    expect((await repository.getReview(result.id))?.status).toBe('blocked');
+  });
+});
+
+async function createComparisonParent(repository: InMemoryStaticReviewRepository, overrides: {
+  id?: string;
+  projectId?: string;
+  status?: 'running' | 'pending_approval' | 'completed' | 'approved' | 'changes_requested';
+  modelStatus?: 'succeeded' | 'partial' | 'failed';
+  progressStage?: string;
+} = {}) {
+  const parentId = overrides.id ?? 'comparison-parent';
+  const projectId = overrides.projectId ?? 'project-1';
+  const status = overrides.status ?? 'approved';
+  const config = { instructions: 'Inspect authorization behavior', checks: ['security'], modelPolicyVersion: STATIC_REVIEW_MODEL_POLICY_VERSION };
+  const parent = await repository.createReview({
+    id: parentId,
+    projectId,
+    name: 'Previous review',
+    reviewType: 'code_review',
+    status,
+    idempotencyKey: `parent-${parentId}`,
+    scope: { artifactIds: [artifact.id] },
+    config,
+    lineage: { parentReviewId: null, lineageRootId: 'original-root', reusedSourceManifest: false },
+  });
+  const manifest = await repository.saveSourceManifest(parent.id, projectId, [{ ...artifact, contentHash: 'old-source-version' }], 'capture');
+  return repository.transitionReview(parent.id, [status], {
+    modelStatus: overrides.modelStatus ?? 'succeeded',
+    progress: { stage: overrides.progressStage ?? 'complete', completedStages: ['persisting_evidence'], updatedAt: '2026-10-19T00:00:00.000Z' },
+    sourceManifestId: manifest.id,
+  }) ?? parent;
+}
+
 describe('StaticReviewOrchestrator', () => {
   it('fails closed when no authenticated frozen-artifact reader is supplied', async () => {
     const repository = new InMemoryStaticReviewRepository();
@@ -77,6 +149,99 @@ describe('StaticReviewOrchestrator', () => {
     expect(repository.manifests.get(finished.id)?.artifacts).toHaveLength(1);
     expect(repository.findings).toHaveLength(2);
     expect(repository.audits.some(event => event.event === 'model_attempt')).toBe(true);
+    const steps = repository.audits.filter(event => event.event === 'harness_step_completed').map(event => event.detail?.step);
+    expect(steps).toEqual(expect.arrayContaining(['select_sources', 'freeze_manifest', 'read_source', 'assess_evidence', 'run_rules', 'build_request', 'run_model', 'validate_grounding', 'validate_locations', 'deduplicate_findings', 'save_traceability', 'save_findings', 'correlate_findings']));
+    expect(repository.audits.filter(event => event.event.startsWith('harness_step_')).every(event => event.detail?.executionId)).toBe(true);
+  });
+
+  it.each([true, false])('starts a fresh-source comparison and only resolves under a matching model policy (current=%s)', async currentPolicy => {
+    const repository = new InMemoryStaticReviewRepository();
+    const parent = await createComparisonParent(repository);
+    if (!currentPolicy) delete repository.reviews.get(parent.id)!.config.modelPolicyVersion;
+    await repository.saveFinding({
+      id: 'old-finding', reviewId: parent.id, projectId: parent.projectId, source: 'model',
+      title: 'Obsolete authorization finding', description: 'The old source lacked the check.', severity: 'high',
+      category: 'security_concern', filePath: artifact.filePath, lineNumber: 12, artifactId: artifact.id,
+      evidence: 'Old source omission', recommendation: 'Add authorization.', confidence: 'high',
+      sourceIdentity: artifact.filePath, sourceVersion: 'old-source-version', createdAt: '2026-10-18T00:00:00.000Z',
+    });
+    const emptyModel: StaticAnalysisModelProvider = {
+      analyze: async () => ({
+        result: { findings: [] },
+        settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'mimo-v2.5' },
+      }),
+    };
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), modelProvider: emptyModel });
+    const config = { instructions: 'Inspect authorization behavior', checks: ['security'] };
+    const started = await orchestrator.start({
+      projectId: 'project-1', reviewType: 'code_review', scope: { artifactIds: [artifact.id] }, config,
+      comparisonParentReviewId: parent.id, idempotencyKey: 'comparison-child', artifacts: [artifact], sourceManifestMode: 'reuse',
+    });
+
+    expect(started.review.lineage).toEqual({ parentReviewId: parent.id, lineageRootId: 'original-root', reusedSourceManifest: false });
+    expect(started.review.sourceManifestId).toBeNull();
+    const completed = await started.completion;
+    expect(repository.manifests.get(completed.id)).toMatchObject({ mode: 'capture', artifacts: [{ contentHash: artifact.contentHash }] });
+    expect(completed.sourceManifestId).toBeTruthy();
+    const correlationSnapshot = repository.findingCorrelations.get(completed.id);
+    if (!currentPolicy) {
+      expect(correlationSnapshot?.counts.resolved).toBe(0);
+      expect(correlationSnapshot?.correlations.find(item => item.parentFindingId === 'old-finding')?.resolutionEligibility).toBeUndefined();
+      return;
+    }
+    expect(correlationSnapshot).toMatchObject({ parentReviewId: parent.id, childReviewId: completed.id, counts: { resolved: 1 } });
+    expect(correlationSnapshot?.correlations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        parentFindingId: 'old-finding', childFindingId: null, classification: 'resolved',
+        resolutionEligibility: expect.objectContaining({ parentSourceVersion: 'old-source-version', reviewedSourceVersion: artifact.contentHash }),
+      }),
+    ]));
+  });
+
+  it.each([
+    ['active parent', { status: 'running' as const, progressStage: 'model_analysis' }],
+    ['partial model result', { modelStatus: 'partial' as const }],
+    ['incomplete execution', { progressStage: 'model_analysis' }],
+  ])('rejects a comparison parent with %s', async (_label, overrides) => {
+    const repository = new InMemoryStaticReviewRepository();
+    const parent = await createComparisonParent(repository, overrides);
+    const orchestrator = createStaticReviewOrchestrator(baseDependencies(repository));
+    await expect(orchestrator.start({
+      projectId: 'project-1', reviewType: 'code_review', scope: { artifactIds: [artifact.id] },
+      comparisonParentReviewId: parent.id, idempotencyKey: `invalid-parent-${parent.id}`,
+    })).rejects.toBeInstanceOf(ReviewLifecycleConflictError);
+  });
+
+  it('rejects a comparison parent from another project', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const parent = await createComparisonParent(repository, { id: 'foreign-parent', projectId: 'project-2' });
+    const orchestrator = createStaticReviewOrchestrator(baseDependencies(repository));
+    await expect(orchestrator.start({
+      projectId: 'project-1', reviewType: 'code_review', scope: { artifactIds: [artifact.id] },
+      comparisonParentReviewId: parent.id, idempotencyKey: 'foreign-comparison-parent',
+    })).rejects.toBeInstanceOf(ReviewLifecycleConflictError);
+  });
+
+  it('does not let an in-flight idempotency key switch comparison parents', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const parentA = await createComparisonParent(repository, { id: 'parent-a' });
+    const parentB = await createComparisonParent(repository, { id: 'parent-b' });
+    const orchestrator = createStaticReviewOrchestrator(baseDependencies(repository));
+    let releaseValidation!: () => void;
+    const validationGate = new Promise<void>(resolve => { releaseValidation = resolve; });
+    const firstStart = orchestrator.start({
+      projectId: 'project-1', reviewType: 'code_review', scope: { artifactIds: [artifact.id] }, artifacts: [artifact],
+      comparisonParentReviewId: parentA.id, idempotencyKey: 'same-comparison-start',
+      validateScopeBeforeCreate: () => validationGate,
+    });
+    const conflictingStart = orchestrator.start({
+      projectId: 'project-1', reviewType: 'code_review', scope: { artifactIds: [artifact.id] }, artifacts: [artifact],
+      comparisonParentReviewId: parentB.id, idempotencyKey: 'same-comparison-start',
+    });
+    releaseValidation();
+    const first = await firstStart;
+    expect(first.review.lineage.parentReviewId).toBe(parentA.id);
+    await expect(conflictingStart).rejects.toBeInstanceOf(ReviewLifecycleConflictError);
   });
 
   it('fails the Review when its immutable source manifest cannot be persisted', async () => {
@@ -133,12 +298,15 @@ describe('StaticReviewOrchestrator', () => {
       },
     };
     const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), context, modelProvider });
-    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'ranked-context' });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact],
+      config: { instructions: 'Verify that origin callbacks preserve error handling.' }, idempotencyKey: 'ranked-context' });
     const finished = await started.completion;
 
     expect(finished.status).toBe('pending_approval');
     expect(context).toHaveBeenCalledWith('project-1', 'code_review', 100_000, expect.any(AbortSignal), [artifact], finished.id, expect.stringContaining('code_review'));
     expect(prompts[0]).toContain('ranked membership evidence');
+    expect(prompts[0]).toContain('Reviewer objective and acceptance checks:\nVerify that origin callbacks preserve error handling.');
+    expect(prompts[0]).toContain('--- Artifact: src/auth.ts');
     expect(prompts[0]).toContain('The account handler checks the request before returning data.');
     expect(prompts[0]).toContain('version version-1, chunk 2');
   });
@@ -175,7 +343,7 @@ describe('StaticReviewOrchestrator', () => {
     expect(finished.status).toBe('pending_approval');
     expect(finished.modelStatus).toBe('partial');
     expect(finished.deterministicFindingCount).toBe(1);
-    expect(repository.attempts).toHaveLength(3);
+    expect(repository.attempts).toHaveLength(5);
     expect(repository.findings).toHaveLength(1);
   });
 
@@ -202,7 +370,8 @@ describe('StaticReviewOrchestrator', () => {
     expect(finished.status).toBe('pending_approval');
     expect(resolveChain).toHaveBeenCalledWith(expect.objectContaining({ id: finished.id }), expect.any(AbortSignal));
     expect(repository.attempts.map(item => [item.provider, item.attempt, item.outcome])).toEqual([
-      ['mimo', 1, 'retryable_error'], ['mimo', 2, 'retryable_error'], ['custom', 3, 'success'],
+      ['mimo', 1, 'retryable_error'], ['mimo', 2, 'retryable_error'], ['mimo', 3, 'retryable_error'],
+      ['mimo', 4, 'retryable_error'], ['custom', 5, 'success'],
     ]);
     expect(repository.audits.some(event => event.event === 'model_configuration_resolved')).toBe(true);
   });
@@ -236,15 +405,16 @@ describe('StaticReviewOrchestrator', () => {
       const finished = await started.completion;
       expect(finished.status).toBe('pending_approval');
       expect(finished.modelStatus).toBe('succeeded');
-      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      expect(fetchImpl).toHaveBeenCalledTimes(5);
       expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-        config.baseUrl, config.baseUrl, config.fallbackBaseUrl,
+        config.baseUrl, config.baseUrl, config.baseUrl, config.baseUrl, config.fallbackBaseUrl,
       ]);
       expect(fetchImpl.mock.calls.map(([, init]) => (init?.headers as Record<string, string>).Authorization)).toEqual([
-        'Bearer primary-secret', 'Bearer primary-secret', 'Bearer fallback-secret',
+        'Bearer primary-secret', 'Bearer primary-secret', 'Bearer primary-secret', 'Bearer primary-secret', 'Bearer fallback-secret',
       ]);
       expect(repository.attempts.map(item => [item.model, item.attempt, item.outcome])).toEqual([
-        ['primary-model', 1, 'retryable_error'], ['primary-model', 2, 'retryable_error'], ['fallback-model', 3, 'success'],
+        ['primary-model', 1, 'retryable_error'], ['primary-model', 2, 'retryable_error'],
+        ['primary-model', 3, 'retryable_error'], ['primary-model', 4, 'retryable_error'], ['fallback-model', 5, 'success'],
       ]);
       expect(JSON.stringify(repository.audits)).not.toContain('primary-secret');
       expect(JSON.stringify(repository.audits)).not.toContain('fallback-secret');

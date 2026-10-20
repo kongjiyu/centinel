@@ -55,7 +55,7 @@ function clone<T>(value: T): T {
 function parseLease(value: unknown): ReviewLease | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
-  const reviewId = String(row.reviewId ?? row.review_id ?? '');
+  const reviewId = String(row.reviewId ?? row.review_session_id ?? row.review_id ?? '');
   const projectId = String(row.projectId ?? row.project_id ?? '');
   const workerId = String(row.workerId ?? row.worker_id ?? '');
   const leaseToken = String(row.leaseToken ?? row.lease_token ?? '');
@@ -75,7 +75,7 @@ function parseLease(value: unknown): ReviewLease | null {
 function parseCheckpoint(value: unknown): ReviewCheckpoint | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
-  const reviewId = String(row.reviewId ?? row.review_id ?? '');
+  const reviewId = String(row.reviewId ?? row.review_session_id ?? row.review_id ?? '');
   if (!reviewId) return null;
   return {
     reviewId,
@@ -200,7 +200,7 @@ export class SupabaseReviewLeaseRepository implements ReviewLeaseRepository {
 
   async saveCheckpoint(checkpoint: ReviewCheckpoint): Promise<void> {
     const result = await this.client.from('review_checkpoints').upsert({
-      review_id: checkpoint.reviewId,
+      review_session_id: checkpoint.reviewId,
       project_id: checkpoint.projectId,
       worker_id: checkpoint.workerId,
       lease_token: checkpoint.leaseToken,
@@ -209,12 +209,12 @@ export class SupabaseReviewLeaseRepository implements ReviewLeaseRepository {
       cursor: checkpoint.cursor ?? null,
       detail: checkpoint.detail ?? {},
       updated_at: checkpoint.updatedAt,
-    }, { onConflict: 'review_id' });
+    }, { onConflict: 'review_session_id' });
     if (result.error) throw supabaseError('Review checkpoint save', result.error);
   }
 
   async getCheckpoint(reviewId: string): Promise<ReviewCheckpoint | null> {
-    const result = await this.client.from('review_checkpoints').select('*').eq('review_id', reviewId).maybeSingle();
+    const result = await this.client.from('review_checkpoints').select('*').eq('review_session_id', reviewId).maybeSingle();
     if (result.error) throw supabaseError('Review checkpoint lookup', result.error);
     return parseCheckpoint(result.data);
   }

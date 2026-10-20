@@ -165,7 +165,10 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
   }
 
   async recordModelAttempt(attempt: ModelAttemptRecord): Promise<void> {
-    this.attempts.push(clone(attempt));
+    const existingIndex = this.attempts.findIndex(item => item.reviewId === attempt.reviewId
+      && item.stage === attempt.stage && item.attempt === attempt.attempt);
+    if (existingIndex >= 0) this.attempts[existingIndex] = clone(attempt);
+    else this.attempts.push(clone(attempt));
   }
 
   async getModelAttemptCount(reviewId: string, stage: string): Promise<number> {
@@ -175,6 +178,8 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
   }
 
   async recordAudit(event: ReviewAuditEvent): Promise<void> {
-    this.audits.push(clone(event));
+    const existingIndex = event.id ? this.audits.findIndex(item => item.id === event.id) : -1;
+    if (existingIndex >= 0) this.audits[existingIndex] = clone(event);
+    else this.audits.push(clone(event));
   }
 }

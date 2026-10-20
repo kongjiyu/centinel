@@ -53,7 +53,7 @@ export class SupabaseConnectedEvidenceStateResolver {
 
   async resolve(artifact: Artifact, signal?: AbortSignal): Promise<ConnectedEvidenceState | undefined> {
     if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
-    const itemResult = await (this.client as any).from('connected_source_items').select('source_id,status,error,last_seen_at,updated_at')
+    const itemResult = await (this.client as any).from('source_items').select('source_id,status,error,last_seen_at,updated_at')
       .eq('project_id', artifact.projectId).eq('artifact_id', artifact.id).order('updated_at', { ascending: false }).limit(1).maybeSingle();
     if (itemResult.error) throw new Error(`Connected-source evidence lookup failed: ${String(itemResult.error.message ?? itemResult.error)}`);
     if (!itemResult.data) return undefined;

@@ -333,7 +333,7 @@ export interface CentinelStore {
   listModelConfigurations(ownerId: string, projectId?: string | null): Promise<StoreModelConfiguration[]>;
   saveModelConfiguration(input: Omit<StoreModelConfiguration, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoreModelConfiguration>;
   listModelUsage(reviewSessionId: string): Promise<StoreModelUsage[]>;
-  saveModelUsage(input: Omit<StoreModelUsage, 'id' | 'createdAt'>): Promise<StoreModelUsage>;
+  saveModelUsage(input: Omit<StoreModelUsage, 'id' | 'createdAt'> & { id?: string }): Promise<StoreModelUsage>;
   listIntegrations(ownerId: string): Promise<StoreIntegration[]>;
   saveIntegration(input: Omit<StoreIntegration, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoreIntegration>;
   saveEmbeddingChunk(input: Omit<StoreEmbeddingChunk, 'id' | 'createdAt'>): Promise<StoreEmbeddingChunk>;

@@ -6,7 +6,7 @@ function user(id = 'user-canonical'): User {
   return { id, aud: 'authenticated', role: 'authenticated', email: 'user@example.test', app_metadata: {}, user_metadata: {}, created_at: new Date(0).toISOString() };
 }
 
-function clientFor(getUser: () => Promise<{ data: { user: User | null }; error: { message: string } | null }>): SupabaseClient {
+function clientFor(getUser: () => Promise<{ data: { user: User | null }; error: { message: string; code?: string; status?: number } | null }>): SupabaseClient {
   return { auth: { getUser } } as unknown as SupabaseClient;
 }
 
@@ -33,6 +33,23 @@ describe('AuthGateway', () => {
   it('returns a consistent 401 for expired or invalid sessions', async () => {
     const gateway = new AuthGateway({ clientFactory: () => clientFor(async () => ({ data: { user: null }, error: { message: 'JWT expired' } })) });
     await expect(gateway.authenticate({ authorization: 'Bearer expired' })).rejects.toMatchObject({ statusCode: 401, code: 'unauthenticated' });
+  });
+
+  it('keeps a session when remote verification fails without proving the token is invalid', async () => {
+    const gateway = new AuthGateway({ clientFactory: () => clientFor(async () => { throw new Error('fetch failed'); }) });
+    await expect(gateway.authenticate({ authorization: 'Bearer signed-token' })).rejects.toMatchObject({ statusCode: 503, code: 'auth_unavailable' });
+  });
+
+  it('classifies an exact future-issued JWT rejection as temporary and actionable', async () => {
+    const gateway = new AuthGateway({ clientFactory: () => clientFor(async () => ({
+      data: { user: null },
+      error: { code: 'PGRST303', message: 'JWT issued at future', status: 401 },
+    })) });
+    await expect(gateway.authenticate({ authorization: 'Bearer signed-token' })).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'supabase_jwt_future',
+      message: expect.stringContaining('Verify that the device date and time are correct'),
+    });
   });
 
   it('returns 503 when Supabase is not configured', async () => {

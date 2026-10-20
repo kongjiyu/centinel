@@ -1,5 +1,11 @@
 export type SourceHttpClient = {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+  /** Run one idempotent request with the product's bounded retry policy. */
+  retry?<T>(
+    operation: (attempt: number, signal?: AbortSignal) => Promise<T>,
+    service: string,
+    operationName: string,
+  ): Promise<T>;
 };
 
 export const fetchSourceHttpClient: SourceHttpClient = {
@@ -10,18 +16,34 @@ export class ConnectedSourceHttpError extends Error {
   readonly statusCode?: number;
   readonly retryable: boolean;
   readonly code: string;
+  readonly retryAfterMs?: number;
 
-  constructor(message: string, options: { statusCode?: number; retryable?: boolean; code?: string; cause?: unknown } = {}) {
+  constructor(message: string, options: { statusCode?: number; retryable?: boolean; code?: string; retryAfterMs?: number; cause?: unknown } = {}) {
     super(message, { cause: options.cause });
     this.name = 'ConnectedSourceHttpError';
     this.statusCode = options.statusCode;
     this.retryable = options.retryable ?? false;
     this.code = options.code ?? 'provider_error';
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 
 function retryableStatus(status: number): boolean {
   return [408, 409, 425, 429, 500, 502, 503, 504, 507, 529].includes(status);
+}
+
+function requestMethod(input: RequestInfo | URL, init: RequestInit): string {
+  const fromInput = typeof input === 'object' && !(input instanceof URL) ? input.method : undefined;
+  return (init.method ?? fromInput ?? 'GET').toUpperCase();
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get('retry-after');
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
 }
 
 export async function requestResponse(
@@ -30,20 +52,31 @@ export async function requestResponse(
   init: RequestInit = {},
   label = 'Connected source provider',
 ): Promise<Response> {
-  let response: Response;
-  try {
-    response = await client.fetch(input, init);
-  } catch (cause) {
-    throw new ConnectedSourceHttpError(`${label} could not be reached. Check the connection and retry.`, { retryable: true, code: 'network_error', cause });
+  const send = async (_attempt: number, signal?: AbortSignal): Promise<Response> => {
+    let response: Response;
+    try {
+      response = await client.fetch(input, signal ? { ...init, signal } : init);
+    } catch (cause) {
+      throw new ConnectedSourceHttpError(`${label} could not be reached. Check the connection and retry.`, { retryable: true, code: 'network_error', cause });
+    }
+    if (!response.ok) {
+      throw new ConnectedSourceHttpError(`${label} request failed (HTTP ${response.status}).`, {
+        statusCode: response.status,
+        retryable: retryableStatus(response.status),
+        retryAfterMs: retryAfterMs(response),
+        code: `http_${response.status}`,
+      });
+    }
+    return response;
+  };
+  // Only repeat GET/HEAD request units. Writes (including rotating OAuth
+  // refresh tokens) retain their original single-attempt behavior.
+  const method = requestMethod(input, init);
+  if ((method === 'GET' || method === 'HEAD') && client.retry) {
+    const service = label.startsWith('Google Drive') ? 'Google Drive' : label.split(' ')[0] || 'Connected source provider';
+    return client.retry(send, service, label);
   }
-  if (!response.ok) {
-    throw new ConnectedSourceHttpError(`${label} request failed (HTTP ${response.status}).`, {
-      statusCode: response.status,
-      retryable: retryableStatus(response.status),
-      code: `http_${response.status}`,
-    });
-  }
-  return response;
+  return send(1);
 }
 
 export async function requestJson<T = Record<string, unknown>>(

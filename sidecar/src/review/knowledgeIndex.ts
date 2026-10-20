@@ -9,6 +9,7 @@ import { SupabaseCentinelStore } from '../store/supabase.js';
 import { resolveSavedEmbeddingProvider } from '../modelSettings.js';
 import { throwIfAborted } from './abort.js';
 import { createEmbedding, EmbeddingProviderError } from './embeddingProvider.js';
+import { providerPause } from './providerPause.js';
 
 const CHUNK_SIZE = 2_400;
 const CHUNK_OVERLAP = 240;
@@ -67,6 +68,7 @@ export async function indexFrozenArtifacts(
       if (embeddingConfig && !embeddingErrorCode) {
         const started = Date.now();
         let result: Awaited<ReturnType<typeof createEmbedding>> | null = null;
+        let capacityFailure: unknown;
         try {
           result = await createEmbedding(embeddingConfig, part, signal);
           throwIfAborted(signal);
@@ -75,6 +77,7 @@ export async function indexFrozenArtifacts(
         } catch (cause) {
           throwIfAborted(signal);
           embeddingErrorCode = cause instanceof EmbeddingProviderError ? cause.code : 'indexing_provider_unavailable';
+          if (providerPause(cause)) capacityFailure = cause;
         }
         try {
           await store.saveModelUsage({
@@ -91,6 +94,7 @@ export async function indexFrozenArtifacts(
           // Usage persistence cannot turn a successful embedding into a
           // fabricated provider failure; the durable chunk is still saved.
         }
+        if (capacityFailure) throw capacityFailure;
       }
       await store.saveEmbeddingChunk({
         projectId,
@@ -146,11 +150,13 @@ export async function retrieveFrozenContext(
       const started = Date.now();
       let embedded: Awaited<ReturnType<typeof createEmbedding>> | null = null;
       let errorCode: string | null = null;
+      let capacityFailure: unknown;
       try {
         embedded = await createEmbedding(configuration, queryText, signal);
       } catch (cause) {
         throwIfAborted(signal);
         errorCode = cause instanceof EmbeddingProviderError ? cause.code : 'retrieval_provider_unavailable';
+        if (providerPause(cause)) capacityFailure = cause;
         retrievalDetail = 'The source-indexing provider is unavailable.';
       }
       try {
@@ -166,6 +172,7 @@ export async function retrieveFrozenContext(
         throwIfAborted(signal);
         // Retrieval remains available even if the usage ledger is temporarily unavailable.
       }
+      if (capacityFailure) throw capacityFailure;
       if (embedded) {
         throwIfAborted(signal);
         try {
