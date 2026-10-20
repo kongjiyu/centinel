@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
-import { ReviewProgressView } from '../components/ReviewProgressView';
+import { ReviewNarrativeSummary, ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
+import { buildReviewNarrative, objectivePoints, type ReviewNarrative } from '../reviewNarrative';
+import { mergeReviewFindings, reviewEvidenceFindings } from '../reviewEvidenceFindings';
+import type { ReviewHarnessTrace } from '../reviewHarness';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { Modal } from '../components/Modal';
@@ -11,11 +14,10 @@ import {
   createReviewActivityViewModel,
   formatReviewTimestamp,
   parseReviewConfig,
-  parseReviewProgress,
   truncateReviewSourceName,
   type ReviewLifecycleState,
 } from '../reviewViewModel';
-import type { Artifact, EvidenceSufficiencyAssessment, Finding, FindingCorrelationSnapshot, Project, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewModelUsage, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
+import type { Artifact, EvidenceSufficiencyAssessment, Finding, FindingCorrelationSnapshot, Project, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
 import { entityIdTitle, formatEntityId } from '../utils/entityId';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 import './ReviewActivityScreen.css';
@@ -116,7 +118,7 @@ function traceabilityRecords(
 function stateTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
   if (state === 'Completed') return 'success';
   if (state === 'In progress' || state === 'Queued') return 'running';
-  if (state === 'Need Approval' || state === 'Blocked') return 'warning';
+  if (state === 'Need Approval' || state === 'Blocked' || state === 'Paused') return 'warning';
   if (state === 'Failed') return 'danger';
   return 'neutral';
 }
@@ -155,15 +157,16 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const resultTabStorageKey = `centinel:review-result-tab:${projectId}:${sessionId}`;
   const [project, setProject] = useState<Project | null>(null);
   const [session, setSession] = useState<StaticSession | null>(null);
-  const [findings, setFindings] = useState<Finding[]>([]);
+  const [storedFindings, setFindings] = useState<Finding[]>([]);
   const [findingsError, setFindingsError] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [requirementMappings, setRequirementMappings] = useState<Record<string, RequirementMapping[]>>({});
   const [sourceManifest, setSourceManifest] = useState<ReviewSourceManifest | null>(null);
   const [traceabilitySnapshot, setTraceabilitySnapshot] = useState<ReviewTraceabilitySnapshot | null>(null);
-  const [modelUsage, setModelUsage] = useState<ReviewModelUsage | null>(null);
-  const [modelUsageError, setModelUsageError] = useState<string | null>(null);
+  const [harnessTrace, setHarnessTrace] = useState<ReviewHarnessTrace | null>(null);
+  const [harnessLoading, setHarnessLoading] = useState(false);
+  const [harnessError, setHarnessError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<ReviewDecisionRecord[]>([]);
   const [decisionsError, setDecisionsError] = useState<string | null>(null);
   const [decisionOffset, setDecisionOffset] = useState(0);
@@ -193,6 +196,8 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [preparedChild, setPreparedChild] = useState<StaticSession | null>(null);
   const [iterationSourceChoice, setIterationSourceChoice] = useState<'reuse' | 'refresh'>('reuse');
   const [evidenceAssessment, setEvidenceAssessment] = useState<EvidenceSufficiencyAssessment | null>(null);
+  const evidenceFindings = useMemo(() => session ? reviewEvidenceFindings(session, evidenceAssessment) : [], [session, evidenceAssessment]);
+  const findings = useMemo(() => mergeReviewFindings(storedFindings, evidenceFindings), [storedFindings, evidenceFindings]);
   const [contradictionDrafts, setContradictionDrafts] = useState<Record<string, { decision: 'authoritative_left' | 'authoritative_right' | 'not_conflict'; rationale: string }>>({});
   const [savingContradiction, setSavingContradiction] = useState<string | null>(null);
   const [contradictionNotice, setContradictionNotice] = useState<string | null>(null);
@@ -272,30 +277,6 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         setTraceabilitySnapshot(null);
       }
 
-      // Usage is additive evidence. A historical review may legitimately have
-      // no usage rows, and older test doubles/sidecars may not expose the
-      // endpoint; both cases stay explicit rather than becoming zero.
-      if (typeof api.getReviewModelUsage === 'function') {
-        try {
-          setModelUsage(await api.getReviewModelUsage(projectId, sessionId));
-          setModelUsageError(null);
-        } catch (cause) {
-          setModelUsage(null);
-          setModelUsageError(userFacingError(cause, 'Model usage is not available for this review.'));
-        }
-      } else if (typeof api.getAiUsage === 'function') {
-        try {
-          setModelUsage(await api.getAiUsage({ scope: 'text', callKind: 'review', projectId, sessionId }));
-          setModelUsageError(null);
-        } catch (cause) {
-          setModelUsage(null);
-          setModelUsageError(userFacingError(cause, 'Model usage is not available for this review.'));
-        }
-      } else {
-        setModelUsage(sessionResult.modelUsage ?? null);
-        setModelUsageError(null);
-      }
-
       if (!silent) {
         // Traceability is an evidence view, so an unavailable mapping endpoint
         // should not prevent the review activity itself from loading. Older test
@@ -336,6 +317,37 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
 
   useEffect(() => { void load(); }, [load]);
 
+  // The durable runner records a flat checkpoint plus step events. Fetch its
+  // evidence independently so legacy progress cannot hide the saved activity.
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setHarnessTrace(null);
+    setHarnessError(null);
+    setHarnessLoading(false);
+    if (typeof api.getReviewHarness !== 'function') return;
+    setHarnessLoading(true);
+    const refresh = async () => {
+      try {
+        const trace = await api.getReviewHarness(projectId, sessionId);
+        if (disposed) return;
+        if (trace.review.id !== sessionId) throw new Error('Review history mismatch');
+        setHarnessTrace(trace);
+        setHarnessError(null);
+        if (trace.review.status === 'queued' || trace.review.status === 'running') timer = setTimeout(() => void refresh(), 1500);
+      } catch {
+        if (!disposed) {
+          setHarnessError('Saved execution details could not be loaded. Reopen the review to try again; finding evidence remains available.');
+          if (session?.status === 'queued' || session?.status === 'running') timer = setTimeout(() => void refresh(), 3000);
+        }
+      } finally {
+        if (!disposed) setHarnessLoading(false);
+      }
+    };
+    void refresh();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [projectId, sessionId, session?.status]);
+
   useEffect(() => {
     if (!session || (session.status !== 'queued' && session.status !== 'running')) return undefined;
     const interval = window.setInterval(() => { void load({ silent: true }); }, 1500);
@@ -369,10 +381,14 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     ? createReviewActivityViewModel(session, findings, decisions, currentDecision)
     : null;
   const state = viewModel?.state ?? 'In progress';
+  const narrative = useMemo(() => session ? buildReviewNarrative({
+    session, trace: harnessTrace, findings, findingsError, assessment: evidenceAssessment,
+    traceability: traceabilitySnapshot, decision: currentDecision,
+  }) : null, [session, harnessTrace, findings, findingsError, evidenceAssessment, traceabilitySnapshot, currentDecision]);
   const config = session ? parseReviewConfig(session) : {};
   const canDecide = state === 'Need Approval' && !currentDecision && !submitting && !findingsError;
   const canCancel = Boolean(session && (session.status === 'queued' || session.status === 'running')) && !cancelling;
-  const canRetry = Boolean(session && (session.status === 'failure' || session.status === 'blocked' || session.status === 'cancelled')) && !retrying;
+  const canRetry = Boolean(session && (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked' || session.status === 'cancelled')) && !retrying;
   const saveContradiction = async (contradictionId: string) => {
     const draft = contradictionDrafts[contradictionId];
     if (!draft || draft.rationale.trim().length < 8) {
@@ -400,7 +416,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const objectiveDocuments = supportiveDocuments(config);
   const reviewer = currentDecision?.reviewer || (typeof config.reviewer === 'string' && config.reviewer.trim() ? config.reviewer.trim() : null);
   const handleFindingsLoadState = useCallback((nextFindings: Finding[], nextError: string | null) => {
-    setFindings(nextFindings);
+    setFindings(nextFindings.filter(finding => !finding.evidenceGap));
     setFindingsError(nextError);
   }, []);
   const openFinding = useCallback((findingId: string) => {
@@ -422,7 +438,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     if (session && (state === 'In progress' || state === 'Queued')) changeTab('Activity');
   // New and active runs always open on their live activity view.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, state]);
+  }, [session?.id, state]);
 
   const openDecisionPanel = (decision: DecisionIntent) => {
     if (!canDecide) return;
@@ -627,6 +643,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       {tab === 'Overview' ? (
         <section id="review-result-panel-overview" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-overview">
           <ReviewResultOverview
+            narrative={narrative!}
             session={session}
             findings={findings}
             findingsError={findingsError}
@@ -638,8 +655,6 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
             supportiveDocuments={objectiveDocuments}
             sourceManifest={sourceManifest}
             traceabilitySnapshot={traceabilitySnapshot}
-            modelUsage={modelUsage}
-            modelUsageError={modelUsageError}
             projectId={session.projectId}
             onNavigate={onNavigate}
             onOpenTraceability={() => {
@@ -651,6 +666,10 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       ) : tab === 'Activity' ? (
         <section id="review-result-panel-activity" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-activity">
           <ReviewActivityContent
+            narrative={narrative!}
+            onOpenFinding={openFinding}
+            harnessLoading={harnessLoading}
+            harnessError={harnessError}
             session={session}
             state={state}
             findingsError={findingsError}
@@ -665,9 +684,9 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         </section>
       ) : tab === 'Findings' ? (
         <section id="review-result-panel-findings" className="review-detail-panel review-result-panel command-project-detail" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-findings">
-          {state === 'In progress' || state === 'Queued'
+          {(state === 'In progress' || state === 'Queued') && findings.length === 0
             ? <ReviewWaitingPanel title="Findings" />
-            : <FindingsPanel projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} focusFindingId={focusFindingId} onLoadStateChange={handleFindingsLoadState} />}
+            : <FindingsPanel readOnly={state === 'In progress' || state === 'Queued'} projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} focusFindingId={focusFindingId} supplementalFindings={evidenceFindings} onLoadStateChange={handleFindingsLoadState} />}
         </section>
       ) : (
         <section id="review-result-panel-traceability" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-traceability">
@@ -750,6 +769,10 @@ function ReviewTabs({
 }
 
 function ReviewActivityContent({
+  onOpenFinding,
+  narrative,
+  harnessLoading,
+  harnessError,
   session,
   state,
   findingsError,
@@ -761,6 +784,10 @@ function ReviewActivityContent({
   onLoadOlderDecisions,
   currentDecision,
 }: {
+  onOpenFinding: (id: string) => void;
+  narrative: ReviewNarrative;
+  harnessLoading: boolean;
+  harnessError: string | null;
   session: StaticSession;
   state: ReviewLifecycleState;
   findingsError: string | null;
@@ -772,15 +799,14 @@ function ReviewActivityContent({
   onLoadOlderDecisions: () => void;
   currentDecision: ReviewDecisionRecord | null;
 }) {
-  const progress = parseReviewProgress(session.progressJson);
   return (
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
         <div className="review-activity-surface-heading">
           <h2>{state === 'Need Approval' ? 'Review activity' : 'Review activity'}</h2>
         </div>
-        <ReviewProgressView progress={progress} />
-        {state === 'Blocked' && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>Review needs attention</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
+        <ReviewNarrativeTimeline narrative={narrative} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} />
+        {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
         {currentDecision && (
@@ -910,6 +936,7 @@ function ReviewDecisionPanel({
 }
 
 function ReviewResultOverview({
+  narrative,
   session,
   findings,
   findingsError,
@@ -921,12 +948,11 @@ function ReviewResultOverview({
   supportiveDocuments,
   sourceManifest,
   traceabilitySnapshot,
-  modelUsage,
-  modelUsageError,
   projectId,
   onNavigate,
   onOpenTraceability,
 }: {
+  narrative: ReviewNarrative;
   session: StaticSession;
   findings: Finding[];
   findingsError: string | null;
@@ -938,28 +964,18 @@ function ReviewResultOverview({
   supportiveDocuments: SupportiveDocument[];
   sourceManifest: ReviewSourceManifest | null;
   traceabilitySnapshot: ReviewTraceabilitySnapshot | null;
-  modelUsage: ReviewModelUsage | null;
-  modelUsageError: string | null;
   projectId: string;
   onNavigate: (screen: Screen) => void;
   onOpenTraceability: () => void;
 }) {
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  const progress = parseReviewProgress(session.progressJson);
-  const completedAt = progress?.updatedAt || session.updatedAt;
-  const startedAt = progress?.startedAt;
-  const durationMs = startedAt && completedAt ? Date.parse(completedAt) - Date.parse(startedAt) : NaN;
-  const duration = Number.isFinite(durationMs) && durationMs >= 0
-    ? `${Math.floor(durationMs / 60000)}m ${Math.floor((durationMs % 60000) / 1000)}s`
-    : 'Not supplied';
+  const completedAt = narrative.timing.completedAt;
+  const duration = narrative.timing.duration;
   const config = parseReviewConfig(session);
   const reviewMode = typeof config.reviewMode === 'string' ? config.reviewMode : '';
   const pullRequest = typeof config.pullRequest === 'string' ? config.pullRequest : '';
   const reviewScope = pullRequest ? 'Pull Request (PR Review)' : reviewMode === 'changed-files' ? 'Change File Review' : 'Full Scope Review';
   const waitingForEvidence = state === 'In progress' || state === 'Queued';
-  const summary = waitingForEvidence
-    ? 'The review is processing its sources. Findings and traceability will appear here as evidence becomes available.'
-    : session.finalSummary || 'The review activity completed. Inspect the evidence before recording a decision.';
   const metricValue = (value: number) => findingsError || waitingForEvidence ? '—' : String(value);
   const objectiveText = objective || 'Not specified';
   const objectiveNeedsDisclosure = objectiveText.length > 280;
@@ -970,8 +986,6 @@ function ReviewResultOverview({
     ? `${traceabilitySummary.missing} Missing · ${traceabilitySummary.incomplete} Incomplete`
     : 'Not available for this review';
   const carryoverCount = findings.filter(finding => finding.status === 'carryover').length;
-  const usageTotals = modelUsage?.totals;
-  const formatTokenCount = (value: number | undefined) => value == null ? '—' : value.toLocaleString();
   return (
     <div className="review-overview-grid">
       <section className="review-overview-main review-overview-card">
@@ -982,21 +996,16 @@ function ReviewResultOverview({
             <h3 id="review-overview-objective-heading">Objective</h3>
             {objectiveNeedsDisclosure && <button type="button" className="command-icon-button" aria-label="Expand review objective" title="Expand review objective" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(true)}><Expand size={16} aria-hidden="true" /></button>}
           </div>
-          <p className={objectiveNeedsDisclosure ? 'review-overview-objective-text is-truncated' : 'review-overview-objective-text'}>{objectiveText}</p>
+          <ReviewObjectiveList points={narrative.objectives} />
           {supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}
         </section>
-         <div className="review-overview-copy review-overview-summary"><h3>Summary</h3><p>{summary}</p></div>
-         <section className="review-model-usage" aria-labelledby="review-model-usage-heading">
-           <div className="review-overview-subheading"><h3 id="review-model-usage-heading">Model usage</h3><span className="review-meta-note">Provider-reported totals</span></div>
-           {usageTotals ? <div className="review-model-usage-grid" aria-label="Per-review model usage"><div><strong>{formatTokenCount(usageTotals.calls)}</strong><span>Requests</span></div><div><strong>{formatTokenCount(usageTotals.input)}</strong><span>Input tokens</span></div><div><strong>{formatTokenCount(usageTotals.output)}</strong><span>Output tokens</span></div><div><strong>{formatTokenCount(usageTotals.cacheRead)}</strong><span>Cache reads</span></div><div><strong>{formatTokenCount(usageTotals.cacheCreation)}</strong><span>Cache creation</span></div></div> : <p className="review-history-unavailable" role="status">{modelUsageError || 'Model usage is not available for this review.'}</p>}
-           {usageTotals && modelUsage?.byGroup && modelUsage.byGroup.length > 0 && <ul className="review-model-usage-groups" aria-label="Models used">{modelUsage.byGroup.map(group => <li key={`${group.provider}-${group.apiFormat}-${group.model}`}><span>{group.provider} · {group.model}</span><small>{group.totalCalls.toLocaleString()} request{group.totalCalls === 1 ? '' : 's'}</small></li>)}</ul>}
-         </section>
+         <section className="review-overview-copy review-overview-summary" aria-labelledby="review-overview-summary-heading"><h3 id="review-overview-summary-heading">Summary</h3><ReviewNarrativeSummary summary={narrative.summary} /></section>
          {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
       </section>
       <aside className="review-overview-rail review-decision-card"><h2>Decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : state === 'Need Approval' ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>Completed</dt><dd>{waitingForEvidence ? 'Not yet' : completedAt ? formatReviewTimestamp(completedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
       <section className="review-overview-sources" aria-label="Review sources"><ArtifactsPanel projectId={projectId} onOpenSettings={() => onNavigate({ name: 'settings' })} /></section>
       <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
-        <div className="review-objective-dialog-content"><p>{objectiveText}</p>{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>
+        <div className="review-objective-dialog-content"><ReviewObjectiveList points={objectivePoints(objective)} />{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>
       </Modal>
     </div>
   );

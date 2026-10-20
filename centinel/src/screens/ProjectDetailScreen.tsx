@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, TriangleAlert, CircleX, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { api, type ProjectReportDownloadLinks, type ProjectReportExportResult, type ProjectReportHistoryEntry } from '../api/client';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
+import { ProjectReadinessCard } from '../components/ProjectReadinessCard';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { Modal } from '../components/Modal';
@@ -12,7 +13,11 @@ import { projectActivityLifecycle, projectActivityLifecycleTone } from '../revie
 import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
 import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
-import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot } from '../types';
+import { projectReadinessFindings } from '../readinessFindings';
+import { assessReviewSourceCurrency, latestSuccessfulReview } from '../reviewCurrency';
+import { effectiveFindingStatus } from '../findingStatus';
+import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot, ReviewSourceManifest } from '../types';
+import type { ProjectReadinessStatus } from '../types';
 import './ProjectDetailScreen.css';
 
 type Props = {
@@ -20,6 +25,7 @@ type Props = {
   onNavigate: (screen: Screen) => void;
   onProjectUpdated?: (project: Project) => void;
   initialAction?: 'static' | 'dynamic';
+  initialSection?: 'source';
   initialStaticSessionId?: string;
 };
 
@@ -29,19 +35,19 @@ type AttentionItem = {
   id: string;
   title: string;
   detail: string;
-  action: 'source' | 'findings' | 'activity' | 'actions';
+  action: 'source' | 'findings' | 'activity' | 'actions' | 'review';
   actionLabel: string;
+  comparisonParentReviewId?: string;
   filter?: { category?: string; search?: string };
 };
 
-type AssessmentInfoPage = 'severity' | 'priority' | 'risk';
-
-type ReadinessItem = {
-  id: string;
-  label: string;
-  count: number;
-  state: 'ready' | 'insufficient' | 'missing';
+type ReviewSourceManifestLoad = {
+  reviewId: string;
+  status: 'loading' | 'available' | 'unavailable';
+  manifest?: ReviewSourceManifest | null;
 };
+
+type AssessmentInfoPage = 'severity' | 'priority' | 'risk';
 
 /**
  * Project Detail timestamps deliberately use a stable, readable format rather
@@ -69,11 +75,13 @@ function attentionPreview(detail: string): string {
   return (boundary > ATTENTION_PREVIEW_LIMIT - 30 ? preview.slice(0, boundary) : preview).trimEnd();
 }
 
-export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialStaticSessionId: _initialStaticSessionId }: Props) {
+export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialSection, initialStaticSessionId: _initialStaticSessionId }: Props) {
   const [currentProject, setCurrentProject] = useState(project);
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [artifactsLoaded, setArtifactsLoaded] = useState(false);
+  const [reviewSourceManifestLoad, setReviewSourceManifestLoad] = useState<ReviewSourceManifestLoad | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ProjectReportExportResult | null>(null);
@@ -83,7 +91,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [showReportHistory, setShowReportHistory] = useState(false);
   const [reportLinks, setReportLinks] = useState<Record<string, ProjectReportDownloadLinks>>({});
   const [renewingReportId, setRenewingReportId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState('project-overview');
+  const [activeSection, setActiveSection] = useState(initialSection === 'source' ? 'project-source' : 'project-overview');
+  useEffect(() => { setActiveSection(initialSection === 'source' ? 'project-source' : 'project-overview'); }, [project.id, initialSection]);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activityQuery, setActivityQuery] = useState('');
   const [activityType, setActivityType] = useState<'all' | 'review' | 'dynamic'>('all');
@@ -95,6 +104,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [findingsError, setFindingsError] = useState<string | null>(null);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
+  const [readinessStatus, setReadinessStatus] = useState<ProjectReadinessStatus | null>(null);
+  useEffect(() => { setReadinessStatus(null); }, [project.id]);
   const [latestTraceabilitySummary, setLatestTraceabilitySummary] = useState<{ complete: number; incomplete: number; missing: number; attention: number } | null>(null);
   const [latestTraceabilityReview, setLatestTraceabilityReview] = useState<StaticSession | null>(null);
   const [traceabilitySummaryLoading, setTraceabilitySummaryLoading] = useState(false);
@@ -148,12 +159,15 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [project.id]);
 
   const loadArtifacts = useCallback(async () => {
+    setArtifactsLoaded(false);
     try {
       setArtifacts(await api.listArtifacts(project.id));
       setArtifactsError(null);
     } catch (cause) {
       setArtifacts([]);
       setArtifactsError(userFacingError(cause, 'Sources could not be loaded.'));
+    } finally {
+      setArtifactsLoaded(true);
     }
   }, [project.id]);
 
@@ -187,7 +201,12 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
 
-  useEffect(() => { loadDynamicSessions(); loadStaticSessions(); loadArtifacts(); loadProjectFindings(); loadReportHistory(); }, [loadDynamicSessions, loadStaticSessions, loadArtifacts, loadProjectFindings, loadReportHistory]);
+  useEffect(() => { loadDynamicSessions(); loadProjectFindings(); loadReportHistory(); }, [loadDynamicSessions, loadProjectFindings, loadReportHistory]);
+  useEffect(() => {
+    if (activeSection !== 'project-overview') return;
+    loadArtifacts();
+    loadStaticSessions();
+  }, [activeSection, loadArtifacts, loadStaticSessions]);
 
   useEffect(() => {
     if (typeof api.getProjectAssessment !== 'function') {
@@ -303,6 +322,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [activityDateTime, activityQuery, activityState, activityType]);
 
   const unresolvedFindings = useMemo(() => projectFindings
+    .map(finding => ({ ...finding, status: effectiveFindingStatus(finding) }))
     .filter(finding => !['dismissed', 'fixed'].includes(finding.status))
     .sort((a, b) => (riskLevelRank(a.riskLevel ?? deriveRiskLevel(a.severity, a.priority)) - riskLevelRank(b.riskLevel ?? deriveRiskLevel(b.severity, b.priority))) || Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)), [projectFindings]);
 
@@ -337,12 +357,49 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       || a.title.localeCompare(b.title)
       || a.id.localeCompare(b.id)), [riskLevelFindings]);
 
-  const displayedRiskFindings = assessmentData?.status === 'available' ? assessmentData.riskItems : riskFindings;
+  const hasDerivedResolutionEvidence = projectFindings.some(finding => finding.resolutionEvidence != null);
+  const displayedRiskFindings = assessmentData?.status === 'available' && !hasDerivedResolutionEvidence
+    ? assessmentData.riskItems.filter(finding => !['dismissed', 'fixed'].includes(effectiveFindingStatus(finding)))
+    : riskFindings;
 
   const latestReview = useMemo(() => [...staticSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [staticSessions]);
+  const lastSuccessfulReview = useMemo(() => latestSuccessfulReview(staticSessions), [staticSessions]);
   const latestDynamicTest = useMemo(() => [...dynamicSessions].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null, [dynamicSessions]);
   const latestReviewState = latestReview ? projectActivityLifecycle(latestReview, 'review') : null;
   const latestDynamicState = latestDynamicTest ? projectActivityLifecycle(latestDynamicTest, 'dynamic') : null;
+
+  useEffect(() => {
+    if (!lastSuccessfulReview) {
+      setReviewSourceManifestLoad(null);
+      return;
+    }
+
+    let cancelled = false;
+    const reviewId = lastSuccessfulReview.id;
+    setReviewSourceManifestLoad({ reviewId, status: 'loading' });
+    if (typeof api.getReviewSourceManifest !== 'function') {
+      setReviewSourceManifestLoad({ reviewId, status: 'unavailable' });
+      return () => { cancelled = true; };
+    }
+
+    api.getReviewSourceManifest(project.id, reviewId)
+      .then(manifest => {
+        if (!cancelled) setReviewSourceManifestLoad({ reviewId, status: 'available', manifest });
+      })
+      .catch(() => {
+        if (!cancelled) setReviewSourceManifestLoad({ reviewId, status: 'unavailable' });
+      });
+
+    return () => { cancelled = true; };
+  }, [lastSuccessfulReview?.id, project.id]);
+
+  const reviewSourceCurrency = useMemo(() => {
+    if (!lastSuccessfulReview || !reviewSourceManifestLoad || reviewSourceManifestLoad.reviewId !== lastSuccessfulReview.id || reviewSourceManifestLoad.status === 'loading' || !artifactsLoaded) return null;
+    if (reviewSourceManifestLoad.status === 'unavailable' || artifactsError) {
+      return assessReviewSourceCurrency(lastSuccessfulReview, null, null);
+    }
+    return assessReviewSourceCurrency(lastSuccessfulReview, reviewSourceManifestLoad.manifest ?? null, artifacts);
+  }, [artifacts, artifactsError, artifactsLoaded, lastSuccessfulReview, reviewSourceManifestLoad]);
 
   useEffect(() => {
     const completedReview = [...staticSessions]
@@ -420,6 +477,45 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       filter: pattern.filter,
     }));
 
+    if (lastSuccessfulReview && reviewSourceCurrency && reviewSourceCurrency.changedCount > 0) {
+      const sourceCount = reviewSourceCurrency.changedCount;
+      const sourceNoun = `reviewed source version${sourceCount === 1 ? '' : 's'}`;
+      items.push({
+        id: `source-currency-changed-${lastSuccessfulReview.id}`,
+        title: 'Sources changed',
+        detail: reviewSourceCurrency.fullyVerified
+          ? `${sourceCount} ${sourceNoun} changed or were removed since “${lastSuccessfulReview.name}”. Start a Review to assess the current versions.`
+          : `At least ${sourceCount} ${sourceNoun} changed or were removed since “${lastSuccessfulReview.name}”; source currency could not be fully verified. Start a Review to assess the current versions.`,
+        action: 'review',
+        actionLabel: 'Start Review',
+        comparisonParentReviewId: lastSuccessfulReview.id,
+      });
+    }
+
+    if (lastSuccessfulReview && reviewSourceCurrency && reviewSourceCurrency.addedCount > 0) {
+      const sourceCount = reviewSourceCurrency.addedCount;
+      const addedSourceNoun = `new project source${sourceCount === 1 ? '' : 's'}`;
+      items.push({
+        id: `source-currency-added-${lastSuccessfulReview.id}`,
+        title: 'New sources need review',
+        detail: `${sourceCount} ${addedSourceNoun} ${sourceCount === 1 ? 'was' : 'were'} imported after “${lastSuccessfulReview.name}” and may not be covered by that Review.${reviewSourceCurrency.fullyVerified ? '' : ' Source currency could not be fully verified.'} Start a Review to assess them.`,
+        action: 'review',
+        actionLabel: 'Start Review',
+        comparisonParentReviewId: lastSuccessfulReview.id,
+      });
+    }
+
+    if (lastSuccessfulReview && reviewSourceCurrency?.status === 'unverified') {
+      items.push({
+        id: `source-currency-unverified-${lastSuccessfulReview.id}`,
+        title: 'Review needs checking',
+        detail: 'Source currency cannot be verified from the saved Review evidence. Start a Review to establish a current source snapshot.',
+        action: 'review',
+        actionLabel: 'Start Review',
+        comparisonParentReviewId: lastSuccessfulReview.id,
+      });
+    }
+
     unresolvedFindings.forEach(finding => items.push({
       id: `finding-${finding.id}`,
       title: finding.title,
@@ -449,20 +545,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     }
 
     return items;
-  }, [artifacts.length, artifactsError, dynamicSessions, recurringPatterns, staticSessions, unresolvedFindings]);
+  }, [artifacts.length, artifactsError, dynamicSessions, lastSuccessfulReview, recurringPatterns, reviewSourceCurrency, staticSessions, unresolvedFindings]);
 
-  const readinessItems = useMemo<ReadinessItem[]>(() => {
-    const entries = [
-      { id: 'repository', label: 'Repository', count: artifacts.filter(artifact => artifact.source === 'repository').length },
-      { id: 'requirements', label: 'Requirement specification', count: artifacts.filter(artifact => artifact.type === 'requirement').length },
-      { id: 'design', label: 'Design documentation', count: artifacts.filter(artifact => artifact.type === 'design').length },
-      { id: 'standards', label: 'Coding standards', count: artifacts.filter(artifact => artifact.type === 'coding_standard').length },
-    ];
-    return entries.map(item => ({
-      ...item,
-      state: item.count === 0 ? 'missing' : item.id === 'repository' || item.count > 1 ? 'ready' : 'insufficient',
-    }));
-  }, [artifacts]);
+  const readinessFindings = useMemo(() => projectReadinessFindings(readinessStatus), [readinessStatus]);
 
   const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
   const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);
@@ -473,13 +558,13 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       const level = finding.riskLevel as keyof typeof counts;
       if (level in counts) counts[level] += 1;
     });
-    return assessmentData?.status === 'available' && assessmentData.summary ? {
+    return assessmentData?.status === 'available' && assessmentData.summary && !hasDerivedResolutionEvidence ? {
       critical: assessmentData.summary.critical,
       high: assessmentData.summary.high,
       medium: assessmentData.summary.medium,
       low: assessmentData.summary.low,
     } : counts;
-  }, [assessmentData, riskLevelFindings]);
+  }, [assessmentData, hasDerivedResolutionEvidence, riskLevelFindings]);
 
   useEffect(() => {
     setAttentionPage(page => Math.min(page, attentionPageCount - 1));
@@ -488,6 +573,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const handleAttentionAction = (item: AttentionItem) => {
     if (item.action === 'actions') {
       setActionsOpen(true);
+      return;
+    }
+    if (item.action === 'review') {
+      onNavigate({ name: 'review-entry', projectId: project.id, ...(item.comparisonParentReviewId ? { comparisonParentReviewId: item.comparisonParentReviewId } : {}) });
       return;
     }
     if (item.action === 'activity') {
@@ -854,27 +943,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                )}
             </section>
 
-            <section className="card detail-card project-readiness-card" aria-labelledby="project-readiness-heading">
-              <div className="panel-header">
-                <div><h2 id="project-readiness-heading"><ShieldAlert size={19} /> Readiness</h2></div>
-                {artifactsError && <span className="panel-count readiness-unavailable">Unavailable</span>}
-              </div>
-              {artifactsError ? (
-                <div className="project-overview-empty"><Info size={22} aria-hidden="true" /><p>Source readiness could not be checked.</p></div>
-              ) : (
-                <ul className="project-readiness-list">
-                  {readinessItems.map(item => (
-                    <li key={item.id} className={item.state}>
-                      <span className="readiness-indicator" aria-hidden="true">
-                        {item.state === 'ready' ? <CheckCircle2 size={18} /> : item.state === 'insufficient' ? <TriangleAlert size={18} /> : <CircleX size={18} />}
-                      </span>
-                      <span><strong>{item.label}</strong><small>{item.count > 0 ? `${item.count} source${item.count === 1 ? '' : 's'} available` : 'No source available'}</small></span>
-                      <span className="readiness-state">{item.state === 'ready' ? 'Ready' : item.state === 'insufficient' ? 'Insufficient' : 'Missing'}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            <ProjectReadinessCard projectId={project.id} onStatusChange={setReadinessStatus} />
           </div>
 
           <section className="card detail-card project-activity-summary" id="project-recent-activity" aria-labelledby="project-recent-activity-heading">
@@ -933,7 +1002,12 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         {activeSection === 'project-findings' && <div id="project-findings">
            <FindingsPanel
              projectId={project.id}
+             supplementalFindings={readinessFindings}
              presentation="project"
+             onOpenReview={reviewId => {
+               const review = staticSessions.find(session => session.id === reviewId);
+               onNavigate({ name: 'review-activity', projectId: project.id, sessionId: reviewId, reviewName: review?.name });
+             }}
             pageSize={5}
             initialFilter={findingsFilter}
             refreshKey={

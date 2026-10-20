@@ -5,7 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TokenUsage } from '../aiClient.js';
 import { localCodexTokenSource } from './localCodexAuth.js';
+import { securePrivateDirectory } from './privateDirectory.js';
 import { ModelProviderError } from '../review/retry.js';
+import { providerPause } from '../review/providerPause.js';
 
 type ObjectValue = Record<string, any>;
 export type ExternalChatgptTokens = { accessToken: string; chatgptAccountId: string; chatgptPlanType?: string | null };
@@ -26,6 +28,25 @@ export interface CodexBackend {
 export const CODEX_ARGS = ['app-server', '--listen', 'stdio://', '--disable', 'shell_tool', '--disable', 'unified_exec', '-c', 'web_search="disabled"', '-c', 'tools.view_image=false', '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"'];
 const abortError = () => new DOMException('The operation was aborted', 'AbortError');
 const failure = (message: string, code = 'codex_unavailable') => new ModelProviderError(message, { code, retryable: false });
+
+function turnFailure(turn: ObjectValue): ModelProviderError {
+  const errorInfo = turn.error?.codexErrorInfo;
+  const usageLimit = typeof errorInfo === 'string' && errorInfo.toLowerCase() === 'usagelimitexceeded'
+    || errorInfo && typeof errorInfo === 'object' && Object.hasOwn(errorInfo, 'usageLimitExceeded');
+  if (usageLimit) return new ModelProviderError(providerPause({ code: 'usage_limit_exceeded' })!.message, {
+    code: 'quota_exhausted', retryable: false,
+  });
+  const attemptsError = errorInfo && typeof errorInfo === 'object' && !Array.isArray(errorInfo)
+    ? errorInfo.responseTooManyFailedAttempts ?? errorInfo.httpConnectionFailed ?? errorInfo.responseStreamConnectionFailed ?? errorInfo
+    : undefined;
+  if (attemptsError && typeof attemptsError === 'object' && !Array.isArray(attemptsError)
+    && attemptsError.httpStatusCode === 429) {
+    return new ModelProviderError(providerPause({ statusCode: 429 })!.message, {
+      code: 'rate_limited', statusCode: 429, retryable: false,
+    });
+  }
+  return failure('Codex could not complete this operation. Check model access and account usage limits.', 'codex_turn_failed');
+}
 
 /** One local Codex home per verified Centinel user. Desktop auth is read only
  * when explicitly configured for that owner; config/tools/history are isolated. */
@@ -61,8 +82,8 @@ export class CodexAppServer implements CodexBackend {
   }
 
   private async start() {
+    securePrivateDirectory(this.home);
     fs.mkdirSync(this.workspace, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.home, 0o700);
     // Pass only the OS environment needed to start Codex. Repository .env and
     // parent API credentials must not accidentally change authentication mode.
     const env: NodeJS.ProcessEnv = { CODEX_HOME: this.home };
@@ -219,6 +240,15 @@ export class CodexAppServer implements CodexBackend {
       void done.catch(() => {});
       const listener = (method: string, params: ObjectValue) => {
         if (params.threadId !== threadId) return;
+        if (method === 'error') {
+          const error = turnFailure({ error: params.error });
+          if (providerPause(error)) {
+            // Stop even a CLI-internal retry before waiting for turn/completed.
+            failed?.(error);
+            this.close(error);
+            return;
+          }
+        }
         if (method === 'thread/tokenUsage/updated' && params.tokenUsage?.last) {
           const last = params.tokenUsage.last;
           if (Number.isFinite(last.inputTokens) && Number.isFinite(last.outputTokens)) usage = {
@@ -230,7 +260,7 @@ export class CodexAppServer implements CodexBackend {
           messages.set(params.item.id, params.item.text ?? '');
         }
         if (method === 'turn/completed') {
-          if (params.turn?.status !== 'completed') failed?.(failure('Codex could not complete this operation. Check model access and account usage limits.', 'codex_turn_failed'));
+          if (params.turn?.status !== 'completed') failed?.(turnFailure(params.turn ?? {}));
           else {
             const text = [...messages.values()].join('\n').trim();
             if (!text) failed?.(failure('Codex returned an empty response.', 'codex_invalid_response'));
@@ -254,6 +284,23 @@ export class CodexAppServer implements CodexBackend {
     } finally {
       dispose?.(); request.signal?.removeEventListener('abort', abort); this.active--; this.touch();
     }
+  }
+
+  /** Read-only capacity diagnostics; never infer account exhaustion from a 429.
+   * Omit auth, account IDs and opaque reset-credit details from this response. */
+  async capacity() {
+    await this.ready();
+    const result = await this.rpc('account/rateLimits/read', {});
+    const rows = result?.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object'
+      ? Object.values(result.rateLimitsByLimitId) : result?.rateLimits ? [result.rateLimits] : [];
+    const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const window = (value: any) => value && finite(value.usedPercent) !== null
+      ? { usedPercent: value.usedPercent, windowDurationMins: finite(value.windowDurationMins), resetsAt: finite(value.resetsAt) } : null;
+    return rows.filter((row): row is ObjectValue => !!row && typeof row === 'object').map(row => ({
+      primary: window(row.primary), secondary: window(row.secondary),
+      hasCredits: typeof row.credits?.hasCredits === 'boolean' ? row.credits.hasCredits : null,
+      limitReached: typeof row.rateLimitReachedType === 'string' ? true : row.rateLimitReachedType === null ? false : null,
+    }));
   }
 
   close(error: Error = failure('Codex connection ended. Reconnect and try again.')) {

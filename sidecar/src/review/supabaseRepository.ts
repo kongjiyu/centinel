@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
 import type { ReviewTraceabilityRecord } from './evidenceTypes.js';
 import { summarizeTraceability } from './traceabilitySummary.js';
 import type { EvidenceSufficiencyAssessment, EvidenceContradictionDisposition } from './evidenceSufficiency.js';
-import type { FindingCorrelation, FindingCorrelationSnapshot, CorrelationAmbiguity } from './correlation.js';
+import type { FindingCorrelation, FindingCorrelationSnapshot, CorrelationAmbiguity, FindingResolutionEligibility } from './correlation.js';
 import type {
   ConfirmedRequirement,
   GroundingRepository,
@@ -32,9 +33,19 @@ import type {
   StaticReviewIteration,
 } from './types.js';
 import { toModelUsageRecord } from './usageAudit.js';
+import { runExternalOperation, type ExternalRetryScheduledEvent } from './retry.js';
 
 type Row = Record<string, unknown>;
 type Query = any;
+type ReviewRetryContext = { reviewId: string; projectId: string };
+
+function stableUuid(value: string): string {
+  const hex = crypto.createHash('sha256').update(value).digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  const formatted = hex.join('');
+  return `${formatted.slice(0, 8)}-${formatted.slice(8, 12)}-${formatted.slice(12, 16)}-${formatted.slice(16, 20)}-${formatted.slice(20)}`;
+}
 
 function asRow(value: unknown): Row {
   return value && typeof value === 'object' ? value as Row : {};
@@ -243,6 +254,30 @@ function mapPersistedFinding(row: Row): PersistedReviewFinding {
   };
 }
 
+function mapResolutionEligibility(value: unknown): FindingResolutionEligibility | undefined {
+  const row = objectValue(value);
+  if (row.version !== 1 || row.basis !== 'not_reproduced_in_comparable_review') return undefined;
+  const parentSourceManifestId = typeof row.parentSourceManifestId === 'string' ? row.parentSourceManifestId : '';
+  const sourceManifestId = typeof row.sourceManifestId === 'string' ? row.sourceManifestId : '';
+  const reviewedArtifactId = typeof row.reviewedArtifactId === 'string' ? row.reviewedArtifactId : '';
+  const parentArtifactId = typeof row.parentArtifactId === 'string' ? row.parentArtifactId : '';
+  const sourceIdentityHash = typeof row.sourceIdentityHash === 'string' ? row.sourceIdentityHash : '';
+  const parentSourceVersion = typeof row.parentSourceVersion === 'string' ? row.parentSourceVersion : '';
+  const reviewedSourceVersion = typeof row.reviewedSourceVersion === 'string' ? row.reviewedSourceVersion : '';
+  if (!parentSourceManifestId || !sourceManifestId || !reviewedArtifactId || !parentArtifactId || !sourceIdentityHash || !parentSourceVersion || !reviewedSourceVersion) return undefined;
+  return {
+    version: 1,
+    basis: 'not_reproduced_in_comparable_review',
+    parentSourceManifestId,
+    sourceManifestId,
+    reviewedArtifactId,
+    parentArtifactId,
+    sourceIdentityHash,
+    parentSourceVersion,
+    reviewedSourceVersion,
+  };
+}
+
 /**
  * Supabase-backed implementation of the orchestrator repository seam.
  *
@@ -252,7 +287,17 @@ function mapPersistedFinding(row: Row): PersistedReviewFinding {
  * additive review metadata migration.
  */
 export class SupabaseStaticReviewRepository implements StaticReviewRepository, GroundingRepository {
-  constructor(private readonly client: SupabaseClient, private readonly actorId?: string) {}
+  private readonly reviewRetryContext = new AsyncLocalStorage<ReviewRetryContext>();
+
+  constructor(
+    private readonly client: SupabaseClient,
+    private readonly actorId?: string,
+    private readonly retryRuntime: { sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>; now?: () => Date } = {},
+  ) {}
+
+  withReviewRetryContext<T>(context: ReviewRetryContext, operation: () => Promise<T>): Promise<T> {
+    return this.reviewRetryContext.run(context, operation);
+  }
 
   private from(table: string): Query {
     return this.client.from(table);
@@ -265,16 +310,72 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     // number actually returned so frozen traceability cannot silently truncate.
     for (let start = 0; ;) {
       signal?.throwIfAborted();
-      let query = configure(this.from(table)).range(start, start + pageSize - 1);
-      if (signal) query = query.abortSignal(signal);
-      const result = await query;
+      const result = await this.externalRequest(label, requestSignal => {
+        let query = configure(this.from(table)).range(start, start + pageSize - 1);
+        if (requestSignal) query = query.abortSignal(requestSignal);
+        return query;
+      }, signal);
       signal?.throwIfAborted();
-      if (result.error) throw errorFor(label, result.error);
       const page = Array.isArray(result.data) ? result.data.map(asRow) : [];
       if (!page.length) return rows;
       rows.push(...page);
       start += page.length;
     }
+  }
+
+  private async externalRequest<T>(
+    operation: string,
+    build: (signal?: AbortSignal) => PromiseLike<{ data?: unknown; error?: unknown }>,
+    signal?: AbortSignal,
+    explicitContext?: ReviewRetryContext,
+  ): Promise<{ data?: unknown; error?: unknown }> {
+    const context = explicitContext ?? this.reviewRetryContext.getStore();
+    try {
+      return await runExternalOperation(async (_attempt, requestSignal) => {
+        const result = await build(requestSignal ?? signal);
+        if (result?.error) throw result.error;
+        return result;
+      }, {
+        service: 'Supabase',
+        operation,
+        signal,
+        maxAttempts: 3,
+        sleep: this.retryRuntime.sleep,
+        now: this.retryRuntime.now,
+        onRetry: context ? event => this.persistRetryEvent(context, event) : undefined,
+      });
+    } catch (error) {
+      throw errorFor(operation, error);
+    }
+  }
+
+  private async persistRetryEvent(context: ReviewRetryContext, retry: ExternalRetryScheduledEvent): Promise<void> {
+    const detail = {
+      kind: 'external',
+      service: retry.service,
+      operation: retry.operation,
+      attempt: retry.attempt,
+      maxAttempts: retry.maxAttempts,
+      delayMs: retry.delayMs,
+      nextAttemptAt: retry.nextAttemptAt,
+      errorCode: retry.errorCode,
+    };
+    const row = {
+      id: stableUuid(`${context.reviewId}\u0000review_retry_scheduled\u0000${retry.service}\u0000${retry.operation}\u0000${retry.attempt}`),
+      project_id: context.projectId,
+      actor_id: this.actorId ?? null,
+      event_type: 'review_retry_scheduled',
+      entity_type: 'review',
+      entity_id: context.reviewId,
+      idempotency_key: null,
+      payload: { stage: retry.operation, detail },
+      created_at: this.retryRuntime.now?.().toISOString() ?? new Date().toISOString(),
+    };
+    // This safe upsert is intentionally not wrapped by `externalRequest`: a
+    // failed retry-status write must stop the underlying request retry, not
+    // recursively emit another retry event.
+    const result = await this.from('audit_events').upsert(row, { onConflict: 'id' });
+    if (result.error) throw errorFor('retry schedule audit', result.error);
   }
 
   async createReview(input: NewStaticReview): Promise<StaticReviewRecord> {
@@ -290,7 +391,9 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       scope: input.scope,
       config: input.config,
       lineage: input.lineage,
-      iteration: input.iteration ?? null,
+      // The schema stores absent root-review metadata as a non-null empty
+      // JSON object; an explicit SQL NULL bypasses the column default.
+      iteration: input.iteration ?? {},
       source_manifest_id: input.sourceManifestId,
       deterministic_finding_count: 0,
       model_finding_count: 0,
@@ -303,23 +406,39 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       created_at: now,
       updated_at: input.updatedAt ?? now,
     };
-    const result = await this.from('review_sessions').insert(row).select('*').single();
-    if (result.error) {
+    let result: { data?: unknown; error?: unknown };
+    try {
+      result = await this.externalRequest('review creation', () => this.from('review_sessions').upsert(row, { onConflict: 'id' }).select('*').single(), undefined, { reviewId: id, projectId: input.projectId });
+    } catch (error) {
       // A concurrent duplicate Start is expected to lose the unique-key race
       // and return the already-created immutable Review.
       if (input.idempotencyKey) {
         const existing = await this.findReviewByIdempotencyKey(input.projectId, input.idempotencyKey);
         if (existing) return existing;
       }
-      throw errorFor('review creation', result.error);
+      throw error;
     }
     return mapReview(asRow(result.data));
   }
 
   async getReview(reviewId: string): Promise<StaticReviewRecord | null> {
-    const result = await this.from('review_sessions').select('*').eq('id', reviewId).maybeSingle();
-    if (result.error) throw errorFor('review lookup', result.error);
+    const result = await this.externalRequest('review lookup', () => this.from('review_sessions').select('*').eq('id', reviewId).maybeSingle());
     return result.data ? mapReview(asRow(result.data)) : null;
+  }
+
+  /** Bearer/RLS scoped, paginated audit history. No prompt or provider secrets. */
+  async getHarnessEvents(projectId: string, reviewId: string): Promise<ReviewAuditEvent[]> {
+    const rows = await this.allRows('audit_events', 'review harness events', query => query
+      .select('id, project_id, entity_id, event_type, payload, created_at')
+      .eq('project_id', projectId).eq('entity_type', 'review').eq('entity_id', reviewId)
+      .order('created_at', { ascending: true }).order('id', { ascending: true }));
+    return rows.filter(row => text(row, 'event_type').startsWith('harness_step_')
+      || text(row, 'event_type') === 'model_attempt'
+      || text(row, 'event_type') === 'review_retry_scheduled')
+      .map(row => {
+        const payload = objectValue(row.payload);
+        return { id: text(row, 'id'), projectId, reviewId, event: text(row, 'event_type'), stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: objectValue(payload.detail), createdAt: text(row, 'created_at') };
+      });
   }
 
   async listReviews(projectId: string): Promise<StaticReviewRecord[]> {
@@ -580,7 +699,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
         method: item.method,
         score: item.score,
         stable_fingerprint: item.stableFingerprint,
-        detail: { explanation: item.detail ?? null },
+        detail: { explanation: item.detail ?? null, resolutionEligibility: item.resolutionEligibility ?? null },
         created_at: snapshot.createdAt,
       }));
       const details = await this.from('review_finding_correlations').upsert(rows, { onConflict: 'id', ignoreDuplicates: true });
@@ -608,6 +727,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     const correlations: FindingCorrelation[] = (rowsResult.data ?? []).map((value: unknown) => {
       const row = asRow(value);
       const detail = objectValue(row.detail);
+      const resolutionEligibility = mapResolutionEligibility(detail.resolutionEligibility);
       return {
         id: text(row, 'id'),
         parentReviewId: text(row, 'parent_review_id'),
@@ -619,6 +739,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
         score: Number(row.score ?? 0),
         stableFingerprint: text(row, 'stable_fingerprint'),
         ...(text(detail, 'explanation') ? { detail: text(detail, 'explanation') } : {}),
+        ...(resolutionEligibility ? { resolutionEligibility } : {}),
       };
     });
     return {
@@ -874,15 +995,18 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
   async updateProgress(reviewId: string, progress: ReviewProgressState): Promise<void> {
     const review = await this.getReview(reviewId);
     if (!review) throw new Error(`Review ${reviewId} was not found.`);
-    const event = await this.from('review_progress_events').insert({ project_id: review.projectId, review_session_id: reviewId, stage: progress.stage, status: progress.stage === 'complete' ? 'completed' : 'running', message: progress.message ?? '', created_at: progress.updatedAt });
-    if (event.error) throw errorFor('review progress event', event.error);
-    const update = await this.from('review_sessions').update({ progress, updated_at: progress.updatedAt }).eq('id', reviewId);
-    if (update.error && !isMissingRevisionError(update.error)) throw errorFor('review progress', update.error);
+    const eventId = stableUuid(`${reviewId}\u0000review_progress\u0000${progress.stage}\u0000${progress.updatedAt}`);
+    await this.externalRequest('review progress event', () => this.from('review_progress_events').upsert({ id: eventId, project_id: review.projectId, review_session_id: reviewId, stage: progress.stage, status: progress.stage === 'complete' ? 'completed' : 'running', message: progress.message ?? '', created_at: progress.updatedAt }, { onConflict: 'id' }));
+    try {
+      await this.externalRequest('review progress', () => this.from('review_sessions').update({ progress, updated_at: progress.updatedAt }).eq('id', reviewId));
+    } catch (error) {
+      if (!isMissingRevisionError(error)) throw error;
+    }
   }
 
   async recordModelAttempt(attempt: ModelAttemptRecord): Promise<void> {
     const record = toModelUsageRecord(attempt);
-    const result = await this.from('model_usage_records').upsert({
+    await this.externalRequest('model attempt save', () => this.from('model_usage_records').upsert({
       id: record.id,
       project_id: record.projectId,
       review_session_id: record.reviewId,
@@ -906,21 +1030,19 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
         retryAfterMs: record.retryAfterMs ?? null,
       },
       created_at: record.createdAt,
-    }, { onConflict: 'id' });
-    if (result.error) throw errorFor('model attempt save', result.error);
+    }, { onConflict: 'id' }));
   }
 
   async getModelAttemptCount(reviewId: string, stage: string): Promise<number> {
-    const result = await this.from('model_usage_records').select('attempt')
-      .eq('review_session_id', reviewId).eq('stage', stage);
-    if (result.error) throw errorFor('model attempt high-water lookup', result.error);
-    return (result.data ?? []).reduce((maximum: number, row: unknown) =>
+    const result = await this.externalRequest('model attempt high-water lookup', () => this.from('model_usage_records').select('attempt')
+      .eq('review_session_id', reviewId).eq('stage', stage));
+    return (Array.isArray(result.data) ? result.data : []).reduce((maximum: number, row: unknown) =>
       Math.max(maximum, Math.floor(Number(asRow(row).attempt ?? 0))), 0);
   }
 
   async recordAudit(event: ReviewAuditEvent): Promise<void> {
-    const result = await this.from('audit_events').insert({ id: event.id, project_id: event.projectId, event_type: event.event, entity_type: 'review', entity_id: event.reviewId, payload: { stage: event.stage ?? null, detail: event.detail ?? {} }, created_at: event.createdAt });
-    if (result.error) throw errorFor('review audit save', result.error);
+    const id = event.id ?? stableUuid(`${event.reviewId}\u0000${event.event}\u0000${event.stage ?? ''}\u0000${event.createdAt}\u0000${JSON.stringify(event.detail ?? {})}`);
+    await this.externalRequest('review audit save', () => this.from('audit_events').upsert({ id, project_id: event.projectId, actor_id: this.actorId ?? null, event_type: event.event, entity_type: 'review', entity_id: event.reviewId, payload: { stage: event.stage ?? null, detail: event.detail ?? {} }, created_at: event.createdAt }, { onConflict: 'id' }));
   }
 }
 

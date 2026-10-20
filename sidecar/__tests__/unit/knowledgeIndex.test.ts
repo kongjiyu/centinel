@@ -32,6 +32,7 @@ vi.mock('../../src/store/supabase.js', () => ({
 }));
 
 import { indexFrozenArtifacts, retrieveFrozenContext } from '../../src/review/knowledgeIndex.js';
+import { EmbeddingProviderError } from '../../src/review/embeddingProvider.js';
 
 const artifact = {
   id: 'artifact-1', projectId: 'project-1', versionId: 'version-1',
@@ -46,6 +47,19 @@ describe('frozen source indexing', () => {
     seams.readContent.mockResolvedValue('export const answer = 42;');
     seams.saveModelUsage.mockResolvedValue({});
     seams.saveEmbeddingChunk.mockResolvedValue({});
+  });
+
+  it.each(['rate_limited', 'quota_exhausted', 'credits_exhausted'])('propagates %s before further source indexing or retrieval fallback', async code => {
+    seams.resolveProvider.mockResolvedValue({ apiKey: 'secret', baseUrl: 'https://model.test/v1', model: 'embed-1536' });
+    seams.createEmbedding.mockRejectedValue(new EmbeddingProviderError('Paused provider', code));
+    await expect(indexFrozenArtifacts({} as SupabaseClient, 'user-1', 'project-1', [artifact, { ...artifact, id: 'artifact-2' }])).rejects.toMatchObject({ code });
+    expect(seams.createEmbedding).toHaveBeenCalledOnce();
+    expect(seams.readContent).toHaveBeenCalledOnce();
+    expect(seams.saveEmbeddingChunk).not.toHaveBeenCalled();
+    expect(seams.saveModelUsage).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failure', errorCode: code }));
+
+    await expect(retrieveFrozenContext(retrievalClient([]), 'user-1', 'project-1', [artifact], 1000, undefined, 'review-1', 'query')).rejects.toMatchObject({ code });
+    expect(seams.createEmbedding).toHaveBeenCalledTimes(2);
   });
 
   it('stores real provider vectors and attributable usage for a frozen version', async () => {

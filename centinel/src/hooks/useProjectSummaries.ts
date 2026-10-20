@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { projectActivityLifecycle, type ProjectActivityLifecycle } from '../reviewViewModel';
+import { projectActivityLifecycle, reviewLifecycleState, type ProjectActivityLifecycle } from '../reviewViewModel';
 import type { Artifact, DynamicSession, Project, StaticSession } from '../types';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 
@@ -36,10 +36,12 @@ export type ProjectSummary = {
   activeCount: number;
   action: ProjectAction | null;
   unavailable: boolean;
+  /** Metadata is already usable while activity is being enriched. */
+  loading?: boolean;
 };
 
 export type ProjectState = {
-  group: Exclude<ProjectStateFilter, 'all'>;
+  group: Exclude<ProjectStateFilter, 'all'> | 'loading' | 'unavailable';
   label: string;
   tone: 'danger' | 'warning' | 'info' | 'success' | 'neutral';
 };
@@ -92,14 +94,15 @@ function getStaticAction(project: Project, sessions: StaticSession[], artifacts:
   const candidates: ProjectAction[] = [];
 
   sortedSessions(sessions).forEach(session => {
-    if (session.status === 'failure' || session.status === 'blocked') {
+    if (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked') {
+      const paused = reviewLifecycleState(session) === 'Paused';
       candidates.push({
         id: `review-failure:${session.id}`,
         project,
         module: 'Review',
-        state: 'Failed',
+        state: paused ? 'Paused' : 'Failed',
         action: 'Inspect',
-        tone: 'danger',
+        tone: paused ? 'warning' : 'danger',
         reason: reviewFailureMessage(session.failureReason) || `${session.name} stopped before Centinel could produce a result.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
@@ -221,6 +224,7 @@ function buildSummary(
 }
 
 export function getProjectState(summary: ProjectSummary): ProjectState {
+  if (summary.loading) return { group: 'loading', label: 'Loading activity…', tone: 'neutral' };
   if (summary.action) {
     if (summary.action.id.startsWith('review-decision:') || summary.action.id.startsWith('review-changes:')) {
       return { group: 'needs_approval', label: 'Need Approval', tone: 'warning' };
@@ -235,6 +239,7 @@ export function getProjectState(summary: ProjectSummary): ProjectState {
     return { group: 'in_progress', label: 'In progress', tone: 'info' };
   }
   if (!summary.latestActivity) {
+    if (summary.unavailable) return { group: 'unavailable', label: 'Activity unavailable', tone: 'warning' };
     return { group: 'no_activity', label: 'No activity', tone: 'neutral' };
   }
   const lifecycle = projectActivityLifecycle(
@@ -299,24 +304,39 @@ export function useProjectSummaries(projects: Project[]) {
     }
 
     setLoading(true);
-    void Promise.all(projects.map(async project => {
+    setUnavailable(false);
+    setSummaries(sortProjectSummaries(projects.map(project => ({
+      ...buildSummary(project, [], [], [], true), unavailable: false, loading: true, action: null,
+    }))));
+    const loadProject = async (project: Project) => {
       const [staticResult, dynamicResult, artifactsResult] = await Promise.allSettled([
         api.listStaticSessions(project.id),
         api.listDynamicSessions(project.id),
         api.listArtifacts(project.id),
       ]);
       const projectUnavailable = [staticResult, dynamicResult, artifactsResult].some(result => result.status === 'rejected');
-      return buildSummary(
+      const summary = buildSummary(
         project,
         staticResult.status === 'fulfilled' ? staticResult.value : [],
         dynamicResult.status === 'fulfilled' ? dynamicResult.value : [],
         artifactsResult.status === 'fulfilled' ? artifactsResult.value : [],
         projectUnavailable,
       );
-    })).then(results => {
       if (cancelled) return;
-      setSummaries(sortProjectSummaries(results));
-      setUnavailable(results.some(result => result.unavailable));
+      setSummaries(previous => sortProjectSummaries(previous.map(item => item.project.id === project.id ? summary : item)));
+      if (projectUnavailable) setUnavailable(true);
+    };
+    // Keep the directory usable while a bounded number of projects enrich in
+    // parallel. A slow project's source list never holds all other rows.
+    let next = 0;
+    const worker = async () => {
+      while (!cancelled && next < projects.length) {
+        const project = projects[next++];
+        await loadProject(project);
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(4, projects.length) }, worker)).then(() => {
+      if (cancelled) return;
       setLoading(false);
     });
 

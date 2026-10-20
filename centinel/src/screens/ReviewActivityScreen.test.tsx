@@ -21,6 +21,7 @@ vi.mock('../api/client', () => ({
     saveContradictionDisposition: vi.fn(),
     getReviewCorrelations: vi.fn(),
     getReviewModelUsage: vi.fn(),
+    getReviewHarness: vi.fn(),
     listRequirements: vi.fn(),
     listArtifacts: vi.fn(),
     listRequirementMappings: vi.fn(),
@@ -76,6 +77,7 @@ const baseSession: StaticSession = {
 };
 
 const finding: Finding = {
+  verifier: 'model',
   id: 'finding-1',
   projectId: project.id,
   sessionId: baseSession.id,
@@ -128,6 +130,7 @@ function setup(session: StaticSession = baseSession, decisions: ReviewDecisionRe
   vi.mocked(api.listReviewDecisions).mockResolvedValue(decisions);
   vi.mocked(api.submitReviewDecision).mockResolvedValue({ ...approvedDecision, decision: 'changes_requested' });
   vi.mocked(api.getReviewModelUsage).mockResolvedValue(reviewUsage);
+  vi.mocked(api.getReviewHarness).mockRejectedValue(new Error('Trace not recorded'));
   vi.mocked(api.retryStaticSession).mockResolvedValue({ ...session, id: `${session.id}-retry`, status: 'queued' });
   vi.mocked(api.listStaticSessions).mockResolvedValue([session]);
   vi.mocked(api.startPreparedReviewIteration).mockResolvedValue({ ...session, id: 'review-child', status: 'queued', parentSessionId: session.id });
@@ -146,6 +149,18 @@ describe('ReviewActivityScreen', () => {
     setup();
   });
 
+  it('shows a provider pause and manual retry without approval actions', async () => {
+    const paused = { ...baseSession, status: 'blocked' as const, modelStatus: 'partial' as const,
+      progressJson: JSON.stringify({ stage: 'provider_paused', completedStages: ['freezing_sources', 'indexing_context', 'deterministic_analysis'], pauseCode: 'rate_limited' }),
+      failureReason: 'Paused: the Model Provider rejected the request because of a rate limit. Remaining account allowance may still be available. Check provider access, then retry manually. No automatic retry will run.' };
+    setup(paused);
+    render(<ReviewActivityScreen projectId={project.id} sessionId={paused.id} onNavigate={vi.fn()} />);
+    expect((await screen.findAllByText('Paused', { exact: true })).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Retry review' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Approve review' })).not.toBeInTheDocument();
+    expect(api.retryStaticSession).not.toHaveBeenCalled();
+  });
+
   it('renders the activity stages without a duplicate information rail while running', async () => {
     const running = { ...baseSession, status: 'running' as const };
     setup(running);
@@ -155,7 +170,8 @@ describe('ReviewActivityScreen', () => {
     expect(screen.queryByRole('complementary', { name: 'Review information' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Supportive documents' })).not.toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Review stages' })).toBeInTheDocument();
-    expect(screen.getByText('Loaded project sources')).toBeInTheDocument();
+    expect(screen.getByText('Context understood')).toBeInTheDocument();
+    expect(screen.queryByText('Loaded project sources')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-decision-approve')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-decision-reject')).not.toBeInTheDocument();
     expect(screen.queryByText('Candidate findings')).not.toBeInTheDocument();
@@ -172,6 +188,66 @@ describe('ReviewActivityScreen', () => {
     expect(screen.queryByRole('button', { name: 'Retry review' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument();
     expect(api.submitReviewDecision).not.toHaveBeenCalled();
+  });
+
+  it('opens an available finding while running without allowing status changes', async () => {
+    const user = userEvent.setup();
+    setup({ ...baseSession, status: 'running' });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Review activity' });
+    await user.click(screen.getByRole('button', { name: `View finding: ${finding.title}` }));
+    const details = await screen.findByRole('complementary', { name: 'Finding details' });
+    expect(details).toHaveTextContent(finding.description);
+    expect(details).toHaveTextContent('updates become available when the review stops');
+    expect(within(details).queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
+  });
+
+  it('reconstructs the saved runner activity instead of rendering only complete', async () => {
+    const user = userEvent.setup();
+    setup({ ...baseSession, progressJson: JSON.stringify({ stage: 'complete', completedStages: ['freezing_sources'] }) });
+    vi.mocked(api.getReviewHarness).mockResolvedValue({
+      workflow: { version: 'v1', reference: '', stages: [] },
+      review: { id: baseSession.id, name: baseSession.name, status: 'pending_approval', modelStatus: 'succeeded', progress: { stage: 'complete', completedStages: ['freezing_sources'] }, updatedAt: baseSession.updatedAt },
+      events: [
+        { reviewId: baseSession.id, stage: 'freezing_sources', event: 'harness_step_started', createdAt: baseSession.createdAt, detail: { step: 'read_source', executionId: 'read-1', input: { artifactId: 'artifact-1', fileName: 'checkout.ts' } } },
+        { reviewId: baseSession.id, stage: 'freezing_sources', event: 'harness_step_completed', createdAt: baseSession.updatedAt, detail: { step: 'read_source', executionId: 'read-1', output: { hashChecked: true } } },
+        { reviewId: baseSession.id, stage: 'freezing_sources', event: 'harness_step_completed', createdAt: baseSession.updatedAt, detail: { step: 'load_grounding', executionId: 'grounding-1', output: { confirmedRequirements: 0 } } },
+      ],
+    });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    await user.click(screen.getByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByText(/I could read 1 selected file/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Check the documents' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `View finding: ${finding.title}` })).toBeInTheDocument();
+    expect(screen.queryByText(finding.description)).not.toBeInTheDocument();
+    expect(screen.queryByText('Check details (1)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'complete' })).not.toBeInTheDocument();
+    expect(api.getReviewHarness).toHaveBeenCalledWith(project.id, baseSession.id);
+  });
+
+  it('presents sentence objectives and an overall result, blockers and next action', async () => {
+    setup({ ...baseSession, status: 'failed', failureReason: 'The selected source cannot be read.', configJson: JSON.stringify({ instructions: 'Verify N1 in src/checkout.ts. Require approval before persistence.' }) });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    const objectives = screen.getByRole('heading', { name: 'Objective' }).closest('section')!;
+    expect(within(objectives).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Verify N1 in src/checkout.ts.', 'Require approval before saving data.']);
+    const summary = screen.getByRole('region', { name: 'Summary' });
+    expect(within(summary).getByText(/couldn’t finish the review/)).toBeInTheDocument();
+    expect(within(summary).getByText('The selected source cannot be read.')).toBeInTheDocument();
+    expect(within(summary).getByText(/then retry the review/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve review' })).not.toBeInTheDocument();
+  });
+
+  it('keeps finding explanations available when execution history is unavailable', async () => {
+    const user = userEvent.setup();
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    await user.click(screen.getByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByText(/Saved execution details could not be loaded/)).toBeInTheDocument();
+    expect(screen.queryByText(finding.description)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: `View finding: ${finding.title}` }));
+    expect(await screen.findByRole('complementary', { name: 'Finding details' })).toHaveTextContent(finding.description);
   });
 
   it('submits attached supportive documents with review feedback', async () => {
@@ -405,21 +481,34 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByRole('cell', { name: 'High' })).toBeInTheDocument();
   });
 
-  it('shows provider-reported model usage for the review without exposing credentials', async () => {
+  it('removes model usage and its request from review Overview', async () => {
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-
-    expect(await screen.findByRole('heading', { name: 'Model usage' })).toBeInTheDocument();
-    const usage = screen.getByRole('region', { name: 'Model usage' });
-    expect(within(usage).getByText(text => text.replace(/\D/g, '') === '1024')).toBeInTheDocument();
-    expect(within(usage).getByText('Input tokens')).toBeInTheDocument();
-    expect(within(usage).getByText('256')).toBeInTheDocument();
-    expect(within(usage).getByText(/gpt-review/)).toBeInTheDocument();
-    expect(screen.queryByText(/api key/i)).not.toBeInTheDocument();
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    expect(screen.queryByRole('heading', { name: 'Model usage' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Input tokens')).not.toBeInTheDocument();
+    expect(api.getReviewModelUsage).not.toHaveBeenCalled();
   });
 
-  it('offers Retry only for a failed review and opens the child review', async () => {
+  it('opens saved document gaps as findings without offering a false status update', async () => {
     const user = userEvent.setup();
-    const failed = { ...baseSession, status: 'failure' as const, failureReason: 'The provider timed out.' };
+    vi.mocked(api.getReviewEvidenceSufficiency).mockResolvedValue({
+      id: 'assessment-1', reviewId: baseSession.id, projectId: project.id, reviewType: 'code_review', readiness: 'ready_with_warnings',
+      gaps: [], contradictions: [], artifactCount: 1, availableArtifactCount: 1, staleArtifactCount: 0,
+      confirmedRequirementCount: 0, enabledStandardRuleCount: 1, assessedAt: baseSession.createdAt,
+    });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Review Overview' });
+    await user.click(screen.getByRole('tab', { name: 'Activity' }));
+    await user.click(screen.getByRole('button', { name: 'View finding: Business requirements need confirmation' }));
+    const details = await screen.findByRole('complementary', { name: 'Finding details' });
+    expect(details).toHaveTextContent('No confirmed business requirements were available');
+    expect(within(details).queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();
+    expect(details).toHaveTextContent('run a new review');
+  });
+
+  it.each(['failure', 'failed'] as const)('offers Retry for %s execution and opens the child review', async status => {
+    const user = userEvent.setup();
+    const failed = { ...baseSession, status, failureReason: 'The provider timed out.' };
     const child = { ...baseSession, id: 'review-2', name: 'Release review retry', status: 'queued' as const };
     setup(failed);
     vi.mocked(api.retryStaticSession).mockResolvedValue(child);
@@ -427,6 +516,8 @@ describe('ReviewActivityScreen', () => {
     render(<ReviewActivityScreen projectId={project.id} sessionId={failed.id} onNavigate={onNavigate} />);
 
     const retry = await screen.findByRole('button', { name: 'Retry review' });
+    expect(screen.queryByRole('button', { name: 'Approve review' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Request changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel review' })).not.toBeInTheDocument();
     await user.click(retry);
 

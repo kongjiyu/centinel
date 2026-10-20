@@ -291,8 +291,8 @@ export class InMemoryCentinelStore implements CentinelStore {
     return clone(Array.from(this.modelUsage.values()).filter(item => item.reviewSessionId === reviewSessionId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
   }
 
-  async saveModelUsage(input: Omit<StoreModelUsage, 'id' | 'createdAt'>): Promise<StoreModelUsage> {
-    const item: StoreModelUsage = { ...input, id: id(), createdAt: now() };
+  async saveModelUsage(input: Omit<StoreModelUsage, 'id' | 'createdAt'> & { id?: string }): Promise<StoreModelUsage> {
+    const item: StoreModelUsage = { ...input, id: input.id ?? id(), createdAt: now() };
     this.modelUsage.set(item.id, clone(item));
     return clone(item);
   }

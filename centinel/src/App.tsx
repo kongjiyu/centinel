@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { userFacingError } from './utils/userFacingError';
 import './command.css';
@@ -17,6 +17,7 @@ import { RequirementsScreen } from './screens/RequirementsScreen';
 import { EvidenceBrowser } from './screens/EvidenceBrowser';
 import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
 import { ReviewEntryScreen } from './screens/ReviewEntryScreen';
+import { ReviewPlaygroundScreen } from './screens/ReviewPlaygroundScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { api } from './api/client';
 import { reconcileOneDueSlackSource, SLACK_RECONCILIATION_INTERVAL_MS } from './integrations/slackReconciliation';
@@ -62,22 +63,33 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(!supabaseAuthConfigured);
   const [error, setError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const loadGeneration = useRef(0);
 
   const loadData = useCallback(async () => {
-    try {
-      const [projectsData, settingsData] = await Promise.all([
-        api.projects(),
-        api.aiSettings(),
-      ]);
-      setProjects(projectsData);
+    const generation = ++loadGeneration.current;
+    setSettingsLoading(true);
+    void api.aiSettings().then(settingsData => {
+      if (generation !== loadGeneration.current) return;
       setAiSettings(settingsData);
+      setSettingsError(null);
+    }).catch(cause => {
+      if (generation !== loadGeneration.current) return;
+      setSettingsError(userFacingError(cause, 'Model Provider settings are unavailable. Try again.'));
+    }).finally(() => { if (generation === loadGeneration.current) setSettingsLoading(false); });
+    try {
+      const projectsData = await api.projects();
+      if (generation !== loadGeneration.current) return;
+      setProjects(projectsData);
       setSidecarOnline(true);
       setError(null);
     } catch (e) {
+      if (generation !== loadGeneration.current) return;
       setSidecarOnline(false);
       setError(userFacingError(e, 'Centinel could not load this workspace. Try again.'));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, []);
 
@@ -204,6 +216,7 @@ function App() {
   }, [entryMode, accountUserId]);
 
   const returnToSignIn = () => {
+    loadGeneration.current++;
     void signOutSupabase().catch(() => undefined);
     setAccountEmail(null);
     setAccountUserId(null);
@@ -244,7 +257,7 @@ function App() {
   const handleCreateProject = async (name: string, description: string, workspacePath: string, source: ProjectCreateSource, navigateAfter = true) => {
     const project = await api.createProject(name, description, workspacePath, source);
     setProjects(prev => [project, ...prev]);
-    if (navigateAfter) setScreen({ name: 'project-detail', projectId: project.id });
+    if (navigateAfter) setScreen({ name: 'project-detail', projectId: project.id, initialSection: source.type === 'github' ? 'source' : undefined });
     return project;
   };
 
@@ -258,8 +271,8 @@ function App() {
 
   if (loading) {
     return (
-      <div className="loading-screen">
-        <p>Connecting to Centinel sidecar...</p>
+      <div className="loading-screen" role="status">
+        <p>Loading projects…</p>
       </div>
     );
   }
@@ -268,7 +281,7 @@ function App() {
     return (
       <div className="error-screen">
         <h1>Centinel</h1>
-        <p>Cannot connect to the local sidecar service.</p>
+        <p>The workspace could not be loaded.</p>
         <p className="error-detail">{error}</p>
         <button className="btn-primary" onClick={() => { setLoading(true); loadData(); }}>
           Retry
@@ -316,6 +329,7 @@ function App() {
          <ProjectDetailScreen
             project={currentProject}
             initialAction={screen.initialAction}
+            initialSection={screen.initialSection}
             initialStaticSessionId={screen.initialStaticSessionId}
             onNavigate={navigate}
             onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}
@@ -340,7 +354,8 @@ function App() {
           <ReviewEntryScreen
             projects={projects}
             initialProjectId={screen.projectId}
-            onNavigate={navigate}
+            comparisonParentReviewId={screen.comparisonParentReviewId}
+            onNavigate={target => navigate(screen.returnToPlayground && target.name === 'review-activity' ? { name: 'review-playground', projectId: target.projectId, sessionId: target.sessionId } : target)}
             onCreateProject={(name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source, false)}
           />
         )}
@@ -356,8 +371,13 @@ function App() {
             onNavigate={navigate}
           />
         )}
-        {screen.name === 'settings' && (
+        {screen.name === 'settings' && <>
+          {settingsLoading && <p role="status">Loading Model Provider settings…</p>}
+          {settingsError && <div className="command-inline-alert" role="status"><span>{settingsError}</span><button type="button" className="btn-secondary" onClick={() => void loadData()}>Retry settings</button></div>}
           <SettingsScreen settings={aiSettings} onRefresh={loadData} />
+        </>}
+        {screen.name === 'review-playground' && (
+          <ReviewPlaygroundScreen projects={projects} initialProjectId={screen.projectId} initialSessionId={screen.sessionId} onNavigate={setScreen} />
         )}
         {screen.name === 'profile' && <ProfileScreen accountEmail={accountEmail} authProvider={authProvider} />}
       </AppShell>

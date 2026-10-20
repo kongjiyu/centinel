@@ -171,7 +171,7 @@ describe('ArtifactsPanel', () => {
   it('keeps a real load failure visible instead of implying an empty project', async () => {
     vi.mocked(api.listArtifacts).mockRejectedValue(new Error('sidecar unavailable'));
     render(<ArtifactsPanel projectId="p-1" />);
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Sources could not be loaded'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Files could not be refreshed'));
     expect(screen.getByText('Drop source files here')).toBeInTheDocument();
   });
 });

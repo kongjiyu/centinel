@@ -120,6 +120,7 @@ export function ProjectsScreen({
               <button type="button" onClick={reload}><RefreshCw size={14} aria-hidden="true" /> Retry</button>
             </div>
           )}
+          {summariesLoading && summaries.length > 0 && <p className="projects-directory-message" role="status">Updating project activity… You can open a project now.</p>}
 
           {summariesLoading && summaries.length === 0 ? (
             <div className="projects-directory-message" role="status">Loading projects…</div>

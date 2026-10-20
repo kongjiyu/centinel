@@ -391,8 +391,8 @@ export class SupabaseCentinelStore implements CentinelStore {
       .eq('review_session_id', reviewSessionId).order('created_at').order('id').range(start, end), 'model usage', mapModelUsage);
   }
 
-  async saveModelUsage(input: Omit<StoreModelUsage, 'id' | 'createdAt'>): Promise<StoreModelUsage> {
-    return single(this.client.from('model_usage_records').insert({ project_id: input.projectId, review_session_id: input.reviewSessionId, owner_id: input.ownerId, stage: input.stage, attempt: input.attempt, provider: input.provider, model: input.model, outcome: input.outcome, input_tokens: input.inputTokens, output_tokens: input.outputTokens, cache_read_tokens: input.cacheReadTokens, cache_creation_tokens: input.cacheCreationTokens, duration_ms: input.durationMs, error_code: input.errorCode, cost: input.cost, metadata: input.metadata }).select('*').single(), 'model usage', mapModelUsage);
+  async saveModelUsage(input: Omit<StoreModelUsage, 'id' | 'createdAt'> & { id?: string }): Promise<StoreModelUsage> {
+    return single(this.client.from('model_usage_records').upsert({ ...(input.id ? { id: input.id } : {}), project_id: input.projectId, review_session_id: input.reviewSessionId, owner_id: input.ownerId, stage: input.stage, attempt: input.attempt, provider: input.provider, model: input.model, outcome: input.outcome, input_tokens: input.inputTokens, output_tokens: input.outputTokens, cache_read_tokens: input.cacheReadTokens, cache_creation_tokens: input.cacheCreationTokens, duration_ms: input.durationMs, error_code: input.errorCode, cost: input.cost, metadata: input.metadata }, { onConflict: 'id' }).select('*').single(), 'model usage', mapModelUsage);
   }
 
   async listIntegrations(ownerId: string): Promise<StoreIntegration[]> {

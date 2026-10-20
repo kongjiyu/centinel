@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { decryptSecret, encryptSecret } from '../tokenVault.js';
 import type { StoreIntegration } from '../store/types.js';
 import { ConnectedSourceHttpError, fetchSourceHttpClient, type SourceHttpClient } from './http.js';
+import { runExternalOperation, sleepWithCancellation, type ExternalRetryScheduledEvent } from '../review/retry.js';
 import { createGitHubAdapter } from './providers/github.js';
 import { createGoogleDriveAdapter } from './providers/googleDrive.js';
 import { createSlackAdapter } from './providers/slack.js';
@@ -37,6 +38,7 @@ export type ConnectedSourceImporterOptions = {
   tokenVault?: ConnectedSourceTokenVault;
   maxRetries?: number;
   retryDelayMs?: number;
+  maxAttempts?: number;
   maxPagesPerRun?: number;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => string;
@@ -107,6 +109,13 @@ function retryDetails(cause: unknown): { code: string; retryable: boolean; statu
   return { code: 'provider_error', retryable: false, message: 'Connected source synchronization failed.' };
 }
 
+function safeSourceErrorMessage(message: string): string {
+  return message
+    .replace(/(api[-_ ]?key|authorization|bearer|token|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/[\r\n\t]+/g, ' ')
+    .slice(0, 512);
+}
+
 function scopesList(scopes: string): string[] {
   return scopes.split(/[\s,]+/).map(scope => scope.trim()).filter(Boolean);
 }
@@ -152,23 +161,35 @@ function syncResult(source: ConnectedSource, run: ConnectedSourceSyncRun, comple
 export class ConnectedSourceImporter {
   private readonly repository: ConnectedSourceRepository;
   private readonly adapters: Map<IntegrationProvider, ConnectedSourceProviderAdapter>;
+  private readonly http: SourceHttpClient;
   private readonly tokenVault: ConnectedSourceTokenVault;
-  private readonly maxRetries: number;
-  private readonly retryDelayMs: number;
+  private readonly maxAttempts: number;
   private readonly maxPagesPerRun: number;
-  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   private readonly now: () => string;
+  private retryRun: { id: string; leaseToken: string } | null = null;
 
   constructor(options: ConnectedSourceImporterOptions) {
     this.repository = options.repository;
-    const adapters = options.adapters ?? defaultAdapters(options.http ?? fetchSourceHttpClient);
+    const baseHttp = options.http ?? fetchSourceHttpClient;
+    this.maxAttempts = Math.max(1, Math.min(3, Math.floor(options.maxAttempts ?? (options.maxRetries === undefined ? 3 : options.maxRetries + 1))));
+    this.sleep = options.sleep ?? sleepWithCancellation;
+    this.now = options.now ?? (() => new Date().toISOString());
+    this.http = {
+      fetch: (input, init) => baseHttp.fetch(input, init),
+      retry: (operation, service, operationName) => runExternalOperation(operation, {
+        service,
+        operation: operationName,
+        maxAttempts: this.maxAttempts,
+        sleep: this.sleep,
+        now: () => new Date(this.now()),
+        onRetry: event => this.persistRetryEvent(event),
+      }),
+    };
+    const adapters = options.adapters ?? defaultAdapters(this.http);
     this.adapters = new Map(adapters.map(adapter => [adapter.provider, adapter]));
     this.tokenVault = options.tokenVault ?? { encrypt: encryptSecret, decrypt: decryptSecret };
-    this.maxRetries = Math.max(0, Math.min(5, options.maxRetries ?? 2));
-    this.retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
     this.maxPagesPerRun = Math.max(1, Math.min(200, options.maxPagesPerRun ?? 30));
-    this.sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
-    this.now = options.now ?? (() => new Date().toISOString());
   }
 
   async status(ownerId: string, provider: IntegrationProvider, projectId?: string): Promise<ConnectedSourceStatusResult> {
@@ -198,6 +219,19 @@ export class ConnectedSourceImporter {
     return this.repository.listSources(projectId);
   }
 
+  async queueSync(input: { ownerId: string; projectId: string; sourceId: string; idempotencyKey: string }): Promise<ConnectedSourceSyncRun> {
+    const source = await this.repository.getSource(input.projectId, input.sourceId);
+    if (!source) throw new ConnectedSourceImporterError('Connected source was not found in this project.', { code: 'source_not_found' });
+    if (!validProvider(source.provider) || source.status === 'disconnected') {
+      throw new ConnectedSourceImporterError('This source is disconnected. Reconnect it before synchronizing.', { code: 'source_disconnected' });
+    }
+    const integration = await this.repository.getIntegration(input.ownerId, source.provider);
+    if (!integration || integration.id !== source.integrationId || integration.status !== 'connected') {
+      throw new ConnectedSourceImporterError(`Connect ${providerLabel(source.provider)} before synchronizing this source.`, { code: 'integration_disconnected' });
+    }
+    return this.repository.startSyncRun(source, input.idempotencyKey);
+  }
+
   async disconnectSource(projectId: string, sourceId: string): Promise<ConnectedSource> {
     const source = await this.repository.getSource(projectId, sourceId);
     if (!source) throw new ConnectedSourceImporterError('Connected source was not found in this project.', { code: 'source_not_found' });
@@ -209,7 +243,7 @@ export class ConnectedSourceImporter {
     const adapter = this.adapter(provider);
     const credentials = await this.requireCredentials(ownerId, provider, adapter);
     try {
-      return await this.withRetry(() => adapter.browse(credentials, options));
+      return await adapter.browse(credentials, options);
     } catch (cause) {
       await this.noteAuthenticationFailure(ownerId, provider, cause);
       throw cause;
@@ -242,6 +276,31 @@ export class ConnectedSourceImporter {
     return { source: result.source, syncResult: result };
   }
 
+  /** Persist a source for a durable background run without refreshing or
+   * contacting provider credentials on the request path. */
+  async queueSource(input: ConnectedSourceStartInput): Promise<ConnectedSource> {
+    if (!kindMatches(input.provider, input.kind)) {
+      throw new ConnectedSourceImporterError(`Source kind ${input.kind} does not match provider ${input.provider}.`, { code: 'invalid_source_kind' });
+    }
+    if (!input.remoteId.trim() || !input.name.trim()) {
+      throw new ConnectedSourceImporterError('A source identifier and name are required.', { code: 'invalid_source' });
+    }
+    const integration = await this.repository.getIntegration(input.ownerId, input.provider);
+    if (!integration || integration.status !== 'connected' || !integration.tokenReference) {
+      throw new ConnectedSourceImporterError(`Connect ${providerLabel(input.provider)} before using this source.`, { code: 'integration_disconnected' });
+    }
+    return this.repository.saveSource({
+      projectId: input.projectId,
+      integrationId: integration.id,
+      provider: input.provider,
+      kind: input.kind,
+      remoteId: input.remoteId,
+      remoteUrl: input.remoteUrl ?? null,
+      name: input.name,
+      selectedScope: input.selectedScope ?? {},
+    });
+  }
+
   async sync(input: ConnectedSourceSyncInput): Promise<ConnectedSourceSyncResult> {
     const source = await this.repository.getSource(input.projectId, input.sourceId);
     if (!source) throw new ConnectedSourceImporterError('Connected source was not found in this project.', { code: 'source_not_found' });
@@ -250,7 +309,7 @@ export class ConnectedSourceImporter {
     }
     const provider = source.provider;
     const adapter = this.adapter(provider);
-    const credentials = await this.requireCredentials(input.ownerId, provider, adapter);
+    const credentials = await this.requireCredentials(input.ownerId, provider, adapter, source.integrationId);
     const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID();
     const requestedRun = input.runId ? await this.repository.getSyncRun(input.runId) : null;
     if (input.runId && (!requestedRun || requestedRun.sourceId !== source.id || requestedRun.projectId !== input.projectId)) {
@@ -261,80 +320,85 @@ export class ConnectedSourceImporter {
     // recent partial snapshot in that case so large repositories make forward
     // progress instead of starting over (or being mistaken for already current
     // after the source revision was updated by an earlier partial run).
-    const latestRun = !requestedRun && !input.force
-      ? (await this.repository.listSyncRuns(source.id)).sort((left, right) =>
-        Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.id.localeCompare(left.id, undefined, { numeric: true }))[0] ?? null
+    const latestRun = !requestedRun ? await this.repository.getLatestSyncRun(source.id) : null;
+    const resumableRun = latestRun && (latestRun.status === 'queued' || latestRun.status === 'running' || latestRun.status === 'partial')
+      ? latestRun
       : null;
-    const resumableRun = latestRun?.status === 'partial' ? latestRun : null;
     let run = requestedRun ?? resumableRun ?? await this.repository.startSyncRun(source, idempotencyKey);
     if (run.sourceId !== source.id || run.projectId !== input.projectId) throw new ConnectedSourceImporterError('Synchronization run does not belong to this source.', { code: 'sync_run_not_found' });
     if (run.status === 'success') return syncResult(source, run, true);
     if (run.status === 'cancelled') throw new ConnectedSourceImporterError('This synchronization run was cancelled.', { code: 'sync_cancelled' });
 
+    const leaseToken = input.workerLeaseToken ?? crypto.randomUUID();
+    const claimed = await this.repository.claimSyncRun(run.id, leaseToken, 120);
+    if (!claimed) {
+      const currentRun = await this.repository.getSyncRun(run.id);
+      return currentRun ? syncResult(source, currentRun, currentRun.status === 'success') : syncResult(source, run, false);
+    }
+    this.retryRun = { id: run.id, leaseToken };
+    const persistRun = (patch: Parameters<ConnectedSourceRepository['updateSyncRun']>[1]) =>
+      this.repository.updateSyncRun(run.id, patch, leaseToken);
+
     const nowMs = Date.parse(this.now());
     const previousSyncMs = source.lastSyncedAt ? Date.parse(source.lastSyncedAt) : Number.NEGATIVE_INFINITY;
     const now = new Date(Math.max(Number.isFinite(nowMs) ? nowMs : Date.now(), Number.isFinite(previousSyncMs) ? previousSyncMs + 1 : Number.NEGATIVE_INFINITY)).toISOString();
-    let snapshot: SyncSnapshot;
-    let cursor: Record<string, unknown> | null;
-    const hasStoredSnapshot = Boolean(run.remoteRevision || run.cursorStart || run.cursorEnd);
-    if (input.force || !hasStoredSnapshot) {
-      try {
-        snapshot = await this.withRetry(() => adapter.prepareSync(credentials, source));
-      } catch (cause) {
-        await this.noteAuthenticationFailure(input.ownerId, provider, cause);
-        return this.failRun(source, run, cause, 0, false);
-      }
-      if (!input.force && run.status === 'queued' && run.attemptCount === 0 && adapter.isSourceRevisionUnchanged?.(source, snapshot)) {
-        const itemCount = (await this.repository.listSourceItems(source.id)).filter(item => item.status === 'available' || item.status === 'unsupported').length;
-        const completedAt = this.now();
-        run = await this.repository.updateSyncRun(run.id, {
-          status: 'success', remoteRevision: snapshot.remoteRevision, cursorStart: cursorValue(snapshot.cursor),
-          cursorEnd: cursorValue(snapshot.cursor), attemptCount: 1, unchangedCount: itemCount,
-          startedAt: now, completedAt, retryable: false, errorCode: null, errorMessage: null,
-        });
-        const unchangedSource = await this.repository.updateSource(source.id, {
-          status: 'active', syncStatus: 'ready', remoteRevision: snapshot.remoteRevision,
-          lastSyncedAt: completedAt, lastSuccessfulSyncAt: completedAt, lastError: null,
-        });
-        return syncResult(unchangedSource, run, true);
-      }
-      cursor = cursorValue(snapshot.cursor);
-      run = await this.repository.updateSyncRun(run.id, { remoteRevision: snapshot.remoteRevision, cursorStart: cursorValue(snapshot.cursor), cursorEnd: cursorValue(snapshot.cursor), status: 'running', attemptCount: run.attemptCount + 1, startedAt: run.startedAt ?? now, completedAt: null, errorCode: null, errorMessage: null, retryable: false });
-    } else {
-      snapshot = { remoteRevision: run.remoteRevision, cursor: cursorValue(run.cursorStart) };
-      cursor = cursorValue(run.cursorEnd ?? run.cursorStart);
-      run = await this.repository.updateSyncRun(run.id, { status: 'running', attemptCount: run.attemptCount + 1, startedAt: run.startedAt ?? now, completedAt: null, errorCode: null, errorMessage: null, retryable: false });
-    }
-    let currentSource = await this.repository.updateSource(source.id, { status: 'active', syncStatus: 'syncing', lastError: null });
-    const maxPages = Math.max(1, Math.min(this.maxPagesPerRun, input.maxPages ?? this.maxPagesPerRun));
+    let currentSource = source;
     let pagesProcessed = 0;
-    let complete = false;
-    let currentRevision = snapshot.remoteRevision;
-
     try {
+      let snapshot: SyncSnapshot;
+      let cursor: Record<string, unknown> | null;
+      const hasStoredSnapshot = Boolean(run.remoteRevision || run.cursorStart || run.cursorEnd);
+      if (input.force || !hasStoredSnapshot) {
+        snapshot = await adapter.prepareSync(credentials, source);
+        if (!input.force && run.status === 'queued' && run.attemptCount === 0 && adapter.isSourceRevisionUnchanged?.(source, snapshot)) {
+          const itemCount = (await this.repository.listSourceItems(source.id)).filter(item => item.status === 'available' || item.status === 'unsupported').length;
+          const completedAt = this.now();
+          run = await persistRun({
+            status: 'success', remoteRevision: snapshot.remoteRevision, cursorStart: cursorValue(snapshot.cursor),
+            cursorEnd: cursorValue(snapshot.cursor), attemptCount: 1, unchangedCount: itemCount,
+            startedAt: now, completedAt, retryable: false, errorCode: null, errorMessage: null, nextAttemptAt: null,
+          });
+          const unchangedSource = await this.repository.updateSource(source.id, {
+            status: 'active', syncStatus: 'ready', remoteRevision: snapshot.remoteRevision,
+            lastSyncedAt: completedAt, lastSuccessfulSyncAt: completedAt, lastError: null,
+          });
+          return syncResult(unchangedSource, run, true);
+        }
+        cursor = cursorValue(snapshot.cursor);
+        run = await persistRun({ remoteRevision: snapshot.remoteRevision, cursorStart: cursorValue(snapshot.cursor), cursorEnd: cursorValue(snapshot.cursor), status: 'running', attemptCount: run.attemptCount + 1, startedAt: run.startedAt ?? now, completedAt: null, errorCode: null, errorMessage: null, retryable: false, nextAttemptAt: null });
+      } else {
+        snapshot = { remoteRevision: run.remoteRevision, cursor: cursorValue(run.cursorStart) };
+        cursor = cursorValue(run.cursorEnd ?? run.cursorStart);
+        run = await persistRun({ status: 'running', attemptCount: run.attemptCount + 1, startedAt: run.startedAt ?? now, completedAt: null, errorCode: null, errorMessage: null, retryable: false, nextAttemptAt: null });
+      }
+      currentSource = await this.repository.updateSource(source.id, { status: 'active', syncStatus: 'syncing', lastError: null });
+      const maxPages = Math.max(1, Math.min(this.maxPagesPerRun, input.maxPages ?? this.maxPagesPerRun));
+      let complete = false;
+      let currentRevision = snapshot.remoteRevision;
+
       while (pagesProcessed < maxPages) {
-        const page = await this.withRetry(() => adapter.listItems(credentials, currentSource, snapshot, cursor));
+        const page = await adapter.listItems(credentials, currentSource, snapshot, cursor);
         for (const item of page.items) {
           const result = await this.persistItem(currentSource, item);
-          if (result === 'removed') run = await this.repository.updateSyncRun(run.id, { removedCount: run.removedCount + 1 });
-          else if (result === 'inaccessible') run = await this.repository.updateSyncRun(run.id, { inaccessibleCount: run.inaccessibleCount + 1 });
-          else if (result === 'imported') run = await this.repository.updateSyncRun(run.id, { importedCount: run.importedCount + 1 });
-          else if (result === 'updated') run = await this.repository.updateSyncRun(run.id, { updatedCount: run.updatedCount + 1 });
-          else run = await this.repository.updateSyncRun(run.id, { unchangedCount: run.unchangedCount + 1 });
+          if (result === 'removed') run = await persistRun({ removedCount: run.removedCount + 1 });
+          else if (result === 'inaccessible') run = await persistRun({ inaccessibleCount: run.inaccessibleCount + 1 });
+          else if (result === 'imported') run = await persistRun({ importedCount: run.importedCount + 1 });
+          else if (result === 'updated') run = await persistRun({ updatedCount: run.updatedCount + 1 });
+          else run = await persistRun({ unchangedCount: run.unchangedCount + 1 });
         }
         for (const remoteId of page.deletedRemoteIds ?? []) {
           const changed = await this.markItemUnavailable(currentSource, remoteId, 'removed', null);
-          if (changed) run = await this.repository.updateSyncRun(run.id, { removedCount: run.removedCount + 1 });
+          if (changed) run = await persistRun({ removedCount: run.removedCount + 1 });
         }
         for (const remoteId of page.inaccessibleRemoteIds ?? []) {
           const changed = await this.markItemUnavailable(currentSource, remoteId, 'inaccessible', 'The provider no longer grants access to this item.');
-          if (changed) run = await this.repository.updateSyncRun(run.id, { inaccessibleCount: run.inaccessibleCount + 1 });
+          if (changed) run = await persistRun({ inaccessibleCount: run.inaccessibleCount + 1 });
         }
 
         cursor = cursorValue(page.nextCursor);
         const cursorRevision = cursor && typeof cursor.newestTs === 'string' ? cursor.newestTs : currentRevision;
         currentRevision = cursorRevision;
-        run = await this.repository.updateSyncRun(run.id, { cursorEnd: cursor, remoteRevision: currentRevision });
+        run = await persistRun({ cursorEnd: cursor, remoteRevision: currentRevision, nextAttemptAt: null });
         currentSource = await this.repository.updateSource(currentSource.id, { remoteRevision: currentRevision, syncCursor: cursor, lastSyncedAt: this.now() });
         pagesProcessed++;
         if (page.completeSnapshot) {
@@ -342,7 +406,7 @@ export class ConnectedSourceImporter {
             .filter(item => item.remoteId && item.lastSeenAt && item.lastSeenAt >= (run.startedAt ?? now))
             .map(item => item.remoteId!));
           const missing = await this.repository.markMissingItems(currentSource.id, seenSinceStart);
-          if (missing > 0) run = await this.repository.updateSyncRun(run.id, { removedCount: run.removedCount + missing });
+          if (missing > 0) run = await persistRun({ removedCount: run.removedCount + missing });
         }
         if (page.done) {
           complete = true;
@@ -351,21 +415,60 @@ export class ConnectedSourceImporter {
       }
 
       if (complete) {
-        run = await this.repository.updateSyncRun(run.id, { status: 'success', cursorEnd: cursor, completedAt: this.now(), errorCode: null, errorMessage: null, retryable: false });
+        run = await persistRun({ status: 'success', cursorEnd: cursor, completedAt: this.now(), errorCode: null, errorMessage: null, retryable: false, nextAttemptAt: null });
         currentSource = await this.repository.updateSource(currentSource.id, { status: 'active', syncStatus: 'ready', remoteRevision: currentRevision, syncCursor: cursor, lastSyncedAt: this.now(), lastSuccessfulSyncAt: this.now(), lastError: null });
       } else {
-        run = await this.repository.updateSyncRun(run.id, { status: 'partial', cursorEnd: cursor, completedAt: null });
+        run = await persistRun({ status: 'partial', cursorEnd: cursor, completedAt: null, errorCode: null, errorMessage: null, retryable: false, nextAttemptAt: null });
         currentSource = await this.repository.updateSource(currentSource.id, { status: 'active', syncStatus: currentSource.lastSuccessfulSyncAt ? 'ready' : 'idle', remoteRevision: currentRevision, syncCursor: cursor, lastSyncedAt: this.now(), lastError: null });
       }
       return syncResult(currentSource, run, complete);
     } catch (cause) {
       await this.noteAuthenticationFailure(input.ownerId, provider, cause);
-      return this.failRun(currentSource, run, cause, pagesProcessed, false);
+      return this.failRun(currentSource, run, cause, pagesProcessed, false, leaseToken);
+    } finally {
+      if (this.retryRun?.id === run.id && this.retryRun.leaseToken === leaseToken) this.retryRun = null;
     }
   }
 
   async resumeSync(input: Omit<ConnectedSourceSyncInput, 'idempotencyKey'> & { runId: string }): Promise<ConnectedSourceSyncResult> {
     return this.sync(input);
+  }
+
+  /** Persist a bounded-worker cursor stall only while this owner's source/run still match the observed cursor. */
+  async failStalledRun(input: Omit<ConnectedSourceSyncInput, 'idempotencyKey'> & { runId: string; expectedCursorKey: string }): Promise<ConnectedSourceSyncRun | null> {
+    if (!input.workerLeaseToken) throw new ConnectedSourceImporterError('A worker lease is required to fail a stalled synchronization.', { code: 'sync_lease_required' });
+    const source = await this.repository.getSource(input.projectId, input.sourceId);
+    if (!source || source.status === 'disconnected' || !validProvider(source.provider)) {
+      throw new ConnectedSourceImporterError('Connected source was not found or is disconnected.', { code: 'source_not_found' });
+    }
+    const integration = await this.repository.getIntegration(input.ownerId, source.provider);
+    if (!integration || integration.id !== source.integrationId) {
+      throw new ConnectedSourceImporterError(`Connect ${providerLabel(source.provider)} before synchronizing this source.`, { code: 'integration_disconnected' });
+    }
+    const run = await this.repository.getSyncRun(input.runId);
+    if (!run || run.sourceId !== source.id || run.projectId !== input.projectId) {
+      throw new ConnectedSourceImporterError('Synchronization run does not belong to this source.', { code: 'sync_run_not_found' });
+    }
+    if (run.status !== 'partial') return null;
+    if (!await this.repository.claimSyncRun(run.id, input.workerLeaseToken, 120)) return null;
+
+    const claimedRun = await this.repository.getSyncRun(run.id);
+    if (!claimedRun || claimedRun.status !== 'partial'
+      || JSON.stringify(claimedRun.cursorEnd ?? claimedRun.cursorStart ?? null) !== input.expectedCursorKey) {
+      if (claimedRun?.status === 'partial') {
+        await this.repository.updateSyncRun(run.id, { status: 'partial' }, input.workerLeaseToken);
+      }
+      return null;
+    }
+
+    return this.repository.updateSyncRun(run.id, {
+      status: 'failure',
+      errorCode: 'source_cursor_stalled',
+      errorMessage: 'Synchronization stopped because the source repeated its pagination cursor.',
+      retryable: false,
+      completedAt: this.now(),
+      nextAttemptAt: null,
+    }, input.workerLeaseToken);
   }
 
   async syncHistory(projectId: string, sourceId: string): Promise<ConnectedSourceSyncRun[]> {
@@ -412,9 +515,10 @@ export class ConnectedSourceImporter {
     }
   }
 
-  private async requireCredentials(ownerId: string, provider: IntegrationProvider, adapter: ConnectedSourceProviderAdapter): Promise<IntegrationCredential> {
+  private async requireCredentials(ownerId: string, provider: IntegrationProvider, adapter: ConnectedSourceProviderAdapter, expectedIntegrationId?: string): Promise<IntegrationCredential> {
     const integration = await this.repository.getIntegration(ownerId, provider);
-    if (!integration || integration.status === 'disconnected' || !integration.tokenReference) {
+    if (!integration || integration.status === 'disconnected' || !integration.tokenReference
+      || expectedIntegrationId !== undefined && integration.id !== expectedIntegrationId) {
       throw new ConnectedSourceImporterError(`Connect ${providerLabel(provider)} before using this source.`, { code: 'integration_disconnected' });
     }
     const credentials = this.readCredentials(integration);
@@ -462,18 +566,17 @@ export class ConnectedSourceImporter {
     if (integration) await this.repository.saveIntegration({ ...integration, status: 'expired', updatedAt: this.now() });
   }
 
-  private async withRetry<T>(operation: () => Promise<T>): Promise<T> {
-    let lastError: unknown;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        return await operation();
-      } catch (cause) {
-        lastError = cause;
-        if (!retryDetails(cause).retryable || attempt >= this.maxRetries) throw cause;
-        await this.sleep(this.retryDelayMs * (attempt + 1));
-      }
-    }
-    throw lastError;
+  private async persistRetryEvent(event: ExternalRetryScheduledEvent): Promise<void> {
+    if (!this.retryRun) return;
+    await this.repository.updateSyncRun(this.retryRun.id, {
+      retryService: event.service,
+      retryOperation: event.operation,
+      retryAttempt: event.attempt,
+      retryLimit: event.maxAttempts,
+      retryDelayMs: event.delayMs,
+      nextAttemptAt: event.nextAttemptAt,
+      retryable: false,
+    }, this.retryRun.leaseToken);
   }
 
   private async persistItem(source: ConnectedSource, content: RemoteContent): Promise<'imported' | 'updated' | 'unchanged' | 'removed' | 'inaccessible'> {
@@ -529,12 +632,12 @@ export class ConnectedSourceImporter {
     return changed;
   }
 
-  private async failRun(source: ConnectedSource, run: ConnectedSourceSyncRun, cause: unknown, pagesProcessed: number, forceInaccessible: boolean): Promise<never> {
+  private async failRun(source: ConnectedSource, run: ConnectedSourceSyncRun, cause: unknown, pagesProcessed: number, forceInaccessible: boolean, leaseToken?: string): Promise<never> {
     const details = retryDetails(cause);
     const inaccessible = forceInaccessible || details.statusCode === 403 || ['slack_channel_not_found', 'slack_not_in_channel', 'slack_missing_scope'].includes(details.code);
     const message = details.statusCode === 401
       ? `${providerLabel(source.provider)} rejected the saved authorization. Reconnect ${providerLabel(source.provider)} in Settings, then sync this source again.`
-      : details.message || 'Connected source synchronization failed.';
+      : safeSourceErrorMessage(details.message || 'Connected source synchronization failed.');
     let updatedSource: ConnectedSource;
     let inaccessibleCount = 0;
     if (inaccessible) {
@@ -552,7 +655,8 @@ export class ConnectedSourceImporter {
       errorMessage: message,
       retryable: details.retryable,
       completedAt: status === 'failure' ? this.now() : null,
-    });
+      nextAttemptAt: null,
+    }, leaseToken);
     void updatedSource;
     throw new ConnectedSourceImporterError(message, { code: details.code, retryable: details.retryable, statusCode: details.statusCode, cause });
   }

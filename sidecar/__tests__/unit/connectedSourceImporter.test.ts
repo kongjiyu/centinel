@@ -46,6 +46,7 @@ class MemoryConnectedSourceRepository implements ConnectedSourceRepository {
   items: ConnectedSourceItem[] = [];
   runs: ConnectedSourceSyncRun[] = [];
   versions = new Map<string, { id: string; hash: string; path: string }>();
+  leaseOwners = new Map<string, string>();
   nextRunId = 1;
 
   async getIntegration(ownerId: string, provider: 'github' | 'google_drive' | 'slack'): Promise<StoreIntegration | null> {
@@ -53,7 +54,12 @@ class MemoryConnectedSourceRepository implements ConnectedSourceRepository {
   }
 
   async saveIntegration(input: StoreIntegration): Promise<void> { this.integration = structuredClone(input); }
-  async listSources(projectId: string): Promise<ConnectedSource[]> { return projectId === this.source.projectId ? [structuredClone(this.source)] : []; }
+  async listSources(projectId: string): Promise<ConnectedSource[]> {
+    return projectId === this.source.projectId ? [{
+      ...structuredClone(this.source),
+      latestSyncRun: structuredClone(this.runs.slice().sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0] ?? null),
+    }] : [];
+  }
   async getSource(projectId: string, sourceId: string): Promise<ConnectedSource | null> {
     return projectId === this.source.projectId && sourceId === this.source.id ? structuredClone(this.source) : null;
   }
@@ -98,6 +104,8 @@ class MemoryConnectedSourceRepository implements ConnectedSourceRepository {
   async startSyncRun(source: ConnectedSource, idempotencyKey: string, snapshot?: SyncSnapshot | null): Promise<ConnectedSourceSyncRun> {
     const existing = this.runs.find(run => run.sourceId === source.id && run.idempotencyKey === idempotencyKey);
     if (existing) return structuredClone(existing);
+    const active = this.runs.slice().reverse().find(run => run.sourceId === source.id && ['queued', 'running', 'partial'].includes(run.status));
+    if (active) return structuredClone(active);
     const run: ConnectedSourceSyncRun = {
       id: `run-${this.nextRunId++}`, projectId: source.projectId, sourceId: source.id, status: 'queued', idempotencyKey,
       remoteRevision: snapshot?.remoteRevision ?? null, cursorStart: structuredClone(snapshot?.cursor ?? null), cursorEnd: null,
@@ -109,10 +117,34 @@ class MemoryConnectedSourceRepository implements ConnectedSourceRepository {
   }
   async listSyncRuns(sourceId: string): Promise<ConnectedSourceSyncRun[]> { return structuredClone(this.runs.filter(run => run.sourceId === sourceId)); }
   async getSyncRun(runId: string): Promise<ConnectedSourceSyncRun | null> { return structuredClone(this.runs.find(run => run.id === runId) ?? null); }
-  async updateSyncRun(runId: string, patch: Partial<Pick<ConnectedSourceSyncRun, 'status' | 'remoteRevision' | 'cursorStart' | 'cursorEnd' | 'attemptCount' | 'importedCount' | 'updatedCount' | 'unchangedCount' | 'removedCount' | 'inaccessibleCount' | 'errorCode' | 'errorMessage' | 'retryable' | 'startedAt' | 'completedAt'>>): Promise<ConnectedSourceSyncRun> {
+  async getLatestSyncRun(sourceId: string): Promise<ConnectedSourceSyncRun | null> {
+    return structuredClone(this.runs.filter(run => run.sourceId === sourceId).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0] ?? null);
+  }
+  async claimSyncRun(runId: string, leaseToken: string): Promise<boolean> {
+    const index = this.runs.findIndex(run => run.id === runId);
+    if (index < 0) return false;
+    const run = this.runs[index]!;
+    const leaseActive = run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) > Date.now();
+    if (leaseActive && this.leaseOwners.get(runId) !== leaseToken) return false;
+    this.leaseOwners.set(runId, leaseToken);
+    this.runs[index] = { ...run, leaseExpiresAt: new Date(Date.now() + 120_000).toISOString() };
+    return true;
+  }
+  async updateSyncRun(runId: string, patch: Partial<ConnectedSourceSyncRun>, leaseToken?: string): Promise<ConnectedSourceSyncRun> {
     const index = this.runs.findIndex(run => run.id === runId);
     if (index < 0) throw new Error('run missing');
-    this.runs[index] = { ...this.runs[index]!, ...structuredClone(patch) };
+    const current = this.runs[index]!;
+    if (leaseToken && this.leaseOwners.get(runId) !== leaseToken) throw new Error('run lease lost');
+    const terminal = patch.status === 'success' || patch.status === 'failure' || patch.status === 'cancelled'
+      || patch.status === 'partial';
+    this.runs[index] = {
+      ...current, ...structuredClone(patch),
+      ...(leaseToken ? terminal
+        ? { leaseExpiresAt: null }
+        : { leaseExpiresAt: new Date(Date.now() + 120_000).toISOString() }
+        : {}),
+    };
+    if (leaseToken && terminal) this.leaseOwners.delete(runId);
     return structuredClone(this.runs[index]!);
   }
   async persistArtifactVersion(input: ConnectedArtifactVersionInput) {
@@ -128,11 +160,13 @@ class MemoryConnectedSourceRepository implements ConnectedSourceRepository {
 
 function sourceAdapter(pages: Array<{ cursor: Record<string, unknown> | null; done: boolean; remoteRevision?: string }>) {
   let pageIndex = 0;
+  let prepareCalls = 0;
   return {
     provider: 'github' as const,
     listItemsCalls: () => pageIndex,
+    prepareCalls: () => prepareCalls,
     async browse() { return { items: [], nextCursor: null }; },
-    async prepareSync(): Promise<SyncSnapshot> { return { remoteRevision: 'commit-a', cursor: { page: 1 } }; },
+    async prepareSync(): Promise<SyncSnapshot> { prepareCalls++; return { remoteRevision: 'commit-a', cursor: { page: 1 } }; },
     isSourceRevisionUnchanged(source: ConnectedSource, snapshot: SyncSnapshot) { return Boolean(source.lastSuccessfulSyncAt && source.remoteRevision === snapshot.remoteRevision); },
     async listItems(_token: IntegrationCredential, _source: ConnectedSource, snapshot: SyncSnapshot, cursor: Record<string, unknown> | null) {
       const page = pages[pageIndex++]!;
@@ -169,7 +203,7 @@ describe('ConnectedSourceImporter', () => {
   it('imports artifact bytes with revision provenance and resumes a partial run', async () => {
     const repository = new MemoryConnectedSourceRepository();
     const adapter = sourceAdapter([{ cursor: { page: 2 }, done: false }, { cursor: null, done: true }]);
-    const importer = new ConnectedSourceImporter({ repository, adapters: [adapter], tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
+    const importer = new ConnectedSourceImporter({ repository, adapters: [adapter], now: () => NOW, tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
 
     const first = await importer.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'sync-1', maxPages: 1 });
     expect(first.run.status).toBe('partial');
@@ -180,6 +214,43 @@ describe('ConnectedSourceImporter', () => {
     expect(resumed.complete).toBe(true);
     expect(resumed.run.status).toBe('success');
     expect(adapter.listItemsCalls()).toBe(2);
+  });
+
+  it('does not use the caller’s provider token when resuming a source bound to another integration', async () => {
+    const repository = new MemoryConnectedSourceRepository();
+    repository.source.integrationId = 'integration-owned-by-another-user';
+    const adapter = sourceAdapter([{ cursor: null, done: true }]);
+    const importer = new ConnectedSourceImporter({ repository, adapters: [adapter], now: () => NOW, tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
+
+    await expect(importer.resumeSync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', runId: 'run-1' }))
+      .rejects.toMatchObject({ code: 'integration_disconnected' });
+    expect(adapter.prepareCalls()).toBe(0);
+    expect(adapter.listItemsCalls()).toBe(0);
+    expect(repository.runs).toHaveLength(0);
+  });
+
+  it('persists a lease-checked terminal failure when a background cursor stalls', async () => {
+    const repository = new MemoryConnectedSourceRepository();
+    const adapter = sourceAdapter([{ cursor: { page: 2 }, done: false }]);
+    const importer = new ConnectedSourceImporter({ repository, adapters: [adapter], now: () => NOW, tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
+    const partial = await importer.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'stall', maxPages: 1 });
+
+    const staleCursor = await importer.failStalledRun({
+      ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', runId: partial.run.id,
+      expectedCursorKey: JSON.stringify({ page: 99 }), workerLeaseToken: 'worker-stall-lease',
+    });
+    expect(staleCursor).toBeNull();
+    expect((await repository.getSyncRun(partial.run.id))?.status).toBe('partial');
+    expect(repository.leaseOwners.has(partial.run.id)).toBe(false);
+
+    const failed = await importer.failStalledRun({
+      ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', runId: partial.run.id,
+      expectedCursorKey: JSON.stringify({ page: 2 }), workerLeaseToken: 'worker-stall-lease',
+    });
+
+    expect(failed).toMatchObject({ status: 'failure', errorCode: 'source_cursor_stalled', retryable: false });
+    expect(failed?.completedAt).toBe(NOW);
+    expect(repository.leaseOwners.has(partial.run.id)).toBe(false);
   });
 
   it('continues the latest partial run when Sync is clicked again with a new idempotency key', async () => {
@@ -292,20 +363,16 @@ describe('ConnectedSourceImporter', () => {
     expect(repository.runs[0]?.errorCode).toBe('http_401');
   });
 
-  it('retries provider rate limits and records removed items from a complete snapshot', async () => {
+  it('records removed items from a complete snapshot', async () => {
     const repository = new MemoryConnectedSourceRepository();
-    let failOnce = true;
     const retryingAdapter = {
       provider: 'github' as const,
       async browse() { return { items: [], nextCursor: null }; },
       async prepareSync() { return { remoteRevision: 'commit-1', cursor: { page: 1 } }; },
-      async listItems() {
-        if (failOnce) { failOnce = false; throw new ConnectedSourceHttpError('rate limited', { statusCode: 429, retryable: true, code: 'http_429' }); }
-        return {
-          items: [{ remoteId: 'src/check.ts', path: 'src/check.ts', name: 'check.ts', mimeType: 'text/plain', revision: 'blob-a', content: new TextEncoder().encode('const ok = true;'), metadata: { remotePath: 'src/check.ts' } }],
-          nextCursor: null, done: true, completeSnapshot: true,
-        };
-      },
+      async listItems() { return {
+        items: [{ remoteId: 'src/check.ts', path: 'src/check.ts', name: 'check.ts', mimeType: 'text/plain', revision: 'blob-a', content: new TextEncoder().encode('const ok = true;'), metadata: { remotePath: 'src/check.ts' } }],
+        nextCursor: null, done: true, completeSnapshot: true,
+      }; },
     };
     const importer = new ConnectedSourceImporter({
       repository, adapters: [retryingAdapter], tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') },
@@ -324,6 +391,43 @@ describe('ConnectedSourceImporter', () => {
     const second = await secondImporter.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'second' });
     expect(second.removed).toBe(1);
     expect(repository.items[0]?.status).toBe('removed');
+  });
+
+  it('retries only an individual GitHub GET and persists traceable retry progress', async () => {
+    const repository = new MemoryConnectedSourceRepository();
+    let treeLookupAttempts = 0;
+    const delays: number[] = [];
+    const http = {
+      async fetch(input: RequestInfo | URL): Promise<Response> {
+        const url = String(input);
+        if (url.endsWith('/commits/main')) return Response.json({ sha: 'commit-a' });
+        if (url.endsWith('/git/commits/commit-a')) {
+          treeLookupAttempts++;
+          if (treeLookupAttempts === 1) return new Response('rate limited', { status: 429 });
+          return Response.json({ tree: { sha: 'tree-a' } });
+        }
+        if (url.includes('/git/trees/tree-a')) return Response.json({ tree: [{ path: 'README.md', type: 'blob', sha: 'blob-a', size: 1 }] });
+        if (url.endsWith('/git/blobs/blob-a')) return Response.json({ content: 'YQ==', encoding: 'base64', size: 1 });
+        throw new Error(`Unexpected fixture URL ${url}`);
+      },
+    };
+    const importer = new ConnectedSourceImporter({
+      repository,
+      http,
+      sleep: async delay => { delays.push(delay); },
+      tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') },
+    });
+
+    const result = await importer.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'http-retry' });
+
+    expect(result.run.status).toBe('success');
+    expect(treeLookupAttempts).toBe(2);
+    expect(delays).toEqual([1_000]);
+    expect(repository.runs[0]).toMatchObject({
+      retryService: 'GitHub', retryOperation: 'GitHub tree lookup', retryAttempt: 2, retryLimit: 3,
+      retryDelayMs: 1_000, nextAttemptAt: null,
+    });
+    expect(JSON.stringify(repository.runs[0])).not.toMatch(/authorization|bearer|token/i);
   });
 
   it('skips GitHub tree and blob processing when a completed commit revision is unchanged', async () => {

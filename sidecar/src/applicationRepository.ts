@@ -59,6 +59,7 @@ export class ApplicationRepositoryError extends Error {
 }
 
 type Row = Record<string, unknown>;
+const pendingStorageCleanup = new Map<string, Promise<void>>();
 
 type StorageBucket = {
   remove(paths: string[]): Promise<{ error: { message: string } | null }>;
@@ -174,10 +175,14 @@ export class CentinelApplicationRepository {
   }
 
   async listProjects(): Promise<StoreProject[]> {
-    // A prior request may have committed metadata deletion before the app
-    // closed or Storage became available. Retry its durable manifest now.
-    await this.drainPendingStorageCleanup();
     const projects = await this.store.listProjects();
+    // Retry durable deletion manifests without holding the directory response
+    // behind unrelated Storage work. One cleanup per user runs at a time.
+    if (!pendingStorageCleanup.has(this.userId)) {
+      const cleanup = this.drainPendingStorageCleanup().catch(() => undefined)
+        .finally(() => { if (pendingStorageCleanup.get(this.userId) === cleanup) pendingStorageCleanup.delete(this.userId); });
+      pendingStorageCleanup.set(this.userId, cleanup);
+    }
     return projects;
   }
 
@@ -345,6 +350,22 @@ export class CentinelApplicationRepository {
     if (artifact.error) throw new ApplicationRepositoryError(`Artifact lookup failed: ${artifact.error.message}`);
     if (!artifact.data) throw new ApplicationRepositoryError('Artifact not found.', 'artifact_not_found', 404);
     return this.store.listArtifactVersions(artifactId, signal);
+  }
+
+  async listProjectArtifactVersions(projectId: string, signal?: AbortSignal): Promise<StoreArtifactVersion[]> {
+    await this.requireProjectMember(projectId, signal);
+    const versions: StoreArtifactVersion[] = [];
+    for (let start = 0; ;) {
+      let query = this.client.from('artifact_versions').select('*').eq('project_id', projectId)
+        .order('artifact_id').order('version_number').order('id');
+      if (signal) query = query.abortSignal(signal);
+      const result = await query.range(start, start + 499);
+      if (result.error) throw new ApplicationRepositoryError(`Artifact versions lookup failed: ${result.error.message}`);
+      const page = Array.isArray(result.data) ? result.data : [];
+      if (!page.length) return versions;
+      versions.push(...page.map(value => mapArtifactVersion(row(value))));
+      start += page.length;
+    }
   }
 
   async getArtifactVersion(projectId: string, versionId: string, signal?: AbortSignal): Promise<StoreArtifactVersion | null> {

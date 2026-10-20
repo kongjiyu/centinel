@@ -12,7 +12,10 @@ function countBySeverity(findings: ActiveReviewSnapshot['findings']) {
 }
 
 export function ReviewToastComplete({ snapshot }: { snapshot: ActiveReviewSnapshot }) {
-  if (snapshot.status === 'failure') {
+  if (snapshot.status === 'blocked') {
+    return <div className="review-toast-complete"><AlertTriangle size={14} aria-hidden="true" /><span>{snapshot.progress?.stage === 'provider_paused' ? 'Review paused' : 'Review needs attention'} — {reviewFailureMessage(snapshot.failureReason)}</span></div>;
+  }
+  if (snapshot.status === 'failure' || snapshot.status === 'failed') {
     return (
       <div className="review-toast-complete review-toast-failure">
         <XCircle size={14} />

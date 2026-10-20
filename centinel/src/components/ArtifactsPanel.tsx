@@ -113,6 +113,47 @@ type SourceView =
 
 type MarkdownMode = 'preview' | 'original';
 
+type ConnectedSourceRunView = {
+  label: string;
+  statusClass: string;
+  active: boolean;
+  needsAttention: boolean;
+  reconnect: boolean;
+  processed: number;
+  countsAvailable: boolean;
+  lastUpdated: string | null;
+};
+
+function connectedSourceRunView(source: ConnectedSource): ConnectedSourceRunView {
+  const run = source.latestSyncRun;
+  if (!run) {
+    const label = source.status === 'active' ? source.syncStatus.replace(/_/g, ' ') : source.status.replace(/_/g, ' ');
+    return {
+      label: label || 'Not synced', statusClass: source.syncStatus === 'error' ? 'error' : 'idle',
+      active: false, needsAttention: source.syncStatus === 'error', reconnect: source.status === 'inaccessible',
+      processed: 0, countsAvailable: false, lastUpdated: source.lastSyncedAt,
+    };
+  }
+  const failed = run.status === 'failure' || run.status === 'partial' && Boolean(run.errorCode || run.errorMessage);
+  const retrying = run.status === 'running' && Boolean(run.nextAttemptAt && Date.parse(run.nextAttemptAt) > Date.now());
+  const labels: Record<ConnectedSourceSyncRun['status'], string> = {
+    queued: 'Queued', running: retrying ? 'Retrying' : 'Importing',
+    partial: failed ? 'Needs attention' : 'Importing', success: 'Complete', failure: 'Failed', cancelled: 'Cancelled',
+  };
+  const reconnectCodes = new Set(['http_401', 'token_expired', 'integration_disconnected', 'invalid_credentials', 'slack_missing_scope', 'slack_invalid_auth', 'slack_token_revoked', 'slack_token_expired']);
+  const processed = run.importedCount + run.updatedCount + run.unchangedCount + run.removedCount + run.inaccessibleCount;
+  return {
+    label: retrying && run.retryAttempt && run.retryLimit ? `Retrying · ${run.retryAttempt} of ${run.retryLimit}` : labels[run.status],
+    statusClass: failed ? 'error' : run.status,
+    active: run.status === 'queued' || run.status === 'running' || run.status === 'partial' && !failed,
+    needsAttention: failed,
+    reconnect: source.status === 'inaccessible' || reconnectCodes.has(run.errorCode ?? ''),
+    processed,
+    countsAvailable: (run.attemptCount ?? 0) > 0 || processed > 0,
+    lastUpdated: source.lastSyncedAt ?? run.startedAt ?? run.createdAt,
+  };
+}
+
 function artifactKind(fileName: string): PreviewKind | null {
   const extension = extensionOf(fileName);
   if (TEXT_EXTENSIONS.has(extension)) return 'text';
@@ -273,6 +314,7 @@ function PreviewPane({
 export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [connectedSources, setConnectedSources] = useState<ConnectedSource[]>([]);
+  const [sourceStatusStale, setSourceStatusStale] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
@@ -301,28 +343,67 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   const [historySource, setHistorySource] = useState<ConnectedSource | null>(null);
   const [syncHistory, setSyncHistory] = useState<ConnectedSourceSyncRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSourceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const hasLoadedRef = useRef(false);
 
   const loadArtifacts = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [data, sources] = await Promise.all([
-        api.listArtifacts(projectId),
-        typeof api.listConnectedSources === 'function' ? api.listConnectedSources(projectId) : Promise.resolve([]),
-      ]);
-      setArtifacts(data);
-      setConnectedSources(sources);
-      setError(null);
-    } catch (cause) {
-      setArtifacts([]);
-      setError(`Sources could not be loaded. ${userFacingError(cause, 'Try again.')}`);
-    } finally {
-      setLoading(false);
+    if (!hasLoadedRef.current) setLoading(true);
+    const [artifactResult, sourceResult] = await Promise.allSettled([
+      api.listArtifacts(projectId),
+      typeof api.listConnectedSources === 'function' ? api.listConnectedSources(projectId) : Promise.resolve([]),
+    ]);
+    const errors: string[] = [];
+    if (artifactResult.status === 'fulfilled') setArtifacts(artifactResult.value);
+    else errors.push(`Files could not be refreshed. ${userFacingError(artifactResult.reason, 'Try again.')}`);
+    if (sourceResult.status === 'fulfilled') {
+      setConnectedSources(sourceResult.value);
+      setSourceStatusStale(false);
+    } else {
+      setSourceStatusStale(true);
+      errors.push(`Connection status is unavailable; showing the last known progress. ${userFacingError(sourceResult.reason, 'Retry shortly.')}`);
     }
+    setError(errors.length ? errors.join(' ') : null);
+    hasLoadedRef.current = true;
+    setLoading(false);
   }, [projectId]);
 
   useEffect(() => { void loadArtifacts(); }, [loadArtifacts]);
+
+  const activeSourceKey = connectedSources
+    .filter(source => connectedSourceRunView(source).active)
+    .map(source => source.id)
+    .sort()
+    .join('|');
+
+  useEffect(() => {
+    if (!activeSourceKey || typeof api.listConnectedSources !== 'function') return undefined;
+    let disposed = false;
+    let requestInFlight = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      if (disposed || requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const sources = await api.listConnectedSources(projectId);
+        if (!disposed) {
+          setConnectedSources(sources);
+          setSourceStatusStale(false);
+        }
+      } catch {
+        if (!disposed) setSourceStatusStale(true);
+      } finally {
+        requestInFlight = false;
+        if (!disposed) timer = window.setTimeout(() => { void poll(); }, 2_000);
+      }
+    };
+    timer = window.setTimeout(() => { void poll(); }, 1_000);
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [activeSourceKey, projectId]);
 
   const { docArtifacts, repoGroups, driveArtifacts } = useMemo(() => {
     const docs: Artifact[] = [];

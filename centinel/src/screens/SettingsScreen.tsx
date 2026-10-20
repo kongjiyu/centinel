@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 import { CodexProviderPanel } from '../components/CodexProviderPanel';
 import { Modal } from '../components/Modal';
@@ -774,16 +774,21 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
   const [managedConnection, setManagedConnection] = useState<ConnectionDefinition | null>(null);
   const [githubStatus, setGithubStatus] = useState<{ connected: boolean; login: string | null; message: string } | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
+  const [hasConnectionSnapshot, setHasConnectionSnapshot] = useState(false);
+  const [connectionStatusUnavailable, setConnectionStatusUnavailable] = useState(false);
+  const [connectionStatusChecking, setConnectionStatusChecking] = useState(true);
+  const [connectionStatusMessage, setConnectionStatusMessage] = useState<string | null>(null);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const pendingConnectionRef = useRef<{ provider: 'github' | 'google_drive' | 'slack'; priorUpdatedAt: string | null } | null>(null);
   const [pendingConnection, setPendingConnection] = useState(false);
 
   const refreshConnections = async () => {
+    setConnectionStatusChecking(true);
     try {
       const [github, connected] = await Promise.all([
-        typeof api.githubStatus === 'function' ? api.githubStatus() : Promise.resolve({ connected: false, login: null, message: 'Connection status is unavailable.' }),
-        typeof api.listIntegrations === 'function' ? api.listIntegrations() : Promise.resolve([]),
+        typeof api.githubStatus === 'function' ? api.githubStatus() : Promise.reject(new Error('GitHub connection status is unavailable.')),
+        typeof api.listIntegrations === 'function' ? api.listIntegrations() : Promise.reject(new Error('Integration status is unavailable.')),
       ]);
       setGithubStatus(github);
       setIntegrations(connected.map(item => ({
@@ -794,6 +799,9 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
         status: item.status,
         updatedAt: item.updatedAt,
       })));
+      setHasConnectionSnapshot(true);
+      setConnectionStatusUnavailable(false);
+      setConnectionStatusMessage(null);
       const pending = pendingConnectionRef.current;
       const refreshedRecord = connected.find(item => item.provider === pending?.provider && item.status === 'connected');
       if (pending && refreshedRecord && (pending.provider !== 'github' || github.connected)
@@ -805,8 +813,13 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
         setConnectionMessage(null);
       }
     } catch (cause) {
-      setGithubStatus({ connected: false, login: null, message: userFacingError(cause, 'GitHub connection status is unavailable.') });
-      setIntegrations([]);
+      const message = cause instanceof ApiError && cause.code === 'supabase_jwt_future'
+        ? 'Supabase rejected the signed session as not yet valid. Verify that the device date and time are correct, then retry. If the device time is correct, this may be a temporary Supabase Auth/PostgREST time-validation issue.'
+        : userFacingError(cause, 'Connection status is unavailable. Retry to check the saved connections.');
+      setConnectionStatusUnavailable(true);
+      setConnectionStatusMessage(message);
+    } finally {
+      setConnectionStatusChecking(false);
     }
   };
 
@@ -833,6 +846,8 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
   };
 
   const connectionState = (connection: ConnectionDefinition): ConnectionState => {
+    if (connectionStatusUnavailable) return 'unavailable';
+    if (!hasConnectionSnapshot) return connectionStatusChecking ? 'checking' : 'unavailable';
     if (!isConnected(connection)) return 'disconnected';
     const record = connectedRecord(connection);
     if (backendProvider(connection) === 'slack' && slackMissingScopes(record?.scopes ?? '').length) return 'reauthorization_required';
@@ -909,7 +924,15 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
           <div className="settings-section-heading">
             <h2 id="settings-connections-title"><SectionTitleIcon Icon={Cable} />Connections</h2>
           </div>
-          <ConnectionsList onConnect={(connection) => { setConnectionMessage(null); setConnectionDialog(connection); }} onManage={(connection) => { setConnectionMessage(null); setManagedConnection(connection); }} connectionState={connectionState} />
+          {(connectionStatusUnavailable || !hasConnectionSnapshot) && (
+            <div className="connection-dialog-security connection-status-message" role="status" aria-live="polite">
+              <span>{connectionStatusMessage ?? 'Checking saved connection status…'}</span>
+              <button type="button" className="btn-secondary" onClick={() => void refreshConnections()} disabled={connectionStatusChecking}>
+                {connectionStatusChecking ? 'Checking…' : 'Check status'}
+              </button>
+            </div>
+          )}
+          <ConnectionsList onConnect={(connection) => { setConnectionMessage(null); setConnectionDialog(connection); }} onManage={(connection) => { setConnectionMessage(null); setManagedConnection(connection); }} connectionState={connectionState} isConnected={isConnected} />
         </section>
 
         <section className="settings-section settings-provider-section" aria-labelledby="model-provider-title">
@@ -996,7 +1019,7 @@ type IntegrationSummary = {
   updatedAt: string;
 };
 
-type ConnectionState = 'connected' | 'disconnected' | 'reauthorization_required';
+type ConnectionState = 'connected' | 'disconnected' | 'reauthorization_required' | 'checking' | 'unavailable';
 
 const SLACK_REQUIRED_READ_SCOPES = ['channels:history', 'channels:read', 'groups:history', 'groups:read', 'users:read', 'files:read'] as const;
 
@@ -1046,9 +1069,9 @@ const CONNECTIONS: ConnectionDefinition[] = [
   },
 ];
 
-function ConnectionsList({ onConnect, onManage, connectionState }: { onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void; connectionState: (connection: ConnectionDefinition) => ConnectionState }) {
+function ConnectionsList({ onConnect, onManage, connectionState, isConnected }: { onConnect: (connection: ConnectionDefinition) => void; onManage: (connection: ConnectionDefinition) => void; connectionState: (connection: ConnectionDefinition) => ConnectionState; isConnected: (connection: ConnectionDefinition) => boolean }) {
   return <div className="connection-list" role="list">
-    {CONNECTIONS.map(connection => <ConnectionOption key={connection.id} connection={{ ...connection, connected: connectionState(connection) !== 'disconnected' }} state={connectionState(connection)} onConnect={onConnect} onManage={onManage} />)}
+    {CONNECTIONS.map(connection => <ConnectionOption key={connection.id} connection={{ ...connection, connected: isConnected(connection) }} state={connectionState(connection)} onConnect={onConnect} onManage={onManage} />)}
   </div>;
 }
 
@@ -1074,7 +1097,16 @@ function ConnectionOption({ connection, state, onConnect, onManage }: { connecti
 
 function ConnectionStatusTag({ connected, state }: { connected?: boolean; state?: ConnectionState }) {
   const resolved = state ?? (connected ? 'connected' : 'disconnected');
-  return <StatusBadge label={resolved === 'connected' ? 'Connected' : resolved === 'reauthorization_required' ? 'Reconnect required' : 'Disconnected'} tone={resolved === 'connected' ? 'success' : 'warning'} />;
+  const label = resolved === 'connected' ? 'Connected'
+    : resolved === 'reauthorization_required' ? 'Reconnect required'
+      : resolved === 'checking' ? 'Checking…'
+        : resolved === 'unavailable' ? 'Status unavailable'
+          : 'Disconnected';
+  const tone = resolved === 'connected' ? 'success'
+    : resolved === 'checking' ? 'running'
+      : resolved === 'unavailable' ? 'neutral'
+        : 'warning';
+  return <StatusBadge label={label} tone={tone} />;
 }
 
 function ConnectionAccessDetails({ connection }: { connection: ConnectionDefinition }) {

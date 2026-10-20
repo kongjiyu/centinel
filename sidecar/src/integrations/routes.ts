@@ -3,6 +3,7 @@ import { normalizeProvider } from '../integrations.js';
 import { AuthGatewayError } from '../auth/gateway.js';
 import { ConnectedSourceHttpError } from './http.js';
 import { ConnectedSourceImporterError, type ConnectedSourceImporter } from './connectedSourceImporter.js';
+import type { ConnectedSource } from './types.js';
 
 export type ConnectedSourceRouteImporter = Pick<ConnectedSourceImporter,
   'status' | 'browse' | 'listSources' | 'importSource' | 'sync' | 'resumeSync' | 'syncHistory' | 'disconnect' | 'disconnectSource'
@@ -22,6 +23,7 @@ type ParsedBody = { ok: true; body: Record<string, unknown> } | { ok: false; res
 export type ConnectedSourceRouteDependencies = {
   createImporter: (auth: AuthenticatedRequest) => ConnectedSourceRouteImporter;
   requireProjectMember: (auth: AuthenticatedRequest, projectId: string) => Promise<void>;
+  onSourcesRead?: (auth: AuthenticatedRequest, projectId: string, sources: ConnectedSource[]) => void;
 };
 
 const sourceKinds = new Set(['github_repository', 'google_drive', 'slack_channel']);
@@ -121,7 +123,11 @@ export async function handleConnectedSourceRoute(
       const projectId = projectSourcesMatch[1];
       await dependencies.requireProjectMember(auth, projectId);
       const importer = dependencies.createImporter(auth);
-      if (method === 'GET') return { statusCode: 200, body: await importer.listSources(projectId) };
+      if (method === 'GET') {
+        const sources = await importer.listSources(projectId);
+        dependencies.onSourcesRead?.(auth, projectId, sources);
+        return { statusCode: 200, body: sources };
+      }
 
       const parsedBody = await readRequestBody(request);
       if (!parsedBody.ok) return parsedBody.response;

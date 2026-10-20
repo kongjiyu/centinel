@@ -23,6 +23,8 @@ export type ConnectedSource = {
   lastSyncedAt: string | null;
   lastSuccessfulSyncAt: string | null;
   lastError: string | null;
+  /** Most recent durable synchronization run, included by project Source reads. */
+  latestSyncRun?: ConnectedSourceSyncRun | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -67,10 +69,24 @@ export type ConnectedSourceSyncRun = {
   errorCode: string | null;
   errorMessage: string | null;
   retryable: boolean;
+  retryService?: string | null;
+  retryOperation?: string | null;
+  retryAttempt?: number | null;
+  retryLimit?: number | null;
+  retryDelayMs?: number | null;
+  nextAttemptAt?: string | null;
+  /** Safe recovery metadata; lease claim tokens are never returned. */
+  leaseExpiresAt?: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
 };
+
+export type ConnectedSourceSyncRunPatch = Partial<Pick<ConnectedSourceSyncRun,
+  'status' | 'remoteRevision' | 'cursorStart' | 'cursorEnd' | 'attemptCount' | 'importedCount' | 'updatedCount' |
+  'unchangedCount' | 'removedCount' | 'inaccessibleCount' | 'errorCode' | 'errorMessage' | 'retryable' |
+  'retryService' | 'retryOperation' | 'retryAttempt' | 'retryLimit' | 'retryDelayMs' | 'nextAttemptAt' | 'startedAt' | 'completedAt'
+>>;
 
 export type IntegrationCredential = OAuthTokens;
 
@@ -172,7 +188,9 @@ export interface ConnectedSourceRepository {
   startSyncRun(source: ConnectedSource, idempotencyKey: string, snapshot?: SyncSnapshot | null): Promise<ConnectedSourceSyncRun>;
   listSyncRuns(sourceId: string): Promise<ConnectedSourceSyncRun[]>;
   getSyncRun(runId: string): Promise<ConnectedSourceSyncRun | null>;
-  updateSyncRun(runId: string, patch: Partial<Pick<ConnectedSourceSyncRun, 'status' | 'remoteRevision' | 'cursorStart' | 'cursorEnd' | 'attemptCount' | 'importedCount' | 'updatedCount' | 'unchangedCount' | 'removedCount' | 'inaccessibleCount' | 'errorCode' | 'errorMessage' | 'retryable' | 'startedAt' | 'completedAt'>>): Promise<ConnectedSourceSyncRun>;
+  getLatestSyncRun(sourceId: string): Promise<ConnectedSourceSyncRun | null>;
+  claimSyncRun(runId: string, leaseToken: string, leaseSeconds: number): Promise<boolean>;
+  updateSyncRun(runId: string, patch: ConnectedSourceSyncRunPatch, leaseToken?: string): Promise<ConnectedSourceSyncRun>;
   persistArtifactVersion(input: ConnectedArtifactVersionInput): Promise<PersistedConnectedArtifact>;
   disconnectIntegration(ownerId: string, provider: IntegrationProvider): Promise<void>;
 }
@@ -224,4 +242,6 @@ export type ConnectedSourceSyncInput = {
   runId?: string;
   maxPages?: number;
   force?: boolean;
+  /** Ephemeral worker claim; never returned to the renderer or persisted outside the run lease column. */
+  workerLeaseToken?: string;
 };

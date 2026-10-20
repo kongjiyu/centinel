@@ -1,3 +1,6 @@
+import { ModelProviderError } from './retry.js';
+import { providerPause, responseProviderPause } from './providerPause.js';
+
 export const EMBEDDING_DIMENSIONS = 1536;
 
 export type EmbeddingProviderConfiguration = {
@@ -12,9 +15,9 @@ export type EmbeddingResult = {
   inputTokens: number | null;
 };
 
-export class EmbeddingProviderError extends Error {
-  constructor(message: string, readonly code: string) {
-    super(message);
+export class EmbeddingProviderError extends ModelProviderError {
+  constructor(message: string, code: string) {
+    super(message, { code, ...(providerPause({ code }) ? { retryable: false } : {}) });
     this.name = 'EmbeddingProviderError';
   }
 }
@@ -53,6 +56,8 @@ export async function createEmbedding(
       signal: requestController.signal,
     });
     if (!response.ok) {
+      const pause = await responseProviderPause(response);
+      if (pause) throw new EmbeddingProviderError(pause.message, pause.code);
       throw new EmbeddingProviderError(`The source-indexing provider returned HTTP ${response.status}.`, `http_${response.status}`);
     }
     try { payload = await response.json(); }

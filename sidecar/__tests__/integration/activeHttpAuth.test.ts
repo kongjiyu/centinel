@@ -6,6 +6,7 @@ import { createAuthGateway } from '../../src/auth/gateway.js';
 import initSqlJs from 'sql.js';
 import { setTestDb, clearTestDb } from '../../src/db.js';
 import { createSidecarServer } from '../../src/index.js';
+import { findingSourceIdentityHash } from '../../src/review/correlation.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const otherId = '22222222-2222-4222-8222-222222222222';
@@ -91,6 +92,8 @@ const traceabilitySnapshots: Array<Record<string, unknown>> = [
   { id: 'traceability-snapshot-1', project_id: ownerProject, review_session_id: ownerReview, status: 'available',
     records: [{ requirementId: ownerRequirement, state: 'complete' }], summary: { complete: 1 }, created_at: '2026-09-23T00:00:00Z' },
 ];
+const correlationSnapshots: Array<Record<string, unknown>> = [];
+const findingCorrelations: Array<Record<string, unknown>> = [];
 
 function bearerClient(accessToken: string): SupabaseClient {
   const actorId = accessToken === 'owner-token' || accessToken === 'owner-refreshed-token'
@@ -102,8 +105,8 @@ function bearerClient(accessToken: string): SupabaseClient {
         : { data: { user: null }, error: { message: 'Invalid token' } },
     },
     from: (table: string) => {
-      const rows: Array<Record<string, unknown>> = table === 'projects' ? projects : table === 'artifacts' ? artifacts : table === 'artifact_versions' ? versions : table === 'report_exports' ? reports : table === 'review_sessions' ? reviews : table === 'review_operations' ? reviewOperations : table === 'audit_events' ? auditEvents : table === 'findings' ? findings : table === 'requirements' ? requirements : table === 'project_standards' ? standards : table === 'model_usage_records' ? modelUsage : table === 'review_decisions' ? reviewDecisions : table === 'review_decision_attachments' ? decisionAttachments : table === 'project_assessments' ? projectAssessments : table === 'review_source_snapshots' ? sourceSnapshots : table === 'review_traceability_snapshots' ? traceabilitySnapshots : [];
-      if (!['projects', 'artifacts', 'artifact_versions', 'report_exports', 'review_sessions', 'review_operations', 'review_worker_leases', 'audit_events', 'findings', 'requirements', 'project_standards', 'model_configurations', 'model_usage_records', 'review_decisions', 'review_decision_attachments', 'project_assessments', 'review_source_snapshots', 'review_traceability_snapshots', 'storage_deletion_jobs'].includes(table)) throw new Error(`Unexpected table: ${table}`);
+      const rows: Array<Record<string, unknown>> = table === 'projects' ? projects : table === 'artifacts' ? artifacts : table === 'artifact_versions' ? versions : table === 'report_exports' ? reports : table === 'review_sessions' ? reviews : table === 'review_operations' ? reviewOperations : table === 'audit_events' ? auditEvents : table === 'findings' ? findings : table === 'requirements' ? requirements : table === 'project_standards' ? standards : table === 'model_usage_records' ? modelUsage : table === 'review_decisions' ? reviewDecisions : table === 'review_decision_attachments' ? decisionAttachments : table === 'project_assessments' ? projectAssessments : table === 'review_source_snapshots' ? sourceSnapshots : table === 'review_traceability_snapshots' ? traceabilitySnapshots : table === 'review_correlation_snapshots' ? correlationSnapshots : table === 'review_finding_correlations' ? findingCorrelations : [];
+      if (!['projects', 'artifacts', 'artifact_versions', 'report_exports', 'review_sessions', 'review_operations', 'review_worker_leases', 'audit_events', 'findings', 'requirements', 'project_standards', 'model_configurations', 'model_usage_records', 'review_decisions', 'review_decision_attachments', 'project_assessments', 'review_source_snapshots', 'review_traceability_snapshots', 'review_correlation_snapshots', 'review_finding_correlations', 'storage_deletion_jobs'].includes(table)) throw new Error(`Unexpected table: ${table}`);
       const filters: Array<[string, unknown]> = [];
       const includedFilters: Array<[string, unknown[]]> = [];
       let selectedRange: [number, number] | null = null;
@@ -272,6 +275,20 @@ describe('active sidecar HTTP bearer contract', () => {
     });
   });
 
+  it('exposes only safe review harness activity under its authenticated project', async () => {
+    const record = { id: 'harness-test', project_id: ownerProject, entity_type: 'review', entity_id: ownerReview, event_type: 'harness_step_completed', payload: { stage: 'model_analysis', detail: { step: 'run_model', executionId: 'execution', durationMs: 12 } }, created_at: '2026-10-11T00:00:00Z' };
+    auditEvents.push(record);
+    try {
+      const endpoint = `/projects/${ownerProject}/static-sessions/${ownerReview}/harness`;
+      expect((await get(endpoint)).status).toBe(401);
+      expect((await get(endpoint, 'other-token')).status).toBe(403);
+      expect((await get(`/projects/${ownerSecondProject}/static-sessions/${ownerReview}/harness`, 'owner-token')).status).toBe(404);
+      const result = await get(endpoint, 'owner-token');
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ workflow: { version: 'centinel-harness-v1' }, review: { id: ownerReview }, events: [expect.objectContaining({ event: 'harness_step_completed', detail: { step: 'run_model', executionId: 'execution', durationMs: 12 } })] });
+    } finally { auditEvents.splice(auditEvents.indexOf(record), 1); }
+  });
+
   it('accepts a refreshed token for the same identity without widening project access', async () => {
     expect((await get(`/projects/${ownerProject}`, 'owner-token')).status).toBe(200);
     expect((await get(`/projects/${ownerProject}`, 'owner-refreshed-token')).status).toBe(200);
@@ -339,6 +356,34 @@ describe('active sidecar HTTP bearer contract', () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: 'Select at least one artifact, requirement, or coding standard.' });
     expect(reviews).toHaveLength(initialReviews);
+  });
+
+  it('rejects malformed, inaccessible, or unfinished comparison parents without creating a Review', async () => {
+    const initialReviews = reviews.length;
+    const initialOperations = reviewOperations.length;
+    const activeParentId = 'abababab-abab-4bab-8bab-000000000001';
+    const foreignParentId = 'abababab-abab-4bab-8bab-000000000002';
+    reviews.push(
+      { id: activeParentId, project_id: ownerProject, name: 'Still running', review_type: 'code_review', status: 'running', model_status: 'succeeded', progress: { stage: 'model_analysis' }, scope: { artifactIds: [ownerArtifact] }, config: {}, lineage: { parentReviewId: null, lineageRootId: activeParentId, reusedSourceManifest: false }, source_manifest_id: 'active-manifest', created_at: '2026-10-19T00:00:00Z', updated_at: '2026-10-19T00:00:00Z' },
+      { id: foreignParentId, project_id: otherProject, name: 'Other owner review', review_type: 'code_review', status: 'approved', model_status: 'succeeded', progress: { stage: 'complete' }, scope: { artifactIds: [otherArtifact] }, config: {}, lineage: { parentReviewId: null, lineageRootId: foreignParentId, reusedSourceManifest: false }, source_manifest_id: 'foreign-manifest', created_at: '2026-10-19T00:00:00Z', updated_at: '2026-10-19T00:00:00Z' },
+    );
+    const post = async (body: Record<string, unknown>) => {
+      const response = await fetch(`${baseUrl}/projects/${ownerProject}/static-sessions`, {
+        method: 'POST', headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      return { status: response.status, body: await response.json() as Record<string, unknown> };
+    };
+    try {
+      expect(await post({ scope: { artifactIds: [ownerArtifact] }, comparisonParentReviewId: '' })).toMatchObject({ status: 400, body: { code: 'invalid_comparison_parent' } });
+      for (const comparisonParentReviewId of [activeParentId, foreignParentId]) {
+        expect(await post({ scope: { artifactIds: [ownerArtifact] }, comparisonParentReviewId })).toMatchObject({ status: 409, body: { code: 'review_lifecycle_conflict' } });
+        expect(reviews).toHaveLength(initialReviews + 2);
+      }
+      expect(reviewOperations).toHaveLength(initialOperations);
+    } finally {
+      reviews.splice(initialReviews);
+      reviewOperations.splice(initialOperations);
+    }
   });
 
   it('denies Review Start in another user’s project without creating a Review', async () => {
@@ -593,6 +638,53 @@ describe('active sidecar HTTP bearer contract', () => {
     expect((findingsResponse.body as unknown as Array<{ id: string }>).map(item => item.id)).toEqual([ownerFinding]);
     expect((await get(`${path}/${ownerReview}/findings`, 'other-token')).status).toBe(403);
     expect((await get(`/projects/${ownerSecondProject}/static-sessions/${ownerReview}/findings`, 'owner-token')).status).toBe(404);
+  });
+
+  it('projects validated re-review evidence while preserving the stored finding status', async () => {
+    const parentReviewId = 'abababab-abab-4bab-8bab-abababababab';
+    const childReviewId = 'acacacac-acac-4aca-8aca-acacacacacac';
+    const parentFindingId = 'adadadad-adad-4ada-8dad-adadadadadad';
+    const parentManifestId = 'manifest-parent';
+    const childManifestId = 'manifest-child';
+    const rowStarts = [reviews.length, findings.length, sourceSnapshots.length, correlationSnapshots.length, findingCorrelations.length];
+    const now = '2026-10-18T00:00:00.000Z';
+    const sourceIdentityHash = findingSourceIdentityHash({ artifactId: ownerArtifact, sourceIdentity: 'policy.txt', filePath: 'policy.txt' });
+    const sourceEvidence = {
+      version: 1, basis: 'not_reproduced_in_comparable_review', parentSourceManifestId: parentManifestId,
+      sourceManifestId: childManifestId, reviewedArtifactId: ownerArtifact, parentArtifactId: ownerArtifact,
+      sourceIdentityHash, parentSourceVersion: `sha256:${'a'.repeat(64)}`, reviewedSourceVersion: `sha256:${'b'.repeat(64)}`,
+    };
+    reviews.push(
+      { id: parentReviewId, project_id: ownerProject, name: 'Original review', review_type: 'code_review', status: 'changes_requested', model_status: 'succeeded', scope: { artifactIds: [ownerArtifact], sourceIds: [] }, config: { instructions: 'Inspect the policy', checks: ['security'] }, lineage: { parentReviewId: null, lineageRootId: parentReviewId, reusedSourceManifest: false }, source_manifest_id: parentManifestId, created_at: '2026-10-17T00:00:00.000Z', updated_at: now },
+      { id: childReviewId, project_id: ownerProject, name: 'Re-review', review_type: 'code_review', status: 'completed', model_status: 'succeeded', scope: { artifactIds: [ownerArtifact], sourceIds: [] }, config: { instructions: 'Inspect the policy', checks: ['security'] }, lineage: { parentReviewId, lineageRootId: parentReviewId, reusedSourceManifest: false }, source_manifest_id: childManifestId, created_at: now, updated_at: now },
+    );
+    findings.push({ id: parentFindingId, project_id: ownerProject, review_session_id: parentReviewId, status: 'new', source: 'static', severity: 'high', priority: 'high', title: 'Policy issue', description: 'Issue in the policy', category: 'security', evidence_text: 'Old evidence', recommendation: 'Fix it', confidence: 'high', artifact_id: ownerArtifact, location: { filePath: 'policy.txt', sourceIdentity: 'policy.txt', sourceVersion: `sha256:${'a'.repeat(64)}` }, created_at: '2026-10-17T00:00:00.000Z' });
+    sourceSnapshots.push(
+      { id: parentManifestId, project_id: ownerProject, review_session_id: parentReviewId, status: 'available', snapshot: { artifacts: [{ id: ownerArtifact, path: 'policy.txt', metadata: { originalPath: 'policy.txt', contentHash: `sha256:${'a'.repeat(64)}` } }] }, created_at: now },
+      { id: childManifestId, project_id: ownerProject, review_session_id: childReviewId, status: 'available', snapshot: { artifacts: [{ id: ownerArtifact, path: 'policy.txt', metadata: { originalPath: 'policy.txt', contentHash: `sha256:${'b'.repeat(64)}` } }] }, created_at: now },
+    );
+    correlationSnapshots.push({ id: 'lineage-snapshot', project_id: ownerProject, parent_review_id: parentReviewId, child_review_id: childReviewId, counts: { new: 0, recurring: 0, carried_over: 0, resolved: 1, regressed: 0 }, ambiguities: [], created_at: now });
+    findingCorrelations.push({ id: 'lineage-correlation', project_id: ownerProject, parent_review_id: parentReviewId, child_review_id: childReviewId, parent_finding_id: parentFindingId, child_finding_id: null, classification: 'resolved', method: 'unmatched', score: 0, stable_fingerprint: 'fingerprint', detail: { explanation: 'Not reproduced', resolutionEligibility: sourceEvidence }, created_at: now });
+    try {
+      const response = await get(`/projects/${ownerProject}/findings`, 'owner-token');
+      expect(response.status).toBe(200);
+      const projected = (response.body as Array<Record<string, unknown>>).find(item => item.id === parentFindingId);
+      expect(projected).toMatchObject({
+        status: 'new',
+        resolutionEvidence: {
+          status: 'resolved', basis: 'not_reproduced_in_comparable_review', reviewId: childReviewId,
+          reviewName: 'Re-review', sourceManifestId: childManifestId,
+          previousSourceVersion: sourceEvidence.parentSourceVersion, reviewedSourceVersion: sourceEvidence.reviewedSourceVersion,
+        },
+      });
+      expect(findings.find(item => item.id === parentFindingId)?.status).toBe('new');
+    } finally {
+      reviews.splice(rowStarts[0]);
+      findings.splice(rowStarts[1]);
+      sourceSnapshots.splice(rowStarts[2]);
+      correlationSnapshots.splice(rowStarts[3]);
+      findingCorrelations.splice(rowStarts[4]);
+    }
   });
 
   it('scopes immutable source and traceability snapshots to the Review in the URL project', async () => {

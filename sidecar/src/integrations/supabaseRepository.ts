@@ -8,6 +8,7 @@ import type {
   ConnectedSourceItem,
   ConnectedSourceRepository,
   ConnectedSourceSyncRun,
+  ConnectedSourceSyncRunPatch,
   ConnectedSourceStatus,
   ConnectedSourceSyncRunStatus,
   ConnectedSourceItemStatus,
@@ -98,6 +99,11 @@ function mapSyncRun(row: Row): ConnectedSourceSyncRun {
     importedCount: number(row, 'imported_count'), updatedCount: number(row, 'updated_count'), unchangedCount: number(row, 'unchanged_count'),
     removedCount: number(row, 'removed_count'), inaccessibleCount: number(row, 'inaccessible_count'),
     errorCode: optionalText(row, 'error_code'), errorMessage: optionalText(row, 'error_message'), retryable: bool(row, 'retryable'),
+    retryService: optionalText(row, 'retry_service'), retryOperation: optionalText(row, 'retry_operation'),
+    retryAttempt: row.retry_attempt == null ? null : number(row, 'retry_attempt'),
+    retryLimit: row.retry_limit == null ? null : number(row, 'retry_limit'),
+    retryDelayMs: row.retry_delay_ms == null ? null : number(row, 'retry_delay_ms'),
+    nextAttemptAt: optionalText(row, 'next_attempt_at'), leaseExpiresAt: optionalText(row, 'worker_lease_expires_at'),
     startedAt: optionalText(row, 'started_at'), completedAt: optionalText(row, 'completed_at'), createdAt: text(row, 'created_at'),
   };
 }
@@ -126,15 +132,6 @@ function sourceItemPayload(input: NewConnectedSourceItem): Row {
   };
 }
 
-function runPayload(source: ConnectedSource, idempotencyKey: string, snapshot?: SyncSnapshot | null): Row {
-  return {
-    project_id: source.projectId, source_id: source.id, idempotency_key: idempotencyKey, status: 'queued',
-    remote_revision: snapshot?.remoteRevision ?? null, cursor_start: snapshot?.cursor ?? null, cursor_end: snapshot?.cursor ?? null,
-    imported_count: 0, updated_count: 0, unchanged_count: 0, removed_count: 0, inaccessible_count: 0,
-    attempt_count: 0, retryable: false,
-  };
-}
-
 function safeArtifactPath(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized || normalized.split('/').some(part => part === '.' || part === '..') || normalized.includes('\u0000')) {
@@ -157,13 +154,16 @@ function mapSourcePatch(patch: Partial<Pick<ConnectedSource, 'remoteRevision' | 
   return result;
 }
 
-function mapRunPatch(patch: Partial<Pick<ConnectedSourceSyncRun, 'status' | 'remoteRevision' | 'cursorStart' | 'cursorEnd' | 'attemptCount' | 'importedCount' | 'updatedCount' | 'unchangedCount' | 'removedCount' | 'inaccessibleCount' | 'errorCode' | 'errorMessage' | 'retryable' | 'startedAt' | 'completedAt'>>): Row {
+function mapRunPatch(patch: ConnectedSourceSyncRunPatch): Row {
   const result: Row = {};
   const fields: Array<[keyof typeof patch, string]> = [
     ['status', 'status'], ['remoteRevision', 'remote_revision'], ['cursorStart', 'cursor_start'], ['cursorEnd', 'cursor_end'],
     ['attemptCount', 'attempt_count'], ['importedCount', 'imported_count'], ['updatedCount', 'updated_count'],
     ['unchangedCount', 'unchanged_count'], ['removedCount', 'removed_count'], ['inaccessibleCount', 'inaccessible_count'],
-    ['errorCode', 'error_code'], ['errorMessage', 'error_message'], ['retryable', 'retryable'], ['startedAt', 'started_at'], ['completedAt', 'completed_at'],
+    ['errorCode', 'error_code'], ['errorMessage', 'error_message'], ['retryable', 'retryable'],
+    ['retryService', 'retry_service'], ['retryOperation', 'retry_operation'], ['retryAttempt', 'retry_attempt'],
+    ['retryLimit', 'retry_limit'], ['retryDelayMs', 'retry_delay_ms'], ['nextAttemptAt', 'next_attempt_at'],
+    ['startedAt', 'started_at'], ['completedAt', 'completed_at'],
   ];
   for (const [domainKey, column] of fields) if (domainKey in patch) result[column] = patch[domainKey];
   return result;
@@ -209,7 +209,23 @@ export class SupabaseConnectedSourceRepository implements ConnectedSourceReposit
       }
       if ((data ?? []).length < 1000) break;
     }
-    return sources;
+    const latestRuns = new Map<string, ConnectedSourceSyncRun>();
+    const sourceIds = sources.map(source => source.id);
+    for (let start = 0; start < sourceIds.length; start += 100) {
+      const batch = sourceIds.slice(start, start + 100);
+      const expectedLatestCount = latestRuns.size + batch.length;
+      for (let offset = 0; offset < batch.length * 1000; offset += 1000) {
+        const { data, error } = await this.client.from('source_sync_runs').select('*').in('source_id', batch)
+          .order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 999);
+        asMessage(error, 'connected-source latest sync runs');
+        for (const row of data ?? []) {
+          const mapped = mapSyncRun(asRow(row));
+          if (!latestRuns.has(mapped.sourceId)) latestRuns.set(mapped.sourceId, mapped);
+        }
+        if (latestRuns.size >= expectedLatestCount || (data ?? []).length < 1000) break;
+      }
+    }
+    return sources.map(source => ({ ...source, latestSyncRun: latestRuns.get(source.id) ?? null }));
   }
 
   async getSource(projectId: string, sourceId: string): Promise<ConnectedSource | null> {
@@ -306,17 +322,15 @@ export class SupabaseConnectedSourceRepository implements ConnectedSourceReposit
   }
 
   async startSyncRun(source: ConnectedSource, idempotencyKey: string, snapshot?: SyncSnapshot | null): Promise<ConnectedSourceSyncRun> {
-    const { data: existing, error: lookupError } = await this.client.from('source_sync_runs').select('*').eq('source_id', source.id).eq('idempotency_key', idempotencyKey).maybeSingle();
-    asMessage(lookupError, 'connected-source sync idempotency lookup');
-    if (existing) return mapSyncRun(asRow(existing));
-    const { data, error } = await this.client.from('source_sync_runs').insert(runPayload(source, idempotencyKey, snapshot)).select('*').single();
-    if (error?.code === '23505') {
-      const retry = await this.client.from('source_sync_runs').select('*').eq('source_id', source.id).eq('idempotency_key', idempotencyKey).single();
-      asMessage(retry.error, 'connected-source sync idempotency lookup');
-      return mapSyncRun(asRow(retry.data));
-    }
-    asMessage(error, 'connected-source sync start');
-    return mapSyncRun(asRow(required(data, 'connected-source sync run')));
+    void snapshot;
+    const { data, error } = await this.client.rpc('queue_source_sync_run', {
+      p_project_id: source.projectId,
+      p_source_id: source.id,
+      p_idempotency_key: idempotencyKey,
+    });
+    asMessage(error, 'connected-source sync queue');
+    const row = Array.isArray(data) ? data[0] : data;
+    return mapSyncRun(asRow(required(row, 'connected-source sync run')));
   }
 
   async listSyncRuns(sourceId: string): Promise<ConnectedSourceSyncRun[]> {
@@ -336,8 +350,38 @@ export class SupabaseConnectedSourceRepository implements ConnectedSourceReposit
     return data ? mapSyncRun(asRow(data)) : null;
   }
 
-  async updateSyncRun(runId: string, patch: Partial<Pick<ConnectedSourceSyncRun, 'status' | 'remoteRevision' | 'cursorStart' | 'cursorEnd' | 'attemptCount' | 'importedCount' | 'updatedCount' | 'unchangedCount' | 'removedCount' | 'inaccessibleCount' | 'errorCode' | 'errorMessage' | 'retryable' | 'startedAt' | 'completedAt'>>): Promise<ConnectedSourceSyncRun> {
-    const { data, error } = await this.client.from('source_sync_runs').update(mapRunPatch(patch)).eq('id', runId).select('*').single();
+  async getLatestSyncRun(sourceId: string): Promise<ConnectedSourceSyncRun | null> {
+    const { data, error } = await this.client.from('source_sync_runs').select('*').eq('source_id', sourceId)
+      .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle();
+    asMessage(error, 'connected-source latest sync run');
+    return data ? mapSyncRun(asRow(data)) : null;
+  }
+
+  async claimSyncRun(runId: string, leaseToken: string, leaseSeconds: number): Promise<boolean> {
+    const { data, error } = await this.client.rpc('claim_source_sync_run', {
+      p_run_id: runId,
+      p_claim_token: leaseToken,
+      p_lease_ttl_seconds: leaseSeconds,
+    });
+    asMessage(error, 'connected-source sync claim');
+    return data === true;
+  }
+
+  async updateSyncRun(runId: string, patch: ConnectedSourceSyncRunPatch, leaseToken?: string): Promise<ConnectedSourceSyncRun> {
+    const update = mapRunPatch(patch);
+    if (leaseToken) {
+      const terminal = patch.status === 'success' || patch.status === 'failure' || patch.status === 'cancelled'
+        || patch.status === 'partial';
+      if (terminal) {
+        update.worker_lease_token = null;
+        update.worker_lease_expires_at = null;
+      } else {
+        update.worker_lease_expires_at = new Date(Date.now() + 120_000).toISOString();
+      }
+    }
+    let query = this.client.from('source_sync_runs').update(update).eq('id', runId);
+    if (leaseToken) query = query.eq('worker_lease_token', leaseToken);
+    const { data, error } = await query.select('*').single();
     asMessage(error, 'connected-source sync update');
     return mapSyncRun(asRow(required(data, 'connected-source sync run')));
   }

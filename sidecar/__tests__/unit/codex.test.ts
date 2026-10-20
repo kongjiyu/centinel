@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type { spawn } from 'node:child_process';
 import { CodexAppServer, type ExternalChatgptTokens } from '../../src/model/codex.js';
 import { localCodexTokenSource } from '../../src/model/localCodexAuth.js';
@@ -11,7 +12,72 @@ import { testCodexProvider } from '../../src/model/codexTest.js';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanup.splice(0)) fn(); vi.unstubAllEnvs(); });
-function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; account?: string; hang?: boolean; external?: () => ExternalChatgptTokens } = {}) {
+
+function privateDirectoryEnvironment(directory: string): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot ?? process.env.SYSTEMROOT,
+    windir: process.env.windir,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    USERPROFILE: process.env.USERPROFILE,
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+    CENTINEL_CODEX_PRIVATE_HOME: directory,
+  };
+}
+
+function readWindowsAcl(target: string): {
+  currentUserSid: string;
+  ownerSid: string;
+  protected: boolean;
+  rules: Array<{ sid: string; type: string; rights: string; inherited: boolean }>;
+} {
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+$path = [Environment]::GetEnvironmentVariable('CENTINEL_CODEX_PRIVATE_HOME')
+$acl = Get-Acl -LiteralPath $path -ErrorAction Stop
+$rules = @($acl.Access | ForEach-Object {
+  $sid = $_.IdentityReference
+  if ($sid -isnot [System.Security.Principal.SecurityIdentifier]) {
+    $sid = $sid.Translate([System.Security.Principal.SecurityIdentifier])
+  }
+  [PSCustomObject]@{
+    sid = $sid.Value
+    type = $_.AccessControlType.ToString()
+    rights = $_.FileSystemRights.ToString()
+    inherited = $_.IsInherited
+  }
+})
+[PSCustomObject]@{
+  currentUserSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  protected = $acl.AreAccessRulesProtected
+  rules = $rules
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+  const output = execFileSync('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script,
+  ], {
+    encoding: 'utf8',
+    env: privateDirectoryEnvironment(target),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    timeout: 10_000,
+  }).trim();
+  return JSON.parse(output) as ReturnType<typeof readWindowsAcl>;
+}
+
+function expectPrivateWindowsAcl(target: string): void {
+  const acl = readWindowsAcl(target);
+  expect(acl.protected).toBe(true);
+  expect(acl.ownerSid).toBe(acl.currentUserSid);
+  expect(acl.rules).toHaveLength(2);
+  expect(acl.rules.map(rule => rule.sid).sort()).toEqual([acl.currentUserSid, 'S-1-5-18'].sort());
+  expect(acl.rules.every(rule => rule.type === 'Allow' && rule.rights === 'FullControl' && !rule.inherited)).toBe(true);
+}
+
+function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; account?: string; hang?: boolean; external?: () => ExternalChatgptTokens; turnError?: Record<string, unknown>; earlyError?: Record<string, unknown> } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-codex-unit-'));
   const calls: any[] = [];
   const children: any[] = [];
@@ -27,12 +93,19 @@ function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; a
       if (message.method === 'account/read') result = { account: { type: options.account ?? 'chatgpt', email: 'tester@example.test' } };
       if (message.method === 'account/login/start') result = { loginId: 'login-1', authUrl: 'https://auth.openai.com/oauth/authorize?state=test' };
       if (message.method === 'model/list') result = { data: [{ model: 'model-1', displayName: 'Model One', inputModalities: options.images === false ? ['text'] : ['text', 'image'], isDefault: true }], nextCursor: null };
+      if (message.method === 'account/rateLimits/read') result = { rateLimitsByLimitId: { codex: { primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 123 }, credits: { hasCredits: false, balance: '0', private: 'never-export' }, rateLimitReachedType: null, accountId: 'never-export' } } };
       if (message.method === 'thread/start') result = { thread: { id: 'thread-1' } };
       if (message.method === 'turn/start' && !options.hold) {
-        send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'comment', type: 'agentMessage', phase: 'commentary', text: 'private commentary' } } });
-        send({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { last: { inputTokens: 10, outputTokens: 2, cachedInputTokens: 3, totalTokens: 12 } } } });
-        send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'answer', type: 'agentMessage', phase: 'final_answer', text: '{"answer":"ready"}' } } });
-        send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { status: 'completed' } } });
+        if (options.earlyError) {
+          send({ method: 'error', params: { threadId: 'thread-1', willRetry: true, error: options.earlyError } });
+          return;
+        }
+        if (!options.turnError) {
+          send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'comment', type: 'agentMessage', phase: 'commentary', text: 'private commentary' } } });
+          send({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { last: { inputTokens: 10, outputTokens: 2, cachedInputTokens: 3, totalTokens: 12 } } } });
+          send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'answer', type: 'agentMessage', phase: 'final_answer', text: '{"answer":"ready"}' } } });
+        }
+        send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { status: options.turnError ? 'failed' : 'completed', ...(options.turnError ? { error: options.turnError } : {}) } } });
       }
       send({ id: message.id, result });
     });
@@ -45,16 +118,39 @@ function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; a
 const input = { model: 'model-1', prompt: 'Return JSON', systemPrompt: 'Analyze supplied content.' };
 
 describe('isolated Codex app-server transport', () => {
+  it('reads only safe capacity fields without inference or treating zero credits as exhausted included usage', async () => {
+    const { client, calls } = fixture();
+    expect(await client.capacity()).toEqual([{ primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 123 }, secondary: null, hasCredits: false, limitReached: false }]);
+    expect(calls.some(call => call.method === 'turn/start')).toBe(false);
+  });
+  it('stops a CLI-internal capacity retry on its first error notification', async () => {
+    const { client, children, calls } = fixture({ earlyError: { message: 'private body', codexErrorInfo: { responseStreamConnectionFailed: { httpStatusCode: 429 } } } });
+    await expect(client.generate(input)).rejects.toMatchObject({ code: 'rate_limited', retryable: false });
+    expect(children[0].kill).toHaveBeenCalledWith('SIGTERM');
+    expect(calls.filter(call => call.method === 'turn/start')).toHaveLength(1);
+  });
+  it('recognizes structured exhausted usage separately from a generic rate limit', async () => {
+    const { client } = fixture({ turnError: { message: 'private body', codexErrorInfo: 'usageLimitExceeded' } });
+    await expect(client.generate(input)).rejects.toMatchObject({ code: 'quota_exhausted', retryable: false });
+  });
   it('initializes once, scopes credentials, and excludes inherited provider secrets', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'secret'); vi.stubEnv('GEMINI_API_KEY', 'secret');
     const { client, launch, home, calls } = fixture();
+    const authFile = path.join(home, 'auth.json');
+    fs.writeFileSync(authFile, '{"fixture":"credential"}');
     expect(await client.status()).toMatchObject({ available: true, connected: true });
     await client.status();
     expect(launch).toHaveBeenCalledTimes(1);
     const env = launch.mock.calls[0][2].env;
     expect(env.CODEX_HOME).toBe(home); expect(env.OPENAI_API_KEY).toBeUndefined(); expect(env.GEMINI_API_KEY).toBeUndefined();
     expect(calls.filter(call => call.method === 'initialize')).toHaveLength(1);
-    expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+    if (process.platform === 'win32') {
+      expectPrivateWindowsAcl(home);
+      expectPrivateWindowsAcl(authFile);
+    } else {
+      expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(authFile).mode & 0o777).toBe(0o600);
+    }
   });
   it('accepts explicitly supplied external OAuth without inheriting desktop config', async () => {
     const external = vi.fn().mockReturnValue({ accessToken: 'fixture-access', chatgptAccountId: 'fixture-account' });
@@ -87,6 +183,29 @@ describe('isolated Codex app-server transport', () => {
     expect(await client.generate(input)).toMatchObject({ text: '{"answer":"ready"}', usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 3 } });
     expect(calls.find(call => call.method === 'thread/start').params).toMatchObject({ ephemeral: true, sandbox: 'read-only', approvalPolicy: 'never' });
   });
+  it('classifies only structured 429 retry metadata and never surfaces upstream turn text', async () => {
+    const { client } = fixture({ turnError: {
+      message: 'private-secret-prompt',
+      additionalDetails: 'private-upstream-details',
+      codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+    } });
+    const error = await client.generate(input).then(() => null, value => value);
+    expect(error).toMatchObject({ code: 'rate_limited', statusCode: 429, retryable: false });
+    expect((error as Error).message).toContain('Paused:');
+    expect((error as Error).message).not.toContain('private-secret-prompt');
+    expect((error as Error).message).not.toContain('private-upstream-details');
+  });
+  it.each([
+    { codexErrorInfo: { badRequest: { httpStatusCode: 429 } } },
+    { codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: '429' } } },
+    { codexErrorInfo: 'responseTooManyFailedAttempts' },
+  ])('keeps unknown or malformed turn errors generic', async turnError => {
+    const { client } = fixture({ turnError: { message: 'private-secret-prompt', ...turnError } });
+    const error = await client.generate(input).then(() => null, value => value);
+    expect(error).toMatchObject({ code: 'codex_turn_failed', retryable: false });
+    expect((error as Error).message).not.toContain('private-secret-prompt');
+    expect((error as { statusCode?: number }).statusCode).toBeUndefined();
+  });
   it('rejects models without screenshots before starting a turn', async () => {
     const { client, calls } = fixture({ images: false });
     await expect(client.generate({ ...input, imagePaths: ['/tmp/missing.png'] })).rejects.toMatchObject({ code: 'codex_vision_unsupported' });
@@ -101,7 +220,9 @@ describe('isolated Codex app-server transport', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(children[0].kill).toHaveBeenCalledWith('SIGTERM');
     await expect(client.generate({ ...input, signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
-    await client.status(); expect(launch).toHaveBeenCalledTimes(2);
+    const reconnectStatus = await client.status();
+    expect(reconnectStatus.message).toBe('Codex is connected on this device.');
+    expect(launch).toHaveBeenCalledTimes(2);
   });
   it('cancels queued work immediately without interrupting another active operation', async () => {
     const { client, calls } = fixture({ hold: true });

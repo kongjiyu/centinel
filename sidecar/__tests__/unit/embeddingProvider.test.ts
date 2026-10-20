@@ -4,6 +4,10 @@ import { createEmbedding, EMBEDDING_DIMENSIONS, EmbeddingProviderError } from '.
 const config = { apiKey: 'private-key', baseUrl: 'https://provider.example.test/v1', model: 'embedding-model' };
 
 describe('configured source-indexing provider', () => {
+  it('stops structured credit errors without exposing their body', async () => {
+    await expect(createEmbedding(config, 'chunk', undefined, async () => new Response(JSON.stringify({ error: { code: 'credit_balance_exhausted', message: 'PRIVATE_PROVIDER_BODY' } }), { status: 403 })))
+      .rejects.toMatchObject({ code: 'credits_exhausted', retryable: false });
+  });
   it('requests float embeddings at the schema dimension without exposing the key in the result', async () => {
     const send = vi.fn(async () => new Response(JSON.stringify({
       data: [{ embedding: Array.from({ length: EMBEDDING_DIMENSIONS }, (_, index) => index === 0 ? 1 : 0) }],

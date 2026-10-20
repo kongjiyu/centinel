@@ -7,6 +7,48 @@
   scroll-padding-bottom: 260px;
 }
 
+.review-activity-screen .review-objective-points {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--workspace-text-muted);
+  font-size: 13px;
+  line-height: 22px;
+}
+.review-activity-screen .review-objective-points li { padding-left: 3px; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-summary { display: grid; gap: 16px; margin: 14px 0 0; }
+.review-activity-screen .review-narrative-summary dt { margin-bottom: 4px; font-size: 13px; font-weight: 650; color: var(--workspace-text); }
+.review-activity-screen .review-narrative-summary dd { margin: 0; color: var(--workspace-text-muted); font-size: 13px; line-height: 22px; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-summary ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.review-activity-screen .review-narrative { min-width: 0; font-size: 13px; line-height: 22px; }
+.review-activity-screen .review-reasoning-divider { border: 0; border-top: 1px solid var(--workspace-border); margin: 24px 0 0; }
+.review-activity-screen .review-stage-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.review-activity-screen .review-stage-heading > span { color: var(--workspace-text-muted); font-size: 12px; }
+.review-activity-screen .review-stage-findings { margin: 12px 0 0; padding-left: 20px; }
+.review-activity-screen .review-stage-findings li { padding: 5px 0; overflow-wrap: anywhere; }
+.review-activity-screen .review-stage-findings .btn-link { white-space: normal; text-align: left; line-height: 22px; }
+.review-activity-screen .review-narrative p { color: var(--workspace-text-muted); margin: 8px 0; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-stage { min-width: 0; padding: 22px 0; }
+.review-activity-screen .review-narrative-stage + .review-narrative-stage { border-top: 1px solid var(--workspace-border); }
+.review-activity-screen .review-narrative h3 { margin: 0 0 8px; color: var(--workspace-text); font-size: 15px; line-height: 24px; }
+.review-activity-screen .review-narrative-purpose { max-width: 85ch; }
+.review-activity-screen .review-narrative details { margin-top: 12px; }
+.review-activity-screen .review-narrative summary { cursor: pointer; color: var(--workspace-text); padding: 8px 0; min-height: 36px; box-sizing: border-box; }
+.review-activity-screen .review-narrative summary:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; border-radius: 3px; }
+.review-activity-screen .review-narrative-sources { padding-left: 20px; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-checks { list-style: none; margin: 4px 0 0; padding: 0 0 0 16px; border-left: 2px solid var(--workspace-border); }
+.review-activity-screen .review-narrative-checks > li { padding: 10px 0; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-checks strong { display: block; font-weight: 600; color: var(--workspace-text); }
+.review-activity-screen .review-narrative-aspect { display: inline-block; color: var(--workspace-text-muted); background: var(--workspace-surface-subtle); border: 1px solid var(--workspace-border); border-radius: 5px; padding: 2px 7px; margin: 0 0 6px; font-size: 12px; line-height: 18px; }
+.review-activity-screen .review-feature-assessments { margin-top: 16px; padding-top: 24px; border-top: 1px solid var(--workspace-border); }
+.review-activity-screen .review-feature-assessments > ul { list-style: none; margin: 0; padding: 0; }
+.review-activity-screen .review-feature-assessments > ul > li { padding: 22px 0; min-width: 0; }
+.review-activity-screen .review-feature-assessments > ul > li + li { border-top: 1px solid var(--workspace-border); }
+.review-activity-screen .review-feature-assessments h4 { margin: 0; color: var(--workspace-text); font-size: 14px; line-height: 23px; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-location { font-size: 12px; overflow-wrap: anywhere; }
+.review-activity-screen .review-narrative-evidence { white-space: pre-wrap; border-left: 2px solid var(--workspace-border); padding-left: 12px; }
+
 /* The review screen sits inside the scrollable main-content rail. These
    values keep the fixed composer aligned with that rail rather than spanning
    beneath the navigation sidebar. */

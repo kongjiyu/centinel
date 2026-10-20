@@ -16,6 +16,9 @@ export function userFacingError(error: unknown, fallback = 'Something went wrong
   if (!normalized) return fallback;
   const lower = normalized.toLowerCase();
 
+  // Provider-pause explanations are fixed application copy, not raw payloads.
+  if (normalized.startsWith('Paused: the Model Provider ') && normalized.length <= 400 && !/[{}\n\r]/.test(normalized)) return normalized;
+
   if (/http\s*401|authentication_error|invalid api key|unauthorized/.test(lower)) {
     return 'Centinel could not authenticate with the configured AI service. Check the provider connection in Settings, then try again.';
   }

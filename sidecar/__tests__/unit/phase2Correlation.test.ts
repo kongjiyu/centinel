@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { correlateReviewFindings, type CorrelatableFinding } from '../../src/review/correlation.js';
+import { correlateReviewFindings, type CorrelatableFinding, type FindingResolutionContext } from '../../src/review/correlation.js';
 
 function finding(overrides: Partial<CorrelatableFinding> = {}): CorrelatableFinding {
   return {
@@ -16,12 +16,32 @@ function finding(overrides: Partial<CorrelatableFinding> = {}): CorrelatableFind
     evidence: 'return account before ownership validation',
     recommendation: 'Validate account ownership first.',
     confidence: 'high',
+    sourceIdentity: 'src/account.ts',
+    sourceVersion: 'sha256:old-version',
     ...overrides,
   };
 }
 
-const compare = (previous: CorrelatableFinding[], current: CorrelatableFinding[], evaluatedArtifactIds = ['artifact-1']) => correlateReviewFindings({
-  parentReviewId: 'parent-review', childReviewId: 'child-review', previous, current, evaluatedArtifactIds,
+const compare = (previous: CorrelatableFinding[], current: CorrelatableFinding[]) => correlateReviewFindings({
+  parentReviewId: 'parent-review', childReviewId: 'child-review', previous, current,
+});
+
+const resolutionContext = (overrides: Partial<FindingResolutionContext> = {}): FindingResolutionContext => ({
+  modelStatus: 'succeeded',
+  parentSourceManifestId: 'manifest-parent',
+  sourceManifestId: 'manifest-child',
+  allSourcesReadable: true,
+  parentSourceArtifacts: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:old-version' }],
+  childSourceArtifacts: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:new-version' }],
+  parentReviewType: 'code_review',
+  childReviewType: 'code_review',
+  parentScope: { artifactIds: ['artifact-1'], sourceIds: ['source-1'] },
+  childScope: { artifactIds: ['artifact-1'], sourceIds: ['source-1'] },
+  parentConfig: { instructions: 'Inspect authorization behavior', checks: ['security'] },
+  childConfig: { instructions: 'Inspect authorization behavior', checks: ['security'] },
+  parentIterationFeedback: '',
+  childIterationFeedback: '',
+  ...overrides,
 });
 
 describe('finding correlation across Review iterations', () => {
@@ -72,16 +92,101 @@ describe('finding correlation across Review iterations', () => {
     expect(collision.ambiguities[0]).toMatchObject({ reason: 'close_candidates', candidateParentFindingIds: ['old-a', 'old-b'] });
   });
 
-  it('classifies new, resolved, and carried-over findings without mutating parent findings', () => {
+  it('classifies new and carried-over findings without treating a generic absence as resolution', () => {
     const snapshot = compare(
       [
         finding({ id: 'resolved', artifactId: 'artifact-in-scope', stableFindingId: 'old-resolved' }),
         finding({ id: 'carry', artifactId: 'artifact-outside-scope', stableFindingId: 'old-carry' }),
       ],
       [finding({ id: 'new', artifactId: 'artifact-1', stableFindingId: 'brand-new' })],
-      ['artifact-in-scope', 'artifact-1'],
     );
-    expect(snapshot.counts).toMatchObject({ new: 1, resolved: 1, carried_over: 1 });
-    expect(snapshot.correlations.map(item => item.classification)).toEqual(['new', 'resolved', 'carried_over']);
+    expect(snapshot.counts).toMatchObject({ new: 1, carried_over: 2, resolved: 0 });
+    expect(snapshot.correlations.map(item => item.classification)).toEqual(['new', 'carried_over', 'carried_over']);
+    expect(snapshot.correlations.every(item => !item.resolutionEligibility)).toBe(true);
+  });
+
+  it('marks absence as not reproduced only with changed source versions and full comparable success evidence', () => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'resolved', artifactId: 'artifact-1' })],
+      current: [],
+      evaluatedSources: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:new-version' }],
+      resolutionContext: resolutionContext(),
+    });
+    expect(snapshot.correlations[0]).toMatchObject({
+      classification: 'resolved', parentFindingId: 'resolved', childFindingId: null,
+      resolutionEligibility: {
+        version: 1,
+        basis: 'not_reproduced_in_comparable_review',
+        parentSourceManifestId: 'manifest-parent',
+        sourceManifestId: 'manifest-child',
+        parentSourceVersion: 'sha256:old-version',
+        reviewedSourceVersion: 'sha256:new-version',
+      },
+    });
+  });
+
+  it('uses a missing old finding version only from the parent manifest source record', () => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'legacy-versionless', artifactId: 'artifact-1', sourceVersion: null })],
+      current: [],
+      evaluatedSources: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:new-version' }],
+      resolutionContext: resolutionContext(),
+    });
+    expect(snapshot.correlations[0]).toMatchObject({ classification: 'resolved', resolutionEligibility: { parentSourceVersion: 'sha256:old-version' } });
+  });
+
+  it('rejects a recorded parent version that conflicts with the parent manifest', () => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'mismatched-version', artifactId: 'artifact-1', sourceVersion: 'wrong-version' })],
+      current: [],
+      evaluatedSources: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:new-version' }],
+      resolutionContext: resolutionContext(),
+    });
+    expect(snapshot.correlations[0].classification).toBe('carried_over');
+    expect(snapshot.correlations[0].resolutionEligibility).toBeUndefined();
+  });
+
+  it.each([
+    ['model failure', { modelStatus: 'failed' as const }],
+    ['partial model coverage', { modelStatus: 'partial' as const }],
+    ['unreadable source', { allSourcesReadable: false }],
+    ['missing parent manifest', { parentSourceManifestId: null }],
+    ['missing child manifest', { sourceManifestId: null }],
+    ['empty parent coverage', { parentSourceArtifacts: [] }],
+    ['empty child coverage', { childSourceArtifacts: [] }],
+    ['different review type', { childReviewType: 'requirement_review' }],
+    ['different source scope', { childScope: { artifactIds: ['artifact-1', 'artifact-2'], sourceIds: ['source-1'] } }],
+    ['different check configuration', { childConfig: { instructions: 'Inspect authorization behavior', checks: ['accessibility'] } }],
+    ['different objective instructions', { childConfig: { instructions: 'Inspect performance only', checks: ['security'] } }],
+    ['different iteration objective', { childIterationFeedback: 'Focus on a different issue.' }],
+    ['different effective source set', { childSourceArtifacts: [
+      { artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'new-version' },
+      { artifactId: 'artifact-2', sourceIdentity: 'src/other.ts', filePath: 'src/other.ts', sourceVersion: 'other-version' },
+    ] }],
+  ])('carries the finding over when %s', (_label, overrides) => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'carry', artifactId: 'artifact-1' })],
+      current: [],
+      evaluatedSources: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:new-version' }],
+      resolutionContext: resolutionContext(overrides),
+    });
+    expect(snapshot.correlations[0].classification).toBe('carried_over');
+    expect(snapshot.correlations[0].resolutionEligibility).toBeUndefined();
+  });
+
+  it('carries the finding when the source version did not change', () => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'unchanged', artifactId: 'artifact-1' })],
+      current: [],
+      evaluatedSources: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'old-version' }],
+      resolutionContext: resolutionContext({ childSourceArtifacts: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'old-version' }] }),
+    });
+    expect(snapshot.correlations[0].classification).toBe('carried_over');
+    expect(snapshot.correlations[0].resolutionEligibility).toBeUndefined();
   });
 });

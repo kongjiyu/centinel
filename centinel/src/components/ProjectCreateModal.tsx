@@ -101,7 +101,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated }: Pro
   return (
     <Modal isOpen={isOpen} onClose={close} title="Create project" width={620}>
       <form className="project-create-modal-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
-        <p className="modal-intro">Create a project from a local Git repository or clone one from GitHub.</p>
+        <p className="modal-intro">Create a project from a local repository or import one from GitHub.</p>
         <div className="form-field">
           <label htmlFor="project-modal-name">Project name <span aria-hidden="true">*</span></label>
           <input id="project-modal-name" data-autofocus value={name} onChange={event => setName(event.target.value)} maxLength={80} required />
@@ -124,7 +124,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated }: Pro
         </div> : <div className="form-field">
           <label htmlFor="project-github-url">GitHub repository URL <span aria-hidden="true">*</span></label>
           <input id="project-github-url" type="url" value={repoUrl} onChange={event => setRepoUrl(event.target.value)} placeholder="https://github.com/owner/repository" />
-          <p className="field-help">Centinel clones this repository into its default project directory.</p>
+          <p className="field-help">The project opens as soon as it is created. GitHub files import in the background; follow progress in the project’s Source section.</p>
         </div>}
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="form-actions">

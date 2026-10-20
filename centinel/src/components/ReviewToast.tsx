@@ -18,7 +18,7 @@ export function ReviewToast() {
   }
 
   const { session, expanded } = state;
-  const isTerminal = session.status === 'success' || session.status === 'failure' || session.status === 'cancelled';
+  const isTerminal = session.status === 'success' || session.status === 'pending_approval' || session.status === 'failure' || session.status === 'failed' || session.status === 'blocked' || session.status === 'cancelled';
 
   return (
     <div className={`review-toast ${expanded ? 'expanded' : 'collapsed'} status-${session.status}`}>

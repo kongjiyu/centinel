@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { PersistedReviewFinding, StaticFindingInput } from './types.js';
+import type { PersistedReviewFinding, StaticFindingInput, StaticReviewScope } from './types.js';
 
 export type CorrelationClass = 'new' | 'recurring' | 'carried_over' | 'resolved' | 'regressed';
 export type CorrelationMethod = 'stable_id' | 'fingerprint' | 'heuristic' | 'unmatched';
@@ -25,6 +25,44 @@ export type FindingCorrelation = {
   score: number;
   stableFingerprint: string;
   detail?: string;
+  /** Versioned evidence contract. Legacy snapshots without this never resolve project findings. */
+  resolutionEligibility?: FindingResolutionEligibility;
+};
+
+export type FindingResolutionEligibility = {
+  version: 1;
+  basis: 'not_reproduced_in_comparable_review';
+  parentSourceManifestId: string;
+  sourceManifestId: string;
+  reviewedArtifactId: string;
+  parentArtifactId: string;
+  sourceIdentityHash: string;
+  parentSourceVersion: string;
+  reviewedSourceVersion: string;
+};
+
+export type EvaluatedFindingSource = {
+  artifactId: string;
+  sourceIdentity?: string | null;
+  filePath: string;
+  sourceVersion?: string | null;
+};
+
+export type FindingResolutionContext = {
+  modelStatus: 'not_requested' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
+  parentSourceManifestId: string | null;
+  sourceManifestId: string | null;
+  allSourcesReadable: boolean;
+  parentSourceArtifacts: EvaluatedFindingSource[];
+  childSourceArtifacts: EvaluatedFindingSource[];
+  parentReviewType: string;
+  childReviewType: string;
+  parentScope: StaticReviewScope;
+  childScope: StaticReviewScope;
+  parentConfig: Record<string, unknown>;
+  childConfig: Record<string, unknown>;
+  parentIterationFeedback: string;
+  childIterationFeedback: string;
 };
 
 export type CorrelationAmbiguity = {
@@ -42,6 +80,10 @@ export type FindingCorrelationInput = {
   /** Artifact IDs/identities actually evaluated by the child Review. */
   evaluatedArtifactIds?: string[];
   evaluatedSourceIdentities?: string[];
+  /** Only artifacts whose frozen content was read successfully. */
+  evaluatedSources?: EvaluatedFindingSource[];
+  /** Full-review conditions required before absence can be recorded as a re-check. */
+  resolutionContext?: FindingResolutionContext;
 };
 
 export type FindingCorrelationSnapshot = {
@@ -84,6 +126,91 @@ function idOf(finding: CorrelatableFinding): string {
 
 function sourceOf(finding: CorrelatableFinding): string {
   return text(finding.sourceIdentity) || text(finding.artifactId) || normalize(finding.filePath);
+}
+
+type SourceIdentityInput = {
+  artifactId?: string | null;
+  sourceIdentity?: string | null;
+  filePath?: string | null;
+};
+
+function sourceIdentityKey(finding: SourceIdentityInput): string {
+  const identity = text(finding.sourceIdentity);
+  if (identity) return normalize(identity);
+  const filePath = normalize(text(finding.filePath));
+  if (filePath) return filePath;
+  const artifactId = text(finding.artifactId);
+  if (artifactId) return `artifact:${artifactId}`;
+  return '';
+}
+
+/** A safe identity proof for the reviewed source, without exposing its path in metadata. */
+export function findingSourceIdentityHash(finding: SourceIdentityInput): string {
+  const identity = sourceIdentityKey(finding);
+  return identity ? hash(identity) : '';
+}
+
+function normalizedVersion(value: unknown): string {
+  return text(value).replace(/^sha256:/i, '').toLowerCase();
+}
+
+function sameIds(left?: string[], right?: string[]): boolean {
+  return JSON.stringify([...new Set((left ?? []).filter(Boolean))].sort())
+    === JSON.stringify([...new Set((right ?? []).filter(Boolean))].sort());
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+function comparableConfig(value: Record<string, unknown>): string {
+  return canonical(value);
+}
+
+function sourceCoverage(sources: EvaluatedFindingSource[]): string[] | null {
+  if (!sources.length) return null;
+  const identities = sources.map(source => findingSourceIdentityHash(source));
+  if (identities.some(identity => !identity)) return null;
+  const unique = [...new Set(identities)].sort();
+  return unique.length === identities.length ? unique : null;
+}
+
+function resolutionContextIsEligible(context: FindingResolutionContext | undefined): context is FindingResolutionContext {
+  return Boolean(context
+    && context.modelStatus === 'succeeded'
+    && context.parentSourceManifestId?.trim()
+    && context.sourceManifestId?.trim()
+    && context.allSourcesReadable
+    && sourceCoverage(context.parentSourceArtifacts) !== null
+    && JSON.stringify(sourceCoverage(context.parentSourceArtifacts)) === JSON.stringify(sourceCoverage(context.childSourceArtifacts))
+    && context.parentReviewType === context.childReviewType
+    && sameIds(context.parentScope.artifactIds, context.childScope.artifactIds)
+    && sameIds(context.parentScope.requirementIds, context.childScope.requirementIds)
+    && sameIds(context.parentScope.standardIds, context.childScope.standardIds)
+    && sameIds(context.parentScope.sourceIds, context.childScope.sourceIds)
+    && text(context.parentScope.label) === text(context.childScope.label)
+    && comparableConfig(context.parentConfig) === comparableConfig(context.childConfig)
+    && text(context.parentIterationFeedback) === text(context.childIterationFeedback));
+}
+
+function evaluatedSourceFor(previous: CorrelatableFinding, sources: EvaluatedFindingSource[]): EvaluatedFindingSource | undefined {
+  const previousIdentity = sourceIdentityKey(previous);
+  return sources.find(source => {
+    if (previous.artifactId && previous.artifactId === source.artifactId) return true;
+    const candidateIdentity = sourceIdentityKey({
+      ...previous,
+      artifactId: source.artifactId,
+      sourceIdentity: source.sourceIdentity,
+      filePath: source.filePath,
+    });
+    return Boolean(previousIdentity && candidateIdentity && previousIdentity === candidateIdentity);
+  });
 }
 
 function stableKey(finding: CorrelatableFinding): string {
@@ -169,6 +296,7 @@ function correlation(input: {
   method: CorrelationMethod;
   score: number;
   detail?: string;
+  resolutionEligibility?: FindingResolutionEligibility;
 }): FindingCorrelation {
   const parentId = input.previous ? idOf(input.previous) || null : null;
   const childId = input.current ? idOf(input.current) || null : null;
@@ -184,6 +312,7 @@ function correlation(input: {
     score: Number(input.score.toFixed(4)),
     stableFingerprint: fingerprint,
     ...(input.detail ? { detail: input.detail } : {}),
+    ...(input.resolutionEligibility ? { resolutionEligibility: input.resolutionEligibility } : {}),
   };
 }
 
@@ -288,24 +417,59 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
     correlations.push(correlation({ parentReviewId: input.parentReviewId, childReviewId: input.childReviewId, previous: null, current, classification: 'new', method: 'unmatched', score: 0 }));
   }
 
-  const evaluatedArtifacts = new Set(input.evaluatedArtifactIds ?? []);
-  const evaluatedSources = new Set(input.evaluatedSourceIdentities ?? []);
+  const evaluatedSources = input.evaluatedSources ?? [];
+  const resolutionEligible = resolutionContextIsEligible(input.resolutionContext);
   for (let index = 0; index < input.previous.length; index++) {
     if (usedPrevious.has(index)) continue;
     const previous = input.previous[index];
-    const evaluated = evaluatedArtifacts.has(text(previous.artifactId))
-      || evaluatedSources.has(text(previous.sourceIdentity))
-      || evaluatedSources.has(text(previous.filePath))
-      || (evaluatedArtifacts.size === 0 && evaluatedSources.size === 0);
+    const evaluatedSource = evaluatedSourceFor(previous, evaluatedSources);
+    const parentManifestSource = input.resolutionContext
+      ? evaluatedSourceFor(previous, input.resolutionContext.parentSourceArtifacts)
+      : undefined;
+    const previousSourceVersion = normalizedVersion(parentManifestSource?.sourceVersion);
+    const recordedPreviousVersion = normalizedVersion(previous.sourceVersion);
+    const reviewedSourceVersion = normalizedVersion(evaluatedSource?.sourceVersion);
+    const parentVersionConsistent = !recordedPreviousVersion || recordedPreviousVersion === previousSourceVersion;
+    const sourceChanged = Boolean(previousSourceVersion && parentVersionConsistent && reviewedSourceVersion && previousSourceVersion !== reviewedSourceVersion);
+    const resolved = Boolean(resolutionEligible && evaluatedSource && sourceChanged
+      && parentManifestSource && text(previous.artifactId)
+      && text(parentManifestSource.artifactId) === text(previous.artifactId)
+      && findingSourceIdentityHash({
+        ...previous,
+        sourceIdentity: previous.sourceIdentity ?? parentManifestSource.sourceIdentity,
+        filePath: previous.filePath || parentManifestSource.filePath,
+      }));
+    const eligibility: FindingResolutionEligibility | undefined = resolved && evaluatedSource && input.resolutionContext
+      ? {
+        version: 1,
+        basis: 'not_reproduced_in_comparable_review',
+        parentSourceManifestId: input.resolutionContext.parentSourceManifestId!,
+        sourceManifestId: input.resolutionContext.sourceManifestId!,
+        reviewedArtifactId: evaluatedSource.artifactId,
+        parentArtifactId: text(previous.artifactId),
+        sourceIdentityHash: findingSourceIdentityHash({
+          ...previous,
+          sourceIdentity: previous.sourceIdentity ?? parentManifestSource?.sourceIdentity,
+          filePath: previous.filePath || parentManifestSource?.filePath || '',
+        }),
+        parentSourceVersion: text(parentManifestSource?.sourceVersion),
+        reviewedSourceVersion: text(evaluatedSource.sourceVersion),
+      }
+      : undefined;
     correlations.push(correlation({
       parentReviewId: input.parentReviewId,
       childReviewId: input.childReviewId,
       previous,
       current: null,
-      classification: evaluated ? 'resolved' : 'carried_over',
+      classification: resolved ? 'resolved' : 'carried_over',
       method: 'unmatched',
       score: 0,
-      detail: evaluated ? 'The child evaluated the source and did not reproduce this finding.' : 'The child did not evaluate this finding source.',
+      detail: resolved
+        ? 'This finding was not reproduced in a comparable re-review of the same source after its version changed.'
+        : evaluatedSource && !sourceChanged
+          ? 'The source was evaluated, but its version did not change; absence alone does not establish resolution.'
+          : 'Comparable successful source coverage was not established; the finding remains carried over.',
+      ...(eligibility ? { resolutionEligibility: eligibility } : {}),
     }));
   }
 

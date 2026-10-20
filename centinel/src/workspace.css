@@ -4657,6 +4657,19 @@ div.app-shell.has-window-chrome .sidebar {
   line-height: 19px;
 }
 
+.connection-status-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+.connection-status-message button {
+  flex: 0 0 auto;
+}
+
 .connection-dialog-security code {
   font-family: var(--font-mono, 'Cascadia Mono', monospace);
   font-size: 12px;
@@ -5444,6 +5457,12 @@ div.app-shell.has-window-chrome .sidebar {
   background: var(--workspace-success-subtle);
   border-color: rgba(4, 120, 87, .28);
   color: var(--workspace-success);
+}
+
+/* The shared project/review table keeps an explicit Status column at narrow
+   widths; its labels must not inherit the older compact-row hiding rule. */
+.workspace-mode:not(.dashboard-mode) .project-findings-table .finding-status {
+  display: inline-flex;
 }
 
 .workspace-mode:not(.dashboard-mode) .finding-status-dismissed,

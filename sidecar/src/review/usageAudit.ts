@@ -33,6 +33,7 @@ export type ModelUsageTotals = {
   successfulCalls: number;
   failedCalls: number;
   cancelledCalls: number;
+  inProgressCalls: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -139,6 +140,7 @@ export function summarizeModelUsage(records: Iterable<ModelAttemptRecord | Model
     successfulCalls: 0,
     failedCalls: 0,
     cancelledCalls: 0,
+    inProgressCalls: 0,
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
@@ -149,6 +151,7 @@ export function summarizeModelUsage(records: Iterable<ModelAttemptRecord | Model
     totals.calls++;
     if (record.outcome === 'success') totals.successfulCalls++;
     else if (record.outcome === 'cancelled') totals.cancelledCalls++;
+    else if (record.outcome === 'in_progress') totals.inProgressCalls++;
     else totals.failedCalls++;
     totals.inputTokens += nonNegativeInteger(record.usage?.inputTokens);
     totals.outputTokens += nonNegativeInteger(record.usage?.outputTokens);

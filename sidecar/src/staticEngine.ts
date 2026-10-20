@@ -1,4 +1,5 @@
 import type { Artifact } from './artifacts.js';
+import type { ReviewHarness } from './review/harness.js';
 
 // --- Types ---
 
@@ -27,6 +28,7 @@ export type StaticAnalysisOptions = {
   signal?: AbortSignal;
   /** Authenticated frozen-content reader. Persistence belongs to the Review repository. */
   contentReader: (artifact: Artifact, signal?: AbortSignal) => Promise<string>;
+  harness?: ReviewHarness;
 };
 
 // --- Import all rules ---
@@ -89,7 +91,9 @@ export async function runStaticAnalysis(
     // Run each applicable rule
     for (const rule of applicableRules) {
       checkCancelled();
-      const findings = rule.analyze(content, artifact.filePath);
+      const findings = options.harness
+        ? await options.harness.step('deterministic_analysis', 'check_rule', { artifactId: artifact.id, ruleId: rule.id, ruleName: rule.name }, async () => rule.analyze(content, artifact.filePath), value => ({ findingCount: value.length }))
+        : rule.analyze(content, artifact.filePath);
       allFindings.push(...findings);
     }
   }

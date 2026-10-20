@@ -1,8 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsScreen } from './SettingsScreen';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import type { AiProviderSetting } from '../types';
 
 const tauriApp = vi.hoisted(() => ({ getVersion: vi.fn() }));
@@ -11,18 +11,23 @@ const tauriShell = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/app', () => tauriApp);
 vi.mock('@tauri-apps/api/shell', () => tauriShell);
 
-vi.mock('../api/client', () => ({
-  api: {
-    codexStatus: vi.fn(async () => ({ available: true, connected: false, accountLabel: null, message: 'Sign in to Codex.' })),
-    getAiUsage: vi.fn(),
-    updateAiSetting: vi.fn(),
-    testAiProvider: vi.fn(),
-    githubStatus: vi.fn(),
-    listIntegrations: vi.fn(),
-    startIntegration: vi.fn(),
-    disconnectIntegration: vi.fn(),
-  },
-}));
+vi.mock('../api/client', async importOriginal => {
+  const actual = await importOriginal<typeof import('../api/client')>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      codexStatus: vi.fn(async () => ({ available: true, connected: false, accountLabel: null, message: 'Sign in to Codex.' })),
+      getAiUsage: vi.fn(),
+      updateAiSetting: vi.fn(),
+      testAiProvider: vi.fn(),
+      githubStatus: vi.fn(),
+      listIntegrations: vi.fn(),
+      startIntegration: vi.fn(),
+      disconnectIntegration: vi.fn(),
+    },
+  };
+});
 
 const settings: AiProviderSetting[] = [
   {
@@ -242,6 +247,32 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(within(dialog).getByText(/Read repository files/)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
     expect(within(dialog).getByText('Connected')).toBeInTheDocument();
+  });
+
+  it('keeps the last confirmed integrations visible and marks status unavailable after a time-validation failure', async () => {
+    vi.mocked(api.githubStatus).mockResolvedValue({ connected: true, login: 'Cstan0824', message: 'Connected to GitHub as Cstan0824.' });
+    vi.mocked(api.listIntegrations).mockResolvedValue([{
+      id: 'drive-1', provider: 'google_drive', accountLabel: 'Tancs Drive', accountId: 'drive@example.test',
+      scopes: 'drive.readonly', expiresAt: null, status: 'connected',
+      createdAt: '2026-09-15T10:00:00.000Z', updatedAt: '2026-09-15T10:00:00.000Z',
+    }]);
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    expect(await screen.findByRole('button', { name: 'Manage GitHub connection' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Manage Google Drive connection' })).toBeInTheDocument();
+
+    vi.mocked(api.githubStatus).mockRejectedValue(new ApiError(
+      'Supabase rejected the session timestamp. Check the device date and time, then retry.',
+      503,
+      'supabase_jwt_future',
+    ));
+    act(() => window.dispatchEvent(new Event('focus')));
+
+    expect(await screen.findByText(/Verify that the device date and time are correct/)).toBeInTheDocument();
+    expect(screen.getAllByText('Status unavailable')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Manage GitHub connection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Manage Google Drive connection' })).toBeInTheDocument();
+    expect(screen.queryByText('Disconnected')).not.toBeInTheDocument();
   });
 
   it('guides an existing Slack connection through reauthorization when scopes are incomplete', async () => {

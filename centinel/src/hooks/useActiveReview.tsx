@@ -37,6 +37,8 @@ function parseProgress(progressJson: string): ReviewProgress {
     const parsed = JSON.parse(progressJson) as Partial<ReviewProgress>;
     const parsedStages = Array.isArray(parsed.stages) ? parsed.stages : [];
     return {
+      stage: parsed.stage,
+      pauseCode: parsed.pauseCode,
       currentStage: parsed.currentStage ?? fallback.currentStage,
       stages: STAGE_DEFINITIONS.map(defaultStage => {
         const stage = parsedStages.find(candidate => candidate?.id === defaultStage.id);
@@ -60,7 +62,7 @@ async function loadSnapshot(session: StaticSession, projectName: string): Promis
   const progress = parseProgress(session.progressJson);
 
   let findings: Finding[] = [];
-  if (session.status === 'success') {
+  if (['success', 'pending_approval', 'blocked'].includes(session.status)) {
     try {
       findings = await api.listStaticFindings(session.projectId, session.id);
     } catch (error) {
@@ -177,7 +179,7 @@ export function useActiveReview() {
           console.warn(`[review-session] Could not resolve terminal state for ${id}`, error);
         }
 
-        if (promoted && (promoted.status === 'success' || promoted.status === 'failure' || promoted.status === 'cancelled')) {
+        if (promoted && ['success', 'pending_approval', 'failure', 'failed', 'blocked', 'cancelled'].includes(promoted.status)) {
           if (!completedAtRef.current) completedAtRef.current = new Date().toISOString();
           const projectName = projectNamesRef.current.get(promoted.projectId) ?? '';
           const snapshot = await loadSnapshot(promoted, projectName);

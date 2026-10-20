@@ -10,6 +10,8 @@ vi.mock('../api/client', () => ({
     listArtifacts: vi.fn(),
     listRequirements: vi.fn(),
     listActiveStaticSessions: vi.fn(),
+    listStaticSessions: vi.fn(),
+    getReviewSourceManifest: vi.fn(),
     createStaticSession: vi.fn(),
   },
 }));
@@ -77,6 +79,30 @@ const returnedSession: StaticSession = {
   reviewDiffJson: '',
 };
 
+const comparisonReview: StaticSession = {
+  ...returnedSession,
+  id: 'review-prior',
+  name: 'Sprint 2 review',
+  status: 'pending_approval',
+  completedAt: '2026-09-20T10:00:00.000Z',
+  modelStatus: 'succeeded',
+  configJson: JSON.stringify({ instructions: 'Verify changed checkout paths.', baseRef: 'main', headRef: 'feature/review', pullRequest: '#123' }),
+  progressJson: JSON.stringify({ stage: 'complete' }),
+  scope: { artifactIds: [sourceArtifact.id], requirementIds: [requirement.id], standardIds: [] },
+};
+
+const comparisonManifest = {
+  sessionId: comparisonReview.id,
+  projectId: project.id,
+  status: 'available' as const,
+  capturedAt: '2026-09-20T10:00:00.000Z',
+  sources: [{
+    id: 'manifest-source', sessionId: comparisonReview.id, sourceId: 'manifest-source', sourceKind: 'repository' as const,
+    label: 'checkout.ts', artifactIds: [sourceArtifact.id], filesReviewed: 1, contentHashes: ['source-hash'], capturedAt: '2026-09-20T10:00:00.000Z',
+  }],
+  artifactCount: 1,
+};
+
 function setup({ artifacts = [sourceArtifact, standardArtifact], requirements = [requirement], active = [] }: {
   artifacts?: Artifact[];
   requirements?: Requirement[];
@@ -85,6 +111,10 @@ function setup({ artifacts = [sourceArtifact, standardArtifact], requirements = 
   vi.mocked(api.listArtifacts).mockResolvedValue(artifacts);
   vi.mocked(api.listRequirements).mockResolvedValue(requirements);
   vi.mocked(api.listActiveStaticSessions).mockResolvedValue(active);
+  vi.mocked(api.listStaticSessions).mockResolvedValue([]);
+  vi.mocked(api.getReviewSourceManifest).mockResolvedValue({
+    sessionId: 'review-missing', projectId: project.id, status: 'unavailable', sources: [], artifactCount: null,
+  });
   vi.mocked(api.createStaticSession).mockResolvedValue(returnedSession);
 }
 
@@ -124,6 +154,7 @@ describe('ReviewEntryScreen', () => {
       },
     });
     expect(payload.idempotencyKey).toEqual(expect.any(String));
+    expect(payload).not.toHaveProperty('comparisonParentReviewId');
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: returnedSession.id, reviewName: returnedSession.name });
   });
 
@@ -160,5 +191,80 @@ describe('ReviewEntryScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/sign in again|authenticate/i);
     expect(screen.getByRole('textbox', { name: 'Review name' })).toHaveValue('Auth review');
     expect(screen.getByRole('textbox', { name: 'Review objective' })).toHaveValue('Check session handling.');
+  });
+
+  it('preloads a verified prior Review and links only after explicit submission', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    vi.mocked(api.listStaticSessions).mockResolvedValue([comparisonReview]);
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(comparisonManifest);
+    render(<ReviewEntryScreen projects={[project]} comparisonParentReviewId={comparisonReview.id} onNavigate={onNavigate} onCreateProject={vi.fn()} />);
+
+    expect(await screen.findByRole('note')).toHaveTextContent('Review updated sources against Sprint 2 review.');
+    expect(screen.getByRole('textbox', { name: 'Review name' })).toHaveValue('Sprint 2 review');
+    expect(screen.getByRole('textbox', { name: 'Review objective' })).toHaveValue('Verify changed checkout paths.');
+    expect(screen.getByRole('checkbox', { name: /checkout\.ts/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /security\.md/i })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
+    expect(api.createStaticSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));
+    const [projectId, payload] = vi.mocked(api.createStaticSession).mock.calls[0];
+    expect(projectId).toBe(project.id);
+    expect(payload).toMatchObject({
+      comparisonParentReviewId: comparisonReview.id,
+      name: 'Sprint 2 review',
+      instructions: 'Verify changed checkout paths.',
+      baseRef: 'main',
+      headRef: 'feature/review',
+      pullRequest: '#123',
+      artifactIds: [sourceArtifact.id],
+      standardIds: [],
+      requirementIds: [requirement.id],
+    });
+  });
+
+  it.each([
+    ['missing parent', [], null],
+    ['failed model run', [{ ...comparisonReview, modelStatus: 'failed' as const }], comparisonManifest],
+    ['partial model run', [{ ...comparisonReview, modelStatus: 'partial' as const }], comparisonManifest],
+    ['missing model status', [{ ...comparisonReview, modelStatus: undefined }], comparisonManifest],
+    ['unfinished lifecycle', [{ ...comparisonReview, status: 'running' as const }], comparisonManifest],
+    ['missing completion record', [{ ...comparisonReview, completedAt: null, progressJson: '{}' }], comparisonManifest],
+    ['unavailable manifest', [comparisonReview], { ...comparisonManifest, status: 'unavailable' as const }],
+    ['empty saved manifest', [comparisonReview], { ...comparisonManifest, sources: [] }],
+  ])('requires an explicit independent Review when the %s cannot be compared', async (_label, reviews, manifest) => {
+    const user = userEvent.setup();
+    vi.mocked(api.listStaticSessions).mockResolvedValue(reviews as StaticSession[]);
+    if (manifest) vi.mocked(api.getReviewSourceManifest).mockResolvedValue(manifest as typeof comparisonManifest);
+    render(<ReviewEntryScreen projects={[project]} comparisonParentReviewId={comparisonReview.id} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Comparison unavailable');
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
+    expect(api.createStaticSession).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Start an independent Review' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Independent review');
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Check the current project scope.');
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createStaticSession).mock.calls[0][1]).not.toHaveProperty('comparisonParentReviewId');
+  });
+
+  it('clears the comparison when the user switches projects', async () => {
+    const user = userEvent.setup();
+    const secondProject: Project = { ...project, id: 'project-2', name: 'Another project' };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([comparisonReview]);
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(comparisonManifest);
+    render(<ReviewEntryScreen projects={[project, secondProject]} comparisonParentReviewId={comparisonReview.id} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+
+    await screen.findByRole('note');
+    await user.click(screen.getByRole('combobox', { name: 'Project' }));
+    await user.click(await screen.findByRole('option', { name: 'Another project' }));
+    await waitFor(() => expect(screen.queryByRole('note')).not.toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(vi.mocked(api.listArtifacts)).toHaveBeenLastCalledWith(secondProject.id);
   });
 });

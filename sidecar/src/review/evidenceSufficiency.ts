@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { Artifact, ArtifactType } from '../artifacts.js';
+import { detectArtifactType, type Artifact, type ArtifactType } from '../artifacts.js';
 import type { ConfirmedRequirement, RequirementCandidate, SourceLocator, StandardRule } from './grounding.js';
 
 export type EvidenceSourceState = 'available' | 'stale' | 'inaccessible' | 'deleted';
@@ -239,16 +239,35 @@ function discoverContradictions(claims: EvidenceClaim[]): EvidenceContradiction[
 }
 
 /**
- * Split frozen text into a conservative set of claims for contradiction
- * checks. Each sentence remains tied to its artifact and approximate line.
+ * Extract prose claims, not executable examples or test descriptions. Code
+ * remains available to analysis; confirmed/manual claims are assessed separately.
+ * Each sentence remains tied to its artifact and original line.
  */
 export function extractEvidenceClaims(artifacts: EvidenceArtifact[]): EvidenceClaim[] {
   const claims: EvidenceClaim[] = [];
   for (const source of artifacts) {
     if (source.state === 'inaccessible' || source.state === 'deleted') continue;
     if (!source.content) continue;
+    if (source.artifact.type === 'source_code'
+      || detectArtifactType(source.artifact.filePath || source.artifact.fileName) === 'source_code') continue;
+    if (!['requirement', 'design', 'coding_standard'].includes(source.artifact.type)
+      && !/\.(?:md|txt|rst|adoc)$/i.test(source.artifact.filePath || source.artifact.fileName)) continue;
     let lineStart = 1;
+    let fence: { marker: string; length: number } | undefined;
     for (const line of source.content.split(/\r?\n/)) {
+      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+      if (marker && !fence) {
+        fence = { marker: marker[1][0], length: marker[1].length };
+        lineStart++;
+        continue;
+      }
+      if (fence) {
+        if (marker && marker[1][0] === fence.marker && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
+        lineStart++;
+        continue;
+      }
+      // Markdown indented examples are code too, including after list bullets.
+      if (/^(?: {4}|\t)/.test(line)) { lineStart++; continue; }
       const headingStripped = line.replace(/^\s{0,3}#{1,6}\s+/, '').trim();
       const sentences = headingStripped.split(/(?<=[.!?])\s+(?=[A-Z0-9])/);
       for (const sentence of sentences) {
