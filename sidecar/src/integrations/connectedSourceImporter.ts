@@ -350,7 +350,8 @@ export class ConnectedSourceImporter {
       const hasStoredSnapshot = Boolean(run.remoteRevision || run.cursorStart || run.cursorEnd);
       if (input.force || !hasStoredSnapshot) {
         snapshot = await adapter.prepareSync(credentials, source);
-        if (!input.force && run.status === 'queued' && run.attemptCount === 0 && adapter.isSourceRevisionUnchanged?.(source, snapshot)) {
+        if (!input.force && source.syncStatus !== 'error' && latestRun?.status !== 'failure' && latestRun?.status !== 'cancelled'
+          && run.status === 'queued' && run.attemptCount === 0 && adapter.isSourceRevisionUnchanged?.(source, snapshot)) {
           const itemCount = (await this.repository.listSourceItems(source.id)).filter(item => item.status === 'available' || item.status === 'unsupported').length;
           const completedAt = this.now();
           run = await persistRun({

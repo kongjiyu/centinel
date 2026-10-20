@@ -14,6 +14,7 @@ import type {
 } from '../../src/integrations/types.js';
 import { ConnectedSourceImporter } from '../../src/integrations/connectedSourceImporter.js';
 import { ConnectedSourceHttpError } from '../../src/integrations/http.js';
+import { GitHubConnectedSourceAdapter } from '../../src/integrations/providers/github.js';
 
 const NOW = '2026-09-21T00:00:00.000Z';
 const credentials: IntegrationCredential = {
@@ -182,6 +183,46 @@ function sourceAdapter(pages: Array<{ cursor: Record<string, unknown> | null; do
 }
 
 describe('ConnectedSourceImporter', () => {
+  it('checks the GitHub head first, skips current content, imports changed heads, and recovers failed snapshots', async () => {
+    const repository = new MemoryConnectedSourceRepository();
+    let head = 'commit-a';
+    const calls: string[] = [];
+    const adapter = new GitHubConnectedSourceAdapter({ http: { async fetch(input) {
+      const route = new URL(String(input)).pathname;
+      calls.push(route);
+      const body = route.endsWith('/commits/main') ? { sha: head }
+        : route.includes('/git/commits/') ? { tree: { sha: `tree-${head}` } }
+        : route.includes('/git/trees/') ? { tree: [{ path: 'src/check.ts', type: 'blob', sha: `blob-${head}` }] }
+        : { content: Buffer.from(`const version = '${head}';`).toString('base64'), encoding: 'base64' };
+      return new Response(JSON.stringify(body), { status: 200 });
+    } } });
+    const importer = new ConnectedSourceImporter({ repository, adapters: [adapter], tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
+    const sync = (key: string, force = false) => importer.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: key, force });
+    expect((await sync('first')).imported).toBe(1);
+    calls.length = 0;
+    expect((await sync('current')).unchanged).toBe(1);
+    expect(calls).toEqual(['/repos/acme/quality/commits/main']);
+    expect(repository.versions.size).toBe(1);
+
+    head = 'commit-many-commits-later';
+    calls.length = 0;
+    expect((await sync('changed')).updated).toBe(1);
+    expect(calls[0]).toBe('/repos/acme/quality/commits/main');
+    expect(repository.source.remoteRevision).toBe(head);
+    expect(repository.versions.size).toBe(2);
+    expect(calls).toHaveLength(4);
+
+    // Source revision can already point at a failed import; equality alone
+    // must not certify that all its content was imported.
+    repository.source.syncStatus = 'error';
+    calls.length = 0;
+    await sync('recover');
+    expect(calls.some(route => route.includes('/git/blobs/'))).toBe(true);
+    expect(repository.source.syncStatus).toBe('ready');
+    calls.length = 0;
+    await sync('force', true);
+    expect(calls.some(route => route.includes('/git/blobs/'))).toBe(true);
+  });
   it('requires Slack reauthorization when read scopes are missing', async () => {
     const repository = new MemoryConnectedSourceRepository();
     repository.integration = {

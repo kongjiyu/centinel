@@ -21,6 +21,7 @@ import { ReviewPlaygroundScreen } from './screens/ReviewPlaygroundScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { api } from './api/client';
 import { reconcileOneDueSlackSource, SLACK_RECONCILIATION_INTERVAL_MS } from './integrations/slackReconciliation';
+import { startGitHubReconciliation } from './integrations/githubReconciliation';
 import type { Project, AiProviderSetting, Screen } from './types';
 import { ActiveReviewProvider } from './hooks/useActiveReview';
 import { ReviewToast } from './components/ReviewToast';
@@ -213,6 +214,11 @@ function App() {
       window.clearTimeout(firstPass);
       window.clearInterval(interval);
     };
+  }, [entryMode, accountUserId]);
+
+  useEffect(() => {
+    if (entryMode !== 'workspace' || !accountUserId) return;
+    return startGitHubReconciliation(api);
   }, [entryMode, accountUserId]);
 
   const returnToSignIn = () => {

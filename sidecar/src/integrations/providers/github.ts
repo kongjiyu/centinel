@@ -9,6 +9,14 @@ type GitHubTreeEntry = { path: string; type: string; mode: string; sha: string; 
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.xml', '.html', '.css', '.js', '.jsx', '.ts', '.tsx', '.py', '.go', '.rs', '.java', '.cs', '.rb', '.php', '.sh', '.sql', '.toml', '.ini', '.csv', '.svg', '.c', '.h', '.cpp', '.properties']);
 
+function textCandidate(path: string): boolean {
+  const name = path.split('/').pop() ?? '';
+  const dot = name.lastIndexOf('.');
+  // Includes README/LICENSE, extensionless test fixtures, and dotfiles such
+  // as .hidden/.eslintrc; dots in a parent directory are irrelevant.
+  return dot <= 0 || TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
+
 function repoPath(remoteId: string): string {
   const parts = remoteId.split('/');
   if (parts.length !== 2 || parts.some(part => !part || part === '.' || part === '..')) throw new Error('GitHub repository id must be owner/repository.');
@@ -110,21 +118,28 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
     const revision = await requestJson<{ sha?: string; head?: { sha?: string } }>(this.http, revisionUrl, { headers: this.headers(credentials.accessToken) }, 'GitHub revision lookup');
     const commitSha = revision.head?.sha ?? revision.sha;
     if (!commitSha) throw new ConnectedSourceHttpError('GitHub did not return a source revision.', { code: 'missing_revision' });
-    const commit = await requestJson<{ tree?: { sha?: string } }>(this.http, `https://api.github.com/repos/${remote}/git/commits/${encodeURIComponent(commitSha)}`, { headers: this.headers(credentials.accessToken) }, 'GitHub tree lookup');
-    const treeSha = commit.tree?.sha;
-    if (!treeSha) throw new ConnectedSourceHttpError('GitHub did not return a repository tree.', { code: 'missing_tree' });
-    return { remoteRevision: commitSha, cursor: { treeSha, offset: 0 } };
+    // Resolve only the remote head here. Content lookup begins after the
+    // importer has decided whether this completed revision is already current.
+    return { remoteRevision: commitSha, cursor: { commitSha, offset: 0 } };
   }
 
   isSourceRevisionUnchanged(source: ConnectedSource, snapshot: SyncSnapshot): boolean {
-    return Boolean(source.remoteRevision && snapshot.remoteRevision && source.remoteRevision === snapshot.remoteRevision && source.lastSuccessfulSyncAt);
+    return Boolean(source.remoteRevision && snapshot.remoteRevision && source.remoteRevision === snapshot.remoteRevision
+      && source.lastSuccessfulSyncAt && !source.syncCursor);
   }
 
   async listItems(credentials: IntegrationCredential, source: ConnectedSource, snapshot: SyncSnapshot, cursor: Record<string, unknown> | null): Promise<RemoteSyncPage> {
     const remote = repoPath(source.remoteId);
-    const treeSha = String(cursor?.treeSha ?? snapshot.cursor?.treeSha ?? '');
+    let treeSha = String(cursor?.treeSha ?? snapshot.cursor?.treeSha ?? '');
     const offset = Number(cursor?.offset ?? 0);
-    if (!treeSha || !Number.isInteger(offset) || offset < 0) throw new Error('GitHub sync cursor is invalid.');
+    if (!Number.isInteger(offset) || offset < 0) throw new Error('GitHub sync cursor is invalid.');
+    if (!treeSha) {
+      const commitSha = snapshot.remoteRevision;
+      if (!commitSha) throw new Error('GitHub sync cursor is invalid.');
+      const commit = await requestJson<{ tree?: { sha?: string } }>(this.http, `https://api.github.com/repos/${remote}/git/commits/${encodeURIComponent(commitSha)}`, { headers: this.headers(credentials.accessToken) }, 'GitHub tree lookup');
+      treeSha = commit.tree?.sha ?? '';
+      if (!treeSha) throw new ConnectedSourceHttpError('GitHub did not return a repository tree.', { code: 'missing_tree' });
+    }
     const cacheKey = `${source.remoteId}:${treeSha}`;
     let entries = this.treeCache.get(cacheKey);
     if (!entries) {
@@ -132,7 +147,7 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
       this.treeCache.set(cacheKey, entries);
       while (this.treeCache.size > 4) this.treeCache.delete(this.treeCache.keys().next().value!);
     }
-    const files = entries.filter(item => item.type === 'blob').filter(item => TEXT_EXTENSIONS.has(item.path.slice(item.path.lastIndexOf('.')).toLowerCase()));
+    const files = entries.filter(item => item.type === 'blob' && textCandidate(item.path));
     const page = files.slice(offset, offset + this.pageSize);
     const items = await Promise.all(page.map(async file => {
       if ((file.size ?? 0) > this.maxFileBytes) {
@@ -142,6 +157,14 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
       const bytes = blob.encoding === 'base64' ? Buffer.from((blob.content ?? '').replace(/\s/g, ''), 'base64') : Buffer.from(blob.content ?? '', 'utf8');
       if (bytes.byteLength > this.maxFileBytes) {
         return { remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path, mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported', error: `File exceeds the ${this.maxFileBytes} byte import limit.`, metadata: { repository: source.remoteId, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size: bytes.byteLength } } satisfies RemoteContent;
+      }
+      let validText = !bytes.includes(0);
+      try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { validText = false; }
+      if (!validText || bytes.subarray(0, 5).toString() === '%PDF-' || bytes.subarray(0, 4).toString() === 'PK\u0003\u0004') {
+        return { remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path,
+          mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported',
+          error: 'This file is not supported UTF-8 text. Supply an extracted text version to include it in assessment.',
+          metadata: { repository: source.remoteId, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size: bytes.byteLength } } satisfies RemoteContent;
       }
       const mimeType = file.path.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain';
       return {

@@ -86,6 +86,15 @@ export class ProjectReadinessCoordinator {
       // Reading status, syncing sources and restarting must not spend another
       // provider request after a capacity stop. Only manual Start/Retry releases it.
       if (latest?.status === 'paused' && !force) return { ...latest, stale: latest.snapshot?.sourceFingerprint !== index.fingerprint };
+      // A remote-head check can temporarily queue readiness while a source run
+      // is active. Reuse the verified assessment if that check changed nothing.
+      if (!force && !index.importing && latest && latest.trigger !== 'manual' && ['queued', 'running'].includes(latest.status)
+        && latest.snapshot?.sourceFingerprint === index.fingerprint) {
+        latest = { ...latest, status: 'completed', sourceFingerprint: index.fingerprint,
+          startedAt: null, completedAt: latest.snapshot.assessedAt, error: null, errorCode: null, stale: false };
+        await this.save(store, latest);
+        return latest;
+      }
       if (latest?.sourceFingerprint === index.fingerprint) {
         if (['queued', 'running'].includes(latest.status)) {
           this.schedule(context, projectId);

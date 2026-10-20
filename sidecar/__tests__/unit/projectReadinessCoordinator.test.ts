@@ -92,6 +92,27 @@ function setup(options: {
 }
 
 describe('ProjectReadinessCoordinator', () => {
+  it('reuses the previous assessment when a queued remote check finishes without changes', async () => {
+    const previous = completedJob();
+    const assess = vi.fn();
+    const test = setup({ initialJob: { ...previous, status: 'queued', trigger: 'source_check', sourceFingerprint: 'checking-remote', stale: true }, assess });
+    const status = await test.coordinator.status(auth(), projectId);
+    await test.coordinator.waitForIdle();
+    expect(status.status).toBe('completed');
+    expect(status.stale).toBe(false);
+    expect(status.snapshot).toEqual(previous.snapshot);
+    expect(status.startedAt).toBeNull();
+    expect(assess).not.toHaveBeenCalled();
+    test.coordinator.close();
+  });
+  it('does not cancel an explicit manual reassessment when status is read before the worker starts', async () => {
+    const assess = vi.fn(async (input: ReadinessInput) => assessment(input));
+    const test = setup({ initialJob: { ...completedJob(), status: 'queued' }, assess });
+    expect((await test.coordinator.status(auth(), projectId)).status).toBe('queued');
+    await test.coordinator.waitForIdle();
+    expect(assess).toHaveBeenCalledTimes(1);
+    test.coordinator.close();
+  });
   it('recovers a legacy rate-limit failure as paused without re-assessing updated sources', async () => {
     const previous = { ...completedJob(), status: 'failed' as const, errorCode: 'rate_limited' as const, error: 'Old failure copy' };
     const assess = vi.fn();

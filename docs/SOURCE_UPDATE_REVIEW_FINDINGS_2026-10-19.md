@@ -8,7 +8,7 @@
 - The reminder opens Review setup with the previous Review as its comparison parent and prefills the saved objective and scope. Only explicit submission starts a child Review, capturing fresh source versions. An unavailable comparison blocks submission until retried or explicitly changed to an independent Review. The authenticated backend verifies parent ownership, completion, model success and saved source evidence; idempotency keys cannot be reused across different parents.
 - Failed, cancelled, partial, unrelated-scope, legacy or unreadable comparisons retain unresolved findings. A later recurrence must appear as a current unresolved issue.
 - A review-derived Resolved state means the finding was not reproduced in the comparable re-review after the relevant source changed. It is not a claim of independent runtime verification or complete security. Show that basis alongside the later review reference.
-- Reminders compare sources already imported or synced into Centinel. This change does not add remote webhooks, background polling of GitHub/Drive, or an external filesystem watcher.
+- Reminders compare sources already imported or synced into Centinel. The later [automatic GitHub sync](GITHUB_AUTOMATIC_SYNC_2026-10-20.md) checks remote heads while the signed-in workspace is open and brings changed snapshots into that comparison. No remote webhook, Drive polling or external filesystem watcher is added by the reminder mechanism.
 
 ## Root cause of the reported unavailable-source result
 

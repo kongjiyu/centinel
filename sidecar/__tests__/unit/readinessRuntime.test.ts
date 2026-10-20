@@ -103,6 +103,16 @@ beforeEach(() => {
 });
 
 describe('inspectReadinessSources', () => {
+  it('does not invalidate readiness when an unchanged remote check produces a new successful run', async () => {
+    fixtures.sources = [connectedSource()];
+    fixtures.sourceItems = { 'source-1': [sourceItem()] };
+    const first = await inspectReadinessSources(auth(), projectId);
+    fixtures.sources[0].latestSyncRun.id = 'another-check';
+    fixtures.sources[0].lastSyncedAt = '2026-10-20T12:00:00Z';
+    expect((await inspectReadinessSources(auth(), projectId)).fingerprint).toBe(first.fingerprint);
+    fixtures.sources[0].remoteRevision = 'changed-commit';
+    expect((await inspectReadinessSources(auth(), projectId)).fingerprint).not.toBe(first.fingerprint);
+  });
   it('preserves an authorization cause for a failed zero-file import without exposing provider text', async () => {
     fixtures.artifacts = [];
     fixtures.sources = [connectedSource({ syncStatus: 'error', latestSyncRun: { id: 'run-auth', status: 'failure', errorCode: 'http_401', retryable: false, errorMessage: 'private credential detail' } })];

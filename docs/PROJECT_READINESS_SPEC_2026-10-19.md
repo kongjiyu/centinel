@@ -4,6 +4,8 @@ Readiness is a project-level background assessment, independent of Review execut
 
 ## Contract
 
+Follow-up: the open signed-in workspace now checks GitHub remote heads automatically; unchanged successful commits skip content import and reuse readiness. Local imports still require an explicit refresh after external edits. See [automatic GitHub sync](GITHUB_AUTOMATIC_SYNC_2026-10-20.md) for the bounded cadence, recovery and verification limits.
+
 - GET /projects/:id/readiness returns the latest job status and last successful snapshot. It also checks for changed source versions and recovers pending work when the authenticated app reconnects.
 - POST /projects/:id/readiness with {trigger:'manual'} queues/reuses an assessment and returns status (202). Project creation, import/upload batch completion, source sync/pull completion and removal queue automatic checks. Rapid events coalesce; publication checks source fingerprints so stale assessments cannot replace current ones.
 - Operational states idle/queued/running/completed/failed are separate from category states Missing/Incomplete/Completed. Loading spinner and disabled Start are beside the title. Before a valid result, render a dash; on failure preserve the last result with retry feedback. No separate readiness screen or technical logs in the card.

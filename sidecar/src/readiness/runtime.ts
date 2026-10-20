@@ -49,7 +49,7 @@ export async function inspectReadinessSources(auth: AuthenticatedRequest, projec
   for (const source of sources) {
     const items = await sourceRepository.listSourceItems(source.id);
     sourceStates.push({ id: source.id, status: source.status, revision: source.remoteRevision, sync: source.syncStatus,
-      run: source.latestSyncRun?.id, outcome: source.latestSyncRun?.status, errorCode: source.latestSyncRun?.errorCode,
+      outcome: source.latestSyncRun?.status, errorCode: source.latestSyncRun?.errorCode,
       retryable: source.latestSyncRun?.retryable, items: items.map(item => [item.id, item.status, item.artifactVersionId]).sort() });
     const removed = source.status === 'removed' || source.status === 'disconnected';
     for (const item of items) if ((removed || item.status !== 'available') && item.artifactId) excluded.add(item.artifactId);

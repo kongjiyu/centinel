@@ -30,6 +30,26 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe('connected source provider adapters', () => {
+  it('does not treat a partially imported revision as a complete matching commit', () => {
+    const adapter = new GitHubConnectedSourceAdapter();
+    const partial = { ...source, remoteRevision: 'new-commit', lastSuccessfulSyncAt: '2026-10-19T12:00:00Z', syncCursor: { treeSha: 'new-tree', offset: 40 } };
+    expect(adapter.isSourceRevisionUnchanged(partial, { remoteRevision: 'new-commit', cursor: null })).toBe(false);
+  });
+  it('imports extensionless and hidden fixtures while reporting binary candidates as unsupported', async () => {
+    const paths = ['test/fixtures/.hidden', 'test/fixtures/foo bar', 'LICENSE', '.eslintrc', 'folder.with.dots/README', 'binary'];
+    const http = new FakeHttp([
+      json({ sha: 'commit-fixtures' }), json({ tree: { sha: 'tree-fixtures' } }),
+      json({ tree: paths.map((path, i) => ({ path, type: 'blob', sha: `blob-${i}` })) }),
+      ...paths.map(path => json({ content: (path === 'binary' ? Buffer.from([0, 255, 0]) : Buffer.from(`Text for ${path}`)).toString('base64'), encoding: 'base64' })),
+    ]);
+    const adapter = new GitHubConnectedSourceAdapter({ http });
+    const snapshot = await adapter.prepareSync(credentials, source);
+    const page = await adapter.listItems(credentials, source, snapshot, snapshot.cursor);
+    expect(page.items.map(item => item.path)).toEqual(paths);
+    expect(page.items.slice(0, -1).every(item => item.status !== 'unsupported' && item.content.length > 0)).toBe(true);
+    expect(page.items.at(-1)).toMatchObject({ path: 'binary', status: 'unsupported', content: new Uint8Array() });
+    expect(page.completeSnapshot).toBe(true);
+  });
   it('browses GitHub repositories and imports a text blob with commit and path provenance', async () => {
     const http = new FakeHttp([
       json([{ id: 1, full_name: 'acme/demo', name: 'demo', html_url: 'https://github.com/acme/demo', default_branch: 'main', private: true }]),
@@ -49,14 +69,37 @@ describe('connected source provider adapters', () => {
     expect(http.calls[0]?.init?.headers).toMatchObject({ Authorization: 'Bearer fake-token' });
   });
 
-  it('reads the tree SHA from the GitHub Git commit response', async () => {
+  it('checks the remote commit without fetching a tree or content', async () => {
     const http = new FakeHttp([
       json({ sha: 'commit-a' }),
       json({ sha: 'commit-a', tree: { sha: 'tree-a' } }),
     ]);
     const adapter = new GitHubConnectedSourceAdapter({ http });
 
-    await expect(adapter.prepareSync(credentials, source)).resolves.toEqual({ remoteRevision: 'commit-a', cursor: { treeSha: 'tree-a', offset: 0 } });
+    await expect(adapter.prepareSync(credentials, source)).resolves.toEqual({ remoteRevision: 'commit-a', cursor: { commitSha: 'commit-a', offset: 0 } });
+    expect(http.calls.map(call => new URL(call.url).pathname)).toEqual(['/repos/acme/demo/commits/main']);
+  });
+
+  it('checks the selected pull-request head without fetching its tree or branch', async () => {
+    const http = new FakeHttp([json({ head: { sha: 'pr-head' } })]);
+    const adapter = new GitHubConnectedSourceAdapter({ http });
+    await expect(adapter.prepareSync(credentials, { ...source, selectedScope: { pullRequestNumber: 42 } })).resolves.toMatchObject({ remoteRevision: 'pr-head' });
+    expect(http.calls.map(call => new URL(call.url).pathname)).toEqual(['/repos/acme/demo/pulls/42']);
+  });
+
+  it('resumes an older pinned tree after restart without checking a moving head mid-import', async () => {
+    const tree = [{ path: 'a.ts', type: 'blob', sha: 'blob-a' }, { path: 'b.ts', type: 'blob', sha: 'blob-b' }];
+    const http = new FakeHttp([json({ sha: 'old-head' }), json({ tree: { sha: 'old-tree' } }), json({ tree }), json({ content: 'a', encoding: 'utf8' })]);
+    const adapter = new GitHubConnectedSourceAdapter({ http, pageSize: 1 });
+    const snapshot = await adapter.prepareSync(credentials, source);
+    const first = await adapter.listItems(credentials, source, snapshot, snapshot.cursor);
+    expect(first.done).toBe(false);
+    const restartHttp = new FakeHttp([json({ tree }), json({ content: 'b', encoding: 'utf8' })]);
+    const restarted = new GitHubConnectedSourceAdapter({ http: restartHttp, pageSize: 1 });
+    const next = await restarted.listItems(credentials, source, snapshot, first.nextCursor);
+    expect(next.done).toBe(true);
+    expect(next.items[0]).toMatchObject({ path: 'b.ts', metadata: { commitSha: 'old-head' } });
+    expect(restartHttp.calls.map(call => new URL(call.url).pathname)).toEqual(['/repos/acme/demo/git/trees/old-tree', '/repos/acme/demo/git/blobs/blob-b']);
   });
 
   it('resolves the repository default branch when a GitHub project source has no selected branch', async () => {
@@ -68,7 +111,7 @@ describe('connected source provider adapters', () => {
     const adapter = new GitHubConnectedSourceAdapter({ http });
 
     await expect(adapter.prepareSync(credentials, { ...source, selectedScope: {} })).resolves.toEqual({
-      remoteRevision: 'commit-develop', cursor: { treeSha: 'tree-develop', offset: 0 },
+      remoteRevision: 'commit-develop', cursor: { commitSha: 'commit-develop', offset: 0 },
     });
     expect(new URL(http.calls[0]!.url).pathname).toBe('/repos/acme/demo');
     expect(new URL(http.calls[1]!.url).pathname).toBe('/repos/acme/demo/commits/develop');
