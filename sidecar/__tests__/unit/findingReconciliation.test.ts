@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findingSourceIdentityHash, type FindingCorrelation } from '../../src/review/correlation.js';
-import { reconcileProjectFindings, type ProjectFindingForReconciliation, type ReconciliationManifest } from '../../src/review/findingReconciliation.js';
+import { reconcileProjectFindings, presentReconciledProjectFindings, type ProjectFindingForReconciliation, type ReconciliationManifest } from '../../src/review/findingReconciliation.js';
+import type { StoreFinding } from '../../src/store/types.js';
 import type { StaticReviewRecord } from '../../src/review/types.js';
 
 const sourcePath = 'src/account.ts';
@@ -92,6 +93,10 @@ describe('project finding reconciliation', () => {
     expect(reconcile({ correlations: [resolvedCorrelation({ classification: 'carried_over' })] })[0].resolutionEvidence).toBeUndefined();
   });
 
+  it('rejects older resolved correlations when the same review recorded an uncertain recurrence', () => {
+    expect(reconcile({ ambiguities: [{ childReviewId: 'review-child', candidateParentFindingIds: ['finding-parent'] }] })[0].resolutionEvidence).toBeUndefined();
+  });
+
   it('does not apply a correlation to a finding owned by a different Review', () => {
     expect(reconcile({ findings: [finding({ sessionId: 'unrelated-review' })] })[0].resolutionEvidence).toBeUndefined();
   });
@@ -128,7 +133,7 @@ describe('project finding reconciliation', () => {
     expect(result[0].resolutionEvidence).toBeUndefined();
   });
 
-  it('collapses a recurring and regressed chain to its latest finding and retains only prior rows as history', () => {
+  it('keeps the original issue ID with the latest evidence and prior occurrence history', () => {
     const childReview = review({ id: 'review-child', status: 'completed' });
     const grandchildReview = review({ id: 'review-grandchild', status: 'completed', createdAt: '2026-10-03T00:00:00Z', lineage: { parentReviewId: 'review-child', lineageRootId: 'review-parent', reusedSourceManifest: false }, sourceManifestId: 'manifest-grandchild' });
     const thirdManifest: ReconciliationManifest = { ...childManifest, id: 'manifest-grandchild', reviewId: 'review-grandchild', artifacts: [{ ...childManifest.artifacts[0], contentHash: 'third-hash' }] };
@@ -144,9 +149,31 @@ describe('project finding reconciliation', () => {
       ],
       snapshotChildReviewIds: ['review-child', 'review-grandchild'],
     });
-    expect(result.map(item => item.id)).toEqual(['finding-grandchild']);
+    expect(result.map(item => item.id)).toEqual(['finding-parent']);
+    expect(result[0]).toMatchObject({ title: 'Issue worsened', latestOccurrence: { findingId: 'finding-grandchild', reviewId: 'review-grandchild', classification: 'regressed' } });
     expect(result[0].lineageHistory?.map(item => item.findingId)).toEqual(['finding-parent', 'finding-child']);
     expect(result[0].lineageHistory?.map(item => item.classification)).toEqual(['recurring', 'regressed']);
+  });
+
+  it('reopens a reproduced fixed issue but honors a later human decision on the original ID', () => {
+    const parent = finding({ status: 'fixed', updatedAt: '2026-10-01T12:00:00Z' });
+    const child = finding({ id: 'finding-child', sessionId: 'review-child', sourceVersion: 'new-hash', createdAt: '2026-10-02T00:00:00Z' });
+    const args = { findings: [parent, child], correlations: [resolvedCorrelation({ classification: 'recurring', childFindingId: child.id })] };
+    expect(reconcile(args)).toMatchObject([{ id: parent.id, status: 'new', latestOccurrence: { classification: 'regressed' } }]);
+    expect(reconcile({ ...args, findings: [{ ...parent, updatedAt: '2026-10-03T00:00:00Z' }, child] })).toMatchObject([{ id: parent.id, status: 'fixed' }]);
+    expect(parent.status).toBe('fixed');
+  });
+
+  it('presents current evidence under the original ID without mutating either stored review occurrence', () => {
+    const parent = finding();
+    const child = finding({ id: 'finding-child', sessionId: 'review-child', title: 'Latest title', sourceVersion: 'new-hash' });
+    const reconciled = reconcile({ findings: [parent, child], correlations: [resolvedCorrelation({ classification: 'recurring', childFindingId: child.id })] });
+    const rows = [parent, child].map(item => ({ ...item, reviewSessionId: item.sessionId,
+      updatedAt: item.createdAt, description: item.id, evidenceText: `evidence:${item.id}`, location: { filePath: item.filePath, lineNumber: 12 } })) as StoreFinding[];
+    const result = presentReconciledProjectFindings(rows, reconciled);
+    expect(result).toMatchObject([{ id: parent.id, sessionId: 'review-child', title: 'Latest title', evidenceText: 'evidence:finding-child' }]);
+    expect(rows.map(row => row.id)).toEqual(['finding-parent', 'finding-child']);
+    expect(rows[0].title).toBe('Authorization check is missing');
   });
 
   it('does not collapse a lineage link to a finding owned by a different Review', () => {

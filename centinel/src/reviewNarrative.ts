@@ -3,7 +3,7 @@ import { normalizeReviewStages, parseReviewProgress, reviewLifecycleState, revie
 import { reviewFailureMessage } from './utils/userFacingError';
 import type { EvidenceSufficiencyAssessment, Finding, ReviewDecisionRecord, ReviewTraceabilitySnapshot, StaticSession } from './types';
 
-export type ReviewAspect = 'Security' | 'Business rules' | 'Technical';
+export type ReviewAspect = 'Security' | 'Business rules' | 'Technical' | 'Human error';
 export type FindingLink = { id: string; label: string; aspect: ReviewAspect };
 export type NarrativeStage = { id: string; title: string; state: string; purpose: string; outcome: string; duration: string; findings: FindingLink[] };
 export type ReviewNarrative = {
@@ -18,7 +18,7 @@ const STAGES = [
   { id: 'indexing_context', title: 'Understand the change', plan: 'Next, I’ll bring together the relevant parts of the files and the agreed rules.', past: 'I brought together the relevant parts of the files and the agreed rules before checking the implementation.' },
   { id: 'deterministic_analysis', title: 'Check for common issues', plan: 'I’ll look for common security and code quality issues first.', past: 'I checked for common security and code quality issues first.' },
   { id: 'model_analysis', title: 'Review the behaviour', plan: 'Then I’ll compare the implementation with the available requirements and look for behaviour that may need attention.', past: 'I compared the implementation with the available requirements and looked for behaviour that may need attention.' },
-  { id: 'persisting_evidence', title: 'Prepare the findings', plan: 'Finally, I’ll check the references and bring the findings together for your review.', past: 'I checked the references and brought the findings together for your review.' },
+  { id: 'persisting_evidence', title: 'Prepare the findings', plan: 'Finally, I’ll compare these findings with the project’s earlier issues, reuse confident matches, and check which old issues are resolved.', past: 'I checked the references and brought the findings together for your review.' },
 ];
 
 export function objectivePoints(value: string | null): string[] {
@@ -75,6 +75,7 @@ function executionTiming(events: HarnessEvent[], active: boolean, now: number) {
   return { ms: start != null && end != null && end >= start ? end - start : null, end: !active && end != null ? new Date(end).toISOString() : null };
 }
 export function reviewAspect(category: string): ReviewAspect {
+  if (/personnel|human.error|usability|user.experience/i.test(category)) return 'Human error';
   if (/secur|secret|auth|credential|injection|privacy/i.test(category)) return 'Security';
   if (/business|requirement|traceability|approval|policy|document/i.test(category)) return 'Business rules';
   return 'Technical';
@@ -104,6 +105,17 @@ export function buildReviewNarrative(input: {
   const requirementCount = groundingOutput?.confirmedRequirements ?? assessment?.confirmedRequirementCount
     ?? (traceability?.status === 'available' ? traceability.records.length : null);
   const incompleteModel = ['failed', 'partial'].includes(trace?.review.modelStatus ?? '');
+  const comparisonEvent = [...events].reverse().find(event => event.event === 'harness_step_completed' && event.detail?.step === 'correlate_findings');
+  const comparisonOutput = comparisonEvent?.detail?.output as { checkedProjectHistory?: boolean; counts?: Record<string, unknown> | null; ambiguousCount?: unknown } | undefined;
+  let comparisonSummary = '';
+  if (comparisonOutput?.checkedProjectHistory === true) {
+    const counts = comparisonOutput.counts;
+    const keys = ['new', 'recurring', 'regressed', 'resolved', 'carried_over'];
+    if (counts && keys.every(key => Number.isSafeInteger(counts[key]) && Number(counts[key]) >= 0)) {
+      comparisonSummary = `I compared the findings with earlier reviews: ${counts.new} new, ${Number(counts.recurring) + Number(counts.regressed)} reported again, ${counts.resolved} not reproduced after comparable source changes, and ${counts.carried_over} still need verification.`;
+      if (Number.isSafeInteger(comparisonOutput.ambiguousCount) && Number(comparisonOutput.ambiguousCount) > 0) comparisonSummary += ` ${comparisonOutput.ambiguousCount} uncertain matches need your review.`;
+    } else if (counts === null) comparisonSummary = 'No earlier completed review was suitable for comparison. Existing unverified findings remain open.';
+  }
   const stageOf = (finding: Finding): string | null => {
     if (finding.evidenceGap) return 'freezing_sources';
     if (finding.verifier === 'deterministic') return 'deterministic_analysis';
@@ -130,7 +142,7 @@ export function buildReviewNarrative(input: {
       if (requirementCount === 0) outcome += ' I couldn’t confirm the business requirements, so that part of the review is limited.';
     }
     if (stage.id === 'model_analysis' && incompleteModel) outcome = 'The behaviour review is incomplete. The earlier checks are still available, but they don’t replace this part.';
-    if (stage.id === 'persisting_evidence' && completed) outcome = 'The findings are ready for you to inspect in Findings.';
+    if (stage.id === 'persisting_evidence' && completed) outcome = comparisonSummary || 'The findings are ready for you to inspect in Findings.';
     return { id: stage.id, title: stage.title, state: status, purpose: completed ? stage.past : ['In progress', 'Not started'].includes(status) ? stage.plan : '', outcome,
       duration: formatReviewDuration(executionTiming(related, status === 'In progress', now).ms), findings: findings.filter(finding => stageOf(finding) === stage.id).map(findingLink) };
   }) : normalizeReviewStages(progress).filter(stage => stage.id !== 'legacy').map(stage => ({
@@ -141,6 +153,9 @@ export function buildReviewNarrative(input: {
   const blockers: string[] = [];
   if (session.failureReason) blockers.push(reviewFailureMessage(session.failureReason));
   if (incompleteModel) blockers.push('The behaviour review could not be completed.');
+  const analysis = trace?.analysisMap;
+  if (analysis && analysis.status !== 'assessed') blockers.push('Some feature checks across security, business rules, technical behaviour, and human error are unverified. Open Activity to see the coverage.');
+  if (analysis && (analysis.coverage.unsupportedArtifacts.length || analysis.coverage.unresolvedEdgeCount)) blockers.push('Some source formats or runtime paths are outside the recorded code map. Verify the relevant flows before relying on full coverage.');
   if (findingsError) blockers.push('I couldn’t load the findings. Reopen this review before making a decision.');
   if (assessment) blockers.push(...assessment.gaps.map(gap => plainReviewText(`${gap.title}. ${gap.remediation}`)));
   if (requirementCount === 0) blockers.push(findings.some(finding => finding.evidenceGap) ? 'The business requirements need confirmation. This is listed in Findings.' : 'The business requirements need confirmation before their behaviour can be checked.');
@@ -167,6 +182,6 @@ export function buildReviewNarrative(input: {
     objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable,
     unassignedFindings: findings.filter(finding => !detailedHistoryAvailable || !stageOf(finding)).map(findingLink),
     timing: { duration: formatReviewDuration(durationMs), completedAt: active ? null : timing.end ?? (legacyStart != null ? progress?.updatedAt ?? null : null) },
-    summary: { outcome, blockers: unique(blockers), next },
+    summary: { outcome: comparisonSummary ? `${outcome} ${comparisonSummary}` : outcome, blockers: unique(blockers), next },
   };
 }

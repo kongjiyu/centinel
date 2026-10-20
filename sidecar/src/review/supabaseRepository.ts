@@ -434,6 +434,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       .order('created_at', { ascending: true }).order('id', { ascending: true }));
     return rows.filter(row => text(row, 'event_type').startsWith('harness_step_')
       || text(row, 'event_type') === 'model_attempt'
+      || text(row, 'event_type') === 'review_analysis_map_saved'
       || text(row, 'event_type') === 'review_retry_scheduled')
       .map(row => {
         const payload = objectValue(row.payload);

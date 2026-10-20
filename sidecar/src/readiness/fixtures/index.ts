@@ -174,7 +174,7 @@ export const READINESS_EVALUATION_FIXTURES: readonly ReadinessEvaluationFixture[
       sourceId: 'contradictory-requirements', fileName: 'upload-policy.md', filePath: 'docs/upload-policy.md', artifactType: 'requirement', source: 'documents',
       content: `Upload requirements.
 Scope: Upload requests and their audit record are handled by this service; billing and account administration are out of scope.
-Coverage: The requirements below define request validation, quota decisions, request limits, and audit failure behavior.
+Coverage: The requirements below address request validation, quota decisions, request limits, audit retention, and audit failure behavior.
 The service shall never retain a request payload after the response completes.
 The service shall retain every request payload for audit purposes for exactly 30 days after the response.
 A request payload is the UTF-8 JSON body accepted by POST /uploads.
@@ -200,14 +200,14 @@ If the audit store is unavailable, return 503 and retry the audit write after te
           exceptions: [quote('contradictory-requirements', 'If the audit store is unavailable, return 503 and retry the audit write after ten seconds.')],
           scope: [
             quote('contradictory-requirements', 'Scope: Upload requests and their audit record are handled by this service; billing and account administration are out of scope.'),
-            quote('contradictory-requirements', 'Coverage: The requirements below define request validation, quota decisions, request limits, and audit failure behavior.'),
+            quote('contradictory-requirements', 'Coverage: The requirements below address request validation, quota decisions, request limits, audit retention, and audit failure behavior.'),
           ],
         },
         scopeCoverage: [{
           scopeItem: 'upload request and audit behavior',
           scopeEvidence: quote('contradictory-requirements', 'Scope: Upload requests and their audit record are handled by this service; billing and account administration are out of scope.'),
           status: 'covered',
-          coverageEvidence: [quote('contradictory-requirements', 'Coverage: The requirements below define request validation, quota decisions, request limits, and audit failure behavior.')],
+          coverageEvidence: [quote('contradictory-requirements', 'Coverage: The requirements below address request validation, quota decisions, request limits, audit retention, and audit failure behavior.')],
         }],
       },
       design: allUnknownDesign,

@@ -1,6 +1,6 @@
 # Proposed Review workflow
 
-Status: proposed workflow for discussion. This document does not implement a new Review orchestrator or change approval gates. The four domains follow the user's agreed proposal, including security attack paths and safeguards against human error. Readiness implementation and outcome validation are a separate workstream.
+Status, 20 October: the current working tree implements a bounded JS/TS feature/branch map, four-domain model request, source-reference validation, saved Activity coverage and project-wide finding reconciliation. Real-model acceptance remains blocked on capacity. Whole-program control/data-flow, deployment guards and dynamic dependencies are still proposed extensions; this is not an exhaustive CFG or security proof. Approval remains a separate human decision. Readiness outcome validation is a separate workstream. See `PROJECT_REVIEW_ACCEPTANCE_2026-10-20.md` for verification.
 
 ```mermaid
 flowchart TD
@@ -15,7 +15,10 @@ flowchart TD
     U --> E
     T --> E
     P --> E
-    E --> F["Present the overall result<br/>Findings, coverage gaps and next actions"]
+    E --> K["Form findings<br/>Remove redundant candidates"]
+    K --> L["Compare with existing project issues<br/>Reuse original finding identities"]
+    L --> M["Re-check old findings<br/>Resolved, still present or unverified"]
+    M --> F["Present the overall result<br/>Final findings, coverage gaps and next actions"]
     F --> G{"Human review decision"}
     G -->|Approve| H["Record approval<br/>Keep individual finding states separate"]
     G -->|Request changes| I["Revise sources or implementation"]
@@ -71,3 +74,5 @@ Activity messages explain the purpose, feature/domain, kind of issue found and n
 - Summary and decision use the frozen review's actual findings and limitations. Approval does not resolve findings or certify exhaustive security.
 
 Related proposal: [Review domains and false-positive controls](REVIEW_DOMAINS_FALSE_POSITIVES_PROPOSAL_2026-10-19.md).
+
+The project-wide completion/reconciliation portion is implemented separately; see [current behavior and acceptance](PROJECT_FINDING_RECONCILIATION_2026-10-20.md). The feature-path and four-domain analysis portions remain a proposal.

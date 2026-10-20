@@ -135,9 +135,14 @@ type SourceIdentityInput = {
 };
 
 function sourceIdentityKey(finding: SourceIdentityInput): string {
+  // Paths are identifiers: punctuation and case can distinguish GitHub files.
+  const pathIdentity = (value: string) => {
+    const path = text(value).replace(/\\/g, '/');
+    return /^[a-z]:\//i.test(path) ? path.toLowerCase() : path;
+  };
   const identity = text(finding.sourceIdentity);
-  if (identity) return normalize(identity);
-  const filePath = normalize(text(finding.filePath));
+  if (identity) return pathIdentity(identity);
+  const filePath = pathIdentity(text(finding.filePath));
   if (filePath) return filePath;
   const artifactId = text(finding.artifactId);
   if (artifactId) return `artifact:${artifactId}`;
@@ -260,6 +265,7 @@ function regression(previous: CorrelatableFinding, current: CorrelatableFinding)
 }
 
 function candidateScore(previous: CorrelatableFinding, current: CorrelatableFinding): number {
+  if (!sameFindingContext(previous, current)) return 0;
   let score = 0;
   const previousRule = text(previous.ruleId);
   const currentRule = text(current.ruleId);
@@ -285,6 +291,18 @@ function candidateScore(previous: CorrelatableFinding, current: CorrelatableFind
   score += 0.13 * evidenceSimilarity;
   score += 0.12 * overlap(previous.title, current.title);
   return Math.min(1, score);
+}
+
+function sameFindingContext(previous: CorrelatableFinding, current: CorrelatableFinding): boolean {
+  if (text(previous.artifactId) && text(current.artifactId) && previous.artifactId !== current.artifactId) return false;
+  const sameArtifact = text(previous.artifactId) && text(previous.artifactId) === text(current.artifactId);
+  const sameSource = findingSourceIdentityHash(previous) && findingSourceIdentityHash(previous) === findingSourceIdentityHash(current);
+  if (!sameArtifact && !sameSource) return false;
+  if (normalize(previous.category) !== normalize(current.category)) return false;
+  for (const key of ['ruleId', 'standardRuleId', 'requirementId'] as const) {
+    if (text(previous[key]) && text(current[key]) && text(previous[key]) !== text(current[key])) return false;
+  }
+  return true;
 }
 
 function correlation(input: {
@@ -332,10 +350,10 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
     const currentId = idOf(current);
     const allByStableId = input.previous
       .map((finding, index) => ({ finding, index }))
-      .filter(({ finding }) => text(current.stableFindingId) && text(current.stableFindingId) === text(finding.stableFindingId));
+      .filter(({ finding }) => sameFindingContext(finding, current) && text(current.stableFindingId) && text(current.stableFindingId) === text(finding.stableFindingId));
     const allByFingerprint = input.previous
       .map((finding, index) => ({ finding, index }))
-      .filter(({ finding }) => text(current.fingerprint) && text(current.fingerprint) === text(finding.fingerprint));
+      .filter(({ finding }) => sameFindingContext(finding, current) && text(current.fingerprint) && text(current.fingerprint) === text(finding.fingerprint));
     const allExact = allByStableId.length ? allByStableId : allByFingerprint;
     const exactByStableId = allByStableId.filter(({ index }) => !usedPrevious.has(index));
     const exactByFingerprint = allByFingerprint.filter(({ index }) => !usedPrevious.has(index));
@@ -368,6 +386,18 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
       continue;
     }
     if (exact.length > 1) {
+      const identicalOccurrences = Boolean(current.fingerprint) && exact.every(({ finding }) => finding.fingerprint === current.fingerprint
+        && text(finding.title) === text(current.title) && text(finding.evidence) === text(current.evidence)
+        && finding.lineNumber === current.lineNumber);
+      if (identicalOccurrences) {
+        for (const { finding, index } of exact) {
+          usedPrevious.add(index);
+          correlations.push(correlation({ parentReviewId: input.parentReviewId, childReviewId: input.childReviewId,
+            previous: finding, current, classification: regression(finding, current) ? 'regressed' : 'recurring', method: 'fingerprint', score: 1,
+            detail: 'Identical earlier occurrences represent the same source issue; retain its original project identity.' }));
+        }
+        continue;
+      }
       ambiguities.push({ childFindingId: currentId, candidateParentFindingIds: exact.map(({ finding }) => idOf(finding)), scores: exact.map(() => 1), reason: 'close_candidates' });
       correlations.push(correlation({ parentReviewId: input.parentReviewId, childReviewId: input.childReviewId, previous: null, current, classification: 'new', method: 'unmatched', score: 0, detail: 'Duplicate exact identifiers require reviewer confirmation.' }));
       continue;
@@ -399,12 +429,12 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
       continue;
     }
     if (top && second && top.score - second.score < margin) {
-      ambiguities.push({ childFindingId: currentId, candidateParentFindingIds: [idOf(top.finding), idOf(second.finding)], scores: [top.score, second.score], reason: 'close_candidates' });
+      ambiguities.push({ childFindingId: currentId, candidateParentFindingIds: allScored.map(item => idOf(item.finding)), scores: allScored.map(item => item.score), reason: 'close_candidates' });
       correlations.push(correlation({ parentReviewId: input.parentReviewId, childReviewId: input.childReviewId, previous: null, current, classification: 'new', method: 'unmatched', score: top.score, detail: 'Multiple parent findings are similarly plausible; no automatic correlation was made.' }));
       continue;
     }
     if (top && isCritical(current) || top && isCritical(top.finding)) {
-      ambiguities.push({ childFindingId: currentId, candidateParentFindingIds: [idOf(top.finding)], scores: [top.score], reason: 'critical_requires_confirmation' });
+      ambiguities.push({ childFindingId: currentId, candidateParentFindingIds: allScored.map(item => idOf(item.finding)), scores: allScored.map(item => item.score), reason: 'critical_requires_confirmation' });
       correlations.push(correlation({ parentReviewId: input.parentReviewId, childReviewId: input.childReviewId, previous: null, current, classification: 'new', method: 'unmatched', score: top.score, detail: 'Potential Critical match surfaced for reviewer confirmation; it was not merged heuristically.' }));
       continue;
     }
@@ -419,6 +449,7 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
 
   const evaluatedSources = input.evaluatedSources ?? [];
   const resolutionEligible = resolutionContextIsEligible(input.resolutionContext);
+  const uncertainParentIds = new Set(ambiguities.flatMap(item => item.candidateParentFindingIds));
   for (let index = 0; index < input.previous.length; index++) {
     if (usedPrevious.has(index)) continue;
     const previous = input.previous[index];
@@ -431,7 +462,8 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
     const reviewedSourceVersion = normalizedVersion(evaluatedSource?.sourceVersion);
     const parentVersionConsistent = !recordedPreviousVersion || recordedPreviousVersion === previousSourceVersion;
     const sourceChanged = Boolean(previousSourceVersion && parentVersionConsistent && reviewedSourceVersion && previousSourceVersion !== reviewedSourceVersion);
-    const resolved = Boolean(resolutionEligible && evaluatedSource && sourceChanged
+    const uncertainMatch = uncertainParentIds.has(idOf(previous));
+    const resolved = Boolean(!uncertainMatch && resolutionEligible && evaluatedSource && sourceChanged
       && parentManifestSource && text(previous.artifactId)
       && text(parentManifestSource.artifactId) === text(previous.artifactId)
       && findingSourceIdentityHash({
@@ -466,7 +498,9 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
       score: 0,
       detail: resolved
         ? 'This finding was not reproduced in a comparable re-review of the same source after its version changed.'
-        : evaluatedSource && !sourceChanged
+        : uncertainMatch
+          ? 'A possible recurrence needs confirmation; this old finding remains open until the match is assessed.'
+          : evaluatedSource && !sourceChanged
           ? 'The source was evaluated, but its version did not change; absence alone does not establish resolution.'
           : 'Comparable successful source coverage was not established; the finding remains carried over.',
       ...(eligibility ? { resolutionEligibility: eligibility } : {}),

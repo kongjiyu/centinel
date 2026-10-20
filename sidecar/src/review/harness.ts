@@ -9,7 +9,7 @@ export const REVIEW_HARNESS = {
     { id: 'freezing_sources', label: 'Freeze and validate sources', steps: ['select_sources', 'freeze_manifest', 'inspect_source', 'read_source', 'load_grounding', 'load_traceability', 'load_dispositions', 'assess_evidence', 'save_assessment'] },
     { id: 'indexing_context', label: 'Build review context', steps: ['index_sources', 'retrieve_context'] },
     { id: 'deterministic_analysis', label: 'Run deterministic checks', steps: ['run_rules', 'check_rule'] },
-    { id: 'model_analysis', label: 'Review with configured model', steps: ['build_request', 'resolve_provider', 'run_model', 'validate_grounding'] },
+    { id: 'model_analysis', label: 'Review with configured model', steps: ['map_feature_paths', 'build_request', 'resolve_provider', 'run_model', 'validate_grounding'] },
     { id: 'persisting_evidence', label: 'Validate and save evidence', steps: ['validate_locations', 'deduplicate_findings', 'save_traceability', 'save_findings', 'correlate_findings'] },
   ],
 } as const;

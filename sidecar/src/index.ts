@@ -97,7 +97,7 @@ import { isSupabaseJwtIssuedAtFuture } from './supabase.js';
 import { createProjectReadinessCoordinator } from './readiness/runtime.js';
 import { handleProjectReadinessRoute } from './readiness/routes.js';
 import type { ProjectReadinessCoordinator } from './readiness/service.js';
-import { reconcileProjectFindings, type ReconciliationManifest } from './review/findingReconciliation.js';
+import { loadCurrentProjectFindings } from './review/currentProjectFindings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 readEnv({ path: path.resolve(__dirname, '../../.env') });
@@ -1174,7 +1174,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const review = await repository.getReview(reviewId);
       if (!review || review.projectId !== projectId) return json(res, 404, { error: 'Review not found' });
       const events = await repository.getHarnessEvents(projectId, reviewId);
-      return json(res, 200, { workflow: REVIEW_HARNESS, review: { id: review.id, name: review.name, status: review.status, progress: review.progress, modelStatus: review.modelStatus, updatedAt: review.updatedAt }, events });
+      const maps = events.filter(event => event.event === 'review_analysis_map_saved');
+      const analysisMap = ([...maps].reverse().find(event => event.detail?.phase === 'assessed') ?? maps.at(-1))?.detail?.analysisMap ?? null;
+      return json(res, 200, { workflow: REVIEW_HARNESS, review: { id: review.id, name: review.name, status: review.status, progress: review.progress, modelStatus: review.modelStatus, updatedAt: review.updatedAt }, events, analysisMap });
     }
 
     // List static sessions
@@ -1363,90 +1365,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         fromRemarks: false,
       }));
       try {
-        const repository = reviewRepository(auth!.client);
-        const reviews = await repository.listReviews(fMatch.projectId);
-        const parentByChild = new Map(reviews.flatMap(review => {
-          const parentId = review.iteration?.parentReviewId ?? review.lineage.parentReviewId;
-          return parentId ? [[review.id, parentId] as const] : [];
-        }));
-        const snapshotCandidates = await Promise.all([...parentByChild.keys()].map(async childReviewId => ({
-          childReviewId,
-          snapshot: await repository.getFindingCorrelationSnapshot(childReviewId),
-        })));
-        const snapshots = snapshotCandidates.flatMap(item => {
-          const snapshot = item.snapshot;
-          if (!snapshot || snapshot.childReviewId !== item.childReviewId
-            || snapshot.parentReviewId !== parentByChild.get(item.childReviewId)
-            || !snapshot.correlations.every(correlation => correlation.childReviewId === item.childReviewId && correlation.parentReviewId === snapshot.parentReviewId)) return [];
-          return [{ childReviewId: item.childReviewId, snapshot }];
-        });
-        const correlations = snapshots.flatMap(item => item.snapshot.correlations);
-        const reviewsById = new Map(reviews.map(review => [review.id, review]));
-        const relevantReviewIds = new Set<string>();
-        for (const correlation of correlations) {
-          relevantReviewIds.add(correlation.parentReviewId);
-          relevantReviewIds.add(correlation.childReviewId);
-        }
-        const manifests: ReconciliationManifest[] = [];
-        for (const reviewId of relevantReviewIds) {
-          const review = reviewsById.get(reviewId);
-          if (!review?.sourceManifestId) continue;
-          const { data, error } = await auth!.client.from('review_source_snapshots').select('*')
-            .eq('project_id', fMatch.projectId).eq('review_session_id', review.id).eq('id', review.sourceManifestId).maybeSingle();
-          if (error) throw error;
-          if (!data || typeof data !== 'object') continue;
-          const row = data as Record<string, unknown>;
-          const snapshot = row.snapshot && typeof row.snapshot === 'object' && !Array.isArray(row.snapshot)
-            ? row.snapshot as Record<string, unknown>
-            : {};
-          const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts.flatMap(value => {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
-            const artifact = value as Record<string, unknown>;
-            const metadata = artifact.metadata && typeof artifact.metadata === 'object' && !Array.isArray(artifact.metadata)
-              ? artifact.metadata as Record<string, unknown>
-              : {};
-            const id = typeof artifact.id === 'string' ? artifact.id : '';
-            const filePath = typeof artifact.path === 'string' ? artifact.path : typeof artifact.filePath === 'string' ? artifact.filePath : '';
-            const contentHash = typeof metadata.contentHash === 'string' ? metadata.contentHash : typeof artifact.contentHash === 'string' ? artifact.contentHash : '';
-            if (!id || !filePath || !contentHash) return [];
-            return [{ id, filePath, originalPath: typeof metadata.originalPath === 'string' ? metadata.originalPath : null, contentHash }];
-          }) : [];
-          manifests.push({ id: review.sourceManifestId, reviewId: review.id, status: typeof row.status === 'string' ? row.status : 'unavailable', artifacts });
-        }
-        const reconciled = reconcileProjectFindings({
-          findings: findings.map(finding => ({
-            id: finding.id,
-            projectId: finding.projectId,
-            sessionId: finding.reviewSessionId,
-            source: finding.source,
-            status: finding.status,
-            artifactId: finding.artifactId,
-            sourceIdentity: typeof finding.location.sourceIdentity === 'string' ? finding.location.sourceIdentity : null,
-            sourceVersion: typeof finding.location.sourceVersion === 'string' ? finding.location.sourceVersion : null,
-            filePath: typeof finding.location.filePath === 'string' ? finding.location.filePath : '',
-            title: finding.title,
-            severity: finding.severity,
-            createdAt: finding.createdAt,
-          })),
-          reviews,
-          manifests,
-          correlations,
-          snapshotChildReviewIds: snapshots.map(item => item.childReviewId),
-        });
-        const reconciledById = new Map(reconciled.map(finding => [finding.id, finding]));
-        projectFindings = findings.flatMap(finding => {
-          const current = reconciledById.get(finding.id);
-          if (!current) return [];
-          return [{
-            ...finding,
-            sessionId: finding.reviewSessionId,
-            filePath: typeof finding.location.filePath === 'string' ? finding.location.filePath : '',
-            lineNumber: typeof finding.location.lineNumber === 'number' ? finding.location.lineNumber : null,
-            fromRemarks: false,
-            ...(current.resolutionEvidence ? { resolutionEvidence: current.resolutionEvidence } : {}),
-            ...(current.lineageHistory ? { lineageHistory: current.lineageHistory } : {}),
-          }];
-        });
+        projectFindings = await loadCurrentProjectFindings(auth!.client, fMatch.projectId, findings);
       } catch {
         // Lineage is presentation evidence only. If any durable source or
         // correlation input is unavailable, show the saved finding rows as-is.

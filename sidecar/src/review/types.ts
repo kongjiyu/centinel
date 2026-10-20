@@ -244,6 +244,7 @@ export type StaticReviewRepository = {
   /** Core lifecycle methods. `transitionReview` must be compare-and-set. */
   createReview(input: NewStaticReview): Promise<StaticReviewRecord>;
   getReview(reviewId: string): Promise<StaticReviewRecord | null>;
+  listReviews(projectId: string): Promise<StaticReviewRecord[]>;
   transitionReview(
     reviewId: string,
     expectedStatuses: StaticReviewStatus[],

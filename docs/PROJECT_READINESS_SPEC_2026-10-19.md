@@ -83,3 +83,7 @@ The follow-up [source-update and finding-lifecycle report](SOURCE_UPDATE_REVIEW_
 ### AI resumption on 20 October
 
 The user lifted the model hold. [Current execution evidence](PUBLIC_REPO_AI_ASSESSMENT_2026-10-20.md) records both public projects completing live readiness and Review. The unchanged full 11-case readiness corpus passed the complete-document and missing-category cases, then stopped with `rate_limited` on vague-requirements before the remaining eight cases. This is partial verification, not full semantic acceptance. Earlier provider-blocked/native/Windows regression notes remain historical; the current report identifies the residual limits.
+
+### Later accuracy/workflow pass, 20 October
+
+Policy `readiness-2026-10-20.5` clarifies independent quality criteria and distinguishes missing scope content from defects within content that exists. The contradiction fixture's scope declaration now names its audit-retention content; the original untestable fixture/gold was retained for transparent calibration. Current corpus hash is `73d15fd9b080e72234da351d0134ae612745bc4bc4393ff3f0522b33f97048f1`. No full live result exists for this revised policy. AI workers hit a usage-limit block and the runtime hold was restored; deterministic readiness, sync and review contract checks continue to pass. See [the acceptance record](PROJECT_REVIEW_ACCEPTANCE_2026-10-20.md) for the exact distinction between mechanism verification and outstanding semantic accuracy/live sync acceptance.

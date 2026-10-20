@@ -42,3 +42,11 @@ The resumed real-model run used the existing configured `codex` / `gpt-5.6-sol`,
 - Exception handling stopped with `rate_limited`, without a semantic result. The five later cases were not attempted.
 
 The runner stopped immediately on capacity failure with no retry/fallback or further model calls. The prior report was copied before the run; generated case results remain in ignored `evidence/readiness-outcomes-2026-10-19/live-codex-results.json`. Gold expectations were not weakened and no overall AI acceptance is claimed. Detailed model assessment work remains paused pending an explicit resume.
+
+## Later live desktop verification
+
+Authenticated Tauri development-window checks on 20 October verified automatic no-change runs without pressing Sync: Serve Static recorded 25 unchanged files at 21:17:05; CORS recorded 17 unchanged at 21:17:23 and 21:22:34 (Asia/Makassar). The source inventories were 25 and 17 files respectively. Readiness retained its previous snapshot with an explicit local AI-pause message. CORS showed two new sources needing review after its earlier import recovery.
+
+The Source pane previously polled only sources that were already active when rendered. A background scheduled check could finish while a Ready row kept an old timestamp. The pane now refreshes connected sources read-only every 30 seconds when idle, retains faster active-run polling, refreshes saved file inventory after terminal runs, and reports stale reads without erasing saved files. Polling stops on unmount. The two relevant test files passed 17 tests, including automatic timestamp/count updates, no manual sync calls, failure/recovery and cleanup. Frontend production build passed. Isolated refresh feedback was checked at 1440×900, 1200×900 and 390×844.
+
+See `PROJECT_REVIEW_ACCEPTANCE_2026-10-20.md` for full evidence and limits. A newly published commit through the authenticated scheduler and direct Storage-version auditing remain unverified; the observed public heads were unchanged. No AI assessment was resumed.

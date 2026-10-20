@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { correlateReviewFindings, type CorrelatableFinding, type FindingResolutionContext } from '../../src/review/correlation.js';
+import { correlateReviewFindings, findingSourceIdentityHash, type CorrelatableFinding, type FindingResolutionContext } from '../../src/review/correlation.js';
 
 function finding(overrides: Partial<CorrelatableFinding> = {}): CorrelatableFinding {
   return {
@@ -45,6 +45,17 @@ const resolutionContext = (overrides: Partial<FindingResolutionContext> = {}): F
 });
 
 describe('finding correlation across Review iterations', () => {
+  it('keeps punctuation and case differences in repository source identities', () => {
+    expect(findingSourceIdentityHash({ filePath: 'src/a-b.ts' })).not.toBe(findingSourceIdentityHash({ filePath: 'src/a_b.ts' }));
+    expect(findingSourceIdentityHash({ filePath: 'src/Account.ts' })).not.toBe(findingSourceIdentityHash({ filePath: 'src/account.ts' }));
+  });
+  it('does not merge an identifier collision from a different source or rule', () => {
+    const old = finding({ stableFindingId: 'shared-id', ruleId: 'AUTH-1' });
+    const differentSource = finding({ id: 'new', stableFindingId: 'shared-id', sourceIdentity: 'other/account.ts', filePath: 'other/account.ts', artifactId: 'other-artifact', ruleId: 'AUTH-1' });
+    expect(compare([old], [differentSource]).counts.recurring).toBe(0);
+    expect(compare([old], [finding({ id: 'other-artifact', artifactId: 'another-repository-file', stableFindingId: 'shared-id', ruleId: 'AUTH-1' })]).counts.recurring).toBe(0);
+    expect(compare([old], [finding({ id: 'new', stableFindingId: 'shared-id', ruleId: 'INPUT-2' })]).counts.recurring).toBe(0);
+  });
   it('prefers exact stable finding identifiers and classifies worsening severity as regressed', () => {
     const snapshot = compare(
       [finding({ stableFindingId: 'stable-1', severity: 'medium', priority: 'medium' })],
@@ -103,6 +114,19 @@ describe('finding correlation across Review iterations', () => {
     expect(snapshot.counts).toMatchObject({ new: 1, carried_over: 2, resolved: 0 });
     expect(snapshot.correlations.map(item => item.classification)).toEqual(['new', 'carried_over', 'carried_over']);
     expect(snapshot.correlations.every(item => !item.resolutionEligibility)).toBe(true);
+  });
+
+  it.each([false, true])('does not resolve an old issue while its possible recurrence is ambiguous (critical=%s)', critical => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'old-a', ruleId: 'AUTH-7' }), ...(!critical ? [finding({ id: 'old-b', ruleId: 'AUTH-7' })] : [])],
+      current: [finding({ id: 'possible-recurrence', ruleId: 'AUTH-7', severity: critical ? 'critical' : 'high', sourceVersion: 'sha256:new-version' })],
+      evaluatedSources: resolutionContext().childSourceArtifacts,
+      resolutionContext: resolutionContext(),
+    });
+    expect(snapshot.ambiguities).toHaveLength(1);
+    expect(snapshot.counts.resolved).toBe(0);
+    expect(snapshot.correlations.filter(item => item.parentFindingId).every(item => item.classification === 'carried_over' && !item.resolutionEligibility)).toBe(true);
   });
 
   it('marks absence as not reproduced only with changed source versions and full comparable success evidence', () => {

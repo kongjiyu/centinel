@@ -445,6 +445,8 @@ export type FindingLineageHistoryEntry = {
 };
 
 export type Finding = {
+  /** Source-backed feature/path link validated by the Review runner. */
+  location?: { sourceLocator?: { analysis?: { featureId: string; pathId: string; domain: string } } | null };
   /** Saved analysis origin, when supplied by the service. */
   verifier?: string | null;
   /** A finding derived from this review's saved document assessment. */
@@ -474,8 +476,10 @@ export type Finding = {
   lineNumber: number | null;
   /** Validated, derived project-list evidence; never a persisted decision. */
   resolutionEvidence?: FindingResolutionEvidence;
-  /** Prior immutable findings represented by this latest linked row. */
+  /** Prior occurrences represented by this original project finding ID. */
   lineageHistory?: FindingLineageHistoryEntry[];
+  /** Original project issue ID is retained; this identifies its latest evidence. */
+  latestOccurrence?: { findingId: string; reviewId: string | null; classification: 'recurring' | 'regressed' };
 };
 
 export type ReviewStageId =

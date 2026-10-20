@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, 
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewNarrativeSummary, ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
+import { ReviewAnalysisScope } from '../components/ReviewAnalysisScope';
 import { buildReviewNarrative, objectivePoints, type ReviewNarrative } from '../reviewNarrative';
 import { mergeReviewFindings, reviewEvidenceFindings } from '../reviewEvidenceFindings';
 import type { ReviewHarnessTrace } from '../reviewHarness';
@@ -670,6 +671,8 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
             onOpenFinding={openFinding}
             harnessLoading={harnessLoading}
             harnessError={harnessError}
+            analysisMap={harnessTrace?.analysisMap}
+            findings={findings}
             session={session}
             state={state}
             findingsError={findingsError}
@@ -773,6 +776,8 @@ function ReviewActivityContent({
   narrative,
   harnessLoading,
   harnessError,
+  analysisMap,
+  findings,
   session,
   state,
   findingsError,
@@ -788,6 +793,8 @@ function ReviewActivityContent({
   narrative: ReviewNarrative;
   harnessLoading: boolean;
   harnessError: string | null;
+  analysisMap: ReviewHarnessTrace['analysisMap'];
+  findings: Finding[];
   session: StaticSession;
   state: ReviewLifecycleState;
   findingsError: string | null;
@@ -806,6 +813,7 @@ function ReviewActivityContent({
           <h2>{state === 'Need Approval' ? 'Review activity' : 'Review activity'}</h2>
         </div>
         <ReviewNarrativeTimeline narrative={narrative} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} />
+        {!harnessLoading && !harnessError && <ReviewAnalysisScope map={analysisMap} findings={findings} onOpenFinding={onOpenFinding} />}
         {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
@@ -838,7 +846,7 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
     <aside className={`review-feedback-composer${expanded ? ' is-expanded' : ''}`} aria-label="Review feedback">
       <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
         <label className="visually-hidden" htmlFor="review-feedback-message">Write feedback about this review</label>
-        <div className="review-feedback-entry"><textarea ref={inputRef} id="review-feedback-message" rows={expanded ? 3 : 1} value={value} onFocus={() => setExpanded(true)} onBlur={() => { if (!value.trim() && files.length === 0) setExpanded(false); }} onChange={event => onChange(event.target.value)} placeholder="Write feedback about this review…" />
+        <div className="review-feedback-entry"><textarea ref={inputRef} id="review-feedback-message" rows={expanded ? 3 : 1} value={value} onFocus={() => setExpanded(true)} onBlur={() => { if (!value.trim() && files.length === 0) setExpanded(false); }} onChange={event => onChange(event.target.value)} placeholder="Write feedback…" />
           <div className="review-feedback-controls">
             <label className="review-attach-button" htmlFor="review-feedback-attachments" title="Attach supportive documents"><Paperclip size={20} aria-hidden="true" /><span className="visually-hidden">Attach supportive documents</span></label>
             <input id="review-feedback-attachments" className="visually-hidden" type="file" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp" onChange={event => onFilesChange(Array.from(event.target.files ?? []))} />

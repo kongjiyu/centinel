@@ -1326,6 +1326,19 @@
    uses the complete content rail and the Overview owns objective metadata. */
 .review-activity-body { grid-template-columns: minmax(0, 1fr) !important; }
 .review-activity-surface { grid-column: 1 / -1; }
+.review-analysis-scope { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--workspace-border); overflow-wrap: anywhere; font-size: 13px; line-height: 22px; color: var(--workspace-text-muted); }
+.review-analysis-scope h3 { margin-top: 0; }
+.review-analysis-scope p { margin: 8px 0; }
+.review-analysis-scope ul { padding-left: 20px; margin: 8px 0; }
+.review-analysis-scope li { padding: 3px 0; }
+.review-analysis-scope details { padding: 12px 0; }
+.review-analysis-scope summary { cursor: pointer; font-weight: 600; min-height: 28px; color: var(--workspace-text); }
+.review-analysis-scope summary:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 4px; }
+.review-analysis-feature + .review-analysis-feature { border-top: 1px solid var(--workspace-border); }
+@media (max-width: 720px) {
+  .review-activity-screen .review-feedback-composer { left: calc(var(--review-sidebar-width, 72px) + 16px); right: 16px; width: auto; transform: none; }
+  .review-analysis-scope summary { min-height: 44px; }
+}
 
 .review-traceability-layout { display: grid; grid-template-columns: minmax(0, 7fr) minmax(360px, 5fr); gap: 16px; align-items: start; }
 .review-traceability-table-card, .review-traceability-detail { min-width: 0; padding: 20px 24px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-panel); background: var(--workspace-surface); box-shadow: var(--workspace-shadow-panel); }

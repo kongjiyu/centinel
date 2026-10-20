@@ -74,6 +74,10 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
     return record ? clone(record) : null;
   }
 
+  async listReviews(projectId: string): Promise<StaticReviewRecord[]> {
+    return [...this.reviews.values()].filter(review => review.projectId === projectId).map(clone);
+  }
+
   async transitionReview(reviewId: string, expectedStatuses: StaticReviewRecord['status'][], patch: StaticReviewPatch): Promise<StaticReviewRecord | null> {
     const current = this.reviews.get(reviewId);
     if (!current || !expectedStatuses.includes(current.status)) return null;

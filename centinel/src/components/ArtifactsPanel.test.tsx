@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { api } from '../api/client';
-import type { Artifact } from '../types';
+import type { Artifact, ConnectedSource } from '../types';
 import { readBinaryFile } from '@tauri-apps/api/fs';
 
 const filePicker = vi.hoisted(() => vi.fn());
@@ -50,6 +50,35 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.browseConnectedSources).mockResolvedValue({ items: [], nextCursor: null });
     vi.mocked(api.deleteArtifact).mockResolvedValue({ ok: true });
     vi.mocked(externalOpen).mockResolvedValue(undefined);
+  });
+
+  it('refreshes automatic sync outcomes and file counts from an initially idle source without starting a manual sync', async () => {
+    vi.useFakeTimers();
+    const source = { id: 'source', projectId: 'p-1', name: 'automatic-repository', provider: 'github', kind: 'github_repository', status: 'active', syncStatus: 'ready', lastSyncedAt: '2026-10-20T12:00:00Z', lastSuccessfulSyncAt: '2026-10-20T12:00:00Z', selectedScope: {}, remoteUrl: 'https://github.com/example/repo' } as ConnectedSource;
+    vi.mocked(api.listConnectedSources).mockResolvedValue([source]);
+    vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts.slice(0, 1));
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => { view = render(<ArtifactsPanel projectId="p-1" />); });
+      expect(screen.getByText(/1 file/i)).toBeInTheDocument();
+      vi.mocked(api.listConnectedSources).mockResolvedValue([{ ...source, lastSyncedAt: '2026-10-20T12:05:00Z', lastSuccessfulSyncAt: '2026-10-20T12:05:00Z' }]);
+      vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(screen.getByText(/2 files/i)).toBeInTheDocument();
+      expect(screen.getByText(`Synced ${new Date('2026-10-20T12:05:00Z').toLocaleString()}`)).toBeInTheDocument();
+      expect(api.syncConnectedSource).not.toHaveBeenCalled();
+      vi.mocked(api.listConnectedSources).mockRejectedValue(new Error('temporarily offline'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(screen.getByRole('status')).toHaveTextContent('Showing the last saved progress');
+      expect(screen.getByText(/2 files/i)).toBeInTheDocument();
+      vi.mocked(api.listConnectedSources).mockResolvedValue([source]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(screen.queryByText(/Source status could not be refreshed/)).not.toBeInTheDocument();
+      const calls = vi.mocked(api.listConnectedSources).mock.calls.length;
+      view!.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(api.listConnectedSources).toHaveBeenCalledTimes(calls);
+    } finally { view?.unmount(); vi.useRealTimers(); }
   });
 
   it('offers a keyboard/click empty drop target and reports unsupported files', async () => {

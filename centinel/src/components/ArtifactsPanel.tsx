@@ -376,9 +376,10 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
     .map(source => source.id)
     .sort()
     .join('|');
+  const connectedSourceKey = connectedSources.map(source => source.id).sort().join('|');
 
   useEffect(() => {
-    if (!activeSourceKey || typeof api.listConnectedSources !== 'function') return undefined;
+    if (!connectedSourceKey || typeof api.listConnectedSources !== 'function') return undefined;
     let disposed = false;
     let requestInFlight = false;
     let timer: number | undefined;
@@ -387,6 +388,20 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
       requestInFlight = true;
       try {
         const sources = await api.listConnectedSources(projectId);
+        // A workspace-level automatic sync can start while every visible
+        // source is idle. Refresh idle sources too, and fetch the saved file
+        // inventory when a run has finished so counts do not remain stale.
+        if (!disposed && !sources.some(source => connectedSourceRunView(source).active)) {
+          try {
+            const refreshed = await api.listArtifacts(projectId);
+            if (!disposed) {
+              setArtifacts(refreshed);
+              setError(current => current?.startsWith('Files could not be refreshed.') ? null : current);
+            }
+          } catch (cause) {
+            if (!disposed) setError(`Files could not be refreshed. ${userFacingError(cause, 'Try again.')}`);
+          }
+        }
         if (!disposed) {
           setConnectedSources(sources);
           setSourceStatusStale(false);
@@ -395,15 +410,15 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
         if (!disposed) setSourceStatusStale(true);
       } finally {
         requestInFlight = false;
-        if (!disposed) timer = window.setTimeout(() => { void poll(); }, 2_000);
+        if (!disposed) timer = window.setTimeout(() => { void poll(); }, activeSourceKey ? 2_000 : 30_000);
       }
     };
-    timer = window.setTimeout(() => { void poll(); }, 1_000);
+    timer = window.setTimeout(() => { void poll(); }, activeSourceKey ? 1_000 : 30_000);
     return () => {
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [activeSourceKey, projectId]);
+  }, [activeSourceKey, connectedSourceKey, projectId]);
 
   const { docArtifacts, repoGroups, driveArtifacts } = useMemo(() => {
     const docs: Artifact[] = [];
@@ -911,6 +926,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
       <input ref={fileInputRef} className="visually-hidden" type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
+      {sourceStatusStale && <p role="status">Source status could not be refreshed. Showing the last saved progress; checking again shortly.</p>}
 
       {artifacts.length === 0 && connectedSources.length === 0 ? renderDropzone('artifacts-empty artifacts-empty-dropzone', 'Add source files') : (
         <div className="source-directory" role="list" aria-label="Project sources">

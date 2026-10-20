@@ -36,6 +36,25 @@ const baseFinding: Finding = {
 describe('FindingsPanel', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('shows the latest occurrence once and sends actions to the original project finding ID', async () => {
+    const latest: Finding = { ...baseFinding, id: 'original-issue', sessionId: 'latest-review', description: 'Latest review evidence',
+      latestOccurrence: { findingId: 'new-occurrence', reviewId: 'latest-review', classification: 'recurring' },
+      lineageHistory: [{ findingId: 'original-issue', reviewId: 'first-review', reviewName: 'First review', classification: 'recurring',
+        status: 'new', title: 'Original issue', severity: 'high', createdAt: baseFinding.createdAt }] };
+    vi.mocked(api.listFindings).mockResolvedValue([latest]);
+    const user = userEvent.setup();
+    const onOpenReview = vi.fn();
+    render(<FindingsPanel projectId="p-1" presentation="project" onOpenReview={onOpenReview} />);
+    const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
+    await user.click(row);
+    const details = screen.getByRole('complementary', { name: 'Finding details' });
+    expect(within(details).getByText('Latest review evidence')).toBeInTheDocument();
+    await user.click(within(details).getByRole('button', { name: 'Open review First review' }));
+    expect(onOpenReview).toHaveBeenCalledWith('first-review');
+    await user.click(within(details).getByRole('button', { name: 'Mark as resolved' }));
+    expect(api.updateFinding).toHaveBeenCalledWith('p-1', 'original-issue', 'fixed');
+  });
+
   it('maps legacy finding states to the three-state presentation', () => {
     expect(findingPresentationStatus('new')).toBe('unresolved');
     expect(findingPresentationStatus('carryover')).toBe('unresolved');

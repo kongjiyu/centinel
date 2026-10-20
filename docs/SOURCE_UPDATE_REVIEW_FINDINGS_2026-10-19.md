@@ -2,6 +2,8 @@
 
 ## Agreed behavior
 
+Later refinement: [project-wide completion reconciliation](PROJECT_FINDING_RECONCILIATION_2026-10-20.md) applies to every new review, retains the original finding ID and compares relevant earlier issues beyond an explicitly linked parent. The older linked-follow-up workflow below remains available; it is no longer the only comparison entry point.
+
 - Compare a trustworthy completed review's saved source versions with the project's current synced source versions. A detected content update, addition or removal within the applicable review scope should remind the user to conduct another review.
 - A failed or incomplete newer attempt must not clear that reminder. If the comparison evidence is unavailable, say currency cannot be verified rather than asserting that the review is current.
 - A source update alone never resolves a finding. The project Findings list may derive a Resolved state only from a successful comparable re-review with adequate versioned source coverage and resolution eligibility. Keep the original review evidence and manual finding decisions intact.

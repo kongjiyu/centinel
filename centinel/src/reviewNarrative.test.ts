@@ -15,6 +15,14 @@ const trace = (events: HarnessEvent[], modelStatus = 'succeeded'): ReviewHarness
   workflow: { version: 'v1', reference: '', stages: [] }, review: { id: session.id, name: session.name, status: session.status, modelStatus, progress: { stage: 'complete', completedStages: [] }, updatedAt: '' }, events,
 });
 describe('review narrative', () => {
+  it('summarizes recorded project comparison outcomes without inventing verification for older reviews', () => {
+    const result = buildReviewNarrative({ session, findings: [], trace: trace([event('correlate_findings', 'completed', '2026-10-18T00:01:00Z',
+      { output: { checkedProjectHistory: true, counts: { new: 1, recurring: 2, regressed: 0, resolved: 3, carried_over: 1 }, ambiguousCount: 1 } }, 'persisting_evidence')]) });
+    expect(result.summary.outcome).toContain('3 not reproduced after comparable source changes');
+    expect(result.stages[4].outcome).toContain('1 uncertain matches');
+    const legacy = buildReviewNarrative({ session, findings: [], trace: trace([event('correlate_findings', 'completed', '2026-10-18T00:01:00Z', {}, 'persisting_evidence')]) });
+    expect(legacy.summary.outcome).not.toContain('I compared the findings');
+  });
   it('preserves original sentence references and offers a simpler presentation', () => {
     expect(objectivePoints('Verify src/observer.test.ts at version 1.2. Reject invalid input.\n- Require N1 approval.')).toEqual(['Verify src/observer.test.ts at version 1.2.', 'Reject invalid input.', 'Require N1 approval.']);
     expect(objectivePoints(null)).toEqual([]);

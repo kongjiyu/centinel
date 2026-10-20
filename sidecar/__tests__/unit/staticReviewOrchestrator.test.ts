@@ -119,6 +119,24 @@ async function createComparisonParent(repository: InMemoryStaticReviewRepository
 }
 
 describe('StaticReviewOrchestrator', () => {
+  it('persists source-backed paths before inference and four validated domain outcomes after it', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const provider: StaticAnalysisModelProvider = { analyze: async request => {
+      expect(repository.audits.some(event => event.event === 'review_analysis_map_saved' && event.detail?.phase === 'prepared')).toBe(true);
+      expect(request.systemPrompt).toContain('environment references');
+      const rawMap = request.prompt.split('Provisional feature/path map (bounded syntax evidence; coverage limits apply):\n')[1].split('\n\nFrozen artifact content:')[0];
+      const map = JSON.parse(rawMap);
+      return { settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'fixture' }, result: { findings: [], featureAssessments: map.features.map((feature: any) => ({
+        featureId: feature.id, assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({ domain, status: 'assessed', outcome: 'no_issue_identified', summary: 'No issue identified in the supplied local branch.', evidence: feature.entryPoints })),
+      })) } };
+    } };
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), readArtifactContent: async () => 'export function account() { return true; }', deterministic: async () => [], modelProvider: provider });
+    const run = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'four-domains' });
+    expect((await run.completion).status).toBe('pending_approval');
+    const final = repository.audits.find(event => event.event === 'review_analysis_map_saved' && event.detail?.phase === 'assessed');
+    expect(final?.detail?.analysisMap).toMatchObject({ status: 'assessed', coverage: { exhaustive: false } });
+    expect(final?.detail?.analysisMap).toMatchObject({ coverage: { unresolvedEdgeCount: 1 } });
+  });
   it('fails closed when no authenticated frozen-artifact reader is supplied', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const orchestrator = createStaticReviewOrchestrator({
@@ -152,6 +170,33 @@ describe('StaticReviewOrchestrator', () => {
     const steps = repository.audits.filter(event => event.event === 'harness_step_completed').map(event => event.detail?.step);
     expect(steps).toEqual(expect.arrayContaining(['select_sources', 'freeze_manifest', 'read_source', 'assess_evidence', 'run_rules', 'build_request', 'run_model', 'validate_grounding', 'validate_locations', 'deduplicate_findings', 'save_traceability', 'save_findings', 'correlate_findings']));
     expect(repository.audits.filter(event => event.event.startsWith('harness_step_')).every(event => event.detail?.executionId)).toBe(true);
+  });
+
+  it.each([false, true])('reconciles independent project reviews at completion (old model issue gone=%s)', async gone => {
+    const repository = new InMemoryStaticReviewRepository();
+    const orchestrator = createStaticReviewOrchestrator(baseDependencies(repository));
+    const first = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'independent-first' });
+    await first.completion;
+    const secondRunner = createStaticReviewOrchestrator({ ...baseDependencies(repository), ...(gone ? {
+      modelProvider: { analyze: async () => ({ result: { findings: [] }, settings: { provider: 'mimo' as const, apiFormat: 'openai-compatible' as const, model: 'fixture' } }) },
+    } : {}) });
+    const second = await secondRunner.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [{ ...artifact, contentHash: 'changed-source' }], idempotencyKey: 'independent-second' });
+    const finished = await second.completion;
+    expect(finished.lineage.parentReviewId).toBeNull();
+    const snapshot = repository.findingCorrelations.get(finished.id);
+    expect(snapshot?.counts.recurring).toBe(gone ? 1 : 2);
+    expect(snapshot?.counts.resolved).toBe(gone ? 1 : 0);
+    expect(finished.summary).toContain('Existing findings:');
+  });
+
+  it('does not claim review completion when the existing project findings cannot be checked', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    vi.spyOn(repository, 'listReviews').mockRejectedValue(new Error('Project history is unavailable'));
+    const runner = createStaticReviewOrchestrator(baseDependencies(repository));
+    const result = await runner.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'unavailable-history' });
+    expect((await result.completion).status).toBe('failed');
+    expect(repository.findingCorrelations.size).toBe(0);
+    expect(repository.decisions).toHaveLength(0);
   });
 
   it.each([true, false])('starts a fresh-source comparison and only resolves under a matching model policy (current=%s)', async currentPolicy => {

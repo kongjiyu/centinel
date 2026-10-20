@@ -334,4 +334,22 @@ describe('SupabaseStaticReviewRepository', () => {
     expect(db.rows.get('review_finding_correlations')?.[0]).toMatchObject({ child_review_id: child.id, classification: 'new' });
     expect(db.rows.get('review_correlation_snapshots')?.[0].ambiguities).toEqual([]);
   });
+
+  it('preserves multiple project comparison baselines in one immutable end-of-review snapshot', async () => {
+    const db = new FakeDb();
+    const repo = repository(db);
+    const first = await repo.createReview(input);
+    const second = await repo.createReview({ ...input, idempotencyKey: 'second-baseline' });
+    const child = await repo.createReview({ ...input, idempotencyKey: 'independent-review' });
+    const snapshot: FindingCorrelationSnapshot = {
+      parentReviewId: second.id, childReviewId: child.id, createdAt: '2026-10-20T00:00:00Z',
+      counts: { new: 0, recurring: 0, regressed: 0, resolved: 0, carried_over: 2 }, ambiguities: [],
+      correlations: [first, second].map((parent, i) => ({ id: `multi-${i}`, parentReviewId: parent.id, childReviewId: child.id,
+        parentFindingId: null, childFindingId: null, classification: 'carried_over', method: 'unmatched', score: 0, stableFingerprint: `fp-${i}` })),
+    };
+    await repo.saveFindingCorrelations(snapshot);
+    const loaded = await repo.getFindingCorrelationSnapshot(child.id);
+    expect(loaded?.correlations.map(item => item.parentReviewId)).toEqual([first.id, second.id]);
+    expect(loaded?.counts.carried_over).toBe(2);
+  });
 });

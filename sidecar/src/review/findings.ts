@@ -141,10 +141,17 @@ function confidenceRank(value: string): number {
 }
 
 function duplicates(left: StaticFindingInput, right: StaticFindingInput): boolean {
+  if (left.category !== right.category) return false;
+  if (left.artifactId && right.artifactId && left.artifactId !== right.artifactId) return false;
+  if (left.sourceIdentity && right.sourceIdentity && left.sourceIdentity !== right.sourceIdentity) return false;
+  if (left.filePath.replace(/\\/g, '/') !== right.filePath.replace(/\\/g, '/')) return false;
+  for (const key of ['ruleId', 'standardRuleId', 'requirementId'] as const) {
+    if (left[key] && right[key] && left[key] !== right[key]) return false;
+  }
   if (left.fingerprint && left.fingerprint === right.fingerprint) return true;
   if (!left.filePath || !right.filePath || left.filePath !== right.filePath) return false;
   if (left.lineNumber == null || right.lineNumber == null || Math.abs(left.lineNumber - right.lineNumber) > 2) return false;
-  return overlap(left.evidence, right.evidence) >= 0.3;
+  return overlap(left.evidence, right.evidence) >= 0.3 && overlap(left.title, right.title) >= 0.5;
 }
 
 export type NormalizedFindings = {
@@ -165,7 +172,12 @@ export function normalizeAndDeduplicateFindings(
     ...item,
     fingerprint: item.fingerprint ?? findingFingerprint(item),
   }));
-  const keptDeterministic = [...normalizedDeterministic];
+  const keptDeterministic: StaticFindingInput[] = [];
+  for (const candidate of normalizedDeterministic) {
+    const match = keptDeterministic.findIndex(item => duplicates(item, candidate));
+    if (match < 0) keptDeterministic.push(candidate);
+    else if (confidenceRank(candidate.confidence) > confidenceRank(keptDeterministic[match].confidence)) keptDeterministic[match] = candidate;
+  }
   const keptModel: StaticFindingInput[] = [];
   const droppedModel: StaticFindingInput[] = [];
   for (const candidate of model.map(item => ({ ...item, fingerprint: item.fingerprint ?? findingFingerprint(item) }))) {

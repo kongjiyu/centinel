@@ -11,6 +11,20 @@ export type ReviewHarnessTrace = {
   workflow: { version: string; reference: string; stages: Array<{ id: string; label: string; steps: string[] }> };
   review: { id: string; name: string; status: string; progress: { stage: string; completedStages: string[] } | null; modelStatus: string; updatedAt: string };
   events: HarnessEvent[];
+  analysisMap?: ReviewAnalysisMap | null;
+};
+
+export type ReviewAnalysisMap = {
+  schemaVersion: 1;
+  status: 'unverified' | 'partial' | 'assessed';
+  coverage: { sourceArtifacts: number; parsedArtifacts: number; exhaustive: false; unresolvedEdgeCount: number; limitations: string[]; unsupportedArtifacts: Array<{ artifactId: string; filePath: string; reason: string }> };
+  features: Array<{
+    id: string; label: string; provisional: true;
+    entryPoints: Array<{ artifactId: string; filePath: string; lineNumber: number; sourceVersion: string | null }>;
+    paths: Array<{ id: string; kind: string; label: string; status: string; evidence: Array<{ artifactId: string; filePath: string; lineNumber: number; sourceVersion: string | null }> }>;
+    assessments: Array<{ domain: 'security' | 'business' | 'technical' | 'personnel'; status: 'assessed' | 'unverified'; outcome: string; summary: string }>;
+    unresolved: Array<{ reason: string }>;
+  }>;
 };
 
 export function stepLabel(value: string): string {

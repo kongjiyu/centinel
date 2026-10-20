@@ -12,6 +12,8 @@ import type { Finding, StaticSession } from '../staticDomainTypes.js';
 import type { TokenUsageSummary, TokenUsageRow } from '../tokenUsage.js';
 import type { ReportActionTrace, ReportFindingCorrelation, ReportStandard, ReportStandardRule } from './types.js';
 import type { ReportSnapshotSource } from './snapshot.js';
+import { SupabaseCentinelStore } from '../store/supabase.js';
+import { loadCurrentProjectFindings } from '../review/currentProjectFindings.js';
 
 type Row = Record<string, unknown>;
 
@@ -321,7 +323,17 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
     // Finding dispositions can change after the latest stored Review risk
     // snapshot. Recompute current risk for the dashboard and every export;
     // retain only the immutable traceability context from that snapshot.
-    const current = fallbackAssessment(projectId, await this.listAllFindings(projectId));
+    const saved = await new SupabaseCentinelStore(this.client).listFindings(projectId);
+    const projected = await loadCurrentProjectFindings(this.client, projectId, saved);
+    const current = fallbackAssessment(projectId, projected.map(finding => ({
+      id: finding.id, projectId: finding.projectId, sessionId: finding.sessionId,
+      source: finding.source, severity: finding.severity, priority: finding.priority,
+      title: finding.title, description: finding.description,
+      status: finding.resolutionEvidence ? 'fixed' : finding.status,
+      createdAt: finding.createdAt, artifactId: finding.artifactId, category: finding.category,
+      evidenceText: finding.evidenceText, recommendation: finding.recommendation,
+      confidence: finding.confidence, fromRemarks: false, filePath: finding.filePath, lineNumber: finding.lineNumber,
+    })));
     const assessment = await requireSingle(this.client, 'project_assessments', query => query.select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle());
     if (assessment?.snapshot) {
       const snapshot = json<ProjectAssessment>(assessment.snapshot, current);

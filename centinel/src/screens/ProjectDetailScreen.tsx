@@ -357,8 +357,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       || a.title.localeCompare(b.title)
       || a.id.localeCompare(b.id)), [riskLevelFindings]);
 
-  const hasDerivedResolutionEvidence = projectFindings.some(finding => finding.resolutionEvidence != null);
-  const displayedRiskFindings = assessmentData?.status === 'available' && !hasDerivedResolutionEvidence
+  const hasReconciledFindings = projectFindings.some(finding => finding.resolutionEvidence != null || finding.latestOccurrence != null);
+  const displayedRiskFindings = assessmentData?.status === 'available' && !hasReconciledFindings
     ? assessmentData.riskItems.filter(finding => !['dismissed', 'fixed'].includes(effectiveFindingStatus(finding)))
     : riskFindings;
 
@@ -558,13 +558,13 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       const level = finding.riskLevel as keyof typeof counts;
       if (level in counts) counts[level] += 1;
     });
-    return assessmentData?.status === 'available' && assessmentData.summary && !hasDerivedResolutionEvidence ? {
+    return assessmentData?.status === 'available' && assessmentData.summary && !hasReconciledFindings ? {
       critical: assessmentData.summary.critical,
       high: assessmentData.summary.high,
       medium: assessmentData.summary.medium,
       low: assessmentData.summary.low,
     } : counts;
-  }, [assessmentData, hasDerivedResolutionEvidence, riskLevelFindings]);
+  }, [assessmentData, hasReconciledFindings, riskLevelFindings]);
 
   useEffect(() => {
     setAttentionPage(page => Math.min(page, attentionPageCount - 1));

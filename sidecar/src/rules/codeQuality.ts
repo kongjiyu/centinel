@@ -1,4 +1,5 @@
 import type { Rule, Finding } from '../staticEngine.js';
+import ts from 'typescript';
 
 const ALL_CODE_FILES = ['.ts', '.js', '.jsx', '.tsx', '.py', '.java', '.cs', '.go', '.rb', '.php', '.rs', '.cpp', '.c', '.h'];
 
@@ -174,6 +175,28 @@ const codeQualityRules: Rule[] = [
       const lines = content.split('\n');
       const NESTING_THRESHOLD = 4;
       const reportedDepths = new Set<number>();
+
+      if (/\.[cm]?[jt]sx?$/i.test(filePath)) {
+        const kind = /\.tsx$/i.test(filePath) ? ts.ScriptKind.TSX : /\.jsx$/i.test(filePath) ? ts.ScriptKind.JSX : /\.[cm]?js$/i.test(filePath) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+        const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
+        const walk = (node: ts.Node, depth: number) => {
+          const control = ts.isIfStatement(node) || ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node)
+            || ts.isWhileStatement(node) || ts.isDoStatement(node) || ts.isSwitchStatement(node) || ts.isTryStatement(node) || ts.isConditionalExpression(node);
+          const nextDepth = control ? depth + 1 : depth;
+          if (control && nextDepth > NESTING_THRESHOLD && !reportedDepths.has(nextDepth)) {
+            const lineNumber = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+            findings.push({ ruleId: 'cq-deep-nesting', filePath, lineNumber, severity: 'medium', category: 'code_quality',
+              message: `Control flow is nested ${nextDepth} levels deep. Consider early returns or extracting logic.`, evidence: lines[lineNumber - 1].trim().slice(0, 120) });
+            reportedDepths.add(nextDepth);
+          }
+          // Nested functions start their own control-flow depth. Objects,
+          // strings, comments, formatting and JSON values do not add depth.
+          const childDepth = ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node) ? 0 : nextDepth;
+          ts.forEachChild(node, child => walk(child, childDepth));
+        };
+        walk(source, 0);
+        return findings;
+      }
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];

@@ -9,6 +9,16 @@ const deterministic: StaticFindingInput = {
 };
 
 describe('review finding normalization', () => {
+  it('removes duplicate deterministic candidates before forming the final finding list', () => {
+    const result = normalizeAndDeduplicateFindings([{ ...deterministic, confidence: 'low' }, deterministic], []);
+    expect(result.all).toHaveLength(1);
+    expect(result.deterministic[0].confidence).toBe('high');
+  });
+
+  it('retains different issues at the same source location instead of merging shared evidence', () => {
+    const result = normalizeAndDeduplicateFindings([deterministic], [{ ...deterministic, source: 'model', title: 'Private data is logged', category: 'privacy' }]);
+    expect(result.all).toHaveLength(2);
+  });
   it('normalizes model fields and derives risk policy values', () => {
     const value = normalizeModelFinding({ title: 'Issue', severity: 'HIGH', category: 'security', confidence: 'unexpected', lineNumber: '7' });
     expect(value).toMatchObject({ severity: 'high', priority: 'high', confidence: 'medium', lineNumber: 7, riskLevel: 'critical' });

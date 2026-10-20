@@ -464,6 +464,34 @@ describe('assessProjectReadiness', () => {
     expect(JSON.stringify(result)).not.toContain('must not be persisted');
   });
 
+  it('keeps scope coverage separate from clarity, consistency, testability, and exception judgments', async () => {
+    const analyze = vi.fn(async () => ({ result: vagueResponse() }));
+    await assessProjectReadiness(input([
+      { artifact: artifact('rubric-source', 'docs/requirements.md'), content: 'Readable project requirements.' },
+    ]), { analyze });
+
+    const prompt = analyze.mock.calls[0][0].systemPrompt;
+    expect(prompt).toContain('A clearly stated aspiration can pass clarity while failing testability');
+    expect(prompt).toContain('Scope coverage asks whether relevant category content exists for the item');
+    expect(prompt).toContain('even if that content is contradictory, unclear, untestable, or missing an exception decision');
+    expect(prompt).toContain('Do not turn a defect in covered content into a scope gap');
+  });
+
+  it('does not downgrade a quality check solely because the scope map records an uncovered item', async () => {
+    const response = completeResponse('source');
+    const requirements = response.categories.find(category => category.category === 'requirements')!;
+    requirements.scopeCoverage[0].status = 'gap';
+    requirements.scopeCoverage[0].coverageEvidence = [];
+    const analyze = vi.fn(async () => ({ result: response }));
+    const result = await assessProjectReadiness(input([
+      { artifact: artifact('source', 'docs/combined.md'), content: comprehensiveContent },
+    ]), { analyze });
+
+    const criteria = result.categories.find(category => category.id === 'requirements')?.criteria;
+    expect(criteria?.find(item => item.id === 'clarity')?.status).toBe('pass');
+    expect(criteria?.find(item => item.id === 'scope')?.status).toBe('gap');
+  });
+
   it('A5 completes repository health only after readable source and applicable supported configuration parse', async () => {
     const analyze = vi.fn(async () => ({ result: vagueResponse() }));
     const result = await assessProjectReadiness(input([
