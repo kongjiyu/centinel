@@ -4,10 +4,16 @@ import type { StaticAnalysisModelProvider } from '../review/types.js';
 import { assessProjectReadiness } from './engine.js';
 import { classifyReadinessFailure } from './failure.js';
 import type { ReadinessAssessment, ReadinessInput, ReadinessState } from './types.js';
-import { READINESS_EVALUATION_FIXTURES } from './fixtures/index.js';
+import { READINESS_BENCHMARK_VERSION, READINESS_EVALUATION_FIXTURES } from './fixtures/index.js';
 import type { ReadinessCriterionVerdict, ReadinessEvaluationFixture, ReadinessSemanticCategory } from './fixtures/types.js';
 
 export type ReadinessEvaluationEvidence = { sourceId: string; excerpt: string };
+export type ReadinessScopeEvaluation = {
+  scopeItem: string;
+  status: 'covered' | 'gap' | 'unknown';
+  scopeEvidence: ReadinessEvaluationEvidence;
+  coverageEvidence: ReadinessEvaluationEvidence[];
+};
 
 const CRITERIA: Record<ReadinessSemanticCategory, readonly string[]> = {
   requirements: ['clarity', 'consistency', 'testability', 'business_decisions', 'boundaries', 'exceptions', 'scope'],
@@ -21,8 +27,12 @@ type RawCategory = Record<string, unknown>;
 type RawCheck = Record<string, unknown>;
 
 export type ReadinessCriterionEvaluation = {
+  /** Bounded audit conclusions and validated quotations, never raw model output. */
+  basis: string | null;
+  evidence: ReadinessEvaluationEvidence[];
   expected: ReadinessCriterionVerdict;
   raw: ReadinessCriterionVerdict;
+  rawMatches: boolean;
   effective: ReadinessCriterionVerdict;
   engineStatus: ReadinessCriterionVerdict | null;
   matches: boolean;
@@ -42,11 +52,14 @@ export type ReadinessCategoryEvaluation = {
   presenceMatches: boolean;
   reviewedSourceInventoryValid: boolean;
   classificationBasisValid: boolean;
+  classificationBasis: string | null;
+  classificationEvidence: ReadinessEvaluationEvidence[];
   classificationEvidenceValid: boolean;
   expectedClassificationEvidenceMatched: boolean | null;
   expectedChecks: Record<string, ReadinessCriterionVerdict>;
   actualChecks: Record<string, ReadinessCriterionEvaluation>;
   scopeCoverageValid: boolean;
+  scopeCoverage: ReadinessScopeEvaluation[];
   expectedScopeCoverageMatched: boolean | null;
 };
 
@@ -60,6 +73,7 @@ export type ReadinessCaseEvaluation = {
   falseMissing: ReadinessSemanticCategory[];
   missedCriteria: Array<{ category: ReadinessSemanticCategory; criterion: string }>;
   criterionMismatchCount: number;
+  rawCriterionMismatchCount: number;
   invalidEvidenceCount: number;
   invalidBasisCount: number;
   goldEvidenceMismatches: Array<{ category: ReadinessSemanticCategory; criterion: string }>;
@@ -68,8 +82,16 @@ export type ReadinessCaseEvaluation = {
 
 export type ReadinessEvaluationReport = {
   schemaVersion: 1;
+  benchmarkVersion: string;
   generatedAt: string;
   fixtureCount: number;
+  plannedFixtureIds: string[];
+  assessedCaseCount: number;
+  mismatchedCaseCount: number;
+  executionErrorCaseCount: number;
+  unattemptedCaseCount: number;
+  selectedCasesPassed: boolean;
+  accepted: boolean;
   passedCaseCount: number;
   failedCaseCount: number;
   totals: {
@@ -77,6 +99,7 @@ export type ReadinessEvaluationReport = {
     falseMissing: number;
     missedCriteria: number;
     criterionMismatches: number;
+    rawCriterionMismatches: number;
     invalidEvidence: number;
     invalidBasis: number;
     goldEvidenceMismatches: number;
@@ -243,8 +266,11 @@ function reportCheck(
   const expectedEvidenceMatched = expectedQuoteMatched(expectedEvidence, evidence.validCitations);
   return {
     evaluation: {
+      basis: validBasis(row?.basis) ? row.basis : null,
+      evidence: evidence.validCitations.slice(0, 16),
       expected: expectedStatus,
       raw,
+      rawMatches: raw === expectedStatus,
       effective,
       engineStatus: null,
       matches: effective === expectedStatus,
@@ -380,11 +406,22 @@ function evaluateCategory(
       presenceMatches: actualPresence === expected.presence,
       reviewedSourceInventoryValid,
       classificationBasisValid,
+      classificationBasis: validBasis(categoryRow?.classificationBasis) ? categoryRow.classificationBasis : null,
+      classificationEvidence: classEvidence.validCitations.slice(0, 16),
       classificationEvidenceValid,
       expectedClassificationEvidenceMatched,
       expectedChecks: expected.checks,
       actualChecks,
       scopeCoverageValid: categoryRow?.presence === 'missing' ? true : scope.valid,
+      scopeCoverage: scope.rows.slice(0, 100).flatMap(row => {
+        if (!validScopeCoverage([row], sourceById).valid) return [];
+        return [{
+          scopeItem: row.scopeItem as string,
+          status: row.status as ReadinessScopeEvaluation['status'],
+          scopeEvidence: citationRows([row.scopeEvidence])[0],
+          coverageEvidence: evidenceListIsValid(row.coverageEvidence, sourceById).validCitations.slice(0, 16),
+        }];
+      }),
       expectedScopeCoverageMatched,
     },
     invalidEvidenceCount,
@@ -419,6 +456,8 @@ export function evaluateReadinessOutcome(
     .map(([criterion]) => ({ category: item.category, criterion })));
   const criterionMismatchCount = categories.reduce((sum, item) => sum
     + Object.values(item.actualChecks).filter(check => !check.matches).length, 0);
+  const rawCriterionMismatchCount = categories.reduce((sum, item) => sum
+    + Object.values(item.actualChecks).filter(check => !check.rawMatches).length, 0);
   const engineModelStateMismatch = categories
     .filter(item => item.engineState !== null && item.engineState !== item.modelDerivedState)
     .map(item => item.category);
@@ -434,6 +473,7 @@ export function evaluateReadinessOutcome(
       && item.classificationEvidenceValid
       && (fixture.expected[item.category].scopeCoverage?.length ? item.scopeCoverageValid : true))
       && criterionMismatchCount === 0
+      && rawCriterionMismatchCount === 0
       && invalidEvidenceCount === 0
       && invalidBasisCount === 0
       && engineModelStateMismatch.length === 0;
@@ -442,37 +482,58 @@ export function evaluateReadinessOutcome(
     passed,
     ...(assessment ? {} : { executionError: 'provider_or_engine_error' as const }),
     categories,
-    overclaimedCompleted,
-    falseMissing,
-    missedCriteria,
-    criterionMismatchCount,
-    invalidEvidenceCount,
-    invalidBasisCount,
-    goldEvidenceMismatches,
-    engineModelStateMismatch,
+    overclaimedCompleted: assessment ? overclaimedCompleted : [],
+    falseMissing: assessment ? falseMissing : [],
+    missedCriteria: assessment ? missedCriteria : [],
+    criterionMismatchCount: assessment ? criterionMismatchCount : 0,
+    rawCriterionMismatchCount: assessment ? rawCriterionMismatchCount : 0,
+    invalidEvidenceCount: assessment ? invalidEvidenceCount : 0,
+    invalidBasisCount: assessment ? invalidBasisCount : 0,
+    goldEvidenceMismatches: assessment ? goldEvidenceMismatches : [],
+    engineModelStateMismatch: assessment ? engineModelStateMismatch : [],
   };
 }
 
 export function createReadinessEvaluationReport(
   cases: readonly ReadinessCaseEvaluation[],
   generatedAt = new Date().toISOString(),
+  plannedFixtureIds: readonly string[] = cases.map(item => item.fixtureId),
 ): ReadinessEvaluationReport {
   const failed = cases.filter(item => !item.passed);
+  // Filter even legacy case objects whose execution failures carry placeholder
+  // mismatch/basis counters. Provider failure is not model judgment error.
+  const assessed = cases.filter(item => !item.executionError);
+  const planned = [...new Set(plannedFixtureIds)];
+  const attempted = new Set(cases.map(item => item.fixtureId));
+  const unattemptedCaseCount = planned.filter(id => !attempted.has(id)).length;
+  const selectedCasesPassed = planned.length > 0 && unattemptedCaseCount === 0 && failed.length === 0
+    && cases.length === planned.length && attempted.size === cases.length && cases.every(item => planned.includes(item.fixtureId));
+  const fullBenchmark = planned.length === READINESS_EVALUATION_FIXTURES.length
+    && READINESS_EVALUATION_FIXTURES.every(item => planned.includes(item.id));
   return {
     schemaVersion: 1,
+    benchmarkVersion: READINESS_BENCHMARK_VERSION,
     generatedAt,
     fixtureCount: cases.length,
+    plannedFixtureIds: planned,
+    assessedCaseCount: assessed.length,
+    mismatchedCaseCount: assessed.filter(item => !item.passed).length,
+    executionErrorCaseCount: cases.length - assessed.length,
+    unattemptedCaseCount,
+    selectedCasesPassed,
+    accepted: selectedCasesPassed && fullBenchmark,
     passedCaseCount: cases.length - failed.length,
     failedCaseCount: failed.length,
     totals: {
-      overclaimedCompleted: cases.reduce((sum, item) => sum + item.overclaimedCompleted.length, 0),
-      falseMissing: cases.reduce((sum, item) => sum + item.falseMissing.length, 0),
-      missedCriteria: cases.reduce((sum, item) => sum + item.missedCriteria.length, 0),
-      criterionMismatches: cases.reduce((sum, item) => sum + item.criterionMismatchCount, 0),
-      invalidEvidence: cases.reduce((sum, item) => sum + item.invalidEvidenceCount, 0),
-      invalidBasis: cases.reduce((sum, item) => sum + item.invalidBasisCount, 0),
-      goldEvidenceMismatches: cases.reduce((sum, item) => sum + item.goldEvidenceMismatches.length, 0),
-      engineModelStateMismatches: cases.reduce((sum, item) => sum + item.engineModelStateMismatch.length, 0),
+      overclaimedCompleted: assessed.reduce((sum, item) => sum + item.overclaimedCompleted.length, 0),
+      falseMissing: assessed.reduce((sum, item) => sum + item.falseMissing.length, 0),
+      missedCriteria: assessed.reduce((sum, item) => sum + item.missedCriteria.length, 0),
+      criterionMismatches: assessed.reduce((sum, item) => sum + item.criterionMismatchCount, 0),
+      rawCriterionMismatches: assessed.reduce((sum, item) => sum + (item.rawCriterionMismatchCount ?? 0), 0),
+      invalidEvidence: assessed.reduce((sum, item) => sum + item.invalidEvidenceCount, 0),
+      invalidBasis: assessed.reduce((sum, item) => sum + item.invalidBasisCount, 0),
+      goldEvidenceMismatches: assessed.reduce((sum, item) => sum + item.goldEvidenceMismatches.length, 0),
+      engineModelStateMismatches: assessed.reduce((sum, item) => sum + item.engineModelStateMismatch.length, 0),
       executionErrors: cases.filter(item => item.executionError).length,
     },
     cases: [...cases],
@@ -534,10 +595,12 @@ export async function runReadinessEvaluation(
       assessment = await assessProjectReadiness(toReadinessInput(fixture), capturingProvider);
       results.push(evaluateReadinessOutcome(fixture, modelResult, assessment));
     } catch (error) {
-      results.push({ ...evaluateReadinessOutcome(fixture, modelResult, null), failureCode: classifyReadinessFailure(error).code });
+      const failureCode = classifyReadinessFailure(error).code;
+      results.push({ ...evaluateReadinessOutcome(fixture, modelResult, null), failureCode });
+      if (['rate_limited', 'quota_exhausted', 'credits_exhausted', 'billing_required', 'assessment_paused'].includes(failureCode)) break;
     }
   }
-  return createReadinessEvaluationReport(results, now().toISOString());
+  return createReadinessEvaluationReport(results, now().toISOString(), fixtures.map(item => item.id));
 }
 
 export { READINESS_EVALUATION_FIXTURES };

@@ -4,7 +4,10 @@ import {
   READINESS_EVALUATION_FIXTURES,
   runReadinessEvaluation,
   serializeReadinessEvaluationReport,
+  createReadinessEvaluationReport,
 } from '../../src/readiness/evaluation.js';
+import { ModelProviderError } from '../../src/review/retry.js';
+import { READINESS_BENCHMARK_VERSION } from '../../src/readiness/fixtures/index.js';
 import type { ReadinessEvaluationFixture } from '../../src/readiness/fixtures/types.js';
 
 const criteria = {
@@ -14,7 +17,7 @@ const criteria = {
 } as const;
 
 function responseFor(fixture: ReadinessEvaluationFixture): Record<string, unknown> {
-  return {
+  return structuredClone({
     categories: (['requirements', 'design', 'standards'] as const).map(category => {
       const expected = fixture.expected[category];
       // Keep the synthetic response structurally grounded without adding or changing gold labels.
@@ -59,7 +62,7 @@ function responseFor(fixture: ReadinessEvaluationFixture): Record<string, unknow
         })),
       };
     }),
-  };
+  });
 }
 
 function providerFor(result: unknown) {
@@ -84,6 +87,8 @@ describe('readiness outcome evaluation fixtures', () => {
     expect(report.cases[0].categories.every(category => category.engineState === null)).toBe(true);
     expect(JSON.stringify(report)).not.toContain('private provider body');
     expect(report.totals.executionErrors).toBe(1);
+    expect(report).toMatchObject({ assessedCaseCount: 0, executionErrorCaseCount: 1, mismatchedCaseCount: 0, accepted: false });
+    expect(report.totals).toMatchObject({ criterionMismatches: 0, invalidBasis: 0, invalidEvidence: 0, falseMissing: 0 });
   });
 
   it('contains the authored semantic cases and exact expected labels', () => {
@@ -91,6 +96,7 @@ describe('readiness outcome evaluation fixtures', () => {
       'complete-all-categories',
       'missing-category',
       'vague-requirements',
+      'named-uncovered-feature',
       'contradictory-requirements',
       'untestable-requirement',
       'exception-gap',
@@ -136,6 +142,7 @@ describe('readiness outcome evaluation fixtures', () => {
       'complete-all-categories': { requirements: 'completed', design: 'completed', standards: 'completed' },
       'missing-category': { requirements: 'completed', design: 'completed', standards: 'missing' },
       'vague-requirements': { requirements: 'incomplete', design: 'missing', standards: 'missing' },
+      'named-uncovered-feature': { requirements: 'incomplete', design: 'missing', standards: 'missing' },
       'contradictory-requirements': { requirements: 'incomplete', design: 'missing', standards: 'missing' },
       'untestable-requirement': { requirements: 'incomplete', design: 'missing', standards: 'missing' },
       'exception-gap': { requirements: 'incomplete', design: 'missing', standards: 'missing' },
@@ -170,6 +177,60 @@ describe('readiness outcome evaluation fixtures', () => {
     expect(result.goldEvidenceMismatches).toEqual([]);
   });
 
+  it('separates unidentified scope from a named feature with no coverage without accepting a false pass', async () => {
+    expect(READINESS_BENCHMARK_VERSION).toBe('readiness-benchmark-2026-10-22.1');
+    for (const [id, expected] of [['vague-requirements', 'unknown'], ['named-uncovered-feature', 'gap']] as const) {
+      const fixture = READINESS_EVALUATION_FIXTURES.find(item => item.id === id)!;
+      const body = responseFor(fixture);
+      const result = await score(fixture, body);
+      expect(result.passed).toBe(true);
+      const category = result.categories.find(item => item.category === 'requirements')!;
+      expect(category.engineState).toBe('incomplete');
+      expect(category.actualChecks.scope).toMatchObject({ expected, raw: expected, engineStatus: expected, matches: true });
+      const raw = (body.categories as any[]).find(item => item.category === 'requirements');
+      raw.checks.find((item: any) => item.criterion === 'scope').status = 'pass';
+      const falsePass = await score(fixture, body);
+      expect(falsePass.passed).toBe(false);
+      expect(falsePass.categories.find(item => item.category === 'requirements')?.actualChecks.scope).toMatchObject({ raw: 'pass', rawMatches: false });
+      expect(falsePass.rawCriterionMismatchCount).toBe(1);
+      expect(falsePass.categories.find(item => item.category === 'requirements')?.actualChecks.scope.engineStatus).not.toBe('pass');
+    }
+  });
+
+  it.each(['rate_limited', 'quota_exhausted', 'credits_exhausted', 'billing_required', 'assessment_paused'])(
+    'stops %s without requesting later fixtures or counting them as semantic failures', async code => {
+      const provider = { analyze: vi.fn(async () => { throw new ModelProviderError('private failure body', { code, retryable: false }); }) };
+      const report = await runReadinessEvaluation(provider, READINESS_EVALUATION_FIXTURES);
+      expect(provider.analyze).toHaveBeenCalledOnce();
+      expect(report).toMatchObject({ fixtureCount: 1, assessedCaseCount: 0, mismatchedCaseCount: 0, executionErrorCaseCount: 1, unattemptedCaseCount: 11, accepted: false });
+      expect(report.cases[0].failureCode).toBe(code);
+      expect(report.totals).toMatchObject({ executionErrors: 1, criterionMismatches: 0, invalidBasis: 0, invalidEvidence: 0 });
+      // Historical execution-error rows may still carry placeholder scores.
+      const legacy = { ...report.cases[0], criterionMismatchCount: 16, invalidBasisCount: 19, invalidEvidenceCount: 4 };
+      expect(createReadinessEvaluationReport([legacy]).totals).toMatchObject({ criterionMismatches: 0, invalidBasis: 0, invalidEvidence: 0 });
+    },
+  );
+
+  it('retains safe criterion explanations and exact citations while omitting unsafe payloads', async () => {
+    const fixture = READINESS_EVALUATION_FIXTURES[0];
+    const body = responseFor(fixture);
+    const requirements = (body.categories as any[]).find(item => item.category === 'requirements');
+    const clarity = requirements.checks.find((item: any) => item.criterion === 'clarity');
+    const result = await score(fixture, body);
+    expect(result.categories[0].actualChecks.clarity).toMatchObject({ basis: clarity.basis, evidence: clarity.evidence });
+    expect(result.categories[0].classificationEvidence).toEqual(requirements.classificationEvidence);
+    expect(result.categories[0].scopeCoverage).toEqual(requirements.scopeCoverage);
+    clarity.basis = 'Bearer abcdefghijklmnopqrstuvwxyz012345';
+    requirements.classificationBasis = 'Private reasoning: internal analysis follows here.';
+    clarity.evidence = [{ sourceId: 'forged', excerpt: 'a fabricated excerpt' }];
+    requirements.scopeCoverage[0].scopeItem = 'Bearer abcdefghijklmnopqrstuvwxyz012345';
+    const unsafe = await score(fixture, body);
+    expect(unsafe.categories[0].actualChecks.clarity).toMatchObject({ basis: null, evidence: [] });
+    expect(unsafe.categories[0].classificationBasis).toBe(null);
+    expect(unsafe.categories[0].scopeCoverage).toEqual([]);
+    expect(JSON.stringify(unsafe)).not.toMatch(/abcdefghijklmnopqrstuvwxyz|fabricated excerpt|internal analysis/);
+  });
+
   it('reconciles every authored fixture label with the engine using synthetic responses only', async () => {
     // This proves fixture and engine wiring; it does not measure a model's semantic accuracy.
     let next = 0;
@@ -192,6 +253,9 @@ describe('readiness outcome evaluation fixtures', () => {
     }))).toEqual([]);
     expect(report.passedCaseCount).toBe(READINESS_EVALUATION_FIXTURES.length);
     expect(report.failedCaseCount).toBe(0);
+    expect(report.accepted).toBe(true);
+    const subset = createReadinessEvaluationReport([report.cases[0]]);
+    expect(subset).toMatchObject({ selectedCasesPassed: true, accepted: false });
     expect(report.totals).toMatchObject({
       overclaimedCompleted: 0,
       falseMissing: 0,

@@ -5,6 +5,7 @@ type GoogleDriveOptions = { http?: SourceHttpClient; env?: NodeJS.ProcessEnv; ma
 type DriveFile = { id: string; name: string; mimeType: string; modifiedTime?: string; version?: string; headRevisionId?: string; webViewLink?: string; parents?: string[]; size?: string; trashed?: boolean };
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+export const GOOGLE_DRIVE_MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_TRACKED_FOLDERS = 500;
 const NATIVE_GOOGLE = new Set([
   'application/vnd.google-apps.document',
@@ -43,7 +44,7 @@ export class GoogleDriveConnectedSourceAdapter implements ConnectedSourceProvide
   constructor(options: GoogleDriveOptions = {}) {
     this.http = options.http ?? fetchSourceHttpClient;
     this.env = options.env ?? process.env;
-    this.maxFileBytes = options.maxFileBytes ?? 10 * 1024 * 1024;
+    this.maxFileBytes = options.maxFileBytes ?? GOOGLE_DRIVE_MAX_FILE_BYTES;
   }
 
   private headers(token: string): Record<string, string> {
@@ -97,7 +98,9 @@ export class GoogleDriveConnectedSourceAdapter implements ConnectedSourceProvide
   }
 
   private async listBaseline(credentials: IntegrationCredential, source: ConnectedSource, cursor: Record<string, unknown> | null): Promise<RemoteSyncPage> {
-    const perPage = 100;
+    // Bound resident page content as well as individual downloads. With the
+    // 100 MiB file limit, a sync page may retain one maximum-sized file.
+    const perPage = this.syncPageSize();
     const startPageToken = String(cursor?.startPageToken ?? '');
     const pageToken = cursor?.pageToken == null ? null : String(cursor.pageToken);
     const selectedKind = String(source.selectedScope.resourceKind ?? 'folder');
@@ -141,7 +144,7 @@ export class GoogleDriveConnectedSourceAdapter implements ConnectedSourceProvide
     const pageToken = String(cursor.pageToken ?? '');
     const result = await requestJson<{ changes?: Array<{ fileId: string; removed?: boolean; file?: DriveFile }>; nextPageToken?: string; newStartPageToken?: string }>(
       this.http,
-      urlWithQuery(`${DRIVE_API}/changes`, { pageToken, pageSize: 100, includeRemoved: true, supportsAllDrives: true, includeItemsFromAllDrives: true, fields: 'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,version,headRevisionId,webViewLink,parents,size,trashed))' }),
+      urlWithQuery(`${DRIVE_API}/changes`, { pageToken, pageSize: this.syncPageSize(), includeRemoved: true, supportsAllDrives: true, includeItemsFromAllDrives: true, fields: 'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,version,headRevisionId,webViewLink,parents,size,trashed))' }),
       { headers: this.headers(credentials.accessToken) },
       'Google Drive change list',
     );
@@ -203,6 +206,40 @@ export class GoogleDriveConnectedSourceAdapter implements ConnectedSourceProvide
     return requestJson<DriveFile>(this.http, urlWithQuery(`${DRIVE_API}/files/${encodeURIComponent(id)}`, { fields: 'id,name,mimeType,modifiedTime,version,headRevisionId,webViewLink,parents,size,trashed' }), { headers: this.headers(credentials.accessToken) }, 'Google Drive file lookup');
   }
 
+  private syncPageSize(): number {
+    return Math.max(1, Math.min(100, Math.floor(GOOGLE_DRIVE_MAX_FILE_BYTES / this.maxFileBytes)));
+  }
+
+  private async readFile(response: Response): Promise<Uint8Array | null> {
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (declaredLength > this.maxFileBytes) {
+      await response.body?.cancel();
+      return null;
+    }
+    if (!response.body) return new Uint8Array();
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > this.maxFileBytes) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const content = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { content.set(chunk, offset); offset += chunk.byteLength; }
+    return content;
+  }
+
   private async toRemoteContent(credentials: IntegrationCredential, source: ConnectedSource, file: DriveFile): Promise<RemoteContent> {
     const nativeGoogle = NATIVE_GOOGLE.has(file.mimeType);
     const contentType = nativeGoogle ? exportMime(file) : file.mimeType || 'application/octet-stream';
@@ -215,8 +252,8 @@ export class GoogleDriveConnectedSourceAdapter implements ConnectedSourceProvide
       ? urlWithQuery(`${DRIVE_API}/files/${encodeURIComponent(file.id)}/export`, { mimeType: contentType })
       : `${DRIVE_API}/files/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`;
     const response = await requestResponse(this.http, url, { headers: this.headers(credentials.accessToken) }, 'Google Drive file download');
-    const content = new Uint8Array(await response.arrayBuffer());
-    if (content.byteLength > this.maxFileBytes) {
+    const content = await this.readFile(response);
+    if (content === null) {
       return { remoteId: file.id, path, name, mimeType: contentType, revision: revision(file), content: new Uint8Array(), status: 'unsupported', error: `File exceeds the ${this.maxFileBytes} byte import limit.`, metadata: { fileId: file.id, originalName: file.name, mimeType: file.mimeType, modifiedTime: file.modifiedTime ?? null, exportMimeType: nativeGoogle ? contentType : null, parentIds: file.parents ?? [], webViewLink: file.webViewLink ?? null } };
     }
     return {

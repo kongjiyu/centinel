@@ -23,6 +23,10 @@ export type StaticSession = {
   failureReason: string;
   createdAt: string;
   updatedAt: string;
+  /** Persisted execution completion time; distinct from mutable activity time. */
+  completedAt?: string | null;
+  /** Frozen source manifest referenced by this Static attempt, when available. */
+  sourceManifestId?: string | null;
   baseRef: string;
   headRef: string;
   changedFilesJson: string;

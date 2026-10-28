@@ -1,0 +1,192 @@
+{
+  "schemaVersion": "centinel-local-index-evaluation-run-v1",
+  "label": "Historical full 52-file Axios Review before local-index integration",
+  "projectId": "3c66cb23-9805-471d-97e6-719182787d94",
+  "instanceId": "axios__axios-4738",
+  "execution": {
+    "reviewId": "4cf606de-7bc7-482d-aee2-8df0f3cbdb97",
+    "status": "completed",
+    "modelStatus": "succeeded",
+    "workflowStatus": "pending_approval",
+    "policyVersion": "review-2026-10-24-batch-domain-coverage-v9"
+  },
+  "freeze": {
+    "source": {
+      "repositoryCommit": "9bb016f95e6de871a44f3276fd06562704a0abb0",
+      "benchmarkRevision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+      "manifestSha256": "669a3ea464b6c3184f87dc29526db66e587c9226e754c4e69b56937bbdf99c64",
+      "selectedFiles": 52,
+      "codeFiles": 48,
+      "manifestArtifact": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-24T15-46-37-089Z/0052-review-manifest.json"
+    },
+    "authority": {
+      "sha256": "29b39ac0614e13edc2fc0c40485d3e38129c5137bd531c2873fd2af97f8ed8df",
+      "requirements": 0,
+      "standards": 0,
+      "mappings": 0,
+      "traceabilityRecords": 0
+    },
+    "instructionsSha256": "8769b0b5fb7457fcfa6b38eb1c75495d904ece014831c9edecccf5b957e58390",
+    "reviewDomains": ["technical", "security", "business", "personnel"],
+    "model": {
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "authority": null,
+      "reasoningEffort": null
+    },
+    "policyVersion": "review-2026-10-24-batch-domain-coverage-v9",
+    "runtimeManifestSha256": "462cf1973f8e914f0cf51c21da665d6348de0c89a1f3e1d01335eb5b3039da80"
+  },
+  "retrieval": {
+    "mode": "disabled",
+    "packageVersion": null,
+    "embeddingModel": null,
+    "embeddingDimensions": null
+  },
+  "usage": {
+    "review": {
+      "status": "complete",
+      "requests": {
+        "total": 20,
+        "successful": 20,
+        "failed": 0,
+        "unknownUsage": 0
+      },
+      "reported": {
+        "inputTokens": 873802,
+        "outputTokens": 99619,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": null
+      },
+      "stages": {
+        "model_analysis": {
+          "calls": 20,
+          "inputTokens": 873802,
+          "outputTokens": 99619,
+          "totalTokens": 973421,
+          "basis": "provider-reported usage records"
+        },
+        "first_pass": {
+          "calls": 20,
+          "inputTokens": 873802,
+          "outputTokens": 99619,
+          "totalTokens": 973421,
+          "basis": "attempt-number subdivision; not an additional total"
+        },
+        "repair": {
+          "calls": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "totalTokens": 0
+        }
+      }
+    },
+    "embedding": {
+      "status": "none",
+      "documentRequests": 0,
+      "queryRequests": 0,
+      "unknownRequests": 0,
+      "documentTokens": 0,
+      "queryTokens": 0
+    },
+    "estimates": {
+      "inputCharacters": null,
+      "outputCharacters": null,
+      "note": "No comparable character ledger was recorded."
+    }
+  },
+  "coverage": {
+    "selectedSource": {
+      "expectedFiles": 52,
+      "importedFiles": 52,
+      "sourceSweepFiles": 52,
+      "codeFiles": 48,
+      "inspectedCodeFiles": 48,
+      "goldAffectedFilesInspected": true,
+      "allSourceSweepsComplete": true
+    },
+    "featureDomains": {
+      "inferredPairs": 588,
+      "disclosedPairs": 588,
+      "validatedPairs": 588,
+      "supportedPairs": 359,
+      "explicitUnverifiedBoundaries": null
+    },
+    "retrieval": {
+      "packetRequests": 20,
+      "sourceAppearances": 142,
+      "uniqueFiles": null,
+      "uniqueChunks": null,
+      "contextCharacters": null,
+      "goldSupportRanges": {
+        "numerator": null,
+        "denominator": null
+      }
+    }
+  },
+  "adjudication": {
+    "status": "complete",
+    "predictions": {
+      "model": { "true": 21, "false": 1, "unknown": 5, "unadjudicated": 0 },
+      "deterministic": { "true": 4, "false": 0, "unknown": 0, "unadjudicated": 0 },
+      "aggregate": { "true": 25, "false": 1, "unknown": 5, "unadjudicated": 0 }
+    },
+    "references": {
+      "valid": 656,
+      "total": 656,
+      "scope": "all independently checked finding and assessed-outcome references"
+    },
+    "gold": {
+      "status": "complete",
+      "issues": [
+        {
+          "id": "node-timeout-custom-message",
+          "eligible": true,
+          "status": "miss",
+          "hitOccurrences": 0,
+          "expectedOccurrences": 1,
+          "severity": "unrated",
+          "sourceBackedExplanation": false
+        }
+      ],
+      "severityInventory": {
+        "status": "unavailable",
+        "reason": "The frozen Axios manifest registers the gold issue but has no severity field."
+      }
+    },
+    "provenance": [
+      {
+        "path": "docs/PUBLIC_REPO_OUTCOME_EVALUATION_2026-10-22/manifest.json",
+        "sha256": "01c8e47b9c1c5e97051c3834d182dfb4bf961f9296bf589a97d6ccb987e52e3e"
+      },
+      {
+        "path": "docs/PUBLIC_REPO_OUTCOME_EVALUATION_2026-10-22/ACCEPTANCE.md",
+        "sha256": "ba322ea9e4f609b84878eee5a7c00f1770c44ea571a2e1afd7f522813b59b163"
+      },
+      {
+        "path": "docs/PUBLIC_REPO_ACCEPTANCE_V9_RESUME_2026-10-24/review-axios-adjudication.json",
+        "sha256": "8d7c84a1edad14536717035cd9751b65f9264e1c2ea94d684683b63524051d37"
+      },
+      {
+        "path": "docs/PUBLIC_REPO_ACCEPTANCE_V9_RESUME_2026-10-24/review-axios-verification.json",
+        "sha256": "948ab12e487cd3ba3005211127209a390503b7a84924e38a5501f8ad6f77505f"
+      },
+      {
+        "path": "docs/PUBLIC_REPO_ACCEPTANCE_V9_RESUME_2026-10-24/TOKEN_USAGE_2026-10-25.md",
+        "sha256": "891c01cb94d3d8bd841e5c5636b85c6126beefcd5963ef66255ee0b04089c5f2"
+      },
+      {
+        "path": "docs/PUBLIC_REPO_ACCEPTANCE_V9_RESUME_2026-10-24/TOKEN_USAGE_BY_STAGE_2026-10-25.md",
+        "sha256": "91cc90ebce07e3de955ef55bbd63bf50e1d49ba2103359a6bc492f5efd8f53c8"
+      },
+      {
+        "path": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-24T15-46-37-089Z/0052-review-manifest.json",
+        "sha256": "24e301626dc7a4e3dd8ccb14cd38c8026ab3814b1c09b7c62bb819bdc889744c"
+      },
+      {
+        "path": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-24T15-46-37-089Z/0055-review-harness.json",
+        "sha256": "db33d6100f306d7129a1f8c8d118d5cfb8f874ae4edfa2ac87aa3ed43df68dc6"
+      }
+    ]
+  }
+}

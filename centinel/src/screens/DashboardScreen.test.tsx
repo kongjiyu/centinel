@@ -9,7 +9,7 @@ vi.mock('../api/client', () => ({
   api: {
     listStaticSessions: vi.fn(),
     listDynamicSessions: vi.fn(),
-    listArtifacts: vi.fn(),
+    listArtifacts: vi.fn(), getSourcePresence: vi.fn(),
   },
 }));
 
@@ -98,30 +98,7 @@ describe('DashboardScreen', () => {
     vi.clearAllMocks();
     vi.mocked(api.listStaticSessions).mockResolvedValue([staticSession]);
     vi.mocked(api.listDynamicSessions).mockResolvedValue([dynamicSession]);
-    vi.mocked(api.listArtifacts).mockResolvedValue([
-      {
-        id: 'artifact-1',
-        projectId: project.id,
-        type: 'source_code',
-        source: 'documents',
-        fileName: 'app.ts',
-        filePath: 'C:/work/website-refresh/app.ts',
-        originalPath: null,
-        contentHash: 'hash',
-        createdAt: project.updatedAt,
-      },
-      {
-        id: 'artifact-2',
-        projectId: project.id,
-        type: 'requirement',
-        source: 'documents',
-        fileName: 'requirements.md',
-        filePath: 'C:/work/website-refresh/requirements.md',
-        originalPath: null,
-        contentHash: 'hash-2',
-        createdAt: project.updatedAt,
-      },
-    ]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
   });
 
   it('does not label an uncertain independent result as a failed application test', async () => {
@@ -268,17 +245,7 @@ describe('DashboardScreen', () => {
       if (projectId === 'blocked') return [blockedTest];
       return [];
     });
-    vi.mocked(api.listArtifacts).mockImplementation(async projectId => [{
-      id: `artifact-${projectId}`,
-      projectId,
-      type: 'source_code',
-      source: 'documents',
-      fileName: 'source.ts',
-      filePath: `C:/work/${projectId}/source.ts`,
-      originalPath: null,
-      contentHash: projectId,
-      createdAt: '2026-09-01T08:00:00.000Z',
-    }]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
 
     const onNavigate = vi.fn();
     const user = userEvent.setup();

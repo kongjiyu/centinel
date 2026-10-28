@@ -1,0 +1,426 @@
+{
+  "status": "incremental-independent-source-adjudication",
+  "scope": "All retained predictions to date. True task-marker flags are not seeded behavioral bug hits. Mandatory release timing remains unsupported advice.",
+  "claims": [
+    {
+      "findingId": "1d4fa72a-adf8-49bf-b34d-2a6e5d3af4eb",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "1d4fa72a-adf8-49bf-b34d-2a6e5d3af4eb",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The reported call is inside a JSDoc example, not executable production code.",
+      "source": {
+        "path": "lib/utils.js",
+        "line": 294,
+        "sourceVersion": "47cf4239766fe859b9ad8037bdd7c95546184883991d40668c997e9562ed3844"
+      }
+    },
+    {
+      "findingId": "875d79aa-c942-46c8-bd09-a89b7d1df776",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "875d79aa-c942-46c8-bd09-a89b7d1df776",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The call intentionally emits a deprecation warning; the source does not establish leftover debug behavior.",
+      "source": {
+        "path": "lib/helpers/validator.js",
+        "line": 41,
+        "sourceVersion": "22224aad7904e2d8f36e58174b1aed90ef802cd8fab900859c5d6d1d03487264"
+      }
+    },
+    {
+      "findingId": "7b33b206-22a5-4157-879d-03185d10add7",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios-deprecated-method-intentional-warning",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The call intentionally emits a deprecation warning; the source does not establish leftover debug behavior.",
+      "source": {
+        "path": "lib/helpers/deprecatedMethod.js",
+        "line": 21,
+        "sourceVersion": "12e9a9bb1931c31811d1a6f21a81b7a230a61beb8d5bc286cc23727f03c01dc5"
+      }
+    },
+    {
+      "findingId": "2dc6276a-56ef-4493-8d37-a63133c8b3ad",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios-deprecated-method-intentional-warning",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The call intentionally emits a deprecation warning; the source does not establish leftover debug behavior.",
+      "source": {
+        "path": "lib/helpers/deprecatedMethod.js",
+        "line": 15,
+        "sourceVersion": "12e9a9bb1931c31811d1a6f21a81b7a230a61beb8d5bc286cc23727f03c01dc5"
+      }
+    },
+    {
+      "findingId": "116c7932-b4af-40cd-9434-eb93778f37e2",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "116c7932-b4af-40cd-9434-eb93778f37e2",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The reported fifth level counts mutually exclusive else-if alternatives as additional nested branches; the corrected syntax traversal does not report this location.",
+      "source": {
+        "path": "lib/adapters/http.js",
+        "line": 191,
+        "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086"
+      }
+    },
+    {
+      "findingId": "9cb2695b-3066-4147-a4ab-bb5972992b76",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "9cb2695b-3066-4147-a4ab-bb5972992b76",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "lib/adapters/http.js",
+        "line": 389,
+        "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086"
+      }
+    },
+    {
+      "findingId": "e9d2c0d5-0913-4f41-b92e-dbb5d00fc23d",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "e9d2c0d5-0913-4f41-b92e-dbb5d00fc23d",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The actual getFileLoaderUtils declaration spans lines58–175, exceeding100lines (118inclusive). The maintenance candidate is supported; its generated evidence sentence separately fails exact-source-quote validity.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/webpackUtils.ts",
+        "line": 58,
+        "sourceVersion": "6b3c72cac13c4b69307d155def3efcafd591657523ef7fefb6b0d6c4636a8335"
+      }
+    },
+    {
+      "findingId": "bc3cb9d9-b63c-4bbe-9e87-a15442a90d5f",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "bc3cb9d9-b63c-4bbe-9e87-a15442a90d5f",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/webpackUtils.ts",
+        "line": 86,
+        "sourceVersion": "6b3c72cac13c4b69307d155def3efcafd591657523ef7fefb6b0d6c4636a8335"
+      }
+    },
+    {
+      "findingId": "46b251a4-8410-4761-9af4-a07c33780303",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "46b251a4-8410-4761-9af4-a07c33780303",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/urlUtils.ts",
+        "line": 240,
+        "sourceVersion": "c12bdc75c3a43d6d81f277620aa8fcd5ee87acfd2a828e0dbfc281f9a02efc4d"
+      }
+    },
+    {
+      "findingId": "76a8a029-714b-4f55-bee1-69186a7de956",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "76a8a029-714b-4f55-bee1-69186a7de956",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/urlUtils.ts",
+        "line": 230,
+        "sourceVersion": "c12bdc75c3a43d6d81f277620aa8fcd5ee87acfd2a828e0dbfc281f9a02efc4d"
+      }
+    },
+    {
+      "findingId": "19e738ed-cace-4501-8733-00f6c2255ca9",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "19e738ed-cace-4501-8733-00f6c2255ca9",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/tags.ts",
+        "line": 112,
+        "sourceVersion": "9c33b898d1dbe93ce2fcb42b1e0ac53309409b445c5bf5dba342254780073efa"
+      }
+    },
+    {
+      "findingId": "2c979c35-a081-4aa5-9797-0e47252dd734",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "2c979c35-a081-4aa5-9797-0e47252dd734",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/tags.ts",
+        "line": 45,
+        "sourceVersion": "9c33b898d1dbe93ce2fcb42b1e0ac53309409b445c5bf5dba342254780073efa"
+      }
+    },
+    {
+      "findingId": "c4d56f84-b8ec-4b8f-b1ee-11bdb0b63a67",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "c4d56f84-b8ec-4b8f-b1ee-11bdb0b63a67",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/shellUtils.ts",
+        "line": 8,
+        "sourceVersion": "7c2d1d029aa6c400c030630eee109e148d098d5b44ddf3c1ff91e7e300f57139"
+      }
+    },
+    {
+      "findingId": "4fff77b9-d1eb-4d65-a01f-9192651c436f",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "4fff77b9-d1eb-4d65-a01f-9192651c436f",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/markdownUtils.ts",
+        "line": 227,
+        "sourceVersion": "16823cc366d64a115faf50971491d634a243aa053020818b2687d895cb464273"
+      }
+    },
+    {
+      "findingId": "f6e8ce79-14c2-4649-8724-f2c5b3c2a24e",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "f6e8ce79-14c2-4649-8724-f2c5b3c2a24e",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/markdownUtils.ts",
+        "line": 117,
+        "sourceVersion": "16823cc366d64a115faf50971491d634a243aa053020818b2687d895cb464273"
+      }
+    },
+    {
+      "findingId": "9fd415b1-468e-42e5-8477-421141aaa8ab",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "9fd415b1-468e-42e5-8477-421141aaa8ab",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/markdownUtils.ts",
+        "line": 65,
+        "sourceVersion": "16823cc366d64a115faf50971491d634a243aa053020818b2687d895cb464273"
+      }
+    },
+    {
+      "findingId": "41ecd457-ecc9-4818-ad6f-d89cf08e3240",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "41ecd457-ecc9-4818-ad6f-d89cf08e3240",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": "packages/docusaurus-utils/src/markdownUtils.ts",
+        "line": 53,
+        "sourceVersion": "16823cc366d64a115faf50971491d634a243aa053020818b2687d895cb464273"
+      }
+    },
+    {
+      "findingId": "63e5fc10-f77e-4442-899f-97fa9030524f",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "63e5fc10-f77e-4442-899f-97fa9030524f",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": ".eslintrc.js",
+        "line": 193,
+        "sourceVersion": "ceb98ff309476c3bfd44eba5b2ed9e1d4afb595a6b0ece7c15939a8084d14fc5"
+      }
+    },
+    {
+      "findingId": "f1aec311-f540-48dc-b7c4-be4eda580390",
+      "instanceId": "facebook__docusaurus-9897",
+      "claimKey": "f1aec311-f540-48dc-b7c4-be4eda580390",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The pinned source contains the exact reported open task marker at this location. This supports an informational maintenance note, not a confirmed functional defect or a required release blocker.",
+      "source": {
+        "path": ".eslintrc.js",
+        "line": 104,
+        "sourceVersion": "ceb98ff309476c3bfd44eba5b2ed9e1d4afb595a6b0ece7c15939a8084d14fc5"
+      }
+    },
+    {
+      "findingId": "e2b1819c-b9c4-4208-ad92-e931d39e5265",
+      "instanceId": "immutable-js__immutable-js-2006",
+      "claimKey": "e2b1819c-b9c4-4208-ad92-e931d39e5265",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The guarded property definition intentionally tolerates the documented IE8 failure. The source explicitly records that fallback; mandatory rethrowing is not justified.",
+      "source": {
+        "path": "src/Record.js",
+        "line": 264,
+        "sourceVersion": "7359b0d6a9dfcb79e78179619a935ffa4ac4f39583a932ff634ef5473caae17f"
+      }
+    },
+    {
+      "findingId": "3339551f-3f55-49c9-9af7-da0e469bef45",
+      "instanceId": "immutable-js__immutable-js-2006",
+      "claimKey": "3339551f-3f55-49c9-9af7-da0e469bef45",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The Map iterator has five genuinely nested control branches at the cited source line, including loop and conditional bodies. This supports a maintainability candidate, not the seeded slice defect.",
+      "source": {
+        "path": "src/Map.js",
+        "line": 591,
+        "sourceVersion": "b728b1e65701fab02a48a4713b5b7f5390cdda3d7a384e51531dd942dffb5bbe"
+      }
+    },
+    {
+      "findingId": "9faa215b-7e05-43cd-ac06-39c6ad1b3459",
+      "instanceId": "immutable-js__immutable-js-2006",
+      "claimKey": "9faa215b-7e05-43cd-ac06-39c6ad1b3459",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The exact TODO marker is a real maintenance note in the pinned List source. It does not establish a functional defect or mandatory release timing.",
+      "source": {
+        "path": "src/List.js",
+        "line": 271,
+        "sourceVersion": "9ceeda72cee88f74d58d0a197df3c7fe245a8b06e8433da83206b862e855c7ff"
+      }
+    },
+    {
+      "findingId": "a21237db-0b72-4f55-9933-2d4c16ef18c3",
+      "instanceId": "mrdoob__three.js-26589",
+      "claimKey": "a21237db-0b72-4f55-9933-2d4c16ef18c3",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The raycasting path contains five nested loop/conditional bodies at this line. This supports a maintainability candidate, not the material-array aliasing bug.",
+      "source": {
+        "path": "src/objects/Mesh.js",
+        "line": 233,
+        "sourceVersion": "a27834b58cdace46db24215a19531d39a497557f7dba926af5e2e5abe52fabaa"
+      }
+    },
+    {
+      "findingId": "e8c5ccdc-0241-4d63-950f-06484ff4d138",
+      "instanceId": "mrdoob__three.js-26589",
+      "claimKey": "e8c5ccdc-0241-4d63-950f-06484ff4d138",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "An exact TODO marker records duplicated serialization maintenance. This is an informational source note, not the clone bug or proof that a release must be blocked.",
+      "source": {
+        "path": "src/materials/Material.js",
+        "line": 377,
+        "sourceVersion": "8c67fe164827421d794ce411fdc02a0f67f772f58862e5a73051fa353dd2e85f"
+      }
+    },
+    {
+      "findingId": "6964b840-759d-455c-9e0a-7e9742fd8c81",
+      "instanceId": "preactjs__preact-2757",
+      "claimKey": "6964b840-759d-455c-9e0a-7e9742fd8c81",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The exact task marker is present. This supports an informational maintenance note, not a functional defect or an evidenced release blocker.",
+      "source": {
+        "path": "src/index.d.ts",
+        "line": 247,
+        "sourceVersion": "b4a43b6cd322dea85b4aed92fefb0c6324b6ae21129b34c7412e0132a9061b9d"
+      }
+    },
+    {
+      "findingId": "a48a5684-23e8-4037-90e0-8a73a38d4a67",
+      "instanceId": "preactjs__preact-2757",
+      "claimKey": "a48a5684-23e8-4037-90e0-8a73a38d4a67",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited control flow has five nested control bodies. This supports a maintainability candidate, not the known progress value=0 behavior defect.",
+      "source": {
+        "path": "src/diff/props.js",
+        "line": 75,
+        "sourceVersion": "d9987301904673969cd70f56afc96b4798b6ae4e9251492dc530bb2f622f023e"
+      }
+    },
+    {
+      "findingId": "94cd1b4e-ff3e-43d5-8622-05239114fb24",
+      "instanceId": "preactjs__preact-2757",
+      "claimKey": "94cd1b4e-ff3e-43d5-8622-05239114fb24",
+      "origin": "deterministic",
+      "verdict": "false",
+      "reason": "The cited assignment implements the explicit dangerouslySetInnerHTML API. This selected code establishes the sink but no attacker-controlled caller or missing trust boundary. A high-confidence high-severity vulnerability is not supported by this evidence alone.",
+      "source": {
+        "path": "src/diff/index.js",
+        "line": 410,
+        "sourceVersion": "575f852fda196d95103446ebccb1d5dbf8d66a615e6bebe08e3e1a5c991d9c43"
+      }
+    },
+    {
+      "findingId": "9f875de8-b22d-4798-a58a-5ebdb3b0e8eb",
+      "instanceId": "preactjs__preact-2757",
+      "claimKey": "9f875de8-b22d-4798-a58a-5ebdb3b0e8eb",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited control flow has five nested control bodies. This supports a maintainability candidate, not the known progress value=0 behavior defect.",
+      "source": {
+        "path": "src/diff/index.js",
+        "line": 173,
+        "sourceVersion": "575f852fda196d95103446ebccb1d5dbf8d66a615e6bebe08e3e1a5c991d9c43"
+      }
+    },
+    {
+      "findingId": "975cd9e0-a9a6-4809-8f48-e12fc9d35db2",
+      "instanceId": "preactjs__preact-2757",
+      "claimKey": "975cd9e0-a9a6-4809-8f48-e12fc9d35db2",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The exact task marker is present. This supports an informational maintenance note, not a functional defect or an evidenced release blocker.",
+      "source": {
+        "path": "src/diff/index.js",
+        "line": 392,
+        "sourceVersion": "575f852fda196d95103446ebccb1d5dbf8d66a615e6bebe08e3e1a5c991d9c43"
+      }
+    }
+  ],
+  "goldMatches": [],
+  "readinessPartial": {
+    "scope": "Effective saved snapshots only; not raw model classification or full criterion accuracy.",
+    "passed": 20,
+    "applicableObserved": 20,
+    "conditionUnavailable": 1,
+    "executionUnavailable": 14,
+    "cases": [
+      {
+        "instanceId": "axios__axios-4738",
+        "passed": 0,
+        "applicableObserved": 0,
+        "executionUnavailable": 7,
+        "reason": "Readiness timed out; no semantic snapshot."
+      },
+      {
+        "instanceId": "facebook__docusaurus-9897",
+        "passed": 7,
+        "applicableObserved": 7,
+        "reason": "Selected imports readable; requirements/design/standards not Missing; original editor/lint/config and contributor evidence supports standards checks; references resolve to frozen inputs and no whole-repository certification is made."
+      },
+      {
+        "instanceId": "immutable-js__immutable-js-2006",
+        "passed": 0,
+        "applicableObserved": 0,
+        "executionUnavailable": 7,
+        "reason": "Readiness timed out; no semantic snapshot."
+      },
+      {
+        "instanceId": "mrdoob__three.js-26589",
+        "passed": 7,
+        "applicableObserved": 7,
+        "reason": "Selected imports readable; requirements/design/standards not Missing; editorconfig/ESLint/package lint target supports standards checks; references resolve to original inputs and conclusions disclose selected scope."
+      },
+      {
+        "instanceId": "preactjs__preact-2757",
+        "passed": 6,
+        "applicableObserved": 6,
+        "conditionUnavailable": 1,
+        "reason": "Repository-Completed condition is unavailable: selected declaration files require a tsconfig absent from this sample. Other presence/original-rule/no-invented-doc/no-whole-system assertions agree. Requirements/design are Incomplete, standards Completed with cited original rules."
+      }
+    ]
+  }
+}

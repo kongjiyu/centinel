@@ -1,6 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { decryptSecret, encryptSecret } from './tokenVault.js';
 import type { AiApiFormat, AiProvider } from './settings.js';
+import type { EmbeddingProviderId } from './embeddingSettingsTypes.js';
+import { isVoyageEmbeddingModel, VOYAGE_EMBEDDING_BASE_URL } from './embeddingSettings.js';
+import { EMBEDDING_DIMENSIONS, type EmbeddingProviderConfiguration } from './review/embeddingProvider.js';
 
 export type ModelProviderSettingId = 'text' | 'vision' | 'embedding';
 
@@ -20,6 +23,8 @@ export type ModelProviderSettingView = {
   fallbackApiKeyPreview: string;
   fallbackBaseUrl: string;
   fallbackModel: string;
+  embeddingProvider?: EmbeddingProviderId;
+  embeddingDimensions?: number;
   updatedAt: string;
 };
 
@@ -35,6 +40,8 @@ export type UpdateModelProviderSetting = {
   fallbackApiKey?: string;
   fallbackBaseUrl?: string;
   fallbackModel?: string;
+  embeddingProvider?: EmbeddingProviderId;
+  embeddingDimensions?: number;
 };
 
 type ModelRow = Record<string, unknown>;
@@ -59,6 +66,32 @@ function metadata(row: ModelRow): Record<string, unknown> {
   return row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
     ? row.metadata as Record<string, unknown>
     : {};
+}
+
+function savedEmbeddingProvider(row: ModelRow): EmbeddingProviderId | null {
+  const value = metadata(row).embeddingProvider;
+  if (value == null) return 'custom';
+  return value === 'voyage' || value === 'custom' ? value : null;
+}
+
+function savedEmbeddingDimensions(row: ModelRow, provider: EmbeddingProviderId): number | null {
+  const value = metadata(row).embeddingDimensions;
+  if (value == null && provider === 'custom') return EMBEDDING_DIMENSIONS;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function normalizedEndpoint(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return value.trim();
+  }
+}
+
+function embeddingProtocol(provider: EmbeddingProviderId): 'voyage' | 'openai-compatible' {
+  return provider === 'voyage' ? 'voyage' : 'openai-compatible';
 }
 
 function masked(ciphertext: string): string {
@@ -96,6 +129,12 @@ export function mapModelProviderSetting(id: ModelProviderSettingId, row: ModelRo
     fallbackApiKeyPreview: masked(fallbackSecret),
     fallbackBaseUrl: row ? text(row, 'fallback_base_url') || text(meta, 'fallbackBaseUrl') : '',
     fallbackModel: row ? text(row, 'fallback_model') : '',
+    ...(id === 'embedding' && row ? {
+      embeddingProvider: savedEmbeddingProvider(row) ?? 'custom',
+      embeddingDimensions: savedEmbeddingProvider(row)
+        ? savedEmbeddingDimensions(row, savedEmbeddingProvider(row)!) ?? undefined
+        : undefined,
+    } : {}),
     updatedAt: row ? text(row, 'updated_at') : '',
   };
 }
@@ -118,8 +157,32 @@ export class SupabaseMigrationRequiredError extends Error {
 export function validateModelProviderUpdate(input: UpdateModelProviderSetting, existing?: ModelRow | null, id: ModelProviderSettingId = 'text'): void {
   if (!providerValues.has(input.provider)) throw new Error('provider must be mimo, gemini, custom, or codex');
   if (!formatValues.has(input.apiFormat)) throw new Error('apiFormat is invalid');
+  let embeddingProvider: EmbeddingProviderId | null = null;
   if (id === 'embedding' && (input.provider !== 'custom' || input.apiFormat !== 'openai-compatible' || input.fallbackEnabled)) {
     throw new Error('Source indexing requires one custom OpenAI-compatible embedding provider without fallback.');
+  }
+  if (id === 'embedding') {
+    const priorEmbeddingProvider = existing ? savedEmbeddingProvider(existing) : 'custom';
+    if (existing && !priorEmbeddingProvider) throw new Error('The saved embedding provider protocol is not supported.');
+    embeddingProvider = input.embeddingProvider ?? priorEmbeddingProvider ?? 'custom';
+    if (embeddingProvider !== 'voyage' && embeddingProvider !== 'custom') throw new Error('embeddingProvider must be voyage or custom');
+    const dimensions = input.embeddingDimensions ?? (embeddingProvider === 'voyage' ? 1024 : EMBEDDING_DIMENSIONS);
+    if (embeddingProvider === 'voyage') {
+      if (dimensions !== 1024) throw new Error('Voyage embeddings require exactly 1024 dimensions.');
+      if (!isVoyageEmbeddingModel(input.model.trim())) throw new Error('Select a published Voyage embedding model.');
+      if (normalizedEndpoint(input.baseUrl) !== normalizedEndpoint(VOYAGE_EMBEDDING_BASE_URL)) {
+        throw new Error(`Voyage embeddings require the official endpoint ${VOYAGE_EMBEDDING_BASE_URL}.`);
+      }
+    } else if (dimensions !== EMBEDDING_DIMENSIONS) {
+      throw new Error(`Custom source indexing requires ${EMBEDDING_DIMENSIONS} dimensions for the existing index.`);
+    }
+    const previousSecret = text(existing ?? {}, 'secret_ciphertext');
+    const providerChanged = priorEmbeddingProvider !== embeddingProvider;
+    const endpointChanged = !existing
+      || normalizedEndpoint(text(existing, 'base_url')) !== normalizedEndpoint(input.baseUrl);
+    if (!input.apiKey.trim() && (!previousSecret || providerChanged || endpointChanged)) {
+      throw new Error('apiKey is required when changing the embedding provider or endpoint.');
+    }
   }
   if (input.provider === 'codex' || input.apiFormat === 'codex-app-server') {
     if (input.provider !== 'codex' || input.apiFormat !== 'codex-app-server' || id === 'embedding') throw new Error('Codex is available only for text and vision analysis.');
@@ -177,7 +240,8 @@ export async function saveModelProviderSetting(
     provider: input.provider,
     api_format: input.apiFormat,
     model: input.model.trim(),
-    base_url: input.baseUrl.trim(),
+    base_url: id === 'embedding' && (input.embeddingProvider ?? (existing ? savedEmbeddingProvider(existing) : 'custom')) === 'voyage'
+      ? VOYAGE_EMBEDDING_BASE_URL : input.baseUrl.trim(),
     secret_ciphertext: primarySecret,
     fallback_provider: input.fallbackEnabled ? input.fallbackProvider : null,
     fallback_api_format: input.fallbackEnabled ? input.fallbackApiFormat : null,
@@ -185,7 +249,15 @@ export async function saveModelProviderSetting(
     fallback_base_url: input.fallbackEnabled ? input.fallbackBaseUrl?.trim() : null,
     fallback_secret_ciphertext: fallbackSecret,
     enabled: true,
-    metadata: { ...cleanMetadata, apiFormat: input.apiFormat },
+    metadata: {
+      ...cleanMetadata,
+      apiFormat: input.apiFormat,
+      ...(id === 'embedding' ? {
+        embeddingProvider: input.embeddingProvider ?? (existing ? savedEmbeddingProvider(existing) : 'custom') ?? 'custom',
+        embeddingProtocol: embeddingProtocol(input.embeddingProvider ?? (existing ? savedEmbeddingProvider(existing) : 'custom') ?? 'custom'),
+        embeddingDimensions: input.embeddingDimensions ?? ((input.embeddingProvider ?? (existing ? savedEmbeddingProvider(existing) : 'custom')) === 'voyage' ? 1024 : EMBEDDING_DIMENSIONS),
+      } : {}),
+    },
     updated_at: new Date().toISOString(),
   };
   const query = existing?.id
@@ -232,17 +304,56 @@ export async function resolveSavedProviderForTest(
 
 /** No environment or built-in provider fallback: indexing uses only the
  * credential explicitly configured in the signed-in user's settings. */
+export type SavedEmbeddingConfiguration = EmbeddingProviderConfiguration & {
+  embeddingProvider: EmbeddingProviderId;
+  dimensions: number;
+};
+
+export async function resolveSavedEmbeddingConfiguration(
+  client: SupabaseClient,
+  userId: string,
+  signal?: AbortSignal,
+): Promise<SavedEmbeddingConfiguration | null> {
+  const row = await findRow(client, userId, 'embedding', signal);
+  if (!row || row.enabled === false) return null;
+  if (row.provider !== 'custom' || row.api_format !== 'openai-compatible') {
+    throw new Error('Source indexing requires the custom OpenAI-compatible database provider format.');
+  }
+  const provider = savedEmbeddingProvider(row);
+  if (!provider) throw new Error('The saved embedding protocol is not supported.');
+  const meta = metadata(row);
+  const expectedProtocol = embeddingProtocol(provider);
+  if (meta.embeddingProtocol != null && meta.embeddingProtocol !== expectedProtocol) {
+    throw new Error('The saved embedding protocol metadata is inconsistent.');
+  }
+  const dimensions = savedEmbeddingDimensions(row, provider);
+  if (dimensions == null || dimensions !== (provider === 'voyage' ? 1024 : EMBEDDING_DIMENSIONS)) {
+    throw new Error('The saved embedding dimensions are not supported.');
+  }
+  const model = text(row, 'model');
+  const storedBaseUrl = text(row, 'base_url');
+  if (!model || !storedBaseUrl) throw new Error('The source-indexing provider configuration is incomplete.');
+  if (provider === 'voyage') {
+    if (!isVoyageEmbeddingModel(model)) throw new Error('The saved Voyage embedding model is not supported.');
+    if (normalizedEndpoint(storedBaseUrl) !== normalizedEndpoint(VOYAGE_EMBEDDING_BASE_URL)) {
+      throw new Error('The saved Voyage embedding endpoint is not the official API endpoint.');
+    }
+  }
+  const secret = text(row, 'secret_ciphertext');
+  if (!secret) throw new Error('The source-indexing provider configuration is incomplete.');
+  const baseUrl = provider === 'voyage' ? VOYAGE_EMBEDDING_BASE_URL : storedBaseUrl;
+  return { apiKey: decryptSecret(secret), baseUrl, model, embeddingProvider: provider, dimensions };
+}
+
 export async function resolveSavedEmbeddingProvider(
   client: SupabaseClient,
   userId: string,
   signal?: AbortSignal,
 ): Promise<{ apiKey: string; baseUrl: string; model: string } | null> {
-  const row = await findRow(client, userId, 'embedding', signal);
-  if (!row || row.enabled === false) return null;
-  if (row.provider !== 'custom' || row.api_format !== 'openai-compatible') {
-    throw new Error('The source-indexing provider must use the custom OpenAI-compatible format.');
+  const configuration = await resolveSavedEmbeddingConfiguration(client, userId, signal);
+  if (!configuration) return null;
+  if (configuration.embeddingProvider !== 'custom' || configuration.dimensions !== EMBEDDING_DIMENSIONS) {
+    throw new Error(`The existing Review index requires ${EMBEDDING_DIMENSIONS}-dimensional custom embeddings. Voyage's 1024-dimensional vectors are incompatible.`);
   }
-  const secret = text(row, 'secret_ciphertext');
-  if (!secret || !text(row, 'base_url') || !text(row, 'model')) throw new Error('The source-indexing provider configuration is incomplete.');
-  return { apiKey: decryptSecret(secret), baseUrl: text(row, 'base_url'), model: text(row, 'model') };
+  return { apiKey: configuration.apiKey, baseUrl: configuration.baseUrl, model: configuration.model };
 }

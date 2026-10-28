@@ -6,11 +6,10 @@ import type { Project } from '../projects.js';
 import type { Requirement, RequirementMapping } from '../staticDomainTypes.js';
 import type { ReviewDecisionRecord } from '../staticDomainTypes.js';
 import type { ReviewSourceManifest, ReviewTraceabilitySnapshot } from '../review/evidenceTypes.js';
-import type { ProjectAssessment } from '../staticDomainTypes.js';
 import { deriveRiskLevel } from '../riskPolicy.js';
 import type { Finding, StaticSession } from '../staticDomainTypes.js';
 import { canonicalJson, deepFreeze } from './canonical.js';
-import { usageForReport, type ProjectReportFinding, type ProjectReportSnapshot, type ReportActionTrace, type ReportArtifact, type ReportDynamicEvidence, type ReportFindingCorrelation, type ReportRequirement, type ReportStandard, type SnapshotContext } from './types.js';
+import { usageForReport, type ProjectReportFinding, type ProjectReportSnapshot, type ReportActionTrace, type ReportArtifact, type ReportCurrentFinding, type ReportCurrentFindings, type ReportDynamicEvidence, type ReportFindingCorrelation, type ReportProjectAssessment, type ReportRequirement, type ReportStandard, type SnapshotContext } from './types.js';
 import type { TokenUsageSummary } from '../tokenUsage.js';
 
 /** The report input seam; production supplies the bearer-scoped Supabase source. */
@@ -25,7 +24,9 @@ export type ReportSnapshotSource = {
   listArtifacts(projectId: string): Promise<Artifact[]>;
   listRequirements(projectId: string): Promise<Requirement[]>;
   getRequirementMappings(requirementId: string): Promise<RequirementMapping[]>;
-  getProjectAssessment(projectId: string): Promise<ProjectAssessment>;
+  getProjectAssessment(projectId: string): Promise<ReportProjectAssessment>;
+  /** Production report adapters return risk and inventory from one projection. */
+  getProjectAssessmentWithCurrentFindings?(projectId: string): Promise<ReportProjectAssessment>;
   getReviewSourceManifest(projectId: string, reviewId: string): Promise<ReviewSourceManifest | null>;
   getReviewTraceabilitySnapshot(projectId: string, reviewId: string): Promise<ReviewTraceabilitySnapshot | null>;
   getCurrentDecision(projectId: string, reviewId: string): Promise<ReviewDecisionRecord | null>;
@@ -34,7 +35,7 @@ export type ReportSnapshotSource = {
   getCorrelations?(projectId: string, reviewId: string): Promise<ReportFindingCorrelation[]>;
 };
 
-export const REPORT_GENERATOR_VERSION = 'project-report-v3';
+export const REPORT_GENERATOR_VERSION = 'project-report-v4';
 const REPORT_TERMINAL_STATUSES = new Set([
   'success', 'failure', 'failed', 'blocked', 'cancelled',
   'completed', 'approved', 'pending_approval', 'changes_requested',
@@ -67,7 +68,54 @@ function latestTerminal<T extends { status: string; updatedAt: string; createdAt
     .sort((a, b) => reportDate(b.updatedAt || b.createdAt) - reportDate(a.updatedAt || a.createdAt))[0] ?? null;
 }
 
-function sortFindings(findings: Finding[]): ProjectReportFinding[] {
+type ExecutionTimestampBasis = 'completed_at' | 'progress.completedAt' | 'created_at' | 'unavailable';
+
+type ResolvedExecutionTimestamp = { value: string | null; milliseconds: number | null; basis: ExecutionTimestampBasis };
+
+function validTimestamp(value: unknown): { value: string; milliseconds: number } | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return null;
+  return { value: new Date(milliseconds).toISOString(), milliseconds };
+}
+
+function progressCompletedAt(progressJson: string): unknown {
+  try {
+    const progress: unknown = JSON.parse(progressJson);
+    return progress && typeof progress === 'object' && !Array.isArray(progress)
+      ? (progress as Record<string, unknown>).completedAt
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveExecutionTimestamp(session: StaticSession): ResolvedExecutionTimestamp {
+  const dedicated = validTimestamp(session.completedAt);
+  if (dedicated) return { ...dedicated, basis: 'completed_at' };
+  const progress = validTimestamp(progressCompletedAt(session.progressJson));
+  if (progress) return { ...progress, basis: 'progress.completedAt' };
+  const created = validTimestamp(session.createdAt);
+  if (created) return { ...created, basis: 'created_at' };
+  return { value: null, milliseconds: null, basis: 'unavailable' };
+}
+
+function latestTerminalStatic(items: StaticSession[]): { session: StaticSession; timestamp: ResolvedExecutionTimestamp } | null {
+  return items
+    .filter(item => REPORT_TERMINAL_STATUSES.has(item.status))
+    .map(session => ({ session, timestamp: resolveExecutionTimestamp(session) }))
+    .sort((a, b) => {
+      if (a.timestamp.milliseconds !== null && b.timestamp.milliseconds !== null
+        && a.timestamp.milliseconds !== b.timestamp.milliseconds) {
+        return b.timestamp.milliseconds - a.timestamp.milliseconds;
+      }
+      if (a.timestamp.milliseconds === null && b.timestamp.milliseconds !== null) return 1;
+      if (a.timestamp.milliseconds !== null && b.timestamp.milliseconds === null) return -1;
+      return a.session.id.localeCompare(b.session.id);
+    })[0] ?? null;
+}
+
+function sortFindings<T extends Finding>(findings: T[]): Array<T & { riskLevel: ProjectReportFinding['riskLevel'] }> {
   return [...findings].map(finding => ({
     ...finding,
     riskLevel: deriveRiskLevel(finding.severity, finding.priority),
@@ -129,7 +177,7 @@ function reportDynamicEvidence(project: Project, evidence: DynamicEvidence[]): R
   }));
 }
 
-function withRelativeFindingPaths(project: Project, findings: Finding[]): Finding[] {
+function withRelativeFindingPaths<T extends Finding>(project: Project, findings: T[]): T[] {
   return findings.map(finding => ({
     ...finding,
     filePath: relativeReportPath(project, finding.filePath),
@@ -152,6 +200,9 @@ export async function buildProjectReportSnapshot(
 
   const reportId = context.reportId ?? crypto.randomUUID();
   const generatedAt = context.generatedAt ?? new Date().toISOString();
+  const assessmentPromise = source.getProjectAssessmentWithCurrentFindings
+    ? source.getProjectAssessmentWithCurrentFindings(projectId)
+    : source.getProjectAssessment(projectId);
   const [staticSessions, dynamicSessions, rawFindings, rawArtifacts, rawRequirements, assessment, projectUsage] = await Promise.all([
     source.listStaticSessions(projectId),
     source.listDynamicSessions(projectId),
@@ -159,7 +210,7 @@ export async function buildProjectReportSnapshot(
     source.listAllFindings(projectId),
     source.listArtifacts(projectId),
     source.listRequirements(projectId),
-    source.getProjectAssessment(projectId),
+    assessmentPromise,
     source.getTokenUsageSummary(projectId),
   ]);
 
@@ -175,7 +226,18 @@ export async function buildProjectReportSnapshot(
 
   const allFindings = sortFindings(withRelativeFindingPaths(project, rawFindings));
   const assessmentItems = sortFindings(assessment.riskItems);
-  const review = latestTerminal(staticSessions);
+  const currentFindingEnvelope: ReportCurrentFindings = assessment.currentFindings
+    ? {
+      ...assessment.currentFindings,
+      items: sortFindings(withRelativeFindingPaths(project, assessment.currentFindings.items)),
+    }
+    : {
+      status: 'unavailable',
+      reason: 'This report source did not provide a reconciled current finding projection.',
+      items: [],
+    };
+  const staticReviewSelection = latestTerminalStatic(staticSessions);
+  const review = staticReviewSelection?.session ?? null;
   let latestReview: ProjectReportSnapshot['latestReview'] = null;
 
   if (review) {
@@ -199,6 +261,9 @@ export async function buildProjectReportSnapshot(
         status: review.status,
         createdAt: review.createdAt,
         updatedAt: review.updatedAt,
+        completedAt: review.completedAt ?? null,
+        executionTimestamp: staticReviewSelection?.timestamp.value ?? null,
+        executionTimestampBasis: staticReviewSelection?.timestamp.basis ?? 'unavailable',
         summary: review.finalSummary || null,
         failureReason: review.failureReason || null,
       },
@@ -286,6 +351,7 @@ export async function buildProjectReportSnapshot(
       items: assessmentItems,
     },
     findings: allFindings,
+    currentFindings: currentFindingEnvelope,
     sourceInventory: { status: 'available', artifactCount: artifacts.length, artifacts },
     requirements: { status: 'available', items: requirements },
     standards: { status: 'available', items: standards },

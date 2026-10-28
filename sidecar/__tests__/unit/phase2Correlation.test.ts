@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { correlateReviewFindings, findingSourceIdentityHash, type CorrelatableFinding, type FindingResolutionContext } from '../../src/review/correlation.js';
+import { ASSESSMENT_VALIDATION_VERSION } from '../../src/review/assessmentValidation.js';
 
 function finding(overrides: Partial<CorrelatableFinding> = {}): CorrelatableFinding {
   return {
@@ -28,6 +29,7 @@ const compare = (previous: CorrelatableFinding[], current: CorrelatableFinding[]
 
 const resolutionContext = (overrides: Partial<FindingResolutionContext> = {}): FindingResolutionContext => ({
   modelStatus: 'succeeded',
+  assessmentValidation: { version: ASSESSMENT_VALIDATION_VERSION, artifactIds: ['artifact-1'], inspectedReferences: [{ artifactId: 'artifact-1', filePath: 'src/account.ts', lineNumber: 20, sourceVersion: 'sha256:new-version', featureId: 'account', domain: 'security' }] },
   parentSourceManifestId: 'manifest-parent',
   sourceManifestId: 'manifest-child',
   allSourcesReadable: true,
@@ -140,7 +142,7 @@ describe('finding correlation across Review iterations', () => {
     expect(snapshot.correlations[0]).toMatchObject({
       classification: 'resolved', parentFindingId: 'resolved', childFindingId: null,
       resolutionEligibility: {
-        version: 1,
+        version: 2,
         basis: 'not_reproduced_in_comparable_review',
         parentSourceManifestId: 'manifest-parent',
         sourceManifestId: 'manifest-child',
@@ -159,6 +161,17 @@ describe('finding correlation across Review iterations', () => {
       resolutionContext: resolutionContext(),
     });
     expect(snapshot.correlations[0]).toMatchObject({ classification: 'resolved', resolutionEligibility: { parentSourceVersion: 'sha256:old-version' } });
+  });
+
+  it('does not create new resolution eligibility from an older assessment validation version', () => {
+    const snapshot = correlateReviewFindings({
+      parentReviewId: 'parent-review', childReviewId: 'child-review',
+      previous: [finding({ id: 'old-policy', artifactId: 'artifact-1' })], current: [],
+      evaluatedSources: [{ artifactId: 'artifact-1', sourceIdentity: 'src/account.ts', filePath: 'src/account.ts', sourceVersion: 'sha256:new-version' }],
+      resolutionContext: resolutionContext({ assessmentValidation: { ...resolutionContext().assessmentValidation!, version: 'static-assessment-2026-10-21.1' } }),
+    });
+    expect(snapshot.correlations[0]).toMatchObject({ classification: 'carried_over' });
+    expect(snapshot.correlations[0].resolutionEligibility).toBeUndefined();
   });
 
   it('rejects a recorded parent version that conflicts with the parent manifest', () => {

@@ -1,0 +1,173 @@
+[
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "repository_completed_when_expected_imports_are_readable",
+    "verdict": "true",
+    "reason": "Fresh snapshot d94803d8-1d72-49f6-8341-56f24b9d4eaa completed at 2026-10-23T18:52:51.406Z under readiness-2026-10-23.3, stale=false. Repository is completed with 10 sources and 2/2 checks. Independently reread all 10 expected files and matched frozen byte lengths/SHA-256, current-run imported artifact hashes/version IDs and the frozen manifest/input/acceptance bundle. Original package and ESLint JSON parse with zero diagnostics under the trusted workspace parser. This supports readable selected sources/configuration, not full repository or runtime correctness. No upstream code/dependencies were executed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 2,
+        "excerpt": "\"name\": \"three\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.eslintrc.json",
+        "lineNumber": 2,
+        "excerpt": "\"root\": true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.editorconfig",
+        "lineNumber": 3,
+        "excerpt": "root = true"
+      }
+    ]
+  },
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "requirements_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw requirements presence is present; effective Requirements is incomplete, not missing. Original README specifies renderer packaging and an observable animated-cube journey. Across two raw batches, clarity/consistency/business_decisions/boundaries each have 1 pass/1 unknown and effective pass; testability/exceptions each have 1 gap/1 unknown and effective gap; scope has 1 pass/1 unknown but becomes unknown after nonexact scope evidence. This independently establishes presence, without accepting all individual requirement findings. In particular the browser-matrix absence phrase needs qualification because package.json already declares Browserslist targets; that additional semantic issue is retained separately.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+        "lineNumber": 11,
+        "excerpt": "The current builds only include a WebGL renderer but WebGPU (experimental), SVG and CSS3D renderers are also available as addons."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+        "lineNumber": 24,
+        "excerpt": "This code creates a scene, a camera, and a geometric cube, and it adds the cube to the scene."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 39,
+        "excerpt": "\"> 1%, not dead, not ie 11, not op_mini all\""
+      }
+    ]
+  },
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "design_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw design presence is present; effective Design is completed with six passing criteria, each backed by two raw passes. The selected Object3D/Material/Line/Mesh/Points classes and shared constants contain substantive interfaces, data, flows and failure choices, so Design is not wholly missing. The frozen conservative prior remains Incomplete and has not been rewritten. Design completed is an observed category verdict, not independently accepted full design completeness: the seven partial assertions do not provide exhaustive criterion-level gold or establish the complete clone-ownership/failure contract. This prior/output disagreement remains an explicit unscored unknown in the verification artifact.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/core/Object3D.js",
+        "lineNumber": 28,
+        "excerpt": "class Object3D extends EventDispatcher {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/materials/Material.js",
+        "lineNumber": 7,
+        "excerpt": "class Material extends EventDispatcher {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Mesh.js",
+        "lineNumber": 37,
+        "excerpt": "constructor( geometry = new BufferGeometry(), material = new MeshBasicMaterial() ) {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Points.js",
+        "lineNumber": 31,
+        "excerpt": "copy( source, recursive ) {"
+      }
+    ]
+  },
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "standards_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw standards presence is present; effective Standards is completed, an allowed frozen standards category state. EditorConfig defines target patterns/indentation, ESLint defines environment/rule severities and package scripts invoke checks. All three standards criteria have 1 raw pass/1 unknown and effective pass, with source inventory/classification/scope evidence valid. This assertion establishes actual standards presence; the full conflict criterion is not separately certified against external configurations by these seven assertions.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.editorconfig",
+        "lineNumber": 9,
+        "excerpt": "[*.{js,ts,html}]\ncharset = utf-8\nindent_style = tab"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.eslintrc.json",
+        "lineNumber": 46,
+        "excerpt": "\"no-throw-literal\": [\n      \"error\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 47,
+        "excerpt": "\"lint-core\": \"eslint src\""
+      }
+    ]
+  },
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+    "verdict": "true",
+    "reason": "The resulting applicability/checkability passes are supported by original rules: root configuration/environment selectors and EditorConfig file patterns identify applicability, while ESLint error-level single quotes and no-throw-literal rules plus lint-core/test scripts give concrete checking methods. Both raw counts are 1 pass/1 unknown; effective pass has basisValid/evidenceValid=true and no criterion reason counts. No global absence of commands/configuration is asserted. This does not mean the tools ran, their external rule packages were inspected, or actual browser compatibility passed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.editorconfig",
+        "lineNumber": 13,
+        "excerpt": "[*.{js,ts}]\ntrim_trailing_whitespace = true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.eslintrc.json",
+        "lineNumber": 49,
+        "excerpt": "\"quotes\": [\n      \"error\",\n      \"single\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 47,
+        "excerpt": "\"lint-core\": \"eslint src\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 43,
+        "excerpt": "\"test\": \"npm run lint && npm run test-unit\""
+      }
+    ]
+  },
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "no_invented_requirement_or_design_document",
+    "verdict": "true",
+    "reason": "All 90 retained reference objects match exact original text, frozen content hashes and current imported artifact/version IDs: 66 distinct path/excerpt pairs across all 10 selected files. No nonexistent requirement/design document is cited. Saved references contain no lineNumber fields; match lines were independently located. One raw requirements scope citation is rejected and retained as unknown; valid filtered provenance is distinct from semantic accuracy. Exact reference checks and additional semantic uncertainties are preserved in readiness-three-js-verification.json.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+        "lineNumber": 9,
+        "excerpt": "#### JavaScript 3D library"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Mesh.js",
+        "lineNumber": 35,
+        "excerpt": "class Mesh extends Object3D {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Points.js",
+        "lineNumber": 14,
+        "excerpt": "class Points extends Object3D {"
+      }
+    ]
+  },
+  {
+    "instanceId": "mrdoob__three.js-26589",
+    "id": "no_whole_repository_or_bug_free_certification",
+    "verdict": "true",
+    "reason": "No saved finding or criterion states that the whole repository is bug-free or runtime-correct. Repository completed denotes the 10-file selection; Design/Standards completed are selected-category verdicts, while Requirements remains incomplete with two gaps and one unknown. This assertion is not a general endorsement of those category verdicts: observed Design completed differs from the unmodified frozen prior Incomplete and is explicitly retained for further criterion-level adjudication. No whole-repository or bug-free certification follows from six passing design checks. The testability browser-matrix wording also remains an additional unscored uncertainty; the selected Browserslist policy prevents assuming that all browser targets are absent. No mixed raw pass/gap criterion or batch_status_conflict occurs in this run. These seven assertions are separate from full16 semantic and Review acceptance.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"JavaScript 3D library\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+        "lineNumber": 39,
+        "excerpt": "\"> 1%, not dead, not ie 11, not op_mini all\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+        "lineNumber": 11,
+        "excerpt": "The current builds only include a WebGL renderer but WebGPU (experimental), SVG and CSS3D renderers are also available as addons."
+      }
+    ]
+  }
+]

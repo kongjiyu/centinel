@@ -1,0 +1,1829 @@
+{
+  "kind": "offline-v10-prompt-packet-character-comparison-not-model-assessment",
+  "capturedAt": "2026-10-25T07:19:09.023Z",
+  "methodology": {
+    "inputs": "Same frozen selected-source files and artifact manifests for before and after.",
+    "before": "v10 baseline packet behavior: exact-version excerpt filtering, with full excerpt bodies and the complete batch coverage lists.",
+    "after": "Same sources and feature IDs; exact-substring ranked excerpt bodies are replaced by source references and unrelated artifact-list entries are filtered from the prompt map.",
+    "sourceProof": "Unique planned source segments are reconstructed by original line range, encoded as UTF-8 and byte-compared to each selected file; all feature IDs must be present exactly once.",
+    "tokenEstimate": "Character counts divided by four, rounded up, are rough estimates only; this is not provider tokenization or billable usage.",
+    "execution": "Uses only the local TypeScript parser and deterministic static rules. Does not call a provider or execute repository code.",
+    "excluded": "Provider framing, output tokens, live repair frequency, embedding provider usage and semantic quality are not measured here."
+  },
+  "repositories": [
+    {
+      "alias": "axios",
+      "batches": 22,
+      "features": 147,
+      "selectedFiles": 52,
+      "sourceSegments": 53,
+      "before": {
+        "prompt": {
+          "total": 2219315,
+          "max": 122258
+        },
+        "system": {
+          "total": 150480,
+          "max": 6840
+        },
+        "schema": {
+          "total": 71268,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 2351143,
+          "max": 127259
+        },
+        "domainRepair": {
+          "total": 2484974,
+          "max": 135343
+        }
+      },
+      "after": {
+        "prompt": {
+          "total": 1935784,
+          "max": 111017
+        },
+        "system": {
+          "total": 150480,
+          "max": 6840
+        },
+        "schema": {
+          "total": 71268,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 2067612,
+          "max": 116018
+        },
+        "domainRepair": {
+          "total": 2201443,
+          "max": 124102
+        }
+      },
+      "estimatedInputTokensByComponent": {
+        "beforePrompt": 554829,
+        "afterPrompt": 483946,
+        "beforeSchema": 17817,
+        "afterSchema": 17817
+      },
+      "savings": {
+        "prompt": {
+          "totalCharactersSaved": 283531,
+          "maxCharactersSaved": 11241,
+          "estimatedInputTokensSavedTotal": 70883
+        },
+        "system": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "schema": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "citationRepair": {
+          "totalCharactersSaved": 283531,
+          "maxCharactersSaved": 11241,
+          "estimatedInputTokensSavedTotal": 70883
+        },
+        "domainRepair": {
+          "totalCharactersSaved": 283531,
+          "maxCharactersSaved": 11241,
+          "estimatedInputTokensSavedTotal": 70883
+        }
+      },
+      "coverage": {
+        "featureCoverageExact": true,
+        "selectedFileCount": 52,
+        "files": [
+          {
+            "artifactId": "eef33cd4-5a59-415e-8699-f50825f81501",
+            "filePath": ".eslintrc.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "48cb229c-fbf0-4ddc-b626-42e033400fde",
+            "filePath": "CONTRIBUTING.md",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "01ad064c-9546-4c9b-bfa0-711c2c48f30e",
+            "filePath": "index.d.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "5c1823e1-e4b6-4b08-a721-164296f09de6",
+            "filePath": "index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "525bc17d-278c-446b-8e57-a535495fbebb",
+            "filePath": "lib/adapters/http.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8fcd5164-1995-4ae2-b869-d736548a73e5",
+            "filePath": "lib/adapters/xhr.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f82da680-15c0-4953-8bfd-724ac27a27b1",
+            "filePath": "lib/axios.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "372d0cd2-f489-4ab9-9219-87ee609eecd2",
+            "filePath": "lib/cancel/CanceledError.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7b3b6434-700b-435d-83a7-646492104986",
+            "filePath": "lib/cancel/CancelToken.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "5b062659-6359-4cff-83cb-20170b08e81a",
+            "filePath": "lib/cancel/isCancel.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e5b05096-d260-48d7-8da4-b7692a8c07bd",
+            "filePath": "lib/core/Axios.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "862a1acb-aa13-4d25-a2b3-a9c121727a15",
+            "filePath": "lib/core/AxiosError.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ab948040-31bc-4414-9203-7acfaebb0b34",
+            "filePath": "lib/core/buildFullPath.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8142d0b2-f5e6-4a10-8489-1c1e0ed5527c",
+            "filePath": "lib/core/dispatchRequest.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "cae0e93b-9386-4e60-b88e-304f2fcecf26",
+            "filePath": "lib/core/InterceptorManager.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "5947d748-e1ff-4aea-8f76-1d74911a74c5",
+            "filePath": "lib/core/mergeConfig.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "cf4bf623-0e93-46af-b4eb-be8d9987844c",
+            "filePath": "lib/core/settle.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2ee3efe2-771d-44f0-bddb-c536a7d03b3a",
+            "filePath": "lib/core/transformData.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f4f8208a-0701-4d57-8e84-11cb41e362e2",
+            "filePath": "lib/defaults/index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "0dc0059e-ea98-47f3-a704-5dc9e5c9bb47",
+            "filePath": "lib/defaults/transitional.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d3abd1cd-4262-4b44-bb5e-3760ad1eb49c",
+            "filePath": "lib/env/classes/FormData.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2b3d84e5-87ca-4f66-8b0c-0fcfd3a1ef44",
+            "filePath": "lib/env/data.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "14f48279-c3a7-4d3d-a2eb-08e5117fa11c",
+            "filePath": "lib/helpers/AxiosURLSearchParams.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "949f8785-fc4c-4ab7-836c-4ad2e4456ebb",
+            "filePath": "lib/helpers/bind.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1844c7a5-e4db-4f3a-890f-edd814e8d634",
+            "filePath": "lib/helpers/buildURL.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9bced6d8-0072-4b77-9c94-fcfd6ab10888",
+            "filePath": "lib/helpers/combineURLs.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6778c098-e85c-4dab-934f-9a52ee8be25e",
+            "filePath": "lib/helpers/cookies.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "3cf6eed8-7df9-4294-be0b-7bcfae9c7541",
+            "filePath": "lib/helpers/deprecatedMethod.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8bbd3412-acf3-4890-baf4-be70f617d984",
+            "filePath": "lib/helpers/formDataToJSON.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c3d4b116-a774-43ba-abd9-2839188f18e0",
+            "filePath": "lib/helpers/fromDataURI.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e3b4aea4-f586-4c18-9ede-bbd77f790be0",
+            "filePath": "lib/helpers/isAbsoluteURL.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ad11e716-8cb1-4878-91b0-a1b0dfb4d6db",
+            "filePath": "lib/helpers/isAxiosError.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "06aad113-70c5-4937-9f59-b17bbf481bde",
+            "filePath": "lib/helpers/isURLSameOrigin.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "4d0ede35-d405-4019-9ae1-847878868d48",
+            "filePath": "lib/helpers/normalizeHeaderName.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1507d238-9d6e-4152-998b-ad53f669caa4",
+            "filePath": "lib/helpers/null.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "eb02bd6e-a189-479f-a8eb-4b1fc31b3384",
+            "filePath": "lib/helpers/parseHeaders.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1402055b-b445-40a2-a063-b9a00b13482a",
+            "filePath": "lib/helpers/parseProtocol.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ea6ab7bc-5917-4e25-82a2-69d689ebeb92",
+            "filePath": "lib/helpers/spread.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "eca6e8df-7489-40f8-982d-a85a3308bddc",
+            "filePath": "lib/helpers/toFormData.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9b7a0c5c-e5a4-4f86-940e-28c5a143906b",
+            "filePath": "lib/helpers/toURLEncodedForm.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1b60a1c6-4bbc-4304-bd60-a94637bf67e5",
+            "filePath": "lib/helpers/validator.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e87dfec1-de39-40fb-8101-2fd472b3996e",
+            "filePath": "lib/platform/browser/classes/FormData.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6cbbf4e3-2cbe-45b0-b4c4-4ec74e2ee5c2",
+            "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1fa85a2b-d233-4c4e-a676-fc6340d415f7",
+            "filePath": "lib/platform/browser/index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f00a724f-a069-49e8-a762-ba4b9cf24fd2",
+            "filePath": "lib/platform/index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9bbd537a-4a95-4a89-87a3-49c28a235f6a",
+            "filePath": "lib/platform/node/classes/FormData.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ae30d371-a3ce-416e-b5bc-a76cc73e1851",
+            "filePath": "lib/platform/node/classes/URLSearchParams.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "bdd0a3f3-5b58-4384-b540-195f4c959485",
+            "filePath": "lib/platform/node/index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2b012c8c-51ea-4ca5-bc3e-c7b6e7174d74",
+            "filePath": "lib/utils.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "926de709-45f3-4d98-a47e-a226cecc6290",
+            "filePath": "package.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d8f6861d-5172-4ffa-9802-1f17e0c7a1f8",
+            "filePath": "README.md",
+            "segments": 2,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e8e45252-dbb4-4fdc-a1e9-549544f8123d",
+            "filePath": "tsconfig.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          }
+        ],
+        "allSelectedTextCovered": true
+      },
+      "invariantSchemaCharsEqual": true,
+      "invariantSystemCharsEqual": true,
+      "passed": true
+    },
+    {
+      "alias": "docusaurus",
+      "batches": 27,
+      "features": 192,
+      "selectedFiles": 29,
+      "sourceSegments": 29,
+      "before": {
+        "prompt": {
+          "total": 2685289,
+          "max": 134619
+        },
+        "system": {
+          "total": 184680,
+          "max": 6840
+        },
+        "schema": {
+          "total": 87738,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 2868441,
+          "max": 142643
+        },
+        "domainRepair": {
+          "total": 3071379,
+          "max": 152856
+        }
+      },
+      "after": {
+        "prompt": {
+          "total": 2291090,
+          "max": 119321
+        },
+        "system": {
+          "total": 184680,
+          "max": 6840
+        },
+        "schema": {
+          "total": 87738,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 2474242,
+          "max": 127345
+        },
+        "domainRepair": {
+          "total": 2677180,
+          "max": 137558
+        }
+      },
+      "estimatedInputTokensByComponent": {
+        "beforePrompt": 671323,
+        "afterPrompt": 572773,
+        "beforeSchema": 21935,
+        "afterSchema": 21935
+      },
+      "savings": {
+        "prompt": {
+          "totalCharactersSaved": 394199,
+          "maxCharactersSaved": 15298,
+          "estimatedInputTokensSavedTotal": 98550
+        },
+        "system": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "schema": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "citationRepair": {
+          "totalCharactersSaved": 394199,
+          "maxCharactersSaved": 15298,
+          "estimatedInputTokensSavedTotal": 98550
+        },
+        "domainRepair": {
+          "totalCharactersSaved": 394199,
+          "maxCharactersSaved": 15298,
+          "estimatedInputTokensSavedTotal": 98550
+        }
+      },
+      "coverage": {
+        "featureCoverageExact": true,
+        "selectedFileCount": 29,
+        "files": [
+          {
+            "artifactId": "fec87f1c-032e-48f8-aefb-2d1e1c28e58c",
+            "filePath": ".editorconfig",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "67090017-4ee8-4f19-b3b9-f9e72d4287b4",
+            "filePath": ".eslintrc.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ecb5e8e1-8eb1-4a80-af67-a2af42339161",
+            "filePath": "CONTRIBUTING.md",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "830270cf-677e-4617-a2a5-5635ae822cae",
+            "filePath": "package.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a31c5411-b696-43fe-ba52-8eaa05628d40",
+            "filePath": "packages/docusaurus-utils/package.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "22388557-393f-4639-88d1-fab2e5052b1c",
+            "filePath": "packages/docusaurus-utils/src/cliUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2b152887-9302-4b56-9440-fbea41125f0f",
+            "filePath": "packages/docusaurus-utils/src/constants.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "14b164bb-3451-4b19-ae2d-51aaa9819e82",
+            "filePath": "packages/docusaurus-utils/src/contentVisibilityUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8c3e66f4-783c-4805-8a66-b701a0747bfe",
+            "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d249a07c-fc10-4f3f-bdff-fc68ae4f64ac",
+            "filePath": "packages/docusaurus-utils/src/deps.d.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "20de3877-0d89-433a-8dc1-d71ea0dfb27a",
+            "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c9ed699e-6c09-4aca-8d1b-76aa482b5c47",
+            "filePath": "packages/docusaurus-utils/src/gitUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c3c77770-5fa5-45ff-aebb-0fc2c65acfcd",
+            "filePath": "packages/docusaurus-utils/src/globUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6203f87d-322c-4092-8b41-c540b49bacd7",
+            "filePath": "packages/docusaurus-utils/src/hashUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "fe2b6f2d-7dca-42c6-b57f-a44dbdb1ee51",
+            "filePath": "packages/docusaurus-utils/src/i18nUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "15a6358e-eb63-4fdc-8bc4-e783b3012bb1",
+            "filePath": "packages/docusaurus-utils/src/index.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9c91a9ca-b8d4-44a0-a1c8-cc1cd57603a4",
+            "filePath": "packages/docusaurus-utils/src/jsUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d276c534-ca3d-43fa-8cd6-3a54d944672f",
+            "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "07c4fb1a-bb8d-4e46-b213-30fa113bf3a1",
+            "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "b59603c2-878d-4d55-81cc-dd61fb61c10d",
+            "filePath": "packages/docusaurus-utils/src/moduleUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "caeb50c5-24f6-4b33-9def-54f0dfdb7f68",
+            "filePath": "packages/docusaurus-utils/src/pathUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "35745a02-8d94-4046-bde6-86e6dbba179b",
+            "filePath": "packages/docusaurus-utils/src/regExpUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f1ae1c01-51bc-414d-84a1-7670f02099a9",
+            "filePath": "packages/docusaurus-utils/src/shellUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "940fb577-fa36-4652-a7f2-9db68d3a8a3a",
+            "filePath": "packages/docusaurus-utils/src/slugger.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "cc3bd935-2106-4723-98ac-cb050816e721",
+            "filePath": "packages/docusaurus-utils/src/tags.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c619f45b-daa9-4a12-90c2-ef33154f5473",
+            "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f3b3d412-0f2c-45f3-8731-81458f23debd",
+            "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6bf0782c-1b5b-4be9-90ad-99b5079f3f3e",
+            "filePath": "README.md",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9d66eb74-cb54-413c-9dc6-e0ed24b83cd2",
+            "filePath": "tsconfig.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          }
+        ],
+        "allSelectedTextCovered": true
+      },
+      "invariantSchemaCharsEqual": true,
+      "invariantSystemCharsEqual": true,
+      "passed": true
+    },
+    {
+      "alias": "immutable-js",
+      "batches": 68,
+      "features": 510,
+      "selectedFiles": 80,
+      "sourceSegments": 82,
+      "before": {
+        "prompt": {
+          "total": 6611890,
+          "max": 124461
+        },
+        "system": {
+          "total": 465120,
+          "max": 6840
+        },
+        "schema": {
+          "total": 221610,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 7058077,
+          "max": 130380
+        },
+        "domainRepair": {
+          "total": 7494098,
+          "max": 138962
+        }
+      },
+      "after": {
+        "prompt": {
+          "total": 5842100,
+          "max": 111345
+        },
+        "system": {
+          "total": 465120,
+          "max": 6840
+        },
+        "schema": {
+          "total": 221610,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 6288287,
+          "max": 117264
+        },
+        "domainRepair": {
+          "total": 6724308,
+          "max": 125846
+        }
+      },
+      "estimatedInputTokensByComponent": {
+        "beforePrompt": 1652973,
+        "afterPrompt": 1460525,
+        "beforeSchema": 55403,
+        "afterSchema": 55403
+      },
+      "savings": {
+        "prompt": {
+          "totalCharactersSaved": 769790,
+          "maxCharactersSaved": 13116,
+          "estimatedInputTokensSavedTotal": 192448
+        },
+        "system": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "schema": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "citationRepair": {
+          "totalCharactersSaved": 769790,
+          "maxCharactersSaved": 13116,
+          "estimatedInputTokensSavedTotal": 192448
+        },
+        "domainRepair": {
+          "totalCharactersSaved": 769790,
+          "maxCharactersSaved": 13116,
+          "estimatedInputTokensSavedTotal": 192448
+        }
+      },
+      "coverage": {
+        "featureCoverageExact": true,
+        "selectedFileCount": 80,
+        "files": [
+          {
+            "artifactId": "997f1238-aa2f-4309-9fb0-719c4d117a66",
+            "filePath": ".editorconfig",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "54173071-70f2-45f2-8928-8e34f25ab532",
+            "filePath": ".eslintrc.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6604bf97-06c7-491e-abc5-5bff81aa2ff0",
+            "filePath": ".prettierrc.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "55dda79d-7c85-41e8-bdca-965e73b33e7f",
+            "filePath": "package.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "824b36e2-e78e-4216-b180-3d3a55453230",
+            "filePath": "README.md",
+            "segments": 2,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "aea4b504-183b-45fa-9e0a-86b0ce536612",
+            "filePath": "src/Collection.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a64956d9-ce4e-4b70-9695-03c36b65ab17",
+            "filePath": "src/CollectionImpl.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "019c84f1-179d-40fb-a3f3-6f45e8f3fdc8",
+            "filePath": "src/fromJS.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "363b7368-66f1-42c7-9d84-624f79591902",
+            "filePath": "src/functional/get.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a4deb011-80ab-4dee-8947-ecde768b6abc",
+            "filePath": "src/functional/getIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7e69dba7-3f1a-4492-bd2d-f47ceb23e0dd",
+            "filePath": "src/functional/has.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ee652f10-bc3f-41fa-8166-955837231217",
+            "filePath": "src/functional/hasIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "90419bd8-aa27-4c35-98f3-bb8032f318d3",
+            "filePath": "src/functional/merge.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1548c12b-b4fb-481c-84d2-2e7b2aaa25c6",
+            "filePath": "src/functional/remove.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d121d267-09f2-47ce-8fc4-05fdaa5e2e1b",
+            "filePath": "src/functional/removeIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2faa447d-f59b-4c23-89af-3c357ac89362",
+            "filePath": "src/functional/set.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "71979559-af5e-4bb9-820f-4b4180d05765",
+            "filePath": "src/functional/setIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a50ed321-4d10-482b-b9dc-2a09b856028d",
+            "filePath": "src/functional/update.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c1821b01-110f-4a8b-80c4-f4cccf1c362d",
+            "filePath": "src/functional/updateIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a8e1d0d8-90fc-45d8-a753-bb9f8acacb88",
+            "filePath": "src/Hash.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "77be3cae-053d-4380-a287-c80830233ec4",
+            "filePath": "src/Immutable.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8b1f9fc5-cdc5-45c9-97de-0426b74818ad",
+            "filePath": "src/is.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "58a6bfdd-be86-48e8-9d7c-5ca04b11f31e",
+            "filePath": "src/Iterator.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7dd213a5-92d2-4d28-b074-1bcfdf13b573",
+            "filePath": "src/List.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "432221b4-9792-42a6-b3ad-2de543439e64",
+            "filePath": "src/Map.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d8315c7d-7164-4ae0-989c-16f0f29abedc",
+            "filePath": "src/Math.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "27651f57-ac93-4278-8b84-6ccf4e11b78d",
+            "filePath": "src/methods/asImmutable.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "4b60ea09-aca1-40f8-b914-db10b1b4190a",
+            "filePath": "src/methods/asMutable.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f0e1434f-6009-4c18-9f2f-f0bcd363052f",
+            "filePath": "src/methods/deleteIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6cc18dd2-7097-4597-acc1-6b0ddd0dd502",
+            "filePath": "src/methods/getIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9605b8b2-bb95-4651-bb76-9c8a542fc1ad",
+            "filePath": "src/methods/hasIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "93524765-67b8-4210-9ced-3b04e8771ff0",
+            "filePath": "src/methods/merge.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "0b6e3116-1b39-45d3-81c6-a8dd43d1306f",
+            "filePath": "src/methods/mergeDeep.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9ce36cec-c761-4d99-b681-2540c0ae6235",
+            "filePath": "src/methods/mergeDeepIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9647a206-9e5d-4a78-981c-2cc42c8766f7",
+            "filePath": "src/methods/mergeIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f8d519ac-53fa-405d-8a60-8a34c3247647",
+            "filePath": "src/methods/setIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "3e3a3141-fbd6-49fc-9245-0abc195d79db",
+            "filePath": "src/methods/toObject.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c738649b-b162-4af5-974f-f112ccd97887",
+            "filePath": "src/methods/update.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "226eb55f-45cc-4a50-940e-8642cbddf8fd",
+            "filePath": "src/methods/updateIn.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1995d84c-484b-4786-8a67-b332ceeef015",
+            "filePath": "src/methods/wasAltered.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "eb6a33ab-e768-4d45-806d-321b52e4a107",
+            "filePath": "src/methods/withMutations.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "37a3d90f-16c1-4589-95ad-01640c9cf364",
+            "filePath": "src/Operations.js",
+            "segments": 2,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "4f48f17b-09fb-49f1-be90-fad9dc05d5fc",
+            "filePath": "src/OrderedMap.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "db4f4e58-edc7-450c-b5b3-e1e54ec57a2d",
+            "filePath": "src/OrderedSet.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7e84cc78-e410-47a1-a27a-218eb30f8ddb",
+            "filePath": "src/PairSorting.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "da047765-6cf0-40b5-87b7-334fd564364a",
+            "filePath": "src/predicates/isAssociative.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "598b3bd4-434f-4b2b-9776-34fa5e148277",
+            "filePath": "src/predicates/isCollection.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "08806cd7-ad38-4c7a-91bd-0f8ad413f567",
+            "filePath": "src/predicates/isImmutable.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ace6e534-3067-4cc8-8a00-86dbf3d141b0",
+            "filePath": "src/predicates/isIndexed.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ac3fe900-acd6-4193-8ca9-ed57f6f5942a",
+            "filePath": "src/predicates/isKeyed.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "851de853-8de4-4d98-875e-a32652fb929b",
+            "filePath": "src/predicates/isList.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ed3cbef6-4fb3-42ec-8290-578a813c2979",
+            "filePath": "src/predicates/isMap.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6f70664b-68f0-4164-a037-d919a11d0a0a",
+            "filePath": "src/predicates/isOrdered.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "89d4af94-b977-4709-8064-f586868d253b",
+            "filePath": "src/predicates/isOrderedMap.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "5f8997da-a153-43e3-911b-89354cb921a0",
+            "filePath": "src/predicates/isOrderedSet.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "5111a56e-d3f7-4e34-b60a-0e326adb4b05",
+            "filePath": "src/predicates/isRecord.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c031df54-9802-4a09-9a92-685a560c48b6",
+            "filePath": "src/predicates/isSeq.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "df069093-c0de-4b8c-90cf-86d9c21bdb19",
+            "filePath": "src/predicates/isSet.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a6bf6daf-eed2-4237-a255-4317701441d6",
+            "filePath": "src/predicates/isStack.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "3051faf0-d6a2-4816-b3df-fad4c43e33e9",
+            "filePath": "src/predicates/isValueObject.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "fe2f2534-fdea-4b22-b1d3-774c8b5432a4",
+            "filePath": "src/Range.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1a1d5a62-6379-4ae2-84e9-d60d2dda84d0",
+            "filePath": "src/Record.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "f6267925-4b5f-4435-9778-621026db013c",
+            "filePath": "src/Repeat.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "c7d42c1d-8fd8-487e-bd49-d22c12752c5d",
+            "filePath": "src/Seq.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9612ef67-43e0-41ac-a558-7468d34460f5",
+            "filePath": "src/Set.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7e456c04-7ec7-49bd-bc94-f559af3fc57a",
+            "filePath": "src/Stack.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "5d12985e-e617-45f6-8ca2-13a25d8a7cb8",
+            "filePath": "src/toJS.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "bff08c30-42c7-4a75-b199-bbc0db878c03",
+            "filePath": "src/TrieUtils.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ebf30f35-fa3e-4a60-9b2e-c3087bf2d513",
+            "filePath": "src/utils/arrCopy.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "89097801-696b-4e96-973e-64679c6ff38c",
+            "filePath": "src/utils/assertNotInfinite.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e3cabdf9-3ee1-46f7-ad57-c04d78458250",
+            "filePath": "src/utils/coerceKeyPath.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "b8073bac-f75c-4ac3-af73-a88055878750",
+            "filePath": "src/utils/deepEqual.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1f7410f3-97f8-4cfe-8838-63ddab06c980",
+            "filePath": "src/utils/hasOwnProperty.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "49b75561-010b-4c4a-bfa1-83dc5f166963",
+            "filePath": "src/utils/invariant.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d84dbeee-434a-41ba-b48c-1de0633d4f29",
+            "filePath": "src/utils/isArrayLike.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "790e9837-85da-4815-96a6-8166ab1734f0",
+            "filePath": "src/utils/isDataStructure.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7f32987e-ef3a-4ee5-b94e-fed0291c1b98",
+            "filePath": "src/utils/isPlainObj.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "6ac68eb4-bdf6-4454-80e9-9c029258de0b",
+            "filePath": "src/utils/mixin.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "7624d20e-ca89-4653-8581-c8b0e57003de",
+            "filePath": "src/utils/quoteString.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1d496b2e-066f-480e-978f-d49b53bd6aea",
+            "filePath": "src/utils/shallowCopy.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          }
+        ],
+        "allSelectedTextCovered": true
+      },
+      "invariantSchemaCharsEqual": true,
+      "invariantSystemCharsEqual": true,
+      "passed": true
+    },
+    {
+      "alias": "three-js",
+      "batches": 12,
+      "features": 80,
+      "selectedFiles": 10,
+      "sourceSegments": 10,
+      "before": {
+        "prompt": {
+          "total": 943176,
+          "max": 110118
+        },
+        "system": {
+          "total": 82080,
+          "max": 6840
+        },
+        "schema": {
+          "total": 38866,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 994804,
+          "max": 114733
+        },
+        "domainRepair": {
+          "total": 1080930,
+          "max": 124063
+        }
+      },
+      "after": {
+        "prompt": {
+          "total": 780464,
+          "max": 94858
+        },
+        "system": {
+          "total": 82080,
+          "max": 6840
+        },
+        "schema": {
+          "total": 38866,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 832092,
+          "max": 99473
+        },
+        "domainRepair": {
+          "total": 918218,
+          "max": 108803
+        }
+      },
+      "estimatedInputTokensByComponent": {
+        "beforePrompt": 235794,
+        "afterPrompt": 195116,
+        "beforeSchema": 9717,
+        "afterSchema": 9717
+      },
+      "savings": {
+        "prompt": {
+          "totalCharactersSaved": 162712,
+          "maxCharactersSaved": 15260,
+          "estimatedInputTokensSavedTotal": 40678
+        },
+        "system": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "schema": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "citationRepair": {
+          "totalCharactersSaved": 162712,
+          "maxCharactersSaved": 15260,
+          "estimatedInputTokensSavedTotal": 40678
+        },
+        "domainRepair": {
+          "totalCharactersSaved": 162712,
+          "maxCharactersSaved": 15260,
+          "estimatedInputTokensSavedTotal": 40678
+        }
+      },
+      "coverage": {
+        "featureCoverageExact": true,
+        "selectedFileCount": 10,
+        "files": [
+          {
+            "artifactId": "6ba34f02-48de-464b-ba32-4b8a2f785d47",
+            "filePath": ".editorconfig",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "9d4c9327-cb55-431c-a15a-07bbbece8087",
+            "filePath": ".eslintrc.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e397c956-f6bb-4eb4-8830-09fdeb0028d4",
+            "filePath": "package.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "b6122d0b-7b7d-4455-be8d-0e15010aff5b",
+            "filePath": "README.md",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "b9580cf1-5006-47f1-a0db-d615b14a9f7f",
+            "filePath": "src/constants.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "a3b34fb7-fe62-4bc1-8bc4-ea332ad619bb",
+            "filePath": "src/core/Object3D.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2dbdccdc-1dfb-419a-854f-28112469a694",
+            "filePath": "src/materials/Material.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "358c4edc-1203-4c00-b8f2-621ffaf1a631",
+            "filePath": "src/objects/Line.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8e3a3b11-d43e-4e6b-8351-44d70a53c93e",
+            "filePath": "src/objects/Mesh.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "673e162b-4102-4a01-9ccc-90571096d27c",
+            "filePath": "src/objects/Points.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          }
+        ],
+        "allSelectedTextCovered": true
+      },
+      "invariantSchemaCharsEqual": true,
+      "invariantSystemCharsEqual": true,
+      "passed": true
+    },
+    {
+      "alias": "preact",
+      "batches": 11,
+      "features": 62,
+      "selectedFiles": 21,
+      "sourceSegments": 22,
+      "before": {
+        "prompt": {
+          "total": 1158350,
+          "max": 136004
+        },
+        "system": {
+          "total": 75240,
+          "max": 6840
+        },
+        "schema": {
+          "total": 35356,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 1220902,
+          "max": 142045
+        },
+        "domainRepair": {
+          "total": 1284716,
+          "max": 151833
+        }
+      },
+      "after": {
+        "prompt": {
+          "total": 1007350,
+          "max": 121039
+        },
+        "system": {
+          "total": 75240,
+          "max": 6840
+        },
+        "schema": {
+          "total": 35356,
+          "max": 3271
+        },
+        "citationRepair": {
+          "total": 1069902,
+          "max": 127080
+        },
+        "domainRepair": {
+          "total": 1133716,
+          "max": 136868
+        }
+      },
+      "estimatedInputTokensByComponent": {
+        "beforePrompt": 289588,
+        "afterPrompt": 251838,
+        "beforeSchema": 8839,
+        "afterSchema": 8839
+      },
+      "savings": {
+        "prompt": {
+          "totalCharactersSaved": 151000,
+          "maxCharactersSaved": 14965,
+          "estimatedInputTokensSavedTotal": 37750
+        },
+        "system": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "schema": {
+          "totalCharactersSaved": 0,
+          "maxCharactersSaved": 0,
+          "estimatedInputTokensSavedTotal": 0
+        },
+        "citationRepair": {
+          "totalCharactersSaved": 151000,
+          "maxCharactersSaved": 14965,
+          "estimatedInputTokensSavedTotal": 37750
+        },
+        "domainRepair": {
+          "totalCharactersSaved": 151000,
+          "maxCharactersSaved": 14965,
+          "estimatedInputTokensSavedTotal": 37750
+        }
+      },
+      "coverage": {
+        "featureCoverageExact": true,
+        "selectedFileCount": 21,
+        "files": [
+          {
+            "artifactId": "68faeeb4-edf4-4237-9520-99a648ce7556",
+            "filePath": ".editorconfig",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e897fe07-4909-4153-9c3b-c975ff27e815",
+            "filePath": "CONTRIBUTING.md",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "bbf6aa1c-6007-4787-b459-81f6f8f26ff6",
+            "filePath": "package.json",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "2e2dc36e-2385-4291-8c5b-cc61a7bbb2d6",
+            "filePath": "README.md",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ac2bb933-995e-48c3-acab-77c883223960",
+            "filePath": "src/cjs.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "19ef87c1-7f42-406f-9af4-a43cda6d55fe",
+            "filePath": "src/clone-element.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "40d9b783-a058-41a2-91f2-0658beec9c26",
+            "filePath": "src/component.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "eef9f100-3a3d-48a9-a9e6-459e4bb253b1",
+            "filePath": "src/constants.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "92bca807-1e92-4d1c-85e6-f83e0efda0b4",
+            "filePath": "src/create-context.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "135e7507-1993-495b-a050-0ed59f15788e",
+            "filePath": "src/create-element.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "d9f04bd9-b3cb-4b79-9be6-378bf41843ab",
+            "filePath": "src/diff/catch-error.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "1e1e4f85-6830-49dd-ae1d-95e4aea3a77b",
+            "filePath": "src/diff/children.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "8814a1aa-92ad-41b2-9a8e-b4dbec7248b0",
+            "filePath": "src/diff/index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "306cb151-3c20-4989-995d-ec20a066b5f3",
+            "filePath": "src/diff/props.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "b58d2b27-1b30-4fcc-8c5a-f856de4ee4e7",
+            "filePath": "src/index.d.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "307e0f12-03a2-45f4-92b6-c284c35028a1",
+            "filePath": "src/index.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "e1cd5ce6-ed36-4dde-8c1c-0726bac3c129",
+            "filePath": "src/internal.d.ts",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "30c130f6-c52d-4e03-83f1-2f216bcfa26f",
+            "filePath": "src/jsx.d.ts",
+            "segments": 2,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "4e97f890-53b6-4e15-b760-96cac1e2164f",
+            "filePath": "src/options.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "863b1380-9ba3-4417-a724-001c53a2e2bb",
+            "filePath": "src/render.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          },
+          {
+            "artifactId": "ceb24983-3683-42ae-9eb4-ed83659630db",
+            "filePath": "src/util.js",
+            "segments": 1,
+            "exactTextCoverage": true,
+            "exactByteCoverage": true
+          }
+        ],
+        "allSelectedTextCovered": true
+      },
+      "invariantSchemaCharsEqual": true,
+      "invariantSystemCharsEqual": true,
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "scope": "Independent staged v10 structural review; no semantic accuracy claim",
+  "capturedAt": "2026-10-25T07:00:21.834Z",
+  "stagePath": "evidence/public-repo-outcomes-2026-10-22/staged-semantic-mitigation-2026-10-25/",
+  "baselineManifestSha256": "b169124aac50efc34ca949bda320a50636010c4faf6d2bc4854cddfe6106c02c",
+  "applyManifestSha256": "be109662194e321c7ad923b0381f69f71d717b6be8a1aa41049638ad58ceeca0",
+  "productionBaselineCount": 378,
+  "productionMismatches": [],
+  "files": [
+    {
+      "path": "sidecar/src/review/assessmentBatches.ts",
+      "sha256": "35dd093530a187e81eecae06bbb03df87aaa25fb0c4e7400da76f79de755c287",
+      "applyManifestSha256": "35dd093530a187e81eecae06bbb03df87aaa25fb0c4e7400da76f79de755c287",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/src/review/assessmentValidation.ts",
+      "sha256": "be68aff9ede772ae18a52224cc13b29b937f7ae1cb77258546c5555987a0bb0f",
+      "applyManifestSha256": "be68aff9ede772ae18a52224cc13b29b937f7ae1cb77258546c5555987a0bb0f",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/src/review/correlation.ts",
+      "sha256": "8429b3c74f6f5bf602ce4d6a75f9441603d98d2e3cf63e4fd692d023efe665a4",
+      "applyManifestSha256": "8429b3c74f6f5bf602ce4d6a75f9441603d98d2e3cf63e4fd692d023efe665a4",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/src/review/findingReconciliation.ts",
+      "sha256": "fcc895118d3c93a2df3896f2e7eed5fb96331dd63167592f6f1a4bb734c56e4b",
+      "applyManifestSha256": "fcc895118d3c93a2df3896f2e7eed5fb96331dd63167592f6f1a4bb734c56e4b",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/src/review/harness.ts",
+      "sha256": "308ab91be7afc609a835234beda3c470d5c039cd2195250f2928b4387d101570",
+      "applyManifestSha256": "308ab91be7afc609a835234beda3c470d5c039cd2195250f2928b4387d101570",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/src/review/orchestrator.ts",
+      "sha256": "e2bd80890121ac8c8f8689bf1a1356b83cb7efb1aa5e3a8377f43e07c4160fb7",
+      "applyManifestSha256": "a69d639783ec214faa998922ef31be17bd2e05d39a265c4d1f861a6bef96e077",
+      "applyManifestMatches": false
+    },
+    {
+      "path": "sidecar/src/review/sourcePrompt.ts",
+      "sha256": "ac0b19427bea4632c15bc167479daa7b942b64637bef8a505c57139f2d3d71a8",
+      "applyManifestSha256": "ac0b19427bea4632c15bc167479daa7b942b64637bef8a505c57139f2d3d71a8",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/src/review/supabaseRepository.ts",
+      "sha256": "2c2dbc69a46ca23d780594111a1df1f249ef629783acfe06aef8d55f532498a2",
+      "applyManifestSha256": "2c2dbc69a46ca23d780594111a1df1f249ef629783acfe06aef8d55f532498a2",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/assessmentBatches.test.ts",
+      "sha256": "588c87e724c24ff11b484a6da802cd810f534f9bb0e1f92fecc80efdff778aaa",
+      "applyManifestSha256": "588c87e724c24ff11b484a6da802cd810f534f9bb0e1f92fecc80efdff778aaa",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/assessmentValidation.test.ts",
+      "sha256": "cc0c0b8060de3408469c269b8f9da04c2445f11395a346f50da1fa829c0d69e8",
+      "applyManifestSha256": "b4f2ab9efbe04f0b418ef7516464343de6477fa969ed555147a9880ed796e15a",
+      "applyManifestMatches": false
+    },
+    {
+      "path": "sidecar/__tests__/unit/findingReconciliation.test.ts",
+      "sha256": "2951bf0ca20153d17f23fd6f7cc1cc9917b2e868a1c1cf6d3cee1d8afb15161f",
+      "applyManifestSha256": "2951bf0ca20153d17f23fd6f7cc1cc9917b2e868a1c1cf6d3cee1d8afb15161f",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/phase2Correlation.test.ts",
+      "sha256": "c6dec5ee2e3a81418b4d6db09028f4063e16e0ec2fe6b3d60d6fed584d872151",
+      "applyManifestSha256": "c6dec5ee2e3a81418b4d6db09028f4063e16e0ec2fe6b3d60d6fed584d872151",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/projectCorrelation.test.ts",
+      "sha256": "8e54352ce4ec46f0ad62c7579ca274b30542299449e7906e85b535aaa530ab98",
+      "applyManifestSha256": "8e54352ce4ec46f0ad62c7579ca274b30542299449e7906e85b535aaa530ab98",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/sourcePrompt.test.ts",
+      "sha256": "0a0c6ab9420d59291ed0dea8ee9f3fd5235467f7e70bba493a8d52ce37da1b04",
+      "applyManifestSha256": "0a0c6ab9420d59291ed0dea8ee9f3fd5235467f7e70bba493a8d52ce37da1b04",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/staticReviewOrchestrator.test.ts",
+      "sha256": "277848956bfd639c67ca02d715df5d7f5d6172c40dba5da41f02687feb974ff9",
+      "applyManifestSha256": "277848956bfd639c67ca02d715df5d7f5d6172c40dba5da41f02687feb974ff9",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/supabaseReviewRepository.test.ts",
+      "sha256": "48668a15dd2d941eb2fff61b15144ec9ad520570f745530feb4966362106647b",
+      "applyManifestSha256": "48668a15dd2d941eb2fff61b15144ec9ad520570f745530feb4966362106647b",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/fixtures/semanticSupport.ts",
+      "sha256": "aae11532501f6096483a5ab537d1f35b120ee4d2621033b761690e6f8ec19250",
+      "applyManifestSha256": "aae11532501f6096483a5ab537d1f35b120ee4d2621033b761690e6f8ec19250",
+      "applyManifestMatches": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/currentProjectRisk.test.ts",
+      "sha256": "7643b037ad6393143eef1f208abc83a61c3e27116684a14a27fe71f04a8ed35d",
+      "applyManifestSha256": null,
+      "applyManifestMatches": false,
+      "missingFromApplyManifest": true
+    },
+    {
+      "path": "sidecar/__tests__/unit/phase2ReviewIteration.test.ts",
+      "sha256": "7ce8f0cf5343bb8521a320c941fc2d55870e96ead9a237582e77d2b57604f492",
+      "applyManifestSha256": null,
+      "applyManifestMatches": false,
+      "missingFromApplyManifest": true
+    }
+  ],
+  "executedTests": [
+    {
+      "path": "sidecar/__tests__/unit/assessmentBatches.test.ts",
+      "sha256": "588c87e724c24ff11b484a6da802cd810f534f9bb0e1f92fecc80efdff778aaa"
+    },
+    {
+      "path": "sidecar/__tests__/unit/assessmentValidation.test.ts",
+      "sha256": "cc0c0b8060de3408469c269b8f9da04c2445f11395a346f50da1fa829c0d69e8"
+    },
+    {
+      "path": "sidecar/__tests__/unit/sourcePrompt.test.ts",
+      "sha256": "0a0c6ab9420d59291ed0dea8ee9f3fd5235467f7e70bba493a8d52ce37da1b04"
+    },
+    {
+      "path": "sidecar/__tests__/unit/staticReviewOrchestrator.test.ts",
+      "sha256": "277848956bfd639c67ca02d715df5d7f5d6172c40dba5da41f02687feb974ff9"
+    },
+    {
+      "path": "sidecar/__tests__/unit/supabaseReviewRepository.test.ts",
+      "sha256": "48668a15dd2d941eb2fff61b15144ec9ad520570f745530feb4966362106647b"
+    },
+    {
+      "path": "sidecar/__tests__/unit/findingReconciliation.test.ts",
+      "sha256": "2951bf0ca20153d17f23fd6f7cc1cc9917b2e868a1c1cf6d3cee1d8afb15161f"
+    },
+    {
+      "path": "sidecar/__tests__/unit/projectCorrelation.test.ts",
+      "sha256": "8e54352ce4ec46f0ad62c7579ca274b30542299449e7906e85b535aaa530ab98"
+    },
+    {
+      "path": "sidecar/__tests__/unit/phase2Correlation.test.ts",
+      "sha256": "c6dec5ee2e3a81418b4d6db09028f4063e16e0ec2fe6b3d60d6fed584d872151"
+    },
+    {
+      "path": "sidecar/__tests__/unit/reviewHarness.test.ts",
+      "sha256": "c6e5337b343a2080a271d558b295db556823b03afed158892c1c56aae5aad67c"
+    },
+    {
+      "path": "sidecar/__tests__/unit/reviewRetry.test.ts",
+      "sha256": "014690e5c23945bfd7238d263fa1a6c1d9f696d646bdf7aeb294f0ca16295610"
+    },
+    {
+      "path": "sidecar/__tests__/unit/currentProjectRisk.test.ts",
+      "sha256": "7643b037ad6393143eef1f208abc83a61c3e27116684a14a27fe71f04a8ed35d"
+    },
+    {
+      "path": "sidecar/__tests__/unit/phase2ReviewIteration.test.ts",
+      "sha256": "7ce8f0cf5343bb8521a320c941fc2d55870e96ead9a237582e77d2b57604f492"
+    },
+    {
+      "path": "sidecar/__tests__/integration/activeHttpAuth.test.ts",
+      "sha256": "7293eb66d9fd41f8f9c0ae76be25c0f7a33af39d1b5ec401c41f235d24d0f31e"
+    }
+  ],
+  "checks": {
+    "targetedVitest": {
+      "files": 10,
+      "passed": 223,
+      "failed": 0
+    },
+    "typescript": "passed",
+    "followupVitest": {
+      "files": 3,
+      "passed": 43,
+      "failed": 0,
+      "environment": "Shell-only fake SUPABASE_URL=https://supabase.invalid and SUPABASE_ANON_KEY=test-anon-key; local test doubles only"
+    },
+    "rootReportedExpandedSuite": {
+      "files": 19,
+      "passed": 320,
+      "failed": 0,
+      "independentlyRerunAsAWhole": false
+    }
+  },
+  "limits": [
+    "Apply manifest requires refresh for mismatched entries.",
+    "Real configured-provider semantic accuracy and storage-backed recovery not tested.",
+    "Independent checks total266 tests across13files; root19suite320 result was reported, not fully rerun by this reviewer."
+  ]
+}

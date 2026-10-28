@@ -9,8 +9,9 @@ export type NarrativeStage = { id: string; title: string; state: string; purpose
 export type ReviewNarrative = {
   objectives: string[]; stages: NarrativeStage[]; unassignedFindings: FindingLink[];
   summary: { outcome: string; blockers: string[]; next: string };
-  timing: { duration: string; completedAt: string | null };
+  timing: { duration: string; endedAt: string | null };
   detailedHistoryAvailable: boolean;
+  retryUpdate: string | null;
 };
 
 const STAGES = [
@@ -98,6 +99,22 @@ export function buildReviewNarrative(input: {
   const active = state === 'Queued' || state === 'In progress';
   const now = input.now ?? Date.now();
   const events = trace?.events.filter(event => event.reviewId === session.id) ?? [];
+  // Show bounded operational facts only, never raw provider/service payloads.
+  const retry = [...events].filter(event => {
+    const detail = event.detail;
+    const cap = detail?.kind === 'ai' ? 5 : detail?.kind === 'external' ? 3 : 0;
+    return event.event === 'review_retry_scheduled' && timestamp(event.createdAt) != null
+      && Number.isInteger(detail?.attempt) && Number.isInteger(detail?.maxAttempts)
+      && Number(detail?.attempt) >= 2 && Number(detail?.attempt) <= Number(detail?.maxAttempts)
+      && Number(detail?.maxAttempts) <= cap && typeof detail?.delayMs === 'number'
+      && Number.isFinite(detail.delayMs) && detail.delayMs >= 0;
+  }).sort((a, b) => timestamp(a.createdAt)! - timestamp(b.createdAt)!).at(-1);
+  const retryDetail = retry?.detail;
+  const retryWaitUntil = timestamp(retryDetail?.nextAttemptAt);
+  const retryLabel = retryDetail?.kind === 'ai' ? 'AI request' : 'Service request';
+  const retryUpdate = retryDetail ? active && retryWaitUntil != null && retryWaitUntil > now
+    ? `${retryLabel}: waiting to retry attempt ${retryDetail.attempt} of ${retryDetail.maxAttempts} in ${formatReviewDuration(retryWaitUntil - now)}.`
+    : `${retryLabel}: retry attempt ${retryDetail.attempt} of ${retryDetail.maxAttempts} was scheduled after a ${formatReviewDuration(Number(retryDetail.delayMs))} wait.` : null;
   const detailedHistoryAvailable = events.some(event => event.event.startsWith('harness_step_'));
   const progress = parseReviewProgress(session.progressJson);
   const grounding = events.find(event => event.event === 'harness_step_completed' && event.detail?.step === 'load_grounding');
@@ -179,9 +196,9 @@ export function buildReviewNarrative(input: {
   const legacyEnd = active ? now : timestamp(progress?.updatedAt);
   const durationMs = timing.ms ?? (legacyStart != null && legacyEnd != null && legacyEnd >= legacyStart ? legacyEnd - legacyStart : null);
   return {
-    objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable,
+    objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable, retryUpdate,
     unassignedFindings: findings.filter(finding => !detailedHistoryAvailable || !stageOf(finding)).map(findingLink),
-    timing: { duration: formatReviewDuration(durationMs), completedAt: active ? null : timing.end ?? (legacyStart != null ? progress?.updatedAt ?? null : null) },
+    timing: { duration: formatReviewDuration(durationMs), endedAt: active ? null : timing.end ?? (legacyStart != null ? progress?.updatedAt ?? null : null) },
     summary: { outcome: comparisonSummary ? `${outcome} ${comparisonSummary}` : outcome, blockers: unique(blockers), next },
   };
 }

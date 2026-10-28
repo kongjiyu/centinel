@@ -5,6 +5,7 @@ import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '.
 import { ApiError, api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 import { CodexProviderPanel } from '../components/CodexProviderPanel';
+import { EmbeddingProviderForm } from '../components/EmbeddingProviderForm';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
@@ -181,10 +182,11 @@ function AppVersionSection() {
 function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
   const matchingPreset = findMatchingPreset(setting);
   const [selectedPresetId, setSelectedPresetId] = useState(matchingPreset?.id || 'custom-openai');
+  const [showApiProviderConfig, setShowApiProviderConfig] = useState(setting.provider !== 'codex');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [baseUrl, setBaseUrl] = useState(setting.baseUrl);
-  const [model, setModel] = useState(setting.model);
+  const [baseUrl, setBaseUrl] = useState(setting.provider === 'codex' ? '' : setting.baseUrl);
+  const [model, setModel] = useState(setting.provider === 'codex' ? '' : setting.model);
   const initialFallbackPreset = findPresetForValues(setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl ?? '', setting.fallbackModel ?? '');
   const [fallbackEnabled, setFallbackEnabled] = useState(Boolean(setting.fallbackEnabled));
   const [fallbackPresetId, setFallbackPresetId] = useState(initialFallbackPreset?.id ?? (setting.fallbackApiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
@@ -203,8 +205,9 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   // input can revert to "openai-compatible" even when the persisted apiFormat is anthropic-compatible.
   // User edits made during the current session still win until the next render with a new setting prop.
   useEffect(() => {
-    setBaseUrl(setting.baseUrl);
-    setModel(setting.model);
+    setBaseUrl(setting.provider === 'codex' ? '' : setting.baseUrl);
+    setModel(setting.provider === 'codex' ? '' : setting.model);
+    setShowApiProviderConfig(setting.provider !== 'codex');
     const match = findMatchingPreset(setting);
     setSelectedPresetId(match?.id ?? (setting.apiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
     setFallbackEnabled(Boolean(setting.fallbackEnabled));
@@ -287,13 +290,17 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   return (
     <div className="provider-form">
       <div className="provider-form-header">
-        <h4>
-          Custom Model Provider
-        </h4>
-        <StatusBadge label={setting.provider === 'codex' ? 'Codex selected' : isConfigured ? 'Configured' : 'Setup required'} tone={isConfigured ? 'success' : 'warning'} />
+        <h4>{setting.provider === 'codex' ? 'API provider' : 'Custom Model Provider'}</h4>
+        <StatusBadge label={setting.provider === 'codex' ? 'Codex selected' : isConfigured ? 'Configured' : 'Setup required'} tone={setting.provider === 'codex' || isConfigured ? 'success' : 'warning'} />
       </div>
 
-      {setting.provider === 'codex' && <p className="form-hint">Review uses Codex. Saving this form will switch Review to an API provider.</p>}
+      {setting.provider === 'codex' && !showApiProviderConfig ? (
+        <div className="codex-api-provider-summary">
+          <p className="form-hint">Review uses Codex. Configure and save an API provider here to switch Review away from Codex.</p>
+          <button type="button" className="btn-secondary" onClick={() => setShowApiProviderConfig(true)}>Configure API provider</button>
+        </div>
+      ) : <>
+      {setting.provider === 'codex' && <p className="form-hint">Review will keep using Codex until an API provider is saved.</p>}
       <div className="form-field">
         <label htmlFor={`provider-${setting.id}`}>Provider</label>
         <Select
@@ -347,7 +354,7 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
         <div className="fallback-provider-heading">
           <div>
             <h5 id={`fallback-provider-heading-${setting.id}`}>Fallback provider</h5>
-            <p>Used only when the primary provider cannot complete the Review. Primary and fallback share a maximum of three total attempts.</p>
+            <p>Used only when the primary provider cannot complete the Review. Primary and fallback share a maximum of five total attempts.</p>
           </div>
           <label className="fallback-provider-toggle"><input type="checkbox" checked={fallbackEnabled} onChange={event => setFallbackEnabled(event.target.checked)} /> Enable fallback</label>
         </div>
@@ -404,82 +411,9 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
           </div>
         </div>
       )}
+      </>}
     </div>
   );
-}
-
-function EmbeddingProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
-  const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [baseUrl, setBaseUrl] = useState(setting.baseUrl);
-  const [model, setModel] = useState(setting.model);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AiTestResult | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    setBaseUrl(setting.baseUrl);
-    setModel(setting.model);
-  }, [setting.baseUrl, setting.model]);
-
-  const save = async () => {
-    setError(null); setSaved(false); setResult(null);
-    if (!apiKey.trim() && !setting.hasApiKey) { setError('API key is required.'); return; }
-    if (!/^https?:\/\//i.test(baseUrl.trim())) { setError('Base URL must start with http:// or https://.'); return; }
-    if (!model.trim()) { setError('Embedding model is required.'); return; }
-    setSaving(true);
-    try {
-      await api.updateAiSetting('embedding', {
-        provider: 'custom', apiFormat: 'openai-compatible', apiKey: apiKey.trim(),
-        baseUrl: baseUrl.trim(), model: model.trim(), fallbackEnabled: false,
-      });
-      setApiKey(''); setSaved(true); await onRefresh();
-    } catch (cause) {
-      setError(userFacingError(cause, 'Source-indexing settings could not be saved. Try again.'));
-    } finally { setSaving(false); }
-  };
-
-  const test = async () => {
-    setResult(null); setError(null); setTesting(true);
-    try { setResult(await api.testAiProvider('embedding')); }
-    catch (cause) { setResult({ status: 'fail', message: userFacingError(cause, 'The source-indexing provider could not be reached.') }); }
-    finally { setTesting(false); }
-  };
-
-  return <div className="provider-form embedding-provider-form" aria-labelledby="embedding-provider-heading">
-    <div className="provider-form-header">
-      <h4 id="embedding-provider-heading">Source indexing</h4>
-      <StatusBadge label={setting.hasApiKey ? 'Configured' : 'Optional'} tone={setting.hasApiKey ? 'success' : 'neutral'} />
-    </div>
-    <p className="embedding-provider-description">Optional semantic retrieval for frozen Review sources. Without it, Centinel keeps the durable text index. Configure an OpenAI-compatible embedding endpoint that returns 1536 dimensions.</p>
-    <div className="form-field">
-      <label htmlFor="embedding-api-key">API key</label>
-      <div className="api-key-field">
-        <input id="embedding-api-key" type={showKey ? 'text' : 'password'} autoComplete="off" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={setting.hasApiKey ? `Current: ${setting.apiKeyPreview}` : 'Enter API key'} />
-        <IconButton icon={showKey ? EyeOff : Eye} label={showKey ? 'Hide source-indexing API key' : 'Show source-indexing API key'} onClick={() => setShowKey(value => !value)} />
-      </div>
-    </div>
-    <div className="provider-endpoint-fields is-custom">
-      <div className="form-field"><label htmlFor="embedding-base-url">Base URL</label><input id="embedding-base-url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://provider.example.com/v1" /></div>
-      <div className="form-field"><label htmlFor="embedding-model">Embedding model</label><input id="embedding-model" value={model} onChange={event => setModel(event.target.value)} placeholder="embedding-model-name" /></div>
-    </div>
-    {error && <p className="form-error" role="alert">{error}</p>}
-    {saved && <p className="form-success" role="status"><Check size={14} aria-hidden="true" /> Settings saved</p>}
-    <div className="form-actions">
-      <button className="btn-secondary" type="button" onClick={() => void test()} disabled={testing || !setting.hasApiKey}>{testing ? 'Testing…' : 'Test connection'}</button>
-      <button className="btn-primary" type="button" onClick={() => void save()} disabled={saving}><Save size={14} aria-hidden="true" /> {saving ? 'Saving…' : 'Save'}</button>
-    </div>
-    {result && <div className={`test-result provider-test-status ${result.status}`} role={result.status === 'pass' ? 'status' : 'alert'}>
-      {result.status === 'pass' ? <Check size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
-      <div><strong>{result.status === 'pass' ? 'Connection successful' : 'Connection failed'}</strong>
-        <span className="provider-test-scope">Tested with saved source-indexing settings.</span>
-        {result.message && <p className="provider-test-message">{result.message}</p>}
-        {result.hint && <p className="test-result-hint">{result.hint}</p>}
-      </div>
-    </div>}
-  </div>;
 }
 
 // ── Token Usage Dashboard ─────────────────────────────────────────────────
@@ -494,7 +428,21 @@ function EmbeddingProviderForm({ setting, onRefresh }: { setting: AiProviderSett
 // table, and a collapsible recent-calls list. All numbers are formatted
 // with thousands separators so the user can scan them at a glance.
 
-type UsageSummary = Awaited<ReturnType<typeof api.getAiUsage>>;
+type UsageResponse = Awaited<ReturnType<typeof api.getAiUsage>>;
+type UsageSummary = Omit<UsageResponse, 'totals' | 'byGroup'> & {
+  totals: UsageResponse['totals'] & Partial<{
+    totalTokens: number;
+    providerReportedTotalTokens: number;
+    providerReportedCalls: number;
+    unknownTotalCalls: number;
+  }>;
+  byGroup: Array<UsageResponse['byGroup'][number] & Partial<{
+    totalTokens: number;
+    providerReportedTotalTokens: number;
+    providerReportedCalls: number;
+    unknownTotalCalls: number;
+  }>>;
+};
 type UsageCallKind = 'review' | 'test' | 'dynamic';
 type RecentCall = UsageSummary['recent'][number];
 type RecentSortKey = 'time' | 'kind' | 'stage' | 'model' | 'input' | 'output' | 'cache';
@@ -505,8 +453,13 @@ const CALL_KIND_LABEL: Record<UsageCallKind, string> = {
   dynamic: 'Dynamic Testing activity',
 };
 
-function formatTokenCount(n: number): string {
-  return formatUsageNumber(n);
+function formatTokenCount(n: number | null | undefined): string {
+  return typeof n === 'number' && Number.isFinite(n) ? formatUsageNumber(n) : '—';
+}
+
+function GroupUsageCount({ value, unknown, calls }: { value: number; unknown?: number; calls: number }) {
+  return <>{formatTokenCount(calls > 0 && (unknown === calls || unknown == null && value === 0) ? null : value)}
+    {unknown != null && unknown > 0 ? <small> · {unknown} calls unknown</small> : unknown == null ? <small> · Unknown-call count unavailable</small> : null}</>;
 }
 
 function formatWholeNumber(n: number): string {
@@ -529,8 +482,15 @@ function formatUsageNumber(n: number): string {
   return `${scaled.toFixed(precision).replace(/\.0+$|(?<=\.[0-9])0+$/g, '')}${unit.suffix}`;
 }
 
-function totalTokensForGroup(group: UsageSummary['byGroup'][number]): number {
-  return group.totalInput + group.totalOutput + group.totalCacheRead + group.totalCacheCreation;
+function formatCanonicalTotal(n: number | undefined): string {
+  return typeof n === 'number' && Number.isFinite(n) ? formatWholeNumber(n) : '—';
+}
+
+function totalTokensForGroup(group: UsageSummary['byGroup'][number]): number | null {
+  if (group.totalCalls > 0 && group.unknownTotalCalls === group.totalCalls) return null;
+  return typeof group.totalTokens === 'number' && Number.isFinite(group.totalTokens)
+    ? Math.max(0, Math.round(group.totalTokens))
+    : null;
 }
 
 function formatTimestamp(iso: string): string {
@@ -576,9 +536,9 @@ function TokenUsagePanel() {
         case 'kind': return CALL_KIND_LABEL[record.callKind];
         case 'stage': return `${record.stage ?? ''}:${record.roundNumber ?? ''}`;
         case 'model': return record.model;
-        case 'input': return record.inputTokens;
-        case 'output': return record.outputTokens;
-        case 'cache': return record.cacheReadTokens + record.cacheCreationTokens;
+        case 'input': return record.inputTokens ?? -Infinity;
+        case 'output': return record.outputTokens ?? -Infinity;
+        case 'cache': return record.cacheReadTokens == null || record.cacheCreationTokens == null ? -Infinity : record.cacheReadTokens + record.cacheCreationTokens;
       }
     };
     return records.sort((a, b) => {
@@ -624,8 +584,13 @@ function TokenUsagePanel() {
             <div className="usage-total">
               <span className="usage-stat-label">Tokens processed</span>
               <strong className="usage-total-value">
-                {formatWholeNumber(summary.totals.input + summary.totals.output + summary.totals.cacheRead + summary.totals.cacheCreation)}
+                {formatCanonicalTotal(summary.totals.calls > 0 && summary.totals.unknownTotalCalls === summary.totals.calls ? undefined : summary.totals.totalTokens)}
               </strong>
+              {summary.totals.totalTokens === undefined
+                ? <span className="usage-total-note">A provider-aware total is not available from this service.</span>
+                : (summary.totals.unknownTotalCalls ?? 0) > 0
+                  ? <span className="usage-total-note">{formatWholeNumber(summary.totals.unknownTotalCalls ?? 0)} call total{summary.totals.unknownTotalCalls === 1 ? '' : 's'} unavailable.</span>
+                  : null}
             </div>
             <div className="usage-request-summary">
               <span className="usage-stat-label">Total requests</span>
@@ -633,22 +598,24 @@ function TokenUsagePanel() {
             </div>
           </div>
 
+          {(summary.totals.assumedZeroNoResponseCalls ?? 0) > 0 && <p className="usage-total-note">No-response accounting: {summary.totals.assumedZeroNoResponseCalls} failed {summary.totals.assumedZeroNoResponseCalls === 1 ? 'call counted' : 'calls counted'} as 0 tokens. This is an assumption; actual provider consumption remains unknown.</p>}
+
           <dl className="usage-metric-strip" aria-label="Token metrics">
             <div className="usage-metric">
               <dt>Input</dt>
-              <dd>{formatTokenCount(summary.totals.input)}</dd>
+              <dd>{formatTokenCount(summary.totals.calls > 0 && summary.totals.unknownInputCalls === summary.totals.calls ? null : summary.totals.input)}</dd>
             </div>
             <div className="usage-metric">
               <dt>Output</dt>
-              <dd>{formatTokenCount(summary.totals.output)}</dd>
+              <dd>{formatTokenCount(summary.totals.calls > 0 && summary.totals.unknownOutputCalls === summary.totals.calls ? null : summary.totals.output)}</dd>
             </div>
             <div className="usage-metric">
               <dt>Cache creation</dt>
-              <dd>{formatTokenCount(summary.totals.cacheCreation)}</dd>
+              <dd>{formatTokenCount(summary.totals.calls > 0 && summary.totals.unknownCacheCreationCalls === summary.totals.calls ? null : summary.totals.cacheCreation)}</dd>
             </div>
             <div className="usage-metric">
               <dt>Cache reads</dt>
-              <dd>{formatTokenCount(summary.totals.cacheRead)}</dd>
+              <dd>{formatTokenCount(summary.totals.calls > 0 && summary.totals.unknownCacheReadCalls === summary.totals.calls ? null : summary.totals.cacheRead)}</dd>
             </div>
           </dl>
 
@@ -674,18 +641,20 @@ function TokenUsagePanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.byGroup.map((g, idx) => (
-                      <tr key={`${g.provider}-${g.apiFormat}-${g.model}-${idx}`}>
+                    {summary.byGroup.map((g, idx) => {
+                      const groupTotal = totalTokensForGroup(g);
+                      return <tr key={`${g.provider}-${g.apiFormat}-${g.model}-${idx}`}>
                         <td>{g.provider}</td>
                         <td><code>{g.apiFormat}</code></td>
                         <td><code>{g.model}</code></td>
                         <td className="usage-num">{formatWholeNumber(g.totalCalls)}</td>
-                        <td className="usage-num">{formatTokenCount(g.totalInput)}</td>
-                        <td className="usage-num">{formatTokenCount(g.totalOutput)}</td>
-                        <td className="usage-num">{formatTokenCount(g.totalCacheRead + g.totalCacheCreation)}</td>
-                        <td className="usage-num">{formatWholeNumber(totalTokensForGroup(g))}</td>
-                      </tr>
-                    ))}
+                        <td className="usage-num"><GroupUsageCount value={g.totalInput} unknown={g.unknownInputCalls} calls={g.totalCalls} /></td>
+                        <td className="usage-num"><GroupUsageCount value={g.totalOutput} unknown={g.unknownOutputCalls} calls={g.totalCalls} /></td>
+                        <td className="usage-num">{formatTokenCount(g.totalCacheRead + g.totalCacheCreation === 0 && (g.unknownCacheReadCalls !== 0 || g.unknownCacheCreationCalls !== 0) ? null : g.totalCacheRead + g.totalCacheCreation)}
+                          {(g.unknownCacheReadCalls !== 0 || g.unknownCacheCreationCalls !== 0) && <small> · Some cache counts unavailable</small>}</td>
+                        <td className="usage-num">{groupTotal === null ? '—' : formatWholeNumber(groupTotal)}</td>
+                      </tr>;
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -731,7 +700,7 @@ function TokenUsagePanel() {
                         <td><code>{r.model}</code></td>
                         <td className="usage-num">{formatTokenCount(r.inputTokens)}</td>
                         <td className="usage-num">{formatTokenCount(r.outputTokens)}</td>
-                        <td className="usage-num">{formatTokenCount(r.cacheReadTokens + r.cacheCreationTokens)}</td>
+                        <td className="usage-num">{formatTokenCount(r.cacheReadTokens == null || r.cacheCreationTokens == null || r.usageObservation?.missingCounters?.some(counter => counter === 'cacheReadTokens' || counter === 'cacheCreationTokens') ? null : r.cacheReadTokens + r.cacheCreationTokens)}</td>
                       </tr>
                     ))}
                   </tbody>

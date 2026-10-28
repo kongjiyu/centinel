@@ -1,0 +1,8 @@
+.source-workspace .source-index-status {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 8px 16px; margin: 0 0 16px; font-size: 13px; line-height: 1.5;
+  color: var(--workspace-text-muted); overflow-wrap: anywhere;
+}
+.source-workspace .source-index-status > div { flex: 1 1 240px; min-width: 0; }
+.source-workspace .source-index-status .btn-secondary { min-height: 44px; flex: 0 0 auto; }
+.source-workspace .source-index-hint { display: inline; }

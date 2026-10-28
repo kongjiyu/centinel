@@ -1,0 +1,114 @@
+{
+  "recordedAt": "2026-10-25T07:01:35.079Z",
+  "reviewHash": "78e0db6c6c1bbc68be1bf9e938e8b1af791f97a74be6192961b26582a295d8b6",
+  "rootChecks": {
+    "tests": 320,
+    "suites": 19,
+    "typescript": true
+  },
+  "changes": [
+    {
+      "path": "sidecar/src/review/assessmentBatches.ts",
+      "sha256": "2f14d5031a9ed4465d5b76d7e04faf3de3102396475eda152b77f1c04023c1ff",
+      "stagedSha256": "35dd093530a187e81eecae06bbb03df87aaa25fb0c4e7400da76f79de755c287"
+    },
+    {
+      "path": "sidecar/src/review/assessmentValidation.ts",
+      "sha256": "78ac75e0e063822190784e1b14f80a218138d35c8f822cf83ebed3f8cea26da2",
+      "stagedSha256": "be68aff9ede772ae18a52224cc13b29b937f7ae1cb77258546c5555987a0bb0f"
+    },
+    {
+      "path": "sidecar/src/review/correlation.ts",
+      "sha256": "2a3af902d2679178c9045a3a07051cd544d14d70d7f14127e3fd21899ad7ef59",
+      "stagedSha256": "8429b3c74f6f5bf602ce4d6a75f9441603d98d2e3cf63e4fd692d023efe665a4"
+    },
+    {
+      "path": "sidecar/src/review/findingReconciliation.ts",
+      "sha256": "67fee1ec5bbe617463d55180d8d2776a1b44109a5612e170ab2a7df663b0c984",
+      "stagedSha256": "fcc895118d3c93a2df3896f2e7eed5fb96331dd63167592f6f1a4bb734c56e4b"
+    },
+    {
+      "path": "sidecar/src/review/harness.ts",
+      "sha256": "7804ebd268621e051e191a073b5ac67d268d42d71ecf71418c520a5094c8dc64",
+      "stagedSha256": "308ab91be7afc609a835234beda3c470d5c039cd2195250f2928b4387d101570"
+    },
+    {
+      "path": "sidecar/src/review/orchestrator.ts",
+      "sha256": "28d590d2935750a3bc3c282490447c3804c337372f0c1be269fe945d9eba41d1",
+      "stagedSha256": "e2bd80890121ac8c8f8689bf1a1356b83cb7efb1aa5e3a8377f43e07c4160fb7"
+    },
+    {
+      "path": "sidecar/src/review/sourcePrompt.ts",
+      "sha256": "96646b933a588d0c5c61e115baf399d1eaf5092a31259c655813185f857d91e8",
+      "stagedSha256": "ac0b19427bea4632c15bc167479daa7b942b64637bef8a505c57139f2d3d71a8"
+    },
+    {
+      "path": "sidecar/src/review/supabaseRepository.ts",
+      "sha256": "fbbc9a1060a15b0f26aae8f1a75bc24d34ddbc6f7729fb144257ff178040248f",
+      "stagedSha256": "2c2dbc69a46ca23d780594111a1df1f249ef629783acfe06aef8d55f532498a2"
+    },
+    {
+      "path": "sidecar/__tests__/integration/activeHttpAuth.test.ts",
+      "sha256": "58523467742f07ccca24d0e9523b5e706590bffa1d000d19bcb7b4f8f07f6395",
+      "stagedSha256": "7293eb66d9fd41f8f9c0ae76be25c0f7a33af39d1b5ec401c41f235d24d0f31e"
+    },
+    {
+      "path": "sidecar/__tests__/unit/assessmentBatches.test.ts",
+      "sha256": "9f105a037f0d7e683a7f431882ecb9fd906b587c6d2dd9250dbc67926f0bc6f0",
+      "stagedSha256": "588c87e724c24ff11b484a6da802cd810f534f9bb0e1f92fecc80efdff778aaa"
+    },
+    {
+      "path": "sidecar/__tests__/unit/assessmentValidation.test.ts",
+      "sha256": "6a90ee171281484f0e0bca40ddf92c2b204d68c7b249f97d514f8484321059d8",
+      "stagedSha256": "cc0c0b8060de3408469c269b8f9da04c2445f11395a346f50da1fa829c0d69e8"
+    },
+    {
+      "path": "sidecar/__tests__/unit/currentProjectRisk.test.ts",
+      "sha256": "00e718d512c4dfd7ff2d443b1349d218e943d6a6727606d485bbd808f5a0ca25",
+      "stagedSha256": "7643b037ad6393143eef1f208abc83a61c3e27116684a14a27fe71f04a8ed35d"
+    },
+    {
+      "path": "sidecar/__tests__/unit/findingReconciliation.test.ts",
+      "sha256": "a4a5f4a92ea09efc17862faaed5407ca1c7e017614d099b941530507da97f8df",
+      "stagedSha256": "2951bf0ca20153d17f23fd6f7cc1cc9917b2e868a1c1cf6d3cee1d8afb15161f"
+    },
+    {
+      "path": "sidecar/__tests__/unit/phase2Correlation.test.ts",
+      "sha256": "bd2899c1ab92bcd1b82a7fc764a221d245a7ccb9f6abb8e5ff979abfc04391f4",
+      "stagedSha256": "c6dec5ee2e3a81418b4d6db09028f4063e16e0ec2fe6b3d60d6fed584d872151"
+    },
+    {
+      "path": "sidecar/__tests__/unit/phase2ReviewIteration.test.ts",
+      "sha256": "41c836c894b0688c35d5b37ee36b3f002aff994ce46e229898817cf739d2d627",
+      "stagedSha256": "7ce8f0cf5343bb8521a320c941fc2d55870e96ead9a237582e77d2b57604f492"
+    },
+    {
+      "path": "sidecar/__tests__/unit/projectCorrelation.test.ts",
+      "sha256": "67806e0c6234d1b07f5a3d6093485b9f2797ca8577c7f21ce2077916f26420f1",
+      "stagedSha256": "8e54352ce4ec46f0ad62c7579ca274b30542299449e7906e85b535aaa530ab98"
+    },
+    {
+      "path": "sidecar/__tests__/unit/sourcePrompt.test.ts",
+      "sha256": "c9d59012aed9765ee96b1058a1f4d4bddaf0690de14b103da1eafb02a8064194",
+      "stagedSha256": "0a0c6ab9420d59291ed0dea8ee9f3fd5235467f7e70bba493a8d52ce37da1b04"
+    },
+    {
+      "path": "sidecar/__tests__/unit/staticReviewOrchestrator.test.ts",
+      "sha256": "62795f92001df2eb606ba76c0dec16fdfb147185a3466085017a417876a12bac",
+      "stagedSha256": "277848956bfd639c67ca02d715df5d7f5d6172c40dba5da41f02687feb974ff9"
+    },
+    {
+      "path": "sidecar/__tests__/unit/supabaseReviewRepository.test.ts",
+      "sha256": "8d25b50059de756630f6d1c2eaaed7fb800148c050a28d7a562d12100e72da00",
+      "stagedSha256": "48668a15dd2d941eb2fff61b15144ec9ad520570f745530feb4966362106647b"
+    },
+    {
+      "path": "sidecar/__tests__/fixtures/semanticSupport.ts",
+      "sha256": null,
+      "stagedSha256": "aae11532501f6096483a5ab537d1f35b120ee4d2621033b761690e6f8ec19250"
+    }
+  ],
+  "backup": "C:\\Cstan\\Projects\\centinel\\evidence\\public-repo-outcomes-2026-10-22\\stage-apply-backup-2026-10-25T07-01-35-081Z",
+  "applied": true,
+  "runtimeRestarted": false
+}

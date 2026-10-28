@@ -11,6 +11,7 @@ import type { Artifact } from '../../src/artifacts.js';
 import type { Requirement, RequirementMapping } from '../../src/staticDomainTypes.js';
 import type { DynamicEvidence, DynamicSession } from '../../src/dynamicSessions.js';
 import type { Finding, ReviewDecisionRecord, StaticSession } from '../../src/staticDomainTypes.js';
+import type { ProjectReportSnapshot, ReportCurrentFinding } from '../../src/report/types.js';
 import type { ReviewSourceManifest, ReviewTraceabilitySnapshot } from '../../src/review/evidenceTypes.js';
 import type { TokenUsageSummary } from '../../src/tokenUsage.js';
 
@@ -107,7 +108,7 @@ const projectUsage: TokenUsageSummary = {
 
 function fixtureSource(populated: boolean): ReportSnapshotSource {
   const findings = populated ? [finding] : [];
-  return {
+  const source: ReportSnapshotSource = {
     getProject: async projectId => projectId === project.id ? project : null,
     listStaticSessions: async () => populated ? [review] : [],
     listDynamicSessions: async () => populated ? [dynamic] : [],
@@ -132,6 +133,85 @@ function fixtureSource(populated: boolean): ReportSnapshotSource {
     getCurrentDecision: async () => populated ? decision : null,
     getTokenUsageSummary: async (_projectId, reviewId) => populated ? (reviewId ? reviewUsage : projectUsage) : emptyUsage,
   };
+  if (populated) {
+    source.getProjectAssessmentWithCurrentFindings = async projectId => {
+      const assessment = await source.getProjectAssessment(projectId);
+      return {
+        ...assessment,
+        currentFindings: {
+          status: 'available', reason: null,
+          items: findings.map(item => ({
+            ...item,
+            riskLevel: calculateProjectRisk([item]).riskItems[0]?.riskLevel ?? null,
+            persistedStatus: item.status,
+            effectiveStatus: item.status,
+            effectiveDisposition: item.status,
+            latestOccurrence: null,
+            lineageReferences: [],
+            resolutionEvidence: null,
+          })),
+        },
+      };
+    };
+  }
+  return source;
+}
+
+function currentFinding(input: Finding, overrides: Partial<ReportCurrentFinding> = {}): ReportCurrentFinding {
+  return {
+    ...input,
+    riskLevel: calculateProjectRisk([input]).riskItems[0]?.riskLevel ?? null,
+    persistedStatus: input.status,
+    effectiveStatus: input.status,
+    effectiveDisposition: input.status,
+    latestOccurrence: null,
+    lineageReferences: [],
+    resolutionEvidence: null,
+    ...overrides,
+  };
+}
+
+function sourceWithProjection(
+  base: ReportSnapshotSource,
+  rawFindings: Finding[],
+  currentItems: ReportCurrentFinding[],
+): ReportSnapshotSource {
+  return {
+    ...base,
+    listAllFindings: async () => rawFindings,
+    getProjectAssessmentWithCurrentFindings: async projectId => {
+      const assessment = await base.getProjectAssessment(projectId);
+      const riskFindings = currentItems.map(item => ({ ...item, status: item.effectiveStatus }));
+      return {
+        ...assessment,
+        ...calculateProjectRisk(riskFindings),
+        currentFindings: { status: 'available', reason: null, items: currentItems },
+      };
+    },
+  };
+}
+
+function staticAttempt(id: string, overrides: Partial<StaticSession> = {}): StaticSession {
+  return {
+    ...review,
+    id,
+    name: id,
+    status: 'success',
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    completedAt: null,
+    progressJson: '{}',
+    ...overrides,
+  };
+}
+
+async function snapshotForAttempts(attempts: StaticSession[], overrides: Partial<ReportSnapshotSource> = {}) {
+  const source = {
+    ...fixtureSource(false),
+    listStaticSessions: async () => attempts,
+    ...overrides,
+  };
+  return buildProjectReportSnapshot(project.id, { source });
 }
 
 describe('immutable project report from a persistence-neutral source', () => {
@@ -142,6 +222,7 @@ describe('immutable project report from a persistence-neutral source', () => {
     expect(snapshot.latestReview).toBeNull();
     expect(snapshot.latestDynamicTest).toBeNull();
     expect(snapshot.modelUsage.status).toBe('unavailable');
+    expect(snapshot.currentFindings).toMatchObject({ status: 'unavailable', items: [] });
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.riskAssessment)).toBe(true);
     expect(Object.isFrozen(snapshot.findings)).toBe(true);
@@ -158,6 +239,7 @@ describe('immutable project report from a persistence-neutral source', () => {
     expect(snapshot.riskAssessment.currentFindingCount).toBe(1);
     expect(snapshot.riskAssessment.critical).toBe(1);
     expect(snapshot.findings[0].status).toBe('carryover');
+    expect(snapshot.currentFindings).toMatchObject({ status: 'available', items: [{ id: 'finding-1', persistedStatus: 'carryover', effectiveDisposition: 'carryover' }] });
     expect(snapshot.latestReview?.reportedFindings).toHaveLength(0);
     expect(snapshot.latestReview?.carryoverFindings).toHaveLength(1);
     expect(snapshot.latestReview?.decision?.attachments[0].fileName).toBe('approval-note.txt');
@@ -176,6 +258,10 @@ describe('immutable project report from a persistence-neutral source', () => {
       expect(json).toContain(fact);
       expect(markdown).toContain(fact);
     }
+    expect(markdown).toContain('## Current project findings');
+    expect(markdown).toContain('## Historical finding occurrences');
+    expect(markdown).toContain('## Latest Static Review attempt');
+    expect(markdown).toContain('**Execution time:** 2026-09-20T10:00:00.000Z (creation-time fallback)');
     for (const secret of [
       'PRIVATE_CONSOLE_PAYLOAD', 'PRIVATE_REVIEW_REMARK', 'PRIVATE_REVIEW_CONFIG',
       'PRIVATE_HIDDEN_REASONING', 'private-action-token', 'private-url-token', 'Hidden model response file',
@@ -185,16 +271,194 @@ describe('immutable project report from a persistence-neutral source', () => {
     }
   });
 
+  it('distinguishes one reconciled recurring issue from its two saved occurrences', async () => {
+    const occurrence = { ...finding, id: 'finding-2', sessionId: 'review-2', title: 'Latest occurrence title', status: 'new' as const, createdAt: '2026-09-22T10:00:00.000Z' };
+    const current = currentFinding(occurrence, {
+      id: finding.id,
+      status: finding.status,
+      createdAt: finding.createdAt,
+      persistedStatus: finding.status,
+      effectiveStatus: 'new',
+      effectiveDisposition: 'new',
+      latestOccurrence: { findingId: occurrence.id, reviewId: occurrence.sessionId, classification: 'recurring' },
+      lineageReferences: [{ findingId: finding.id, reviewId: review.id, classification: 'recurring' }],
+    });
+    const source = sourceWithProjection(fixtureSource(true), [finding, occurrence], [current]);
+    const snapshot = await buildProjectReportSnapshot(project.id, { source });
+    const json = JSON.parse(renderProjectReportJson(snapshot)) as { findings: Finding[]; currentFindings: { status: string; items: ReportCurrentFinding[] } };
+    const markdown = renderProjectReport(snapshot);
+
+    expect(snapshot.currentFindings?.items).toHaveLength(1);
+    expect(snapshot.currentFindings?.items[0]).toMatchObject({
+      id: finding.id, persistedStatus: 'carryover', effectiveStatus: 'new',
+      latestOccurrence: { findingId: occurrence.id, reviewId: 'review-2', classification: 'recurring' },
+    });
+    expect(snapshot.findings).toHaveLength(2);
+    expect(snapshot.findings.map(item => [item.id, item.status])).toEqual([['finding-2', 'new'], ['finding-1', 'carryover']]);
+    expect(json.findings).toHaveLength(2);
+    expect(json.currentFindings).toMatchObject({ status: 'available', items: [{ id: finding.id, latestOccurrence: { findingId: occurrence.id } }] });
+    expect(markdown).toContain('**Canonical finding ID:** `finding-1`');
+    expect(markdown).toContain('**Latest occurrence:** `finding-2`');
+    expect(markdown).toContain('Historical finding occurrences');
+  });
+
+  it('shows a derived resolution in current inventory without rewriting saved occurrence states', async () => {
+    const evidence = {
+      status: 'resolved' as const,
+      basis: 'not_reproduced_in_comparable_review' as const,
+      reviewId: 'review-2',
+      reviewName: 'Updated source review',
+      sourceManifestId: 'manifest-2',
+      previousSourceVersion: 'hash-old',
+      reviewedSourceVersion: 'hash-new',
+    };
+    const resolved = currentFinding(finding, { effectiveStatus: 'fixed', effectiveDisposition: 'resolved', resolutionEvidence: evidence });
+    const source = sourceWithProjection(fixtureSource(true), [finding], [resolved]);
+    const snapshot = await buildProjectReportSnapshot(project.id, { source });
+    const json = JSON.parse(renderProjectReportJson(snapshot)) as { currentFindings: { items: ReportCurrentFinding[] } };
+    const markdown = renderProjectReport(snapshot);
+
+    expect(snapshot.riskAssessment.currentFindingCount).toBe(0);
+    expect(snapshot.currentFindings?.items[0]).toMatchObject({
+      persistedStatus: 'carryover', effectiveStatus: 'fixed', effectiveDisposition: 'resolved',
+      resolutionEvidence: { reviewId: 'review-2', previousSourceVersion: 'hash-old', reviewedSourceVersion: 'hash-new' },
+    });
+    expect(snapshot.findings[0].status).toBe('carryover');
+    expect(finding.status).toBe('carryover');
+    expect(json.currentFindings.items[0].effectiveDisposition).toBe('resolved');
+    expect(markdown).toContain('**Effective disposition:** Resolved');
+    expect(markdown).toContain('**Resolution basis:** Not reproduced in comparable Review `review-2`');
+    expect(markdown).toContain('**State:** Carryover');
+  });
+
+  it('keeps a legitimate empty current projection distinct from legacy unavailability', async () => {
+    const source = sourceWithProjection(fixtureSource(false), [], []);
+    const snapshot = await buildProjectReportSnapshot(project.id, { source });
+    expect(snapshot.currentFindings).toEqual({ status: 'available', reason: null, items: [] });
+    expect(renderProjectReport(snapshot)).toContain('No current findings were returned by the reconciled project projection.');
+    expect(renderProjectReport(snapshot)).not.toContain('Current finding inventory unavailable');
+  });
+
+  it('adds explicit unavailability when an old snapshot without currentFindings is re-rendered', async () => {
+    const snapshot = await buildProjectReportSnapshot(project.id, { source: fixtureSource(true) });
+    const legacySnapshot = { ...snapshot } as ProjectReportSnapshot;
+    delete legacySnapshot.currentFindings;
+    const rendered = await renderProjectReportFiles(legacySnapshot);
+
+    expect(JSON.parse(rendered.json).currentFindings).toMatchObject({ status: 'unavailable', items: [] });
+    expect(rendered.markdown).toContain('Current finding inventory unavailable');
+    expect(rendered.markdown).toContain('legacy report snapshot has no reconciled current inventory');
+  });
+
+  it('orders Static attempts by execution time and ignores later activity', async () => {
+    const oldApproved = staticAttempt('review-old', {
+      createdAt: '2026-10-01T00:00:00.000Z', completedAt: '2026-10-01T00:30:00.000Z',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    });
+    const newerExecution = staticAttempt('review-new', {
+      createdAt: '2026-10-20T00:00:00.000Z', completedAt: '2026-10-20T00:30:00.000Z',
+      updatedAt: '2026-10-20T00:31:00.000Z',
+    });
+    const snapshot = await snapshotForAttempts([oldApproved, newerExecution]);
+    expect(snapshot.latestReview?.session.id).toBe('review-new');
+    expect(snapshot.latestReview?.session.executionTimestamp).toBe('2026-10-20T00:30:00.000Z');
+    expect(snapshot.latestReview?.session.executionTimestampBasis).toBe('completed_at');
+  });
+
+  it('uses dedicated completion before progress completion and progress before creation fallback', async () => {
+    const dedicatedEarlier = staticAttempt('dedicated-earlier', {
+      createdAt: '2026-10-01T00:00:00.000Z', completedAt: '2026-10-15T00:00:00.000Z',
+      progressJson: JSON.stringify({ completedAt: '2026-10-22T00:00:00.000Z' }), updatedAt: '2026-10-23T00:00:00.000Z',
+    });
+    const actualLater = staticAttempt('actual-later', { completedAt: '2026-10-18T00:00:00.000Z' });
+    const dedicatedSnapshot = await snapshotForAttempts([dedicatedEarlier, actualLater]);
+    expect(dedicatedSnapshot.latestReview?.session.id).toBe('actual-later');
+
+    const progressCompletion = staticAttempt('progress-completion', {
+      createdAt: '2026-10-17T00:00:00.000Z', completedAt: null,
+      progressJson: JSON.stringify({ completedAt: '2026-10-19T00:00:00.000Z' }),
+    });
+    const creationFallback = staticAttempt('creation-fallback', {
+      createdAt: '2026-10-18T00:00:00.000Z', progressJson: '{malformed',
+    });
+    const fallbackSnapshot = await snapshotForAttempts([creationFallback, progressCompletion]);
+    expect(fallbackSnapshot.latestReview?.session.id).toBe('progress-completion');
+    expect(fallbackSnapshot.latestReview?.session.executionTimestamp).toBe('2026-10-19T00:00:00.000Z');
+    expect(fallbackSnapshot.latestReview?.session.executionTimestampBasis).toBe('progress.completedAt');
+  });
+
+  it('uses stable ID ordering for unknown timestamps and shows newer failed attempts without older evidence', async () => {
+    const unknownB = staticAttempt('unknown-b', { createdAt: 'invalid', updatedAt: '2026-10-24T00:00:00.000Z', progressJson: '{"updatedAt":"2026-10-23"}' });
+    const unknownA = staticAttempt('unknown-a', { createdAt: 'invalid', updatedAt: '2026-10-22T00:00:00.000Z' });
+    const first = await snapshotForAttempts([unknownB, unknownA]);
+    const reversed = await snapshotForAttempts([unknownA, unknownB]);
+    expect(first.latestReview?.session.id).toBe('unknown-a');
+    expect(reversed.latestReview?.session.id).toBe('unknown-a');
+    expect(first.latestReview?.session.executionTimestamp).toBeNull();
+    expect(first.latestReview?.session.executionTimestampBasis).toBe('unavailable');
+
+    const oldSuccess = staticAttempt('old-success', { status: 'success', createdAt: '2026-10-19T00:00:00.000Z' });
+    const newFailure = staticAttempt('new-failure', { status: 'failure', createdAt: '2026-10-20T00:00:00.000Z', failureReason: 'New attempt failed.' });
+    const failedSnapshot = await snapshotForAttempts([oldSuccess, newFailure], {
+      listStaticFindings: async (_projectId, reviewId) => reviewId === 'old-success' ? [finding] : [],
+    });
+    expect(failedSnapshot.latestReview?.session.id).toBe('new-failure');
+    expect(failedSnapshot.latestReview?.session.status).toBe('failure');
+    expect(failedSnapshot.latestReview?.findings).toEqual([]);
+    expect(failedSnapshot.latestReview?.session.failureReason).toBe('New attempt failed.');
+  });
+
+  it('leaves Dynamic latest-session ordering based on its existing update-time policy', async () => {
+    const oldCreationRecentActivity = { ...dynamic, id: 'dynamic-activity', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z' };
+    const newCreationOldActivity = { ...dynamic, id: 'dynamic-created', createdAt: '2026-10-20T00:00:00.000Z', updatedAt: '2026-10-20T00:00:00.000Z' };
+    const snapshot = await snapshotForAttempts([], { listDynamicSessions: async () => [newCreationOldActivity, oldCreationRecentActivity] });
+    expect(snapshot.latestDynamicTest?.session.id).toBe('dynamic-activity');
+  });
+
   it('renders one immutable snapshot in three formats with verifiable hashes', async () => {
+    const longPath = 'src/' + Array.from({ length: 18 }, (_, index) => `feature-${index}`).join('/') + '/authentication/session/credentials-check.ts';
+    const canonical = { ...finding, filePath: longPath, lineNumber: 2048 };
+    const latestOccurrence = {
+      ...canonical,
+      id: 'finding-latest',
+      sessionId: 'review-latest',
+      status: 'new' as const,
+      createdAt: '2026-09-22T10:00:00.000Z',
+    };
+    const resolutionEvidence = {
+      status: 'resolved' as const,
+      basis: 'not_reproduced_in_comparable_review' as const,
+      reviewId: 'review-latest',
+      reviewName: 'Updated source review',
+      sourceManifestId: 'manifest-latest',
+      previousSourceVersion: 'hash-old',
+      reviewedSourceVersion: 'hash-new',
+    };
+    const current = currentFinding(canonical, {
+      effectiveStatus: 'fixed',
+      effectiveDisposition: 'resolved',
+      latestOccurrence: { findingId: latestOccurrence.id, reviewId: latestOccurrence.sessionId, classification: 'recurring' },
+      lineageReferences: [{ findingId: canonical.id, reviewId: review.id, classification: 'recurring' }],
+      resolutionEvidence,
+    });
+    const source = sourceWithProjection(fixtureSource(true), [canonical, latestOccurrence], [current]);
     const snapshot = await buildProjectReportSnapshot(project.id, {
-      source: fixtureSource(true), reportId: 'report-fixture', generatedAt: '2026-09-23T00:00:00.000Z',
+      source, reportId: 'report-fixture', generatedAt: '2026-09-23T00:00:00.000Z',
       outputFiles: { json: 'snapshot.json', markdown: 'report.md', pdf: 'report.pdf' },
     });
     const { json, markdown, pdf } = await renderProjectReportFiles(snapshot);
     const checksums = makeReportChecksums({ json, markdown, pdf });
-    expect(JSON.parse(json).metadata.outputFiles).toEqual({ json: 'snapshot.json', markdown: 'report.md', pdf: 'report.pdf' });
+    const serialized = JSON.parse(json) as { metadata: { outputFiles: Record<string, string> }; findings: Finding[]; currentFindings: { items: ReportCurrentFinding[] } };
+    expect(serialized.metadata.outputFiles).toEqual({ json: 'snapshot.json', markdown: 'report.md', pdf: 'report.pdf' });
+    expect(serialized.findings.map(item => [item.id, item.status])).toEqual([['finding-latest', 'new'], ['finding-1', 'carryover']]);
+    expect(serialized.currentFindings.items).toMatchObject([{ id: 'finding-1', persistedStatus: 'carryover', effectiveDisposition: 'resolved', latestOccurrence: { findingId: 'finding-latest' } }]);
     expect(markdown).toContain(dynamic.finalSummary);
     expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(markdown).toContain('Current project findings');
+    expect(markdown).toContain('Historical finding occurrences');
+    expect(markdown).toContain('**Effective disposition:** Resolved');
+    expect(markdown).toContain('**Resolution basis:** Not reproduced in comparable Review `review-latest`');
+    expect(markdown).toContain(longPath + ':2048');
     expect(checksums.snapshot).toBe(crypto.createHash('sha256').update(json).digest('hex'));
     expect(checksums.markdown).toBe(crypto.createHash('sha256').update(markdown).digest('hex'));
     expect(checksums.pdf).toBe(crypto.createHash('sha256').update(pdf).digest('hex'));

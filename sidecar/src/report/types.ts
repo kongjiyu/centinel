@@ -7,8 +7,33 @@ import type { ReviewSourceManifest, ReviewTraceabilitySnapshot } from '../review
 import type { Project } from '../projects.js';
 import type { RiskLevel } from '../riskPolicy.js';
 import type { TokenUsageSummary } from '../tokenUsage.js';
+import type { ProjectFindingHistoryEntry, ProjectFindingResolutionEvidence } from '../review/findingReconciliation.js';
+import type { ProjectAssessment } from '../staticDomainTypes.js';
 
 export type ProjectReportFinding = Finding & { riskLevel: RiskLevel | null };
+
+export type ReportCurrentFinding = ProjectReportFinding & {
+  /** State saved on the canonical root occurrence before reconciliation. */
+  persistedStatus: Finding['status'];
+  /** Shared project presentation state, including server-validated resolution. */
+  effectiveStatus: Finding['status'];
+  /** User-facing disposition; derived resolution is represented explicitly. */
+  effectiveDisposition: Finding['status'] | 'resolved';
+  latestOccurrence: { findingId: string; reviewId: string | null; classification: 'recurring' | 'regressed' } | null;
+  lineageReferences: Array<Pick<ProjectFindingHistoryEntry, 'findingId' | 'reviewId' | 'classification'>>;
+  resolutionEvidence: ProjectFindingResolutionEvidence | null;
+};
+
+export type ReportCurrentFindings = {
+  status: 'available' | 'unavailable';
+  reason: string | null;
+  items: ReportCurrentFinding[];
+};
+
+export type ReportProjectAssessment = ProjectAssessment & {
+  /** Optional for legacy snapshot sources; production reports provide it. */
+  currentFindings?: ReportCurrentFindings;
+};
 
 export type ReportMetadata = {
   schemaVersion: 'centinel-project-report-v1';
@@ -119,6 +144,11 @@ export type ReportReviewSession = {
   status: StaticSession['status'];
   createdAt: string;
   updatedAt: string;
+  /** Persisted completed_at value, if the backing row has one. */
+  completedAt?: string | null;
+  /** Execution timestamp chosen from dedicated completion, frozen progress, or creation fallback. */
+  executionTimestamp?: string | null;
+  executionTimestampBasis?: 'completed_at' | 'progress.completedAt' | 'created_at' | 'unavailable';
   summary: string | null;
   failureReason: string | null;
 };
@@ -164,6 +194,8 @@ export type ProjectReportSnapshot = {
   };
   /** Complete finding inventory, including current and historical states. */
   findings: ProjectReportFinding[];
+  /** Reconciled current issues; absent only in legacy saved report JSON. */
+  currentFindings?: ReportCurrentFindings;
   sourceInventory: {
     status: 'available';
     artifactCount: number;

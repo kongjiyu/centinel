@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexAppServer } from '../model/codex.js';
 import { ConfiguredTextModelProvider } from '../review/modelProvider.js';
 import { runReadinessEvaluation, READINESS_EVALUATION_FIXTURES } from './evaluation.js';
-import { READINESS_POLICY_VERSION } from './policy.js';
+import { createReadinessEvaluationRun } from './evaluationRun.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -30,11 +30,8 @@ async function main() {
     const requested = option('--cases')?.split(',');
     const fixtures = requested ? READINESS_EVALUATION_FIXTURES.filter(item => requested.includes(item.id)) : READINESS_EVALUATION_FIXTURES;
     if (!fixtures.length || requested?.some(id => !fixtures.some(fixture => fixture.id === id))) throw new Error('Unknown readiness fixture case.');
-    const directory = path.resolve(root, 'evidence/readiness-outcomes-2026-10-19');
-    await fs.mkdir(directory, { recursive: true });
-    const corpusHash = (await import('node:crypto')).createHash('sha256').update(JSON.stringify(fixtures)).digest('hex');
-    console.log(JSON.stringify({ event: 'evaluation_started', policyVersion: READINESS_POLICY_VERSION, model: model.id,
-      corpusHash, selectedFixtureIds: fixtures.map(item => item.id) }));
+    const run = await createReadinessEvaluationRun(path.resolve(root, 'evidence/readiness-evaluations'), fixtures, model.id);
+    console.log(JSON.stringify({ event: 'evaluation_started', ...run.metadata, outputDirectory: run.directory }));
     const provider = new ConfiguredTextModelProvider({ codexBackend: backend, settings: {
       ownerId: 'readiness-fixture-evaluation', provider: 'codex', apiFormat: 'codex-app-server',
       model: model.id, apiKey: '', baseUrl: '',
@@ -44,12 +41,7 @@ async function main() {
       console.log(JSON.stringify({ event: 'case_started', fixtureId: fixture.id, model: model.id }));
       const report = await runReadinessEvaluation(provider, [fixture]);
       results.push(...report.cases);
-      const { createReadinessEvaluationReport } = await import('./evaluation.js');
-      const aggregate = createReadinessEvaluationReport(results);
-      await fs.writeFile(path.join(directory, 'live-codex-results.json'), JSON.stringify({
-        mode: 'live-codex-fixtures', policyVersion: READINESS_POLICY_VERSION, model: model.id,
-        corpusHash, selectedFixtureIds: fixtures.map(item => item.id), completedCorpus: results.length === fixtures.length, ...aggregate,
-      }, null, 2));
+      await run.save(results);
       console.log(JSON.stringify({ event: 'case_finished', fixtureId: fixture.id, passed: report.cases[0]?.passed,
         failureCode: report.cases[0]?.failureCode,
         states: report.cases[0]?.categories.map(item => ({ category: item.category, expected: item.expectedState, actual: item.engineState })),

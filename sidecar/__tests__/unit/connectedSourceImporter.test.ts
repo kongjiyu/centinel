@@ -15,6 +15,7 @@ import type {
 import { ConnectedSourceImporter } from '../../src/integrations/connectedSourceImporter.js';
 import { ConnectedSourceHttpError } from '../../src/integrations/http.js';
 import { GitHubConnectedSourceAdapter } from '../../src/integrations/providers/github.js';
+import { GoogleDriveConnectedSourceAdapter } from '../../src/integrations/providers/googleDrive.js';
 
 const NOW = '2026-09-21T00:00:00.000Z';
 const credentials: IntegrationCredential = {
@@ -183,6 +184,30 @@ function sourceAdapter(pages: Array<{ cursor: Record<string, unknown> | null; do
 }
 
 describe('ConnectedSourceImporter', () => {
+  it('force-reimports an unchanged Drive file previously rejected by the attachment limit', async () => {
+    const repository = new MemoryConnectedSourceRepository();
+    repository.integration.provider = 'google_drive';
+    repository.source = { ...repository.source, provider: 'google_drive', kind: 'google_drive', remoteId: 'report', selectedScope: { resourceKind: 'file' } };
+    const calls: string[] = [];
+    const http = { async fetch(input: RequestInfo | URL) {
+      const url = String(input); calls.push(url);
+      if (url.includes('startPageToken')) return Response.json({ startPageToken: 'cursor' });
+      if (url.includes('/changes?')) return Response.json({ changes: [], newStartPageToken: 'cursor' });
+      if (url.includes('alt=media')) return new Response('report');
+      return Response.json({ id: 'report', name: 'report.pdf', mimeType: 'application/pdf', size: '6', headRevisionId: 'same-revision' });
+    } };
+    const makeImporter = (limit: number) => new ConnectedSourceImporter({ repository, adapters: [new GoogleDriveConnectedSourceAdapter({ http, maxFileBytes: limit })], tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
+    await makeImporter(4).sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'small-limit' });
+    expect(repository.items[0]!.status).toBe('unsupported');
+    expect(repository.versions.size).toBe(0);
+    expect(repository.source.syncCursor).toMatchObject({ mode: 'changes', pageToken: 'cursor' });
+    calls.length = 0;
+    await makeImporter(8).sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'new-limit', force: true });
+    expect(repository.items[0]!.status).toBe('available');
+    expect(repository.versions.size).toBe(1);
+    expect(calls.some(url => url.includes('alt=media'))).toBe(true);
+    expect(calls.some(url => url.includes('/changes?'))).toBe(false);
+  });
   it('checks the GitHub head first, skips current content, imports changed heads, and recovers failed snapshots', async () => {
     const repository = new MemoryConnectedSourceRepository();
     let head = 'commit-a';

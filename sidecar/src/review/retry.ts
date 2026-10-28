@@ -1,5 +1,7 @@
 import type { StaticAnalysisModelProvider, StaticModelRequest, StaticModelResult, ModelAttemptOutcome, ModelAttemptRecord } from './types.js';
+import type { TokenUsageObservation } from '../aiClient.js';
 import { providerPause } from './providerPause.js';
+import { sanitizeReviewRequestUsageContext } from './usageContext.js';
 
 export const MAX_MODEL_ATTEMPTS = 5;
 export const MAX_EXTERNAL_ATTEMPTS = 3;
@@ -43,6 +45,9 @@ export class ModelProviderError extends Error {
   readonly retryAfterMs?: number;
   readonly retryable?: boolean;
   readonly malformed?: boolean;
+  readonly usage?: StaticModelResult['usage'];
+  readonly responseReceived?: boolean;
+  readonly usageObservation?: TokenUsageObservation;
 
   constructor(message: string, options: {
     code?: string;
@@ -50,6 +55,9 @@ export class ModelProviderError extends Error {
     retryAfterMs?: number;
     retryable?: boolean;
     malformed?: boolean;
+    usage?: StaticModelResult['usage'];
+    responseReceived?: boolean;
+    usageObservation?: TokenUsageObservation;
     cause?: unknown;
   } = {}) {
     super(message, { cause: options.cause });
@@ -59,6 +67,9 @@ export class ModelProviderError extends Error {
     this.retryAfterMs = options.retryAfterMs;
     this.retryable = options.retryable;
     this.malformed = options.malformed;
+    this.usage = options.usage;
+    this.responseReceived = options.responseReceived;
+    this.usageObservation = options.usageObservation;
   }
 }
 
@@ -329,10 +340,14 @@ export type ModelOperationResult = {
 
 export type ModelOperationOptions = RetryPolicyOptions & ModelAttemptContext & {
   fallback?: StaticAnalysisModelProvider;
+  /** A format/evidence repair must not silently switch providers. */
+  fallbackOnMalformed?: boolean;
   /** Durable reservation written before a provider request. A crash after
    * reservation consumes this slot on recovery instead of risking a duplicate paid call. */
   onAttemptStarted?: (attempt: ModelAttemptRecord) => void | Promise<void>;
   fallbackContext?: Partial<Pick<ModelAttemptContext, 'provider' | 'apiFormat' | 'model'>>;
+  /** Bind safe accounting metadata to each actual request, including repairs. */
+  usageContextForAttempt?: (request: StaticModelRequest, attempt: number) => StaticModelRequest['usageContext'];
   /** The hard product budget is shared by primary and fallback. Every network
    * request, including a constrained JSON repair, consumes one slot. */
   maxTotalAttempts?: number;
@@ -476,6 +491,7 @@ export async function runModelOperation(
   const now = options.now ?? (() => new Date());
   const attempts: ModelAttemptRecord[] = [];
   let totalAttempts = 0;
+  let lastFailureMalformed = false;
 
   const runProvider = async (
     provider: StaticAnalysisModelProvider,
@@ -488,6 +504,19 @@ export async function runModelOperation(
       if (options.signal?.aborted || request.signal?.aborted) throw new ReviewCancelledError();
       totalAttempts++;
       const attemptNumber = attemptOffset + totalAttempts;
+      const attemptRepair = request.repair || providerAttempt > 1 && lastClassification?.kind === 'malformed';
+      const proposedUsageContext = options.usageContextForAttempt?.({
+        ...request,
+        signal: options.signal ?? request.signal,
+        repair: attemptRepair,
+      }, attemptNumber) ?? request.usageContext;
+      const usageContext = sanitizeReviewRequestUsageContext(proposedUsageContext);
+      const attemptRequest: StaticModelRequest = {
+        ...request,
+        signal: options.signal ?? request.signal,
+        repair: attemptRepair,
+        ...(usageContext ? { usageContext } : {}),
+      };
       const reservation = makeAttemptRecord({
         ...options,
         ...providerContext,
@@ -497,6 +526,7 @@ export async function runModelOperation(
         attempt: attemptNumber,
         outcome: 'in_progress',
         durationMs: 0,
+        usageContext,
         now,
       });
       // Reservation persistence is outside the paid provider try block: if it
@@ -504,18 +534,21 @@ export async function runModelOperation(
       await options.onAttemptStarted?.(reservation);
       const started = Date.now();
       let result: StaticModelResult;
+      let observedUsage: StaticModelResult['usage'];
+      let observedResponseReceived: boolean | undefined;
       try {
-        result = await provider.analyze({
-          ...request,
-          signal: options.signal ?? request.signal,
-          repair: request.repair || providerAttempt > 1 && lastClassification?.kind === 'malformed',
-        });
+        result = await provider.analyze(attemptRequest);
+        // Keep usage even if cancellation wins after the provider returned.
+        // The call happened and its billable response was observed.
+        observedUsage = result.usage;
+        observedResponseReceived = true;
         // A provider is allowed to resolve after an abort (for example, a
         // custom SDK may not wire AbortSignal). Cancellation wins over that
         // late response so a cancelled Review can never become successful.
         if (options.signal?.aborted || request.signal?.aborted) throw new ReviewCancelledError();
       } catch (error) {
         const classification = classifyModelError(error, options.signal ?? request.signal);
+        lastFailureMalformed = classification.kind === 'malformed';
         lastClassification = classification;
         const outcome: ModelAttemptOutcome = classification.kind === 'cancelled' ? 'cancelled'
           : classification.kind === 'malformed' ? 'malformed_response'
@@ -524,6 +557,11 @@ export async function runModelOperation(
         const errorMessageValue = providerPause(error)?.message ?? safeErrorMessage(error);
         const statusCode = classification.statusCode;
         const retryAfterMs = classification.retryAfterMs;
+        const providerError = error && typeof error === 'object'
+          ? error as ModelProviderError & { usage?: StaticModelResult['usage']; responseReceived?: boolean; usageObservation?: TokenUsageObservation }
+          : undefined;
+        const usage = observedUsage ?? providerError?.usage;
+        const responseReceived = observedResponseReceived ?? providerError?.responseReceived ?? (usage ? true : undefined);
         const record = makeAttemptRecord({
           ...options,
           ...providerContext,
@@ -537,6 +575,12 @@ export async function runModelOperation(
           errorMessage: errorMessageValue,
           statusCode,
           retryAfterMs,
+          usage,
+          responseReceived,
+          usageObservation: providerError?.usageObservation ?? usage?.usageObservation,
+          ...(responseReceived === false && !usage
+            ? { usageAccounting: { basis: 'assumed_zero_no_response' as const, accountedTokens: 0 as const } } : {}),
+          usageContext,
           now,
         });
         attempts.push(record);
@@ -549,7 +593,8 @@ export async function runModelOperation(
           code: classification.code, statusCode, retryAfterMs, retryable: false,
         });
         if (classification.kind === 'permanent') throw error;
-        const fallbackCanFollow = providerKind === 'primary' && !!options.fallback && fallbackReserveAttempts > 0;
+        const fallbackCanFollow = providerKind === 'primary' && !!options.fallback && fallbackReserveAttempts > 0
+          && !(lastFailureMalformed && options.fallbackOnMalformed === false);
         const hasNextAttempt = totalAttempts < remainingAttempts && (providerAttempt < attemptLimit || fallbackCanFollow);
         if (!hasNextAttempt) break;
         const nominalDelayMs = MODEL_RETRY_DELAYS_MS[Math.min(totalAttempts - 1, MODEL_RETRY_DELAYS_MS.length - 1)];
@@ -578,6 +623,9 @@ export async function runModelOperation(
         outcome: 'success',
         durationMs: Date.now() - started,
         usage: result.usage,
+        responseReceived: true,
+        usageObservation: result.usage?.usageObservation,
+        usageContext,
         now,
       });
       attempts.push(record);
@@ -590,7 +638,8 @@ export async function runModelOperation(
   const primaryContext = { provider: options.provider, apiFormat: options.apiFormat, model: options.model };
   const primaryResult = await runProvider(primary, 'primary', primaryContext);
   if (primaryResult) return primaryResult;
-  if (!options.fallback || totalAttempts >= remainingAttempts || fallbackReserveAttempts === 0) {
+  if (!options.fallback || totalAttempts >= remainingAttempts || fallbackReserveAttempts === 0
+    || lastFailureMalformed && options.fallbackOnMalformed === false) {
     throw new ModelProviderError('Model provider exhausted eligible attempts', {
       code: 'retry_exhausted',
       retryable: true,
@@ -618,7 +667,11 @@ function makeAttemptRecord(input: ModelAttemptContext & {
   retryAfterMs?: number;
   errorCode?: string;
   errorMessage?: string;
+  responseReceived?: boolean;
+  usageObservation?: ModelAttemptRecord['usageObservation'];
+  usageAccounting?: ModelAttemptRecord['usageAccounting'];
   usage?: StaticModelResult['usage'];
+  usageContext?: StaticModelRequest['usageContext'];
   now: () => Date;
 }): ModelAttemptRecord {
   return {
@@ -635,7 +688,11 @@ function makeAttemptRecord(input: ModelAttemptContext & {
     retryAfterMs: input.retryAfterMs,
     errorCode: input.errorCode,
     errorMessage: input.errorMessage,
+    responseReceived: input.responseReceived,
+    usageObservation: input.usageObservation,
+    usageAccounting: input.usageAccounting,
     usage: input.usage,
+    usageContext: input.usageContext,
     createdAt: input.now().toISOString(),
   };
 }

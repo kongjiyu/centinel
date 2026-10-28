@@ -21,6 +21,7 @@ export function normalizeBudget(value: unknown): ExecutionBudget {
 export class ExecutionBudgetExceeded extends Error {}
 export class RunBudget {
   steps = 0;modelCalls = 0; consoleBytes = 2; private consoleMessages = 0; accountedTokens = 0; unknownUsageCalls = 0;
+  assumedZeroNoResponseCalls = 0; assumedZeroNoResponseTokens = 0;
   constructor(readonly limits: ExecutionBudget) {}
   startStep(){if(this.steps>=this.limits.maxSteps)throw new ExecutionBudgetExceeded('Step limit reached; unfinished criteria were not tested.');this.steps++;}
   beforeCall() {
@@ -31,11 +32,26 @@ export class RunBudget {
     }
     this.modelCalls++;
   }
-  recordUsage(usage?: TokenUsage) {
-    const values = usage && [usage.inputTokens, usage.outputTokens, usage.cacheReadTokens ?? 0, usage.cacheCreationTokens ?? 0];
-    const total = usage?.totalTokens ?? values?.reduce((sum, value) => sum + value, 0);
-    if (!values || values.some(value => !Number.isSafeInteger(value) || value < 0) || !Number.isSafeInteger(total) || total! < 0) this.unknownUsageCalls++;
-    else this.accountedTokens += total!;
+  recordUsage(usage?: TokenUsage, responseReceived?: boolean) {
+    if (!usage && responseReceived === false) {
+      this.assumedZeroNoResponseCalls++;
+      this.assumedZeroNoResponseTokens += 0;
+      return;
+    }
+    const reported = usage?.providerReportedTotalTokens;
+    const total = Number.isSafeInteger(reported) && reported! >= 0 ? reported : usage?.totalTokens;
+    if (Number.isSafeInteger(total) && total! >= 0) {
+      this.accountedTokens += total!;
+      return;
+    }
+    const input = usage?.inputTokens;
+    const output = usage?.outputTokens;
+    const partial = usage?.usageObservation?.completeness === 'partial';
+    if (!partial && Number.isSafeInteger(input) && input! >= 0 && Number.isSafeInteger(output) && output! >= 0) {
+      this.accountedTokens += input! + output!;
+      return;
+    }
+    this.unknownUsageCalls++;
   }
   assertAccountedLimit() {
     if (this.limits.maxAccountedTokens === undefined) return;
@@ -52,5 +68,6 @@ export class RunBudget {
   }
   snapshot() { return { limits: this.limits, steps:this.steps, modelCalls: this.modelCalls, consoleBytes: this.consoleBytes,
     accountedTokens: this.accountedTokens, unknownUsageCalls: this.unknownUsageCalls,
+    assumedZeroNoResponseCalls: this.assumedZeroNoResponseCalls, assumedZeroNoResponseTokens: this.assumedZeroNoResponseTokens,
     tokenAccounting: this.unknownUsageCalls ? this.unknownUsageCalls===this.modelCalls?'unavailable':'partial' : this.modelCalls ? 'available' : 'not_requested' }; }
 }

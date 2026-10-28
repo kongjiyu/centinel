@@ -1,4 +1,5 @@
 import { findingSourceIdentityHash, type FindingCorrelation, type FindingResolutionEligibility } from './correlation.js';
+import { ASSESSMENT_VALIDATION_VERSION } from './assessmentValidation.js';
 import type { StaticReviewRecord } from './types.js';
 import type { StoreFinding } from '../store/types.js';
 
@@ -12,6 +13,7 @@ export type ProjectFindingForReconciliation = {
   sourceIdentity?: string | null;
   sourceVersion?: string | null;
   filePath: string;
+  lineNumber?: number | null;
   title: string;
   severity: string;
   createdAt: string;
@@ -166,7 +168,12 @@ function validatedResolution(
   childManifest: ReconciliationManifest,
   metadata: FindingResolutionMetadata | undefined,
 ): ProjectFindingResolutionEvidence | undefined {
-  if (!metadata || metadata.version !== 1 || metadata.basis !== 'not_reproduced_in_comparable_review') return undefined;
+  if (!metadata || metadata.version !== 2 || metadata.assessmentValidationVersion !== ASSESSMENT_VALIDATION_VERSION || metadata.basis !== 'not_reproduced_in_comparable_review') return undefined;
+  const location = metadata.locationBasis;
+  if (!location || location.kind !== 'exact_assessed_reference' || location.lineNumber !== finding.lineNumber
+    || location.filePath.replace(/\\/g, '/') !== finding.filePath.replace(/\\/g, '/')
+    || normalizeVersion(location.sourceVersion) !== normalizeVersion(metadata.reviewedSourceVersion)
+    || !location.featureId || !['security', 'business', 'technical', 'personnel'].includes(location.domain)) return undefined;
   if (!finding.artifactId) return undefined;
   const parentArtifact = parentManifest.artifacts.find(artifact => artifact.id === finding.artifactId);
   if (!parentArtifact) return undefined;

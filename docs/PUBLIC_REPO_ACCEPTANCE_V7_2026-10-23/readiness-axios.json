@@ -1,0 +1,148 @@
+[
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "repository_completed_when_expected_imports_are_readable",
+    "verdict": "true",
+    "reason": "The completed job under readiness-2026-10-23.2 reports Repository completed with 52 sources and 2/2 checks. Independent offline byte reads verified all 52 expected imported files against frozen SHA-256 and length records; no mismatches. Original package.json, tsconfig.json and .eslintrc.js parsed without diagnostics using the trusted workspace TypeScript parser, without executing upstream code. This supports selected-input availability only.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"Promise based HTTP client for the browser and node.js\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/tsconfig.json",
+        "lineNumber": 7,
+        "excerpt": "\"strict\": true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 2,
+        "excerpt": "module.exports = {"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "requirements_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw requirements presence is present; effective Requirements is incomplete, not missing. README supplies explicit request defaults and timeout behavior, independently establishing substantive observable requirements. Incomplete is a successful assessment outcome; this does not adjudicate every requirement criterion.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 300,
+        "excerpt": "Requests will default to `GET` if `method` is not specified."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 364,
+        "excerpt": "If the request takes longer than `timeout`, the request will be aborted."
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "design_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw design presence is present; effective Design is incomplete, not missing. Original comments assign adapter dispatch and configuration-merging responsibilities, while API types provide interfaces. This is embedded design material, without inventing a separate design document or certifying complete design.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+        "lineNumber": 23,
+        "excerpt": "Dispatch a request to the server using the configured adapter."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/mergeConfig.js",
+        "lineNumber": 6,
+        "excerpt": "Config-specific merge-function which creates a new config-object"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "standards_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw standards presence is present; effective Standards is incomplete, not missing. The original local ESLint configuration supplies mandatory explicit rules and the contribution guide states an observable CI acceptance gate. The external style-guide link was not followed; unresolved conflicts remain unknown.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 136,
+        "excerpt": "'semi': [2, 'always']"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 20,
+        "excerpt": "Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+    "verdict": "true",
+    "reason": "Both raw applicable/checkable counts are 3 pass and 0 gap/unknown/invalid, with effective applicability/checkability pass. Independent source checks support those narrow judgments: the package explicitly runs ESLint over lib/**/*.js, and original ESLint configuration sets eqeqeq and semicolon severities/options. No installed linter execution or external-rule compatibility claim is made.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+        "lineNumber": 14,
+        "excerpt": "\"fix\": \"eslint --fix lib/**/*.js\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 63,
+        "excerpt": "'eqeqeq': [2, \"smart\"]"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 136,
+        "excerpt": "'semi': [2, 'always']"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "no_invented_requirement_or_design_document",
+    "verdict": "true",
+    "reason": "Requirements and design are grounded in actual README, contribution material, API declarations and implementation comments. All 197 retained reference objects across the result have exact original-source excerpts and matching content hashes; no nonexistent requirement/design document is cited. Recommendations describe needed evidence rather than asserting that a new document exists. Internal diagnostics disclose rejected raw citations, so retained-evidence validity does not establish full raw-response accuracy.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 300,
+        "excerpt": "Only the `url` is required."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+        "lineNumber": 23,
+        "excerpt": "Dispatch a request to the server using the configured adapter."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 24,
+        "excerpt": "Please update the [docs](README.md) accordingly"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "no_whole_repository_or_bug_free_certification",
+    "verdict": "true",
+    "reason": "The result completes the job while retaining incomplete Requirements, Design and Standards and explicit unknown consistency/testability, data/failure decisions and standards conflicts. Its supplied-source responsibility and rule statements are supported by original selected files; no finding or criterion basis certifies the whole repository, bug absence or external runtime correctness. Repository completed denotes the checked 52-file selection only. These seven partial assertions are not a full 16-criterion semantic-accuracy assessment.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+        "lineNumber": 23,
+        "excerpt": "Dispatch a request to the server using the configured adapter."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 7,
+        "excerpt": "Please follow the [node style guide](https://github.com/felixge/node-style-guide)."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 15,
+        "excerpt": "Promise based HTTP client for the browser and node.js"
+      }
+    ]
+  }
+]

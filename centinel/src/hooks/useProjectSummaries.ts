@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { projectActivityLifecycle, reviewLifecycleState, type ProjectActivityLifecycle } from '../reviewViewModel';
-import type { Artifact, DynamicSession, Project, StaticSession } from '../types';
+import type { DynamicSession, Project, StaticSession } from '../types';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 
 export type ActivityTypeFilter = 'all' | 'review' | 'dynamic';
@@ -31,7 +31,7 @@ export type ProjectSummary = {
   project: Project;
   staticSessions: StaticSession[];
   dynamicSessions: DynamicSession[];
-  artifacts: Artifact[];
+  hasSources: boolean;
   latestActivity: ProjectActivity | null;
   activeCount: number;
   action: ProjectAction | null;
@@ -90,7 +90,7 @@ function actionPriority(item: ProjectAction): number {
   return 1;
 }
 
-function getStaticAction(project: Project, sessions: StaticSession[], artifacts: Artifact[], unavailable: boolean): ProjectAction | null {
+function getStaticAction(project: Project, sessions: StaticSession[], hasSources: boolean, unavailable: boolean): ProjectAction | null {
   const candidates: ProjectAction[] = [];
 
   sortedSessions(sessions).forEach(session => {
@@ -149,7 +149,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], artifacts:
     return candidates.sort((a, b) => actionPriority(b) - actionPriority(a) || timestamp(b.updatedAt) - timestamp(a.updatedAt))[0];
   }
 
-  if (!unavailable && artifacts.length === 0 && sessions.length === 0) {
+  if (!unavailable && !hasSources && sessions.length === 0) {
     return {
       id: `review-setup:${project.id}`,
       project,
@@ -189,7 +189,7 @@ function buildSummary(
   project: Project,
   staticSessions: StaticSession[],
   dynamicSessions: DynamicSession[],
-  artifacts: Artifact[],
+  hasSources: boolean,
   unavailable: boolean,
 ): ProjectSummary {
   const activities: ProjectActivity[] = [
@@ -207,7 +207,7 @@ function buildSummary(
     })),
   ].sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt));
   const actions = [
-    getStaticAction(project, staticSessions, artifacts, unavailable),
+    getStaticAction(project, staticSessions, hasSources, unavailable),
     getDynamicAction(project, dynamicSessions, unavailable),
   ].filter((item): item is ProjectAction => Boolean(item));
 
@@ -215,7 +215,7 @@ function buildSummary(
     project,
     staticSessions,
     dynamicSessions,
-    artifacts,
+    hasSources,
     latestActivity: activities[0] ?? null,
     activeCount: [...staticSessions, ...dynamicSessions].filter(session => session.status === 'queued' || session.status === 'running').length,
     action: actions.sort((a, b) => actionPriority(b) - actionPriority(a) || timestamp(b.updatedAt) - timestamp(a.updatedAt))[0] ?? null,
@@ -306,20 +306,20 @@ export function useProjectSummaries(projects: Project[]) {
     setLoading(true);
     setUnavailable(false);
     setSummaries(sortProjectSummaries(projects.map(project => ({
-      ...buildSummary(project, [], [], [], true), unavailable: false, loading: true, action: null,
+      ...buildSummary(project, [], [], false, true), unavailable: false, loading: true, action: null,
     }))));
     const loadProject = async (project: Project) => {
-      const [staticResult, dynamicResult, artifactsResult] = await Promise.allSettled([
-        api.listStaticSessions(project.id),
+      const [staticResult, dynamicResult, presenceResult] = await Promise.allSettled([
+        api.listStaticSessions(project.id, { summary: true }),
         api.listDynamicSessions(project.id),
-        api.listArtifacts(project.id),
+        api.getSourcePresence(project.id),
       ]);
-      const projectUnavailable = [staticResult, dynamicResult, artifactsResult].some(result => result.status === 'rejected');
+      const projectUnavailable = [staticResult, dynamicResult, presenceResult].some(result => result.status === 'rejected');
       const summary = buildSummary(
         project,
         staticResult.status === 'fulfilled' ? staticResult.value : [],
         dynamicResult.status === 'fulfilled' ? dynamicResult.value : [],
-        artifactsResult.status === 'fulfilled' ? artifactsResult.value : [],
+        presenceResult.status === 'fulfilled' ? presenceResult.value.hasSources : false,
         projectUnavailable,
       );
       if (cancelled) return;

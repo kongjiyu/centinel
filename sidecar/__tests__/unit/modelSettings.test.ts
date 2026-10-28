@@ -1,6 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { listModelProviderSettings, mapModelProviderSetting, resolveSavedEmbeddingProvider, saveModelProviderSetting, validateModelProviderUpdate } from '../../src/modelSettings.js';
+import { listModelProviderSettings, mapModelProviderSetting, resolveSavedEmbeddingConfiguration, resolveSavedEmbeddingProvider, saveModelProviderSetting, validateModelProviderUpdate } from '../../src/modelSettings.js';
+import { encryptSecret } from '../../src/tokenVault.js';
+import { VOYAGE_EMBEDDING_BASE_URL } from '../../src/embeddingSettings.js';
+
+function savedEmbeddingRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'embedding-setting', owner_id: 'user-1', purpose: 'embedding', enabled: true,
+    provider: 'custom', api_format: 'openai-compatible', model: 'custom-embedder',
+    base_url: 'https://custom.example.test/v1', secret_ciphertext: encryptSecret('saved-key'),
+    metadata: {}, ...overrides,
+  };
+}
+
+function singleRowClient(row: Record<string, unknown> | null) {
+  const query: any = {
+    select: () => query, eq: () => query, is: () => query, order: () => query, limit: () => query,
+    maybeSingle: async () => ({ data: row, error: null }),
+  };
+  return { from: vi.fn(() => query) } as unknown as SupabaseClient;
+}
 
 describe('Supabase Model Provider settings', () => {
   it('accepts Codex without secrets for text and vision but excludes embeddings and mismatched formats', () => {
@@ -94,5 +113,85 @@ describe('Supabase Model Provider settings', () => {
     expect(query.abortSignal).toHaveBeenCalledWith(controller.signal);
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('keeps a new embedding form unconfigured and maps legacy custom rows to 1536 dimensions', () => {
+    expect(mapModelProviderSetting('embedding', null)).not.toHaveProperty('embeddingProvider');
+    expect(mapModelProviderSetting('embedding', {
+      provider: 'custom', api_format: 'openai-compatible', model: 'old-embedder', base_url: 'https://old.example.test/v1',
+      secret_ciphertext: 'ciphertext', metadata: {},
+    })).toMatchObject({ embeddingProvider: 'custom', embeddingDimensions: 1536 });
+  });
+
+  it('resolves owner-scoped Voyage settings but rejects them from the legacy 1536 Review resolver', async () => {
+    process.env.CENTINEL_TOKEN_ENCRYPTION_KEY = 'embedding-settings-test-key';
+    try {
+      const client = singleRowClient(savedEmbeddingRow({
+        model: 'voyage-4-lite', base_url: VOYAGE_EMBEDDING_BASE_URL,
+        metadata: { embeddingProvider: 'voyage', embeddingProtocol: 'voyage', embeddingDimensions: 1024 },
+      }));
+      const configuration = await resolveSavedEmbeddingConfiguration(client, 'user-1');
+      expect(configuration).toMatchObject({
+        apiKey: 'saved-key', baseUrl: VOYAGE_EMBEDDING_BASE_URL, model: 'voyage-4-lite',
+        embeddingProvider: 'voyage', dimensions: 1024,
+      });
+      await expect(resolveSavedEmbeddingProvider(client, 'user-1')).rejects.toThrow(/existing Review index requires 1536-dimensional custom embeddings/);
+      expect(JSON.stringify(configuration)).not.toContain('secret_ciphertext');
+    } finally {
+      delete process.env.CENTINEL_TOKEN_ENCRYPTION_KEY;
+    }
+  });
+
+  it('resolves legacy custom 1536 settings and rejects unsupported dimensions or protocols', async () => {
+    process.env.CENTINEL_TOKEN_ENCRYPTION_KEY = 'embedding-settings-test-key';
+    try {
+      const client = singleRowClient(savedEmbeddingRow());
+      expect(await resolveSavedEmbeddingConfiguration(client, 'user-1')).toMatchObject({ embeddingProvider: 'custom', dimensions: 1536 });
+      expect(await resolveSavedEmbeddingProvider(client, 'user-1')).toMatchObject({ baseUrl: 'https://custom.example.test/v1', model: 'custom-embedder' });
+      await expect(resolveSavedEmbeddingConfiguration(singleRowClient(savedEmbeddingRow({ metadata: { embeddingProvider: 'custom', embeddingProtocol: 'openai-compatible', embeddingDimensions: 1024 } })), 'user-1'))
+        .rejects.toThrow(/saved embedding dimensions are not supported/);
+      await expect(resolveSavedEmbeddingConfiguration(singleRowClient(savedEmbeddingRow({ metadata: { embeddingProvider: 'voyage', embeddingProtocol: 'voyage', embeddingDimensions: 1024 } })), 'user-1'))
+        .rejects.toThrow(/saved Voyage embedding model is not supported/);
+    } finally {
+      delete process.env.CENTINEL_TOKEN_ENCRYPTION_KEY;
+    }
+  });
+
+  it('requires a fresh key when the embedding provider or endpoint changes', () => {
+    const existing = { provider: 'custom', base_url: 'https://custom.example.test/v1', secret_ciphertext: 'opaque-saved-ciphertext', metadata: {} };
+    const common = { provider: 'custom' as const, apiFormat: 'openai-compatible' as const, apiKey: '', model: 'embed-model', fallbackEnabled: false };
+    expect(() => validateModelProviderUpdate({
+      ...common, embeddingProvider: 'voyage', embeddingDimensions: 1024,
+      baseUrl: VOYAGE_EMBEDDING_BASE_URL, model: 'voyage-4-lite',
+    }, existing, 'embedding')).toThrow(/apiKey is required when changing the embedding provider or endpoint/);
+    expect(() => validateModelProviderUpdate({
+      ...common, embeddingProvider: 'custom', embeddingDimensions: 1536,
+      baseUrl: 'https://different.example.test/v1',
+    }, existing, 'embedding')).toThrow(/apiKey is required when changing the embedding provider or endpoint/);
+  });
+
+  it('persists Voyage protocol/dimensions in metadata while retaining the custom database row format', async () => {
+    process.env.CENTINEL_TOKEN_ENCRYPTION_KEY = 'embedding-settings-test-key';
+    try {
+      let payload: any;
+      const query: any = {
+        select: () => query, eq: () => query, is: () => query, order: () => query, limit: () => query,
+        maybeSingle: async () => ({ data: null, error: null }),
+        insert: (value: any) => { payload = value; return query; },
+        single: async () => ({ data: payload, error: null }),
+      };
+      const client = { from: () => query } as unknown as SupabaseClient;
+      const view = await saveModelProviderSetting(client, 'user-1', 'embedding', {
+        provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'fresh-voyage-key',
+        baseUrl: VOYAGE_EMBEDDING_BASE_URL, model: 'voyage-4-large', fallbackEnabled: false,
+        embeddingProvider: 'voyage', embeddingDimensions: 1024,
+      });
+      expect(payload).toMatchObject({ provider: 'custom', api_format: 'openai-compatible', base_url: VOYAGE_EMBEDDING_BASE_URL, model: 'voyage-4-large' });
+      expect(payload.metadata).toMatchObject({ embeddingProvider: 'voyage', embeddingProtocol: 'voyage', embeddingDimensions: 1024 });
+      expect(view).toMatchObject({ embeddingProvider: 'voyage', embeddingDimensions: 1024, hasApiKey: true });
+      expect(JSON.stringify(view)).not.toContain('fresh-voyage-key');
+    } finally {
+      delete process.env.CENTINEL_TOKEN_ENCRYPTION_KEY;
+    }
   });
 });

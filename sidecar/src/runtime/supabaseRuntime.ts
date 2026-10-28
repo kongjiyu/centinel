@@ -32,6 +32,7 @@ function requireToken(accessToken: string): string {
  */
 export class RefreshableSupabaseRuntime {
   private current: ScopedClientSnapshot;
+  private latestVerifiedIssuedAt: number | null;
   private readonly factory: SupabaseClientFactory;
 
   constructor(input: {
@@ -39,6 +40,7 @@ export class RefreshableSupabaseRuntime {
     accessToken: string;
     clientFactory?: SupabaseClientFactory;
     client?: SupabaseClient;
+    verifiedIssuedAt?: number | null;
   }) {
     if (!input.userId.trim()) throw new Error('A canonical user id is required for an RLS-scoped Supabase runtime.');
     const token = requireToken(input.accessToken);
@@ -46,6 +48,7 @@ export class RefreshableSupabaseRuntime {
     if (!client) throw new Error('Supabase is not configured for the authenticated runtime.');
     this.factory = input.clientFactory ?? createSupabaseClient;
     this.current = { userId: input.userId, tokenFingerprint: fingerprint(token), generation: 0, client };
+    this.latestVerifiedIssuedAt = validIssuedAt(input.verifiedIssuedAt);
   }
 
   snapshot(): ScopedClientSnapshot {
@@ -80,6 +83,22 @@ export class RefreshableSupabaseRuntime {
     return true;
   }
 
+  /** Called only with AuthGateway-verified same-owner credentials. Concurrent
+   * desktop/browser sessions may deliver older valid bearers after newer ones.
+   * Keep a monotonic issuance watermark so polling cannot revert the runtime.
+   * Opaque legacy tokens retain existing replacement behavior until a verified
+   * timestamp is known. Owner lookup and every RLS/epoch assertion stay intact.
+   */
+  adoptVerifiedSession(input: { userId: string; accessToken: string; client: SupabaseClient; verifiedIssuedAt?: number | null }): boolean {
+    if (input.userId !== this.current.userId) throw new Error('A different owner cannot replace the authenticated runtime session.');
+    if (fingerprint(requireToken(input.accessToken)) === this.current.tokenFingerprint) return false;
+    const issuedAt = validIssuedAt(input.verifiedIssuedAt);
+    if (this.latestVerifiedIssuedAt !== null && (issuedAt === null || issuedAt <= this.latestVerifiedIssuedAt)) return false;
+    const changed = this.replaceAccessToken(input.accessToken, input.client);
+    if (changed) this.latestVerifiedIssuedAt = issuedAt;
+    return changed;
+  }
+
   /** Reject a result that began with a stale client before it can persist
    * Review state or publish a successful completion. */
   assertCurrent(snapshot: Pick<ScopedClientSnapshot, 'generation' | 'tokenFingerprint'>): void {
@@ -94,6 +113,10 @@ export class RefreshableSupabaseRuntime {
     this.assertCurrent(snapshot);
     return result;
   }
+}
+
+function validIssuedAt(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 /** Bounded cache keyed by canonical user plus access-token fingerprint. It is

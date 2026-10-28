@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
-import type { TokenUsage } from '../aiClient.js';
+import type { TokenUsage, TokenUsageObservation, UsageAccounting } from '../aiClient.js';
 import type { ModelAttemptRecord, ReviewAuditEvent } from './types.js';
+import { sanitizeReviewRequestUsageContext } from './usageContext.js';
 
 /** Fields safe to persist or expose to usage/reporting consumers. This
  * intentionally has no prompt, response, API key, Authorization header, or
@@ -19,6 +20,10 @@ export type ModelUsageRecord = {
   statusCode?: number;
   retryAfterMs?: number;
   errorCode?: string;
+  responseReceived?: boolean;
+  usageObservation?: TokenUsageObservation;
+  usageAccounting?: UsageAccounting;
+  usageContext?: ModelAttemptRecord['usageContext'];
   usage?: TokenUsage;
   createdAt: string;
 };
@@ -37,6 +42,16 @@ export type ModelUsageTotals = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  accountedTokens: number;
+  assumedZeroNoResponseCalls: number;
+  assumedZeroNoResponseTokens: number;
+  unknownInputCalls: number;
+  unknownOutputCalls: number;
+  unknownCacheReadCalls: number;
+  unknownCacheCreationCalls: number;
+  unknownTotalCalls: number;
+  providerReportedTotalTokens: number;
+  providerReportedCalls: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
 };
@@ -46,15 +61,55 @@ function nonNegativeInteger(value: unknown): number {
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
 }
 
+function optionalNonNegativeInteger(value: unknown): number | undefined {
+  const number = Number(value);
+  return value == null || !Number.isFinite(number) || number < 0 ? undefined : Math.floor(number);
+}
+
 function usageCopy(usage: TokenUsage | undefined): TokenUsage | undefined {
   if (!usage) return undefined;
+  const inputTokens = optionalNonNegativeInteger(usage.inputTokens);
+  const outputTokens = optionalNonNegativeInteger(usage.outputTokens);
   return {
-    inputTokens: nonNegativeInteger(usage.inputTokens),
-    outputTokens: nonNegativeInteger(usage.outputTokens),
-    totalTokens: nonNegativeInteger(usage.totalTokens),
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(optionalNonNegativeInteger(usage.providerReportedTotalTokens) === undefined ? {} : { providerReportedTotalTokens: optionalNonNegativeInteger(usage.providerReportedTotalTokens) }),
+    ...(usage.totalTokensSource === 'provider_reported' || usage.totalTokensSource === 'adapter_derived'
+      ? { totalTokensSource: usage.totalTokensSource } : {}),
+    ...(optionalNonNegativeInteger(usage.totalTokens) === undefined ? {} : { totalTokens: optionalNonNegativeInteger(usage.totalTokens) }),
     ...(usage.cacheReadTokens == null ? {} : { cacheReadTokens: nonNegativeInteger(usage.cacheReadTokens) }),
     ...(usage.cacheCreationTokens == null ? {} : { cacheCreationTokens: nonNegativeInteger(usage.cacheCreationTokens) }),
+    ...(usage.usageObservation ? { usageObservation: safeUsageObservation(usage.usageObservation) } : {}),
   };
+}
+
+const SAFE_USAGE_SOURCES = new Set<TokenUsageObservation['source']>([
+  'provider_response', 'provider_error_response', 'codex_thread_total', 'codex_turn_last',
+]);
+const SAFE_USAGE_COUNTERS = new Set(['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens']);
+
+function safeUsageObservation(value: unknown): TokenUsageObservation | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const observation = value as Record<string, unknown>;
+  if (!SAFE_USAGE_SOURCES.has(observation.source as TokenUsageObservation['source'])
+    || observation.completeness !== 'complete' && observation.completeness !== 'partial') return undefined;
+  const missingCounters = Array.isArray(observation.missingCounters)
+    ? [...new Set(observation.missingCounters.filter((counter): counter is NonNullable<TokenUsageObservation['missingCounters']>[number] =>
+      typeof counter === 'string' && SAFE_USAGE_COUNTERS.has(counter)))] : [];
+  return { source: observation.source as TokenUsageObservation['source'], completeness: observation.completeness,
+    ...(missingCounters.length ? { missingCounters } : {}) };
+}
+
+function safeUsageAccounting(value: unknown, record: Pick<ModelAttemptRecord | ModelUsageRecord, 'outcome' | 'responseReceived' | 'usage' | 'usageObservation'>): UsageAccounting | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const accounting = value as Record<string, unknown>;
+  const usageObservation = record.usageObservation ?? (record.usage as TokenUsage | undefined)?.usageObservation;
+  const hasObservedUsage = Boolean(record.usage || usageObservation);
+  const terminalError = record.outcome === 'retryable_error' || record.outcome === 'permanent_error'
+    || record.outcome === 'malformed_response' || record.outcome === 'cancelled';
+  return terminalError && record.responseReceived === false && !hasObservedUsage
+    && accounting.basis === 'assumed_zero_no_response' && accounting.accountedTokens === 0
+    ? { basis: 'assumed_zero_no_response', accountedTokens: 0 } : undefined;
 }
 
 /** Strip optional error text to a bounded, non-secret audit value. Provider
@@ -88,6 +143,12 @@ export function toModelUsageRecord(attempt: ModelAttemptRecord): ModelUsageRecor
     ...(attempt.statusCode == null ? {} : { statusCode: attempt.statusCode }),
     ...(attempt.retryAfterMs == null ? {} : { retryAfterMs: Math.max(0, Math.floor(attempt.retryAfterMs)) }),
     ...(safeErrorCode(attempt.errorCode) ? { errorCode: safeErrorCode(attempt.errorCode) } : {}),
+    ...(typeof attempt.responseReceived === 'boolean' ? { responseReceived: attempt.responseReceived } : {}),
+    ...(safeUsageObservation(attempt.usageObservation ?? attempt.usage?.usageObservation)
+      ? { usageObservation: safeUsageObservation(attempt.usageObservation ?? attempt.usage?.usageObservation) } : {}),
+    ...(safeUsageAccounting(attempt.usageAccounting, attempt)
+      ? { usageAccounting: safeUsageAccounting(attempt.usageAccounting, attempt) } : {}),
+    ...(sanitizeReviewRequestUsageContext(attempt.usageContext) ? { usageContext: sanitizeReviewRequestUsageContext(attempt.usageContext) } : {}),
     usage: usageCopy(attempt.usage),
     createdAt: attempt.createdAt,
   };
@@ -123,8 +184,14 @@ export function createModelUsageAuditRecorder(
         durationMs: record.durationMs,
         statusCode: record.statusCode ?? null,
         errorCode: record.errorCode ?? null,
+        responseReceived: record.responseReceived ?? null,
+        usageObservation: record.usageObservation ?? null,
+        usageAccounting: record.usageAccounting ?? null,
         inputTokens: record.usage?.inputTokens ?? null,
         outputTokens: record.usage?.outputTokens ?? null,
+        logicalPhase: record.usageContext?.phase ?? null,
+        sourceReferenceCount: record.usageContext?.sources?.length ?? null,
+        estimatedInputTokens: record.usageContext?.estimation?.inputTokens ?? null,
       },
       createdAt: now().toISOString(),
     };
@@ -144,6 +211,16 @@ export function summarizeModelUsage(records: Iterable<ModelAttemptRecord | Model
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
+    accountedTokens: 0,
+    assumedZeroNoResponseCalls: 0,
+    assumedZeroNoResponseTokens: 0,
+    unknownInputCalls: 0,
+    unknownOutputCalls: 0,
+    unknownCacheReadCalls: 0,
+    unknownCacheCreationCalls: 0,
+    unknownTotalCalls: 0,
+    providerReportedTotalTokens: 0,
+    providerReportedCalls: 0,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
   };
@@ -153,11 +230,24 @@ export function summarizeModelUsage(records: Iterable<ModelAttemptRecord | Model
     else if (record.outcome === 'cancelled') totals.cancelledCalls++;
     else if (record.outcome === 'in_progress') totals.inProgressCalls++;
     else totals.failedCalls++;
-    totals.inputTokens += nonNegativeInteger(record.usage?.inputTokens);
-    totals.outputTokens += nonNegativeInteger(record.usage?.outputTokens);
-    totals.totalTokens += nonNegativeInteger(record.usage?.totalTokens);
-    totals.cacheReadTokens += nonNegativeInteger(record.usage?.cacheReadTokens);
-    totals.cacheCreationTokens += nonNegativeInteger(record.usage?.cacheCreationTokens);
+    const inputTokens = optionalNonNegativeInteger(record.usage?.inputTokens);
+    const outputTokens = optionalNonNegativeInteger(record.usage?.outputTokens);
+    const cacheReadTokens = optionalNonNegativeInteger(record.usage?.cacheReadTokens);
+    const cacheCreationTokens = optionalNonNegativeInteger(record.usage?.cacheCreationTokens);
+    const totalTokens = optionalNonNegativeInteger(record.usage?.providerReportedTotalTokens) ?? optionalNonNegativeInteger(record.usage?.totalTokens);
+    if (inputTokens === undefined) totals.unknownInputCalls++; else totals.inputTokens += inputTokens;
+    if (outputTokens === undefined) totals.unknownOutputCalls++; else totals.outputTokens += outputTokens;
+    if (cacheReadTokens === undefined) totals.unknownCacheReadCalls++; else totals.cacheReadTokens += cacheReadTokens;
+    if (cacheCreationTokens === undefined) totals.unknownCacheCreationCalls++; else totals.cacheCreationTokens += cacheCreationTokens;
+    if (totalTokens === undefined) totals.unknownTotalCalls++; else totals.totalTokens += totalTokens;
+    const providerReportedTotal = optionalNonNegativeInteger(record.usage?.providerReportedTotalTokens);
+    if (providerReportedTotal === undefined) { /* no provider total was recorded */ }
+    else { totals.providerReportedTotalTokens += providerReportedTotal; totals.providerReportedCalls++; }
+    if (safeUsageAccounting(record.usageAccounting, record)) {
+      totals.assumedZeroNoResponseCalls++;
+      totals.assumedZeroNoResponseTokens += 0;
+      totals.accountedTokens += 0;
+    } else if (totalTokens !== undefined) totals.accountedTokens += totalTokens;
   }
   return totals;
 }
@@ -191,6 +281,13 @@ export class SupabaseModelUsageAuditSink implements ModelUsageAuditSink {
         apiFormat: record.apiFormat,
         statusCode: record.statusCode ?? null,
         retryAfterMs: record.retryAfterMs ?? null,
+        providerReportedTotalTokens: usage?.providerReportedTotalTokens ?? null,
+        normalizedTotalTokens: usage?.totalTokens ?? null,
+        normalizedTotalTokensSource: usage?.totalTokensSource ?? null,
+        responseReceived: record.responseReceived ?? null,
+        usageObservation: record.usageObservation ?? null,
+        usageAccounting: record.usageAccounting ?? null,
+        usageContext: record.usageContext ?? null,
       },
       created_at: record.createdAt,
     }, { onConflict: 'id' });

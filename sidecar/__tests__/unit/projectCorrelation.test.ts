@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import { correlateProjectReview } from '../../src/review/projectCorrelation.js';
+import { ASSESSMENT_VALIDATION_VERSION } from '../../src/review/assessmentValidation.js';
 import { reconcileProjectFindings } from '../../src/review/findingReconciliation.js';
 import type { PersistedReviewFinding, StaticReviewRecord } from '../../src/review/types.js';
 
@@ -26,9 +27,11 @@ const finding = (r: StaticReviewRecord, id: string, patch: Partial<PersistedRevi
 const old = finding(r1, 'old');
 type Input = Parameters<typeof correlateProjectReview>[0];
 function input(patch: Partial<Input> = {}): Input {
+  const targetReview = patch.review ?? r3;
   return { review: r3, modelStatus: 'succeeded', sourceManifestId: r3.sourceManifestId, reviews: [r1], previous: [old], current: [],
     snapshots: [], manifests: new Map([[r1.sourceManifestId!, [artifact('hash-r1')]]]),
-    evaluated: [{ artifact: artifact('hash-r3'), readable: true }], modelPolicyVersion: policy, ...patch };
+    evaluated: [{ artifact: artifact('hash-r3'), readable: true }], modelPolicyVersion: policy,
+    assessmentValidation: { version: ASSESSMENT_VALIDATION_VERSION, artifactIds: ['a1','a2'], inspectedReferences: ['a1','a2'].map((artifactId, index) => ({ artifactId, filePath: index === 0 ? 'src/account.ts' : 'src/billing.ts', lineNumber: 12, sourceVersion: `hash-${targetReview.id}`, featureId: 'operation', domain: 'security' })) }, ...patch };
 }
 function present(args: Input, snapshot: NonNullable<ReturnType<typeof correlateProjectReview>>) {
   return reconcileProjectFindings({

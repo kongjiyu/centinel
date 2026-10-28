@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { analysisMapFromEvents } from './assessmentBatches.js';
 import type { Artifact } from '../artifacts.js';
 import type {
   ModelAttemptRecord,
@@ -9,13 +10,15 @@ import type {
   ReviewOperationRecord,
   ReviewProgressState,
   ReviewSourceManifestMode,
+  CaptureReviewTraceabilityInput,
   StaticReviewDecision,
   StaticReviewIteration,
   StaticReviewPatch,
   StaticReviewRecord,
   StaticReviewRepository,
 } from './types.js';
-import type { EvidenceSufficiencyAssessment } from './evidenceSufficiency.js';
+import type { ReviewTraceabilitySnapshot } from './evidenceTypes.js';
+import { mergeEvidenceSufficiencyAssessments, type EvidenceSufficiencyAssessment } from './evidenceSufficiency.js';
 import type { FindingCorrelationSnapshot } from './correlation.js';
 
 function clone<T>(value: T): T {
@@ -36,10 +39,17 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
   readonly manifests = new Map<string, { id: string; projectId: string; artifacts: Artifact[]; mode: ReviewSourceManifestMode }>();
   readonly progress = new Map<string, ReviewProgressState>();
   readonly traceability = new Set<string>();
+  readonly traceabilitySnapshots = new Map<string, ReviewTraceabilitySnapshot>();
   readonly decisions: StaticReviewDecision[] = [];
   readonly iterations = new Map<string, StaticReviewIteration>();
   readonly evidenceAssessments = new Map<string, EvidenceSufficiencyAssessment>();
   readonly findingCorrelations = new Map<string, FindingCorrelationSnapshot>();
+  async getBatchCacheBasis(reviewId: string) {
+    const review = await this.getReview(reviewId);
+    if (!review || !['blocked', 'failed', 'cancelled', 'pending_approval', 'completed', 'approved', 'changes_requested'].includes(review.status)) return null;
+    const analysisMap = analysisMapFromEvents(this.audits.filter(event => event.reviewId === reviewId));
+    return analysisMap ? { reviewId, projectId: review.projectId, analysisMap, findings: await this.listReviewFindings(reviewId) } : null;
+  }
 
   async createReview(input: NewStaticReview): Promise<StaticReviewRecord> {
     const now = input.createdAt ?? new Date().toISOString();
@@ -138,6 +148,16 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
     if (!this.evidenceAssessments.has(assessment.reviewId)) this.evidenceAssessments.set(assessment.reviewId, clone(assessment));
   }
 
+  async appendEvidenceSufficiency(assessment: EvidenceSufficiencyAssessment): Promise<EvidenceSufficiencyAssessment> {
+    const review = this.reviews.get(assessment.reviewId);
+    if (review?.status !== 'running') throw new Error('Evidence sufficiency is immutable after Review execution ends.');
+    const frozen = this.evidenceAssessments.get(assessment.reviewId);
+    if (!frozen) throw new Error('The frozen evidence sufficiency assessment is unavailable.');
+    const merged = mergeEvidenceSufficiencyAssessments(frozen, assessment);
+    this.evidenceAssessments.set(assessment.reviewId, clone(merged));
+    return clone(merged);
+  }
+
   async getEvidenceSufficiency(reviewId: string): Promise<EvidenceSufficiencyAssessment | null> {
     const assessment = this.evidenceAssessments.get(reviewId);
     return assessment ? clone(assessment) : null;
@@ -156,7 +176,64 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
     return this.findings.filter(item => item.reviewId === reviewId).map(clone);
   }
 
-  async saveTraceabilitySnapshot(reviewId: string): Promise<void> {
+  async captureTraceabilitySnapshot(reviewId: string, projectId: string, input: CaptureReviewTraceabilityInput): Promise<ReviewTraceabilitySnapshot> {
+    const existing = this.traceabilitySnapshots.get(reviewId);
+    if (existing) return clone(existing);
+    const inherited = input.reuseFromReviewId ? this.traceabilitySnapshots.get(input.reuseFromReviewId) : undefined;
+    if (inherited?.metadata?.snapshotVersion === 2) {
+      const snapshot = clone({ ...inherited, sessionId: reviewId, projectId });
+      this.traceabilitySnapshots.set(reviewId, snapshot);
+      this.traceability.add(reviewId);
+      return clone(snapshot);
+    }
+    const capturedAt = new Date().toISOString();
+    const selectedRequirementIds = input.scope.requirementIds?.length
+      ? [...input.scope.requirementIds]
+      : (input.grounding?.confirmedRequirements ?? []).map(item => item.id);
+    const selectedArtifactIds = input.scope.artifactIds?.length
+      ? [...input.scope.artifactIds]
+      : input.artifacts.map(item => item.id);
+    const snapshot: ReviewTraceabilitySnapshot = {
+      sessionId: reviewId,
+      projectId,
+      status: 'unavailable',
+      records: [],
+      summary: { complete: 0, incomplete: 0, missing: 0, attention: 0, unavailable: 0 },
+      capturedAt,
+      updatedAt: capturedAt,
+      metadata: {
+        snapshotVersion: 2,
+        sourceManifestId: input.sourceManifestId,
+        inclusionBasis: input.reuseFromReviewId ? null : {
+          requirementSelection: input.scope.requirementIds?.length ? 'explicit' : 'project',
+          artifactSelection: input.scope.artifactIds?.length ? 'explicit' : 'full_manifest',
+          selectedRequirementIds,
+          selectedArtifactIds,
+          sourceManifestId: input.sourceManifestId,
+        },
+        grounding: input.grounding ? clone(input.grounding) : null,
+        unavailableReason: input.reuseFromReviewId ? 'frozen_parent_context_unavailable' : 'in_memory_traceability_adapter_unavailable',
+      },
+    };
+    this.traceabilitySnapshots.set(reviewId, snapshot);
+    this.traceability.add(reviewId);
+    return clone(snapshot);
+  }
+
+  async getTraceabilitySnapshot(reviewId: string): Promise<ReviewTraceabilitySnapshot | null> {
+    const snapshot = this.traceabilitySnapshots.get(reviewId);
+    return snapshot ? clone(snapshot) : null;
+  }
+
+  async saveTraceabilitySnapshot(reviewId: string, projectId: string): Promise<void> {
+    if (this.traceabilitySnapshots.has(reviewId)) return;
+    const now = new Date().toISOString();
+    this.traceabilitySnapshots.set(reviewId, {
+      sessionId: reviewId, projectId, status: 'unavailable', records: [],
+      summary: { complete: 0, incomplete: 0, missing: 0, attention: 0, unavailable: 0 },
+      capturedAt: now, updatedAt: now,
+      metadata: { snapshotVersion: 2, sourceManifestId: null, inclusionBasis: null, grounding: null, unavailableReason: 'frozen_context_not_provided' },
+    });
     this.traceability.add(reviewId);
   }
 

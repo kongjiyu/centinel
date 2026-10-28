@@ -1,13 +1,40 @@
+import { readPromptAnalysisMap } from '../fixtures/promptAnalysisMap.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
-import { createStaticReviewOrchestrator, ReviewLifecycleConflictError, STATIC_REVIEW_MODEL_POLICY_VERSION } from '../../src/review/orchestrator.js';
+import { createStaticReviewOrchestrator as createRawStaticReviewOrchestrator, ReviewLifecycleConflictError, STATIC_REVIEW_MODEL_POLICY_VERSION } from '../../src/review/orchestrator.js';
 import { InMemoryReviewLeaseRepository, ReviewLeaseCoordinator } from '../../src/review/lease.js';
 import { ModelProviderError } from '../../src/review/retry.js';
 import { resolveModelProviderChain } from '../../src/review/modelProviderResolver.js';
 import { InMemoryGroundingRepository } from '../../src/review/grounding.js';
 import { encryptSecret } from '../../src/tokenVault.js';
-import type { StaticAnalysisModelProvider } from '../../src/review/types.js';
+import type { StaticAnalysisModelProvider, StaticModelRequest } from '../../src/review/types.js';
+import { candidateSupportResult, isCandidateSupportRequest } from '../fixtures/semanticSupport.js';
+
+function createStaticReviewOrchestrator(deps: Parameters<typeof createRawStaticReviewOrchestrator>[0]) {
+  const wrap = (provider: StaticAnalysisModelProvider | undefined): StaticAnalysisModelProvider | undefined => provider && ({
+    analyze: async request => isCandidateSupportRequest(request)
+      ? { result: candidateSupportResult(request), settings: { provider: 'fixture', apiFormat: 'openai-compatible', model: 'offline' } }
+      : provider.analyze(request),
+  });
+  const resolver = deps.modelProviderResolver;
+  return createRawStaticReviewOrchestrator({
+    ...deps,
+    modelProvider: wrap(deps.modelProvider),
+    fallbackModelProvider: wrap(deps.fallbackModelProvider),
+    ...(resolver ? { modelProviderResolver: async (...args: Parameters<NonNullable<typeof resolver>>) => {
+      const chain = await resolver(...args);
+      return { ...chain, primaryProvider: wrap(chain.primaryProvider)!, fallbackProvider: wrap(chain.fallbackProvider) };
+    } } : {}),
+  });
+}
+
+function completeFeatureAssessments(request: StaticModelRequest) {
+  const map = readPromptAnalysisMap(request);
+  return map.features.map((feature: any) => ({ featureId: feature.id, assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({
+    domain, status: 'assessed', outcome: 'no_issue_identified', summary: 'The supplied local branch was assessed.', evidence: feature.entryPoints,
+  })) }));
+}
 
 const artifact: Artifact = {
   id: 'artifact-1', projectId: 'project-1', type: 'source_code', source: 'repository',
@@ -17,12 +44,13 @@ const artifact: Artifact = {
 
 function successfulModel(): StaticAnalysisModelProvider {
   return {
-    analyze: async () => ({
+    analyze: async request => ({
       result: {
+        featureAssessments: completeFeatureAssessments(request),
         findings: [{
           title: 'Missing authorization check', description: 'The handler does not verify ownership.',
-          severity: 'high', category: 'security_concern', filePath: 'src/auth.ts', lineNumber: 12,
-          evidence: 'request.user is read without a membership check', recommendation: 'Validate membership before reading the resource.', confidence: 'high',
+          severity: 'high', category: 'security_concern', filePath: 'src/auth.ts', lineNumber: 1,
+          evidence: 'The account handler checks the request before returning data.', recommendation: 'Validate membership before reading the resource.', confidence: 'high',
         }],
       },
       settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'mimo-v2.5' },
@@ -34,7 +62,7 @@ function baseDependencies(repository: InMemoryStaticReviewRepository) {
   return {
     repository,
     artifacts: async () => [artifact],
-    readArtifactContent: async () => 'The account handler checks the request before returning data.',
+    readArtifactContent: async () => '// The account handler checks the request before returning data.\nexport function auth() { return true; }',
     deterministic: async () => ({
       findings: [{
         ruleId: 'sec-eval', filePath: 'src/auth.ts', lineNumber: 42, severity: 'high',
@@ -124,8 +152,7 @@ describe('StaticReviewOrchestrator', () => {
     const provider: StaticAnalysisModelProvider = { analyze: async request => {
       expect(repository.audits.some(event => event.event === 'review_analysis_map_saved' && event.detail?.phase === 'prepared')).toBe(true);
       expect(request.systemPrompt).toContain('environment references');
-      const rawMap = request.prompt.split('Provisional feature/path map (bounded syntax evidence; coverage limits apply):\n')[1].split('\n\nFrozen artifact content:')[0];
-      const map = JSON.parse(rawMap);
+      const map = readPromptAnalysisMap(request);
       return { settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'fixture' }, result: { findings: [], featureAssessments: map.features.map((feature: any) => ({
         featureId: feature.id, assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({ domain, status: 'assessed', outcome: 'no_issue_identified', summary: 'No issue identified in the supplied local branch.', evidence: feature.entryPoints })),
       })) } };
@@ -178,14 +205,14 @@ describe('StaticReviewOrchestrator', () => {
     const first = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'independent-first' });
     await first.completion;
     const secondRunner = createStaticReviewOrchestrator({ ...baseDependencies(repository), ...(gone ? {
-      modelProvider: { analyze: async () => ({ result: { findings: [] }, settings: { provider: 'mimo' as const, apiFormat: 'openai-compatible' as const, model: 'fixture' } }) },
+      modelProvider: { analyze: async request => ({ result: { findings: [], featureAssessments: completeFeatureAssessments(request) }, settings: { provider: 'mimo' as const, apiFormat: 'openai-compatible' as const, model: 'fixture' } }) },
     } : {}) });
     const second = await secondRunner.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [{ ...artifact, contentHash: 'changed-source' }], idempotencyKey: 'independent-second' });
     const finished = await second.completion;
     expect(finished.lineage.parentReviewId).toBeNull();
     const snapshot = repository.findingCorrelations.get(finished.id);
     expect(snapshot?.counts.recurring).toBe(gone ? 1 : 2);
-    expect(snapshot?.counts.resolved).toBe(gone ? 1 : 0);
+    expect(snapshot?.counts.resolved).toBe(0); // The old comment location is outside the inspected feature references.
     expect(finished.summary).toContain('Existing findings:');
   });
 
@@ -206,17 +233,17 @@ describe('StaticReviewOrchestrator', () => {
     await repository.saveFinding({
       id: 'old-finding', reviewId: parent.id, projectId: parent.projectId, source: 'model',
       title: 'Obsolete authorization finding', description: 'The old source lacked the check.', severity: 'high',
-      category: 'security_concern', filePath: artifact.filePath, lineNumber: 12, artifactId: artifact.id,
+      category: 'security_concern', filePath: artifact.filePath, lineNumber: 1, artifactId: artifact.id,
       evidence: 'Old source omission', recommendation: 'Add authorization.', confidence: 'high',
       sourceIdentity: artifact.filePath, sourceVersion: 'old-source-version', createdAt: '2026-10-18T00:00:00.000Z',
     });
     const emptyModel: StaticAnalysisModelProvider = {
-      analyze: async () => ({
-        result: { findings: [] },
+      analyze: async request => ({
+        result: { findings: [], featureAssessments: completeFeatureAssessments(request) },
         settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'mimo-v2.5' },
       }),
     };
-    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), modelProvider: emptyModel });
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), modelProvider: emptyModel, readArtifactContent: async () => 'export function account() { return true; }' });
     const config = { instructions: 'Inspect authorization behavior', checks: ['security'] };
     const started = await orchestrator.start({
       projectId: 'project-1', reviewType: 'code_review', scope: { artifactIds: [artifact.id] }, config,
@@ -304,7 +331,7 @@ describe('StaticReviewOrchestrator', () => {
 
   it('never presents a Review as ready for approval when traceability persistence fails', async () => {
     const repository = new InMemoryStaticReviewRepository();
-    vi.spyOn(repository, 'saveTraceabilitySnapshot').mockRejectedValue(new Error('traceability storage unavailable'));
+    vi.spyOn(repository, 'captureTraceabilitySnapshot').mockRejectedValue(new Error('traceability storage unavailable'));
     const orchestrator = createStaticReviewOrchestrator(baseDependencies(repository));
     const started = await orchestrator.start({
       projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'traceability-failure',
@@ -324,36 +351,85 @@ describe('StaticReviewOrchestrator', () => {
     });
     const finished = await started.completion;
     expect(finished.status).toBe('failed');
-    expect(finished.failureReason).toContain('finding storage unavailable');
+    expect(finished.failureReason).toContain('could not be saved');
+    expect(finished.failureReason).not.toContain('finding storage unavailable');
     expect(repository.findings).toHaveLength(0);
   });
 
   it('uses ranked durable excerpts as context without dropping the full frozen source', async () => {
     const repository = new InMemoryStaticReviewRepository();
+    const rankedArtifact = { ...artifact, versionId: 'version-1' };
     const prompts: string[] = [];
     const context = vi.fn(async () => ({
       files: [], totalSymbols: 0, estimatedTokens: 6,
       reason: 'Retrieved one similarity-ranked chunk.',
-      selectedChunks: [{ artifactVersionId: 'version-1', filePath: 'src/auth.ts', ordinal: 2, content: 'ranked membership evidence' }],
+      selectedChunks: [{ artifactVersionId: 'version-1', filePath: 'src/auth.ts', ordinal: 2, content: 'The account handler checks the request before returning data.' }],
     }));
     const modelProvider: StaticAnalysisModelProvider = {
       analyze: async request => {
         prompts.push(request.prompt);
-        return { result: { findings: [] }, settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'review-model' } };
+        return { result: { findings: [], featureAssessments: completeFeatureAssessments(request) }, settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'review-model' } };
       },
     };
     const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), context, modelProvider });
-    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact],
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [rankedArtifact],
       config: { instructions: 'Verify that origin callbacks preserve error handling.' }, idempotencyKey: 'ranked-context' });
     const finished = await started.completion;
 
     expect(finished.status).toBe('pending_approval');
-    expect(context).toHaveBeenCalledWith('project-1', 'code_review', 100_000, expect.any(AbortSignal), [artifact], finished.id, expect.stringContaining('code_review'));
-    expect(prompts[0]).toContain('ranked membership evidence');
+    expect(context).toHaveBeenCalledWith('project-1', 'code_review', 100_000, expect.any(AbortSignal), [rankedArtifact], finished.id, expect.stringContaining('code_review'), expect.any(Function));
     expect(prompts[0]).toContain('Reviewer objective and acceptance checks:\nVerify that origin callbacks preserve error handling.');
     expect(prompts[0]).toContain('--- Artifact: src/auth.ts');
     expect(prompts[0]).toContain('The account handler checks the request before returning data.');
     expect(prompts[0]).toContain('version version-1, chunk 2');
+  });
+
+  it('flags unmatched citations and continues numbered source sweeps without auditing candidate text', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const prompts: StaticModelRequest[] = [];
+    const rejectedQuote = 'MODEL_ONLY_REJECTED_SOURCE_QUOTE';
+    let calls = 0;
+    const modelProvider: StaticAnalysisModelProvider = {
+      analyze: async request => {
+        prompts.push(request);
+        calls++;
+        return {
+          result: {
+            findings: calls === 1 ? [{
+              title: 'Unsupported citation', description: 'The candidate excerpt does not occur at the cited source line.',
+              severity: 'medium', category: 'technical_issue', filePath: 'src/auth.ts', lineNumber: 1,
+              evidence: rejectedQuote, recommendation: 'Use the exact frozen source excerpt.', confidence: 'medium',
+            }] : [],
+            featureAssessments: completeFeatureAssessments(request),
+          },
+          settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'fixture' },
+        };
+      },
+    };
+    const source = 'export function auth() {\r\n  return true;\r\n}';
+    const orchestrator = createStaticReviewOrchestrator({
+      ...baseDependencies(repository), readArtifactContent: async () => source,
+      deterministic: async () => [], modelProvider,
+      retry: { baseDelayMs: 0, jitterRatio: 0, sleep: async () => undefined },
+    });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'citation-repair' });
+    const finished = await started.completion;
+    const repairAudit = repository.audits.find(event => event.event === 'review_assessment_repair_scheduled');
+
+    expect(finished.status).toBe('failed');
+    expect(finished.modelStatus).toBe('partial');
+    expect(prompts).toHaveLength(2);
+    expect(prompts.every(request => request.prompt.length <= 200_000)).toBe(true);
+    expect(prompts[0].systemPrompt).toContain('remove it before returning evidence');
+    expect(prompts[0].prompt).toContain('1 | export function auth() {\r\n2 |   return true;\r\n3 | }');
+    expect(prompts[1].repair).not.toBe(true);
+    expect(prompts[1].prompt).toContain('1 | export function auth() {');
+    expect(prompts[1].prompt).not.toContain(rejectedQuote);
+    expect(repairAudit).toBeUndefined();
+    expect(repository.findings.find(finding => finding.title === 'Unsupported citation')?.sourceLocator?.citationEvidence)
+      .toMatchObject({ verification: 'needs_verification', unmatchedReferences: 1 });
+    expect(repository.audits.some(event => event.event === 'review_assessment_validated')).toBe(false);
+    expect(JSON.stringify(repository.audits)).not.toContain(rejectedQuote);
   });
 
   it('makes duplicate Start requests idempotent and executes once', async () => {
@@ -388,7 +464,10 @@ describe('StaticReviewOrchestrator', () => {
     expect(finished.status).toBe('pending_approval');
     expect(finished.modelStatus).toBe('partial');
     expect(finished.deterministicFindingCount).toBe(1);
-    expect(repository.attempts).toHaveLength(5);
+    expect(repository.attempts).toHaveLength(3);
+    expect(repository.audits.filter(event => event.event === 'review_retry_scheduled')
+      .map(event => [event.detail?.attempt, event.detail?.maxAttempts, event.detail?.delayMs]))
+      .toEqual([[2, 3, 1_000], [3, 3, 3_000]]);
     expect(repository.findings).toHaveLength(1);
   });
 
@@ -415,8 +494,8 @@ describe('StaticReviewOrchestrator', () => {
     expect(finished.status).toBe('pending_approval');
     expect(resolveChain).toHaveBeenCalledWith(expect.objectContaining({ id: finished.id }), expect.any(AbortSignal));
     expect(repository.attempts.map(item => [item.provider, item.attempt, item.outcome])).toEqual([
-      ['mimo', 1, 'retryable_error'], ['mimo', 2, 'retryable_error'], ['mimo', 3, 'retryable_error'],
-      ['mimo', 4, 'retryable_error'], ['custom', 5, 'success'],
+      ['mimo', 1, 'retryable_error'], ['mimo', 2, 'retryable_error'], ['custom', 3, 'success'], ['mimo', 4, 'success'],
+      ['mimo', 1, 'retryable_error'], ['mimo', 2, 'retryable_error'], ['custom', 3, 'success'], ['mimo', 4, 'success'],
     ]);
     expect(repository.audits.some(event => event.event === 'model_configuration_resolved')).toBe(true);
   });
@@ -432,10 +511,10 @@ describe('StaticReviewOrchestrator', () => {
         fallbackProvider: 'custom', fallbackApiFormat: 'openai-compatible', fallbackModel: 'fallback-model',
         fallbackBaseUrl: 'https://fallback.example.test/v1/chat/completions', fallbackSecretCiphertext: encryptSecret('fallback-secret'),
       };
-      const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async url => String(url).includes('primary.example.test')
+      const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url, init) => String(url).includes('primary.example.test')
         ? new Response('temporarily unavailable', { status: 503 })
         : new Response(JSON.stringify({
-          choices: [{ message: { content: JSON.stringify({ findings: [] }) } }],
+          choices: [{ message: { content: JSON.stringify({ findings: [], featureAssessments: completeFeatureAssessments({ prompt: JSON.parse(String(init?.body)).messages[1].content } as StaticModelRequest) }) } }],
           usage: { prompt_tokens: 11, completion_tokens: 2, total_tokens: 13 },
         }), { status: 200 }));
       const orchestrator = createStaticReviewOrchestrator({
@@ -450,16 +529,16 @@ describe('StaticReviewOrchestrator', () => {
       const finished = await started.completion;
       expect(finished.status).toBe('pending_approval');
       expect(finished.modelStatus).toBe('succeeded');
-      expect(fetchImpl).toHaveBeenCalledTimes(5);
+      expect(fetchImpl).toHaveBeenCalledTimes(6);
       expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-        config.baseUrl, config.baseUrl, config.baseUrl, config.baseUrl, config.fallbackBaseUrl,
+        config.baseUrl, config.baseUrl, config.fallbackBaseUrl, config.baseUrl, config.baseUrl, config.fallbackBaseUrl,
       ]);
       expect(fetchImpl.mock.calls.map(([, init]) => (init?.headers as Record<string, string>).Authorization)).toEqual([
-        'Bearer primary-secret', 'Bearer primary-secret', 'Bearer primary-secret', 'Bearer primary-secret', 'Bearer fallback-secret',
+        'Bearer primary-secret', 'Bearer primary-secret', 'Bearer fallback-secret', 'Bearer primary-secret', 'Bearer primary-secret', 'Bearer fallback-secret',
       ]);
       expect(repository.attempts.map(item => [item.model, item.attempt, item.outcome])).toEqual([
         ['primary-model', 1, 'retryable_error'], ['primary-model', 2, 'retryable_error'],
-        ['primary-model', 3, 'retryable_error'], ['primary-model', 4, 'retryable_error'], ['fallback-model', 5, 'success'],
+        ['fallback-model', 3, 'success'], ['primary-model', 1, 'retryable_error'], ['primary-model', 2, 'retryable_error'], ['fallback-model', 3, 'success'],
       ]);
       expect(JSON.stringify(repository.audits)).not.toContain('primary-secret');
       expect(JSON.stringify(repository.audits)).not.toContain('fallback-secret');
@@ -514,8 +593,8 @@ describe('StaticReviewOrchestrator', () => {
     });
     const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'stale-source' });
     const finished = await started.completion;
-    expect(finished.status).toBe('pending_approval');
-    expect(repository.evidenceAssessments.get(finished.id)?.readiness).toBe('ready_with_warnings');
+    expect(finished.status).toBe('failed');
+    expect(finished.modelStatus).toBe('partial');
     expect(repository.evidenceAssessments.get(finished.id)?.gaps).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'source_stale', severity: 'warning' }),
     ]));

@@ -1,0 +1,78 @@
+.findings-panel .finding-occurrences, .project-finding-details .finding-occurrences { min-width: 0; }
+.finding-occurrences ul, .finding-related-sources ul { list-style: none; padding: 0; margin: 12px 0; }
+.finding-occurrences ul { max-height: 280px; overflow: auto; }
+.finding-occurrences li + li { border-top: 1px solid var(--workspace-border); }
+.finding-occurrences button { display: grid; gap: 6px; width: 100%; min-height: 44px; padding: 12px; border: 1px solid transparent; border-radius: 8px; color: var(--workspace-text); background: transparent; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.finding-occurrences button:hover { background: var(--workspace-surface-hover); }
+.finding-occurrences button[aria-pressed="true"] { border-color: var(--workspace-primary); background: var(--workspace-surface-selected); }
+.finding-occurrences button:focus-visible, .finding-related-sources :is(button,pre):focus-visible { outline: 2px solid var(--workspace-primary); outline-offset: 2px; }
+.finding-occurrences button span { color: var(--workspace-text-muted); font-size: 12px; line-height: 1.6; }
+.finding-related-sources, .finding-related-sources li { min-width: 0; overflow-wrap: anywhere; }
+.finding-related-sources li { padding-block: 14px; border-top: 1px solid var(--workspace-border); }
+.finding-related-sources strong { font-size: 13px; }
+.finding-related-sources pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.finding-related-sources .finding-source-preview { white-space: pre; overflow-wrap: normal; max-width: 100%; }
+.finding-group-count { display: block; margin-top: 4px; color: var(--workspace-text-muted); font-size: 12px; }
+.workspace-mode .project-findings-layout.findings-table-only { display: block; }
+.workspace-mode .findings-table-only .project-findings-table { width: 100%; min-width: 850px; table-layout: fixed; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(1) { width: 8%; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(2) { width: 12%; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(3) { width: 9%; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(4) { width: 9%; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(5) { width: 10%; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(6) { width: 14%; }
+.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(7) { width: 38%; }
+.workspace-mode .findings-table-only .project-findings-table-region { max-width: 100%; overflow-x: auto; }
+.workspace-mode .findings-table-only .project-finding-description { min-height: 0; }
+.workspace-mode .finding-document { max-width: 1040px; margin-inline: auto; padding: 28px 40px; color: var(--workspace-text); overflow-wrap: anywhere; }
+.finding-document > header { padding-block: 24px; border-bottom: 1px solid var(--workspace-border); }
+.finding-document h2 { font-size: 26px; line-height: 1.3; margin: 8px 0 16px; }
+.finding-document h3 { font-size: 19px; line-height: 1.5; margin: 0 0 12px; }
+.finding-document h4, .finding-document h5 { font-size: 15px; margin: 0 0 10px; }
+.finding-document p, .finding-document li { line-height: 1.8; font-size: 14px; }
+.finding-document > nav, .finding-document > .finding-overall-recommendation { padding-block: 24px; border-bottom: 1px solid var(--workspace-border); }
+.finding-document nav ol { padding-left: 20px; }
+.finding-document nav button { text-align: left; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
+.workspace-mode .finding-document nav .btn-link { border: 0; background: transparent; color: var(--workspace-primary); font: inherit; padding: 4px 0; cursor: pointer; }
+.workspace-mode .finding-document button:focus-visible { outline: 2px solid var(--workspace-primary); outline-offset: 2px; }
+.workspace-mode:not(.dashboard-mode) .finding-document .finding-flagged-section h3 { font-size: 18px; font-weight: 650; line-height: 1.5; }
+.finding-document .finding-flagged-section { padding-block: 32px; border-bottom: 1px solid var(--workspace-border); scroll-margin-top: 20px; }
+.finding-flagged-section > section { margin-top: 24px; }
+.finding-flagged-section .finding-actions { margin-top: 24px; display: flex; gap: 12px; }
+.finding-document pre { padding: 16px; background: var(--workspace-surface-subtle); border: 1px solid var(--workspace-border); border-radius: 8px; max-width: 100%; max-height: 360px; overflow: auto; white-space: pre-wrap; }
+.finding-document .finding-evidence-note, .finding-document .finding-recorded-title { color: var(--workspace-text-muted); font-size: 13px; }
+.finding-citation-evidence { margin-block: 16px; padding: 16px; border: 1px solid var(--workspace-border); border-inline-start: 3px solid var(--workspace-primary); border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); }
+.finding-citation-evidence > :first-child { margin-top: 0; }
+.finding-citation-evidence > :last-child { margin-bottom: 0; }
+.finding-citation-evidence > p { margin-block: 8px; color: var(--workspace-text-muted); font-size: 13px; line-height: 1.6; }
+.finding-citation-status { color: var(--workspace-text) !important; }
+.finding-citation-evidence[data-verification="needs_verification"] .finding-citation-status strong { color: var(--workspace-warning); }
+.finding-citation-groups { list-style: none; margin: 12px 0 0; padding: 0; }
+.finding-citation-groups > li { min-width: 0; padding-block: 14px; border-top: 1px solid var(--workspace-border); }
+.finding-citation-reference-label { margin: 0 0 8px; color: var(--workspace-text-muted); font-size: 13px; }
+.finding-evidence-candidate { min-width: 0; padding: 12px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface); overflow-wrap: anywhere; }
+.finding-evidence-candidate + .finding-evidence-candidate { margin-top: 10px; }
+.finding-evidence-candidate-heading, .finding-evidence-match-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.finding-evidence-candidate-heading { justify-content: space-between; }
+.finding-evidence-match-meta { margin-top: 8px; color: var(--workspace-text-muted); font-size: 12px; line-height: 1.5; }
+.finding-evidence-confidence, .finding-evidence-best-label { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-pill); background: var(--workspace-surface-subtle); color: var(--workspace-text); font-size: 12px; font-weight: 600; }
+.finding-evidence-confidence.is-high { border-color: var(--workspace-success); background: var(--workspace-success-subtle); color: var(--workspace-success); }
+.finding-evidence-confidence.is-medium { border-color: var(--workspace-border-strong); background: var(--workspace-surface-selected); color: var(--workspace-text); }
+.finding-evidence-confidence.is-low { border-color: var(--workspace-warning); background: var(--workspace-warning-subtle); color: var(--workspace-warning); }
+.finding-evidence-candidate > p { margin-block: 8px; color: var(--workspace-text-muted); font-size: 12px; line-height: 1.5; }
+.finding-citation-evidence pre { max-height: 220px; }
+.finding-citation-evidence details { margin-top: 10px; border-top: 1px solid var(--workspace-border); }
+.finding-citation-evidence details > summary { display: flex; align-items: center; min-height: 44px; color: var(--workspace-primary); font-size: 13px; font-weight: 600; cursor: pointer; }
+.finding-citation-evidence details > summary:focus-visible { outline: 2px solid var(--workspace-primary); outline-offset: 2px; }
+.finding-citation-alternatives { padding-bottom: 4px; }
+@media(max-width:720px) { .workspace-mode .finding-document { padding: 20px 16px; } .finding-document h2 { font-size: 22px; } .finding-document .finding-actions button { min-height: 44px; } }
+@media(max-width:720px) {
+  .workspace-mode .findings-table-only .project-findings-table { min-width: 0; }
+  .workspace-mode .findings-table-only .project-findings-table :is(th,td):is(:nth-child(1),:nth-child(3),:nth-child(4),:nth-child(5)) { display: none; }
+  .workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(2) { width: 24%; }
+  .workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(6) { width: 25%; }
+  .workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(7) { width: 51%; }
+  .workspace-mode .findings-table-only .project-finding-description strong { white-space: normal; overflow-wrap: anywhere; }
+  .workspace-mode .findings-table-only .project-finding-description .finding-see-more { min-height: 44px; font-size: 12px; }
+  .workspace-mode .findings-table-only .findings-project-header { flex-wrap: wrap; gap: 10px; }
+}

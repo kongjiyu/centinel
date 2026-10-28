@@ -66,7 +66,7 @@ describe('ProjectReadinessCard', () => {
     expect(screen.getAllByText('—')).toHaveLength(4);
     expect(screen.queryByText('Missing')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent('Loading project readiness status.');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading assessment status.');
   });
 
   it('shows only category labels and the three assessment states, then disables Start while queued', async () => {
@@ -84,7 +84,7 @@ describe('ProjectReadinessCard', () => {
     expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Project readiness assessment queued.'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Assessment queued.'));
     expect(api.startProjectReadiness).toHaveBeenCalledWith('project-1');
     expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
     expect(screen.getByText('Incomplete')).toBeInTheDocument();
@@ -101,9 +101,58 @@ describe('ProjectReadinessCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => expect(api.startProjectReadiness).toHaveBeenCalledWith('project-1'));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Project readiness assessment in progress.'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Checking updated sources.'));
     expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
     expect(screen.getAllByText('Completed')).toHaveLength(2);
+  });
+
+  it.each([
+    { status: 'idle', job: 'Awaiting manual assessment.', action: 'Start' },
+    { status: 'queued', job: 'Assessment queued.', action: 'Start' },
+    { status: 'running', job: 'Checking updated sources.', action: 'Start' },
+    { status: 'failed', job: 'Assessment failed. The saved result is still available.', action: 'Retry' },
+    { status: 'paused', job: 'Assessment paused. Manual resume is required.', action: 'Resume' },
+  ] as const)('labels stale $status results as previous and describes the job separately', async ({ status: jobStatus, job, action }) => {
+    vi.mocked(api.getProjectReadiness).mockResolvedValue({
+      ...completedSnapshot,
+      status: jobStatus,
+      stale: true,
+      error: jobStatus === 'failed' ? 'Updated-source assessment failed.' : jobStatus === 'paused' ? 'Provider paused the assessment.' : null,
+    });
+    render(<ProjectReadinessCard projectId="project-1" />);
+
+    expect(await screen.findByText('Previous assessment — sources have changed')).toBeInTheDocument();
+    expect(screen.getByText(/Assessed /)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(job);
+    expect(screen.getByRole('button', { name: action })).toBeInTheDocument();
+    expect(screen.getAllByText('Incomplete')).toHaveLength(1);
+    expect(api.startProjectReadiness).not.toHaveBeenCalled();
+  });
+
+  it('does not invent a previous assessment or date when no snapshot exists', async () => {
+    vi.mocked(api.getProjectReadiness).mockResolvedValue(status({ stale: true }));
+    render(<ProjectReadinessCard projectId="project-1" />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent('No assessment is saved yet.');
+    expect(screen.getAllByText('—')).toHaveLength(4);
+    expect(screen.queryByText(/Previous assessment/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Assessed /)).not.toBeInTheDocument();
+  });
+
+  it('labels an invalid stale snapshot date as unavailable and clears stale copy for fresh results', async () => {
+    vi.mocked(api.getProjectReadiness).mockResolvedValueOnce({
+      ...completedSnapshot, stale: true, snapshot: { ...completedSnapshot.snapshot!, assessedAt: 'not-a-date' },
+    });
+    const view = render(<ProjectReadinessCard projectId="project-1" />);
+
+    expect(await screen.findByText('Assessment date unavailable.')).toBeInTheDocument();
+    vi.mocked(api.getProjectReadiness).mockResolvedValueOnce(completedSnapshot);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    fireEvent.focus(window);
+
+    await waitFor(() => expect(screen.queryByText('Previous assessment — sources have changed')).not.toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent('Assessment is current.');
+    view.unmount();
   });
 
   it('polls queued or running work and refreshes its saved snapshot', async () => {
@@ -131,7 +180,7 @@ describe('ProjectReadinessCard', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     fireEvent.focus(window);
     await waitFor(() => expect(api.getProjectReadiness).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Project readiness assessment in progress.'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Checking updated sources.'));
     expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
   });
 

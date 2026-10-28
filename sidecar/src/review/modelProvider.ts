@@ -7,6 +7,8 @@ import {
   parseAnthropicToolTurn,
   parseGoogleToolTurn,
   parseOpenAIToolTurn,
+  parseProviderResponseUsage,
+  readProviderErrorUsage,
   type TokenUsage,
 } from '../aiClient.js';
 import { ModelProviderError } from './retry.js';
@@ -20,6 +22,8 @@ import type {
 export type ModelSettingResolver = () => Promise<ModelProviderSettings | null> | ModelProviderSettings | null;
 
 export type ConfiguredTextModelProviderOptions = {
+  /** Authenticated orchestration scope, never inferred from model input. */
+  projectId?: string | null;
   settings?: ModelProviderSettings;
   resolveSettings?: ModelSettingResolver;
   fetchImpl?: typeof fetch;
@@ -85,10 +89,10 @@ function buildRequestBody(settings: ModelProviderSettings, request: ModelRequest
   };
 }
 
-function parseJsonContent(content: string | null): unknown {
+function parseJsonContent(content: string | null, usage?: TokenUsage): unknown {
   if (!content || !content.trim()) {
     throw new ModelProviderError('Model returned an empty structured response', {
-      code: 'malformed_response', malformed: true, retryable: true,
+      code: 'malformed_response', malformed: true, retryable: true, usage, responseReceived: true,
     });
   }
   let text = content.trim();
@@ -106,7 +110,7 @@ function parseJsonContent(content: string | null): unknown {
       try { return JSON.parse(text.slice(start, end + 1)); } catch { /* repair below */ }
     }
     throw new ModelProviderError('Model returned malformed JSON', {
-      code: 'malformed_response', malformed: true, retryable: true, cause,
+      code: 'malformed_response', malformed: true, retryable: true, usage, responseReceived: true, cause,
     });
   }
 }
@@ -120,8 +124,10 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
   private readonly fetchImpl: typeof fetch;
   private readonly maxOutputTokens: number;
   private readonly codexBackend?: CodexBackend;
+  private readonly projectId?: string | null;
 
   constructor(options: ConfiguredTextModelProviderOptions = {}) {
+    this.projectId = options.projectId;
     if (!options.resolveSettings && !options.settings) throw new Error('An authenticated Model Provider setting or resolver is required.');
     this.resolve = options.resolveSettings ?? (() => options.settings ?? null);
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -134,7 +140,9 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
   }
 
   async analyze(request: ModelRequest): Promise<StaticModelResult> {
-    if (process.env.CENTINEL_AI_ASSESSMENT_PAUSED === '1') {
+    const allowedProjects = process.env.CENTINEL_AI_ASSESSMENT_PROJECT_ALLOWLIST?.split(',').map(id => id.trim()).filter(Boolean);
+    if (process.env.CENTINEL_AI_ASSESSMENT_PAUSED === '1'
+      || allowedProjects && !allowedProjects.includes(this.projectId ?? '')) {
       throw new ModelProviderError('AI assessment is paused in local configuration. Source imports and static checks can continue.', {
         code: 'assessment_paused', retryable: false,
       });
@@ -150,10 +158,11 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
         throw new ModelProviderError('Codex requires an authenticated user and selected model.', { code: 'invalid_configuration', retryable: false });
       }
       const reply = await (this.codexBackend ?? getCodexBackend(settings.ownerId)).generate({
-        model: settings.model, systemPrompt: request.systemPrompt, prompt: request.prompt,
+        model: settings.model, systemPrompt: request.systemPrompt,
+        prompt: request.repair ? `Return only JSON matching the requested schema and supplied evidence references.\n\n${request.prompt}` : request.prompt,
         imagePaths: request.imagePaths, signal: request.signal, outputSchema: request.outputSchema,
       });
-      return { result: parseJsonContent(reply.text), usage: reply.usage,
+      return { result: parseJsonContent(reply.text, reply.usage), usage: reply.usage,
         settings: { provider: 'codex', apiFormat: 'codex-app-server', model: reply.model } };
     }
     if (settings.apiFormat === 'codex-app-server') throw new ModelProviderError('Codex format requires the Codex provider.', { code: 'invalid_configuration', retryable: false });
@@ -170,16 +179,26 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
     if (request.signal?.aborted) {
       throw new DOMException('The operation was aborted', 'AbortError');
     }
-    const response = await this.fetchImpl(buildRequestUrl(settings), {
-      method: 'POST',
-      headers: getAuthHeaders(settings),
-      body: JSON.stringify(buildRequestBody(settings, request, this.maxOutputTokens)),
-      signal: request.signal,
-    });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(buildRequestUrl(settings), {
+        method: 'POST',
+        headers: getAuthHeaders(settings),
+        body: JSON.stringify(buildRequestBody(settings, request, this.maxOutputTokens)),
+        signal: request.signal,
+      });
+    } catch (cause) {
+      if (cause instanceof ModelProviderError) throw cause;
+      throw new ModelProviderError('Model Provider request failed before a response was received.', {
+        code: 'network_error', retryable: true, responseReceived: false, cause,
+      });
+    }
     if (!response.ok) {
+      const usage = await readProviderErrorUsage(response, settings.apiFormat);
       const pause = await responseProviderPause(response);
       if (pause) throw new ModelProviderError(pause.message, {
         code: pause.code, statusCode: response.status, retryable: false, retryAfterMs: parseRetryAfterHeader(response),
+        usage, responseReceived: true,
       });
       // Upstream bodies may echo private prompts or credential details.
       throw new ModelProviderError(`Model Provider request failed with HTTP ${response.status}`, {
@@ -187,6 +206,7 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
         statusCode: response.status,
         retryable: [408, 409, 425, 429, 500, 502, 503, 504, 507, 529].includes(response.status),
         retryAfterMs: parseRetryAfterHeader(response),
+        usage, responseReceived: true,
       });
     }
     let json: unknown;
@@ -195,13 +215,23 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
     } catch (cause) {
       throw new ModelProviderError('Model Provider returned a non-JSON response', {
         code: 'malformed_response', malformed: true, retryable: true,
-        statusCode: response.status, cause,
+        statusCode: response.status, responseReceived: true, cause,
       });
     }
-    const parsed = extractText(settings.apiFormat, json);
+    const responseUsage = parseProviderResponseUsage(settings.apiFormat, json);
+    let parsed: ReturnType<typeof extractText>;
+    try {
+      parsed = extractText(settings.apiFormat, json);
+    } catch (cause) {
+      throw new ModelProviderError('Model Provider returned an invalid structured response', {
+        code: 'malformed_response', malformed: true, retryable: true, statusCode: response.status,
+        usage: responseUsage, responseReceived: true, cause,
+      });
+    }
+    const usage = parsed.usage ?? responseUsage;
     return {
-      result: parseJsonContent(parsed.text),
-      usage: parsed.usage,
+      result: parseJsonContent(parsed.text, usage),
+      usage,
       settings: {
         provider: settings.provider,
         apiFormat: settings.apiFormat,

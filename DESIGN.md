@@ -12,6 +12,16 @@ This document defines the product-wide UI and UX contract. It supersedes the pre
 
 ## Approved Review UI amendment (September 2026)
 
+### Findings document amendment (22 October 2026)
+
+The user selected a table-only Findings index with one row per issue type and a separate full-width continuous detail document. This supersedes the shared Project/Review master-detail sidebar. Opening an issue hides the table; Back returns to the retained table filters/page and focus. Details begin with a concise issue title and scope, followed by anchored sections for every flagged occurrence, public causal explanation, related versioned source excerpts, recommendations and individual status/history. Identical recorded remedies may appear once overall; different remedies stay with their affected item. Do not synthesize causal steps for old findings that lack them. Keep Review's Security, Business, Technical and Personnel domains distinct from Readiness's document-quality origin; grouping may retain multiple domain impacts. Preserve raw occurrence counts and risk/history contracts.
+
+### Source browsing reference amendment (22 October 2026)
+
+The user explicitly selected GitHub's repository list, repository Code view and file viewer as the Source UX/UI reference. Source content follows that structure: linked names in a compact list, a bordered directory table with a quiet header, path breadcrumbs, and a separate file-reading state with optional file navigation, Preview/Code controls, and numbered code lines. Match the reference's hierarchy, spacing and interactions within Centinel's existing application shell. Add source, sync and removal continue to use real Centinel workflows.
+
+For these Source surfaces, GitHub-like 6px control/panel corners and blue navigational text are approved local exceptions to the default green-link/8–12px radius treatment. Declare these as scoped semantic tokens in ArtifactsPanel.css. Keep the shared font and accessibility behavior. Do not add stars, forks, commit messages, branch selection, editing, or history controls without actual persisted data and supported behavior; saved import dates must be labelled as such. This amendment supersedes the earlier Source-specific split browser/empty-preview composition.
+
 The latest user-approved requirements supersede conflicting terminology and navigation below. The visual system and accessibility rules remain authoritative. Implementation is frontend-only; unsupported backend capabilities must be represented honestly.
 
 - Rename the user-facing Static testing module to **Review**. Global navigation: Home, Projects, Review, Dynamic Testing, Settings.

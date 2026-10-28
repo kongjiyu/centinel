@@ -29,7 +29,8 @@ const codeQualityRules: Rule[] = [
             lineNumber: i + 1,
             severity: tag === 'FIXME' || tag === 'HACK' ? 'medium' : 'info',
             category: 'code_quality',
-            message: `${tag} comment found${note ? ': ' + note.substring(0, 80) : ''}. Address before release.`,
+            message: `${tag} comment found${note ? ': ' + note.substring(0, 80) : ''}. Verify its current relevance and priority.`,
+            recommendation: 'Check whether this maintenance note is still applicable. Set its priority from the actual impact and project policy.',
             evidence: lines[i].trim().substring(0, 120),
           });
         }
@@ -47,6 +48,25 @@ const codeQualityRules: Rule[] = [
     analyze(content: string, filePath: string): Finding[] {
       const findings: Finding[] = [];
       const lines = content.split('\n');
+      if (/\.[cm]?[jt]sx?$/i.test(filePath)) {
+        const kind = /\.tsx$/i.test(filePath) ? ts.ScriptKind.TSX : /\.jsx$/i.test(filePath) ? ts.ScriptKind.JSX : /\.[cm]?js$/i.test(filePath) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+        const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
+        const walk = (node: ts.Node) => {
+          if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+            && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'console'
+            && ['log', 'debug'].includes(node.expression.name.text)) {
+            const lineNumber = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+            findings.push({ ruleId: 'cq-console-log', filePath, lineNumber, severity: 'low', category: 'code_quality',
+              message: 'Possible debug output call. Check its purpose against the project logging policy.',
+              evidence: lines[lineNumber - 1].trim().substring(0, 120) });
+          }
+          ts.forEachChild(node, walk);
+        };
+        // Comments and string examples are not executable calls. Warning,
+        // error and informational diagnostics alone do not establish debug code.
+        walk(source);
+        return findings;
+      }
       // Match console.log, console.warn, console.error, console.info, console.debug, print(), fmt.Println, System.out.println
       const pattern = /(?:console\.(?:log|warn|error|info|debug)\s*\(|(?:^|\s)print\s*\(|fmt\.Println\s*\(|System\.out\.print)/;
 
@@ -125,6 +145,28 @@ const codeQualityRules: Rule[] = [
       const findings: Finding[] = [];
       const lines = content.split('\n');
 
+      if (/\.[cm]?[jt]sx?$/i.test(filePath)) {
+        const kind = /\.tsx$/i.test(filePath) ? ts.ScriptKind.TSX : /\.jsx$/i.test(filePath) ? ts.ScriptKind.JSX : /\.[cm]?js$/i.test(filePath) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+        const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
+        const walk = (node: ts.Node) => {
+          if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node)
+            || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node) || ts.isConstructorDeclaration(node)) && node.body) {
+            const start = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+            const end = source.getLineAndCharacterOfPosition(node.body.getEnd() - 1).line;
+            const length = end - start + 1;
+            if (length > 100) {
+              const name = node.name?.getText(source) ?? (ts.isVariableDeclaration(node.parent) ? node.parent.name.getText(source) : 'anonymous');
+              findings.push({ ruleId: 'cq-long-function', filePath, lineNumber: start + 1, severity: 'medium', category: 'code_quality',
+                message: `Function "${name}" is ${length} lines long. Consider breaking it into smaller functions.`,
+                evidence: lines[start].trim().substring(0, 120) });
+            }
+          }
+          ts.forEachChild(node, walk);
+        };
+        walk(source);
+        return findings;
+      }
+
       // Simple heuristic: look for function/method declarations and count lines until matching indent level
       const funcPattern = /^\s*(?:(?:export\s+)?(?:async\s+)?function\s|const\s+\w+\s*=\s*(?:async\s+)?(?:function|\()|(?:public|private|protected|static)\s+(?:async\s+)?\w+|def\s+\w+|fn\s+\w+)/;
 
@@ -155,7 +197,7 @@ const codeQualityRules: Rule[] = [
               severity: 'medium',
               category: 'code_quality',
               message: `Function "${funcName}" is ${funcLength} lines long. Consider breaking it into smaller functions.`,
-              evidence: `Function starts at line ${startLine + 1}, ends at line ${endLine + 1} (${funcLength} lines)`,
+              evidence: lines[startLine].trim().substring(0, 120),
             });
           }
         }
@@ -180,7 +222,8 @@ const codeQualityRules: Rule[] = [
         const kind = /\.tsx$/i.test(filePath) ? ts.ScriptKind.TSX : /\.jsx$/i.test(filePath) ? ts.ScriptKind.JSX : /\.[cm]?js$/i.test(filePath) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
         const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
         const walk = (node: ts.Node, depth: number) => {
-          const control = ts.isIfStatement(node) || ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node)
+          const elseIf = ts.isIfStatement(node) && ts.isIfStatement(node.parent) && node.parent.elseStatement === node;
+          const control = ts.isIfStatement(node) && !elseIf || ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node)
             || ts.isWhileStatement(node) || ts.isDoStatement(node) || ts.isSwitchStatement(node) || ts.isTryStatement(node) || ts.isConditionalExpression(node);
           const nextDepth = control ? depth + 1 : depth;
           if (control && nextDepth > NESTING_THRESHOLD && !reportedDepths.has(nextDepth)) {

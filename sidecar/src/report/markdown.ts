@@ -1,4 +1,4 @@
-import type { ProjectReportFinding, ProjectReportSnapshot } from './types.js';
+import type { ProjectReportFinding, ProjectReportSnapshot, ReportCurrentFinding } from './types.js';
 
 function plainText(value: unknown): string {
   return String(value ?? '').replace(/[\u2010-\u2015\u2212]/g, '-');
@@ -27,6 +27,48 @@ function titleForStatus(status: string): string {
     approved: 'Completed', changes_requested: 'Changes requested', queued: 'Queued', running: 'In progress',
   };
   return known[status] ?? plainText(status);
+}
+
+function executionBasisLabel(basis: 'completed_at' | 'progress.completedAt' | 'created_at' | 'unavailable' | undefined): string {
+  switch (basis) {
+    case 'completed_at': return 'saved completion time';
+    case 'progress.completedAt': return 'frozen progress completion time';
+    case 'created_at': return 'creation-time fallback';
+    default: return 'unavailable';
+  }
+}
+
+function currentDisposition(finding: ReportCurrentFinding): string {
+  return finding.effectiveDisposition === 'resolved' ? 'Resolved' : titleForStatus(finding.effectiveStatus);
+}
+
+function appendCurrentFinding(lines: string[], finding: ReportCurrentFinding, index: number): void {
+  lines.push('### ' + String(index + 1) + '. ' + plainText(finding.title), '');
+  lines.push('- **Canonical finding ID:** ' + inlineCode(finding.id));
+  lines.push('- **Persisted status:** ' + titleForStatus(finding.persistedStatus));
+  lines.push('- **Effective disposition:** ' + currentDisposition(finding));
+  lines.push('- **Source module:** ' + plainText(finding.source));
+  lines.push('- **Risk level:** ' + plainText(finding.riskLevel ?? 'Not classified'));
+  if (finding.filePath) lines.push('- **Current location:** ' + inlineCode(finding.filePath + (finding.lineNumber ? ':' + finding.lineNumber : '')));
+  if (finding.latestOccurrence) {
+    lines.push('- **Latest occurrence:** ' + inlineCode(finding.latestOccurrence.findingId)
+      + ' in Review ' + inlineCode(finding.latestOccurrence.reviewId ?? 'Unavailable')
+      + ' (' + plainText(finding.latestOccurrence.classification) + ')');
+  } else {
+    lines.push('- **Latest occurrence:** Canonical finding');
+  }
+  if (finding.lineageReferences.length) {
+    lines.push('- **Lineage references:** ' + finding.lineageReferences.map(item =>
+      inlineCode(item.findingId) + ' / Review ' + inlineCode(item.reviewId ?? 'Unavailable') + ' / ' + plainText(item.classification)).join('; '));
+  } else {
+    lines.push('- **Lineage references:** None');
+  }
+  if (finding.resolutionEvidence) {
+    lines.push('- **Resolution basis:** Not reproduced in comparable Review ' + inlineCode(finding.resolutionEvidence.reviewId)
+      + '; source version changed from ' + inlineCode(finding.resolutionEvidence.previousSourceVersion)
+      + ' to ' + inlineCode(finding.resolutionEvidence.reviewedSourceVersion));
+  }
+  lines.push('');
 }
 
 function reviewState(snapshot: ProjectReportSnapshot): string {
@@ -122,16 +164,25 @@ export function renderProjectReportMarkdown(snapshot: ProjectReportSnapshot): st
     lines.push('*No current risk items are available.*', '');
   }
 
+  lines.push('## Current project findings', '');
+  if (!snapshot.currentFindings || snapshot.currentFindings.status === 'unavailable') {
+    lines.push('*Current finding inventory unavailable: ' + plainText(snapshot.currentFindings?.reason ?? 'this legacy report snapshot has no reconciled current inventory.') + '*', '');
+  } else if (!snapshot.currentFindings.items.length) {
+    lines.push('*No current findings were returned by the reconciled project projection.*', '');
+  } else {
+    snapshot.currentFindings.items.forEach((finding, index) => appendCurrentFinding(lines, finding, index));
+  }
+
   lines.push(
-    '## Finding inventory',
+    '## Historical finding occurrences',
     '',
-    'Every persisted finding is included with its current state. New, accepted, and carryover findings remain distinct from fixed and dismissed findings.',
+    'These rows preserve their saved states and may repeat one canonical issue across Reviews. Per-Review findings remain immutable and session-scoped.',
     '',
   );
   if (!snapshot.findings.length) lines.push('*No findings have been recorded.*', '');
   else snapshot.findings.forEach((finding, index) => appendFinding(lines, finding, index));
 
-  lines.push('## Latest Static Review', '');
+  lines.push('## Latest Static Review attempt', '');
   if (!snapshot.latestReview) {
     lines.push('*Unavailable: no terminal Review record is available for this project.*', '');
   } else {
@@ -142,8 +193,10 @@ export function renderProjectReportMarkdown(snapshot: ProjectReportSnapshot): st
       '**Lifecycle state:** ' + reviewState(snapshot),
       '**Execution status:** ' + titleForStatus(review.session.status),
       '**Decision:** ' + (review.decision ? titleForStatus(review.decision.decision) : 'No decision recorded'),
+      '**Execution time:** ' + date(review.session.executionTimestamp) + ' (' + executionBasisLabel(review.session.executionTimestampBasis) + ')',
       '**Created:** ' + date(review.session.createdAt),
-      '**Updated:** ' + date(review.session.updatedAt),
+      '**Last activity:** ' + date(review.session.updatedAt),
+      '**Decision time:** ' + date(review.decision?.createdAt),
       '**Summary:** ' + plainText(review.summary || 'No summary was recorded.'),
       '',
     );
@@ -211,11 +264,11 @@ export function renderProjectReportMarkdown(snapshot: ProjectReportSnapshot): st
       lines.push('*Unavailable: this Review has no persisted traceability snapshot.*', '');
     }
     if (review.traceability.records.length) {
-      lines.push('| Requirement | State | Mappings | Source artifacts | Confidence |', '| --- | --- | ---: | --- | ---: |');
+      lines.push('| Requirement | State | Evidence | Mappings | Source artifacts | Confidence |', '| --- | --- | --- | ---: | --- | ---: |');
       review.traceability.records.forEach(record => lines.push(
         '| ' + tableCell(record.title)
         + ' | ' + tableCell(record.state)
-        + ' | ' + record.mappingIds.length
+        + ' | ' + tableCell(record.evidenceStatus ?? 'Historical evidence unavailable') + ' | ' + record.mappingIds.length
         + ' | ' + tableCell(record.sourceArtifactIds.join(', ') || 'None')
         + ' | ' + (record.confidence === null ? 'Unavailable' : record.confidence) + ' |',
       ));

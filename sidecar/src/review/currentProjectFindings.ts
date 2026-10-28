@@ -63,6 +63,7 @@ export async function loadCurrentProjectFindings(client: SupabaseClient, project
       sourceIdentity: typeof finding.location.sourceIdentity === 'string' ? finding.location.sourceIdentity : null,
       sourceVersion: typeof finding.location.sourceVersion === 'string' ? finding.location.sourceVersion : null,
       filePath: typeof finding.location.filePath === 'string' ? finding.location.filePath : '',
+      lineNumber: typeof finding.location.lineNumber === 'number' ? finding.location.lineNumber : null,
       title: finding.title,
       severity: finding.severity,
       createdAt: finding.createdAt,

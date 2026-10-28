@@ -8,6 +8,10 @@ import {
   ArrowLeft,
   ChevronRight,
   Cloud,
+  ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ExternalLink,
   File,
   Folder,
   GitBranch,
@@ -21,8 +25,11 @@ import {
 import { api } from '../api/client';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
+import { StatusBadge } from './CommandUI';
+import './ArtifactsPanel.css';
 import type { Artifact, ArtifactSource, ConnectedSource, ConnectedSourceBrowseEntry, ConnectedSourceStatusResult, ConnectedSourceSyncRun, IntegrationProvider } from '../types';
 import { userFacingError } from '../utils/userFacingError';
+import { SourceIndexStatus } from './SourceIndexStatus';
 
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'json', 'yaml', 'yml',
@@ -54,11 +61,8 @@ const SOURCE_LABELS: Record<ArtifactSource, string> = {
   drive: 'Google Drive',
 };
 
-const SOURCE_COLORS: Record<ArtifactSource, string> = {
-  documents: 'badge-documents',
-  repository: 'badge-repository',
-  directory: 'badge-repository',
-  drive: 'badge-drive',
+const CATEGORY_LABELS: Record<Artifact['type'], string> = {
+  requirement: 'Requirements', design: 'Design', source_code: 'Code', coding_standard: 'Coding standards', other: 'Document',
 };
 
 const CONNECTOR_LABELS: Record<IntegrationProvider, string> = {
@@ -77,6 +81,7 @@ type RepoGroup = {
   repoName: string;
   repoPath: string;
   rootPath: string;
+  location?: string | null;
   artifacts: Artifact[];
 };
 
@@ -91,6 +96,7 @@ type Props = {
   projectId: string;
   /** Route the user to the global OAuth connection settings. */
   onOpenSettings?: () => void;
+  initialView?: 'sources' | 'repository';
 };
 
 type DeleteTarget =
@@ -127,10 +133,11 @@ type ConnectedSourceRunView = {
 function connectedSourceRunView(source: ConnectedSource): ConnectedSourceRunView {
   const run = source.latestSyncRun;
   if (!run) {
-    const label = source.status === 'active' ? source.syncStatus.replace(/_/g, ' ') : source.status.replace(/_/g, ' ');
+    const labels = { idle: 'Not synced', syncing: 'In progress', ready: 'Completed', error: 'Needs attention' };
+    const label = source.status === 'active' ? labels[source.syncStatus] : source.status === 'removed' ? 'Removed' : 'Needs attention';
     return {
       label: label || 'Not synced', statusClass: source.syncStatus === 'error' ? 'error' : 'idle',
-      active: false, needsAttention: source.syncStatus === 'error', reconnect: source.status === 'inaccessible',
+      active: source.syncStatus === 'syncing', needsAttention: Boolean(source.lastError) || source.syncStatus === 'error' || ['inaccessible', 'disconnected'].includes(source.status), reconnect: ['inaccessible', 'disconnected'].includes(source.status),
       processed: 0, countsAvailable: false, lastUpdated: source.lastSyncedAt,
     };
   }
@@ -138,7 +145,7 @@ function connectedSourceRunView(source: ConnectedSource): ConnectedSourceRunView
   const retrying = run.status === 'running' && Boolean(run.nextAttemptAt && Date.parse(run.nextAttemptAt) > Date.now());
   const labels: Record<ConnectedSourceSyncRun['status'], string> = {
     queued: 'Queued', running: retrying ? 'Retrying' : 'Importing',
-    partial: failed ? 'Needs attention' : 'Importing', success: 'Complete', failure: 'Failed', cancelled: 'Cancelled',
+    partial: failed ? 'Needs attention' : 'Importing', success: 'Completed', failure: 'Failed', cancelled: 'Cancelled',
   };
   const reconnectCodes = new Set(['http_401', 'token_expired', 'integration_disconnected', 'invalid_credentials', 'slack_missing_scope', 'slack_invalid_auth', 'slack_token_revoked', 'slack_token_expired']);
   const processed = run.importedCount + run.updatedCount + run.unchangedCount + run.removedCount + run.inaccessibleCount;
@@ -146,8 +153,8 @@ function connectedSourceRunView(source: ConnectedSource): ConnectedSourceRunView
     label: retrying && run.retryAttempt && run.retryLimit ? `Retrying · ${run.retryAttempt} of ${run.retryLimit}` : labels[run.status],
     statusClass: failed ? 'error' : run.status,
     active: run.status === 'queued' || run.status === 'running' || run.status === 'partial' && !failed,
-    needsAttention: failed,
-    reconnect: source.status === 'inaccessible' || reconnectCodes.has(run.errorCode ?? ''),
+    needsAttention: failed || Boolean(source.lastError) || ['inaccessible', 'disconnected'].includes(source.status),
+    reconnect: ['inaccessible', 'disconnected'].includes(source.status) || reconnectCodes.has(run.errorCode ?? ''),
     processed,
     countsAvailable: (run.attemptCount ?? 0) > 0 || processed > 0,
     lastUpdated: source.lastSyncedAt ?? run.startedAt ?? run.createdAt,
@@ -183,7 +190,7 @@ function pathParts(path: string): string[] {
 }
 
 /**
- * Artifact records do not yet carry a repository id. Use their persisted
+ * Legacy/local artifact records do not carry a repository id. Use their persisted
  * common ancestor rather than a fixed path depth so a Windows repository at
  * C:/Users/name/Projects/repo is not incorrectly displayed as "Users".
  */
@@ -217,7 +224,7 @@ function displayLocation(artifact: Artifact): string {
 
 function validLocation(artifact: Artifact): string | null {
   const value = (artifact.originalPath || artifact.filePath || '').trim();
-  return value || null;
+  return /^(https?:\/\/|[A-Za-z]:[/\\]|\\\\|\/)/i.test(value) ? value : null;
 }
 
 function buildTree(artifacts: Artifact[], rootPath: string): TreeNode[] {
@@ -279,16 +286,19 @@ function PreviewPane({
   preview,
   markdownMode,
   onMarkdownModeChange,
+  onRetry,
 }: {
   preview: PreviewState | null;
   markdownMode: MarkdownMode;
   onMarkdownModeChange: (mode: MarkdownMode) => void;
+  onRetry: () => void;
 }) {
   if (!preview) return <p className="source-preview-empty">Select a file to preview it.</p>;
   if (preview.loading) return <div className="panel-loading" role="status">Loading preview…</div>;
-  if (preview.error) return <p className="form-error" role="alert">{preview.error}</p>;
+  if (preview.error) return <div className="source-preview-feedback"><p className="form-error" role="alert">{preview.error}</p><button type="button" className="btn-secondary" onClick={onRetry}>Retry preview</button></div>;
   if (!preview.kind) return <p className="source-preview-unavailable">Preview not available</p>;
-  if (!preview.content) return <p className="source-preview-empty">Preview not available.</p>;
+  if (preview.content === null) return <p className="source-preview-empty">Preview not available.</p>;
+  if (preview.kind === 'text' && preview.content === '') return <p className="source-preview-empty">This file is empty.</p>;
 
   const isMarkdown = extensionOf(preview.artifact.fileName) === 'md';
   return (
@@ -296,14 +306,15 @@ function PreviewPane({
       {isMarkdown && (
         <div className="source-preview-mode" role="group" aria-label="Markdown preview mode">
           <button type="button" className={markdownMode === 'preview' ? 'active' : ''} aria-pressed={markdownMode === 'preview'} onClick={() => onMarkdownModeChange('preview')}>Preview</button>
-          <button type="button" className={markdownMode === 'original' ? 'active' : ''} aria-pressed={markdownMode === 'original'} onClick={() => onMarkdownModeChange('original')}>Original</button>
+          <button type="button" className={markdownMode === 'original' ? 'active' : ''} aria-pressed={markdownMode === 'original'} onClick={() => onMarkdownModeChange('original')}>Code</button>
+          <span className="source-file-line-count">{preview.content.split('\n').length} lines</span>
         </div>
       )}
       {preview.kind === 'text' && isMarkdown && markdownMode === 'preview' && (
         <article className="artifact-markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.content}</ReactMarkdown></article>
       )}
       {preview.kind === 'text' && (!isMarkdown || markdownMode === 'original') && (
-        <pre className="artifact-text-preview"><code>{preview.content}</code></pre>
+        <><div className="source-code-toolbar"><strong>Code</strong><span>{preview.content.split('\n').length} lines</span></div><pre className="artifact-text-preview" tabIndex={0} aria-label="File code"><span className="source-code-grid"><span className="source-line-numbers" aria-hidden="true">{preview.content.split('\n').map((_, index) => index + 1).join('\n')}</span><code>{preview.content}</code></span></pre></>
       )}
       {preview.kind === 'image' && <div className="artifact-image-preview"><img src={preview.content} alt={`Preview of ${preview.artifact.fileName}`} /></div>}
       {preview.kind === 'pdf' && <iframe className="artifact-pdf-preview" src={preview.content} title={`Preview of ${preview.artifact.fileName}`} />}
@@ -311,10 +322,15 @@ function PreviewPane({
   );
 }
 
-export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
+export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sources' }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [connectedSources, setConnectedSources] = useState<ConnectedSource[]>([]);
   const [sourceStatusStale, setSourceStatusStale] = useState(false);
+  const [filesLoaded, setFilesLoaded] = useState(false);
+  const [sourceQuery, setSourceQuery] = useState('');
+  const [sourceCategory, setSourceCategory] = useState<'all' | 'repositories' | 'documents' | 'images'>('all');
+  const [sourcePage, setSourcePage] = useState(1);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
@@ -325,6 +341,8 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [sourceView, setSourceView] = useState<SourceView | null>(null);
+  const [fileTreeOpen, setFileTreeOpen] = useState(true);
+  const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(new Set());
   const [repoDirectory, setRepoDirectory] = useState('');
   const [repoSearch, setRepoSearch] = useState('');
   const [selectedRepoArtifact, setSelectedRepoArtifact] = useState<Artifact | null>(null);
@@ -345,8 +363,11 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastSourceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const lastSourceTriggerRef = useRef<string | null>(null);
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const fileReaderRef = useRef<HTMLDivElement>(null);
   const hasLoadedRef = useRef(false);
+  const initialViewAppliedRef = useRef(false);
 
   const loadArtifacts = useCallback(async () => {
     if (!hasLoadedRef.current) setLoading(true);
@@ -355,7 +376,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
       typeof api.listConnectedSources === 'function' ? api.listConnectedSources(projectId) : Promise.resolve([]),
     ]);
     const errors: string[] = [];
-    if (artifactResult.status === 'fulfilled') setArtifacts(artifactResult.value);
+    if (artifactResult.status === 'fulfilled') { setArtifacts(artifactResult.value); setFilesLoaded(true); }
     else errors.push(`Files could not be refreshed. ${userFacingError(artifactResult.reason, 'Try again.')}`);
     if (sourceResult.status === 'fulfilled') {
       setConnectedSources(sourceResult.value);
@@ -370,6 +391,13 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   }, [projectId]);
 
   useEffect(() => { void loadArtifacts(); }, [loadArtifacts]);
+
+  useEffect(() => { if (sourceView) detailHeadingRef.current?.focus(); }, [sourceView]);
+  useEffect(() => {
+    if (fileReaderRef.current) { fileReaderRef.current.scrollTop = 0; fileReaderRef.current.scrollLeft = 0; }
+  }, [preview?.artifact.id]);
+  const needsSourceAttention = connectedSources.some(source => connectedSourceRunView(source).needsAttention);
+  useEffect(() => { if (needsSourceAttention) setUpdatesOpen(true); }, [needsSourceAttention]);
 
   const activeSourceKey = connectedSources
     .filter(source => connectedSourceRunView(source).active)
@@ -433,14 +461,33 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
         docs.push(artifact);
       }
     });
-    const groups: RepoGroup[] = repositories.length > 0 ? (() => {
-      const rootPath = commonRepositoryRoot(repositories);
+    const bySource = new Map<string | null, Artifact[]>();
+    for (const artifact of repositories) {
+      const key = artifact.sourceId || null;
+      const files = bySource.get(key) ?? [];
+      files.push(artifact);
+      bySource.set(key, files);
+    }
+    const groups: RepoGroup[] = [...bySource].map(([sourceId, files]) => {
+      if (sourceId) {
+        const source = connectedSources.find(item => item.id === sourceId && item.projectId === projectId && item.kind === 'github_repository');
+        return { repoName: source?.name.trim() || 'Imported repository', repoPath: `connected:${sourceId}`,
+          rootPath: '', location: source?.remoteUrl, artifacts: files };
+      }
+      const rootPath = commonRepositoryRoot(files);
       const parts = pathParts(rootPath);
-      const repoName = parts[parts.length - 1] || 'Imported repository';
-      return [{ repoName, repoPath: rootPath, rootPath, artifacts: repositories }];
-    })() : [];
+      return { repoName: parts[parts.length - 1] || 'Imported repository', repoPath: rootPath, rootPath, artifacts: files };
+    });
     return { docArtifacts: docs, repoGroups: groups, driveArtifacts: drive };
-  }, [artifacts]);
+  }, [artifacts, connectedSources, projectId]);
+
+  useEffect(() => {
+    if (loading || initialViewAppliedRef.current) return;
+    initialViewAppliedRef.current = true;
+    if (initialView === 'repository' && repoGroups.length === 1 && docArtifacts.length === 0 && driveArtifacts.length === 0) {
+      setSourceView({ kind: 'repository', group: repoGroups[0] });
+    }
+  }, [initialView, loading, repoGroups, docArtifacts.length, driveArtifacts.length]);
 
   const finishUpload = async () => {
     await loadArtifacts();
@@ -464,7 +511,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   }, []);
 
   const rememberTrigger = (event: React.MouseEvent<HTMLButtonElement>) => {
-    lastSourceTriggerRef.current = event.currentTarget;
+    lastSourceTriggerRef.current = event.currentTarget.id;
   };
 
   const openDocument = (artifact: Artifact, event?: React.MouseEvent<HTMLButtonElement>) => {
@@ -484,6 +531,8 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
     setRepoSearch('');
     setSelectedRepoArtifact(null);
     setPreview(null);
+    setFileTreeOpen(true);
+    setExpandedDirectories(new Set());
   };
 
   const goBackToSources = () => {
@@ -492,7 +541,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
     setRepoSearch('');
     setSelectedRepoArtifact(null);
     setPreview(null);
-    window.requestAnimationFrame(() => lastSourceTriggerRef.current?.focus());
+    window.requestAnimationFrame(() => { if (lastSourceTriggerRef.current) document.getElementById(lastSourceTriggerRef.current)?.focus(); });
   };
 
   const handleOpenWith = async (artifact: Artifact) => {
@@ -509,6 +558,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   };
 
   const uploadBrowserFiles = async (files: globalThis.File[]) => {
+    if (uploading || importing || connectorLoading) return;
     const supported = files.filter(file => SUPPORTED_EXTENSIONS.has(extensionOf(file.name)));
     const unsupported = files.filter(file => !SUPPORTED_EXTENSIONS.has(extensionOf(file.name)));
     setError(unsupported.length > 0 ? `Unsupported source${unsupported.length === 1 ? '' : 's'} skipped: ${unsupported.map(file => file.name).join(', ')}` : null);
@@ -576,6 +626,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   const openFilePicker = () => fileInputRef.current?.click();
 
   const handleDropzoneKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (uploading || importing || connectorLoading) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       openFilePicker();
@@ -583,11 +634,11 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   };
 
   const handleRepository = async () => {
-    const selected = await pickPath({ directory: true, multiple: false, title: 'Select a repository folder' });
-    if (!selected || Array.isArray(selected)) return;
-    setImporting(true);
-    setError(null);
     try {
+      const selected = await pickPath({ directory: true, multiple: false, title: 'Select a repository folder' });
+      if (!selected || Array.isArray(selected)) return;
+      setImporting(true);
+      setError(null);
       await api.importRepoArtifacts(projectId, selected);
       await loadArtifacts();
       setShowImportDialog(false);
@@ -637,8 +688,8 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
     try {
       const status = await api.getConnectedSourceStatus(provider, projectId);
       if (!status.connected) {
-        setShowImportDialog(false);
-        onOpenSettings?.();
+        if (onOpenSettings) { setShowImportDialog(false); onOpenSettings(); }
+        else setConnectorError(`Connect ${CONNECTOR_LABELS[provider]} in Settings before importing a source.`);
         return;
       }
       setConnectorProvider(provider);
@@ -721,10 +772,11 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
     setHistorySource(source);
     setSyncHistory([]);
     setHistoryLoading(true);
+    setHistoryError(null);
     try {
       setSyncHistory(await api.getConnectedSourceSyncHistory(projectId, source.id));
     } catch (cause) {
-      setError(userFacingError(cause, `Could not load synchronization history for ${source.name}.`));
+      setHistoryError(userFacingError(cause, `Could not load synchronization history for ${source.name}.`));
     } finally {
       setHistoryLoading(false);
     }
@@ -741,7 +793,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
       setArtifacts(previous => previous.filter(artifact => !deletedIds.includes(artifact.id)));
       if (sourceView && (deleteTarget.kind === 'artifact'
         ? sourceView.kind === 'document' && sourceView.artifact.id === deleteTarget.artifact.id
-        : sourceView.kind === 'repository' && sourceView.group.repoName === deleteTarget.group.repoName)) {
+        : sourceView.kind === 'repository' && sourceView.group.repoPath === deleteTarget.group.repoPath)) {
         goBackToSources();
       }
       setDeleteTarget(null);
@@ -756,8 +808,9 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
     <div
       className={`${className}${dragActive ? ' is-dragging' : ''}`}
       role="button"
-      tabIndex={0}
-      onClick={openFilePicker}
+      tabIndex={uploading || importing || connectorLoading ? -1 : 0}
+      aria-disabled={uploading || importing || connectorLoading}
+      onClick={() => { if (!uploading && !importing && !connectorLoading) openFilePicker(); }}
       onKeyDown={handleDropzoneKeyDown}
       onDragEnter={event => { event.preventDefault(); setDragActive(true); }}
       onDragOver={event => { event.preventDefault(); setDragActive(true); }}
@@ -773,199 +826,182 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
   );
 
   const renderSourceRow = (artifact: Artifact) => {
-    const isDrive = artifact.source === 'drive';
-    const canOpen = Boolean(validLocation(artifact));
-    const openSource = () => { if (isDrive) void handleOpenWith(artifact); else openDocument(artifact); };
     return (
-      <div key={artifact.id} className="source-directory-row" role="listitem" tabIndex={0} onClick={openSource} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSource(); } }}>
-        <span className={`badge ${SOURCE_COLORS[artifact.source]}`}>{SOURCE_LABELS[artifact.source]}</span>
-        <div className="source-directory-main">
-          <strong>{artifact.fileName}</strong>
-          <span>{displayLocation(artifact)}</span>
-        </div>
-        <div className="source-directory-meta"><span>{artifact.type.replace(/_/g, ' ')}</span></div>
-        <div className="source-directory-actions">
-          <button type="button" className="btn-secondary" onClick={event => { event.stopPropagation(); openSource(); }} disabled={isDrive && !canOpen}>Open</button>
-          <button type="button" className="source-remove-button" aria-label={`Remove ${artifact.fileName}`} title={`Remove ${artifact.fileName}`} onClick={event => { event.stopPropagation(); setDeleteTarget({ kind: 'artifact', artifact }); }}><Trash2 size={16} aria-hidden="true" /></button>
-        </div>
-      </div>
+      <tr key={artifact.id}>
+        <td><div className="source-directory-main">
+          <button id={`source-open-${artifact.id}`} type="button" className="source-name-link" aria-label={`View ${artifact.fileName}`} onClick={event => openDocument(artifact, event)}>{artifact.fileName}</button>
+          <span>{SOURCE_LABELS[artifact.source]}</span>
+        </div></td><td>{artifactKind(artifact.fileName) === 'image' ? 'Image' : CATEGORY_LABELS[artifact.type]}</td><td className="source-table-date">{new Date(artifact.createdAt).toLocaleDateString()}</td>
+      </tr>
     );
   };
 
   const renderRepositoryRow = (group: RepoGroup) => (
-    <div key={group.repoName} className="source-directory-row source-directory-repository" role="listitem" tabIndex={0} onClick={() => openRepository(group)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openRepository(group); } }}>
-      <span className="badge badge-repository">Repository</span>
-      <div className="source-directory-main">
-        <strong>{group.repoName}</strong>
-        <span>{group.rootPath || 'Repository location unavailable'}</span>
-      </div>
-      <div className="source-directory-meta"><span>{group.artifacts.length} file{group.artifacts.length === 1 ? '' : 's'}</span></div>
-      <div className="source-directory-actions">
-        <button type="button" className="btn-secondary" onClick={event => { event.stopPropagation(); openRepository(group, event); }}>Open</button>
-        <button type="button" className="source-remove-button" aria-label={`Remove ${group.repoName} repository`} title={`Remove ${group.repoName} repository`} onClick={event => { event.stopPropagation(); setDeleteTarget({ kind: 'repository', group }); }}><Trash2 size={16} aria-hidden="true" /></button>
-      </div>
-    </div>
+    <tr key={group.repoPath}>
+      <td><div className="source-directory-main">
+        <button id={`source-open-repository-${encodeURIComponent(group.repoPath)}`} type="button" className="source-name-link" aria-label={`View ${group.repoName}`} onClick={event => openRepository(group, event)}>{group.repoName}</button>
+        <span>{group.artifacts.length} file{group.artifacts.length === 1 ? '' : 's'}</span>
+      </div></td><td><Folder size={15} aria-hidden="true" /> Repository</td><td className="source-table-date">—</td>
+    </tr>
   );
 
   const renderConnectedSourceRow = (source: ConnectedSource) => {
-    const busy = syncingSourceId === source.id;
-    const status = source.status === 'active' ? source.syncStatus : source.status;
+    const view = connectedSourceRunView(source);
+    const busy = syncingSourceId === source.id || view.active;
+    const label = source.status === 'removed' ? 'Removed' : view.needsAttention ? 'Needs attention' : view.label;
     return (
-      <div key={source.id} className="source-directory-row source-directory-connected" role="listitem">
-        <span className={`badge badge-${source.provider === 'google_drive' ? 'drive' : 'repository'}`}>{CONNECTOR_LABELS[source.provider]}</span>
+      <li key={source.id} className="source-update-row">
         <div className="source-directory-main">
           <strong>{source.name}</strong>
-          <span>{source.remoteUrl || source.remoteId}</span>
-          {source.lastError && <small className="connected-source-error">{source.lastError}</small>}
+          <span>{CONNECTOR_LABELS[source.provider]} · {source.lastSuccessfulSyncAt ? `Synced ${new Date(source.lastSuccessfulSyncAt).toLocaleString()}` : 'Not synced yet'}</span>
+          {(source.lastError || source.latestSyncRun?.errorMessage) && <p className="connected-source-error">{source.lastError || source.latestSyncRun?.errorMessage}</p>}
+          {view.reconnect && <p className="connected-source-error">Reconnect {CONNECTOR_LABELS[source.provider]} in Settings to update this source.</p>}
         </div>
-        <div className="source-directory-meta">
-          <span className={`connected-source-state is-${status}`}>{status.replace(/_/g, ' ')}</span>
-          <span>{source.lastSuccessfulSyncAt ? `Synced ${new Date(source.lastSuccessfulSyncAt).toLocaleString()}` : 'Not synced yet'}</span>
-        </div>
-        <div className="source-directory-actions">
+        <StatusBadge label={label} tone={view.needsAttention ? 'danger' : view.active ? 'running' : label === 'Completed' ? 'success' : 'neutral'} />
+        <div className="source-directory-actions" role="group" aria-label={`Update ${source.name}`}>
           <button type="button" className="btn-secondary" onClick={() => void openSyncHistory(source)}>History</button>
-          <button type="button" className="btn-secondary" onClick={() => void syncConnectedSource(source)} disabled={busy || source.status !== 'active'}>
-            <RotateCw size={15} aria-hidden="true" /> {busy ? 'Syncing…' : 'Sync'}
-          </button>
+          {view.reconnect ? <button type="button" className="btn-secondary" onClick={onOpenSettings} disabled={!onOpenSettings}>Reconnect</button> :
+            <button type="button" className="btn-secondary" onClick={() => void syncConnectedSource(source)} disabled={busy || source.status !== 'active'}><RotateCw size={15} aria-hidden="true" /> {busy ? 'Syncing…' : view.needsAttention ? 'Retry sync' : 'Sync'}</button>}
         </div>
-      </div>
+      </li>
     );
   };
 
-  const repositoryTree = sourceView?.kind === 'repository' ? buildTree(sourceView.group.artifacts, sourceView.group.rootPath) : [];
-  const repositoryNodes = getNodesAtPath(repositoryTree, repoDirectory).filter(node => !repoSearch.trim() || node.name.toLowerCase().includes(repoSearch.trim().toLowerCase()));
+  const currentRepository = sourceView?.kind === 'repository'
+    ? repoGroups.find(group => group.repoPath === sourceView.group.repoPath) ?? sourceView.group : null;
+  const repositoryTree = currentRepository ? buildTree(currentRepository.artifacts, currentRepository.rootPath) : [];
+  const repositoryNodes = getNodesAtPath(repositoryTree, repoDirectory);
   const selectedArtifact = sourceView?.kind === 'repository' ? selectedRepoArtifact : sourceView?.artifact;
+  const relativePath = (artifact: Artifact, root: string) => {
+    const path = normalizePath(displayLocation(artifact));
+    return root && path.toLowerCase().startsWith(`${root.toLowerCase()}/`) ? path.slice(root.length + 1) : path;
+  };
+  const selectFile = (artifact: Artifact) => {
+    if (sourceView?.kind === 'repository') {
+      const parts = relativePath(artifact, sourceView.group.rootPath).split('/').slice(0, -1);
+      setExpandedDirectories(current => new Set([...current, ...parts.map((_, index) => parts.slice(0, index + 1).join('/'))]));
+    }
+    if (!selectedRepoArtifact) window.requestAnimationFrame(() => document.getElementById('source-preview-heading')?.focus());
+    setSelectedRepoArtifact(artifact); setMarkdownMode('preview'); void openPreview(artifact);
+  };
+  const renderPreview = () => <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} onRetry={() => { if (preview) void openPreview(preview.artifact); }} />;
+  const matchesSource = (text: string) => text.toLowerCase().includes(sourceQuery.trim().toLowerCase());
+  const visibleDocuments = [...docArtifacts, ...driveArtifacts].filter(artifact => sourceCategory !== 'repositories' && (sourceCategory === 'all' || (sourceCategory === 'images' ? artifactKind(artifact.fileName) === 'image' : artifactKind(artifact.fileName) !== 'image')) && matchesSource(`${artifact.fileName} ${displayLocation(artifact)} ${SOURCE_LABELS[artifact.source]} ${CATEGORY_LABELS[artifact.type]}`));
+  const visibleRepositories = repoGroups.filter(group => (sourceCategory === 'all' || sourceCategory === 'repositories') && (matchesSource(`${group.repoName} repository ${group.rootPath}`) || group.artifacts.some(artifact => matchesSource(displayLocation(artifact)))));
+  const hasMaterials = artifacts.length > 0;
+  const visibleSourceRows = [...visibleRepositories.map(renderRepositoryRow), ...visibleDocuments.map(renderSourceRow)];
+  const sourcePageCount = Math.max(1, Math.ceil(visibleSourceRows.length / 20));
+  const currentSourcePage = Math.min(sourcePage, sourcePageCount);
 
   const renderRepositoryDetail = (group: RepoGroup) => {
-    const parts = repoDirectory.split('/').filter(Boolean);
-    return (
-      <div className="source-detail-view source-repository-detail">
-        <div className="source-detail-header">
-          <button type="button" className="btn-back" onClick={goBackToSources}><ArrowLeft size={16} aria-hidden="true" /> Back to sources</button>
-          <div><span className="badge badge-repository">Repository</span><h3>{group.repoName}</h3><p>{group.rootPath || 'Repository location unavailable'}</p></div>
-          <button type="button" className="source-detail-remove btn-secondary" onClick={() => setDeleteTarget({ kind: 'repository', group })}><Trash2 size={15} aria-hidden="true" /> Remove</button>
-        </div>
-        <div className="source-repository-layout">
-          <section className="source-tree-panel" aria-labelledby="source-tree-heading">
-            <div className="source-tree-heading"><h4 id="source-tree-heading">Repository files</h4><span>{group.artifacts.length} files</span></div>
-            <label className="source-tree-search"><Search size={15} aria-hidden="true" /><span className="visually-hidden">Search repository files</span><input type="search" aria-label="Search repository files" value={repoSearch} onChange={event => setRepoSearch(event.target.value)} placeholder="Search files" /></label>
-            <nav className="source-tree-breadcrumbs" aria-label="Repository directory">
-              <button type="button" className={!repoDirectory ? 'active' : ''} onClick={() => { setRepoDirectory(''); setSelectedRepoArtifact(null); setPreview(null); }}>Root</button>
-              {parts.map((part, index) => {
-                const path = parts.slice(0, index + 1).join('/');
-                return <span key={path}><ChevronRight size={13} aria-hidden="true" /><button type="button" className={repoDirectory === path ? 'active' : ''} onClick={() => { setRepoDirectory(path); setSelectedRepoArtifact(null); setPreview(null); }}>{part}</button></span>;
-              })}
-            </nav>
-            {repoDirectory && <button type="button" className="source-tree-parent" onClick={() => { const next = parts.slice(0, -1).join('/'); setRepoDirectory(next); setSelectedRepoArtifact(null); setPreview(null); }}><ArrowLeft size={14} aria-hidden="true" /> Parent directory</button>}
-            <div className="source-tree" role="tree" aria-label="Repository directory tree">
-              {repositoryNodes.length === 0 && <p className="source-preview-empty">This directory is empty.</p>}
-              {repositoryNodes.map(node => {
-                const nodePath = repoDirectory ? `${repoDirectory}/${node.name}` : node.name;
-                if (node.isDir) return <button key={nodePath} type="button" className="source-tree-node source-tree-directory" role="treeitem" aria-expanded="false" onClick={() => { setRepoDirectory(nodePath); setSelectedRepoArtifact(null); setPreview(null); }}><ChevronRight size={15} aria-hidden="true" /><Folder size={16} aria-hidden="true" /><span>{node.name}</span><small>{countFiles(node)} file{countFiles(node) === 1 ? '' : 's'}</small></button>;
-                return <button key={nodePath} type="button" className={`source-tree-node source-tree-file${selectedRepoArtifact?.id === node.artifact?.id ? ' selected' : ''}`} role="treeitem" aria-pressed={selectedRepoArtifact?.id === node.artifact?.id} onClick={() => { setSelectedRepoArtifact(node.artifact!); setMarkdownMode('preview'); void openPreview(node.artifact!); }}><File size={16} aria-hidden="true" /><span>{node.name}</span><small>{node.artifact?.type.replace(/_/g, ' ')}</small></button>;
-              })}
-            </div>
-          </section>
-          <section className="source-preview-panel" aria-labelledby="source-preview-heading">
-            <div className="source-preview-heading"><h4 id="source-preview-heading">{selectedArtifact ? selectedArtifact.fileName : 'File preview'}</h4></div>
-            {selectedArtifact && <p className="source-preview-location">{displayLocation(selectedArtifact)}</p>}
-            <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} />
-          </section>
-        </div>
-      </div>
-    );
+    const filePath = selectedRepoArtifact ? relativePath(selectedRepoArtifact, group.rootPath) : '';
+    const parts = (selectedRepoArtifact ? filePath.split('/').slice(0, -1).join('/') : repoDirectory).split('/').filter(Boolean);
+    const results = repoSearch.trim() ? group.artifacts.filter(artifact => relativePath(artifact, group.rootPath).toLowerCase().includes(repoSearch.trim().toLowerCase())) : null;
+    const navigateDirectory = (path: string) => { setRepoDirectory(path); setSelectedRepoArtifact(null); setPreview(null); setRepoSearch(''); };
+    const renderBreadcrumbs = () => <nav className="source-path" aria-label="Repository directory">
+      <button type="button" onClick={() => navigateDirectory('')} aria-current={!parts.length && !selectedRepoArtifact ? 'location' : undefined}>{group.repoName}</button>
+      {parts.map((part, index) => { const path = parts.slice(0, index + 1).join('/'); return <span key={path}><span aria-hidden="true">/</span><button type="button" aria-current={!selectedRepoArtifact && index === parts.length - 1 ? 'location' : undefined} onClick={() => navigateDirectory(path)}>{part}</button></span>; })}
+      {selectedRepoArtifact && <span><span aria-hidden="true">/</span><strong>{selectedRepoArtifact.fileName}</strong></span>}
+    </nav>;
+    const renderFileSearch = () => <div className="source-go-to-file"><label className="visually-hidden" htmlFor="repository-file-search">Find a file</label><div className="source-search"><Search size={16} aria-hidden="true" /><input id="repository-file-search" type="search" value={repoSearch} onChange={event => setRepoSearch(event.target.value)} placeholder="Go to file" /></div></div>;
+    const renderTree = (nodes: TreeNode[], parent = ''): React.ReactNode => <ul className="source-file-tree" aria-label={parent ? undefined : 'Repository files'}>{nodes.map(node => {
+      const path = parent ? `${parent}/${node.name}` : node.name;
+      const expanded = expandedDirectories.has(path);
+      return <li key={path}>
+        {node.isDir ? <><button type="button" className="source-tree-node" aria-expanded={expanded} onClick={() => setExpandedDirectories(current => { const next = new Set(current); if (expanded) next.delete(path); else next.add(path); return next; })}>{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}<Folder size={16} aria-hidden="true" /><span>{node.name}</span></button>{expanded && renderTree(node.children ?? [], path)}</> : <button type="button" className={`source-tree-node${selectedRepoArtifact?.id === node.artifact?.id ? ' selected' : ''}`} aria-pressed={selectedRepoArtifact?.id === node.artifact?.id} onClick={() => selectFile(node.artifact!)}><File size={16} aria-hidden="true" /><span>{node.name}</span></button>}
+      </li>;
+    })}</ul>;
+    const renderMatches = () => <><p className="source-search-result" role="status">{results?.length ? `${results.length} matching file${results.length === 1 ? '' : 's'}` : 'No files match your search.'}</p><button type="button" className="btn-back" onClick={() => setRepoSearch('')}>Clear file search</button><ul className="source-file-tree" aria-label="Matching repository files">{results?.map(artifact => <li key={artifact.id}><button type="button" className="source-tree-node" aria-pressed={selectedRepoArtifact?.id === artifact.id} onClick={() => selectFile(artifact)}><File size={16} aria-hidden="true" /><span>{artifact.fileName}<small>{relativePath(artifact, group.rootPath)}</small></span></button></li>)}</ul></>;
+    const renderTableRow = (node: TreeNode) => {
+      let name = node.name;
+      let directory = node;
+      while (directory.isDir && directory.children?.length === 1 && directory.children[0].isDir) {
+        directory = directory.children[0]; name += `/${directory.name}`;
+      }
+      const nodePath = repoDirectory ? `${repoDirectory}/${name}` : name;
+      return <tr key={nodePath}><td><button type="button" className="source-file-link" onClick={() => node.isDir ? navigateDirectory(nodePath) : selectFile(node.artifact!)}>{node.isDir ? <Folder size={18} aria-hidden="true" /> : <File size={18} aria-hidden="true" />}<span>{name}</span>{node.isDir && <span className="visually-hidden"> {countFiles(node)} file{countFiles(node) === 1 ? '' : 's'}</span>}</button></td><td className="source-table-description">{node.isDir ? `${countFiles(node)} file${countFiles(node) === 1 ? '' : 's'}` : CATEGORY_LABELS[node.artifact!.type]}</td><td className="source-table-date">{node.artifact ? new Date(node.artifact.createdAt).toLocaleDateString() : '—'}</td></tr>;
+    };
+    return <div className="source-detail-view source-repository-detail">
+      <button type="button" className="btn-back source-back" onClick={goBackToSources}><ArrowLeft size={16} aria-hidden="true" /> All sources</button>
+      {!selectedRepoArtifact && <header className="source-detail-header"><div className="source-repo-identity"><Folder size={21} aria-hidden="true" /><h3 ref={detailHeadingRef} tabIndex={-1}>{group.repoName}</h3><span className="source-kind">Repository</span></div></header>}
+      {selectedRepoArtifact ? <div className={`source-file-layout${fileTreeOpen ? '' : ' is-collapsed'}`}>
+        {fileTreeOpen && <aside className="source-files-sidebar" aria-label="Files navigation"><div className="source-sidebar-heading"><button type="button" className="btn-secondary" aria-label="Hide files" onClick={() => setFileTreeOpen(false)}><PanelLeftClose size={17} aria-hidden="true" /></button><h4>Files</h4></div>{renderFileSearch()}<div className="source-files-scroll" tabIndex={0} aria-label="Scrollable repository files">{results ? renderMatches() : renderTree(repositoryTree)}</div></aside>}
+        <section className="source-file-main" aria-label="File viewer"><div className="source-file-pathbar">{!fileTreeOpen && <button type="button" className="btn-secondary" aria-label="Show files" onClick={() => setFileTreeOpen(true)}><PanelLeftOpen size={17} aria-hidden="true" /></button>}{renderBreadcrumbs()}</div><div className="source-import-summary"><File size={16} aria-hidden="true" /><span>Saved source</span><time dateTime={selectedRepoArtifact.createdAt}>Added {new Date(selectedRepoArtifact.createdAt).toLocaleDateString()}</time></div><div ref={fileReaderRef} className="source-file-reader" tabIndex={0} aria-label="Scrollable file content"><h4 id="source-preview-heading" className="visually-hidden" tabIndex={-1}>{selectedRepoArtifact.fileName}</h4>{renderPreview()}</div></section>
+      </div> : <><div className="source-repo-toolbar">{renderBreadcrumbs()}<div className="source-repo-actions">{renderFileSearch()}<button type="button" className="btn-secondary" onClick={() => setShowImportDialog(true)}><Plus size={16} aria-hidden="true" /> Add file</button></div></div>{results ? <div className="source-search-table">{renderMatches()}</div> : <div className="source-table-shell"><div className="source-import-summary"><Folder size={16} aria-hidden="true" /><strong>Imported files</strong><span>{group.artifacts.length} files</span></div><div className="source-table-scroll" tabIndex={0} aria-label="Scrollable repository directory"><table className="source-file-table" aria-label="Repository files"><thead><tr><th scope="col">Name</th><th scope="col">Contents</th><th scope="col">Added</th></tr></thead><tbody>{repoDirectory && <tr><td colSpan={3}><button type="button" className="source-file-link" onClick={() => navigateDirectory(repoDirectory.split('/').slice(0, -1).join('/'))}><ArrowLeft size={16} aria-hidden="true" /><span>..</span><span className="visually-hidden"> Parent directory</span></button></td></tr>}{repositoryNodes.length ? repositoryNodes.map(renderTableRow) : <tr><td colSpan={3}>This directory is empty.</td></tr>}</tbody></table></div></div>}</>}
+      <details className="source-disclosure"><summary>Source details</summary><dl className="source-metadata"><div><dt>Location</dt><dd>{group.location || group.rootPath || 'Repository location unavailable'}</dd></div></dl><button type="button" className="btn-secondary source-remove" onClick={() => setDeleteTarget({ kind: 'repository', group })}><Trash2 size={15} aria-hidden="true" /> Remove repository</button></details>
+    </div>;
   };
 
   const renderDocumentDetail = (artifact: Artifact) => (
     <div className="source-detail-view source-document-detail">
-      <div className="source-detail-header">
-        <button type="button" className="btn-back" onClick={goBackToSources}><ArrowLeft size={16} aria-hidden="true" /> Back to sources</button>
-        <div><span className={`badge ${SOURCE_COLORS[artifact.source]}`}>{SOURCE_LABELS[artifact.source]}</span><h3>{artifact.fileName}</h3><p>{displayLocation(artifact)}</p></div>
+      <button type="button" className="btn-back source-back" onClick={goBackToSources}><ArrowLeft size={16} aria-hidden="true" /> Back to sources</button>
+      <header className="source-detail-header">
+        <div><h3 ref={detailHeadingRef} tabIndex={-1}>{artifact.fileName}</h3><p>{SOURCE_LABELS[artifact.source]} · {CATEGORY_LABELS[artifact.type]}</p></div>
         <div className="source-detail-actions">
-          <button type="button" className="source-remove-button" aria-label={`Remove ${artifact.fileName}`} title={`Remove ${artifact.fileName}`} onClick={() => setDeleteTarget({ kind: 'artifact', artifact })}><Trash2 size={16} aria-hidden="true" /></button>
+          {validLocation(artifact) && <button type="button" className="btn-secondary" onClick={() => void handleOpenWith(artifact)}><ExternalLink size={15} aria-hidden="true" /> Open original</button>}
         </div>
-      </div>
-      <dl className="source-metadata">
-        <div><dt>Category</dt><dd>{artifact.type.replace(/_/g, ' ')}</dd></div>
-        <div><dt>Location</dt><dd className="source-technical-text">{displayLocation(artifact)}</dd></div>
-        <div><dt>Added</dt><dd>{new Date(artifact.createdAt).toLocaleString()}</dd></div>
-      </dl>
-      <section className="source-preview-panel source-document-preview" aria-labelledby="source-preview-heading">
-        <div className="source-preview-heading"><h4 id="source-preview-heading">Preview</h4></div>
-        <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} />
+      </header>
+      <section className="source-preview-panel source-document-preview source-file-reader" tabIndex={0} aria-labelledby="source-preview-heading">
+        <div className="visually-hidden"><h4 id="source-preview-heading">Preview</h4></div>
+        {renderPreview()}
       </section>
+      <details className="source-disclosure"><summary>Source details</summary><dl className="source-metadata"><div><dt>Category</dt><dd>{CATEGORY_LABELS[artifact.type]}</dd></div><div><dt>Location</dt><dd>{displayLocation(artifact)}</dd></div><div><dt>Added</dt><dd>{new Date(artifact.createdAt).toLocaleString()}</dd></div></dl><button type="button" className="btn-secondary source-remove" onClick={() => setDeleteTarget({ kind: 'artifact', artifact })}><Trash2 size={15} aria-hidden="true" /> Remove source</button></details>
     </div>
   );
 
   if (loading) return <div className="panel-loading" role="status">Loading sources...</div>;
 
-  if (sourceView) {
-    return (
-      <div className="artifacts-panel source-detail-shell">
-        <input ref={fileInputRef} className="visually-hidden" type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
-        {error && <p className="form-error" role="alert">{error}</p>}
-        {sourceView.kind === 'document' ? renderDocumentDetail(sourceView.artifact) : renderRepositoryDetail(sourceView.group)}
-        <ConfirmDialog
-          isOpen={deleteTarget !== null}
-          title={deleteTarget?.kind === 'repository' ? 'Remove repository?' : 'Remove source?'}
-          description={deleteTarget?.kind === 'repository' ? `Remove ${deleteTarget.group.repoName} and its ${deleteTarget.group.artifacts.length} indexed files from this project?` : `Remove ${deleteTarget?.artifact.fileName ?? 'this source'} from this project?`}
-          confirmLabel={deleteTarget?.kind === 'repository' ? 'Remove repository' : 'Remove source'}
-          onConfirm={handleDelete}
-          onClose={() => setDeleteTarget(null)}
-          busy={deleting}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="artifacts-panel">
+    <div className="artifacts-panel source-workspace">
+      <input ref={fileInputRef} className="visually-hidden" tabIndex={-1} type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
+      {hasMaterials && <SourceIndexStatus key={projectId} projectId={projectId} sourceVersionKey={artifacts.map(artifact => `${artifact.id}:${artifact.versionId ?? artifact.contentHash}`).sort().join('|')} />}
+      {sourceView ? <>{error && !showImportDialog && <p className="form-error" role="alert">{error}</p>}{sourceView.kind === 'document' ? renderDocumentDetail(sourceView.artifact) : renderRepositoryDetail(currentRepository ?? sourceView.group)}</> : <>
       <div className="panel-header source-directory-header">
-        <div><h3><Folder size={18} aria-hidden="true" /> Sources</h3></div>
-        <button type="button" className="btn-secondary" onClick={() => setShowImportDialog(true)}><Plus size={17} aria-hidden="true" /> Add source</button>
+        <div><h3>Sources</h3><p className="panel-description">Materials available for this project's reviews.</p></div>
+        <button type="button" className="btn-primary" onClick={() => setShowImportDialog(true)} disabled={uploading || importing}><Plus size={17} aria-hidden="true" /> Add source</button>
       </div>
-      {error && <p className="form-error" role="alert">{error}</p>}
-      <input ref={fileInputRef} className="visually-hidden" type="file" multiple onChange={event => { void handleFileInput(event); }} aria-label="Select source files" />
+      {error && !showImportDialog && <div className="source-preview-feedback"><p className="form-error" role="alert">{error}</p><button type="button" className="btn-secondary" onClick={() => void loadArtifacts()}>Retry loading sources</button></div>}
+
       {sourceStatusStale && <p role="status">Source status could not be refreshed. Showing the last saved progress; checking again shortly.</p>}
 
-      {artifacts.length === 0 && connectedSources.length === 0 ? renderDropzone('artifacts-empty artifacts-empty-dropzone', 'Add source files') : (
-        <div className="source-directory" role="list" aria-label="Project sources">
-          {connectedSources.map(renderConnectedSourceRow)}
-          {docArtifacts.map(renderSourceRow)}
-          {repoGroups.map(renderRepositoryRow)}
-          {driveArtifacts.map(renderSourceRow)}
-        </div>
-      )}
+      {hasMaterials && <div className="source-explorer-toolbar"><div className="source-category-controls" role="group" aria-label="Source categories">{([{ value: 'all', label: 'All sources' }, { value: 'repositories', label: 'Repositories' }, { value: 'documents', label: 'Documents' }, { value: 'images', label: 'Images' }] as const).map(category => <button type="button" key={category.value} aria-pressed={sourceCategory === category.value} onClick={() => { setSourceCategory(category.value); setSourcePage(1); }}>{category.label}</button>)}</div><div className="source-list-search"><label className="visually-hidden" htmlFor="project-source-search">Find a source</label><div className="source-search"><Search size={16} aria-hidden="true" /><input id="project-source-search" type="search" value={sourceQuery} onChange={event => { setSourceQuery(event.target.value); setSourcePage(1); }} placeholder="Search sources" /></div></div></div>}
+      {hasMaterials ? visibleSourceRows.length > 0 ? <><div className="source-table-shell source-explorer-table"><div className="source-table-scroll" tabIndex={0} aria-label="Scrollable project sources"><table className="source-file-table" aria-label="Project sources"><thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Added</th></tr></thead><tbody>{visibleSourceRows.slice((currentSourcePage - 1) * 20, currentSourcePage * 20)}</tbody></table></div></div><div className="source-pagination"><span>{visibleSourceRows.length} sources · Page {currentSourcePage} of {sourcePageCount}</span>{sourcePageCount > 1 && <div><button type="button" className="btn-secondary" disabled={currentSourcePage === 1} onClick={() => setSourcePage(currentSourcePage - 1)}>Previous</button><button type="button" className="btn-secondary" disabled={currentSourcePage === sourcePageCount} onClick={() => setSourcePage(currentSourcePage + 1)}>Next</button></div>}</div></> : <div className="source-empty-result"><p role="status">No sources match your search.</p><button type="button" className="btn-secondary" onClick={() => { setSourceQuery(''); setSourceCategory('all'); setSourcePage(1); }}>Clear search</button></div> : filesLoaded && (connectedSources.length ? <p className="source-preview-empty">No files have been imported yet. Check Source updates below.</p> : <div className="source-empty"><h4>Add your project materials</h4><p>Upload documents or import code to use in a Review.</p>{renderDropzone('source-dropzone', 'Add source files')}</div>)}
+      {uploadProgress && <p role="status">Uploading {uploadProgress.current} of {uploadProgress.total} files…</p>}
+      {connectedSources.length > 0 && <details className="source-disclosure source-updates" open={updatesOpen} onToggle={event => setUpdatesOpen(event.currentTarget.open)}><summary>Source updates <span>{connectedSources.length} connected {connectedSources.length === 1 ? 'source' : 'sources'}{needsSourceAttention ? ' · Needs attention' : activeSourceKey ? ' · In progress' : ''}</span></summary><p className="source-section-note">Check for updates from connected apps. Imported files appear in the list above.</p><ul className="source-updates-list" aria-label="Connected source updates">{connectedSources.map(renderConnectedSourceRow)}</ul></details>}
+
+      </>}
 
       {showImportDialog && (
-        <Modal isOpen={showImportDialog} onClose={() => { closeConnector(); setShowImportDialog(false); }} title={connectorProvider ? `Import from ${CONNECTOR_LABELS[connectorProvider]}` : 'Add source'} width={780}>
+        <Modal isOpen={showImportDialog} onClose={() => { if (uploading || importing || connectorLoading) return; closeConnector(); setShowImportDialog(false); }} title={connectorProvider ? `Import from ${CONNECTOR_LABELS[connectorProvider]}` : 'Add source'} width={640}>
           <div className="import-dialog-body">
+            {error && <p className="form-error" role="alert">{error}</p>}
+            {connectorError && !connectorProvider && <p className="form-error" role="alert">{connectorError}</p>}
             {!connectorProvider ? <>
-              {renderDropzone('import-dropzone', 'Drop source files to upload')}
-              <div className="import-options" role="list" aria-label="Source categories">
-                <button type="button" className="import-option" onClick={() => void handleUpload()} disabled={uploading}><Upload size={24} aria-hidden="true" /><span>Documents</span><small>{uploading ? 'Uploading…' : 'Available'}</small></button>
-                <button type="button" className="import-option" onClick={() => void handleRepository()} disabled={importing}><Folder size={24} aria-hidden="true" /><span>Repository</span><small>{importing ? 'Importing…' : 'Available'}</small></button>
-                <button type="button" className="import-option" onClick={() => void openConnector('github')} aria-describedby="connector-source-note"><GitBranch size={24} aria-hidden="true" /><span>GitHub</span><small>Browse connection</small></button>
-                <button type="button" className="import-option" onClick={() => void openConnector('google_drive')} aria-describedby="connector-source-note"><Cloud size={24} aria-hidden="true" /><span>Google Drive</span><small>Browse connection</small></button>
-                <button type="button" className="import-option" onClick={() => void openConnector('slack')} aria-describedby="connector-source-note"><MessageSquare size={24} aria-hidden="true" /><span>Slack</span><small>Browse connection</small></button>
-              </div>
-              <p id="connector-source-note" className="import-dialog-note">Connected apps open here for source selection. Connect GitHub, Google Drive, or Slack in Settings first when an app is disconnected.</p>
+              <section aria-labelledby="source-computer-heading"><h4 id="source-computer-heading">This computer</h4><div className="source-import-options">
+                <button type="button" className="source-import-option" onClick={() => { if ('__TAURI_IPC__' in window) void handleUpload(); else openFilePicker(); }} disabled={uploading || importing || connectorLoading}><Upload size={20} aria-hidden="true" /><span><strong>Upload files</strong><small>{uploading ? `Uploading ${uploadProgress?.current ?? 0} of ${uploadProgress?.total ?? 0}…` : 'Documents, code, PDFs and images'}</small></span></button>
+                <button type="button" className="source-import-option" onClick={() => void handleRepository()} disabled={uploading || importing || connectorLoading}><Folder size={20} aria-hidden="true" /><span><strong>Import local folder</strong><small>{importing ? 'Importing…' : 'Choose a repository on this computer'}</small></span></button>
+              </div><div className="source-compact-drop">{renderDropzone('source-dropzone', 'Drop source files to upload')}</div></section>
+              <section aria-labelledby="source-apps-heading"><h4 id="source-apps-heading">Connected apps</h4><div className="source-import-options source-app-options">
+                <button type="button" className="source-import-option" onClick={() => void openConnector('github')} disabled={uploading || importing || connectorLoading}><GitBranch size={20} aria-hidden="true" /><span><strong>GitHub</strong><small>Repository and branch</small></span></button>
+                <button type="button" className="source-import-option" onClick={() => void openConnector('google_drive')} disabled={uploading || importing || connectorLoading}><Cloud size={20} aria-hidden="true" /><span><strong>Google Drive</strong><small>Files and folders</small></span></button>
+                <button type="button" className="source-import-option" onClick={() => void openConnector('slack')} disabled={uploading || importing || connectorLoading}><MessageSquare size={20} aria-hidden="true" /><span><strong>Slack</strong><small>Channel messages</small></span></button>
+              </div><p className="source-section-note">Manage app connections in Settings. If an app is disconnected, selecting it opens Settings.</p>{connectorLoading && <p role="status">Opening connection…</p>}</section>
             </> : <div className="connected-source-browser">
               <div className="connected-source-browser-header">
-                <button type="button" className="btn-back" onClick={() => connectorParent ? void browseConnector(connectorProvider).then(() => { setConnectorParent(null); setConnectorSelection(null); }) : closeConnector()}><ArrowLeft size={16} aria-hidden="true" /> Back</button>
-                <div><strong>{connectorStatus?.accountLabel || CONNECTOR_LABELS[connectorProvider]}</strong><span className="connected-source-state is-ready">Connected</span></div>
+                <button type="button" className="btn-back" disabled={connectorLoading} onClick={() => connectorParent ? void browseConnector(connectorProvider).then(() => { setConnectorParent(null); setConnectorSelection(null); }) : closeConnector()}><ArrowLeft size={16} aria-hidden="true" /> Back</button>
+                <div><strong>{connectorStatus?.accountLabel || CONNECTOR_LABELS[connectorProvider]}</strong><StatusBadge label="Connected" tone="neutral" /></div>
               </div>
-              <label className="source-tree-search"><Search size={15} aria-hidden="true" /><span className="visually-hidden">Search connected sources</span><input type="search" value={connectorQuery} onChange={event => setConnectorQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void browseConnector(connectorProvider, { remoteId: connectorParent?.id, query: connectorQuery }); }} placeholder={`Search ${CONNECTOR_LABELS[connectorProvider]}`} /></label>
+              <label className="source-search-label" htmlFor="connected-source-search">Search {CONNECTOR_LABELS[connectorProvider]}</label><div className="source-search"><Search size={15} aria-hidden="true" /><input id="connected-source-search" type="search" value={connectorQuery} onChange={event => setConnectorQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void browseConnector(connectorProvider, { remoteId: connectorParent?.id, query: connectorQuery }); }} placeholder="Search by name" /></div>
               {connectorParent && <p className="import-dialog-note">Selected location: <strong>{connectorParent.name}</strong>{connectorProvider === 'github' ? ' — choose a branch.' : ' — choose this folder or one item below.'}</p>}
               {connectorError && <p className="form-error" role="alert">{connectorError}</p>}
               {connectorLoading && <p className="panel-loading" role="status">Loading {CONNECTOR_LABELS[connectorProvider]}…</p>}
-              {!connectorLoading && <div className="connected-source-browser-list" role="list" aria-label={`${CONNECTOR_LABELS[connectorProvider]} sources`}>
-                {connectorItems.length === 0 && <p className="source-preview-empty">No accessible sources matched this view.</p>}
-                {connectorItems.map(item => <button key={`${item.kind}:${item.id}`} type="button" role="listitem" aria-label={`${item.name}, ${item.kind}${item.revision ? `, ${item.revision}` : ''}`} className={`connected-source-browser-row${connectorSelection?.id === item.id ? ' is-selected' : ''}`} aria-pressed={connectorSelection?.id === item.id} onClick={() => void selectConnectorEntry(item)}><span><strong>{item.name}</strong><small>{item.kind}{item.revision ? ` · ${item.revision}` : ''}</small></span><ChevronRight size={16} aria-hidden="true" /></button>)}
-              </div>}
+              {!connectorLoading && <ul className="connected-source-browser-list" aria-label={`${CONNECTOR_LABELS[connectorProvider]} sources`}>
+                {connectorItems.length === 0 && <li className="source-preview-empty">No accessible sources matched this view.</li>}
+                {connectorItems.map(item => <li key={`${item.kind}:${item.id}`}><button type="button" aria-label={`${item.name}, ${item.kind}${item.revision ? `, ${item.revision}` : ''}`} className={`connected-source-browser-row${connectorSelection?.id === item.id ? ' is-selected' : ''}`} aria-pressed={connectorSelection?.id === item.id} onClick={() => void selectConnectorEntry(item)}><span><strong>{item.name}</strong><small>{item.kind.replace(/_/g, ' ')}{item.revision ? ` · ${item.revision}` : ''}</small></span><ChevronRight size={16} aria-hidden="true" /></button></li>)}
+              </ul>}
               {connectorCursor && <button type="button" className="btn-secondary" onClick={() => void browseConnector(connectorProvider, { remoteId: connectorParent?.id, cursor: connectorCursor, query: connectorQuery }, true)} disabled={connectorLoading}>Load more</button>}
               <div className="connected-source-browser-actions">
-                <button type="button" className="btn-secondary" onClick={() => { closeConnector(); setShowImportDialog(false); }}>Cancel</button>
+                <button type="button" className="btn-secondary" disabled={connectorLoading} onClick={() => { closeConnector(); setShowImportDialog(false); }}>Cancel</button>
                 <button type="button" className="btn-primary" onClick={() => void importConnectorSelection()} disabled={!connectorSelection || connectorLoading || (connectorProvider === 'github' && connectorSelection.kind !== 'branch')}>{connectorLoading ? 'Importing…' : 'Import and sync'}</button>
               </div>
             </div>}
@@ -975,7 +1011,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings }: Props) {
 
       {historySource && <Modal isOpen={Boolean(historySource)} onClose={() => setHistorySource(null)} title={`${historySource.name} sync history`} width={680}>
         <div className="connected-source-history">
-          {historyLoading ? <p role="status">Loading sync history…</p> : syncHistory.length === 0 ? <p>No synchronization runs have been recorded.</p> : <ol>{syncHistory.map(run => <li key={run.id}><div><strong>{run.status.replace(/_/g, ' ')}</strong><span>{new Date(run.createdAt).toLocaleString()}</span></div><p>{run.importedCount} imported · {run.updatedCount} updated · {run.unchangedCount} unchanged · {run.removedCount} removed</p>{run.errorMessage && <p className="form-error" role="alert">{run.errorMessage}</p>}</li>)}</ol>}
+          {historyLoading ? <p role="status">Loading sync history…</p> : historyError ? <div className="source-preview-feedback"><p className="form-error" role="alert">{historyError}</p><button type="button" className="btn-secondary" onClick={() => void openSyncHistory(historySource)}>Retry history</button></div> : syncHistory.length === 0 ? <p>No synchronization runs have been recorded.</p> : <ol>{syncHistory.map(run => <li key={run.id}><div><StatusBadge label={run.status === 'partial' ? 'Needs attention' : run.status} /><span>{new Date(run.createdAt).toLocaleString()}</span></div><p>{run.importedCount} imported · {run.updatedCount} updated · {run.unchangedCount} unchanged · {run.removedCount} removed</p>{run.errorMessage && <p className="form-error" role="alert">{run.errorMessage}</p>}</li>)}</ol>}
           <div className="connected-source-browser-actions"><button type="button" className="btn-primary" onClick={() => setHistorySource(null)}>Done</button></div>
         </div>
       </Modal>}

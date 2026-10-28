@@ -3,6 +3,83 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseReportSnapshotSource } from '../../src/report/supabaseSnapshot.js';
 
 describe('Supabase report risk assessment', () => {
+  it('exports traceability counts while retaining per-record evidence status', async () => {
+    const projectId = 'project-1';
+    const reviewId = 'review-1';
+    const rows: Record<string, Array<Record<string, unknown>>> = {
+      projects: [{ id: projectId }],
+      review_traceability_snapshots: [{
+        project_id: projectId,
+        review_session_id: reviewId,
+        status: 'available',
+        created_at: '2026-10-21T00:00:00Z',
+        summary: {
+          complete: 2, incomplete: 1, missing: 3, attention: 4, unavailable: 5,
+          grounding: { confirmedRequirements: [{ id: 'private-requirement' }] },
+          context: 'must not appear in a report',
+        },
+        records: [{ requirementId: 'requirement-1', state: 'complete', evidenceStatus: 'verified' }],
+      }],
+    };
+    const client = {
+      from: (table: string) => {
+        const filters: Array<[string, unknown]> = [];
+        const visible = () => (rows[table] ?? []).filter(row => filters.every(([field, value]) => row[field] === value));
+        const query = {
+          select: () => query,
+          eq: (field: string, value: unknown) => { filters.push([field, value]); return query; },
+          maybeSingle: async () => ({ data: visible()[0] ?? null, error: null }),
+        };
+        return query;
+      },
+    } as unknown as SupabaseClient;
+    const source = new SupabaseReportSnapshotSource(client, 'owner-1');
+
+    const snapshot = await source.getReviewTraceabilitySnapshot(projectId, reviewId);
+
+    expect(snapshot?.summary).toEqual({ complete: 2, incomplete: 1, missing: 3, attention: 4, unavailable: 5 });
+    expect(snapshot?.records[0]).toMatchObject({ requirementId: 'requirement-1', evidenceStatus: 'verified' });
+    expect(snapshot).not.toHaveProperty('metadata');
+    expect(snapshot?.summary).not.toHaveProperty('grounding');
+    expect(snapshot?.summary).not.toHaveProperty('context');
+  });
+
+  it('loads the frozen manifest referenced by a child Review attempt', async () => {
+    const projectId = 'project-1';
+    const reviewId = 'review-child';
+    const manifestId = 'manifest-parent';
+    const rows: Record<string, Array<Record<string, unknown>>> = {
+      projects: [{ id: projectId }],
+      review_sessions: [{ id: reviewId, project_id: projectId, source_manifest_id: manifestId }],
+      review_source_snapshots: [{
+        id: manifestId,
+        project_id: projectId,
+        review_session_id: 'review-parent',
+        status: 'available',
+        created_at: '2026-10-20T00:00:00Z',
+        snapshot: { artifactCount: 1, sources: [{ id: 'source-1', artifactIds: ['artifact-1'] }] },
+      }],
+    };
+    const client = {
+      from: (table: string) => {
+        const filters: Array<[string, unknown]> = [];
+        const visible = () => (rows[table] ?? []).filter(row => filters.every(([field, value]) => row[field] === value));
+        const query = {
+          select: () => query,
+          eq: (field: string, value: unknown) => { filters.push([field, value]); return query; },
+          maybeSingle: async () => ({ data: visible()[0] ?? null, error: null }),
+        };
+        return query;
+      },
+    } as unknown as SupabaseClient;
+    const source = new SupabaseReportSnapshotSource(client, 'owner-1');
+
+    const manifest = await source.getReviewSourceManifest(projectId, reviewId);
+
+    expect(manifest).toMatchObject({ sessionId: reviewId, status: 'available', artifactCount: 1 });
+    expect(manifest?.sources).toEqual([{ id: 'source-1', artifactIds: ['artifact-1'] }]);
+  });
+
   it('uses current finding states rather than stale persisted risk counts', async () => {
     const projectId = 'project-1';
     const finding = {

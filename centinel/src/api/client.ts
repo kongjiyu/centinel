@@ -4,7 +4,9 @@ import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInp
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
 import { SIDECAR_BASE_URL } from './transport';
+import type { EmbeddingSettingsCatalog } from '../types';
 const BASE = SIDECAR_BASE_URL;
+const GET_REQUEST_TIMEOUT_MS = 30_000;
 
 /** A transport error that retains status/code without exposing response data. */
 export class ApiError extends Error {
@@ -19,7 +21,27 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// Coalesce simultaneous identical reads (StrictMode, parent/child panels).
+// Entries exist only while in flight; navigation and explicit refresh still
+// read fresh data. Credentials are part of the identity, never logged.
+const pendingReads = new Map<string, Promise<unknown>>();
+
+function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (init) return sendRequest<T>(path, init);
+  const key = JSON.stringify([path,
+    typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('centinel:supabase-access-token') : null,
+    typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('centinel:supabase-user-id') : null,
+  ]);
+  const existing = pendingReads.get(key);
+  if (existing) return existing as Promise<T>;
+  const pending = sendRequest<T>(path);
+  pendingReads.set(key, pending);
+  const clear = () => { if (pendingReads.get(key) === pending) pendingReads.delete(key); };
+  void pending.then(clear, clear);
+  return pending;
+}
+
+async function sendRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const accessToken = typeof sessionStorage !== 'undefined'
     ? sessionStorage.getItem('centinel:supabase-access-token')
     : null;
@@ -30,14 +52,59 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   headers.set('Content-Type', 'application/json');
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
   if (userId) headers.set('X-Centinel-User-Id', userId);
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers,
+  const url = `${BASE}${path}`;
+  const isGet = (init?.method ?? 'GET').trim().toUpperCase() === 'GET';
+  if (!isGet) return readResponse<T>(await fetch(url, { ...init, headers }));
+
+  const callerSignal = init?.signal;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let callerAbortHandler: (() => void) | undefined;
+  let rejectCallerAbort: ((reason?: unknown) => void) | undefined;
+  const callerAbort = callerSignal ? new Promise<never>((_, reject) => {
+    rejectCallerAbort = reject;
+    callerAbortHandler = () => {
+      const reason = callerSignal.reason ?? abortError();
+      controller.abort(reason);
+      rejectCallerAbort?.(reason);
+    };
+    if (callerSignal.aborted) callerAbortHandler();
+    else callerSignal.addEventListener('abort', callerAbortHandler, { once: true });
+  }) : undefined;
+  const operation = callerSignal?.aborted
+    ? Promise.reject(callerSignal.reason ?? abortError())
+    : (async () => {
+      const res = await fetch(url, { ...init, headers, signal: controller.signal });
+      return readResponse<T>(res, controller.signal);
+    })();
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new ApiError('The request timed out. Please retry.', 504, 'request_timeout');
+      reject(error);
+      controller.abort(error);
+    }, GET_REQUEST_TIMEOUT_MS);
   });
+
+  try {
+    return await Promise.race(callerAbort ? [operation, timeout, callerAbort] : [operation, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (callerSignal && callerAbortHandler) callerSignal.removeEventListener('abort', callerAbortHandler);
+  }
+}
+
+function abortError(): Error {
+  const error = new Error('The request was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+async function readResponse<T>(res: Response, signal?: AbortSignal): Promise<T> {
   let json: unknown = null;
   try {
     json = await res.json();
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
     // Empty responses are still represented by the HTTP status below. This
     // keeps lifecycle/auth errors actionable when a proxy closes early.
   }
@@ -223,15 +290,17 @@ export const api = {
   codexLogin: () => request<{ loginId: string; authUrl: string }>('/settings/codex/login', { method: 'POST' }),
   codexCancelLogin: (loginId: string) => request<{ ok: boolean }>('/settings/codex/login/cancel', { method: 'POST', body: JSON.stringify({ loginId }) }),
   codexLogout: () => request<{ ok: boolean }>('/settings/codex/logout', { method: 'POST' }),
-  codexModels: () => request<{ id: string; label: string; supportsImages: boolean; isDefault: boolean }[]>('/settings/codex/models'),
+  codexModels: () => request<{ id: string; label: string; supportsImages: boolean; isDefault: boolean; imageSupportKnown?: boolean; catalogSource?: 'account' | 'codex'; catalogWarning?: 'account_catalog_unavailable' }[]>('/settings/codex/models'),
   testCodex: (model: string, vision = false) => request<{ status: 'pass' | 'fail'; message: string }>('/settings/codex/test', { method: 'POST', body: JSON.stringify({ model, vision }) }),
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
+  embeddingModels: () => request<EmbeddingSettingsCatalog>('/settings/ai/embedding/models'),
   updateAiSetting: (id: 'text' | 'vision' | 'embedding', data: {
     provider: AiProvider;
     apiFormat: AiApiFormat;
     apiKey: string;
     baseUrl: string;
     model: string;
+    embeddingProvider?: 'voyage' | 'custom';
     fallbackEnabled?: boolean;
     fallbackProvider?: AiProvider | null;
     fallbackApiFormat?: AiApiFormat | null;
@@ -267,7 +336,10 @@ export const api = {
     if (filter?.projectId) params.set('projectId', filter.projectId);
     const qs = params.toString();
     return request<{
-      totals: { input: number; output: number; cacheRead: number; cacheCreation: number; calls: number };
+      totals: { input: number; output: number; cacheRead: number; cacheCreation: number; calls: number;
+        totalTokens?: number; unknownTotalCalls?: number; unknownInputCalls?: number; unknownOutputCalls?: number;
+        unknownCacheReadCalls?: number; unknownCacheCreationCalls?: number;
+        assumedZeroNoResponseCalls?: number; assumedZeroNoResponseTokens?: number; accountedTokens?: number };
       byGroup: Array<{
         provider: AiProvider;
         apiFormat: AiApiFormat;
@@ -277,6 +349,7 @@ export const api = {
         totalCacheRead: number;
         totalCacheCreation: number;
         totalCalls: number;
+        unknownInputCalls?: number; unknownOutputCalls?: number; unknownCacheReadCalls?: number; unknownCacheCreationCalls?: number;
       }>;
       recent: Array<{
         id: string;
@@ -289,17 +362,24 @@ export const api = {
         provider: AiProvider;
         apiFormat: AiApiFormat;
         model: string;
-        inputTokens: number;
-        outputTokens: number;
-        cacheReadTokens: number;
-        cacheCreationTokens: number;
-        totalTokens: number;
+        inputTokens: number | null;
+        outputTokens: number | null;
+        cacheReadTokens: number | null;
+        cacheCreationTokens: number | null;
+        totalTokens: number | null;
         createdAt: string;
+        outcome?: 'in_progress' | 'success' | 'retryable_error' | 'permanent_error' | 'malformed_response' | 'cancelled' | null;
+        errorCode?: string | null;
+        durationMs?: number | null;
+        responseReceived?: boolean | null;
+        usageObservation?: { source: string; completeness: 'complete' | 'partial'; missingCounters?: string[] } | null;
+        accountingBasis?: 'assumed_zero_no_response' | null;
+        accountedTokens?: number | null;
       }>;
     }>(`/settings/ai/usage${qs ? `?${qs}` : ''}`);
   },
   getReviewModelUsage: (projectId: string, sessionId: string) => {
-    const params = new URLSearchParams({ scope: 'text', callKind: 'review', projectId, sessionId });
+    const params = new URLSearchParams({ callKind: 'review', projectId, sessionId });
     return request<ReviewModelUsage>(`/settings/ai/usage?${params.toString()}`);
   },
   getProjectReadiness: (projectId: string) => request<ProjectReadinessStatus>(`/projects/${projectId}/readiness`),
@@ -392,8 +472,22 @@ export const api = {
     }),
 
   // Artifacts
+  getSourceIndexStatus: (projectId: string, signal?: AbortSignal) =>
+    request<import('../types').SourceIndexStatus>(`/projects/${encodeURIComponent(projectId)}/repository-index/build`, { signal }),
+  resumeSourceIndex: (projectId: string) =>
+    request<import('../types').SourceIndexStatus>(`/projects/${encodeURIComponent(projectId)}/repository-index/build`, { method: 'POST', body: '{}' }),
   listArtifacts: (projectId: string) =>
     request<Artifact[]>(`/projects/${projectId}/artifacts`),
+  syncRepositoryIndex: (projectId: string, signal?: AbortSignal) =>
+    request<{ state: 'none' | 'available' | 'prefetched' | 'unchanged' | 'incompatible'; fingerprint?: string; archiveSha256?: string }>(
+      `/projects/${encodeURIComponent(projectId)}/repository-index/sync`, { method: 'POST', body: '{}', signal }),
+  getSourcePresence: (projectId: string) =>
+    request<{ hasSources: boolean }>(`/projects/${projectId}/artifacts?view=presence`).then(result => {
+      if (!result || typeof result.hasSources !== 'boolean') {
+        throw new ApiError('Restart the local development service to load project source status.', 503, 'sidecar_update_required');
+      }
+      return result;
+    }),
   getArtifactContent: (projectId: string, artifactId: string, versionId?: string) =>
     request<{ versionId: string; content: string; contentHash: string; mimeType: string | null }>(`/projects/${projectId}/artifacts/${artifactId}/content${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`),
   uploadArtifact: (projectId: string, data: { fileName: string; content: string; type?: string }) =>
@@ -412,8 +506,8 @@ export const api = {
     }),
 
   // Static Sessions
-  listStaticSessions: (projectId: string) =>
-    request<StaticSession[]>(`/projects/${projectId}/static-sessions`),
+  listStaticSessions: (projectId: string, options?: { summary?: boolean }) =>
+    request<StaticSession[]>(`/projects/${projectId}/static-sessions${options?.summary ? '?view=summary' : ''}`),
   listActiveStaticSessions: () =>
     request<StaticSession[]>('/static-sessions/active'),
   createStaticSession: (projectId: string, data: CreateStaticSessionPayload) =>
@@ -429,13 +523,15 @@ export const api = {
     request<{ ok: boolean }>(`/projects/${projectId}/static-sessions/${sessionId}/cancel`, {
       method: 'POST',
     }),
-  retryStaticSession: (projectId: string, sessionId: string, data: { refreshSourceManifest?: boolean } = {}) =>
+  retryStaticSession: (projectId: string, sessionId: string, data: { refreshSourceManifest?: boolean; idempotencyKey?: string; reuseValidatedBatches?: boolean } = {}) =>
     request<StaticSession>(`/projects/${projectId}/static-sessions/${sessionId}/retry`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
   getReviewSourceManifest: (projectId: string, sessionId: string) =>
     request<ReviewSourceManifest>(`/projects/${projectId}/static-sessions/${sessionId}/source-manifest`),
+  getReviewArtifactContent: (projectId: string, sessionId: string, artifactId: string) =>
+    request<{ versionId: string; content: string; contentHash: string; mimeType: string | null }>(`/projects/${projectId}/static-sessions/${sessionId}/source-artifacts/${artifactId}/content`),
   getReviewTraceability: (projectId: string, sessionId: string) =>
     request<ReviewTraceabilitySnapshot>(`/projects/${projectId}/static-sessions/${sessionId}/traceability`),
   getReviewEvidenceSufficiency: (projectId: string, sessionId: string) =>

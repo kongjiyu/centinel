@@ -1,0 +1,193 @@
+[
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "repository_completed_when_expected_imports_are_readable",
+    "verdict": "true",
+    "reason": "The latest Docusaurus job completed at 2026-10-23T13:41:30.564Z under readiness-2026-10-23.2 (snapshot b37a799c-4f20-4d4f-9357-981805aab02e), stale=false. Repository is completed with 29 sources and 3/3 checks. Independently read all 29 expected imported files: byte lengths and SHA-256 matched frozen input-files.json and all 29 imported artifact hashes/version IDs. Trusted workspace TypeScript parsed the original root/package JSON, JSONC tsconfig and ESLint JavaScript with zero diagnostics; no upstream code or dependencies were executed. This verifies availability and parseable selected configuration, not dependencies, a runnable full monorepo, or correctness.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+        "lineNumber": 2,
+        "excerpt": "\"name\": \"root\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/tsconfig.json",
+        "lineNumber": 30,
+        "excerpt": "\"strict\": true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.eslintrc.js",
+        "lineNumber": 24,
+        "excerpt": "module.exports = {"
+      }
+    ]
+  },
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "requirements_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw requirements presence is present; effective Requirements is incomplete, not missing. README defines substantive observable capabilities (localization and site sections) and a site-initialization action; CONTRIBUTING provides explicit pull-request obligations. This establishes presence without claiming the qualitative product text fully defines measurable acceptance conditions. Raw checks include passes, gaps and unknowns across three batches; effective clarity/consistency/business_decisions/boundaries/scope are unknown and testability/exceptions are gap. These seven assertions do not adjudicate all seven requirement criteria.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+        "lineNumber": 44,
+        "excerpt": "Docusaurus ships with [localization support](https://docusaurus.io/docs/i18n/introduction) via CrowdIn."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+        "lineNumber": 52,
+        "excerpt": "Use the initialization CLI to create your site:"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+        "lineNumber": 128,
+        "excerpt": "Please make sure the following is done when submitting a pull request:"
+      }
+    ]
+  },
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "design_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw design presence is present; effective Design is incomplete, not missing. Original markdownUtils comments explicitly assign server-side metadata inference to these utilities and most parsing to MDX/mdx-loader; typed signatures define utility interfaces. This is real embedded design, without requiring a separate architecture document. Raw responsibilities/interfaces/data/flows/failure_decisions/scope each have two pass and one unknown; effective interfaces/data/flows/failure_decisions pass while responsibilities/scope remain unknown. ClassificationEvidenceValid=false and sourceInventoryValid=false disclose raw validation limits rather than absence of source design.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+        "lineNumber": 16,
+        "excerpt": "// Some utilities for parsing Markdown content. These things are only used on\n// server-side when we infer metadata like `title` and `description` from the\n// content. Most parsing is still done in MDX through the mdx-loader."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+        "lineNumber": 27,
+        "excerpt": "export function parseMarkdownHeadingId(heading: string): {"
+      }
+    ]
+  },
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "standards_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw standards presence is present; effective Standards is incomplete, not missing. CONTRIBUTING prescribes formatter/linter use, while original .editorconfig/.eslintrc.js and tsconfig supply explicit machine-checkable rules and selectors. Presence is independently established despite the separate checkability error below. Applicability raw counts are 3 pass, effective unknown with citation_not_exact=1 and scope_item_citation_invalid=1; checkability raw counts are 2 pass/1 gap, effective gap; conflicts raw counts are 1 pass/1 gap/1 unknown, effective unknown. No external rule documentation or linter was executed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+        "lineNumber": 115,
+        "excerpt": "We do have Prettier (a formatter) and ESLint (a syntax linter) to catch most stylistic problems."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.editorconfig",
+        "lineNumber": 5,
+        "excerpt": "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\nindent_style = space\nindent_size = 2"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.eslintrc.js",
+        "lineNumber": 74,
+        "excerpt": "curly: [WARNING, 'all']"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/tsconfig.json",
+        "lineNumber": 30,
+        "excerpt": "\"strict\": true"
+      }
+    ]
+  },
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+    "verdict": "false",
+    "reason": "This assertion tests whether the resulting applicability/checkability judgments are grounded in original rules, not whether both must be pass. Applicability has original selectors and rules but is conservatively unknown after invalid citation/scope-item evidence. Checkability has raw {pass:2,gap:1,unknown:0,invalid:0}, effectiveStatus=gap, basisValid=true, evidenceValid=true and reasonCounts={}. Its saved basis is: \"Tools are named, but the batch provides no commands, configuration, pass criteria, or enforcement process for checking conformance.\" That batch-local absence rationale is not valid as the merged selected-source judgment: package.json explicitly supplies format:diff, lint:js/lint:ci and test commands, .editorconfig and ESLint define rules, and CONTRIBUTING explains CI, automatic formatting and yarn test. The retained checkability finding cites package commands yet describes only insufficient badges. Current merge selects any local gap and copies its local basis/detail while unioning references; the saved raw status counts support a conflicting local gap, but the full raw response and batch identity are not archived, so this does not prove that local model statement was false within its original batch. It does demonstrate a source-contradicted aggregate checkability gap, so this narrow grounding assertion fails. No full 16-criterion accuracy score or Review acceptance is inferred.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+        "lineNumber": 50,
+        "excerpt": "\"format:diff\": \"prettier --list-different .\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+        "lineNumber": 52,
+        "excerpt": "\"lint:ci\": \"yarn lint:js --quiet && yarn lint:style && yarn lint:spelling\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+        "lineNumber": 53,
+        "excerpt": "\"lint:js\": \"eslint --cache --report-unused-disable-directives \\\"**/*.{js,jsx,ts,tsx,mjs}\\\"\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+        "lineNumber": 60,
+        "excerpt": "\"test\": \"jest\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+        "lineNumber": 43,
+        "excerpt": "All pull requests will be checked by the continuous integration system, GitHub actions."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+        "lineNumber": 188,
+        "excerpt": "You can run `yarn test` in the root directory to run all tests, or `yarn test path/to/your/file.test.ts` to run a specific test."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.editorconfig",
+        "lineNumber": 9,
+        "excerpt": "indent_style = space\nindent_size = 2"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.eslintrc.js",
+        "lineNumber": 74,
+        "excerpt": "curly: [WARNING, 'all']"
+      }
+    ]
+  },
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "no_invented_requirement_or_design_document",
+    "verdict": "true",
+    "reason": "The result grounds requirements/design in actual selected README, CONTRIBUTING, package/config files and utility comments/types; no nonexistent requirement/design document is cited. Independently verified all 226 retained reference objects (111 distinct path/excerpt pairs across 27 files): every excerpt matches exact original text, every contentHash matches frozen bytes, and artifactId/sourceVersion matches the imported artifact/version. None of the retained references has an explicit lineNumber, so source match lines were located independently; this is not a claim that saved line numbers were validated. Invalid raw citations are disclosed by diagnostics (category-level citation_not_exact: requirements 6, design 7, standards 1); filtered retained-reference validity does not establish raw-output or semantic accuracy. Recommendations request further evidence rather than invent an existing document.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+        "lineNumber": 32,
+        "excerpt": "Docusaurus is a project for building, deploying, and maintaining open source project websites easily."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+        "lineNumber": 18,
+        "excerpt": "// content. Most parsing is still done in MDX through the mdx-loader."
+      }
+    ]
+  },
+  {
+    "instanceId": "facebook__docusaurus-9897",
+    "id": "no_whole_repository_or_bug_free_certification",
+    "verdict": "true",
+    "reason": "The completed job retains incomplete Requirements, Design and Standards; it does not certify the whole repository, bug absence, runtime correctness or full project readiness. Repository completed covers the 29-file selection. Effective design passes concern typed interfaces/data/flows/failure decisions, while category scope/inventory/classification limits remain explicit; Requirements has two gaps and five unknowns, Standards has one gap and two unknowns. The observable checkability error is recorded separately and does not amount to a whole-repository or bug-free certification. These seven frozen assertions are partial gold, separate from all 16 semantic criteria and entirely separate from the canceled Review.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+        "lineNumber": 18,
+        "excerpt": "// content. Most parsing is still done in MDX through the mdx-loader."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+        "lineNumber": 32,
+        "excerpt": "Docusaurus is a project for building, deploying, and maintaining open source project websites easily."
+      }
+    ]
+  }
+]

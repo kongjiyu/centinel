@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { detectArtifactType, type Artifact, type ArtifactType } from '../artifacts.js';
 import type { ConfirmedRequirement, RequirementCandidate, SourceLocator, StandardRule } from './grounding.js';
+import type { ReviewTraceabilityRecord } from './evidenceTypes.js';
 
 export type EvidenceSourceState = 'available' | 'stale' | 'inaccessible' | 'deleted';
 export type EvidenceReadiness = 'ready' | 'ready_with_warnings' | 'blocked';
@@ -29,6 +30,8 @@ export type EvidenceGap = {
   remediation: string;
   affectedStages: string[];
   artifactId?: string;
+  requirementId?: string;
+  references?: Array<{ artifactId?: string; filePath: string; lineNumber?: number; sourceVersion?: string | null; excerpt?: string; relation: 'code' | 'document' | 'requirement' }>;
 };
 
 export type EvidenceContradiction = {
@@ -74,7 +77,7 @@ export type EvidenceSufficiencyInput = {
   enabledStandardRules?: StandardRule[];
   standardIds?: string[];
   requiredArtifactTypes?: ArtifactType[];
-  traceability?: Array<{ requirementId: string; state: 'complete' | 'incomplete' | 'missing' }>;
+  traceability?: Array<Pick<ReviewTraceabilityRecord, 'requirementId' | 'state'> & Partial<ReviewTraceabilityRecord>>;
   claims?: EvidenceClaim[];
   dispositions?: EvidenceContradictionDisposition[];
   now?: Date;
@@ -88,7 +91,7 @@ function stableId(value: unknown): string {
 }
 
 function gap(input: Omit<EvidenceGap, 'id'>): EvidenceGap {
-  return { ...input, id: stableId({ code: input.code, detail: input.detail, artifactId: input.artifactId }) };
+  return { ...input, id: stableId({ code: input.code, detail: input.detail, artifactId: input.artifactId, requirementId: input.requirementId }) };
 }
 
 export function withEvidenceSufficiencyGap(
@@ -105,6 +108,29 @@ export function withEvidenceSufficiencyGap(
     id: stableId({ reviewId: assessment.reviewId, projectId: assessment.projectId, readiness, gaps, contradictions: assessment.contradictions }),
     gaps,
     readiness,
+  };
+}
+
+/** Append newly discovered evidence gaps without allowing a later assessment
+ * to replace the frozen source counts, contradictions, or original capture
+ * time. Repository adapters enforce that this merge is only saved while the
+ * Review execution remains active. */
+export function mergeEvidenceSufficiencyAssessments(
+  frozen: EvidenceSufficiencyAssessment,
+  update: EvidenceSufficiencyAssessment,
+): EvidenceSufficiencyAssessment {
+  if (frozen.reviewId !== update.reviewId || frozen.projectId !== update.projectId) {
+    throw new Error('Evidence sufficiency updates must belong to the frozen Review assessment.');
+  }
+  const gaps = [...new Map([...frozen.gaps, ...update.gaps].map(item => [item.id, item])).values()];
+  const readiness = gaps.some(item => item.severity === 'blocking')
+    ? 'blocked'
+    : gaps.some(item => item.severity === 'warning') ? 'ready_with_warnings' : frozen.readiness;
+  return {
+    ...frozen,
+    id: stableId({ reviewId: frozen.reviewId, projectId: frozen.projectId, readiness, gaps, contradictions: frozen.contradictions }),
+    readiness,
+    gaps,
   };
 }
 
@@ -378,12 +404,22 @@ export function assessEvidenceSufficiency(input: EvidenceSufficiencyInput): Evid
       affectedStages: ['standard_verification', 'model_analysis'],
     }));
   }
-  if (input.reviewType === 'requirement_to_code_traceability' && input.traceability?.some(item => item.state !== 'complete')) {
-    const count = input.traceability.filter(item => item.state !== 'complete').length;
+  for (const item of input.traceability ?? []) {
+    if (item.state === 'complete') continue;
+    const requirement = input.confirmedRequirements?.find(requirement => requirement.id === item.requirementId);
+    const references: NonNullable<EvidenceGap['references']> = [];
+    if (requirement?.sourceLocator) references.push({ artifactId: requirement.sourceLocator.artifactId, filePath: requirement.sourceLocator.filePath,
+      lineNumber: requirement.sourceLocator.lineStart, sourceVersion: requirement.sourceVersion, excerpt: requirement.sourceLocator.excerpt, relation: 'requirement' });
+    for (const id of item.sourceArtifactIds ?? []) {
+      const source = artifacts.find(source => source.artifact.id === id)?.artifact;
+      if (source) references.push({ artifactId: id, filePath: source.filePath || source.fileName,
+        sourceVersion: source.versionId || source.contentHash, relation: source.type === 'source_code' ? 'code' : 'document' });
+    }
     gaps.push(gap({
-      code: 'traceability_mappings_incomplete', severity: 'warning', title: 'Some requirements lack complete mappings',
-      detail: `${count} of ${input.traceability.length} traceability record(s) are incomplete or missing mappings.`,
-      remediation: 'Review the incomplete mappings; the Review may report uncovered requirements.',
+      code: 'traceability_mappings_incomplete', severity: 'warning', title: 'Incomplete Requirement Coverage',
+      requirementId: item.requirementId, references,
+      detail: `${requirement?.title || item.title || item.requirementId} has ${item.state} implementation mapping evidence. This does not establish that the implementation violates the requirement.`,
+      remediation: 'Clarify insufficient requirements, link the relevant versioned sources, and review each acceptance criterion. Run a new Review to verify the updated evidence.',
       affectedStages: ['deterministic_analysis', 'model_analysis'],
     }));
   }

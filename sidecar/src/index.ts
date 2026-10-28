@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { analysisMapFromEvents } from './review/assessmentBatches.js';
 import {UnitRepository} from './dynamic/unit/repository.js';
 import {handleUnitRoute} from './dynamic/unit/routes.js';
 import {executeUnit,cancelUnit} from './dynamic/unit/executor.js';
@@ -70,13 +71,20 @@ import {
   type StaticReviewOrchestratorService,
   type StaticReviewRecord,
 } from './review/index.js';
-import { listModelProviderSettings, resolveSavedEmbeddingProvider, resolveSavedProviderForTest, saveModelProviderSetting, SupabaseMigrationRequiredError, type UpdateModelProviderSetting } from './modelSettings.js';
-import { createEmbedding, EmbeddingProviderError } from './review/embeddingProvider.js';
+import { listModelProviderSettings, resolveSavedProviderForTest, saveModelProviderSetting, SupabaseMigrationRequiredError, type UpdateModelProviderSetting } from './modelSettings.js';
+import { getEmbeddingSettingsCatalog } from './embeddingSettings.js';
+import { testSavedEmbeddingModel } from './embeddingConnectionTest.js';
 import { getSupabaseModelUsageSummary } from './modelUsageSummary.js';
 import { ApplicationRepositoryAuthorizationError, ApplicationRepositoryError, CentinelApplicationRepository } from './applicationRepository.js';
 import { getClientArtifact, importLocalRepositoryArtifacts, listClientArtifacts, readClientArtifactContent, uploadClientArtifact } from './applicationApi.js';
+import { readFrozenReviewSource } from './review/frozenSourceContent.js';
 import { accessTokenFingerprint, createRefreshableStaticReviewRuntime, RefreshableSupabaseRuntime, type RefreshableStaticReviewRuntime } from './runtime/index.js';
-import { indexFrozenArtifacts, retrieveFrozenContext } from './review/knowledgeIndex.js';
+import { indexFrozenArtifacts, retrieveFrozenContext, describeRepositoryIndex, DEFAULT_REPOSITORY_INDEX_CACHE_ROOT } from './review/localRepositoryIndex.js';
+import { inspectPublishedRepositoryIndex, syncPublishedRepositoryIndex } from './review/repositoryIndexSync.js';
+import { handleRepositoryIndexSyncRoute } from './review/repositoryIndexSyncRoutes.js';
+import { SourceIndexCoordinator } from './review/sourceIndexJobs.js';
+import { SupabaseSourceIndexJobStore } from './review/sourceIndexJobStore.js';
+import { optionalValidatedBatchCache } from './review/batchCheckpoint.js';
 import { createGroundingModelProvider } from './review/groundingProvider.js';
 import { runStaticAnalysis } from './staticEngine.js';
 import { REVIEW_HARNESS } from './review/harness.js';
@@ -334,46 +342,50 @@ type CachedReviewRuntime = {
   orchestrator: StaticReviewOrchestratorService;
   recoveryPromise: Promise<void>;
 };
-const reviewRuntimes = new Map<string, CachedReviewRuntime>();
+function adoptVerifiedReviewSession(auth: AuthenticatedRequest, reviewRuntimes: Map<string, CachedReviewRuntime>): void {
+  const existing = reviewRuntimes.get(auth.userId);
+  if (existing && existing.authRuntime.state().tokenFingerprint !== accessTokenFingerprint(auth.accessToken)) {
+    existing.authRuntime.adoptVerifiedSession(auth);
+  }
+}
 
 function reviewRepository(client: SupabaseClient): SupabaseStaticReviewRepository {
   return new SupabaseStaticReviewRepository(client);
 }
 
-async function reviewRuntime(auth: AuthenticatedRequest): Promise<StaticReviewOrchestratorService> {
+async function reviewRuntime(auth: AuthenticatedRequest, indexes: SourceIndexCoordinator, reviewRuntimes: Map<string, CachedReviewRuntime>): Promise<StaticReviewOrchestratorService> {
   const existing = reviewRuntimes.get(auth.userId);
   if (existing) {
-    if (existing.authRuntime.state().tokenFingerprint !== accessTokenFingerprint(auth.accessToken)) {
-      existing.authRuntime.replaceAccessToken(auth.accessToken, auth.client);
-    }
+    adoptVerifiedReviewSession(auth, reviewRuntimes);
     await existing.recoveryPromise;
     return existing.orchestrator;
   }
-  const authRuntime = new RefreshableSupabaseRuntime({ userId: auth.userId, accessToken: auth.accessToken, client: auth.client });
+  const authRuntime = new RefreshableSupabaseRuntime({ userId: auth.userId, accessToken: auth.accessToken, client: auth.client, verifiedIssuedAt: auth.verifiedIssuedAt });
   const staticRuntime = createRefreshableStaticReviewRuntime(authRuntime);
   const orchestrator = createStaticReviewOrchestrator({
     ...staticRuntime.dependencies,
+    batchCache: optionalValidatedBatchCache(() => authRuntime.client, auth.userId),
+    cacheOwnerId: auth.userId,
     artifacts: (projectId, signal) => authRuntime.withClient(async client => {
       if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
       return listClientArtifacts(new CentinelApplicationRepository(client, auth.userId), projectId, signal);
     }),
     readArtifactContent: (artifact, signal) => authRuntime.withClient(async client => {
       if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
-      return readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, signal);
+      return readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, signal, artifact.projectId);
     }),
-    index: (projectId, artifacts, signal, reviewId) => authRuntime.withClient(client =>
-      indexFrozenArtifacts(client, auth.userId, projectId, artifacts, signal, reviewId)),
-    context: (projectId, _reviewType, maxTokens, signal, artifacts, reviewId, queryText) => authRuntime.withClient(client =>
-      retrieveFrozenContext(client, auth.userId, projectId, artifacts ?? [], maxTokens, signal, reviewId, queryText)),
-    deterministic: (projectId, artifacts, reviewId, signal, harness) => authRuntime.withClient(async client => ({
+    index: (projectId, artifacts, signal, reviewId, frozenReader) =>
+      indexes.ensure(auth, projectId, artifacts, signal, reviewId, frozenReader),
+    context: (projectId, _reviewType, maxTokens, signal, artifacts, reviewId, queryText, frozenReader) =>
+      retrieveFrozenContext(() => authRuntime.client, auth.userId, projectId, artifacts ?? [], maxTokens, signal, reviewId, queryText, frozenReader),
+    deterministic: (projectId, artifacts, reviewId, signal, harness, frozenReader) => authRuntime.withClient(async client => ({
       findings: await runStaticAnalysis(projectId, artifacts, reviewId, {
         signal,
         harness,
-        contentReader: (artifact, contentSignal) => readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, contentSignal),
+        contentReader: frozenReader ?? ((artifact, contentSignal) => readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, contentSignal, artifact.projectId)),
       }),
       persisted: false,
     })),
-    retry: { maxAttempts: 3, maxTotalAttempts: 3 },
   });
   const cached: CachedReviewRuntime = { authRuntime, staticRuntime, orchestrator, recoveryPromise: Promise.resolve() };
   reviewRuntimes.set(auth.userId, cached);
@@ -422,10 +434,26 @@ function toClientStaticSession(review: StaticReviewRecord) {
 export function createSidecarServer(authGateway: AuthGateway = createAuthGateway(), options: { codexBackend?: (ownerId: string) => CodexBackend; readinessCoordinator?: ProjectReadinessCoordinator } = {}): http.Server {
   const codexBackend = options.codexBackend ?? getCodexBackend;
   const readiness = options.readinessCoordinator ?? createProjectReadinessCoordinator();
+  const reviewRuntimes = new Map<string, CachedReviewRuntime>();
+  const sourceIndexes = new SourceIndexCoordinator({
+    store: context => new SupabaseSourceIndexJobStore(context.client, context.userId),
+    artifacts: (context, projectId, signal) => listClientArtifacts(new CentinelApplicationRepository(context.client, context.userId), projectId, signal),
+    describe: (context, projectId, artifacts, signal) => describeRepositoryIndex(context.client, context.userId, projectId, artifacts, signal),
+    build: (context, projectId, artifacts, signal, guard, reviewId, reader) => indexFrozenArtifacts(() => context().client,
+      context().userId, projectId, artifacts, signal, reviewId, reader, DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, guard),
+    onError: code => console.error('[source-index]', code),
+  });
+  const queueSourceIndex = async (context: AuthenticatedRequest, projectId: string) => {
+    try { await sourceIndexes.notify(context, projectId); }
+    catch { console.error('[source-index] source event could not be queued; explicit indexing is required.'); }
+  };
   const sessionVault=new EnvironmentSessionVault(path.join(dataDir,'dynamic-browser-sessions'));const sessionBroker=new EnvironmentSessionBroker(sessionVault);
   const sourceWorker = new ConnectedSourceWorkerCoordinator({
     createImporter: connectedSourceImporter,
-    onRunFinished: (auth, job) => readiness.notify(auth, job.projectId, 'source_sync_finished'),
+    onRunFinished: async (auth, job, run) => {
+      readiness.notify(auth, job.projectId, 'source_sync_finished');
+      if (run.status === 'success') await queueSourceIndex(auth, job.projectId);
+    },
     onRunFailed: (auth, job) => readiness.notify(auth, job.projectId, 'source_sync_failed'),
     onUnexpectedError: cause => {
       const record = cause && typeof cause === 'object' ? cause as { code?: unknown; name?: unknown } : {};
@@ -458,11 +486,38 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     // and can never grant access.
     const oauthCallback = req.method === 'GET' && Boolean(matchIntegrationCallback(url));
     const auth = oauthCallback ? null : await authGateway.authenticate(req.headers);
+    // Ordinary authenticated polling carries refreshed credentials too. Do
+    // not require another Start/Retry POST to renew a running owner's client.
+    if (auth) adoptVerifiedReviewSession(auth, reviewRuntimes);
     if (auth) sourceWorker.adoptSession(auth);
     if (auth) readiness.adoptSession(auth);
+    if (auth) sourceIndexes.adoptSession(auth);
     const accessToken = auth?.accessToken ?? null;
     const ownerId = auth?.userId ?? '';
     const applicationRepository = auth ? new CentinelApplicationRepository(auth.client, auth.userId) : null;
+    const sourceIndexBuildMatch = url.match(/^\/projects\/([^/]+)\/repository-index\/build$/);
+    if (auth && sourceIndexBuildMatch && ['GET', 'POST'].includes(req.method ?? '')) {
+      const projectId = sourceIndexBuildMatch[1];
+      await authGateway.requireProjectMember(auth, projectId);
+      const job = req.method === 'POST' ? await sourceIndexes.resume(auth, projectId) : await sourceIndexes.recover(auth, projectId);
+      // Lease capabilities stay server-side.
+      return json(res, 200, job ? { state: job.state, fingerprint: job.fingerprint, updatedAt: job.updatedAt, errorCode: job.errorCode } : { state: 'none' });
+    }
+    if (auth && /^\/projects\/[^/]+\/repository-index\/sync$/.test(url)) {
+      await authGateway.requireProjectMember(auth, url.split('/')[2]);
+      await sourceIndexes.recover(auth, url.split('/')[2]);
+      const transfer = new AbortController();
+      const stopTransfer = () => transfer.abort();
+      res.once('close', stopTransfer);
+      const indexSyncResponse = await handleRepositoryIndexSyncRoute({ method: req.method ?? 'GET', pathname: url, auth, signal: transfer.signal }, {
+        requireMember: (context, projectId) => authGateway.requireProjectMember(context, projectId),
+        listArtifacts: (context, projectId, signal) => listClientArtifacts(new CentinelApplicationRepository(context.client, context.userId), projectId, signal),
+        describe: (context, projectId, artifacts, signal) => describeRepositoryIndex(context.client, context.userId, projectId, artifacts, signal),
+        inspect: (context, projectId, identity, signal) => inspectPublishedRepositoryIndex(context.client, context.userId, projectId, identity, DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, signal),
+        sync: (context, projectId, identity, signal) => syncPublishedRepositoryIndex(context.client, context.userId, projectId, identity, DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, signal),
+      }).finally(() => res.removeListener('close', stopTransfer));
+      if (indexSyncResponse) return json(res, indexSyncResponse.status, indexSyncResponse.body);
+    }
     if (auth) {
       const readinessResponse = await handleProjectReadinessRoute({ method: req.method ?? 'GET', pathname: url, auth }, {
         coordinator: readiness, requireMember: (context, projectId) => authGateway.requireProjectMember(context, projectId),
@@ -592,7 +647,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       }, {
         actorId: ownerId,
         repository: reviewRepository(auth.client),
-        orchestrator: await reviewRuntime(auth),
+        orchestrator: await reviewRuntime(auth, sourceIndexes, reviewRuntimes),
         requireProjectMember: projectId => authGateway.requireProjectMember(auth, projectId),
         getArtifact: artifactId => getClientArtifact(auth.client, ownerId, artifactId),
         readArtifactContent: artifactId => readClientArtifactContent(auth.client, ownerId, artifactId),
@@ -712,7 +767,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const run = (responseBody.run ?? syncResult.run) && typeof (responseBody.run ?? syncResult.run) === 'object'
         ? (responseBody.run ?? syncResult.run) as Record<string, unknown>
         : {};
-      const projectSourcesMatch = url.match(/^\/projects\/([^/]+)\/sources(?:\/([^/]+)(?:\/sync)?)?$/);
+      const projectSourcesMatch = url.match(/^\/projects\/([^/]+)\/sources(?:\/([^/]+)(?:\/(?:sync|sync-runs\/[^/]+\/resume))?)?$/);
       const source = responseBody.source && typeof responseBody.source === 'object'
         ? responseBody.source as Record<string, unknown>
         : {};
@@ -720,6 +775,8 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const runId = typeof run.id === 'string' ? run.id : '';
       if (projectSourcesMatch && auth && connectedSourceResponse.statusCode < 300
         && (req.method === 'POST' || req.method === 'DELETE')) readiness.notify(auth, projectSourcesMatch[1], 'source_changed');
+      if (projectSourcesMatch && auth && connectedSourceResponse.statusCode < 300
+        && (req.method === 'DELETE' || req.method === 'POST' && run.status === 'success')) await queueSourceIndex(auth, projectSourcesMatch[1]);
       if (req.method === 'POST' && connectedSourceResponse.statusCode < 300 && run.status === 'partial'
         && !run.errorCode && projectSourcesMatch && sourceId && runId && auth) {
         json(res, connectedSourceResponse.statusCode, connectedSourceResponse.body);
@@ -747,7 +804,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         if (typeof body.loginId !== 'string' || !body.loginId.trim()) return json(res, 400, { error: 'loginId is required' });
         await backend.cancelLogin(body.loginId); return json(res, 200, { ok: true });
       }
-      if (url === '/settings/codex/models' && req.method === 'GET') return json(res, 200, await backend.models());
+      if (url === '/settings/codex/models' && req.method === 'GET') return json(res, 200, await backend.models(true));
       if (url === '/settings/codex/test' && req.method === 'POST') {
         const body = await parseJsonBody(req);
         if (typeof body.model !== 'string' || !body.model.trim()) return json(res, 400, { error: 'model is required' });
@@ -773,6 +830,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       return json(res, 200, await listModelProviderSettings(auth!.client, ownerId));
     }
 
+    if (req.method === 'GET' && url === '/settings/ai/embedding/models') {
+      return json(res, 200, await getEmbeddingSettingsCatalog(auth!.client, ownerId));
+    }
+
     if (req.method === 'PUT' && (url === '/settings/ai/text' || url === '/settings/ai/vision' || url === '/settings/ai/embedding')) {
       const id = url === '/settings/ai/text' ? 'text' : url === '/settings/ai/vision' ? 'vision' : 'embedding';
       const body = await parseJsonBody(req);
@@ -783,6 +844,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           apiKey: typeof body.apiKey === 'string' ? body.apiKey : '',
           baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : '',
           model: typeof body.model === 'string' ? body.model : '',
+          embeddingProvider: body.embeddingProvider as UpdateModelProviderSetting['embeddingProvider'],
           fallbackEnabled: body.fallbackEnabled === true,
           fallbackProvider: body.fallbackProvider as UpdateModelProviderSetting['fallbackProvider'],
           fallbackApiFormat: body.fallbackApiFormat as UpdateModelProviderSetting['fallbackApiFormat'],
@@ -796,28 +858,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     }
 
     if (req.method === 'POST' && url === '/settings/ai/embedding/test') {
-      let provider: Awaited<ReturnType<typeof resolveSavedEmbeddingProvider>>;
-      try {
-        provider = await resolveSavedEmbeddingProvider(auth!.client, ownerId);
-      } catch {
-        return json(res, 409, { status: 'fail', message: 'The source-indexing provider configuration is incomplete.' });
-      }
-      if (!provider) return json(res, 409, { status: 'fail', message: 'Configure the source-indexing provider before testing it.' });
-      const started = Date.now();
-      try {
-        const result = await createEmbedding(provider, 'Centinel source-indexing connection test.');
-        await new SupabaseCentinelStore(auth!.client).saveModelUsage({
-          projectId: null, reviewSessionId: null, ownerId,
-          stage: 'embedding-provider-test', attempt: 1, provider: 'custom', model: result.model, outcome: 'success',
-          inputTokens: result.inputTokens, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
-          durationMs: Date.now() - started, errorCode: null, cost: null,
-          metadata: { apiFormat: 'openai-compatible', callKind: 'test', scope: 'embedding' },
-        });
-        return json(res, 200, { status: 'pass', message: 'Source indexing returned a valid 1536-dimensional vector.' });
-      } catch (cause) {
-        const code = cause instanceof EmbeddingProviderError ? cause.code : 'provider_unavailable';
-        return json(res, 502, { status: 'fail', message: cause instanceof EmbeddingProviderError ? cause.message : 'Source-indexing provider could not be tested.', code });
-      }
+      const test = await testSavedEmbeddingModel(auth!.client, ownerId);
+      // A completed diagnostic has a pass/fail outcome, just like text/vision
+      // tests. Keep its safe message and usage warning available to the form.
+      return json(res, 200, test.result);
     }
 
     if (req.method === 'POST' && (url === '/settings/ai/text/test' || url === '/settings/ai/vision/test')) {
@@ -834,27 +878,77 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         // Empty or malformed body — use the saved setting.
       }
       const provider = await resolveSavedProviderForTest(auth!.client, ownerId, id, overrides, overrides.useFallback === true);
-      const result = provider.provider === 'codex'
-        ? await testCodexProvider(codexBackend(ownerId), provider.model, id === 'vision')
-        : id === 'vision' ? await testVisionProvider(provider, screenshotPath) : await testTextProvider(provider);
-      // Record test-call usage. Real tokens were spent on this round-trip,
-      // and the Settings page shows test vs review breakdown.
-      if (result.usage && result.status === 'pass') {
+      const startedAt = Date.now();
+      let result: any;
+      let providerFailure: unknown;
+      try {
+        result = provider.provider === 'codex'
+          ? await testCodexProvider(codexBackend(ownerId), provider.model, id === 'vision')
+          : id === 'vision' ? await testVisionProvider(provider, screenshotPath) : await testTextProvider(provider);
+      } catch (error) {
+        providerFailure = error;
+      }
+      const errorRecord = providerFailure && typeof providerFailure === 'object' ? providerFailure as Record<string, unknown> : {};
+      const rawUsage = result?.usage ?? errorRecord.usage;
+      const usageRecord = rawUsage && typeof rawUsage === 'object' && !Array.isArray(rawUsage)
+        ? rawUsage as Record<string, unknown> : {};
+      const safeCount = (value: unknown): number | undefined => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+      const usageObservationRecord = (value: unknown): Record<string, unknown> | undefined => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+        const item = value as Record<string, unknown>;
+        const sources = new Set(['provider_response', 'provider_error_response', 'codex_thread_total', 'codex_turn_last']);
+        if (!sources.has(String(item.source)) || item.completeness !== 'complete' && item.completeness !== 'partial') return undefined;
+        const allowedCounters = new Set(['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens']);
+        const missingCounters = Array.isArray(item.missingCounters)
+          ? [...new Set(item.missingCounters.filter((counter): counter is string => typeof counter === 'string' && allowedCounters.has(counter)))] : [];
+        return { source: item.source, completeness: item.completeness, ...(missingCounters.length ? { missingCounters } : {}) };
+      };
+      const observation = usageObservationRecord(usageRecord.usageObservation ?? errorRecord.usageObservation);
+      const inputTokens = safeCount(usageRecord.inputTokens);
+      const outputTokens = safeCount(usageRecord.outputTokens);
+      const cacheReadTokens = safeCount(usageRecord.cacheReadTokens);
+      const cacheCreationTokens = safeCount(usageRecord.cacheCreationTokens);
+      const providerReportedTotalTokens = safeCount(usageRecord.providerReportedTotalTokens);
+      const totalTokens = safeCount(usageRecord.totalTokens);
+      const totalTokensSource = usageRecord.totalTokensSource === 'provider_reported' || usageRecord.totalTokensSource === 'adapter_derived'
+        ? usageRecord.totalTokensSource : undefined;
+      const hasUsage = inputTokens !== undefined || outputTokens !== undefined || cacheReadTokens !== undefined
+        || cacheCreationTokens !== undefined || providerReportedTotalTokens !== undefined || totalTokens !== undefined || observation !== undefined;
+      const usage = hasUsage ? { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+        providerReportedTotalTokens, totalTokens, totalTokensSource, usageObservation: observation } : undefined;
+      const statusCode = safeCount(errorRecord.statusCode);
+      const responseReceived = typeof result?.responseReceived === 'boolean' ? result.responseReceived
+        : typeof errorRecord.responseReceived === 'boolean' ? errorRecord.responseReceived
+          : result?.status === 'pass' || statusCode !== undefined || hasUsage ? true : undefined;
+      const usageAccounting = responseReceived === false && !hasUsage
+        ? { basis: 'assumed_zero_no_response', accountedTokens: 0 } : undefined;
+      // Provider errors can include a billable error response, or no response
+      // at all. Record only counters and bounded diagnostics, never the body.
+      if (typeof responseReceived === 'boolean') {
         try {
           await new SupabaseCentinelStore(auth!.client).saveModelUsage({
             projectId: null, reviewSessionId: null, ownerId,
             stage: id === 'text' ? 'provider-test' : 'vision-provider-test', attempt: 1,
-            provider: provider.provider, model: provider.model, outcome: 'success',
-            inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens,
-            cacheReadTokens: result.usage.cacheReadTokens ?? 0,
-            cacheCreationTokens: result.usage.cacheCreationTokens ?? 0,
-            durationMs: null, errorCode: null, cost: null,
-            metadata: { apiFormat: provider.apiFormat, callKind: 'test', scope: id },
+            provider: provider.provider, model: provider.model, outcome: result?.status === 'pass' ? 'success' : 'permanent_error',
+            inputTokens: usage?.inputTokens ?? null, outputTokens: usage?.outputTokens ?? null,
+            cacheReadTokens: usage?.cacheReadTokens ?? null,
+            cacheCreationTokens: usage?.cacheCreationTokens ?? null,
+            durationMs: Date.now() - startedAt,
+            errorCode: typeof errorRecord.code === 'string' && /^[a-z0-9_]{1,64}$/i.test(errorRecord.code) ? errorRecord.code : null,
+            cost: null,
+            metadata: { apiFormat: provider.apiFormat, callKind: 'test', scope: id, responseReceived,
+              ...(observation ? { usageObservation: observation } : {}),
+              ...(providerReportedTotalTokens !== undefined ? { providerReportedTotalTokens } : {}),
+              ...(totalTokens !== undefined ? { normalizedTotalTokens: totalTokens,
+                normalizedTotalTokensSource: totalTokensSource === 'adapter_derived' ? 'adapter_derived' : 'provider_reported' } : {}),
+              ...(usageAccounting ? { usageAccounting } : {}),
+              statusCode: statusCode !== undefined && statusCode >= 100 && statusCode <= 599 ? statusCode : null },
           });
         } catch (err) {
           console.error('[settings] failed to record test token usage:', err);
         }
       }
+      if (providerFailure) throw providerFailure;
       return json(res, 200, result);
     }
 
@@ -933,6 +1027,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           });
           await importLocalRepositoryArtifacts(applicationRepository!, project.id, workspacePath);
           readiness.notify(auth!, project.id, 'project_created');
+          await queueSourceIndex(auth!, project.id);
           return json(res, 201, project);
         }
         if (githubImporter) {
@@ -1113,6 +1208,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       try {
         const result = await importLocalRepositoryArtifacts(applicationRepository!, importMatch.projectId, repoPath);
         readiness.notify(auth!, importMatch.projectId, 'repository_imported');
+        await queueSourceIndex(auth!, importMatch.projectId);
         return json(res, 200, result);
       } catch (e) {
         return json(res, 400, { error: String(e) });
@@ -1122,6 +1218,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     // List artifacts
     const artMatch = matchArtifacts(url);
     if (artMatch && req.method === 'GET') {
+      if (requestUrl.searchParams.get('view') === 'presence') {
+        return json(res, 200, { hasSources: await applicationRepository!.hasArtifacts(artMatch.projectId) });
+      }
       return json(res, 200, await listClientArtifacts(applicationRepository!, artMatch.projectId));
     }
 
@@ -1137,6 +1236,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const buffer = Buffer.from(content, 'base64');
       const artifact = await uploadClientArtifact(applicationRepository!, { projectId: artMatch.projectId, type: artifactType as any, fileName, content: buffer });
       readiness.notify(auth!, artMatch.projectId, 'document_uploaded');
+      await queueSourceIndex(auth!, artMatch.projectId);
       return json(res, 201, artifact);
     }
 
@@ -1161,6 +1261,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const deleted = await applicationRepository!.deleteArtifact(artIdMatch.projectId, artIdMatch.artifactId);
       if (!deleted) return json(res, 404, { error: 'Artifact not found' });
       readiness.notify(auth!, artIdMatch.projectId, 'source_removed');
+      await queueSourceIndex(auth!, artIdMatch.projectId);
       return json(res, 200, { ok: true });
     }
 
@@ -1174,8 +1275,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const review = await repository.getReview(reviewId);
       if (!review || review.projectId !== projectId) return json(res, 404, { error: 'Review not found' });
       const events = await repository.getHarnessEvents(projectId, reviewId);
-      const maps = events.filter(event => event.event === 'review_analysis_map_saved');
-      const analysisMap = ([...maps].reverse().find(event => event.detail?.phase === 'assessed') ?? maps.at(-1))?.detail?.analysisMap ?? null;
+      const analysisMap = analysisMapFromEvents(events);
       return json(res, 200, { workflow: REVIEW_HARNESS, review: { id: review.id, name: review.name, status: review.status, progress: review.progress, modelStatus: review.modelStatus, updatedAt: review.updatedAt }, events, analysisMap });
     }
 
@@ -1183,7 +1283,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     const ssMatch = matchStaticSessions(url);
     if (ssMatch && req.method === 'GET') {
       await authGateway.requireProjectMember(auth!, ssMatch.projectId);
-      const sessions = await reviewRepository(auth!.client).listReviews(ssMatch.projectId);
+      const repository = reviewRepository(auth!.client);
+      const sessions = requestUrl.searchParams.get('view') === 'summary'
+        ? await repository.listReviewSummaries(ssMatch.projectId)
+        : await repository.listReviews(ssMatch.projectId);
       return json(res, 200, sessions.map(toClientStaticSession));
     }
 
@@ -1218,7 +1321,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         comparisonParentReviewId = body.comparisonParentReviewId.trim();
       }
       const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : undefined;
-      const result = await (await reviewRuntime(auth!)).start({
+      const result = await (await reviewRuntime(auth!, sourceIndexes, reviewRuntimes)).start({
         projectId: ssMatch.projectId,
         name,
         reviewType,
@@ -1248,9 +1351,13 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         return json(res, 409, { error: `Review cannot be retried from status ${targetReview.status}`, code: 'review_lifecycle_conflict' });
       }
       const body = await parseJsonBody(req);
-      const result = await (await reviewRuntime(auth!)).retry({
+      if (Object.hasOwn(body, 'reuseValidatedBatches') && typeof body.reuseValidatedBatches !== 'boolean') {
+        return json(res, 400, { error: 'reuseValidatedBatches must be a boolean.', code: 'invalid_batch_reuse' });
+      }
+      const result = await (await reviewRuntime(auth!, sourceIndexes, reviewRuntimes)).retry({
         reviewId: srMatch.sessionId,
         refreshSourceManifest: body.refreshSourceManifest === true,
+        reuseValidatedBatches: body.reuseValidatedBatches === true,
         idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : undefined,
       });
       if (result.review.projectId !== srMatch.projectId) return json(res, 404, { error: 'Session not found' });
@@ -1268,7 +1375,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       if (!['prepared', 'queued', 'running'].includes(targetReview.status)) {
         return json(res, 409, { error: `Review cannot be cancelled from status ${targetReview.status}`, code: 'review_lifecycle_conflict' });
       }
-      const session = await (await reviewRuntime(auth!)).cancel({ reviewId: scMatch.sessionId });
+      const session = await (await reviewRuntime(auth!, sourceIndexes, reviewRuntimes)).cancel({ reviewId: scMatch.sessionId });
       if (session.projectId !== scMatch.projectId) return json(res, 404, { error: 'Session not found' });
       return json(res, 200, { ok: true });
     }
@@ -1291,12 +1398,27 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
 
     // Immutable Review evidence snapshots used by Review Overview,
     // Traceability, Assessment, and exports.
+    const frozenSourceMatch = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/source-artifacts\/([^/]+)\/content$/);
+    if (frozenSourceMatch && req.method === 'GET') {
+      const [, projectId, reviewId, artifactId] = frozenSourceMatch;
+      await authGateway.requireProjectMember(auth!, projectId);
+      const repository = reviewRepository(auth!.client);
+      const review = await repository.getReview(reviewId);
+      if (!review || review.projectId !== projectId || !review.sourceManifestId) return json(res, 404, { error: 'Frozen Review source unavailable.' });
+      const { data, error } = await auth!.client.from('review_source_snapshots').select('id').eq('project_id', projectId).eq('id', review.sourceManifestId).maybeSingle();
+      if (error) throw error;
+      if (!data) return json(res, 404, { error: 'Frozen Review source unavailable.' });
+      const artifacts = await repository.loadSourceManifestArtifacts(review.sourceManifestId);
+      try { return json(res, 200, await readFrozenReviewSource(projectId, review, artifacts ?? [], artifactId, applicationRepository!)); }
+      catch { return json(res, 404, { error: 'The exact saved source version is unavailable. Current content was not substituted.' }); }
+    }
     const rsmMatch = matchReviewSourceManifest(url);
     if (rsmMatch && req.method === 'GET') {
       await authGateway.requireProjectMember(auth!, rsmMatch.projectId);
       const review = await reviewRepository(auth!.client).getReview(rsmMatch.sessionId);
       if (!review || review.projectId !== rsmMatch.projectId) return json(res, 404, { error: 'Session not found' });
-      const { data, error } = await auth!.client.from('review_source_snapshots').select('*').eq('project_id', rsmMatch.projectId).eq('review_session_id', rsmMatch.sessionId).maybeSingle();
+      const { data, error } = review.sourceManifestId ? await auth!.client.from('review_source_snapshots').select('*').eq('project_id', rsmMatch.projectId).eq('id', review.sourceManifestId).maybeSingle()
+        : await auth!.client.from('review_source_snapshots').select('*').eq('project_id', rsmMatch.projectId).eq('review_session_id', rsmMatch.sessionId).maybeSingle();
       if (error) throw new Error(`Supabase source manifest query failed: ${error.message}`);
       if (!data) return json(res, 200, { sessionId: rsmMatch.sessionId, projectId: rsmMatch.projectId, status: 'unavailable', sources: [], artifactCount: null });
       const snapshot = data.snapshot && typeof data.snapshot === 'object' ? data.snapshot as Record<string, unknown> : {};
@@ -1307,6 +1429,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         projectId: rsmMatch.projectId,
         status: data.status ?? 'available',
         capturedAt,
+        artifacts: artifacts.map(item => ({ id: String(item.id ?? ''), fileName: String(item.name ?? ''), filePath: String(item.path ?? ''),
+          artifactVersionId: typeof item.version_id === 'string' ? item.version_id : null,
+          contentHash: typeof (item.metadata as Record<string, unknown> | undefined)?.contentHash === 'string' ? String((item.metadata as Record<string, unknown>).contentHash) : '' })),
         sources: artifacts.map(item => ({
           id: String(item.id ?? ''), sessionId: rsmMatch.sessionId, sourceId: String(item.id ?? ''),
           sourceKind: item.kind === 'source_code' ? 'repository' : 'document', label: String(item.name ?? item.path ?? 'Artifact'),
@@ -1329,7 +1454,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         projectId: rtsMatch.projectId,
         status: data.status ?? 'available',
         records: data.records ?? [],
-        summary: data.summary ?? null,
+        summary: data.summary && typeof data.summary === 'object' ? Object.fromEntries(['complete', 'incomplete', 'missing', 'attention', 'unavailable'].filter(key => typeof (data.summary as Record<string, unknown>)[key] === 'number').map(key => [key, (data.summary as Record<string, unknown>)[key]])) : null,
         capturedAt: data.created_at,
       } : { sessionId: rtsMatch.sessionId, projectId: rtsMatch.projectId, status: 'unavailable', records: [], summary: null });
     }
@@ -1585,7 +1710,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     json(res, 500, { error: 'Internal server error' });
   }
   });
-  server.on('close',()=>{readiness.close();void sessionBroker.dispose();});return server;
+  server.on('close',()=>{sourceIndexes.close();readiness.close();void sessionBroker.dispose();});return server;
 }
 
 // Importing this module for authenticated HTTP tests must not open the fixed

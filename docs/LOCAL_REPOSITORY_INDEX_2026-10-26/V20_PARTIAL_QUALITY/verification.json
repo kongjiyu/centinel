@@ -1,0 +1,7495 @@
+{
+  "schemaVersion": "centinel-v20-partial-independent-verification-v1",
+  "reviewId": "1deb8b4b-10b5-4da3-b627-0e7a50ed4d8b",
+  "sourceArtifacts": [
+    {
+      "path": "evidence/repository-index-evaluation-2026-10-26/run-2026-10-28T04-07-38-400Z/0065-optimized-session.json",
+      "sha256": "6e2423bfeb4e8fbf2bdf7eb9b0d54b20c635fc904506b3f00e12f51eb5efcc4c"
+    },
+    {
+      "path": "evidence/repository-index-evaluation-2026-10-26/run-2026-10-28T04-07-38-400Z/0066-optimized-manifest.json",
+      "sha256": "f7f384042f385549822716993413d68915ca4107d72b042551740fca051136af"
+    },
+    {
+      "path": "evidence/repository-index-evaluation-2026-10-26/run-2026-10-28T04-07-38-400Z/0067-optimized-usage.json",
+      "sha256": "3a5a748819c533ebd35224d8dcc4c88e40cf22f5bde6c129b414b5e2ce499a32"
+    },
+    {
+      "path": "evidence/repository-index-evaluation-2026-10-26/run-2026-10-28T04-07-38-400Z/0068-optimized-findings.json",
+      "sha256": "3cd8103cda3c51840fa06b1b8e848c6112fbed9a39a2b93f847c6c1d678e9cd2"
+    },
+    {
+      "path": "evidence/repository-index-evaluation-2026-10-26/run-2026-10-28T04-07-38-400Z/0070-optimized-harness.json",
+      "sha256": "843585d34fbb403c0d45fdb2cfbe9c61dcc462e5a7060413f0f6ae2da5488480"
+    },
+    {
+      "path": "evidence/repository-index-evaluation-2026-10-26/run-2026-10-28T04-07-38-400Z/0071-optimized-evidence.json",
+      "sha256": "fd9b5d79b819902c26e81f3523ce097508cbc754e4bc4970186884ff1e8db5d5"
+    }
+  ],
+  "normalizedManifestSha256": "669a3ea464b6c3184f87dc29526db66e587c9226e754c4e69b56937bbdf99c64",
+  "frozenFilesBefore": [
+    {
+      "path": ".eslintrc.js",
+      "valid": true
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "valid": true
+    },
+    {
+      "path": "index.d.ts",
+      "valid": true
+    },
+    {
+      "path": "index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/adapters/http.js",
+      "valid": true
+    },
+    {
+      "path": "lib/adapters/xhr.js",
+      "valid": true
+    },
+    {
+      "path": "lib/axios.js",
+      "valid": true
+    },
+    {
+      "path": "lib/cancel/CanceledError.js",
+      "valid": true
+    },
+    {
+      "path": "lib/cancel/CancelToken.js",
+      "valid": true
+    },
+    {
+      "path": "lib/cancel/isCancel.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/Axios.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/AxiosError.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/buildFullPath.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/dispatchRequest.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/InterceptorManager.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/mergeConfig.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/settle.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/transformData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/defaults/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/defaults/transitional.js",
+      "valid": true
+    },
+    {
+      "path": "lib/env/classes/FormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/env/data.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/AxiosURLSearchParams.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/bind.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/buildURL.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/combineURLs.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/cookies.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/deprecatedMethod.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/formDataToJSON.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/fromDataURI.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/isAbsoluteURL.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/isAxiosError.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/isURLSameOrigin.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/normalizeHeaderName.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/null.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/parseHeaders.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/parseProtocol.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/spread.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/toFormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/toURLEncodedForm.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/validator.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/browser/classes/FormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/browser/classes/URLSearchParams.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/browser/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/node/classes/FormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/node/classes/URLSearchParams.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/node/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/utils.js",
+      "valid": true
+    },
+    {
+      "path": "package.json",
+      "valid": true
+    },
+    {
+      "path": "README.md",
+      "valid": true
+    },
+    {
+      "path": "tsconfig.json",
+      "valid": true
+    }
+  ],
+  "frozenFilesAfter": [
+    {
+      "path": ".eslintrc.js",
+      "valid": true
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "valid": true
+    },
+    {
+      "path": "index.d.ts",
+      "valid": true
+    },
+    {
+      "path": "index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/adapters/http.js",
+      "valid": true
+    },
+    {
+      "path": "lib/adapters/xhr.js",
+      "valid": true
+    },
+    {
+      "path": "lib/axios.js",
+      "valid": true
+    },
+    {
+      "path": "lib/cancel/CanceledError.js",
+      "valid": true
+    },
+    {
+      "path": "lib/cancel/CancelToken.js",
+      "valid": true
+    },
+    {
+      "path": "lib/cancel/isCancel.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/Axios.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/AxiosError.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/buildFullPath.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/dispatchRequest.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/InterceptorManager.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/mergeConfig.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/settle.js",
+      "valid": true
+    },
+    {
+      "path": "lib/core/transformData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/defaults/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/defaults/transitional.js",
+      "valid": true
+    },
+    {
+      "path": "lib/env/classes/FormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/env/data.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/AxiosURLSearchParams.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/bind.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/buildURL.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/combineURLs.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/cookies.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/deprecatedMethod.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/formDataToJSON.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/fromDataURI.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/isAbsoluteURL.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/isAxiosError.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/isURLSameOrigin.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/normalizeHeaderName.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/null.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/parseHeaders.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/parseProtocol.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/spread.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/toFormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/toURLEncodedForm.js",
+      "valid": true
+    },
+    {
+      "path": "lib/helpers/validator.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/browser/classes/FormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/browser/classes/URLSearchParams.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/browser/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/node/classes/FormData.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/node/classes/URLSearchParams.js",
+      "valid": true
+    },
+    {
+      "path": "lib/platform/node/index.js",
+      "valid": true
+    },
+    {
+      "path": "lib/utils.js",
+      "valid": true
+    },
+    {
+      "path": "package.json",
+      "valid": true
+    },
+    {
+      "path": "README.md",
+      "valid": true
+    },
+    {
+      "path": "tsconfig.json",
+      "valid": true
+    }
+  ],
+  "findingReferenceChecks": [
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 117,
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 22,
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 202,
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 82,
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 197,
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 203,
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "README.md",
+      "lineNumber": 757,
+      "valid": true
+    },
+    {
+      "findingId": "5e5064e7-6f19-4c21-99c0-db0773728ed4",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 355,
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 197,
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 204,
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "README.md",
+      "lineNumber": 481,
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 148,
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 152,
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "README.md",
+      "lineNumber": 367,
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 309,
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "README.md",
+      "lineNumber": 484,
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 140,
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 146,
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 374,
+      "valid": true
+    },
+    {
+      "findingId": "671056b3-016c-423a-a3b0-9b315913f27a",
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 48,
+      "valid": true
+    },
+    {
+      "findingId": "d7a870e9-c0ea-4d5c-b8c6-aef680812f9c",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "findingId": "611bc6e0-e72f-4559-a763-86cb4eb5c597",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "findingId": "f8048289-266b-415e-86fd-023203efda3a",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "findingId": "bd021929-84af-49e0-9411-407462e1e98c",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "findingId": "ac43cfeb-0c4b-4af9-b5ba-b8a8e4198c77",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 389,
+      "valid": true
+    }
+  ],
+  "assessmentReferenceChecks": [
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 139,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 302,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 293,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 379,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 148,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    }
+  ],
+  "candidateReferenceChecks": [
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 117,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 118,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 116,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 22,
+      "referenceIndex": 1,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 21,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 23,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 52,
+      "referenceIndex": 2,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 51,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 106,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 202,
+      "referenceIndex": 3,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 201,
+      "referenceIndex": 3,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 203,
+      "referenceIndex": 3,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 82,
+      "referenceIndex": 4,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 81,
+      "referenceIndex": 4,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "24b5505a-63b0-4928-9424-9a56d14cbbea",
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 83,
+      "referenceIndex": 4,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 197,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 215,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 58,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 203,
+      "referenceIndex": 1,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 204,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 202,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "README.md",
+      "lineNumber": 757,
+      "referenceIndex": 2,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "README.md",
+      "lineNumber": 956,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "efd895c4-cefb-4dde-8781-b95410364707",
+      "filePath": "README.md",
+      "lineNumber": 481,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "5e5064e7-6f19-4c21-99c0-db0773728ed4",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 355,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "5e5064e7-6f19-4c21-99c0-db0773728ed4",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 345,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "5e5064e7-6f19-4c21-99c0-db0773728ed4",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 344,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 197,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 440,
+      "referenceIndex": 0,
+      "match": "relocated_exact",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 391,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 204,
+      "referenceIndex": 1,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 445,
+      "referenceIndex": 1,
+      "match": "relocated_exact",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 93,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "README.md",
+      "lineNumber": 481,
+      "referenceIndex": 2,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "README.md",
+      "lineNumber": 480,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "052f43e8-a4ec-4aa2-9078-c557083247ff",
+      "filePath": "README.md",
+      "lineNumber": 482,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 148,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 147,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 149,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 152,
+      "referenceIndex": 1,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 151,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 153,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 35,
+      "referenceIndex": 2,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 13,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 16,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "README.md",
+      "lineNumber": 367,
+      "referenceIndex": 3,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "README.md",
+      "lineNumber": 366,
+      "referenceIndex": 3,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e597a091-8c5d-480e-a39c-b5fc3763f5b5",
+      "filePath": "README.md",
+      "lineNumber": 483,
+      "referenceIndex": 3,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 304,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 210,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 309,
+      "referenceIndex": 1,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 308,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 310,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "README.md",
+      "lineNumber": 484,
+      "referenceIndex": 2,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "README.md",
+      "lineNumber": 483,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "dde98a15-391d-4917-83fd-9163c7ce6150",
+      "filePath": "README.md",
+      "lineNumber": 485,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 140,
+      "referenceIndex": 0,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 375,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 137,
+      "referenceIndex": 0,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 146,
+      "referenceIndex": 1,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 145,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 120,
+      "referenceIndex": 1,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 374,
+      "referenceIndex": 2,
+      "match": "exact",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 373,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    },
+    {
+      "findingId": "e09ed56e-f40a-4243-a7e5-d9298943024e",
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 139,
+      "referenceIndex": 2,
+      "match": "approximate",
+      "valid": true
+    }
+  ],
+  "mapReferenceChecks": [
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "index.js",
+      "lineNumber": 1,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 116,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 116,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 128,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 132,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 133,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 136,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 136,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 139,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 139,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 109,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 112,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 113,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 116,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 120,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 129,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 133,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 137,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 139,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 140,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 142,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 139,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 167,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 166,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 46,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 48,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 60,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 60,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 71,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 260,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 293,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 293,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 302,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 302,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 311,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 312,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 313,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 331,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 331,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 293,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 302,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 315,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 315,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 333,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 302,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 305,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 293,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 292,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 391,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 391,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 397,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 426,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 426,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 422,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 424,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 421,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 453,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 453,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 452,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 338,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 345,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 346,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 342,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 337,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 352,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 352,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 352,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 355,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 356,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 351,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 365,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 365,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 365,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 366,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 366,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 364,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 370,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 379,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 371,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 371,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 372,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 372,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 374,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 374,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 371,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 372,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 373,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 374,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 375,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 380,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 380,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 382,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 379,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/http.js",
+      "lineNumber": 369,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 39,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 39,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 81,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 81,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 146,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 146,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 148,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 39,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 146,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 148,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 148,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 165,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 160,
+      "valid": true
+    },
+    {
+      "filePath": "lib/adapters/xhr.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 24,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CanceledError.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 118,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 67,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 67,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 68,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 67,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 82,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 82,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 78,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 83,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 94,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 94,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 94,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 97,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 99,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 30,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 30,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/CancelToken.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/isCancel.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/isCancel.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/isCancel.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/cancel/isCancel.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 161,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 34,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 44,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 44,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 46,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 46,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 54,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 54,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 82,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 82,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 89,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 54,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 56,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 65,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 82,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 85,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 122,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 122,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 123,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 124,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 125,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 122,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 131,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 131,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 132,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 132,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 131,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 131,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 131,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 131,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 158,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 158,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 158,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 158,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 158,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 158,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 65,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 65,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 65,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/Axios.js",
+      "lineNumber": 76,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 97,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/AxiosError.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 16,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/buildFullPath.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 29,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 44,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 50,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 29,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 50,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 60,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 73,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 73,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 73,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 73,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 78,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 88,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 59,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/dispatchRequest.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 21,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 21,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 22,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 22,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 56,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 55,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 56,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 56,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/InterceptorManager.js",
+      "lineNumber": 56,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 95,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 96,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/mergeConfig.js",
+      "lineNumber": 93,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/settle.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/core/transformData.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 22,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 24,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 24,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 22,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 29,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 22,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 155,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 155,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 155,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 156,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/defaults/index.js",
+      "lineNumber": 159,
+      "valid": true
+    },
+    {
+      "filePath": "lib/env/classes/FormData.js",
+      "lineNumber": 2,
+      "valid": true
+    },
+    {
+      "filePath": "lib/env/classes/FormData.js",
+      "lineNumber": 2,
+      "valid": true
+    },
+    {
+      "filePath": "lib/env/classes/FormData.js",
+      "lineNumber": 2,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/AxiosURLSearchParams.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/AxiosURLSearchParams.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/AxiosURLSearchParams.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/AxiosURLSearchParams.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/AxiosURLSearchParams.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/bind.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/bind.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/bind.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/bind.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 24,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 38,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 38,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 24,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 30,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 38,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 39,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 40,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 42,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 43,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/buildURL.js",
+      "lineNumber": 24,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/combineURLs.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 9,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 9,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 9,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 46,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 46,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 46,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/cookies.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 14,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 15,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 20,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 21,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/deprecatedMethod.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 58,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 71,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 62,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 62,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 62,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/formDataToJSON.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 21,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 21,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 30,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 30,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 21,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 25,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 26,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 28,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 30,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 39,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 39,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 40,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/fromDataURI.js",
+      "lineNumber": 17,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAbsoluteURL.js",
+      "lineNumber": 9,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAbsoluteURL.js",
+      "lineNumber": 9,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAbsoluteURL.js",
+      "lineNumber": 13,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAbsoluteURL.js",
+      "lineNumber": 9,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAxiosError.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAxiosError.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAxiosError.js",
+      "lineNumber": 12,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isAxiosError.js",
+      "lineNumber": 11,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/isURLSameOrigin.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/normalizeHeaderName.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 27,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 40,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 40,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 44,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 44,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 47,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 36,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 37,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 38,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 38,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 40,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 45,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseHeaders.js",
+      "lineNumber": 35,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseProtocol.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseProtocol.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseProtocol.js",
+      "lineNumber": 4,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/parseProtocol.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/spread.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/spread.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/spread.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/spread.js",
+      "lineNumber": 23,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 48,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 49,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 49,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 50,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 75,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 170,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 170,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 171,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 49,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 49,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 142,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 170,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 170,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 174,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 179,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 48,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 57,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 33,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toFormData.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toURLEncodedForm.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toURLEncodedForm.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toURLEncodedForm.js",
+      "lineNumber": 8,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toURLEncodedForm.js",
+      "lineNumber": 8,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/toURLEncodedForm.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 60,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 62,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 69,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 69,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 73,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 61,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 64,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 66,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 69,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 71,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 78,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 84,
+      "valid": true
+    },
+    {
+      "filePath": "lib/helpers/validator.js",
+      "lineNumber": 60,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/FormData.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/FormData.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/FormData.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 8,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 8,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/browser/index.js",
+      "lineNumber": 8,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/index.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/index.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/index.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/classes/FormData.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/classes/FormData.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/classes/FormData.js",
+      "lineNumber": 3,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/classes/URLSearchParams.js",
+      "lineNumber": 5,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/index.js",
+      "lineNumber": 6,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/index.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/index.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/platform/node/index.js",
+      "lineNumber": 7,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 32,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 477,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 31,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 63,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 51,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 51,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 52,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 53,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 479,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 51,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 189,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 189,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 193,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 194,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 194,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 480,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 189,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 74,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 75,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 77,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 481,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 72,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 88,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 88,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 88,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 482,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 88,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 483,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 98,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 108,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 108,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 108,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 484,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 108,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 118,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 118,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 119,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 123,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 485,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 118,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 486,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 41,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 134,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 134,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 134,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 134,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 143,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 143,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 143,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 143,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 152,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 152,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 152,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 152,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 169,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 169,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 170,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 490,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 169,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 179,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 179,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 180,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 180,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 491,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 179,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 204,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 204,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 204,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 204,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 231,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 233,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 233,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 231,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 233,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 493,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 231,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 256,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 258,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 258,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 263,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 263,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 268,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 268,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 270,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 275,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 276,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 276,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 256,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 258,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 263,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 268,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 270,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 271,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 275,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 276,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 276,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 277,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 494,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 256,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 300,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 314,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 300,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 314,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 315,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 495,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 300,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 328,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 328,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 329,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 496,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 328,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 212,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 213,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 213,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 212,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 213,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 213,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 497,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 212,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 345,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 346,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 346,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 345,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 346,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 346,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 347,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 498,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 345,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 360,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 360,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 361,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 363,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 499,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 360,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 375,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 383,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 383,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 385,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 390,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 390,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 375,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 383,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 385,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 386,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 388,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 390,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 390,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 395,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 396,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 500,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 375,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 10,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 502,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 408,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 410,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 410,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 408,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 409,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 410,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 414,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 503,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 408,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 424,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 425,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 425,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 426,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 426,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 428,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 428,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 430,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 424,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 425,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 426,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 426,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 428,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 428,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 430,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 504,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 424,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 437,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 437,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 437,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 161,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 161,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 161,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 161,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 444,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 451,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 444,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 447,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 451,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 451,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 453,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 507,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 444,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 457,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 461,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 457,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 461,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 461,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 462,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 508,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 457,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 19,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 468,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 18,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 468,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 468,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 468,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 470,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 470,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 470,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 329,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 330,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 330,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 329,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 331,
+      "valid": true
+    },
+    {
+      "filePath": "lib/utils.js",
+      "lineNumber": 329,
+      "valid": true
+    }
+  ],
+  "probes": [
+    {
+      "name": "xhr_terminal_failures_retain_cancellation_listeners",
+      "result": "passed",
+      "evidence": {
+        "terminalResults": [
+          {
+            "terminal": "onerror",
+            "failedRequests": 2,
+            "tokenListenersRetained": 2,
+            "signalListenersRetained": 2
+          },
+          {
+            "terminal": "ontimeout",
+            "failedRequests": 2,
+            "tokenListenersRetained": 4,
+            "signalListenersRetained": 4
+          },
+          {
+            "terminal": "onabort",
+            "failedRequests": 2,
+            "tokenListenersRetained": 6,
+            "signalListenersRetained": 6
+          }
+        ],
+        "successfulLoadEndRemovesItsListeners": true,
+        "noNativeBrowserOrNetwork": true
+      }
+    },
+    {
+      "name": "xhr_abort_signal_undefined_req",
+      "result": "passed",
+      "evidence": {
+        "sentBeforeSignal": true,
+        "signalCallbackThrowsReferenceError": true,
+        "requestAbortNotReached": true
+      }
+    },
+    {
+      "name": "already_aborted_adapter_and_public_dispatch_guard",
+      "result": "passed",
+      "evidence": {
+        "directAdapterPreAbortedThrowsReferenceError": true,
+        "publicAxiosPreAbortedRejectsCanceledError": true,
+        "publicGuardPreventsAdapterInvocation": true,
+        "scopeCorrectionRequired": true
+      }
+    },
+    {
+      "name": "cross_origin_xsrf_header_condition",
+      "result": "passed",
+      "evidence": {
+        "sameOriginPredicate": false,
+        "withCredentialsCopiesLocalTokenToHeader": true,
+        "falseControlOmitsHeader": true,
+        "actualBrowserCorsNotExecuted": true
+      }
+    },
+    {
+      "name": "empty_request_skips_response_decompression",
+      "result": "passed",
+      "evidence": {
+        "emptyRequestReceivesRawCompressedResponse": true,
+        "encodingHeaderDeleted": true,
+        "nonemptyRequestControlDecompresses": true
+      }
+    },
+    {
+      "name": "stream_abort_reports_disabled_size_limit",
+      "result": "passed",
+      "evidence": {
+        "noLimitAndNoBodyStillReportsSizeLimitExceeded": true
+      }
+    },
+    {
+      "name": "data_uri_retains_bom",
+      "result": "passed",
+      "evidence": {
+        "responseStartsWithBom": true,
+        "requestVariableAssignmentDoesNotUpdateReturnedValue": true
+      }
+    },
+    {
+      "name": "gold_node_timeout_custom_message_missed",
+      "result": "passed",
+      "evidence": {
+        "configuredMessageIgnored": true,
+        "defaultMessageAndCodePreserved": true,
+        "savedFindingHit": false
+      }
+    },
+    {
+      "name": "deterministic_function_spans_and_todo",
+      "result": "passed",
+      "evidence": {
+        "spans": [
+          {
+            "name": "toFormData",
+            "filePath": "lib/helpers/toFormData.js",
+            "start": 48,
+            "end": 177,
+            "inclusiveLines": 130
+          },
+          {
+            "name": "xhrAdapter",
+            "filePath": "lib/adapters/xhr.js",
+            "start": 16,
+            "end": 223,
+            "inclusiveLines": 208
+          },
+          {
+            "name": "dispatchXhrRequest",
+            "filePath": "lib/adapters/xhr.js",
+            "start": 17,
+            "end": 222,
+            "inclusiveLines": 206
+          },
+          {
+            "name": "httpAdapter",
+            "filePath": "lib/adapters/http.js",
+            "start": 84,
+            "end": 459,
+            "inclusiveLines": 376
+          },
+          {
+            "name": "dispatchHttpRequest",
+            "filePath": "lib/adapters/http.js",
+            "start": 85,
+            "end": 458,
+            "inclusiveLines": 374
+          }
+        ],
+        "todoAt389": true,
+        "maintainabilityImpactOrSeverityNotProvenByLength": true
+      }
+    }
+  ],
+  "usage": {
+    "knownProviderReportedTotalTokens": 289982,
+    "knownProviderReportedCalls": 7,
+    "unknownProviderTotalCalls": 1,
+    "stages": [
+      {
+        "stage": "deterministic_analysis",
+        "calls": 0,
+        "providerReportedTotalTokens": 0,
+        "providerReportedTotalCalls": 0,
+        "unknownProviderTotalCalls": 0
+      },
+      {
+        "stage": "freezing_sources",
+        "calls": 0,
+        "providerReportedTotalTokens": 0,
+        "providerReportedTotalCalls": 0,
+        "unknownProviderTotalCalls": 0
+      },
+      {
+        "stage": "indexing_context",
+        "calls": 1,
+        "providerReportedTotalTokens": 64,
+        "providerReportedTotalCalls": 1,
+        "unknownProviderTotalCalls": 0
+      },
+      {
+        "stage": "model_analysis",
+        "calls": 7,
+        "providerReportedTotalTokens": 289918,
+        "providerReportedTotalCalls": 6,
+        "unknownProviderTotalCalls": 1
+      },
+      {
+        "stage": "persisting_evidence",
+        "calls": 0,
+        "providerReportedTotalTokens": 0,
+        "providerReportedTotalCalls": 0,
+        "unknownProviderTotalCalls": 0
+      }
+    ],
+    "reusedAssessments": {
+      "status": "available",
+      "batchCount": 0,
+      "minimumCallsAvoided": 0,
+      "originReviewIds": [],
+      "uniqueFileCount": 0,
+      "files": []
+    }
+  },
+  "coverage": {
+    "status": "blocked",
+    "modelStatus": "partial",
+    "stage": "provider_paused",
+    "pauseCode": "quota_exhausted",
+    "selectedFiles": 52,
+    "physicalReadFiles": 52,
+    "harnessCompletedSourceInspections": 52,
+    "selectedCodeFiles": 48,
+    "aiContextCodeFiles": 9,
+    "aiContextFiles": 13,
+    "missingAiContextFiles": [
+      ".eslintrc.js",
+      "index.d.ts",
+      "lib/cancel/isCancel.js",
+      "lib/core/Axios.js",
+      "lib/core/AxiosError.js",
+      "lib/core/buildFullPath.js",
+      "lib/core/dispatchRequest.js",
+      "lib/core/InterceptorManager.js",
+      "lib/core/mergeConfig.js",
+      "lib/core/settle.js",
+      "lib/core/transformData.js",
+      "lib/defaults/index.js",
+      "lib/defaults/transitional.js",
+      "lib/env/classes/FormData.js",
+      "lib/env/data.js",
+      "lib/helpers/AxiosURLSearchParams.js",
+      "lib/helpers/bind.js",
+      "lib/helpers/buildURL.js",
+      "lib/helpers/combineURLs.js",
+      "lib/helpers/deprecatedMethod.js",
+      "lib/helpers/formDataToJSON.js",
+      "lib/helpers/fromDataURI.js",
+      "lib/helpers/isAbsoluteURL.js",
+      "lib/helpers/isAxiosError.js",
+      "lib/helpers/isURLSameOrigin.js",
+      "lib/helpers/normalizeHeaderName.js",
+      "lib/helpers/null.js",
+      "lib/helpers/parseHeaders.js",
+      "lib/helpers/parseProtocol.js",
+      "lib/helpers/spread.js",
+      "lib/helpers/toURLEncodedForm.js",
+      "lib/helpers/validator.js",
+      "lib/platform/browser/classes/FormData.js",
+      "lib/platform/browser/classes/URLSearchParams.js",
+      "lib/platform/browser/index.js",
+      "lib/platform/node/classes/FormData.js",
+      "lib/platform/node/classes/URLSearchParams.js",
+      "lib/platform/node/index.js",
+      "lib/utils.js"
+    ],
+    "savedBatchIds": [
+      "39caf1f01d41a18a",
+      "09f23cbaccb24a2c",
+      "b9f967a2ca1d38fa"
+    ],
+    "plannedBatches": 22,
+    "completedSourceSweepBatches": 0,
+    "plannedSourceSweepBatches": 3,
+    "totalFeatures": 147,
+    "assessedFeatures": 17,
+    "anyAssessedFeatures": 27,
+    "expectedDomainRows": 588,
+    "disclosedDomainRows": 588,
+    "assessedDomainRows": 92,
+    "unverifiedDomainRows": 496,
+    "assessedRowsWithEvidence": 89,
+    "assessedRowsWithoutEvidence": [
+      {
+        "featureId": "feature-3b25017e7a58",
+        "domain": "security",
+        "outcome": "potential_gap"
+      },
+      {
+        "featureId": "feature-773e34d6ce34",
+        "domain": "security",
+        "outcome": "potential_gap"
+      },
+      {
+        "featureId": "feature-689b87bcd3c3",
+        "domain": "security",
+        "outcome": "potential_gap"
+      }
+    ],
+    "assessedNonNotApplicableRows": 72,
+    "evidencedAssessedNonNotApplicableRows": 69,
+    "explicitUnresolvedEdges": 360,
+    "goldSourceRangesInRecordedAiContext": [
+      {
+        "lineStart": 36,
+        "lineEnd": 460
+      },
+      {
+        "lineStart": 82,
+        "lineEnd": 460
+      }
+    ],
+    "aiContextFileAppearances": 61
+  },
+  "limitations": [
+    "Offline probes execute unchanged selected functions with inert transports and explicit environment stubs, not real network or native browser integration.",
+    "Assessment reference checks validate identity and line anchors; the harness does not retain excerpts for these rows. They do not independently prove every no-issue summary. Three rows labelled assessed have no evidence and cannot count as validated assessed rows.",
+    "Gold outcome is saved-partial-result recall only; missing predictions remain false negatives for this artifact, and final-run recall is unavailable.",
+    "Diagnostic truths about spans/TODO existence are not evidence of medium-severity defects.",
+    "Already-aborted direct adapter setup throws ReferenceError, but the public Axios dispatcher rejects CanceledError before entering the adapter; do not generalize the adapter-only subclaim to ordinary public calls.",
+    "No full source sweeps completed; blocked partial execution cannot pass acceptance."
+  ]
+}

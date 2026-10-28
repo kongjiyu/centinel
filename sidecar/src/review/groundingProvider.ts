@@ -9,11 +9,11 @@ import type { ModelAttemptRecord } from './types.js';
 /** Requirement extraction is a static-analysis operation, even though it runs
  * before a Review session exists. Use the shared five-request AI budget and
  * persist each reserved attempt without inventing a Review foreign key. */
-export function createGroundingModelProvider(client: SupabaseClient, ownerId: string): RequirementCandidateModel {
-  const configurations = new SupabaseModelConfigurationRepository(client);
-  const store = new SupabaseCentinelStore(client);
+export function createGroundingModelProvider(client: SupabaseClient | (() => SupabaseClient), ownerId: string): RequirementCandidateModel {
+  const currentClient = typeof client === 'function' ? client : () => client;
   return {
     analyze: async request => {
+      const configurations = new SupabaseModelConfigurationRepository(currentClient());
       const chain = await resolveModelProviderChain(configurations, {
         ownerId,
         projectId: request.projectId,
@@ -27,8 +27,8 @@ export function createGroundingModelProvider(client: SupabaseClient, ownerId: st
         fallback: chain.fallbackProvider ?? undefined,
         fallbackContext: chain.fallbackMetadata ?? undefined,
         signal: request.signal,
-        onAttemptStarted: attempt => saveGroundingAttempt(store, attempt, ownerId, request.projectId),
-        onAttempt: attempt => saveGroundingAttempt(store, attempt, ownerId, request.projectId),
+        onAttemptStarted: attempt => saveGroundingAttempt(new SupabaseCentinelStore(currentClient()), attempt, ownerId, request.projectId),
+        onAttempt: attempt => saveGroundingAttempt(new SupabaseCentinelStore(currentClient()), attempt, ownerId, request.projectId),
       });
       return operation.result;
     },

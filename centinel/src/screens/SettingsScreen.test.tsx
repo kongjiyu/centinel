@@ -19,6 +19,7 @@ vi.mock('../api/client', async importOriginal => {
       ...actual.api,
       codexStatus: vi.fn(async () => ({ available: true, connected: false, accountLabel: null, message: 'Sign in to Codex.' })),
       getAiUsage: vi.fn(),
+      embeddingModels: vi.fn(),
       updateAiSetting: vi.fn(),
       testAiProvider: vi.fn(),
       githubStatus: vi.fn(),
@@ -105,6 +106,47 @@ describe('SettingsScreen information architecture and capability boundary', () =
     await waitFor(() => expect(api.getAiUsage).toHaveBeenCalled());
   });
 
+  it('keeps the API model fields hidden for Codex and preserves an explicit API provider setup path', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getAiUsage).mockResolvedValue({
+      totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, calls: 0 },
+      byGroup: [],
+      recent: [],
+    });
+    const codexSetting: AiProviderSetting = {
+      ...settings[0], provider: 'codex', apiFormat: 'codex-app-server', baseUrl: '', model: 'gpt-5.6-sol',
+    };
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.updateAiSetting).mockResolvedValue({
+      ...codexSetting, provider: 'custom', apiFormat: 'openai-compatible', hasApiKey: true,
+      apiKeyPreview: '••••••••', baseUrl: 'https://api.example.com/v1', model: 'replacement-model',
+    });
+
+    render(<SettingsScreen settings={[codexSetting]} onRefresh={onRefresh} />);
+    await screen.findByRole('button', { name: 'Connect Codex' });
+    await screen.findByText('Tokens processed');
+    const apiProvider = screen.getByRole('heading', { name: 'API provider' }).closest('.provider-form') as HTMLElement;
+    expect(within(apiProvider).getByText(/Review uses Codex/)).toBeInTheDocument();
+    expect(within(apiProvider).queryByLabelText('API Key')).not.toBeInTheDocument();
+    expect(within(apiProvider).queryByLabelText('Model')).not.toBeInTheDocument();
+    expect(within(apiProvider).queryByLabelText('Base URL')).not.toBeInTheDocument();
+
+    await user.click(within(apiProvider).getByRole('button', { name: 'Configure API provider' }));
+    expect(within(apiProvider).getByLabelText('API Key')).toBeInTheDocument();
+    expect(within(apiProvider).getByLabelText('Model')).toHaveValue('');
+    expect(within(apiProvider).getByLabelText('Base URL')).toHaveValue('');
+    await user.type(within(apiProvider).getByLabelText('API Key'), 'temporary-key');
+    await user.type(within(apiProvider).getByLabelText('Base URL'), 'https://api.example.com/v1');
+    await user.type(within(apiProvider).getByLabelText('Model'), 'replacement-model');
+    await user.click(within(apiProvider).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(api.updateAiSetting).toHaveBeenCalledWith('text', expect.objectContaining({
+      provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'temporary-key',
+      baseUrl: 'https://api.example.com/v1', model: 'replacement-model',
+    })));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
   it('checks the published GitHub release and only offers Open update for a newer version', async () => {
     const user = userEvent.setup();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -184,40 +226,58 @@ describe('SettingsScreen information architecture and capability boundary', () =
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Manage Slack' })).not.toBeInTheDocument());
   });
 
-  it('configures optional source indexing inside Model Provider and tests the saved configuration', async () => {
+  it('configures and tests the saved embedding provider inside Model Provider', async () => {
     const user = userEvent.setup();
     vi.mocked(api.getAiUsage).mockResolvedValue({
       totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, calls: 0 }, byGroup: [], recent: [],
     });
-    vi.mocked(api.updateAiSetting).mockResolvedValue({
-      ...settings[0], id: 'embedding', label: 'Source indexing', provider: 'custom',
-      hasApiKey: true, apiKeyPreview: '••••••••', baseUrl: 'https://example.com/v1', model: 'embed-model',
+    vi.mocked(api.embeddingModels).mockResolvedValue({
+      source: 'published_catalog',
+      verifiedAt: '2026-10-26T00:00:00.000Z',
+      models: [
+        { id: 'voyage-4-lite', label: 'voyage-4-lite', provider: 'voyage', dimensions: 1024, publishedFreeTokens: 200_000_000, documentationUrl: 'https://docs.voyageai.com/docs/pricing' },
+        { id: 'voyage-4', label: 'voyage-4', provider: 'voyage', dimensions: 1024, publishedFreeTokens: 200_000_000, documentationUrl: 'https://docs.voyageai.com/docs/pricing' },
+        { id: 'voyage-4-large', label: 'voyage-4-large', provider: 'voyage', dimensions: 1024, publishedFreeTokens: 200_000_000, documentationUrl: 'https://docs.voyageai.com/docs/pricing' },
+      ],
+      usageAvailable: true,
+      usage: [],
+      remaining: { status: 'not_reported', tokens: null, message: 'Voyage does not report remaining balance.', dashboardUrl: 'https://dash.voyageai.com/' },
     });
-    vi.mocked(api.testAiProvider).mockResolvedValue({ status: 'pass', message: 'Source indexing returned a valid vector.' });
+    vi.mocked(api.updateAiSetting).mockResolvedValue({
+      ...settings[0], id: 'embedding', label: 'Embedding', provider: 'custom', embeddingProvider: 'voyage', embeddingDimensions: 1024,
+      hasApiKey: true, apiKeyPreview: '••••••••', baseUrl: 'https://api.voyageai.com/v1', model: 'voyage-4-lite',
+    });
+    vi.mocked(api.testAiProvider).mockResolvedValue({ status: 'pass', message: 'The embedding provider returned a valid vector.' });
     const embedding: AiProviderSetting = {
-      ...settings[0], id: 'embedding', label: 'Source indexing', provider: 'custom',
+      ...settings[0], id: 'embedding', label: 'Embedding', provider: 'custom',
       baseUrl: '', model: '',
     };
     const { rerender } = render(<SettingsScreen settings={[...settings, embedding]} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
-    const indexing = screen.getByRole('heading', { name: 'Source indexing' }).closest('.embedding-provider-form')!;
-    expect(within(indexing as HTMLElement).getByText('Optional')).toBeInTheDocument();
-    expect(within(indexing as HTMLElement).getByRole('button', { name: 'Test connection' })).toBeDisabled();
-    await user.type(within(indexing as HTMLElement).getByLabelText('API key'), 'secret-key');
-    await user.type(within(indexing as HTMLElement).getByLabelText('Base URL'), 'https://example.com/v1');
-    await user.type(within(indexing as HTMLElement).getByLabelText('Embedding model'), 'embed-model');
-    await user.click(within(indexing as HTMLElement).getByRole('button', { name: 'Save' }));
+    const form = screen.getByRole('heading', { name: 'Embedding model provider' }).closest('.embedding-provider-form')!;
+    expect(within(form as HTMLElement).getByText('Optional')).toBeInTheDocument();
+    expect(within(form as HTMLElement).getByLabelText('Provider')).toHaveTextContent('Voyage AI');
+    expect(within(form as HTMLElement).getByRole('button', { name: 'Test saved connection' })).toBeDisabled();
+    expect(within(form as HTMLElement).getByText(/compatible indexes are backed up to your project/i)).toBeInTheDocument();
+    expect(api.embeddingModels).toHaveBeenCalledOnce();
+    await user.type(within(form as HTMLElement).getByLabelText('API key'), 'secret-key');
+    await user.click(within(form as HTMLElement).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(api.updateAiSetting).toHaveBeenCalledWith('embedding', {
-      provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret-key',
-      baseUrl: 'https://example.com/v1', model: 'embed-model', fallbackEnabled: false,
+      provider: 'custom', apiFormat: 'openai-compatible', embeddingProvider: 'voyage', apiKey: 'secret-key',
+      baseUrl: 'https://api.voyageai.com/v1', model: 'voyage-4-lite', fallbackEnabled: false,
     }));
-    expect(within(indexing as HTMLElement).getByRole('status')).toHaveTextContent('Settings saved');
+    expect(within(form as HTMLElement).getByRole('status')).toHaveTextContent('Settings saved');
+    expect(within(form as HTMLElement).getByLabelText('API key')).toHaveValue('');
 
-    rerender(<SettingsScreen settings={[...settings, { ...embedding, hasApiKey: true, apiKeyPreview: '••••••••' }]} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
-    await user.click(within(indexing as HTMLElement).getByRole('button', { name: 'Test connection' }));
+    rerender(<SettingsScreen settings={[...settings, {
+      ...embedding, embeddingProvider: 'voyage', embeddingDimensions: 1024, hasApiKey: true,
+      apiKeyPreview: '••••••••', baseUrl: 'https://api.voyageai.com/v1', model: 'voyage-4-lite', updatedAt: '2026-10-26T00:00:00.000Z',
+    }]} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+    await user.click(within(form as HTMLElement).getByRole('button', { name: 'Test saved connection' }));
     await waitFor(() => expect(api.testAiProvider).toHaveBeenCalledWith('embedding'));
-    expect(within(indexing as HTMLElement).getByText('Connection successful')).toBeInTheDocument();
+    expect(within(form as HTMLElement).getByText('Connection successful')).toBeInTheDocument();
+    expect(within(form as HTMLElement).getByText(/Tested the saved voyage-4-lite settings for Voyage AI/)).toBeInTheDocument();
   });
 
   it('shows provider states and connected account details in the manage dialog', async () => {
@@ -311,7 +371,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
   it('renders the usage hierarchy from real totals and keeps the call log separate', async () => {
     const user = userEvent.setup();
     vi.mocked(api.getAiUsage).mockResolvedValue({
-      totals: { input: 1000, output: 200, cacheRead: 300, cacheCreation: 400, calls: 5 },
+      totals: { input: 1000, output: 200, cacheRead: 300, cacheCreation: 400, calls: 5, totalTokens: 1200, providerReportedTotalTokens: 1200, providerReportedCalls: 5, unknownTotalCalls: 1 },
       byGroup: [{
         provider: 'mimo',
         apiFormat: 'openai-compatible',
@@ -321,6 +381,10 @@ describe('SettingsScreen information architecture and capability boundary', () =
         totalCacheRead: 300,
         totalCacheCreation: 400,
         totalCalls: 5,
+        totalTokens: 1200,
+        providerReportedTotalTokens: 1200,
+        providerReportedCalls: 5,
+        unknownTotalCalls: 1,
       }],
       recent: [{
         id: 'call-1',
@@ -337,15 +401,16 @@ describe('SettingsScreen information architecture and capability boundary', () =
         outputTokens: 200,
         cacheReadTokens: 300,
         cacheCreationTokens: 400,
-        totalTokens: 1900,
+        totalTokens: 1200,
         createdAt: '2026-09-08T10:00:00.000Z',
       }],
-    });
+    } as Awaited<ReturnType<typeof api.getAiUsage>>);
 
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
     await waitFor(() => expect(screen.getByText('Tokens processed')).toBeInTheDocument());
-    expect(document.querySelector('.usage-total-value')).toHaveTextContent('1, 900');
+    expect(document.querySelector('.usage-total-value')).toHaveTextContent('1, 200');
+    expect(document.querySelector('.usage-total-note')).toHaveTextContent('1 call total unavailable.');
     expect(screen.getByText('Total requests')).toBeInTheDocument();
     expect(screen.getByText('5', { selector: 'strong' })).toHaveClass('usage-request-value');
     expect(screen.getByText('Cache creation')).toBeInTheDocument();
@@ -354,6 +419,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     const overview = screen.getByRole('table', { name: 'Usage overview by provider' });
     expect(within(overview).getByRole('columnheader', { name: 'Total tokens' })).toBeInTheDocument();
     expect(within(overview).getByText('mimo-v2.5')).toBeInTheDocument();
+    expect(within(overview).getByText('1, 200')).toBeInTheDocument();
     expect(within(overview).getByText('openai-compatible')).toBeInTheDocument();
     expect(screen.queryByText('Cost')).not.toBeInTheDocument();
     expect(screen.queryByText('Success rate')).not.toBeInTheDocument();
@@ -370,17 +436,55 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(within(recentCalls).getByRole('columnheader', { name: 'Time' })).toHaveAttribute('aria-sort', 'ascending');
   });
 
+  it('keeps unknown counters unavailable while labelling no-response zero assumptions', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getAiUsage).mockResolvedValue({
+      totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, calls: 1, totalTokens: 0,
+        unknownTotalCalls: 1, unknownInputCalls: 1, unknownOutputCalls: 1, unknownCacheReadCalls: 1, unknownCacheCreationCalls: 1,
+        assumedZeroNoResponseCalls: 1, assumedZeroNoResponseTokens: 0, accountedTokens: 0 },
+      byGroup: [{ provider: 'codex', apiFormat: 'codex-app-server', model: 'gpt-6.1-sol', totalInput: 0, totalOutput: 0, totalCacheRead: 0,
+        totalCacheCreation: 0, totalCalls: 1, unknownInputCalls: 1, unknownOutputCalls: 1, unknownCacheReadCalls: 1, unknownCacheCreationCalls: 1,
+        totalTokens: 0, unknownTotalCalls: 1 } as any], recent: [{ id: 'failed', projectId: null, sessionId: null, scope: 'text', callKind: 'review', stage: 'model_analysis',
+        roundNumber: 1, provider: 'codex', apiFormat: 'codex-app-server', model: 'gpt-6.1-sol', inputTokens: null, outputTokens: null,
+        cacheReadTokens: null, cacheCreationTokens: null, totalTokens: null, createdAt: '2026-10-27T00:00:00Z', outcome: 'permanent_error',
+        responseReceived: false, accountingBasis: 'assumed_zero_no_response', accountedTokens: 0 }],
+    });
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+    expect(await screen.findByText(/No-response accounting: 1 failed call counted as 0 tokens/)).toBeInTheDocument();
+    expect(document.querySelector('.usage-total-value')).toHaveTextContent('—');
+    await user.click(screen.getByRole('button', { name: 'Show log (1)' }));
+    const row = within(screen.getByRole('table', { name: 'Recent AI calls' })).getAllByRole('row')[1];
+    expect(within(row).getAllByRole('cell').filter(cell => cell.textContent === '—')).toHaveLength(3);
+    const group = within(screen.getByRole('table', { name: 'Usage overview by provider' })).getAllByRole('row')[1];
+    expect(within(group).getAllByRole('cell').filter(cell => cell.textContent?.startsWith('—'))).toHaveLength(4);
+  });
+
   it('compacts usage totals longer than six digits', async () => {
     vi.mocked(api.getAiUsage).mockResolvedValue({
-      totals: { input: 1_000_000, output: 200_000, cacheRead: 30_000, cacheCreation: 4_567, calls: 123_456 },
+      totals: { input: 1_000_000, output: 200_000, cacheRead: 30_000, cacheCreation: 4_567, calls: 123_456, totalTokens: 1_200_000, providerReportedTotalTokens: 1_200_000, providerReportedCalls: 123_456, unknownTotalCalls: 0 },
       byGroup: [],
+      recent: [],
+    } as Awaited<ReturnType<typeof api.getAiUsage>>);
+
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+
+    await waitFor(() => expect(document.querySelector('.usage-total-value')).toHaveTextContent('1.2M'));
+    expect(screen.getByText('123, 456', { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('does not add cache breakdowns to a usage total when the service omits its canonical total', async () => {
+    vi.mocked(api.getAiUsage).mockResolvedValue({
+      totals: { input: 1000, output: 200, cacheRead: 300, cacheCreation: 400, calls: 5 },
+      byGroup: [{ provider: 'codex', apiFormat: 'codex-app-server', model: 'codex-model', totalInput: 1000, totalOutput: 200, totalCacheRead: 300, totalCacheCreation: 400, totalCalls: 5 }],
       recent: [],
     });
 
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
-    await waitFor(() => expect(document.querySelector('.usage-total-value')).toHaveTextContent('1.23M'));
-    expect(screen.getByText('123, 456', { selector: 'strong' })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.usage-total-value')).toHaveTextContent('—'));
+    expect(document.querySelector('.usage-total-note')).toHaveTextContent('A provider-aware total is not available from this service.');
+    const overview = screen.getByRole('table', { name: 'Usage overview by provider' });
+    expect(within(overview).getByText('—')).toBeInTheDocument();
   });
 
   it('paginates the recent call log in groups of five', async () => {

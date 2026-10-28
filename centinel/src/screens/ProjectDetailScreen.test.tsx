@@ -13,7 +13,9 @@ vi.mock('../api/client', () => ({
     listStaticSessions: vi.fn(),
     listArtifacts: vi.fn(),
     getReviewSourceManifest: vi.fn(),
+    getReviewEvidenceSufficiency: vi.fn().mockResolvedValue(null),
     listFindings: vi.fn(),
+    getProjectAssessment: vi.fn(),
     deleteProject: vi.fn(),
     updateProject: vi.fn(),
     exportProjectReport: vi.fn(),
@@ -114,11 +116,36 @@ beforeEach(() => {
     sessionId: reviewId, projectId, status: 'unavailable', sources: [], artifactCount: null,
   }));
   vi.mocked(api.listProjectReportHistory).mockResolvedValue([]);
+  vi.mocked(api.getProjectAssessment).mockResolvedValue({ projectId: project.id, status: 'unavailable' } as never);
   vi.mocked(api.getProjectReadiness).mockResolvedValue(emptyReadinessStatus);
   vi.mocked(api.startProjectReadiness).mockResolvedValue({ ...emptyReadinessStatus, status: 'queued', requestId: 'request-1', trigger: 'manual' });
 });
 
 describe('ProjectDetailScreen refinement surfaces', () => {
+  it('opens Source without unrelated Findings, Assessment, Review history or report requests', async () => {
+    vi.mocked(api.listArtifacts).mockResolvedValue([]);
+    render(<ProjectDetailScreen project={project} onNavigate={vi.fn()} initialSection="source" />);
+    expect(await screen.findByRole('heading', { name: 'Sources' })).toBeInTheDocument();
+    expect(api.listArtifacts).toHaveBeenCalledTimes(1);
+    expect(api.listStaticSessions).not.toHaveBeenCalled();
+    expect(api.listDynamicSessions).not.toHaveBeenCalled();
+    expect(api.listFindings).not.toHaveBeenCalled();
+    expect(api.getProjectAssessment).not.toHaveBeenCalled();
+    expect(api.listProjectReportHistory).not.toHaveBeenCalled();
+  });
+
+  it('requests Assessment once on opening its tab, not as initial arrays load', async () => {
+    const user = userEvent.setup();
+    renderProject(vi.fn());
+    await waitFor(() => expect(api.listStaticSessions).toHaveBeenCalled());
+    expect(api.getProjectAssessment).not.toHaveBeenCalled();
+    expect(api.listProjectReportHistory).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Assessment' }));
+    await waitFor(() => expect(api.getProjectAssessment).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.listFindings).toHaveBeenCalledTimes(2));
+    expect(api.getProjectAssessment).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps project settings read-only until Edit and uses fixed finding defaults', async () => {
     const user = userEvent.setup();
     const onProjectUpdated = vi.fn();
@@ -431,6 +458,20 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(api.getReviewSourceManifest).toHaveBeenCalledWith(project.id, successfulReview.id);
   });
 
+  it('loads only the latest saved Review document findings when Findings opens', async () => {
+    const user = userEvent.setup();
+    const review = sourceCurrencyReview();
+    vi.mocked(api.getReviewEvidenceSufficiency).mockResolvedValue({
+      id: 'assessment', projectId: project.id, reviewId: review.id, assessedAt: review.updatedAt, confirmedRequirementCount: 1,
+      gaps: [{ id: 'gap', code: 'traceability_mappings_incomplete', requirementId: 'pay-once', title: 'Incomplete Requirement Coverage', detail: 'A payment requirement has incomplete mapping evidence.', remediation: 'Review the requirement and link its code.', severity: 'warning', affectedStages: [], references: [{ artifactId: 'doc', filePath: 'requirements.md', relation: 'requirement' }] }],
+    } as never);
+    renderProject(vi.fn(), [], undefined, [review]);
+    expect(api.getReviewEvidenceSufficiency).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    expect(await screen.findByRole('row', { name: /Incomplete Requirement Coverage/ })).toBeInTheDocument();
+    expect(api.getReviewEvidenceSufficiency).toHaveBeenCalledWith(project.id, review.id);
+  });
+
   it('shows current readiness gaps in Project Findings as immutable readiness-origin items', async () => {
     const user = userEvent.setup();
     vi.mocked(api.listFindings).mockResolvedValue([]);
@@ -462,9 +503,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     const gapRow = await screen.findByRole('row', { name: /Clarify acceptance criteria/i });
     await user.click(within(gapRow).getByRole('button', { name: /See more about Clarify acceptance criteria/i }));
-    expect(screen.getByText('Project Readiness')).toBeInTheDocument();
+    expect(screen.getByText(/Readiness · Document quality/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Clarify acceptance criteria' })).toBeInTheDocument();
-    expect(screen.getAllByText('requirements.md')).toHaveLength(2);
+    expect(within(screen.getByRole('region', { name: 'Related sources' })).getByText('requirements.md')).toBeInTheDocument();
     expect(screen.getByText(/immutable snapshot from Project Readiness/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();
@@ -472,6 +513,43 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByText('0 classified')).toBeInTheDocument();
     expect(screen.getByText('No classified unresolved risk items.')).toBeInTheDocument();
+  });
+
+  it('labels stale readiness as previous and hides old gaps while preserving Review findings', async () => {
+    const user = userEvent.setup();
+    const currentFinding: Finding = {
+      id: 'finding-current', projectId: project.id, sessionId: 'review-1', source: 'static', verifier: 'deterministic',
+      severity: 'medium', priority: 'Medium', title: 'Current Review finding', description: 'This finding belongs to the current project inventory.',
+      status: 'new', createdAt: '2026-10-20T10:00:00.000Z', updatedAt: '2026-10-20T10:00:00.000Z', artifactId: 'artifact-1',
+      category: 'Quality', evidenceText: 'fixture evidence', recommendation: 'Review the issue.', confidence: 'high', fromRemarks: false,
+      filePath: 'src/current.ts', lineNumber: 3,
+    };
+    vi.mocked(api.listFindings).mockResolvedValue([currentFinding]);
+    vi.mocked(api.getProjectReadiness).mockResolvedValue({
+      ...emptyReadinessStatus,
+      status: 'idle',
+      stale: true,
+      snapshot: {
+        id: 'readiness-stale', projectId: project.id, sourceFingerprint: 'previous-fingerprint', assessedAt: '2026-10-19T10:00:00.000Z',
+        categories: [
+          { id: 'repository', label: 'Repository', state: 'completed', sourceCount: 1, checksPassed: 1, checksTotal: 1, gapIds: [] },
+          { id: 'requirements', label: 'Requirement specification', state: 'incomplete', sourceCount: 1, checksPassed: 1, checksTotal: 2, gapIds: ['old-gap'] },
+          { id: 'design', label: 'Design documentation', state: 'completed', sourceCount: 1, checksPassed: 1, checksTotal: 1, gapIds: [] },
+          { id: 'standards', label: 'Coding standards', state: 'completed', sourceCount: 1, checksPassed: 1, checksTotal: 1, gapIds: [] },
+        ],
+        findings: [{ id: 'old-gap', category: 'requirements', title: 'Previous acceptance gap', description: 'Old result.', recommendation: 'Reassess.', severity: 'blocking', references: [] }],
+      },
+    });
+    renderProject(vi.fn(), [], undefined, [], [], [currentFinding]);
+
+    expect(await screen.findByText('Previous assessment — sources have changed')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Awaiting manual assessment.');
+    await user.click(screen.getByRole('button', { name: 'Findings' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Readiness findings describe previous sources and are hidden until a current assessment is available.');
+    expect(await screen.findByRole('row', { name: /Current Review finding/ })).toBeInTheDocument();
+    expect(screen.queryByText('Previous acceptance gap')).not.toBeInTheDocument();
+    expect(api.startProjectReadiness).not.toHaveBeenCalled();
   });
 
   it('shows the four highest-risk unresolved findings in Assessment', async () => {

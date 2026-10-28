@@ -1,0 +1,1630 @@
+{
+  "generatedAt": "2026-10-24T05:47:20.214Z",
+  "source": "actual-production-workflow",
+  "cases": [
+    {
+      "alias": "axios",
+      "instanceId": "axios__axios-4738",
+      "projectId": "3c66cb23-9805-471d-97e6-719182787d94",
+      "import": {
+        "valid": true,
+        "actual": 52,
+        "expected": 52
+      },
+      "readiness": {
+        "status": "completed",
+        "errorCode": null,
+        "assessmentId": "966bc489-7f31-4800-b4c5-0470d3a8b5bf",
+        "categories": [
+          {
+            "id": "repository",
+            "state": "completed"
+          },
+          {
+            "id": "requirements",
+            "state": "incomplete"
+          },
+          {
+            "id": "design",
+            "state": "incomplete"
+          },
+          {
+            "id": "standards",
+            "state": "incomplete"
+          }
+        ]
+      },
+      "review": {
+        "id": "172e2c1b-f512-4eb9-9b59-186b17939d3f",
+        "status": "failed",
+        "modelStatus": "partial",
+        "failureReason": "The model assessment could not be validated. Inspect the saved limitations and retry the review manually.",
+        "findingCount": 40
+      },
+      "modelExecution": {
+        "providerSucceeded": true,
+        "validatedAssessment": false,
+        "attempts": [
+          {
+            "outcome": "success",
+            "durationMs": 42966
+          },
+          {
+            "outcome": "success",
+            "durationMs": 50394
+          },
+          {
+            "outcome": "success",
+            "durationMs": 49724
+          },
+          {
+            "outcome": "success",
+            "durationMs": 40316
+          },
+          {
+            "outcome": "success",
+            "durationMs": 50358
+          },
+          {
+            "outcome": "success",
+            "durationMs": 41026
+          },
+          {
+            "outcome": "success",
+            "durationMs": 39503
+          },
+          {
+            "outcome": "success",
+            "durationMs": 36148
+          },
+          {
+            "outcome": "success",
+            "durationMs": 51923
+          },
+          {
+            "outcome": "success",
+            "durationMs": 64546
+          },
+          {
+            "outcome": "success",
+            "durationMs": 52168
+          },
+          {
+            "outcome": "success",
+            "durationMs": 45443
+          },
+          {
+            "outcome": "success",
+            "durationMs": 31734
+          },
+          {
+            "outcome": "success",
+            "durationMs": 50356
+          },
+          {
+            "outcome": "success",
+            "durationMs": 47224
+          },
+          {
+            "outcome": "malformed_response",
+            "code": "malformed_response",
+            "durationMs": 65946
+          },
+          {
+            "outcome": "success",
+            "durationMs": 56521
+          },
+          {
+            "outcome": "success",
+            "durationMs": 54661
+          },
+          {
+            "outcome": "success",
+            "durationMs": 41956
+          },
+          {
+            "outcome": "success",
+            "durationMs": 40195
+          },
+          {
+            "outcome": "success",
+            "durationMs": 23883
+          }
+        ],
+        "capturedPolicy": "review-2026-10-23-numbered-source-coverage-v8"
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 48,
+        "denominator": 48,
+        "value": 1,
+        "files": [
+          ".eslintrc.js",
+          "index.d.ts",
+          "index.js",
+          "lib/adapters/http.js",
+          "lib/adapters/xhr.js",
+          "lib/axios.js",
+          "lib/cancel/CancelToken.js",
+          "lib/cancel/CanceledError.js",
+          "lib/cancel/isCancel.js",
+          "lib/core/Axios.js",
+          "lib/core/AxiosError.js",
+          "lib/core/InterceptorManager.js",
+          "lib/core/buildFullPath.js",
+          "lib/core/dispatchRequest.js",
+          "lib/core/mergeConfig.js",
+          "lib/core/settle.js",
+          "lib/core/transformData.js",
+          "lib/defaults/index.js",
+          "lib/defaults/transitional.js",
+          "lib/env/classes/FormData.js",
+          "lib/env/data.js",
+          "lib/helpers/AxiosURLSearchParams.js",
+          "lib/helpers/bind.js",
+          "lib/helpers/buildURL.js",
+          "lib/helpers/combineURLs.js",
+          "lib/helpers/cookies.js",
+          "lib/helpers/deprecatedMethod.js",
+          "lib/helpers/formDataToJSON.js",
+          "lib/helpers/fromDataURI.js",
+          "lib/helpers/isAbsoluteURL.js",
+          "lib/helpers/isAxiosError.js",
+          "lib/helpers/isURLSameOrigin.js",
+          "lib/helpers/normalizeHeaderName.js",
+          "lib/helpers/null.js",
+          "lib/helpers/parseHeaders.js",
+          "lib/helpers/parseProtocol.js",
+          "lib/helpers/spread.js",
+          "lib/helpers/toFormData.js",
+          "lib/helpers/toURLEncodedForm.js",
+          "lib/helpers/validator.js",
+          "lib/platform/browser/classes/FormData.js",
+          "lib/platform/browser/classes/URLSearchParams.js",
+          "lib/platform/browser/index.js",
+          "lib/platform/index.js",
+          "lib/platform/node/classes/FormData.js",
+          "lib/platform/node/classes/URLSearchParams.js",
+          "lib/platform/node/index.js",
+          "lib/utils.js"
+        ]
+      },
+      "goldAffectedFilesInspected": true,
+      "domainDisclosure": {
+        "numerator": 588,
+        "denominator": 588,
+        "value": 1
+      },
+      "supportedClaimCoverage": {
+        "numerator": 148,
+        "denominator": 588,
+        "value": 0.25170068027210885
+      },
+      "evidenceValidity": {
+        "numerator": 654,
+        "denominator": 654,
+        "value": 1
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "docusaurus",
+      "instanceId": "facebook__docusaurus-9897",
+      "projectId": "d957f4b7-f286-4efd-81fc-6d0ac1e1250e",
+      "import": {
+        "valid": true,
+        "actual": 29,
+        "expected": 29
+      },
+      "readiness": {
+        "status": "completed",
+        "errorCode": null,
+        "assessmentId": "c6de651f-8ec7-46a6-bb68-24a862fd44ac",
+        "categories": [
+          {
+            "id": "repository",
+            "state": "completed"
+          },
+          {
+            "id": "requirements",
+            "state": "incomplete"
+          },
+          {
+            "id": "design",
+            "state": "incomplete"
+          },
+          {
+            "id": "standards",
+            "state": "incomplete"
+          }
+        ]
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 23,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 292,
+        "denominator": 292,
+        "value": 1
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "immutable-js",
+      "instanceId": "immutable-js__immutable-js-2006",
+      "projectId": "63b5941f-6daa-42fc-bb1e-fd1eb0d70e88",
+      "import": {
+        "valid": true,
+        "actual": 80,
+        "expected": 80
+      },
+      "readiness": {
+        "status": "completed",
+        "errorCode": null,
+        "assessmentId": "0e0c56f3-c976-4370-b0f9-e4043ecb235a",
+        "categories": [
+          {
+            "id": "repository",
+            "state": "completed"
+          },
+          {
+            "id": "requirements",
+            "state": "incomplete"
+          },
+          {
+            "id": "design",
+            "state": "incomplete"
+          },
+          {
+            "id": "standards",
+            "state": "incomplete"
+          }
+        ]
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 75,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 270,
+        "denominator": 270,
+        "value": 1
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "three-js",
+      "instanceId": "mrdoob__three.js-26589",
+      "projectId": "ec239972-c456-4747-a199-d0fcce10e631",
+      "import": {
+        "valid": true,
+        "actual": 10,
+        "expected": 10
+      },
+      "readiness": {
+        "status": "completed",
+        "errorCode": null,
+        "assessmentId": "d94803d8-1d72-49f6-8341-56f24b9d4eaa",
+        "categories": [
+          {
+            "id": "repository",
+            "state": "completed"
+          },
+          {
+            "id": "requirements",
+            "state": "incomplete"
+          },
+          {
+            "id": "design",
+            "state": "completed"
+          },
+          {
+            "id": "standards",
+            "state": "completed"
+          }
+        ]
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 6,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 90,
+        "denominator": 90,
+        "value": 1
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "preact",
+      "instanceId": "preactjs__preact-2757",
+      "projectId": "ff95471a-ec7d-464a-a4c2-01905aa85f12",
+      "import": {
+        "valid": true,
+        "actual": 21,
+        "expected": 21
+      },
+      "readiness": {
+        "status": "completed",
+        "errorCode": null,
+        "assessmentId": "b988679f-400b-432a-8de7-22373e9efdc5",
+        "categories": [
+          {
+            "id": "repository",
+            "state": "completed"
+          },
+          {
+            "id": "requirements",
+            "state": "incomplete"
+          },
+          {
+            "id": "design",
+            "state": "incomplete"
+          },
+          {
+            "id": "standards",
+            "state": "completed"
+          }
+        ]
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 17,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 233,
+        "denominator": 233,
+        "value": 1
+      },
+      "invalidReferences": []
+    }
+  ],
+  "executionEligibility": {
+    "numerator": 0,
+    "denominator": 5,
+    "value": 0
+  },
+  "providerResponseCompletion": {
+    "numerator": 1,
+    "denominator": 5,
+    "value": 0.2
+  },
+  "successfulWorkflowRecall": {
+    "numerator": 0,
+    "denominator": 0,
+    "value": null
+  },
+  "providerCompletedKnownIssueRecall": {
+    "numerator": 0,
+    "denominator": 1,
+    "value": 0
+  },
+  "providerCompletedKnownOccurrenceRecall": {
+    "numerator": 0,
+    "denominator": 1,
+    "value": 0
+  },
+  "modelPrecision": {
+    "tp": 26,
+    "fp": 2,
+    "unknown": 0,
+    "numerator": 26,
+    "denominator": 28,
+    "value": 0.9285714285714286,
+    "lowerBound": 0.9285714285714286,
+    "upperBound": 0.9285714285714286
+  },
+  "deterministicPrecision": {
+    "tp": 6,
+    "fp": 0,
+    "unknown": 0,
+    "numerator": 6,
+    "denominator": 6,
+    "value": 1,
+    "lowerBound": 1,
+    "upperBound": 1
+  },
+  "aggregatePrecision": {
+    "tp": 32,
+    "fp": 2,
+    "unknown": 0,
+    "numerator": 32,
+    "denominator": 34,
+    "value": 0.9411764705882353,
+    "lowerBound": 0.9411764705882353,
+    "upperBound": 0.9411764705882353
+  },
+  "knownIssueRecall": {
+    "numerator": 0,
+    "denominator": 5,
+    "value": 0,
+    "status": "end_to_end_baseline"
+  },
+  "knownOccurrenceRecall": {
+    "numerator": 0,
+    "denominator": 7,
+    "value": 0,
+    "status": "end_to_end_baseline"
+  },
+  "evidenceValidity": {
+    "numerator": 1539,
+    "denominator": 1539,
+    "value": 1
+  },
+  "selectedFileInspection": {
+    "numerator": 48,
+    "denominator": 169,
+    "value": 0.28402366863905326
+  },
+  "domainDisclosure": {
+    "numerator": 588,
+    "denominator": 588,
+    "value": 1
+  },
+  "supportedClaimCoverage": {
+    "numerator": 148,
+    "denominator": 588,
+    "value": 0.25170068027210885
+  },
+  "acceptance": "NOT_ACCEPTED",
+  "caveats": [
+    "Known gold is five issues, not exhaustive defect truth.",
+    "Imported file count does not establish inspection.",
+    "Acceptance is never inferred from empty predictions or missing runs.",
+    "Sanitized raw/effective Readiness diagnostics are available only for newly completed runs.",
+    "Capacity-blocked and unattempted cases do not establish model semantic accuracy; fixed end-to-end recall remains disclosed.",
+    "The Readiness gold contains seven partial assertions per case, not a complete criterion-level truth set."
+  ],
+  "readinessDiagnostics": [
+    {
+      "instanceId": "axios__axios-4738",
+      "available": true,
+      "batchCount": 3,
+      "rawPresence": [
+        {
+          "category": "requirements",
+          "presence": "present"
+        },
+        {
+          "category": "design",
+          "presence": "present"
+        },
+        {
+          "category": "standards",
+          "presence": "present"
+        }
+      ],
+      "rawLocalPasses": 42,
+      "effectivePasses": 12,
+      "effectiveUnknown": 4,
+      "criterionCount": 16
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "available": true,
+      "batchCount": 3,
+      "rawPresence": [
+        {
+          "category": "requirements",
+          "presence": "present"
+        },
+        {
+          "category": "design",
+          "presence": "present"
+        },
+        {
+          "category": "standards",
+          "presence": "present"
+        }
+      ],
+      "rawLocalPasses": 33,
+      "effectivePasses": 8,
+      "effectiveUnknown": 8,
+      "criterionCount": 16
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "available": true,
+      "batchCount": 4,
+      "rawPresence": [
+        {
+          "category": "requirements",
+          "presence": "present"
+        },
+        {
+          "category": "design",
+          "presence": "present"
+        },
+        {
+          "category": "standards",
+          "presence": "present"
+        }
+      ],
+      "rawLocalPasses": 50,
+      "effectivePasses": 8,
+      "effectiveUnknown": 7,
+      "criterionCount": 16
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "available": true,
+      "batchCount": 2,
+      "rawPresence": [
+        {
+          "category": "requirements",
+          "presence": "present"
+        },
+        {
+          "category": "design",
+          "presence": "present"
+        },
+        {
+          "category": "standards",
+          "presence": "present"
+        }
+      ],
+      "rawLocalPasses": 20,
+      "effectivePasses": 13,
+      "effectiveUnknown": 1,
+      "criterionCount": 16
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "available": true,
+      "batchCount": 3,
+      "rawPresence": [
+        {
+          "category": "requirements",
+          "presence": "present"
+        },
+        {
+          "category": "design",
+          "presence": "present"
+        },
+        {
+          "category": "standards",
+          "presence": "present"
+        }
+      ],
+      "rawLocalPasses": 42,
+      "effectivePasses": 13,
+      "effectiveUnknown": 3,
+      "criterionCount": 16
+    }
+  ],
+  "readinessPartialAssertions": [
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "repository_completed_when_expected_imports_are_readable",
+      "verdict": "true",
+      "reason": "Fresh readiness-2026-10-23.3 snapshot 966bc489-7f31-4800-b4c5-0470d3a8b5bf completed at 2026-10-23T14:01:45.959Z, stale=false. Repository is completed with 52 sources and 2/2 checks. New independent byte reads verified all 52 expected imported files against frozen lengths/SHA-256 and current-run imported artifact hashes/version IDs. The frozen manifest/input/acceptance bundle also matches FREEZE.json. Original package.json, JSONC tsconfig.json and ESLint JavaScript parse with zero diagnostics using the trusted workspace TypeScript parser. No upstream code or dependencies were executed. This supports selected-input availability only, not full-repository build or correctness.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"Promise based HTTP client for the browser and node.js\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/tsconfig.json",
+          "lineNumber": 7,
+          "excerpt": "\"strict\": true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+          "lineNumber": 2,
+          "excerpt": "module.exports = {"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "requirements_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw requirements presence is present; effective Requirements is incomplete, not missing. README independently supplies substantive request configuration/default and timeout behavior. Across three raw batches, clarity/testability/business_decisions/boundaries/exceptions each have 3 pass; consistency has 1 pass/2 unknown and is effectively unknown; scope has 3 raw pass but becomes unknown after one nonexact scope-coverage citation. Effective Requirements therefore has 5 pass/2 unknown. This assertion establishes requirements presence and conservative incomplete disclosure, not the correctness of every individual quality judgment.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+          "lineNumber": 300,
+          "excerpt": "Only the `url` is required. Requests will default to `GET` if `method` is not specified."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+          "lineNumber": 364,
+          "excerpt": "If the request takes longer than `timeout`, the request will be aborted."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+          "lineNumber": 20,
+          "excerpt": "Please update the tests to reflect your code changes."
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "design_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw design presence is present; effective Design is incomplete, not missing. Original dispatch/merge responsibility comments and API declarations independently establish embedded design. Across three raw batches, all six design checks have 3 pass; effective responsibilities/interfaces/flows/failure_decisions/scope pass, while data is unknown after citation_source_unknown=1 and evidence_insufficient_distinct=1. The unknown preserves a citation limitation despite typed structures existing. This is neither an invented design document nor a complete-design certification.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+          "lineNumber": 23,
+          "excerpt": "Dispatch a request to the server using the configured adapter."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/mergeConfig.js",
+          "lineNumber": 6,
+          "excerpt": "Config-specific merge-function which creates a new config-object"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/index.d.ts",
+          "lineNumber": 127,
+          "excerpt": "export interface AxiosRequestConfig<D = any> {"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "standards_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw standards presence is present; effective Standards is incomplete, not missing. The original ESLint file explicitly supplies browser/Node applicability and concrete rule severities/options; CONTRIBUTING states a CI acceptance gate and test commands. Standards applicability and checkability each have raw {pass:2,gap:0,unknown:1,invalid:0} and effective pass; conflicts has raw {pass:1,gap:0,unknown:2,invalid:0} and effective unknown. The irrelevant/missing-content batch does not establish an absent standards category. No external style-guide content was fetched or presumed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+          "lineNumber": 8,
+          "excerpt": "'env': {\n    'browser': true,\n    'node': true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+          "lineNumber": 100,
+          "excerpt": "'indent': [2, 2]"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+          "lineNumber": 20,
+          "excerpt": "Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+      "verdict": "true",
+      "reason": "The fresh effective applicability/checkability passes have original source evidence. package.json targets lib/**/*.js with ESLint, original local configuration specifies environment selectors and exact equality/indent/quote/semicolon rules, and CONTRIBUTING documents concrete test commands and a failing-CI rejection gate. The raw counts are 2 pass/1 unknown for each and the merged diagnostics report basisValid=true, evidenceValid=true with no reason counts for these checks. This narrowly supports applicability/checkability; it does not prove current external CI enforcement, external-style compatibility, execution of these commands, or all standards completeness. The retained conflict criterion correctly remains unknown.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+          "lineNumber": 14,
+          "excerpt": "\"fix\": \"eslint --fix lib/**/*.js\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+          "lineNumber": 63,
+          "excerpt": "'eqeqeq': [2, \"smart\"]"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+          "lineNumber": 136,
+          "excerpt": "'semi': [2, 'always']"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+          "lineNumber": 28,
+          "excerpt": "- `grunt test` run the jasmine and mocha tests"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+          "lineNumber": 20,
+          "excerpt": "Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "no_invented_requirement_or_design_document",
+      "verdict": "true",
+      "reason": "Fresh independent retained-reference verification found 270/270 exact reference objects: 165 distinct path/excerpt pairs across 36 selected files. Every retained excerpt matches the original source and every contentHash/artifactId/sourceVersion matches the frozen bytes and current-run imported artifact/version; no nonexistent requirements/design file is cited. None of the saved references has a lineNumber, so matched line locations were independently derived rather than claiming saved line-number validation. Diagnostics disclose one rejected requirements scope quotation and one unknown design citation source; these were not treated as valid evidence. Retained exact provenance does not prove all raw or semantic statements correct. Full checks and derived match lines are preserved in readiness-axios-verification.json.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+          "lineNumber": 300,
+          "excerpt": "Only the `url` is required."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+          "lineNumber": 23,
+          "excerpt": "Dispatch a request to the server using the configured adapter."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/index.d.ts",
+          "lineNumber": 190,
+          "excerpt": "export interface AxiosResponse<T = any, D = any>  {"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "no_whole_repository_or_bug_free_certification",
+      "verdict": "true",
+      "reason": "The completed job keeps Requirements, Design and Standards incomplete and publishes four evidence-needed findings: requirements consistency/scope, design data, and standards rule conflicts. All four describe unverified criteria rather than asserting global absence. No retained finding or criterion certifies the whole repository, bug absence, or external runtime correctness; repository completion concerns the 52-file frozen selection. This run contains zero raw gap outcomes and zero batch_status_conflict counts, so it does not live-exercise or validate the new neutral mixed-batch conflict branch. These seven supported partial assertions are not full 16-criterion semantic acceptance, and no Review outcome is inferred.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"Promise based HTTP client for the browser and node.js\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+          "lineNumber": 24,
+          "excerpt": "Please update the [docs](README.md) accordingly so that there are no discrepancies between the API and the documentation."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+          "lineNumber": 23,
+          "excerpt": "Dispatch a request to the server using the configured adapter."
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "repository_completed_when_expected_imports_are_readable",
+      "verdict": "true",
+      "reason": "Fresh .3 snapshot c6de651f-8ec7-46a6-bb68-24a862fd44ac completed at 2026-10-23T14:05:29.546Z, stale=false. Repository is completed with 29 sources and 3/3 checks. Independently reread all 29 expected imported files and verified frozen SHA-256/lengths plus current-run imported artifact hashes and version IDs. The frozen manifest/input/acceptance bundle still matches FREEZE.json. Root package.json, utility package.json, JSONC tsconfig.json and ESLint JavaScript parse with zero diagnostics under the trusted workspace TypeScript parser. This verifies readable selected inputs and original configuration, not the full monorepo runtime or dependencies; no upstream source or dependencies were executed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+          "lineNumber": 2,
+          "excerpt": "\"name\": \"root\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/tsconfig.json",
+          "lineNumber": 30,
+          "excerpt": "\"strict\": true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.eslintrc.js",
+          "lineNumber": 24,
+          "excerpt": "module.exports = {"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "requirements_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw requirements presence is present; effective Requirements is incomplete, not missing. Original README defines localization/site-building capabilities and an initialization action, while CONTRIBUTING gives concrete development and contribution obligations. Each of the seven raw checks has 2 pass/1 unknown across three batches; effective clarity and testability pass, while consistency/business_decisions/boundaries/exceptions/scope remain unknown after exact-evidence and coverage limitations. Category sourceInventoryValid=false and classificationEvidenceValid=false explicitly preserve classification uncertainty. This is substantive requirements presence, not a claim that all required behaviors are fully specified.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+          "lineNumber": 44,
+          "excerpt": "Docusaurus ships with [localization support](https://docusaurus.io/docs/i18n/introduction) via CrowdIn."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+          "lineNumber": 52,
+          "excerpt": "Use the initialization CLI to create your site:"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+          "lineNumber": 128,
+          "excerpt": "Please make sure the following is done when submitting a pull request:"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "design_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw design presence is present; effective Design is incomplete, not missing. Original utility comments assign server-side Markdown metadata responsibility and delegate most parsing to MDX/mdx-loader; signatures specify typed interfaces. All six raw design checks have 2 pass/1 unknown, and all six effective checks pass. Nevertheless sourceInventoryValid=false (source_inventory_invalid=2) prevents completed category status despite valid classification evidence and check evidence. This conservative classification limit is retained; six passing criteria are not treated as complete project design.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 16,
+          "excerpt": "// Some utilities for parsing Markdown content. These things are only used on\n// server-side when we infer metadata like `title` and `description` from the\n// content. Most parsing is still done in MDX through the mdx-loader."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 27,
+          "excerpt": "export function parseMarkdownHeadingId(heading: string): {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "standards_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw standards presence is present; effective Standards is incomplete, not missing. CONTRIBUTING names formatter/linter use and CI, and original .editorconfig/.eslintrc/tsconfig give explicit target selectors and rules. Applicability has 3 raw pass but effective unknown after nonexact scope-coverage evidence. Checkability has 2 raw pass/1 gap and effective unknown with batch_status_conflict=1. Conflicts has 2 raw pass/1 unknown and effective unknown. These disclosed unresolved checks do not erase the observed coding standards, nor certify external rule compatibility.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+          "lineNumber": 115,
+          "excerpt": "We do have Prettier (a formatter) and ESLint (a syntax linter) to catch most stylistic problems."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.editorconfig",
+          "lineNumber": 5,
+          "excerpt": "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\nindent_style = space\nindent_size = 2"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.eslintrc.js",
+          "lineNumber": 74,
+          "excerpt": "curly: [WARNING, 'all']"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/tsconfig.json",
+          "lineNumber": 30,
+          "excerpt": "\"strict\": true"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+      "verdict": "true",
+      "reason": "The resulting applicability/checkability judgments are conservatively unknown and grounded in original rules and exact retained references. Applicability identifies global selectors and scoped overrides but stays unknown after citation/scope validation limits. Checkability raw {pass:2,gap:1,unknown:0,invalid:0} becomes effective unknown, basisValid=true/evidenceValid=true, reasonCounts={batch_status_conflict:1}. Its basis neutrally states that batches returned both pass and gap and no verified cross-batch comparison resolved them. The finding describes unresolved disagreement, rather than publishing a local absence claim as a project-wide fact. Its seven retained references include actual format:diff/lint:ci commands, header-rule guidance, badges and TypeScript options. Original commands and configurations independently exist, so absence would be contradicted; the fresh result does not assert absence. This passes the frozen evidence-grounding assertion without treating unknown as pass or certifying that the raw gap itself was semantically correct. It directly exercises the .3 live mixed-batch branch.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+          "lineNumber": 50,
+          "excerpt": "\"format:diff\": \"prettier --list-different .\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/package.json",
+          "lineNumber": 52,
+          "excerpt": "\"lint:ci\": \"yarn lint:js --quiet && yarn lint:style && yarn lint:spelling\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+          "lineNumber": 205,
+          "excerpt": "This is also auto-fixable with the `header/header` ESLint rule."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/tsconfig.json",
+          "lineNumber": 25,
+          "excerpt": "\"noImplicitReturns\": true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/.editorconfig",
+          "lineNumber": 9,
+          "excerpt": "indent_style = space\nindent_size = 2"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/CONTRIBUTING.md",
+          "lineNumber": 43,
+          "excerpt": "All pull requests will be checked by the continuous integration system, GitHub actions."
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "no_invented_requirement_or_design_document",
+      "verdict": "true",
+      "reason": "Independent fresh verification matched all 292 retained reference objects: 165 distinct path/excerpt pairs spanning all 29 selected source files. Exact original excerpts, content hashes, artifact identities and version IDs all agree; no nonexistent requirement/design document is cited. Saved references have no lineNumber fields, so source match lines were independently derived rather than asserting that saved line numbers were checked. Raw diagnostics retain many rejected citations and inventory limitations (requirements category citation_not_exact=18; standards category citation_not_exact=1), so valid filtered retained citations do not establish raw-response or full semantic accuracy. Full checks and source match lines are preserved in readiness-docusaurus-verification.json.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+          "lineNumber": 32,
+          "excerpt": "Docusaurus is a project for building, deploying, and maintaining open source project websites easily."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 18,
+          "excerpt": "// content. Most parsing is still done in MDX through the mdx-loader."
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "id": "no_whole_repository_or_bug_free_certification",
+      "verdict": "true",
+      "reason": "Repository completion is restricted to the 29-file frozen selection. Requirements, Design and Standards all remain incomplete, including Design despite 6/6 effective criterion passes because source inventory validation failed. The retained findings request evidence for unresolved criteria/classification, and checkability explicitly preserves a batch disagreement instead of asserting missing commands or configuration. No retained basis/finding certifies the whole repository, bug absence, external runtime behavior or fully complete project readiness. These seven partial assertions do not certify the entire 16-criterion semantic assessment, and no Review acceptance or outcome is inferred.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"Node utility functions for Docusaurus packages.\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 18,
+          "excerpt": "// content. Most parsing is still done in MDX through the mdx-loader."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/docusaurus/README.md",
+          "lineNumber": 32,
+          "excerpt": "Docusaurus is a project for building, deploying, and maintaining open source project websites easily."
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "repository_completed_when_expected_imports_are_readable",
+      "verdict": "true",
+      "reason": "Fresh .3 snapshot 0e0c56f3-c976-4370-b0f9-e4043ecb235a completed at 2026-10-23T18:51:02.319Z, stale=false. Repository is completed with 80 selected sources and 2/2 checks. Independently reread all 80 expected files and matched frozen byte lengths/SHA-256 plus current-run imported artifact hashes/version IDs. Original package, ESLint and Prettier JSON parse with zero diagnostics under the trusted workspace parser. Frozen manifest/input/acceptance files still match FREEZE.json. This supports selected-input availability, not full-repository runtime correctness; no upstream source or dependencies were executed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/package.json",
+          "lineNumber": 2,
+          "excerpt": "\"name\": \"immutable\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.eslintrc.json",
+          "lineNumber": 2,
+          "excerpt": "\"root\": true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.prettierrc.json",
+          "lineNumber": 2,
+          "excerpt": "\"singleQuote\": true"
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "requirements_present_not_missing",
+      "verdict": "true",
+      "reason": "Raw requirements presence is present; effective Requirements is incomplete, not missing. README directly states immutable/nonmutating update behavior and supplies worked value/identity examples, independently proving substantive requirements. Four raw batches yield testability 3 pass/1 unknown (effective pass), exceptions 3 gap/1 unknown (effective gap), and other criteria predominantly passes/unknowns but effectively unknown after citation/scope/comparison limits. The exceptions finding is specifically about the mutable-copy warning lacking a defined error or recovery outcome; it does not erase the explicitly documented ordinary behavior. This assertion establishes presence only, not all seven criterion judgments.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 26,
+          "excerpt": "[Immutable][] data cannot be changed once created"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 29,
+          "excerpt": "a mutative API which does not update the data in-place, but instead always\nyields new updated data."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 561,
+          "excerpt": "assert.equal(list2.size, 6);"
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "design_present_not_missing",
+      "verdict": "true",
+      "reason": "Raw design presence is present; effective Design is incomplete, not missing. README explains structural sharing and lazy sequence responsibility, and selected Collection/getIn implementations expose specialization and traversal interfaces. All six design checks have four raw passes and effective pass. The category nevertheless remains incomplete because sourceInventoryValid=false/source_inventory_invalid=1. Six passing checks are not promoted to complete classification or complete architecture.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 36,
+          "excerpt": "structural sharing via [hash maps tries][] and [vector tries][]"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 39,
+          "excerpt": "Immutable.js also provides a lazy `Seq`, allowing efficient\nchaining of collection methods like `map` and `filter` without creating\nintermediate representations."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/Collection.js",
+          "lineNumber": 14,
+          "excerpt": "export class KeyedCollection extends Collection {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/functional/getIn.js",
+          "lineNumber": 5,
+          "excerpt": "export function getIn(collection, searchKeyPath, notSetValue) {"
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "standards_present_not_missing",
+      "verdict": "true",
+      "reason": "Raw standards presence is present; effective Standards is incomplete, not missing. Original EditorConfig, ESLint and Prettier rules establish file applicability and concrete conventions; package scripts specify formatting/linting checks. Each raw standards criterion has 3 pass/1 unknown. Effective applicability/conflicts stay unknown after scope/citation/comparison limitations, while checkability passes. The category classification evidence is not fully valid, so this is observed standards presence rather than complete standards certification.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.editorconfig",
+          "lineNumber": 9,
+          "excerpt": "[*.{js,d.ts,json,html,md,sh}]\ncharset = utf-8\nindent_style = space\nindent_size = 2"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.eslintrc.json",
+          "lineNumber": 38,
+          "excerpt": "\"no-unused-vars\": \"error\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.prettierrc.json",
+          "lineNumber": 2,
+          "excerpt": "\"singleQuote\": true"
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+      "verdict": "true",
+      "reason": "The resulting applicability/checkability judgments have original rule evidence. Applicability remains unknown despite identifiable source globs because a scope-coverage citation failed; checkability passes with basisValid/evidenceValid=true and no criterion reasons. package.json explicitly runs formatting/lint/type-check/build/tests and targets source directories; ESLint supplies error-level rules, Prettier chooses single quotes and EditorConfig supplies scoped whitespace rules. No unknown is upgraded to pass, no global absence of checking commands is asserted, and no external rule compatibility or successful tool execution is claimed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/package.json",
+          "lineNumber": 59,
+          "excerpt": "\"test\": \"run-s format lint type-check build unit-test\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/package.json",
+          "lineNumber": 61,
+          "excerpt": "\"lint\": \"run-s lint:*\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.eslintrc.json",
+          "lineNumber": 38,
+          "excerpt": "\"no-unused-vars\": \"error\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.editorconfig",
+          "lineNumber": 11,
+          "excerpt": "indent_style = space\nindent_size = 2"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.prettierrc.json",
+          "lineNumber": 2,
+          "excerpt": "\"singleQuote\": true"
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "no_invented_requirement_or_design_document",
+      "verdict": "true",
+      "reason": "Verified all 270 retained reference objects: 181 distinct path/excerpt pairs across 50 selected files. Every exact source excerpt, contentHash, artifact identity and version ID matches frozen bytes and current-run imports; no nonexistent requirements/design document is cited. No saved lineNumber fields exist, so match lines were independently located. Raw diagnostics still disclose rejected citations and incomplete inventory/classification evidence; filtered retained provenance does not establish raw-response or full semantic accuracy. Detailed checks are in readiness-immutable-js-verification.json.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 35,
+          "excerpt": "These data structures are highly efficient on modern JavaScript VMs by using"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/Collection.js",
+          "lineNumber": 7,
+          "excerpt": "export class Collection {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/functional/getIn.js",
+          "lineNumber": 11,
+          "excerpt": "return notSetValue;"
+        }
+      ]
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "id": "no_whole_repository_or_bug_free_certification",
+      "verdict": "true",
+      "reason": "The completed job preserves incomplete Requirements, Design and Standards; Repository completed applies only to 80 selected files. Design is incomplete despite 6/6 passing criteria because source inventory validation failed. The requirements misuse warning is narrow and source-backed: README warns that returning a mutable copy could result in undesired behavior, while nearby text separately documents methods that always return new immutable structures. Findings otherwise request evidence for unresolved criteria/classification. No retained statement certifies the whole repository, absence of bugs or external runtime behavior. No mixed raw pass/gap criterion or batch_status_conflict occurs here. These seven partial assertions are separate from all16 semantic judgments and Review acceptance.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 565,
+          "excerpt": "Use caution to not\nreturn a mutable copy, which could result in undesired behavior."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+          "lineNumber": 571,
+          "excerpt": "and `splice` will always return new immutable data-structures and never mutate\na mutable collection."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.editorconfig",
+          "lineNumber": 9,
+          "excerpt": "[*.{js,d.ts,json,html,md,sh}]"
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "repository_completed_when_expected_imports_are_readable",
+      "verdict": "true",
+      "reason": "Fresh snapshot d94803d8-1d72-49f6-8341-56f24b9d4eaa completed at 2026-10-23T18:52:51.406Z under readiness-2026-10-23.3, stale=false. Repository is completed with 10 sources and 2/2 checks. Independently reread all 10 expected files and matched frozen byte lengths/SHA-256, current-run imported artifact hashes/version IDs and the frozen manifest/input/acceptance bundle. Original package and ESLint JSON parse with zero diagnostics under the trusted workspace parser. This supports readable selected sources/configuration, not full repository or runtime correctness. No upstream code/dependencies were executed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 2,
+          "excerpt": "\"name\": \"three\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.eslintrc.json",
+          "lineNumber": 2,
+          "excerpt": "\"root\": true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.editorconfig",
+          "lineNumber": 3,
+          "excerpt": "root = true"
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "requirements_present_not_missing",
+      "verdict": "true",
+      "reason": "Raw requirements presence is present; effective Requirements is incomplete, not missing. Original README specifies renderer packaging and an observable animated-cube journey. Across two raw batches, clarity/consistency/business_decisions/boundaries each have 1 pass/1 unknown and effective pass; testability/exceptions each have 1 gap/1 unknown and effective gap; scope has 1 pass/1 unknown but becomes unknown after nonexact scope evidence. This independently establishes presence, without accepting all individual requirement findings. In particular the browser-matrix absence phrase needs qualification because package.json already declares Browserslist targets; that additional semantic issue is retained separately.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+          "lineNumber": 11,
+          "excerpt": "The current builds only include a WebGL renderer but WebGPU (experimental), SVG and CSS3D renderers are also available as addons."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+          "lineNumber": 24,
+          "excerpt": "This code creates a scene, a camera, and a geometric cube, and it adds the cube to the scene."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 39,
+          "excerpt": "\"> 1%, not dead, not ie 11, not op_mini all\""
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "design_present_not_missing",
+      "verdict": "true",
+      "reason": "Raw design presence is present; effective Design is completed with six passing criteria, each backed by two raw passes. The selected Object3D/Material/Line/Mesh/Points classes and shared constants contain substantive interfaces, data, flows and failure choices, so Design is not wholly missing. The frozen conservative prior remains Incomplete and has not been rewritten. Design completed is an observed category verdict, not independently accepted full design completeness: the seven partial assertions do not provide exhaustive criterion-level gold or establish the complete clone-ownership/failure contract. This prior/output disagreement remains an explicit unscored unknown in the verification artifact.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/core/Object3D.js",
+          "lineNumber": 28,
+          "excerpt": "class Object3D extends EventDispatcher {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/materials/Material.js",
+          "lineNumber": 7,
+          "excerpt": "class Material extends EventDispatcher {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Mesh.js",
+          "lineNumber": 37,
+          "excerpt": "constructor( geometry = new BufferGeometry(), material = new MeshBasicMaterial() ) {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Points.js",
+          "lineNumber": 31,
+          "excerpt": "copy( source, recursive ) {"
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "standards_present_not_missing",
+      "verdict": "true",
+      "reason": "Raw standards presence is present; effective Standards is completed, an allowed frozen standards category state. EditorConfig defines target patterns/indentation, ESLint defines environment/rule severities and package scripts invoke checks. All three standards criteria have 1 raw pass/1 unknown and effective pass, with source inventory/classification/scope evidence valid. This assertion establishes actual standards presence; the full conflict criterion is not separately certified against external configurations by these seven assertions.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.editorconfig",
+          "lineNumber": 9,
+          "excerpt": "[*.{js,ts,html}]\ncharset = utf-8\nindent_style = tab"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.eslintrc.json",
+          "lineNumber": 46,
+          "excerpt": "\"no-throw-literal\": [\n      \"error\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 47,
+          "excerpt": "\"lint-core\": \"eslint src\""
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+      "verdict": "true",
+      "reason": "The resulting applicability/checkability passes are supported by original rules: root configuration/environment selectors and EditorConfig file patterns identify applicability, while ESLint error-level single quotes and no-throw-literal rules plus lint-core/test scripts give concrete checking methods. Both raw counts are 1 pass/1 unknown; effective pass has basisValid/evidenceValid=true and no criterion reason counts. No global absence of commands/configuration is asserted. This does not mean the tools ran, their external rule packages were inspected, or actual browser compatibility passed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.editorconfig",
+          "lineNumber": 13,
+          "excerpt": "[*.{js,ts}]\ntrim_trailing_whitespace = true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/.eslintrc.json",
+          "lineNumber": 49,
+          "excerpt": "\"quotes\": [\n      \"error\",\n      \"single\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 47,
+          "excerpt": "\"lint-core\": \"eslint src\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 43,
+          "excerpt": "\"test\": \"npm run lint && npm run test-unit\""
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "no_invented_requirement_or_design_document",
+      "verdict": "true",
+      "reason": "All 90 retained reference objects match exact original text, frozen content hashes and current imported artifact/version IDs: 66 distinct path/excerpt pairs across all 10 selected files. No nonexistent requirement/design document is cited. Saved references contain no lineNumber fields; match lines were independently located. One raw requirements scope citation is rejected and retained as unknown; valid filtered provenance is distinct from semantic accuracy. Exact reference checks and additional semantic uncertainties are preserved in readiness-three-js-verification.json.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+          "lineNumber": 9,
+          "excerpt": "#### JavaScript 3D library"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Mesh.js",
+          "lineNumber": 35,
+          "excerpt": "class Mesh extends Object3D {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/src/objects/Points.js",
+          "lineNumber": 14,
+          "excerpt": "class Points extends Object3D {"
+        }
+      ]
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "id": "no_whole_repository_or_bug_free_certification",
+      "verdict": "true",
+      "reason": "No saved finding or criterion states that the whole repository is bug-free or runtime-correct. Repository completed denotes the 10-file selection; Design/Standards completed are selected-category verdicts, while Requirements remains incomplete with two gaps and one unknown. This assertion is not a general endorsement of those category verdicts: observed Design completed differs from the unmodified frozen prior Incomplete and is explicitly retained for further criterion-level adjudication. No whole-repository or bug-free certification follows from six passing design checks. The testability browser-matrix wording also remains an additional unscored uncertainty; the selected Browserslist policy prevents assuming that all browser targets are absent. No mixed raw pass/gap criterion or batch_status_conflict occurs in this run. These seven assertions are separate from full16 semantic and Review acceptance.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 4,
+          "excerpt": "\"description\": \"JavaScript 3D library\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/package.json",
+          "lineNumber": 39,
+          "excerpt": "\"> 1%, not dead, not ie 11, not op_mini all\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/three-js/README.md",
+          "lineNumber": 11,
+          "excerpt": "The current builds only include a WebGL renderer but WebGPU (experimental), SVG and CSS3D renderers are also available as addons."
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "repository_completed_when_expected_imports_are_readable",
+      "verdict": "true",
+      "reason": "Fresh .3 snapshot b988679f-400b-432a-8de7-22373e9efdc5 completed at 2026-10-24T05:24:20.825Z, stale=false. Repository completed reports 21 selected sources and 2/2 checks. Independently reread all 21 expected files and matched frozen bytes/SHA-256, current-run imported artifact hashes/version IDs and the frozen manifest/input/acceptance bundle. Original package.json, including its embedded ESLint/Prettier configuration, parses without diagnostics under the trusted workspace parser. This supports selected-source availability only, not a full build or correct runtime. No upstream code/dependencies were executed.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 2,
+          "excerpt": "\"name\": \"preact\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 91,
+          "excerpt": "\"eslintConfig\": {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+          "lineNumber": 1,
+          "excerpt": "root = true"
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "requirements_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw requirements presence is present; effective Requirements is incomplete, not missing. README explicitly states modern-browser/IE11 support, rendering behavior and a concrete one-DOM-update example; CONTRIBUTING states repository/release workflows. All seven raw checks have three passes. Effective clarity/consistency/testability/boundaries/exceptions pass; business_decisions and scope become unknown after invalid exact/source citations. This independently proves substantive requirements presence, without accepting every claimed size/browser/testability outcome as runtime verified or treating filtered raw passes as complete requirements.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+          "lineNumber": 16,
+          "excerpt": "- Supports all modern browsers and IE11"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+          "lineNumber": 61,
+          "excerpt": "Future calls to render() will reuse the existing tree and update it in-place in the DOM."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+          "lineNumber": 75,
+          "excerpt": "// ^ this second invocation of render(...) will use a single DOM call to update the text of the <h1>"
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "design_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw design presence is present; effective Design is incomplete, not missing. CONTRIBUTING distinguishes the core, compatibility, hooks/debug/testing addons and renderer extension points; selected VNode/component implementations provide concrete interfaces and data/flow decisions. All six raw design checks have three passes; effective responsibilities/interfaces/data/flows/failure_decisions pass, while scope remains unknown after citation_source_unknown=3 and scope citation/coverage limits. This is actual embedded design, not a separately invented architecture document or a certification of complete design.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+          "lineNumber": 22,
+          "excerpt": "src/  # Source code of our core"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+          "lineNumber": 73,
+          "excerpt": "Unique to Preact we do support several ways to hook into our renderer."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/src/create-element.js",
+          "lineNumber": 58,
+          "excerpt": "export function createVNode(type, props, key, ref, original) {"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/src/component.js",
+          "lineNumber": 13,
+          "excerpt": "export function Component(props, context) {"
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "standards_present_not_missing",
+      "verdict": "true",
+      "reason": "Fresh raw standards presence is present; effective Standards is completed, which is an allowed frozen standards state. Original EditorConfig defines tabs and scoped space-indentation exceptions; package.json configures ESLint rules, Prettier and staged-file automation. Each standards raw check has one pass/two unknowns; the relevant standards content supports effective applicability/checkability/conflicts pass with valid classification, inventory and scope evidence. This presence assertion does not independently certify every external extended rule or actual enforcement in the upstream runtime.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+          "lineNumber": 3,
+          "excerpt": "[*]\nindent_style = tab"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+          "lineNumber": 10,
+          "excerpt": "[{*.json,.*rc,*.yml}]\nindent_style = space\nindent_size = 2"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 140,
+          "excerpt": "\"useTabs\": true"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 112,
+          "excerpt": "\"no-unused-vars\": [\n        2,"
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+      "verdict": "true",
+      "reason": "Applicability/checkability passes have original rule evidence. package.json explicitly targets src/test/debug/compat/hooks/test-utils with ESLint, gives error-level no-unused-vars options, stages formatting for named extensions and wires lint-staged to pre-commit; EditorConfig names global and per-extension rules. Both raw counts are 1 pass/2 unknown, effective pass, basisValid/evidenceValid=true with no criterion reasons. No global absence of tools/configuration is asserted. Unknown batches are not evidence that project standards are absent. This proves availability of concrete checking methods, not that upstream commands/hooks were executed or every inherited rule is compatible.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 89,
+          "excerpt": "\"lint\": \"eslint src test debug compat hooks test-utils\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 112,
+          "excerpt": "\"no-unused-vars\": [\n        2,"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 151,
+          "excerpt": "\"pre-commit\": \"lint-staged\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+          "lineNumber": 10,
+          "excerpt": "[{*.json,.*rc,*.yml}]\nindent_style = space\nindent_size = 2"
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "no_invented_requirement_or_design_document",
+      "verdict": "true",
+      "reason": "Fresh independent verification matched all 233 retained reference objects: 124 distinct path/excerpt pairs across 19 selected files. Exact original excerpts, frozen content hashes and current imported artifact/version IDs agree; no nonexistent requirement/design document is cited. None of the retained references has a saved lineNumber; exact match lines were independently located. Diagnostics explicitly retain rejected nonexact/unknown-source citations in requirement business/scope and design scope, so valid filtered references do not imply raw-output or full semantic accuracy. Full checks and matched lines are recorded in readiness-preact-verification.json.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+          "lineNumber": 59,
+          "excerpt": "With Preact, you create user interfaces by assembling trees of components and elements."
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+          "lineNumber": 71,
+          "excerpt": "## What does `options.js` do?"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/src/create-element.js",
+          "lineNumber": 11,
+          "excerpt": "export function createElement(type, props, children) {"
+        }
+      ]
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "id": "no_whole_repository_or_bug_free_certification",
+      "verdict": "true",
+      "reason": "The fresh completed job preserves incomplete Requirements and Design, with three evidence-needed findings for business decisions and requirements/design scope. Standards completed concerns original selected rules, not absence of code defects or whole-repository/runtime correctness. Repository completed denotes only the 21-file frozen selection. No retained finding/basis certifies a bug-free renderer, full external ecosystem or whole repository. No mixed raw pass/gap criterion or batch_status_conflict occurs. The prior quota-paused attempt with an older snapshot is explicitly excluded as current evidence. These seven partial assertions remain separate from full16 semantic accuracy and all Static Review acceptance.",
+      "sourceEvidence": [
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+          "lineNumber": 6,
+          "excerpt": "\"description\": \"Fast 3kb React-compatible Virtual DOM library.\""
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+          "lineNumber": 22,
+          "excerpt": "src/  # Source code of our core"
+        },
+        {
+          "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+          "lineNumber": 61,
+          "excerpt": "Future calls to render() will reuse the existing tree and update it in-place in the DOM."
+        }
+      ]
+    }
+  ],
+  "semanticAccuracyEligible": false,
+  "readinessPartialAgreement": {
+    "numerator": 35,
+    "denominator": 35,
+    "value": 1,
+    "missing": 0,
+    "unknown": 0,
+    "complete": true
+  },
+  "policyCoverage": [
+    {
+      "instanceId": "axios__axios-4738",
+      "reviewPolicy": "review-2026-10-23-numbered-source-coverage-v8",
+      "valid": true,
+      "readinessPolicy": "readiness-2026-10-23.3"
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "reviewPolicy": null,
+      "valid": false,
+      "readinessPolicy": "readiness-2026-10-23.3"
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "reviewPolicy": null,
+      "valid": false,
+      "readinessPolicy": "readiness-2026-10-23.3"
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "reviewPolicy": null,
+      "valid": false,
+      "readinessPolicy": "readiness-2026-10-23.3"
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "reviewPolicy": null,
+      "valid": false,
+      "readinessPolicy": "readiness-2026-10-23.3"
+    }
+  ],
+  "unsupportedGoldMatchCount": 0,
+  "runDirectory": "C:\\Cstan\\Projects\\centinel\\evidence\\public-repo-outcomes-2026-10-22\\run-2026-10-24T05-20-10-602Z",
+  "checkpoint": true
+}

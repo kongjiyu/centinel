@@ -1,7 +1,15 @@
 import fs from 'fs';
 import type { AiProvider, AiApiFormat } from './settings.js';
 
-type TestResult = { status: string; message?: string; raw?: string; hint?: string; usage?: TokenUsage };
+type TestResult = {
+  status: string;
+  message?: string;
+  raw?: string;
+  hint?: string;
+  usage?: TokenUsage;
+  responseReceived?: boolean;
+  usageAccounting?: UsageAccounting;
+};
 
 type SettingLike = {
   apiKey: string;
@@ -24,12 +32,44 @@ export type { SettingLike };
  * billed" from "usage unknown".
  */
 export type TokenUsage = {
-  inputTokens: number;
-  outputTokens: number;
+  inputTokens?: number;
+  outputTokens?: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  /** Only populated when the raw provider usage payload explicitly supplied a total. */
+  providerReportedTotalTokens?: number;
+  /** Origin of totalTokens, which may be adapter-derived when provider total is absent. */
+  totalTokensSource?: 'provider_reported' | 'adapter_derived';
+  /** Normalized total retained for compatibility; adapters may derive it. */
   totalTokens?: number;
+  /** Safe provenance for a provider usage block. No raw response content is retained. */
+  usageObservation?: TokenUsageObservation;
 };
+
+export type TokenUsageObservation = {
+  source: 'provider_response' | 'provider_error_response' | 'codex_thread_total' | 'codex_turn_last';
+  completeness: 'complete' | 'partial';
+  missingCounters?: UsageCounter[];
+};
+
+export type UsageCounter = 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheCreationTokens' | 'totalTokens';
+
+export type UsageAccounting = {
+  basis: 'assumed_zero_no_response';
+  accountedTokens: 0;
+};
+
+function usageCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function usageObservation(
+  source: TokenUsageObservation['source'],
+  fields: Array<[UsageCounter, unknown]>,
+): TokenUsageObservation {
+  const missingCounters = fields.filter(([, value]) => usageCount(value) === undefined).map(([name]) => name);
+  return { source, completeness: missingCounters.length ? 'partial' : 'complete', ...(missingCounters.length ? { missingCounters } : {}) };
+}
 
 export function getAuthHeaders(setting: SettingLike): Record<string, string> {
   // MiMo uses x-api-key header (Anthropic-compatible convention)
@@ -87,20 +127,21 @@ export function parseAnthropicToolTurn(json: unknown): ToolTurn {
 
 function parseAnthropicUsage(usage: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined): TokenUsage | undefined {
   if (!usage) return undefined;
-  const input = Number(usage.input_tokens ?? 0);
-  const output = Number(usage.output_tokens ?? 0);
-  const cacheRead = Number(usage.cache_read_input_tokens ?? 0);
-  const cacheCreation = Number(usage.cache_creation_input_tokens ?? 0);
-  // Skip rows that have literally nothing — some providers omit usage on
-  // 4xx-returned error envelopes and we don't want to record a "0" row that
-  // pollutes the dashboard.
-  if (input === 0 && output === 0 && cacheRead === 0 && cacheCreation === 0) return undefined;
+  const input = usageCount(usage.input_tokens);
+  const output = usageCount(usage.output_tokens);
+  const cacheRead = usageCount(usage.cache_read_input_tokens);
+  const cacheCreation = usageCount(usage.cache_creation_input_tokens);
+  const hasCompleteCounts = input !== undefined && output !== undefined && cacheRead !== undefined && cacheCreation !== undefined;
   return {
-    inputTokens: input,
-    outputTokens: output,
-    cacheReadTokens: cacheRead || undefined,
-    cacheCreationTokens: cacheCreation || undefined,
-    totalTokens: input + output + cacheRead + cacheCreation,
+    ...(input === undefined ? {} : { inputTokens: input }),
+    ...(output === undefined ? {} : { outputTokens: output }),
+    ...(cacheRead === undefined ? {} : { cacheReadTokens: cacheRead }),
+    ...(cacheCreation === undefined ? {} : { cacheCreationTokens: cacheCreation }),
+    ...(hasCompleteCounts ? { totalTokens: input! + output! + cacheRead! + cacheCreation!, totalTokensSource: 'adapter_derived' as const } : {}),
+    usageObservation: usageObservation('provider_response', [
+      ['inputTokens', usage.input_tokens], ['outputTokens', usage.output_tokens],
+      ['cacheReadTokens', usage.cache_read_input_tokens], ['cacheCreationTokens', usage.cache_creation_input_tokens],
+    ]),
   };
 }
 
@@ -130,15 +171,20 @@ export function parseOpenAIToolTurn(json: unknown): ToolTurn {
 
 function parseOpenAIUsage(usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } } | undefined): TokenUsage | undefined {
   if (!usage) return undefined;
-  const input = Number(usage.prompt_tokens ?? 0);
-  const output = Number(usage.completion_tokens ?? 0);
-  const cached = Number(usage.prompt_tokens_details?.cached_tokens ?? 0);
-  if (input === 0 && output === 0 && cached === 0) return undefined;
+  const input = usageCount(usage.prompt_tokens);
+  const output = usageCount(usage.completion_tokens);
+  const cached = usageCount(usage.prompt_tokens_details?.cached_tokens);
+  const reportedTotal = usageCount(usage.total_tokens);
+  const total = reportedTotal ?? (input !== undefined && output !== undefined ? input + output : undefined);
   return {
-    inputTokens: input,
-    outputTokens: output,
-    cacheReadTokens: cached || undefined,
-    totalTokens: usage.total_tokens ?? input + output,
+    ...(input === undefined ? {} : { inputTokens: input }),
+    ...(output === undefined ? {} : { outputTokens: output }),
+    ...(cached === undefined ? {} : { cacheReadTokens: cached }),
+    ...(total === undefined ? {} : { totalTokens: total, totalTokensSource: reportedTotal === undefined ? 'adapter_derived' as const : 'provider_reported' as const }),
+    ...(reportedTotal === undefined ? {} : { providerReportedTotalTokens: reportedTotal }),
+    usageObservation: usageObservation('provider_response', [
+      ['inputTokens', usage.prompt_tokens], ['outputTokens', usage.completion_tokens], ['cacheReadTokens', usage.prompt_tokens_details?.cached_tokens],
+    ]),
   };
 }
 
@@ -172,16 +218,86 @@ export function parseGoogleToolTurn(json: unknown): ToolTurn {
 
 function parseGoogleUsage(meta: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number; cachedContentTokenCount?: number } | undefined): TokenUsage | undefined {
   if (!meta) return undefined;
-  const input = Number(meta.promptTokenCount ?? 0);
-  const output = Number(meta.candidatesTokenCount ?? 0);
-  const cached = Number(meta.cachedContentTokenCount ?? 0);
-  if (input === 0 && output === 0 && cached === 0) return undefined;
+  const input = usageCount(meta.promptTokenCount);
+  const output = usageCount(meta.candidatesTokenCount);
+  const cached = usageCount(meta.cachedContentTokenCount);
+  const reportedTotal = usageCount(meta.totalTokenCount);
+  const total = reportedTotal ?? (input !== undefined && output !== undefined ? input + output : undefined);
   return {
-    inputTokens: input,
-    outputTokens: output,
-    cacheReadTokens: cached || undefined,
-    totalTokens: meta.totalTokenCount ?? input + output,
+    ...(input === undefined ? {} : { inputTokens: input }),
+    ...(output === undefined ? {} : { outputTokens: output }),
+    ...(cached === undefined ? {} : { cacheReadTokens: cached }),
+    ...(total === undefined ? {} : { totalTokens: total, totalTokensSource: reportedTotal === undefined ? 'adapter_derived' as const : 'provider_reported' as const }),
+    ...(reportedTotal === undefined ? {} : { providerReportedTotalTokens: reportedTotal }),
+    usageObservation: usageObservation('provider_response', [
+      ['inputTokens', meta.promptTokenCount], ['outputTokens', meta.candidatesTokenCount], ['cacheReadTokens', meta.cachedContentTokenCount],
+    ]),
   };
+}
+
+/** Extract only token counters from a bounded provider payload. The payload
+ * itself is never returned or retained by this helper. */
+export function parseProviderResponseUsage(
+  apiFormat: AiApiFormat,
+  payload: unknown,
+  source: TokenUsageObservation['source'] = 'provider_response',
+): TokenUsage | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const root = payload as Record<string, unknown>;
+  const error = root.error && typeof root.error === 'object' && !Array.isArray(root.error)
+    ? root.error as Record<string, unknown> : undefined;
+  const response = root.response && typeof root.response === 'object' && !Array.isArray(root.response)
+    ? root.response as Record<string, unknown> : undefined;
+  const candidates = [root, error, response].filter((value): value is Record<string, unknown> => Boolean(value));
+  for (const candidate of candidates) {
+    const value = apiFormat === 'anthropic-compatible' ? candidate.usage
+      : apiFormat === 'google-native' ? candidate.usageMetadata : candidate.usage;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const parsed = apiFormat === 'anthropic-compatible'
+      ? parseAnthropicUsage(value as Parameters<typeof parseAnthropicUsage>[0])
+      : apiFormat === 'google-native'
+        ? parseGoogleUsage(value as Parameters<typeof parseGoogleUsage>[0])
+        : parseOpenAIUsage(value as Parameters<typeof parseOpenAIUsage>[0]);
+    if (parsed) return {
+      ...parsed,
+      usageObservation: parsed.usageObservation ? { ...parsed.usageObservation, source } : undefined,
+    };
+  }
+  return undefined;
+}
+
+/** Read a bounded response clone and retain only normalized usage counters.
+ * Raw provider error text is discarded and never returned to callers. */
+export async function readProviderErrorUsage(response: Response, apiFormat: AiApiFormat): Promise<TokenUsage | undefined> {
+  const reader = response.clone().body?.getReader();
+  if (!reader) return undefined;
+  const maxBytes = 16_384;
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytes = 0;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>(resolve => {
+    deadlineTimer = setTimeout(() => {
+      void reader.cancel().catch(() => undefined);
+      resolve(null);
+    }, 1_000);
+  });
+  try {
+    for (;;) {
+      const part = await Promise.race([reader.read(), deadline]);
+      if (part === null) return undefined;
+      if (part.done) { text += decoder.decode(); break; }
+      bytes += part.value.byteLength;
+      if (bytes > maxBytes) return undefined;
+      text += decoder.decode(part.value, { stream: true });
+    }
+    return parseProviderResponseUsage(apiFormat, JSON.parse(text), 'provider_error_response');
+  } catch {
+    return undefined;
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    void reader.cancel().catch(() => undefined);
+  }
 }
 
 // Build the actual URL to fetch for a given setting.
@@ -302,29 +418,31 @@ export async function testVisionProvider(setting: SettingLike, imagePath?: strin
 }
 
 async function doFetch(url: string, headers: Record<string, string>, body: string, ctx: { apiFormat: AiApiFormat }): Promise<TestResult> {
+  let responseReceived = false;
   try {
     const res = await fetch(url, { method: 'POST', headers, body });
+    responseReceived = true;
     if (!res.ok) {
       const text = await res.text();
       const hint = buildHint(res.status, url, ctx.apiFormat, text);
-      return { status: 'fail', message: `HTTP ${res.status}: ${res.statusText}`, raw: text, hint };
+      let usage: TokenUsage | undefined;
+      try { usage = parseProviderResponseUsage(ctx.apiFormat, JSON.parse(text), 'provider_error_response'); } catch { /* no structured usage block */ }
+      return { status: 'fail', message: `HTTP ${res.status}: ${res.statusText}`, raw: text, hint, usage, responseReceived };
     }
     const json = await res.json();
     // Test calls also count toward usage — the user clicks "Test" to verify
     // the provider works, and that round-trip costs real tokens. Surface the
     // usage so the /settings/ai/test handler can record it.
-    const usage = ctx.apiFormat === 'anthropic-compatible'
-      ? parseAnthropicToolTurn(json).usage
-      : ctx.apiFormat === 'openai-compatible'
-      ? parseOpenAIToolTurn(json).usage
-      : parseGoogleToolTurn(json).usage;
-    return { status: 'pass', message: 'ok', raw: JSON.stringify(json), usage };
+    const usage = parseProviderResponseUsage(ctx.apiFormat, json);
+    return { status: 'pass', message: 'ok', raw: JSON.stringify(json), usage, responseReceived };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
       status: 'fail',
       message: msg,
       hint: 'Could not reach the configured endpoint. Verify the sidecar is running, the Base URL is correct, and the network allows outbound HTTPS.',
+      responseReceived,
+      ...(!responseReceived ? { usageAccounting: { basis: 'assumed_zero_no_response', accountedTokens: 0 } as const } : {}),
     };
   }
 }

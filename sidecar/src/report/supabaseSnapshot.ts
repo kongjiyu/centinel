@@ -9,11 +9,13 @@ import type { ProjectAssessment } from '../staticDomainTypes.js';
 import { deriveRiskLevel, normalizeRiskPriority, RISK_POLICY_VERSION } from '../riskPolicy.js';
 import { calculateProjectRisk } from '../projectRisk.js';
 import type { Finding, StaticSession } from '../staticDomainTypes.js';
+import type { StoreFinding } from '../store/types.js';
 import type { TokenUsageSummary, TokenUsageRow } from '../tokenUsage.js';
-import type { ReportActionTrace, ReportFindingCorrelation, ReportStandard, ReportStandardRule } from './types.js';
+import type { ReportActionTrace, ReportCurrentFinding, ReportCurrentFindings, ReportFindingCorrelation, ReportProjectAssessment, ReportStandard, ReportStandardRule } from './types.js';
 import type { ReportSnapshotSource } from './snapshot.js';
 import { SupabaseCentinelStore } from '../store/supabase.js';
 import { loadCurrentProjectFindings } from '../review/currentProjectFindings.js';
+import { canonicalProviderTotal } from '../review/stageUsageProjection.js';
 
 type Row = Record<string, unknown>;
 
@@ -29,6 +31,21 @@ function nullable(value: unknown): string | null {
   return value == null || value === '' ? null : String(value);
 }
 
+const SAFE_USAGE_SOURCES = new Set(['provider_response', 'provider_error_response', 'codex_thread_total', 'codex_turn_last']);
+const SAFE_USAGE_COUNTERS = new Set(['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens']);
+const SAFE_USAGE_OUTCOMES = new Set(['in_progress', 'success', 'retryable_error', 'permanent_error', 'malformed_response', 'cancelled']);
+const SAFE_NO_RESPONSE_OUTCOMES = new Set(['retryable_error', 'permanent_error', 'malformed_response', 'cancelled']);
+
+function safeUsageObservation(value: unknown): TokenUsageRow['usageObservation'] {
+  const source = record(value);
+  if (!SAFE_USAGE_SOURCES.has(String(source.source)) || !['complete', 'partial'].includes(String(source.completeness))) return null;
+  const missingCounters = Array.isArray(source.missingCounters)
+    ? [...new Set(source.missingCounters.filter((item): item is string => typeof item === 'string' && SAFE_USAGE_COUNTERS.has(item)))] : [];
+  return { source: source.source as NonNullable<TokenUsageRow['usageObservation']>['source'],
+    completeness: source.completeness as NonNullable<TokenUsageRow['usageObservation']>['completeness'],
+    ...(missingCounters.length ? { missingCounters: missingCounters as NonNullable<TokenUsageRow['usageObservation']>['missingCounters'] } : {}) };
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -37,6 +54,16 @@ function json<T>(value: unknown, fallback: T): T {
   if (value && typeof value === 'object') return value as T;
   if (typeof value !== 'string') return fallback;
   try { return JSON.parse(value) as T; } catch { return fallback; }
+}
+
+function traceabilitySummaryFromValue(value: unknown): ReviewTraceabilitySnapshot['summary'] {
+  const source = record(json(value, {}));
+  const summary: Record<string, number> = {};
+  for (const key of ['complete', 'incomplete', 'missing', 'attention', 'unavailable'] as const) {
+    const count = source[key];
+    if (typeof count === 'number' && Number.isFinite(count)) summary[key] = count;
+  }
+  return Object.keys(summary).length ? summary as ReviewTraceabilitySnapshot['summary'] : null;
 }
 
 function safeError(error: unknown): string {
@@ -121,7 +148,7 @@ function staticSessionFromRow(row: Row): StaticSession {
     id: text(row.id), projectId: text(row.project_id), name: text(row.name), reviewType: text(row.review_type) as StaticSession['reviewType'],
     status: text(row.status) as StaticSession['status'], configJson: JSON.stringify(row.config ?? {}), progressJson: JSON.stringify(row.progress ?? {}),
     remarks: text(row.remarks), finalSummary: text(row.final_summary ?? row.summary), failureReason: text(row.failure_reason),
-    createdAt: text(row.created_at), updatedAt: text(row.updated_at), baseRef: text(record(row.scope).baseRef ?? record(row.scope).base_ref),
+    createdAt: text(row.created_at), updatedAt: text(row.updated_at), completedAt: nullable(row.completed_at), sourceManifestId: nullable(row.source_manifest_id), baseRef: text(record(row.scope).baseRef ?? record(row.scope).base_ref),
     headRef: text(record(row.scope).headRef ?? record(row.scope).head_ref), changedFilesJson: JSON.stringify(record(row.scope).changedFiles ?? record(row.scope).changed_files ?? []),
     parentSessionId: text(row.parent_review_id), reviewDiffJson: JSON.stringify(row.lineage ?? {}),
   };
@@ -165,32 +192,124 @@ function decisionFromRow(row: Row, attachments: ReviewDecisionRecord['attachment
 }
 
 function usageSummary(rows: Row[], reviewSessionId: string | null): TokenUsageSummary {
-  const recent: TokenUsageRow[] = rows.map(item => ({
-    id: text(item.id), projectId: nullable(item.project_id), sessionId: nullable(item.review_session_id),
-    scope: (['text', 'vision', 'embedding'].includes(text(record(item.metadata).scope))
-      ? text(record(item.metadata).scope) : 'text') as TokenUsageRow['scope'],
-    callKind: 'review', stage: nullable(item.stage), roundNumber: Number(item.attempt ?? 1), provider: text(item.provider) as TokenUsageRow['provider'],
-    apiFormat: text(record(item.metadata).apiFormat ?? record(item.metadata).api_format, 'unknown') as TokenUsageRow['apiFormat'], model: text(item.model),
-    inputTokens: Number(item.input_tokens ?? 0), outputTokens: Number(item.output_tokens ?? 0), cacheReadTokens: Number(item.cache_read_tokens ?? 0),
-    cacheCreationTokens: Number(item.cache_creation_tokens ?? 0), totalTokens: Number(item.input_tokens ?? 0) + Number(item.output_tokens ?? 0), createdAt: text(item.created_at),
-  }));
-  const byModel = new Map<string, { provider: TokenUsageRow['provider']; apiFormat: TokenUsageRow['apiFormat']; model: string; totalInput: number; totalOutput: number; totalCacheRead: number; totalCacheCreation: number; totalCalls: number }>();
+  const tokenCount = (value: unknown): number | null => {
+    const count = value == null || value === '' ? null : Number(value);
+    return count !== null && Number.isSafeInteger(count) && count >= 0 ? count : null;
+  };
+  const recent: TokenUsageRow[] = rows.map(item => {
+    const metadata = record(item.metadata);
+    const apiFormat = text(metadata.apiFormat ?? metadata.api_format, 'unknown') as TokenUsageRow['apiFormat'];
+    const usage = {
+      apiFormat,
+      input_tokens: tokenCount(item.input_tokens), output_tokens: tokenCount(item.output_tokens),
+      cache_read_tokens: tokenCount(item.cache_read_tokens), cache_creation_tokens: tokenCount(item.cache_creation_tokens), metadata,
+    };
+    const canonical = canonicalProviderTotal(usage);
+    const usageObservation = safeUsageObservation(metadata.usageObservation);
+    const accounting = record(metadata.usageAccounting);
+    const safeOutcome = typeof item.outcome === 'string' && SAFE_USAGE_OUTCOMES.has(item.outcome)
+      ? item.outcome as NonNullable<TokenUsageRow['outcome']> : null;
+    const noActualUsage = usage.input_tokens === null && usage.output_tokens === null && usage.cache_read_tokens === null
+      && usage.cache_creation_tokens === null && metadata.usageObservation == null
+      && metadata.providerReportedTotalTokens == null && metadata.normalizedTotalTokens == null;
+    const accountingBasis = metadata.responseReceived === false && safeOutcome !== null
+      && SAFE_NO_RESPONSE_OUTCOMES.has(safeOutcome) && noActualUsage
+      && accounting.basis === 'assumed_zero_no_response' && accounting.accountedTokens === 0
+      ? 'assumed_zero_no_response' as const : null;
+    return {
+      id: text(item.id), projectId: nullable(item.project_id), sessionId: nullable(item.review_session_id),
+      scope: (['text', 'vision', 'embedding'].includes(text(metadata.scope)) ? text(metadata.scope) : 'text') as TokenUsageRow['scope'],
+      callKind: 'review', stage: nullable(item.stage), roundNumber: Number(item.attempt ?? 1), provider: text(item.provider) as TokenUsageRow['provider'],
+      apiFormat, model: text(item.model),
+      inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, cacheReadTokens: usage.cache_read_tokens,
+      cacheCreationTokens: usage.cache_creation_tokens, totalTokens: canonical.totalTokens, canonicalTotalTokens: canonical.totalTokens,
+      providerReportedTotalTokens: tokenCount(metadata.providerReportedTotalTokens),
+      totalTokensStatus: canonical.status, createdAt: text(item.created_at),
+      outcome: safeOutcome,
+      responseReceived: typeof metadata.responseReceived === 'boolean' ? metadata.responseReceived : null,
+      usageObservation, accountingBasis, accountedTokens: accountingBasis ? 0 : null,
+    };
+  });
+  const byModel = new Map<string, TokenUsageSummary['byGroup'][number]>();
   for (const item of recent) {
     const key = `${item.provider}|${item.apiFormat}|${item.model}`;
-    const current = byModel.get(key) ?? { provider: item.provider, apiFormat: item.apiFormat, model: item.model, totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreation: 0, totalCalls: 0 };
-    current.totalInput += item.inputTokens; current.totalOutput += item.outputTokens; current.totalCacheRead += item.cacheReadTokens; current.totalCacheCreation += item.cacheCreationTokens; current.totalCalls += 1;
+    const current = byModel.get(key) ?? { provider: item.provider, apiFormat: item.apiFormat, model: item.model, totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreation: 0, totalCalls: 0,
+      totalTokens: 0, providerReportedTotalTokens: 0, providerReportedCalls: 0, unknownTotalCalls: 0, unknownInputCalls: 0, unknownOutputCalls: 0,
+      unknownCacheReadCalls: 0, unknownCacheCreationCalls: 0, assumedZeroNoResponseCalls: 0, assumedZeroNoResponseTokens: 0, accountedTokens: 0 };
+    current.totalInput += item.inputTokens ?? 0; current.totalOutput += item.outputTokens ?? 0;
+    current.totalCacheRead += item.cacheReadTokens ?? 0; current.totalCacheCreation += item.cacheCreationTokens ?? 0; current.totalCalls += 1;
+    if (item.inputTokens === null) current.unknownInputCalls = (current.unknownInputCalls ?? 0) + 1;
+    if (item.outputTokens === null) current.unknownOutputCalls = (current.unknownOutputCalls ?? 0) + 1;
+    if (item.cacheReadTokens === null) current.unknownCacheReadCalls = (current.unknownCacheReadCalls ?? 0) + 1;
+    if (item.cacheCreationTokens === null) current.unknownCacheCreationCalls = (current.unknownCacheCreationCalls ?? 0) + 1;
+    if (item.totalTokens === null) current.unknownTotalCalls = (current.unknownTotalCalls ?? 0) + 1;
+    else { current.totalTokens = (current.totalTokens ?? 0) + item.totalTokens; current.accountedTokens = (current.accountedTokens ?? 0) + item.totalTokens; }
+    if (item.accountingBasis === 'assumed_zero_no_response') current.assumedZeroNoResponseCalls = (current.assumedZeroNoResponseCalls ?? 0) + 1;
+    const reportedTotal = item.providerReportedTotalTokens ?? null;
+    if (reportedTotal !== null) {
+      current.providerReportedTotalTokens = (current.providerReportedTotalTokens ?? 0) + reportedTotal;
+      current.providerReportedCalls = (current.providerReportedCalls ?? 0) + 1;
+    }
     byModel.set(key, current);
   }
+  const sumKnown = (field: 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheCreationTokens' | 'totalTokens') => recent.reduce((sum, item) => sum + (item[field] ?? 0), 0);
+  const unknown = (field: 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheCreationTokens' | 'totalTokens') => recent.filter(item => item[field] === null).length;
+  const assumedZeroNoResponseCalls = recent.filter(item => item.accountingBasis === 'assumed_zero_no_response').length;
+  const providerReportedTotalTokens = rows.reduce((sum, item) => sum + (tokenCount(record(item.metadata).providerReportedTotalTokens) ?? 0), 0);
+  const providerReportedCalls = rows.filter(item => tokenCount(record(item.metadata).providerReportedTotalTokens) !== null).length;
   return {
     totals: {
-      input: recent.reduce((sum, item) => sum + item.inputTokens, 0), output: recent.reduce((sum, item) => sum + item.outputTokens, 0),
-      cacheRead: recent.reduce((sum, item) => sum + item.cacheReadTokens, 0), cacheCreation: recent.reduce((sum, item) => sum + item.cacheCreationTokens, 0), calls: recent.length,
+      input: sumKnown('inputTokens'), output: sumKnown('outputTokens'), cacheRead: sumKnown('cacheReadTokens'), cacheCreation: sumKnown('cacheCreationTokens'), calls: recent.length,
+      totalTokens: sumKnown('totalTokens'), providerReportedTotalTokens, providerReportedCalls, unknownTotalCalls: unknown('totalTokens'),
+      unknownInputCalls: unknown('inputTokens'), unknownOutputCalls: unknown('outputTokens'),
+      unknownCacheReadCalls: unknown('cacheReadTokens'), unknownCacheCreationCalls: unknown('cacheCreationTokens'),
+      assumedZeroNoResponseCalls, assumedZeroNoResponseTokens: 0, accountedTokens: sumKnown('totalTokens'),
     }, byGroup: Array.from(byModel.values()), recent,
   };
 }
 
 function fallbackAssessment(projectId: string, findings: Finding[]): ProjectAssessment {
   return { projectId, status: 'available', policyVersion: RISK_POLICY_VERSION, ...calculateProjectRisk(findings), traceability: { status: 'unavailable', reviewId: null, summary: null } };
+}
+
+function reportCurrentFinding(projected: StoreFinding & Record<string, unknown>, canonical: StoreFinding): ReportCurrentFinding {
+  const resolutionEvidence = projected.resolutionEvidence as ReportCurrentFinding['resolutionEvidence'] | undefined;
+  const effectiveStatus = (projected.status === 'new' || projected.status === 'carryover')
+    && resolutionEvidence?.basis === 'not_reproduced_in_comparable_review'
+    ? 'fixed'
+    : projected.status;
+  const latestOccurrence = projected.latestOccurrence as ReportCurrentFinding['latestOccurrence'] | undefined;
+  const lineageHistory = Array.isArray(projected.lineageHistory)
+    ? projected.lineageHistory as ReportCurrentFinding['lineageReferences']
+    : [];
+  const priority = normalizeRiskPriority(projected.priority);
+  return {
+    id: projected.id,
+    projectId: projected.projectId,
+    sessionId: text(projected.sessionId ?? projected.reviewSessionId) || null,
+    source: projected.source,
+    severity: projected.severity,
+    priority,
+    riskLevel: deriveRiskLevel(projected.severity, priority),
+    title: projected.title,
+    description: projected.description,
+    status: canonical.status,
+    persistedStatus: canonical.status,
+    effectiveStatus,
+    effectiveDisposition: resolutionEvidence ? 'resolved' : effectiveStatus,
+    latestOccurrence: latestOccurrence ?? null,
+    lineageReferences: lineageHistory.map(item => ({ findingId: item.findingId, reviewId: item.reviewId, classification: item.classification })),
+    resolutionEvidence: resolutionEvidence ?? null,
+    createdAt: projected.createdAt,
+    artifactId: projected.artifactId,
+    category: projected.category,
+    evidenceText: projected.evidenceText,
+    recommendation: projected.recommendation,
+    confidence: projected.confidence,
+    fromRemarks: false,
+    filePath: text(projected.filePath ?? record(projected.location).filePath),
+    lineNumber: projected.lineNumber == null ? null : Number(projected.lineNumber),
+  };
 }
 
 function standardRuleFromRow(row: Row): ReportStandardRule {
@@ -318,18 +437,24 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
     });
   }
 
-  async getProjectAssessment(projectId: string): Promise<ProjectAssessment> {
+  private async loadProjectAssessment(projectId: string): Promise<ReportProjectAssessment> {
     await assertMember(this.client, this.userId, projectId);
     // Finding dispositions can change after the latest stored Review risk
     // snapshot. Recompute current risk for the dashboard and every export;
-    // retain only the immutable traceability context from that snapshot.
+    // capture the same reconciled projection for risk and export inventory.
     const saved = await new SupabaseCentinelStore(this.client).listFindings(projectId);
     const projected = await loadCurrentProjectFindings(this.client, projectId, saved);
-    const current = fallbackAssessment(projectId, projected.map(finding => ({
+    const savedById = new Map(saved.map(finding => [finding.id, finding]));
+    const currentItems = projected.map(finding => {
+      const canonical = savedById.get(finding.id);
+      if (!canonical) throw new Error('Current finding projection refers to a missing canonical finding.');
+      return reportCurrentFinding(finding as StoreFinding & Record<string, unknown>, canonical);
+    });
+    const currentFindings: ReportCurrentFindings = { status: 'available', reason: null, items: currentItems };
+    const current = fallbackAssessment(projectId, currentItems.map(finding => ({
       id: finding.id, projectId: finding.projectId, sessionId: finding.sessionId,
       source: finding.source, severity: finding.severity, priority: finding.priority,
-      title: finding.title, description: finding.description,
-      status: finding.resolutionEvidence ? 'fixed' : finding.status,
+      title: finding.title, description: finding.description, status: finding.effectiveStatus,
       createdAt: finding.createdAt, artifactId: finding.artifactId, category: finding.category,
       evidenceText: finding.evidenceText, recommendation: finding.recommendation,
       confidence: finding.confidence, fromRemarks: false, filePath: finding.filePath, lineNumber: finding.lineNumber,
@@ -337,20 +462,40 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
     const assessment = await requireSingle(this.client, 'project_assessments', query => query.select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle());
     if (assessment?.snapshot) {
       const snapshot = json<ProjectAssessment>(assessment.snapshot, current);
-      if (snapshot.projectId === projectId || !snapshot.projectId) return { ...current, traceability: snapshot.traceability ?? current.traceability };
+      if (snapshot.projectId === projectId || !snapshot.projectId) return { ...current, traceability: snapshot.traceability ?? current.traceability, currentFindings };
     }
     const reviewAssessment = await requireSingle(this.client, 'review_assessments', query => query.select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle());
     if (reviewAssessment) {
       const details = record(reviewAssessment.details);
       const snapshot = json<ProjectAssessment>(details.snapshot, current);
-      if (snapshot.projectId === projectId && snapshot.traceability) return { ...current, traceability: snapshot.traceability };
+      if (snapshot.projectId === projectId && snapshot.traceability) return { ...current, traceability: snapshot.traceability, currentFindings };
     }
-    return current;
+    return { ...current, currentFindings };
+  }
+
+  async getProjectAssessment(projectId: string): Promise<ProjectAssessment> {
+    const report = await this.loadProjectAssessment(projectId);
+    return {
+      projectId: report.projectId,
+      status: report.status,
+      policyVersion: report.policyVersion,
+      summary: report.summary,
+      riskItems: report.riskItems,
+      traceability: report.traceability,
+    };
+  }
+
+  async getProjectAssessmentWithCurrentFindings(projectId: string): Promise<ReportProjectAssessment> {
+    return this.loadProjectAssessment(projectId);
   }
 
   async getReviewSourceManifest(projectId: string, reviewId: string): Promise<ReviewSourceManifest | null> {
     await assertMember(this.client, this.userId, projectId);
-    const source = await requireSingle(this.client, 'review_source_snapshots', query => query.select('*').eq('project_id', projectId).eq('review_session_id', reviewId).maybeSingle());
+    const review = await requireSingle(this.client, 'review_sessions', query => query.select('source_manifest_id').eq('project_id', projectId).eq('id', reviewId).maybeSingle());
+    const sourceManifestId = nullable(review?.source_manifest_id);
+    const source = sourceManifestId
+      ? await requireSingle(this.client, 'review_source_snapshots', query => query.select('*').eq('project_id', projectId).eq('id', sourceManifestId).maybeSingle())
+      : await requireSingle(this.client, 'review_source_snapshots', query => query.select('*').eq('project_id', projectId).eq('review_session_id', reviewId).maybeSingle());
     if (!source) return null;
     const snapshot = json<Record<string, unknown>>(source.snapshot, {});
     const sources = Array.isArray(snapshot.sources) ? snapshot.sources as ReviewSourceManifest['sources'] : [];
@@ -361,7 +506,7 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
     await assertMember(this.client, this.userId, projectId);
     const source = await requireSingle(this.client, 'review_traceability_snapshots', query => query.select('*').eq('project_id', projectId).eq('review_session_id', reviewId).maybeSingle());
     if (!source) return null;
-    return { sessionId: reviewId, projectId, status: text(source.status, 'unavailable') as ReviewTraceabilitySnapshot['status'], records: json(source.records, []), summary: source.summary ? json(source.summary, null) : null, capturedAt: text(source.created_at), updatedAt: text(source.created_at) };
+    return { sessionId: reviewId, projectId, status: text(source.status, 'unavailable') as ReviewTraceabilitySnapshot['status'], records: json(source.records, []), summary: traceabilitySummaryFromValue(source.summary), capturedAt: text(source.created_at), updatedAt: text(source.created_at) };
   }
 
   async getCurrentDecision(projectId: string, reviewId: string): Promise<ReviewDecisionRecord | null> {

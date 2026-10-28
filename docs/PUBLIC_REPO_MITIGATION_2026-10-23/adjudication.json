@@ -1,0 +1,129 @@
+{
+  "status": "partial-run-source-adjudication",
+  "scope": "Only six retained deterministic observations from the quota-blocked Axios Review. No accepted model predictions. Nested adapter wrapper/callback length observations share one cause key per adapter.",
+  "claims": [
+    {
+      "findingId": "74e660ed-f0c2-4ac5-ac1f-a4411206c1aa",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios:cq-long-function:lib/helpers/toFormData.js",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited declaration and source span support the long-function observation. This is a maintainability candidate, not a demonstrated behavioral bug. The enclosing adapter and nested callback identify the same long implementation region.",
+      "source": {
+        "path": "lib/helpers/toFormData.js",
+        "line": 48,
+        "sourceVersion": "cc35e27c17151ce0e10b7cd850b48acab10d8caa9cfcd4191d56bd8385d20fb3"
+      }
+    },
+    {
+      "findingId": "ef983761-1154-47c4-afaa-b3e3ae7ecb7d",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios:cq-long-function:lib/adapters/xhr.js",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited declaration and source span support the long-function observation. This is a maintainability candidate, not a demonstrated behavioral bug. The enclosing adapter and nested callback identify the same long implementation region.",
+      "source": {
+        "path": "lib/adapters/xhr.js",
+        "line": 17,
+        "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e"
+      }
+    },
+    {
+      "findingId": "9862e913-a825-4fb0-b8a3-48a189075ecd",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios:cq-long-function:lib/adapters/xhr.js",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited declaration and source span support the long-function observation. This is a maintainability candidate, not a demonstrated behavioral bug. The enclosing adapter and nested callback identify the same long implementation region.",
+      "source": {
+        "path": "lib/adapters/xhr.js",
+        "line": 16,
+        "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e"
+      }
+    },
+    {
+      "findingId": "c305f232-be44-4b76-b3d0-e090251de01f",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios:cq-long-function:lib/adapters/http.js",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited declaration and source span support the long-function observation. This is a maintainability candidate, not a demonstrated behavioral bug. The enclosing adapter and nested callback identify the same long implementation region.",
+      "source": {
+        "path": "lib/adapters/http.js",
+        "line": 85,
+        "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086"
+      }
+    },
+    {
+      "findingId": "6cc85531-abf9-4b40-a535-2138033d0bd9",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios:cq-long-function:lib/adapters/http.js",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The cited declaration and source span support the long-function observation. This is a maintainability candidate, not a demonstrated behavioral bug. The enclosing adapter and nested callback identify the same long implementation region.",
+      "source": {
+        "path": "lib/adapters/http.js",
+        "line": 84,
+        "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086"
+      }
+    },
+    {
+      "findingId": "1aa14255-d63c-476b-a633-79fe5d405bc2",
+      "instanceId": "axios__axios-4738",
+      "claimKey": "axios:cq-todo-comments:lib/adapters/http.js",
+      "origin": "deterministic",
+      "verdict": "true",
+      "reason": "The exact TODO marker is present; the recommendation requires relevance/priority checks and no longer asserts release-blocking impact.",
+      "source": {
+        "path": "lib/adapters/http.js",
+        "line": 389,
+        "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086"
+      }
+    }
+  ],
+  "goldMatches": [],
+  "readinessAssertions": [
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "repository_readable_and_configuration_parseable",
+      "verdict": "true",
+      "reason": "The successful frozen-source run reports repository Completed, and all 52 selected files were read."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "requirements_present",
+      "verdict": "true",
+      "reason": "Raw classification is present; original README request configuration and contributor rules supply intended behavior."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "design_present",
+      "verdict": "true",
+      "reason": "Raw classification is present; source comments and implementation descriptions supply design responsibilities."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "standards_present",
+      "verdict": "true",
+      "reason": "Raw classification is present; original .eslintrc.js, tsconfig.json and CONTRIBUTING.md prescribe rules."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "original_rule_evidence",
+      "verdict": "true",
+      "reason": "Standards checkability cites exact .eslintrc.js eqeqeq, tsconfig strict/noEmit and package test/fix command excerpts; these are original scoped rules. Applicability remains Unknown."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "no_invented_documents",
+      "verdict": "true",
+      "reason": "All retained cited artifact IDs belong to the imported immutable source set."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "no_whole_system_certification",
+      "verdict": "true",
+      "reason": "Repository availability is scoped to selected inputs; semantic categories remain Incomplete and no bug-free claim is made."
+    }
+  ]
+}

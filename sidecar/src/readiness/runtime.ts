@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthenticatedRequest } from '../auth/gateway.js';
 import { CentinelApplicationRepository } from '../applicationRepository.js';
 import { listClientArtifacts, readClientArtifactContent } from '../applicationApi.js';
@@ -9,6 +10,19 @@ import { ProjectReadinessCoordinator, type ReadinessIndex } from './service.js';
 import type { ReadinessArtifact } from './types.js';
 import { READINESS_POLICY_VERSION } from './policy.js';
 import { sourceSyncIssue } from './sourceIssues.js';
+
+export function readFrozenReadinessArtifact(auth: AuthenticatedRequest, artifact: ReadinessArtifact['artifact'], signal: AbortSignal): Promise<string> {
+  return readClientArtifactContent(auth.client, auth.userId, artifact.id, artifact.versionId, signal, artifact.projectId, artifact.contentHash);
+}
+
+export function createReadinessModelProvider(auth: AuthenticatedRequest, currentAuth?: () => AuthenticatedRequest) {
+  const currentClient = (): SupabaseClient => {
+    const current = currentAuth?.() ?? auth;
+    if (current.userId !== auth.userId) throw new Error('Readiness provider session owner changed.');
+    return current.client;
+  };
+  return createGroundingModelProvider(currentClient, auth.userId);
+}
 
 export async function inspectReadinessSources(auth: AuthenticatedRequest, projectId: string): Promise<ReadinessIndex> {
   const repository = new CentinelApplicationRepository(auth.client, auth.userId);
@@ -74,11 +88,12 @@ export async function inspectReadinessSources(auth: AuthenticatedRequest, projec
   return { description: project.description, fingerprint, artifacts, unavailable, preloaded, importing };
 }
 
-export function createProjectReadinessCoordinator() {
+export function createProjectReadinessCoordinator(options: { jobTimeoutMs?: number } = {}) {
   return new ProjectReadinessCoordinator({
     store: auth => new SupabaseReadinessStore(auth.client, auth.userId),
     inspect: inspectReadinessSources,
-    read: (auth, artifact, signal) => readClientArtifactContent(auth.client, auth.userId, artifact.id, artifact.versionId, signal),
-    provider: auth => createGroundingModelProvider(auth.client, auth.userId),
+    read: readFrozenReadinessArtifact,
+    provider: createReadinessModelProvider,
+    jobTimeoutMs: options.jobTimeoutMs,
   });
 }

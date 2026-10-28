@@ -349,7 +349,9 @@ export class ConnectedSourceImporter {
       let cursor: Record<string, unknown> | null;
       const hasStoredSnapshot = Boolean(run.remoteRevision || run.cursorStart || run.cursorEnd);
       if (input.force || !hasStoredSnapshot) {
-        snapshot = await adapter.prepareSync(credentials, source);
+        // An explicit full sync must re-fetch previously unsupported unchanged
+        // files too (for example after increasing the Drive attachment limit).
+        snapshot = await adapter.prepareSync(credentials, input.force ? { ...source, syncCursor: null } : source);
         if (!input.force && source.syncStatus !== 'error' && latestRun?.status !== 'failure' && latestRun?.status !== 'cancelled'
           && run.status === 'queued' && run.attemptCount === 0 && adapter.isSourceRevisionUnchanged?.(source, snapshot)) {
           const itemCount = (await this.repository.listSourceItems(source.id)).filter(item => item.status === 'available' || item.status === 'unsupported').length;

@@ -17,6 +17,8 @@ export type AuthenticatedRequest = {
   user: User;
   /** Transitional diagnostic only; never use this value for authorization. */
   suppliedUserId: string | null;
+  /** Ordering hint decoded only after exact-token user verification; never authorization. */
+  verifiedIssuedAt?: number | null;
 };
 
 export class AuthGatewayError extends Error {
@@ -56,6 +58,15 @@ export function extractBearerToken(headers: AuthHeaders): string {
 function suppliedUserId(headers: AuthHeaders): string | null {
   const raw = headerValue(headers['x-centinel-user-id']);
   return raw && raw.length <= 128 ? raw : null;
+}
+
+function verifiedIssuedAt(accessToken: string, userId: string): number | null {
+  try {
+    const parts = accessToken.split('.');
+    if (parts.length !== 3) return null;
+    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return claims.sub === userId && Number.isSafeInteger(claims.iat) && claims.iat >= 0 ? claims.iat : null;
+  } catch { return null; }
 }
 
 /** A single authentication seam for all protected sidecar routes. */
@@ -102,6 +113,7 @@ export class AuthGateway {
       client,
       user: result.data.user,
       suppliedUserId: suppliedUserId(headers),
+      verifiedIssuedAt: verifiedIssuedAt(accessToken, result.data.user.id),
     };
   }
 

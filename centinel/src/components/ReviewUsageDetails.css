@@ -1,0 +1,318 @@
+.review-usage-panel {
+  min-width: 0;
+  width: 100%;
+}
+
+.review-usage-panel .review-usage-disclosure {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-panel);
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow-panel);
+}
+
+.review-usage-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 12px 20px;
+  color: var(--workspace-text);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  list-style-position: inside;
+}
+
+.review-usage-panel summary::marker { color: var(--workspace-text-subtle); }
+.review-usage-panel summary:focus-visible,
+.review-usage-panel button:focus-visible,
+.review-usage-panel [tabindex="0"]:focus-visible {
+  outline: 2px solid var(--workspace-focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.review-usage-summary-hint {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  font-weight: 450;
+  text-align: right;
+}
+
+.review-usage-content {
+  min-width: 0;
+  padding: 0 20px 20px;
+  border-top: 1px solid var(--workspace-border);
+}
+
+.review-usage-content-heading,
+.review-usage-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.review-usage-content-heading { padding: 18px 0 14px; }
+.review-usage-content-heading h2,
+.review-usage-section-heading h3 {
+  margin: 0;
+  color: var(--workspace-text);
+}
+.review-usage-content-heading h2 { font-size: 16px; line-height: 24px; }
+.review-usage-content-heading p,
+.review-usage-section-heading p,
+.review-usage-muted,
+.review-usage-estimate,
+.review-usage-physical > p,
+.review-usage-source-count {
+  margin: 4px 0 0;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+.review-usage-section-heading { align-items: baseline; margin-bottom: 10px; }
+.review-usage-section-heading h3 { font-size: 14px; line-height: 22px; }
+.review-usage-section-heading p { text-align: right; }
+
+.review-usage-refresh {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.review-usage-refresh:hover:not(:disabled) { background: var(--workspace-surface-subtle); }
+.review-usage-refresh:disabled { color: var(--workspace-text-subtle); cursor: wait; }
+
+.review-usage-loading,
+.review-usage-error {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--workspace-radius-control);
+  font-size: 13px;
+  line-height: 20px;
+}
+.review-usage-loading { background: var(--workspace-surface-subtle); color: var(--workspace-text-muted); }
+.review-usage-error { border: 1px solid var(--workspace-danger); color: var(--workspace-danger); }
+
+.review-usage-report { display: grid; gap: 18px; min-width: 0; }
+.review-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.review-usage-metrics > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+.review-usage-metrics dt,
+.review-usage-stage-metrics dt,
+.review-usage-file-metadata dt {
+  color: var(--workspace-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+.review-usage-metrics dd,
+.review-usage-stage-metrics dd {
+  margin: 4px 0 0;
+  color: var(--workspace-text);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+.review-usage-metrics dd small,
+.review-usage-table td small,
+.review-usage-table th small {
+  display: block;
+  color: var(--workspace-text-subtle);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 16px;
+}
+
+.review-usage-statusline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 19px;
+}
+.review-usage-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 999px;
+  color: var(--workspace-text-muted);
+}
+.review-usage-status.is-available { border-color: var(--workspace-success); color: var(--workspace-success); }
+.review-usage-status.is-partial { border-color: var(--workspace-warning); color: var(--workspace-warning); }
+
+.review-usage-groups,
+.review-usage-physical,
+.review-usage-file-disclosure,
+.review-usage-stage-breakdown,
+.review-usage-phase-breakdown,
+.review-usage-operations {
+  min-width: 0;
+}
+.review-usage-groups > summary,
+.review-usage-physical > summary,
+.review-usage-file-disclosure > summary,
+.review-usage-stage-breakdown > summary,
+.review-usage-phase-breakdown > summary,
+.review-usage-operations > summary {
+  justify-content: flex-start;
+  min-height: 40px;
+  padding: 8px 0;
+  color: var(--workspace-text);
+  font-size: 12px;
+  font-weight: 600;
+  list-style-position: outside;
+}
+.review-usage-groups > summary::marker,
+.review-usage-physical > summary::marker,
+.review-usage-file-disclosure > summary::marker,
+.review-usage-stage-breakdown > summary::marker,
+.review-usage-phase-breakdown > summary::marker,
+.review-usage-operations > summary::marker { color: var(--workspace-text-subtle); }
+
+.review-usage-stage-section,
+.review-usage-source-section {
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--workspace-border);
+}
+.review-usage-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  scrollbar-color: var(--workspace-border-strong) transparent;
+}
+.review-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--workspace-text);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+.review-usage-table th,
+.review-usage-table td {
+  min-width: 72px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--workspace-border);
+  vertical-align: top;
+  white-space: nowrap;
+}
+.review-usage-table thead th {
+  background: var(--workspace-surface-subtle);
+  color: var(--workspace-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.review-usage-table tbody th { font-weight: 550; }
+.review-usage-table tbody tr:last-child th,
+.review-usage-table tbody tr:last-child td { border-bottom: 0; }
+.review-usage-table td code,
+.review-usage-table th code { font-size: 11px; }
+.review-usage-table td:last-child,
+.review-usage-table th:last-child { text-align: right; }
+.review-usage-table:not(.review-usage-group-table) { min-width: 620px; }
+.review-usage-group-table { min-width: 780px; }
+
+.review-usage-stage-breakdowns { display: grid; gap: 0; margin-top: 8px; }
+.review-usage-stage-breakdown { padding: 0 10px; border-top: 1px solid var(--workspace-border); }
+.review-usage-stage-breakdown:last-child { border-bottom: 1px solid var(--workspace-border); }
+.review-usage-stage-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.review-usage-stage-metrics > div { min-width: 0; padding: 8px; background: var(--workspace-surface-subtle); border-radius: var(--workspace-radius-control); }
+.review-usage-stage-metrics dd { font-size: 13px; }
+.review-usage-stage-metrics dd small { display: block; color: var(--workspace-text-subtle); font-size: 11px; }
+.review-usage-phase-breakdown { margin: 8px 0; padding: 0 10px; border-block: 1px solid var(--workspace-border); }
+.review-usage-phase-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-bottom: 10px; }
+.review-usage-phase-card { min-width: 0; padding: 10px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); }
+.review-usage-phase-card > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.review-usage-phase-card h4 { margin: 0; color: var(--workspace-text); font-size: 12px; line-height: 18px; }
+.review-usage-phase-card > header > span { color: var(--workspace-text-muted); font-size: 11px; text-align: right; }
+.review-usage-phase-card dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.review-usage-phase-card dl > div { min-width: 0; }
+.review-usage-phase-card dt { color: var(--workspace-text-muted); font-size: 10px; line-height: 15px; }
+.review-usage-phase-card dd { margin: 2px 0 0; color: var(--workspace-text); font-size: 12px; font-variant-numeric: tabular-nums; line-height: 18px; overflow-wrap: anywhere; }
+.review-usage-phase-card dd small { display: block; color: var(--workspace-text-subtle); font-size: 10px; line-height: 14px; }
+.review-usage-estimate { margin: 8px 0; }
+.review-usage-operations { border-top: 1px solid var(--workspace-border); }
+.review-usage-operations ul { display: grid; gap: 4px; margin: 0 0 10px; padding-left: 20px; }
+.review-usage-operations li { overflow-wrap: anywhere; color: var(--workspace-text-muted); font-size: 11px; }
+
+.review-usage-source-count { margin: 0 0 8px; }
+.review-usage-file-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.review-usage-file-list > li { min-width: 0; padding: 12px 0; border-top: 1px solid var(--workspace-border); }
+.review-usage-file-path {
+  display: block;
+  color: var(--workspace-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.review-usage-file-metadata {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 8px 0 0;
+}
+.review-usage-file-metadata > div { min-width: 0; }
+.review-usage-file-metadata dd { margin: 2px 0 0; color: var(--workspace-text-muted); font-size: 11px; line-height: 17px; overflow-wrap: anywhere; }
+.review-usage-file-metadata code { overflow-wrap: anywhere; }
+.review-usage-physical { padding-top: 8px; border-top: 1px solid var(--workspace-border); }
+.review-usage-physical > p { margin: 0 0 6px; }
+.review-usage-physical .review-usage-file-disclosure { padding-top: 4px; }
+
+@media (max-width: 720px) {
+  .review-usage-panel summary { align-items: flex-start; padding: 12px 14px; }
+  .review-usage-summary-hint { max-width: 52%; }
+  .review-usage-content { padding: 0 14px 14px; }
+  .review-usage-content-heading { align-items: stretch; flex-direction: column; gap: 10px; }
+  .review-usage-content-heading p { max-width: 56ch; }
+  .review-usage-refresh { align-self: flex-start; min-height: 44px; }
+  .review-usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-usage-stage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-usage-phase-cards { grid-template-columns: 1fr; }
+  .review-usage-phase-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-usage-section-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .review-usage-section-heading p { text-align: left; }
+  .review-usage-file-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 390px) {
+  .review-usage-metrics { grid-template-columns: 1fr; }
+  .review-usage-file-metadata { grid-template-columns: 1fr; }
+  .review-usage-statusline { align-items: flex-start; flex-direction: column; gap: 6px; }
+}

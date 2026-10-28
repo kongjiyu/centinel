@@ -4,6 +4,7 @@ import {
   parseAnthropicToolTurn,
   parseOpenAIToolTurn,
   parseGoogleToolTurn,
+  parseProviderResponseUsage,
 } from '../../src/aiClient';
 
 describe('parseAnthropicToolTurn', () => {
@@ -105,6 +106,24 @@ describe('parseGoogleToolTurn', () => {
 });
 
 describe('parse*ToolTurn usage extraction', () => {
+  it('preserves a partial provider usage block without filling omitted counters with zero', () => {
+    const turn = parseOpenAIToolTurn({ usage: { prompt_tokens: 10 } });
+    expect(turn.usage).toEqual({
+      inputTokens: 10,
+      usageObservation: { source: 'provider_response', completeness: 'partial', missingCounters: ['outputTokens', 'cacheReadTokens'] },
+    });
+    expect(parseOpenAIToolTurn({}).usage).toBeUndefined();
+  });
+
+  it('reads only safe usage counters from provider error envelopes', () => {
+    expect(parseProviderResponseUsage('openai-compatible', {
+      error: { message: 'private prompt echoed here', usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
+    }, 'provider_error_response')).toEqual({
+      inputTokens: 10, outputTokens: 2, totalTokens: 12, providerReportedTotalTokens: 12, totalTokensSource: 'provider_reported',
+      usageObservation: { source: 'provider_error_response', completeness: 'partial', missingCounters: ['cacheReadTokens'] },
+    });
+  });
+
   it('parses Anthropic usage including cache tokens', async () => {
     const { parseAnthropicToolTurn } = await import('../../src/aiClient');
     const json = {
@@ -124,6 +143,7 @@ describe('parse*ToolTurn usage extraction', () => {
     expect(turn.usage!.cacheReadTokens).toBe(80);
     expect(turn.usage!.cacheCreationTokens).toBe(20);
     expect(turn.usage!.totalTokens).toBe(250);
+    expect(turn.usage).not.toHaveProperty('providerReportedTotalTokens');
   });
 
   it('parses OpenAI usage including prompt_tokens_details.cached_tokens', async () => {
@@ -143,6 +163,7 @@ describe('parse*ToolTurn usage extraction', () => {
     expect(turn.usage!.outputTokens).toBe(75);
     expect(turn.usage!.cacheReadTokens).toBe(150);
     expect(turn.usage!.totalTokens).toBe(275);
+    expect(turn.usage!.providerReportedTotalTokens).toBe(275);
   });
 
   it('parses Google usage including cachedContentTokenCount', async () => {
@@ -162,13 +183,37 @@ describe('parse*ToolTurn usage extraction', () => {
     expect(turn.usage!.outputTokens).toBe(100);
     expect(turn.usage!.cacheReadTokens).toBe(250);
     expect(turn.usage!.totalTokens).toBe(400);
+    expect(turn.usage!.providerReportedTotalTokens).toBe(400);
   });
 
-  it('returns undefined usage when all token counts are zero (defensive)', async () => {
+  it('does not label adapter-derived totals as provider-reported', async () => {
+    const { parseOpenAIToolTurn, parseGoogleToolTurn } = await import('../../src/aiClient');
+    const openAi = parseOpenAIToolTurn({
+      choices: [{ message: { content: 'ok' } }],
+      usage: { prompt_tokens: 20, completion_tokens: 5 },
+    });
+    const google = parseGoogleToolTurn({
+      candidates: [{ content: { parts: [{ text: 'ok' }] } }],
+      usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 5 },
+    });
+
+    expect(openAi.usage?.totalTokens).toBe(25);
+    expect(openAi.usage).not.toHaveProperty('providerReportedTotalTokens');
+    expect(google.usage?.totalTokens).toBe(25);
+    expect(google.usage).not.toHaveProperty('providerReportedTotalTokens');
+  });
+
+  it('preserves explicit zero provider counts as observed usage', async () => {
     const { parseAnthropicToolTurn, parseOpenAIToolTurn, parseGoogleToolTurn } = await import('../../src/aiClient');
-    expect(parseAnthropicToolTurn({ usage: { input_tokens: 0, output_tokens: 0 } }).usage).toBeUndefined();
-    expect(parseOpenAIToolTurn({ usage: { prompt_tokens: 0, completion_tokens: 0 } }).usage).toBeUndefined();
-    expect(parseGoogleToolTurn({ usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0 } }).usage).toBeUndefined();
+    expect(parseAnthropicToolTurn({ usage: { input_tokens: 0, output_tokens: 0 } }).usage).toMatchObject({
+      inputTokens: 0, outputTokens: 0, usageObservation: { completeness: 'partial' },
+    });
+    expect(parseOpenAIToolTurn({ usage: { prompt_tokens: 0, completion_tokens: 0 } }).usage).toMatchObject({
+      inputTokens: 0, outputTokens: 0, totalTokens: 0, usageObservation: { completeness: 'partial' },
+    });
+    expect(parseGoogleToolTurn({ usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0 } }).usage).toMatchObject({
+      inputTokens: 0, outputTokens: 0, totalTokens: 0, usageObservation: { completeness: 'partial' },
+    });
   });
 
   it('returns undefined usage when the usage block is missing entirely', async () => {

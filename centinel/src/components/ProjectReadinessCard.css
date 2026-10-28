@@ -5,11 +5,13 @@
 }
 
 /* Recovery guidance may be taller than the compact overview's fixed row. */
-.command-project-detail .project-overview-grid:has(.project-readiness-error) {
+.command-project-detail .project-overview-grid:has(.project-readiness-error),
+.command-project-detail .project-overview-grid:has(.project-readiness-previous) {
   grid-auto-rows: minmax(360px, auto);
 }
 
-.command-project-detail .project-overview-grid:has(.project-readiness-error) .detail-card {
+.command-project-detail .project-overview-grid:has(.project-readiness-error) .detail-card,
+.command-project-detail .project-overview-grid:has(.project-readiness-previous) .detail-card {
   height: auto;
 }
 
@@ -49,6 +51,32 @@
   min-height: 36px;
   padding-inline: 14px;
 }
+
+.command-project-detail .project-readiness-previous {
+  display: grid;
+  gap: 3px;
+  margin: 11px 0 0;
+  padding: 9px 10px;
+  border-left: 3px solid var(--workspace-warning);
+  background: var(--workspace-warning-subtle);
+  color: var(--workspace-text);
+}
+
+.command-project-detail .project-readiness-previous strong {
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.command-project-detail .project-readiness-previous span,
+.command-project-detail .project-readiness-job-state {
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.command-project-detail .project-readiness-job-state { margin: 9px 0 0; }
 
 .command-project-detail .project-readiness-spinner {
   color: var(--workspace-primary);

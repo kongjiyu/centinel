@@ -6,6 +6,8 @@ export type ArtifactSource = 'documents' | 'repository' | 'directory' | 'drive';
 export type Artifact = {
   id: string;
   projectId: string;
+  /** Durable connected-source identity; absent for older/local records. */
+  sourceId?: string | null;
   /** Immutable Storage-backed input version selected for this Review. */
   versionId?: string;
   type: ArtifactType;

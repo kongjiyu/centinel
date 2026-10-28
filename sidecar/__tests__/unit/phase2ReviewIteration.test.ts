@@ -10,10 +10,10 @@ const artifact: Artifact = {
   contentHash: 'frozen-hash', createdAt: '2026-09-21T00:00:00.000Z',
 };
 
-async function makeParent(repository: InMemoryStaticReviewRepository, decision: 'changes_requested' | 'approved' = 'changes_requested') {
+async function makeParent(repository: InMemoryStaticReviewRepository, decision: 'changes_requested' | 'approved' = 'changes_requested', maxContextTokens = 20_000) {
   const parent = await repository.createReview({
     id: 'parent-review', projectId: 'project-1', name: 'Access Review', reviewType: 'general_review',
-    status: 'changes_requested', idempotencyKey: 'parent-key', scope: { artifactIds: [artifact.id] }, config: { maxContextTokens: 1000 },
+    status: 'changes_requested', idempotencyKey: 'parent-key', scope: { artifactIds: [artifact.id] }, config: { maxContextTokens },
     lineage: { parentReviewId: null, lineageRootId: 'root-review', reusedSourceManifest: false },
   });
   const manifest = await repository.saveSourceManifest(parent.id, parent.projectId, [artifact], 'capture');
@@ -29,12 +29,27 @@ function provider(onPrompt: (prompt: string) => void): StaticAnalysisModelProvid
   return {
     analyze: async request => {
       onPrompt(request.prompt);
-      return { result: { findings: [] }, settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'test-model' } };
+      return { result: { findings: [], featureAssessments: [] }, settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'test-model' } };
     },
   };
 }
 
 describe('Request Changes Review iteration lifecycle', () => {
+  it('rejects an undersized complete request before making a provider call', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    await makeParent(repository, 'changes_requested', 1000);
+    let calls = 0;
+    const orchestrator = createStaticReviewOrchestrator({ repository,
+      modelProvider: provider(() => { calls++; }), deterministic: async () => [],
+      readArtifactContent: async () => 'The account handler checks tenant ownership.',
+      idGenerator: () => 'small-budget-child',
+    });
+    const prepared = await orchestrator.prepareReviewIteration({ reviewId: 'parent-review', sourceChoice: 'reuse', actorId: 'reviewer-user' });
+    const started = await orchestrator.startPreparedIteration({ reviewId: prepared.id });
+    expect((await started.completion).status).toBe('failed');
+    expect(calls).toBe(0);
+    expect(repository.attempts).toHaveLength(0);
+  });
   it('prepares an immutable child without model work and runs only after an explicit start', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const original = await makeParent(repository);

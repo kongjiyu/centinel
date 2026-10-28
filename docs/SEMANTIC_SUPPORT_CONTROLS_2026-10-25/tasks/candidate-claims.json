@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    { "id": "task-case-01-over_limit_value_forwarded", "caseId": "case-01", "candidate": "A request value above 24 is passed to SearchSink.take unchanged." },
+    { "id": "task-case-02-over_limit_value_forwarded", "caseId": "case-02", "candidate": "A request value above 24 is passed to SearchSink.take unchanged." },
+    { "id": "task-case-03-invalid_column_reaches_selected_division", "caseId": "case-03", "candidate": "The selected openBoard path can pass zero, a negative value, or a nonnumeric value as columns to calculateRows." },
+    { "id": "task-case-03-row_count_uses_received_columns", "caseId": "case-03", "candidate": "calculateRows divides itemCount by the columns value it receives." },
+    { "id": "task-case-04-configured_palette_is_overwritten", "caseId": "case-04", "candidate": "drawView always substitutes the fallback palette even when settings.palette is supplied." },
+    { "id": "task-case-04-missing_palette_uses_fallback", "caseId": "case-04", "candidate": "An omitted or nullish palette is replaced with the fallback before painting." },
+    { "id": "task-case-05-private_helper_maps_negative_to_empty", "caseId": "case-05", "candidate": "A direct call to padRows with a negative count produces an empty list." },
+    { "id": "task-case-05-public_entry_accepts_negative_count", "caseId": "case-05", "candidate": "The selected public entry accepts a caller-supplied negative count." },
+    { "id": "task-case-06-entry_propagates_negative_count", "caseId": "case-06", "candidate": "submitBoard propagates a supplied negative count to padRows without entry validation." },
+    { "id": "task-case-06-external_actor_controls_count", "caseId": "case-06", "candidate": "An external or remote actor controls the rawCount value received by submitBoard." },
+    { "id": "task-case-07-requested_length_formula", "caseId": "case-07", "candidate": "The requested typed-array length is slotCount multiplied by 256." },
+    { "id": "task-case-07-large_value_exhausts_process_memory", "caseId": "case-07", "candidate": "A large positive slotCount will exhaust process memory in supported deployments." },
+    { "id": "task-case-08-missing_schedule_throws", "caseId": "case-08", "candidate": "queueRefresh throws whenever the scheduler has no schedule method." },
+    { "id": "task-case-08-runtime_matrix_has_unsupported_version", "caseId": "case-08", "candidate": "A supported runtime version lacks the scheduler capability, making the feature incompatible there." },
+    { "id": "task-case-09-false_switch_is_dropped", "caseId": "case-09", "candidate": "The serializer drops explicitly supplied false switch values despite its stated contract." },
+    { "id": "task-case-09-false_switch_bypasses_access_control", "caseId": "case-09", "candidate": "Dropping a false switch lets a user bypass an access-control check in the application." },
+    { "id": "task-case-10-selected_notebook_omits_gutter", "caseId": "case-10", "candidate": "The selected notebook writer omits a requested gutter contrary to the shared built-in driver contract." },
+    { "id": "task-case-11-byte_stable_writer_ignores_mark", "caseId": "case-11", "candidate": "The selected byte-stable writer ignores frameMark." },
+    { "id": "task-case-11-documented_omission_violates_rule", "caseId": "case-11", "candidate": "Ignoring frameMark is a defect against the applicable driver rule." },
+    { "id": "task-case-12-prototype_omits_mark_locally", "caseId": "case-12", "candidate": "writePrototype ignores a supplied frameMark in its own implementation." },
+    { "id": "task-case-12-prototype_omission_affects_active_route", "caseId": "case-12", "candidate": "The active selected writer can omit frameMark because it selects writePrototype." }
+  ]
+}

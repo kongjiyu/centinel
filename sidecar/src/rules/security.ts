@@ -1,4 +1,5 @@
 import type { Rule, Finding } from '../staticEngine.js';
+import ts from 'typescript';
 
 const ALL_CODE_FILES = ['.ts', '.js', '.jsx', '.tsx', '.py', '.java', '.cs', '.go', '.rb', '.php', '.rs', '.cpp', '.c', '.h'];
 
@@ -44,16 +45,37 @@ const securityRules: Rule[] = [
       const lines = content.split('\n');
       const pattern = /\.innerHTML\s*=/;
 
+      if (/\.[cm]?[jt]sx?$/i.test(filePath)) {
+        const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true,
+          /\.tsx$/i.test(filePath) ? ts.ScriptKind.TSX : /\.jsx$/i.test(filePath) ? ts.ScriptKind.JSX : /\.[cm]?js$/i.test(filePath) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+        const visit = (node: ts.Node) => {
+          if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken].includes(node.operatorToken.kind)
+            && ((ts.isPropertyAccessExpression(node.left) && node.left.name.text === 'innerHTML')
+              || ts.isElementAccessExpression(node.left) && ts.isStringLiteralLike(node.left.argumentExpression) && node.left.argumentExpression.text === 'innerHTML')
+            && !ts.isStringLiteralLike(node.right)) {
+            const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+            findings.push({ ruleId: 'sec-innerhtml', filePath, lineNumber: line + 1, severity: 'info', category: 'security',
+              message: 'HTML injection sink needs flow verification. This assignment alone does not establish an exploitable XSS vulnerability.',
+              evidence: lines[line].trim().slice(0, 120), confidence: 'low',
+              recommendation: 'Trace the assigned value to its caller or input source. Verify the trust boundary, escaping and sanitization before promoting this observation to a vulnerability.' });
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(source);
+        return findings;
+      }
+
       for (let i = 0; i < lines.length; i++) {
         if (pattern.test(lines[i])) {
           findings.push({
             ruleId: 'sec-innerhtml',
             filePath,
             lineNumber: i + 1,
-            severity: 'high',
+            severity: 'info',
             category: 'security',
-            message: 'innerHTML assignment detected. This can lead to XSS attacks if the input is user-controlled. Use textContent or sanitize input.',
+            message: 'Possible HTML injection sink. Verify executable context, input provenance and sanitization before reporting a vulnerability.',
             evidence: lines[i].trim().substring(0, 120),
+            confidence: 'low',
           });
         }
       }

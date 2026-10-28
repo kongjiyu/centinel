@@ -1,5 +1,5 @@
 import PDFDocument from 'pdfkit';
-import type { ProjectReportFinding, ProjectReportSnapshot, ReportUsage } from './types.js';
+import type { ProjectReportFinding, ProjectReportSnapshot, ReportCurrentFinding, ReportUsage } from './types.js';
 
 const PAGE_MARGIN = 48;
 const BODY_BOTTOM = 102;
@@ -38,6 +38,19 @@ function statusLabel(status: string): string {
     approved: 'Completed', changes_requested: 'Changes requested', queued: 'Queued', running: 'In progress',
   };
   return labels[status] ?? pdfText(status);
+}
+
+function executionBasisLabel(basis: 'completed_at' | 'progress.completedAt' | 'created_at' | 'unavailable' | undefined): string {
+  switch (basis) {
+    case 'completed_at': return 'saved completion time';
+    case 'progress.completedAt': return 'frozen progress completion time';
+    case 'created_at': return 'creation-time fallback';
+    default: return 'unavailable';
+  }
+}
+
+function currentDisposition(finding: ReportCurrentFinding): string {
+  return finding.effectiveDisposition === 'resolved' ? 'Resolved' : statusLabel(finding.effectiveStatus);
 }
 
 function wrapText(doc: PDFKit.PDFDocument, text: string, width: number, fontSize: number, bold = false): string[] {
@@ -138,7 +151,8 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
       doc.y += 11;
     };
     const heading = (text: string) => {
-      ensureSpace(31);
+      // Keep the section title, divider, and first content line together.
+      ensureSpace(56);
       doc.font('Helvetica-Bold').fontSize(15).fillColor(COLORS.green);
       doc.text(pdfText(text), PAGE_MARGIN, doc.y, { lineBreak: false });
       doc.y += 22;
@@ -170,6 +184,28 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
         line(finding.evidenceText, { size: 8.5, color: COLORS.muted, indent: 10, after: 4 });
       }
       if (finding.recommendation) line('Recommendation: ' + finding.recommendation, { size: 9, after: 6 });
+      divider();
+    };
+    const drawCurrentFinding = (finding: ReportCurrentFinding, index: number) => {
+      subheading(String(index + 1) + '. ' + finding.title);
+      keyValueBlock([
+        ['Canonical finding ID', finding.id],
+        ['Source module', finding.source],
+        ['Persisted status', statusLabel(finding.persistedStatus)],
+        ['Effective disposition', currentDisposition(finding)],
+        ['Risk level', finding.riskLevel ?? 'Not classified'],
+        ['Latest occurrence', finding.latestOccurrence
+          ? finding.latestOccurrence.findingId + ' / Review ' + (finding.latestOccurrence.reviewId ?? 'Unavailable') + ' / ' + finding.latestOccurrence.classification
+          : 'Canonical finding'],
+        ['Lineage references', finding.lineageReferences.length
+          ? finding.lineageReferences.map(item => item.findingId + ' / Review ' + (item.reviewId ?? 'Unavailable') + ' / ' + item.classification).join('; ')
+          : 'None'],
+      ]);
+      if (finding.resolutionEvidence) {
+        line('Resolution basis: not reproduced in comparable Review ' + finding.resolutionEvidence.reviewId
+          + '; source version changed from ' + finding.resolutionEvidence.previousSourceVersion
+          + ' to ' + finding.resolutionEvidence.reviewedSourceVersion + '.', { size: 8.5, color: COLORS.muted, after: 5 });
+      }
       divider();
     };
     const appendUsage = (usage: ReportUsage) => {
@@ -215,12 +251,19 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
           bullet((finding.riskLevel ?? 'Unclassified') + ' - ' + finding.title + ' (' + statusLabel(finding.status) + ')'));
       } else line('No current risk items are available.', { size: 9, color: COLORS.muted });
 
-      heading('Finding inventory');
-      line('Every persisted finding is listed with its current state. Carryover findings are separate in the latest Review section.', { size: 9, color: COLORS.muted });
+      heading('Current project findings');
+      if (!snapshot.currentFindings || snapshot.currentFindings.status === 'unavailable') {
+        line('Current finding inventory unavailable: ' + (snapshot.currentFindings?.reason ?? 'this legacy report snapshot has no reconciled current inventory.'), { size: 9, color: COLORS.warning });
+      } else if (!snapshot.currentFindings.items.length) {
+        line('No current findings were returned by the reconciled project projection.', { size: 9, color: COLORS.muted });
+      } else snapshot.currentFindings.items.forEach(drawCurrentFinding);
+
+      heading('Historical finding occurrences');
+      line('Saved states in this section are immutable historical occurrences and may repeat one canonical issue. Per-Review findings remain session-scoped.', { size: 9, color: COLORS.muted });
       if (!snapshot.findings.length) line('No findings have been recorded.', { size: 9, color: COLORS.muted });
       else snapshot.findings.forEach(drawFinding);
 
-      heading('Latest Static Review');
+      heading('Latest Static Review attempt');
       if (!snapshot.latestReview) {
         line('Unavailable: no terminal Review record is available for this project.', { size: 9, color: COLORS.muted });
       } else {
@@ -236,7 +279,10 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
           ['Lifecycle state', lifecycle],
           ['Execution status', statusLabel(review.session.status)],
           ['Decision', review.decision ? statusLabel(review.decision.decision) : 'No decision recorded'],
-          ['Created / updated', date(review.session.createdAt) + ' / ' + date(review.session.updatedAt)],
+          ['Execution time', date(review.session.executionTimestamp) + ' (' + executionBasisLabel(review.session.executionTimestampBasis) + ')'],
+          ['Created', date(review.session.createdAt)],
+          ['Last activity', date(review.session.updatedAt)],
+          ['Decision time', date(review.decision?.createdAt)],
         ]);
         line('Summary: ' + (review.summary ?? 'No summary was recorded.'), { size: 9, color: COLORS.muted });
         if (review.session.failureReason) line('Failure reason: ' + review.session.failureReason, { size: 9, color: COLORS.warning });
@@ -277,7 +323,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
           label('Attention', review.traceability.summary.attention);
         } else line('Unavailable: this Review has no persisted traceability snapshot.', { size: 9, color: COLORS.muted });
         review.traceability.records.forEach(record =>
-          bullet(record.title + ' - ' + record.state + '; mappings: ' + record.mappingIds.length + '; source artifacts: ' + (record.sourceArtifactIds.join(', ') || 'None')));
+          bullet(record.title + ' - ' + record.state + '; evidence: ' + (record.evidenceStatus ?? 'Historical evidence unavailable') + '; mappings: ' + record.mappingIds.length + '; source artifacts: ' + (record.sourceArtifactIds.join(', ') || 'None')));
 
         subheading('Review model usage');
         appendUsage(review.modelUsage);

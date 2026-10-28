@@ -18,12 +18,13 @@ import type { StaticReviewRepository } from '../review/types.js';
 import { RefreshableSupabaseRuntime } from './supabaseRuntime.js';
 
 const REVIEW_REPOSITORY_METHODS = new Set([
-  'createReview', 'getReview', 'transitionReview', 'findOperation', 'saveOperation',
+  'createReview', 'getReview', 'listReviews', 'transitionReview', 'findOperation', 'saveOperation',
   'findReviewByIdempotencyKey', 'createRetryReview', 'saveSourceManifest',
-  'loadSourceManifestArtifacts', 'saveTraceabilitySnapshot', 'getLatestDecision',
+  'loadSourceManifestArtifacts', 'captureTraceabilitySnapshot', 'getTraceabilitySnapshot', 'saveTraceabilitySnapshot', 'getLatestDecision',
   'getTraceabilityReadiness', 'saveReviewIteration', 'saveEvidenceSufficiency',
+  'appendEvidenceSufficiency',
   'getEvidenceSufficiency', 'listContradictionDispositions', 'saveFindingCorrelations', 'getFindingCorrelationSnapshot',
-  'listReviewFindings', 'saveFinding', 'updateProgress', 'recordModelAttempt', 'getModelAttemptCount', 'recordAudit',
+  'listReviewFindings', 'getBatchCacheBasis', 'saveFinding', 'updateProgress', 'recordModelAttempt', 'getModelAttemptCount', 'recordAudit', 'recordAudits',
   'saveRequirementCandidates', 'listRequirementCandidates', 'confirmRequirementCandidate',
   'rejectRequirementCandidate', 'saveStandardRules', 'listStandardRules',
   'setStandardRuleEnabled', 'listConfirmedRequirements',

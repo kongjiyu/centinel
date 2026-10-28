@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
 import type { AuthenticatedRequest } from '../../src/auth/gateway.js';
+import { createGroundingModelProvider } from '../../src/review/groundingProvider.js';
 
 const fixtures = vi.hoisted(() => ({
   project: null as any,
@@ -37,7 +38,7 @@ vi.mock('../../src/integrations/supabaseRepository.js', () => ({
 vi.mock('../../src/review/groundingProvider.js', () => ({ createGroundingModelProvider: vi.fn() }));
 vi.mock('../../src/readiness/repository.js', () => ({ SupabaseReadinessStore: class {} }));
 
-import { inspectReadinessSources } from '../../src/readiness/runtime.js';
+import { createReadinessModelProvider, inspectReadinessSources } from '../../src/readiness/runtime.js';
 
 const projectId = 'project-1';
 
@@ -100,6 +101,40 @@ beforeEach(() => {
   fixtures.localImports = [];
   fixtures.localImportError = null;
   fixtures.localImportFilters = [];
+});
+
+describe('readiness model provider session binding', () => {
+  it('uses a current same-owner client and fails closed if the getter changes owner', () => {
+    const initial = auth();
+    const refreshed = auth();
+    vi.mocked(createGroundingModelProvider).mockClear();
+
+    createReadinessModelProvider(initial, () => refreshed);
+    const currentClient = vi.mocked(createGroundingModelProvider).mock.calls.at(-1)?.[0];
+    expect(vi.mocked(createGroundingModelProvider).mock.calls.at(-1)?.[1]).toBe(initial.userId);
+    expect(typeof currentClient).toBe('function');
+    if (typeof currentClient !== 'function') throw new Error('Expected a live Supabase client getter.');
+    expect(currentClient()).toBe(refreshed.client);
+
+    const foreignOwner = { ...auth(), userId: 'member-2' };
+    createReadinessModelProvider(initial, () => foreignOwner);
+    const foreignClient = vi.mocked(createGroundingModelProvider).mock.calls.at(-1)?.[0];
+    expect(typeof foreignClient).toBe('function');
+    if (typeof foreignClient !== 'function') throw new Error('Expected a guarded Supabase client getter.');
+    expect(() => foreignClient()).toThrow('Readiness provider session owner changed.');
+  });
+
+  it('keeps the original client for legacy callers without a current-session getter', () => {
+    const initial = auth();
+    vi.mocked(createGroundingModelProvider).mockClear();
+
+    createReadinessModelProvider(initial);
+    const client = vi.mocked(createGroundingModelProvider).mock.calls.at(-1)?.[0];
+
+    expect(typeof client).toBe('function');
+    if (typeof client !== 'function') throw new Error('Expected a compatible Supabase client getter.');
+    expect(client()).toBe(initial.client);
+  });
 });
 
 describe('inspectReadinessSources', () => {

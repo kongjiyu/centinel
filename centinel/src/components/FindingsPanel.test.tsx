@@ -8,6 +8,7 @@ import type { Finding } from '../types';
 vi.mock('../api/client', () => ({
   api: {
     listFindings: vi.fn(),
+    getReviewArtifactContent: vi.fn(),
     updateFinding: vi.fn().mockResolvedValue({ ok: true }),
   },
 }));
@@ -47,7 +48,7 @@ describe('FindingsPanel', () => {
     render(<FindingsPanel projectId="p-1" presentation="project" onOpenReview={onOpenReview} />);
     const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
     await user.click(row);
-    const details = screen.getByRole('complementary', { name: 'Finding details' });
+    const details = screen.getByRole('article', { name: 'Finding details' });
     expect(within(details).getByText('Latest review evidence')).toBeInTheDocument();
     await user.click(within(details).getByRole('button', { name: 'Open review First review' }));
     expect(onOpenReview).toHaveBeenCalledWith('first-review');
@@ -171,7 +172,7 @@ describe('FindingsPanel', () => {
     const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
     expect(within(row).getByText('Resolved')).toBeInTheDocument();
     await user.click(row);
-    const details = screen.getByRole('complementary', { name: 'Finding details' });
+    const details = screen.getByRole('article', { name: 'Finding details' });
     expect(within(details).getByText(/Not reproduced in the comparable re-review/)).toBeInTheDocument();
     expect(within(details).getByText('sha256:old')).toBeInTheDocument();
     expect(within(details).getByText('sha256:new')).toBeInTheDocument();
@@ -203,25 +204,25 @@ describe('FindingsPanel', () => {
     expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Severity' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Risk' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Description' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Finding' })).toBeInTheDocument();
     expect(screen.getByText('#f-1')).toBeInTheDocument();
-    expect(screen.getByText('Select a finding to review its details')).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Finding details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Source' })).not.toBeInTheDocument();
     const row = screen.getByRole('row', { name: /Keyboard-selectable finding/i });
     row.focus();
     await user.keyboard('{Enter}');
-    const details = screen.getByRole('complementary', { name: 'Finding details' });
+    const details = screen.getByRole('article', { name: 'Finding details' });
     expect(within(details).queryByText('Review')).not.toBeInTheDocument();
     expect(within(details).getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
-    expect(within(details).getByText('#f-1')).toBeInTheDocument();
+    expect(within(details).getByText(/#f-1/)).toBeInTheDocument();
     expect(within(details).getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
     const text = details.textContent || '';
     expect(text).not.toContain('Source type');
-    expect(text).not.toContain('Review');
-    expect(text.indexOf('Priority')).toBeLessThan(text.indexOf('Risk Level'));
+    expect(text).toContain('Review');
+    expect(text).toContain('Priority: high');
     expect(text).not.toContain('Severity');
     expect(text).not.toContain('Risk Category');
-    expect(text.indexOf('Recommendation')).toBeLessThan(text.indexOf('Evidence'));
+    expect(text).toContain('Overall recommendation');
     expect(text).not.toMatch(/Confidence/i);
   });
 
@@ -229,5 +230,43 @@ describe('FindingsPanel', () => {
     vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, priority: null, riskLevel: null, severity: 'critical' }]);
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
     expect(await screen.findByTitle('Risk Level calculated from available finding data')).toHaveTextContent('Critical');
+  });
+
+  it('groups nesting locations once and updates only the selected occurrence', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listFindings).mockResolvedValue([
+      { ...baseFinding, title: '[cq-deep-nesting] six levels', filePath: 'src/one.ts', status: 'fixed' },
+      { ...baseFinding, id: 'f-2', title: '[cq-deep-nesting] eight levels', filePath: 'src/two.ts', lineNumber: 24 },
+    ]);
+    render(<FindingsPanel projectId="p-1" presentation="project" />);
+    const row = await screen.findByRole('row', { name: /Code Deep Nesting Issue/ });
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+    expect(within(row).getByText('Unresolved')).toBeInTheDocument();
+    expect(within(row).getByText('2 affected occurrences')).toBeInTheDocument();
+    await user.click(row);
+    const details = screen.getByRole('article', { name: 'Finding details' });
+    await user.click(within(details).getByRole('button', { name: /src\/two.ts:24/ }));
+    expect(within(details).getAllByRole('region', { name: /Flagged item/ })).toHaveLength(2);
+    await user.click(within(details).getByRole('button', { name: 'Mark as resolved' }));
+    await waitFor(() => expect(api.updateFinding).toHaveBeenCalledWith('p-1', 'f-2', 'fixed'));
+    expect(api.updateFinding).not.toHaveBeenCalledWith('p-1', 'f-1', 'fixed');
+  });
+
+  it('opens a finding ID inside its group on the correct page and lazily previews saved code', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getReviewArtifactContent).mockResolvedValue({ versionId: 'v1', content: btoa('export function pay() {}'), contentHash: 'hash', mimeType: 'text/typescript' });
+    vi.mocked(api.listFindings).mockResolvedValue([
+      { ...baseFinding, id: 'critical', title: 'An unrelated issue', severity: 'critical' },
+      { ...baseFinding, title: '[cq-deep-nesting] six levels', filePath: 'src/one.ts' },
+      { ...baseFinding, id: 'f-2', artifactId: 'artifact-2', title: '[cq-deep-nesting] eight levels', filePath: 'src/two.ts' },
+    ]);
+    render(<FindingsPanel projectId="p-1" presentation="project" pageSize={1} focusFindingId="f-2" />);
+    const details = await screen.findByRole('article', { name: 'Finding details' });
+    expect(await within(details).findByRole('heading', { name: 'Code Deep Nesting Issue' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(api.getReviewArtifactContent).not.toHaveBeenCalled();
+    await user.click(within(details).getByRole('button', { name: 'View reviewed source' }));
+    expect(api.getReviewArtifactContent).toHaveBeenCalledWith('p-1', 's-1', 'artifact-2');
+    expect(await within(details).findByLabelText('Reviewed source src/two.ts')).toHaveTextContent('export function pay() {}');
   });
 });

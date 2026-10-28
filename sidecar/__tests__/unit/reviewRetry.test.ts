@@ -211,6 +211,38 @@ describe('static-review retry policy', () => {
     expect(result.attempts).toHaveLength(2);
   });
 
+  it('binds per-request logical phase metadata without changing the operation key or attempt budget', async () => {
+    const phases: string[] = [];
+    const reservations: Array<{ stage: string; attempt: number; phase?: string }> = [];
+    let sourceEvidenceInvalid = false;
+    let calls = 0;
+    const model = provider(async input => {
+      calls++;
+      phases.push(input.usageContext?.phase ?? 'missing');
+      if (calls === 1) throw new ModelProviderError('invalid json', { code: 'malformed_response', malformed: true, retryable: true });
+      if (calls === 2) throw new ModelProviderError('temporary network failure', { code: 'timeout', retryable: true });
+      return { result: { findings: [] }, settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'mimo' } };
+    });
+    const result = await runModelOperation(request, model, {
+      reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis:batch-a',
+      provider: 'mimo', apiFormat: 'openai-compatible', model: 'mimo',
+      maxTotalAttempts: 3,
+      usageContextForAttempt: input => ({ phase: sourceEvidenceInvalid ? 'citation_repair' : input.repair ? 'response_repair' : 'initial_analysis', sources: [] }),
+      onAttemptStarted: attempt => reservations.push({ stage: attempt.stage, attempt: attempt.attempt, phase: attempt.usageContext?.phase }),
+      onAttempt: attempt => { if (attempt.attempt === 1) sourceEvidenceInvalid = true; },
+      baseDelayMs: 0, jitterRatio: 0, sleep: async () => undefined,
+    });
+
+    expect(calls).toBe(3);
+    expect(result.attempts.map(attempt => attempt.attempt)).toEqual([1, 2, 3]);
+    expect(reservations).toEqual([
+      { stage: 'model_analysis:batch-a', attempt: 1, phase: 'initial_analysis' },
+      { stage: 'model_analysis:batch-a', attempt: 2, phase: 'citation_repair' },
+      { stage: 'model_analysis:batch-a', attempt: 3, phase: 'citation_repair' },
+    ]);
+    expect(phases).toEqual(['initial_analysis', 'citation_repair', 'citation_repair']);
+  });
+
   it('interrupts retry backoff immediately on cancellation', async () => {
     const controller = new AbortController();
     const model = provider(async () => {
@@ -224,6 +256,50 @@ describe('static-review retry policy', () => {
     await vi.waitFor(() => expect(controller.signal.aborted).toBe(false));
     controller.abort();
     await expect(pending).rejects.toBeInstanceOf(ReviewCancelledError);
+  });
+
+  it('records returned provider usage when cancellation arrives before the result is accepted', async () => {
+    const controller = new AbortController();
+    const attemptRecords: Array<{ outcome: string; usage?: unknown }> = [];
+    const model = provider(async () => {
+      controller.abort();
+      return {
+        result: { findings: [] },
+        usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110,
+          providerReportedTotalTokens: 110, totalTokensSource: 'provider_reported' },
+        settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'fixture' },
+      };
+    });
+
+    await expect(runModelOperation(request, model, {
+      reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis:batch-a',
+      provider: 'mimo', apiFormat: 'openai-compatible', model: 'fixture',
+      signal: controller.signal,
+      onAttempt: attempt => attemptRecords.push({ outcome: attempt.outcome, usage: attempt.usage }),
+    })).rejects.toBeInstanceOf(ReviewCancelledError);
+
+    expect(attemptRecords).toEqual([{ outcome: 'cancelled', usage: {
+      inputTokens: 100, outputTokens: 10, totalTokens: 110,
+      providerReportedTotalTokens: 110, totalTokensSource: 'provider_reported',
+    } }]);
+  });
+
+  it.each([
+    ['no response', { code: 'network_error', retryable: false, responseReceived: false }, false,
+      { basis: 'assumed_zero_no_response', accountedTokens: 0 }],
+    ['HTTP response without usage', { code: 'http_500', retryable: false, responseReceived: true, statusCode: 500 }, true, undefined],
+  ] as const)('separates assumed zero from unknown actual usage for %s', async (_label, options, responseReceived, usageAccounting) => {
+    const records: Array<{ outcome: string; responseReceived?: boolean; usage?: unknown; usageAccounting?: unknown }> = [];
+    const model = provider(async () => { throw new ModelProviderError('provider failure', options); });
+    await expect(runModelOperation(request, model, {
+      reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis',
+      provider: 'custom', apiFormat: 'openai-compatible', model: 'fixture',
+      onAttemptStarted: attempt => records.push({ outcome: attempt.outcome, responseReceived: attempt.responseReceived, usage: attempt.usage, usageAccounting: attempt.usageAccounting }),
+      onAttempt: attempt => records.push({ outcome: attempt.outcome, responseReceived: attempt.responseReceived, usage: attempt.usage, usageAccounting: attempt.usageAccounting }),
+    })).rejects.toMatchObject({ code: options.code });
+
+    expect(records[0]).toEqual({ outcome: 'in_progress', responseReceived: undefined, usage: undefined, usageAccounting: undefined });
+    expect(records[1]).toEqual({ outcome: 'permanent_error', responseReceived, usage: undefined, usageAccounting });
   });
 
   it('calculates bounded exponential backoff with provider hints', () => {

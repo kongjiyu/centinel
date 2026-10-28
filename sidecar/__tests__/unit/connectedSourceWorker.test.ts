@@ -16,6 +16,31 @@ function syncRun(overrides: Partial<ConnectedSourceSyncRun> = {}): ConnectedSour
 }
 
 describe('connected-source background worker', () => {
+  it('awaits the durable source-index event callback before the worker becomes idle', async () => {
+    let release!: () => void; let saved = false;
+    const worker = new ConnectedSourceWorkerCoordinator({
+      createImporter: () => ({ resumeSync: async () => ({ run: syncRun({ status: 'success' }) }), failStalledRun: vi.fn() }),
+      onRunFinished: async () => { await new Promise<void>(resolve => { release = resolve; }); saved = true; },
+    });
+    worker.enqueue(auth('verified'), { projectId: 'project-1', sourceId: 'source-1', runId: 'run-1' });
+    await new Promise(resolve => setImmediate(resolve)); let idle = false;
+    const wait = worker.waitForIdle().then(() => { idle = true; });
+    expect(idle).toBe(false); release(); await wait; expect(saved).toBe(true);
+  });
+  it('recovers persisted partial and expired running jobs in a fresh worker, excluding active leases and failures', async () => {
+    const resumeSync = vi.fn(async (input: { runId: string }) => ({ run: syncRun({ id: input.runId, status: 'success' }) }));
+    const worker = new ConnectedSourceWorkerCoordinator({ createImporter: () => ({ resumeSync, failStalledRun: vi.fn() }) });
+    const source = (run: ConnectedSourceSyncRun) => ({ id: run.sourceId, projectId: run.projectId, latestSyncRun: run }) as any;
+    worker.recoverProject(auth('restored-session'), 'project-1', [
+      source(syncRun({ id: 'partial', status: 'partial' })),
+      source(syncRun({ id: 'expired', status: 'running', leaseExpiresAt: new Date(Date.now() - 1000).toISOString() })),
+      source(syncRun({ id: 'active', status: 'running', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() })),
+      source(syncRun({ id: 'failed', status: 'failure', errorCode: 'http_503', retryable: true })),
+      source(syncRun({ id: 'foreign', projectId: 'another-project', status: 'queued' })),
+    ]);
+    await worker.waitForIdle();
+    expect(resumeSync.mock.calls.map(([input]) => input.runId).sort()).toEqual(['expired', 'partial']);
+  });
   it('continues every partial page until the durable run is complete', async () => {
     const calls: Array<{ authToken: string; runId: string; maxPages: number }> = [];
     let page = 1;

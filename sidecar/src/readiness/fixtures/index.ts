@@ -1,5 +1,8 @@
 import type { ReadinessEvaluationFixture } from './types.js';
 
+/** Gold-label/corpus contract, independent from the production engine policy. */
+export const READINESS_BENCHMARK_VERSION = 'readiness-benchmark-2026-10-22.1';
+
 const quote = (sourceId: string, excerpt: string) => ({ sourceId, excerpt });
 
 const requirementsText = `Project creation requirements.
@@ -161,7 +164,30 @@ export const READINESS_EVALUATION_FIXTURES: readonly ReadinessEvaluationFixture[
       requirements: {
         state: 'incomplete', presence: 'present',
         classificationEvidence: [quote('vague-requirements', 'The service should be easy, fast, useful, and safe for everyone.')],
+        // No feature or boundary is named: the production policy requires Unknown scope.
+        checks: { clarity: 'gap', consistency: 'unknown', testability: 'gap', business_decisions: 'gap', boundaries: 'gap', exceptions: 'gap', scope: 'unknown' },
+      },
+      design: allUnknownDesign,
+      standards: allUnknownStandards,
+    },
+  },
+  {
+    id: 'named-uncovered-feature',
+    description: 'An explicitly named feature has no defined behavior; unlike unidentified scope this is a source-anchored coverage gap.',
+    sources: [{
+      sourceId: 'uncovered-export', fileName: 'export-brief.md', filePath: 'docs/export-brief.md', artifactType: 'requirement', source: 'documents',
+      content: 'Scope: Monthly statement export is in scope. No export inputs, output format, permission decision, limits, acceptance outcomes, or error behavior are defined.',
+    }],
+    expected: {
+      requirements: {
+        state: 'incomplete', presence: 'present',
+        classificationEvidence: [quote('uncovered-export', 'Scope: Monthly statement export is in scope.')],
         checks: { clarity: 'gap', consistency: 'unknown', testability: 'gap', business_decisions: 'gap', boundaries: 'gap', exceptions: 'gap', scope: 'gap' },
+        scopeCoverage: [{
+          scopeItem: 'monthly statement export', scopeEvidence: quote('uncovered-export', 'Scope: Monthly statement export is in scope.'),
+          status: 'gap', coverageEvidence: [],
+        }],
+        evidence: { scope: [quote('uncovered-export', 'No export inputs, output format, permission decision, limits, acceptance outcomes, or error behavior are defined.')] },
       },
       design: allUnknownDesign,
       standards: allUnknownStandards,

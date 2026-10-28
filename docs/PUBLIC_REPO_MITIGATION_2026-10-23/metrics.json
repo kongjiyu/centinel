@@ -1,0 +1,549 @@
+{
+  "generatedAt": "2026-10-22T17:15:34.723Z",
+  "source": "actual-production-workflow",
+  "cases": [
+    {
+      "alias": "axios",
+      "instanceId": "axios__axios-4738",
+      "projectId": "3c66cb23-9805-471d-97e6-719182787d94",
+      "import": {
+        "valid": true,
+        "actual": 52,
+        "expected": 52
+      },
+      "readiness": {
+        "status": "completed",
+        "errorCode": null,
+        "assessmentId": "0b1e1306-683f-44f2-b5e9-076fb433a3f0",
+        "categories": [
+          {
+            "id": "repository",
+            "state": "completed"
+          },
+          {
+            "id": "requirements",
+            "state": "incomplete"
+          },
+          {
+            "id": "design",
+            "state": "incomplete"
+          },
+          {
+            "id": "standards",
+            "state": "incomplete"
+          }
+        ]
+      },
+      "review": {
+        "id": "adb6b61c-752f-45ae-89d7-9e2e5e7968f1",
+        "status": "blocked",
+        "modelStatus": "partial",
+        "failureReason": "Paused: the Model Provider reported an exhausted usage quota. Restore provider access, then retry manually. No automatic retry will run.",
+        "findingCount": 6
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [
+          {
+            "outcome": "permanent_error",
+            "code": "quota_exhausted",
+            "durationMs": 2685
+          }
+        ],
+        "capturedPolicy": "review-2026-10-23-batched-coverage-v6"
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 48,
+        "denominator": 48,
+        "value": 1,
+        "files": [
+          ".eslintrc.js",
+          "index.d.ts",
+          "index.js",
+          "lib/adapters/http.js",
+          "lib/adapters/xhr.js",
+          "lib/axios.js",
+          "lib/cancel/CancelToken.js",
+          "lib/cancel/CanceledError.js",
+          "lib/cancel/isCancel.js",
+          "lib/core/Axios.js",
+          "lib/core/AxiosError.js",
+          "lib/core/InterceptorManager.js",
+          "lib/core/buildFullPath.js",
+          "lib/core/dispatchRequest.js",
+          "lib/core/mergeConfig.js",
+          "lib/core/settle.js",
+          "lib/core/transformData.js",
+          "lib/defaults/index.js",
+          "lib/defaults/transitional.js",
+          "lib/env/classes/FormData.js",
+          "lib/env/data.js",
+          "lib/helpers/AxiosURLSearchParams.js",
+          "lib/helpers/bind.js",
+          "lib/helpers/buildURL.js",
+          "lib/helpers/combineURLs.js",
+          "lib/helpers/cookies.js",
+          "lib/helpers/deprecatedMethod.js",
+          "lib/helpers/formDataToJSON.js",
+          "lib/helpers/fromDataURI.js",
+          "lib/helpers/isAbsoluteURL.js",
+          "lib/helpers/isAxiosError.js",
+          "lib/helpers/isURLSameOrigin.js",
+          "lib/helpers/normalizeHeaderName.js",
+          "lib/helpers/null.js",
+          "lib/helpers/parseHeaders.js",
+          "lib/helpers/parseProtocol.js",
+          "lib/helpers/spread.js",
+          "lib/helpers/toFormData.js",
+          "lib/helpers/toURLEncodedForm.js",
+          "lib/helpers/validator.js",
+          "lib/platform/browser/classes/FormData.js",
+          "lib/platform/browser/classes/URLSearchParams.js",
+          "lib/platform/browser/index.js",
+          "lib/platform/index.js",
+          "lib/platform/node/classes/FormData.js",
+          "lib/platform/node/classes/URLSearchParams.js",
+          "lib/platform/node/index.js",
+          "lib/utils.js"
+        ]
+      },
+      "goldAffectedFilesInspected": true,
+      "domainDisclosure": {
+        "numerator": 532,
+        "denominator": 532,
+        "value": 1
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 532,
+        "value": 0
+      },
+      "evidenceValidity": {
+        "numerator": 362,
+        "denominator": 362,
+        "value": 1
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "docusaurus",
+      "instanceId": "facebook__docusaurus-9897",
+      "projectId": "d957f4b7-f286-4efd-81fc-6d0ac1e1250e",
+      "import": {
+        "valid": true,
+        "actual": 29,
+        "expected": 29
+      },
+      "readiness": {
+        "status": "unattempted",
+        "errorCode": null,
+        "assessmentId": null,
+        "categories": []
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 23,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "immutable-js",
+      "instanceId": "immutable-js__immutable-js-2006",
+      "projectId": "63b5941f-6daa-42fc-bb1e-fd1eb0d70e88",
+      "import": {
+        "valid": true,
+        "actual": 80,
+        "expected": 80
+      },
+      "readiness": {
+        "status": "unattempted",
+        "errorCode": null,
+        "assessmentId": null,
+        "categories": []
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 75,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "three-js",
+      "instanceId": "mrdoob__three.js-26589",
+      "projectId": "ec239972-c456-4747-a199-d0fcce10e631",
+      "import": {
+        "valid": true,
+        "actual": 10,
+        "expected": 10
+      },
+      "readiness": {
+        "status": "unattempted",
+        "errorCode": null,
+        "assessmentId": null,
+        "categories": []
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 6,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "invalidReferences": []
+    },
+    {
+      "alias": "preact",
+      "instanceId": "preactjs__preact-2757",
+      "projectId": "ff95471a-ec7d-464a-a4c2-01905aa85f12",
+      "import": {
+        "valid": true,
+        "actual": 21,
+        "expected": 21
+      },
+      "readiness": {
+        "status": "unattempted",
+        "errorCode": null,
+        "assessmentId": null,
+        "categories": []
+      },
+      "review": {
+        "id": null,
+        "status": "unattempted",
+        "modelStatus": null,
+        "failureReason": null,
+        "findingCount": null
+      },
+      "modelExecution": {
+        "providerSucceeded": false,
+        "validatedAssessment": false,
+        "attempts": [],
+        "capturedPolicy": null
+      },
+      "eligible": false,
+      "selectedFileInspection": {
+        "numerator": 0,
+        "denominator": 17,
+        "value": 0,
+        "files": []
+      },
+      "goldAffectedFilesInspected": false,
+      "domainDisclosure": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "supportedClaimCoverage": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "evidenceValidity": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "invalidReferences": []
+    }
+  ],
+  "executionEligibility": {
+    "numerator": 0,
+    "denominator": 5,
+    "value": 0
+  },
+  "providerResponseCompletion": {
+    "numerator": 0,
+    "denominator": 5,
+    "value": 0
+  },
+  "successfulWorkflowRecall": {
+    "numerator": 0,
+    "denominator": 0,
+    "value": null
+  },
+  "providerCompletedKnownIssueRecall": {
+    "numerator": 0,
+    "denominator": 0,
+    "value": null
+  },
+  "providerCompletedKnownOccurrenceRecall": {
+    "numerator": 0,
+    "denominator": 0,
+    "value": null
+  },
+  "modelPrecision": {
+    "tp": 0,
+    "fp": 0,
+    "unknown": 0,
+    "numerator": 0,
+    "denominator": 0,
+    "value": null,
+    "lowerBound": null,
+    "upperBound": null
+  },
+  "deterministicPrecision": {
+    "tp": 4,
+    "fp": 0,
+    "unknown": 0,
+    "numerator": 4,
+    "denominator": 4,
+    "value": 1,
+    "lowerBound": 1,
+    "upperBound": 1
+  },
+  "aggregatePrecision": {
+    "tp": 4,
+    "fp": 0,
+    "unknown": 0,
+    "numerator": 4,
+    "denominator": 4,
+    "value": 1,
+    "lowerBound": 1,
+    "upperBound": 1
+  },
+  "knownIssueRecall": {
+    "numerator": 0,
+    "denominator": 5,
+    "value": 0,
+    "status": "end_to_end_baseline"
+  },
+  "knownOccurrenceRecall": {
+    "numerator": 0,
+    "denominator": 7,
+    "value": 0,
+    "status": "end_to_end_baseline"
+  },
+  "evidenceValidity": {
+    "numerator": 362,
+    "denominator": 362,
+    "value": 1
+  },
+  "selectedFileInspection": {
+    "numerator": 48,
+    "denominator": 169,
+    "value": 0.28402366863905326
+  },
+  "domainDisclosure": {
+    "numerator": 532,
+    "denominator": 532,
+    "value": 1
+  },
+  "supportedClaimCoverage": {
+    "numerator": 0,
+    "denominator": 532,
+    "value": 0
+  },
+  "acceptance": "NOT_ACCEPTED",
+  "caveats": [
+    "Known gold is five issues, not exhaustive defect truth.",
+    "Imported file count does not establish inspection.",
+    "Acceptance is never inferred from empty predictions or missing runs.",
+    "Sanitized raw/effective Readiness diagnostics are available only for newly completed runs.",
+    "Capacity-blocked and unattempted cases do not establish model semantic accuracy; fixed end-to-end recall remains disclosed.",
+    "The Readiness gold contains seven partial assertions per case, not a complete criterion-level truth set."
+  ],
+  "readinessDiagnostics": [
+    {
+      "instanceId": "axios__axios-4738",
+      "available": true,
+      "batchCount": 3,
+      "rawPresence": [
+        {
+          "category": "requirements",
+          "presence": "present"
+        },
+        {
+          "category": "design",
+          "presence": "present"
+        },
+        {
+          "category": "standards",
+          "presence": "present"
+        }
+      ],
+      "rawLocalPasses": 48,
+      "effectivePasses": 7,
+      "effectiveUnknown": 9,
+      "criterionCount": 16
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "available": false,
+      "batchCount": null,
+      "rawPresence": [],
+      "rawLocalPasses": 0,
+      "effectivePasses": 0,
+      "effectiveUnknown": 0,
+      "criterionCount": 0
+    },
+    {
+      "instanceId": "immutable-js__immutable-js-2006",
+      "available": false,
+      "batchCount": null,
+      "rawPresence": [],
+      "rawLocalPasses": 0,
+      "effectivePasses": 0,
+      "effectiveUnknown": 0,
+      "criterionCount": 0
+    },
+    {
+      "instanceId": "mrdoob__three.js-26589",
+      "available": false,
+      "batchCount": null,
+      "rawPresence": [],
+      "rawLocalPasses": 0,
+      "effectivePasses": 0,
+      "effectiveUnknown": 0,
+      "criterionCount": 0
+    },
+    {
+      "instanceId": "preactjs__preact-2757",
+      "available": false,
+      "batchCount": null,
+      "rawPresence": [],
+      "rawLocalPasses": 0,
+      "effectivePasses": 0,
+      "effectiveUnknown": 0,
+      "criterionCount": 0
+    }
+  ],
+  "readinessPartialAssertions": [
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "repository_readable_and_configuration_parseable",
+      "verdict": "true",
+      "reason": "The successful frozen-source run reports repository Completed, and all 52 selected files were read."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "requirements_present",
+      "verdict": "true",
+      "reason": "Raw classification is present; original README request configuration and contributor rules supply intended behavior."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "design_present",
+      "verdict": "true",
+      "reason": "Raw classification is present; source comments and implementation descriptions supply design responsibilities."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "standards_present",
+      "verdict": "true",
+      "reason": "Raw classification is present; original .eslintrc.js, tsconfig.json and CONTRIBUTING.md prescribe rules."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "original_rule_evidence",
+      "verdict": "true",
+      "reason": "Standards checkability cites exact .eslintrc.js eqeqeq, tsconfig strict/noEmit and package test/fix command excerpts; these are original scoped rules. Applicability remains Unknown."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "no_invented_documents",
+      "verdict": "true",
+      "reason": "All retained cited artifact IDs belong to the imported immutable source set."
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "id": "no_whole_system_certification",
+      "verdict": "true",
+      "reason": "Repository availability is scoped to selected inputs; semantic categories remain Incomplete and no bug-free claim is made."
+    }
+  ],
+  "semanticAccuracyEligible": false
+}

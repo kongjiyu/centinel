@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "centinel-v19-partial-independent-adjudication-v1",
+  "reviewId": "a679eca3-7cec-4860-a3b1-bec7770ac0c7",
+  "instanceId": "axios__axios-4738",
+  "evaluator": "Independent delegated read-only reviewer; inherited requested SOL6.1 High context",
+  "scope": "Saved partial findings only; unchanged frozen Axios source; independent source tracing plus bounded offline probes with inert transport/environment stubs",
+  "workflowAcceptance": "fail_partial_execution_and_gold_miss",
+  "workflowStatus": "blocked",
+  "modelStatus": "partial",
+  "precisionScope": "Factual and explicitly conditional saved claims. Diagnostic length/TODO truth does not establish defect severity. Conditional security mechanics do not establish a deployed exploit.",
+  "deduplication": "Merge the two ArrayBuffer bounds predictions and the two shared helper-state predictions. Consistent with frozen historical adjudication, merge adapter wrapper and its nested Promise callback length warnings into one maintainability cause per adapter. Preserve every recorded ID.",
+  "metrics": {
+    "recordedPredictions": 20,
+    "recordedModelPredictions": 14,
+    "recordedDeterministicPredictions": 6,
+    "uniquePredictions": 16,
+    "uniqueModelPredictions": 12,
+    "uniqueDeterministicObservations": 4,
+    "true": 16,
+    "false": 0,
+    "unknown": 0,
+    "unadjudicated": 0,
+    "resolvedPrecision": 1,
+    "conservativePrecisionBound": 1,
+    "optimisticPrecisionBound": 1,
+    "modelOnlyResolvedPrecision": 1,
+    "rawProductionNeedsVerificationRecords": 3,
+    "rawProductionNeedsVerificationUniqueClaims": 2,
+    "goldIssueHits": 0,
+    "goldIssueDenominator": 1,
+    "goldOccurrenceHits": 0,
+    "goldOccurrenceDenominator": 1,
+    "partialArtifactIssueRecall": 0,
+    "partialArtifactOccurrenceRecall": 0,
+    "fullRunRecall": null,
+    "findingReferencesValid": 41,
+    "findingReferencesTotal": 41,
+    "assessmentAnchorsValid": 288,
+    "assessmentAnchorsTotal": 288,
+    "primaryEvidenceReferenceValidity": 1,
+    "citationCandidatesValid": 105,
+    "citationCandidatesTotal": 105,
+    "fullMapAnchorsValid": 1317,
+    "fullMapAnchorsTotal": 1317
+  },
+  "claims": [
+    {
+      "claimKey": "axios:custom-blob-constructor-bypassed",
+      "findingIds": ["0ed741c7-647b-45eb-9d86-56ba94f71f8a"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/helpers/toFormData.js:71-90", "lib/axios.js:44"],
+      "reason": "The public serializer derives useBlob from the selected options.Blob but instantiates global Blob. The probe confirmed a custom constructor is never called; without global Blob and Buffer the same supported local path throws. This is a conditional constructor contract defect, not a claim that every browser lacks these globals."
+    },
+    {
+      "claimKey": "axios:cookie-name-regex-metacharacters",
+      "findingIds": ["8e8b93af-2b46-40f4-be2b-82f1167c4000"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/helpers/cookies.js:34-36", "lib/adapters/xhr.js:148-153"],
+      "reason": "A caller-configured xsrfCookieName reaches the unescaped RegExp. A dotted valid name matches an unrelated cookie first. A malformed name containing a bracket and invalid range throws; a bare '[' alone does not necessarily throw. The prediction explicitly leaves attacker control and downstream security consequences unestablished, so no remote exploit credit is assigned."
+    },
+    {
+      "claimKey": "axios:silent-json-documentation-mismatch",
+      "findingIds": ["b0d7845f-a488-4f0f-8e80-3dfcac9b5022"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["README.md:501-503", "lib/defaults/index.js:118-139"],
+      "reason": "README promises null on ignored parse failure, while the catch falls through to return the unchanged nonempty malformed string. Probe verified silent return and strict-mode rejection control."
+    },
+    {
+      "claimKey": "axios:arraybuffer-view-bounds-lost",
+      "findingIds": ["ac0f09ea-f6fa-4479-92c5-286e011123f6", "ee954e59-9d13-423e-a740-f08530c42346"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "rawCitationVerification": "needs_verification",
+      "rawCitationReason": "support_unverified",
+      "source": ["lib/defaults/index.js:76-86", "lib/core/dispatchRequest.js:34-41", "lib/adapters/http.js:186-190", "lib/adapters/http.js:450-456", "README.md:350-351"],
+      "reason": "The non-Buffer ArrayBufferView branch discards byteOffset and byteLength. Source tracing follows the transformed backing ArrayBuffer into HTTP's full Uint8Array conversion and req.end. A two-byte view of a four-byte backing buffer produced four fake-transport payload bytes. Production uncertainty metadata remains unchanged; real network transmission was not executed."
+    },
+    {
+      "claimKey": "axios:inherited-merge-strategy",
+      "findingIds": ["eed6123b-6b0e-465f-93aa-9ed2ae70c820"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/core/mergeConfig.js:63-96", "lib/core/Axios.js:41-55"],
+      "reason": "Object.keys includes own supplied keys, but mergeMap is a normal object. Its inherited toString replaces the supplied value with '[object Undefined]' in strict mode; an own JSON-parsed __proto__ selects a nonfunction and throws before configuration validation. Ordinary custom-key control is preserved. No prototype-pollution exploit is inferred."
+    },
+    {
+      "claimKey": "axios:shared-formdata-helper-mutation",
+      "findingIds": ["cdb904ff-813d-4de5-adf0-ba0c47cf9e89", "02841aad-a38c-4707-bb2e-d5556379e93c"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/helpers/toFormData.js:28-30", "lib/helpers/toFormData.js:104-159"],
+      "reason": "Object.assign mutates the shared predicates object with per-call closures. A reentrant custom visitor replaced its helper functions; subsequent outer helpers.defaultVisitor appended the outer field to the inner form in the probe. No concurrent-thread assumption is needed."
+    },
+    {
+      "claimKey": "axios:cancel-listener-exception-stops-notification",
+      "findingIds": ["b7be261a-7a52-49d8-bb6c-76287dbe0a00"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/cancel/CancelToken.js:25-34", "lib/cancel/CancelToken.js:76-86"],
+      "reason": "The reverse-order notification loop has no per-listener guard. A later subscribed throwing callback prevents earlier subscribers from being notified, skips _listeners cleanup and rejects the ignored then promise. Probe observed all three effects. Scope is a shared token with a throwing subscriber, not ordinary cancellation with all callbacks well-behaved."
+    },
+    {
+      "claimKey": "axios:stream-abort-misdiagnosed-as-size-limit",
+      "findingIds": ["61c1a08d-32e6-4e47-8a29-9a8d032ea124"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/adapters/http.js:337-362"],
+      "reason": "The aborted handler does not test totalResponseBytes or enabled maxContentLength and always reports a size-limit failure if not already rejected. A zero-body fake stream abortion with disabled -1 limit emitted 'maxContentLength size of -1 exceeded'."
+    },
+    {
+      "claimKey": "axios:xhr-cancellation-undefined-req",
+      "findingIds": ["777a40fd-d89e-484b-a67c-a76e7b058886"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/adapters/xhr.js:193-204", "README.md:481-482"],
+      "reason": "The module declares request but never req. AbortController's event selects construction with req, raising ReferenceError before rejection or request.abort. A fake signal fired after send confirmed the request abort was not reached. Pre-aborted signals may reject during Promise construction rather than leave a sent request; the finding's can-leave-running wording is correctly conditional."
+    },
+    {
+      "claimKey": "axios:credentialed-cross-origin-xsrf-copy",
+      "findingIds": ["998e8d8c-74a2-4bfa-906a-ebaf33337052"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "rawCitationVerification": "needs_verification",
+      "rawCitationReason": "support_unverified",
+      "source": ["lib/adapters/xhr.js:143-172", "lib/helpers/cookies.js:34-36", "README.md:367-369"],
+      "reason": "withCredentials alone selects the current document's XSRF cookie and copies it into a request header even when the target is cross-origin; source then installs that header and sends. The probe established this local primitive with same-origin false and a false-withCredentials negative control. The reported disclosure is explicitly conditional on caller URL influence and permitted credentialed CORS. Real browser CORS, remote attacker reach and deployment impact remain unverified; this verdict does not remove the saved support_unverified flag or certify an actual exploit."
+    },
+    {
+      "claimKey": "axios:empty-request-decompression-bypass",
+      "findingIds": ["46490ffe-70dc-45c7-ac88-c7ed8bf2fc9f"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/adapters/http.js:186-212", "lib/adapters/http.js:301-319", "README.md:484-486"],
+      "reason": "The adapter checks request data.length when deleting the response's content-encoding. Buffer.alloc(0) is truthy and retains length zero. With a compressed nonempty response the fake transport returned raw compressed bytes and removed the header; a nonempty-request control decompressed the same response."
+    },
+    {
+      "claimKey": "axios:data-uri-bom-wrong-target",
+      "findingIds": ["2391d134-0596-4dd4-90d6-a0eee48a58a0"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "source": ["lib/adapters/http.js:128-147", "lib/adapters/http.js:371-375", "lib/helpers/fromDataURI.js:25-47"],
+      "reason": "UTF-8 text conversion strips a BOM into request variable data but returns convertedData. A valid base64 data URI probe retained U+FEFF; the ordinary HTTP text path assigns the stripped string to the actual returned response variable."
+    },
+    {
+      "claimKey": "axios:deterministic-toformdata-length",
+      "findingIds": ["1dc9c6f7-4bab-4880-aeaf-c6497a375747"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/helpers/toFormData.js:48-177"],
+      "reason": "TypeScript AST independently confirms 130 inclusive physical lines. This is a factual maintainability observation, not a proven correctness defect, mandatory split or calibrated medium severity."
+    },
+    {
+      "claimKey": "axios:deterministic-xhr-adapter-length",
+      "findingIds": ["299f0fda-8f98-48df-9738-c9fc1d0945a3", "c1ab21f2-875b-4c37-9437-be55da9696b0"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/adapters/xhr.js:16-223", "lib/adapters/xhr.js:17-222"],
+      "reason": "AST independently confirms 208 lines for xhrAdapter and 206 for its nested Promise executor. Both observations describe the same adapter maintainability cause and count once. Length alone does not prove medium severity."
+    },
+    {
+      "claimKey": "axios:deterministic-http-adapter-length",
+      "findingIds": ["94246e7b-a5e0-4861-b3c8-6ad51f7ae54a", "f43e3746-c4f0-4b3b-b037-60f8fc01a5a1"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/adapters/http.js:84-459", "lib/adapters/http.js:85-458"],
+      "reason": "AST independently confirms 376 lines for httpAdapter and 374 for its nested Promise executor. Both observations describe the same adapter maintainability cause and count once. Length alone does not prove medium severity."
+    },
+    {
+      "claimKey": "axios:deterministic-http-todo",
+      "findingIds": ["fd1e89e5-05b5-44d7-a64e-77b1ece3358c"],
+      "verdict": "true",
+      "disposition": "Noted",
+      "source": ["lib/adapters/http.js:389-391"],
+      "reason": "The exact TODO maintenance note exists. Its priority and whether removal is beneficial are not established; the finding itself requests relevance verification rather than asserting a behavioral defect."
+    }
+  ],
+  "gold": {
+    "issueId": "node-timeout-custom-message",
+    "issueOutcome": "miss_in_saved_partial_result",
+    "occurrenceOutcome": "miss_in_saved_partial_result",
+    "source": ["lib/adapters/http.js:421-430", "lib/adapters/xhr.js:127-137", "index.d.ts:137-138"],
+    "reason": "No saved prediction identifies Node HTTP ignoring config.timeoutErrorMessage. The registered HTTP range is present in recorded AI context. The evaluator's inert transport probe confirmed the custom message is ignored while default timeout message and ECONNABORTED remain valid. XHR's selected source honors the option. This is a false negative for the saved partial artifact, not a claim about a hypothetical completed continuation."
+  },
+  "limitations": [
+    "Partial-result precision bounds both equal 1.00 because every recorded unique factual/conditional claim was adjudicated. These are deterministic adjudication bounds, not statistical confidence intervals, not complete-run precision and not a guarantee about unsaved predictions.",
+    "The three production needs_verification records remain unchanged. Independent exact source matching and conditional code support do not rewrite their production citation status or create absence-resolution proof.",
+    "Assessment reference validity verifies identity and valid line anchors. It does not independently establish every no_issue_identified or not_applicable conclusion; no exhaustive negative gold exists.",
+    "No remote network, app API, provider, database, source import, model retry or production mutation was used. Unchanged upstream functions were executed in an evaluator Node process with denied network transports and explicit browser/platform stubs. Real browser/CORS integration was not executed.",
+    "The frozen gold issue has no severity field. No whole-system high/critical recall or full 16-criterion Readiness accuracy is established. No Readiness output is part of these supplied partial Review inputs.",
+    "Execution is blocked at quota_exhausted; only 9 of 22 planned batch IDs are saved, no independent source-sweep batch is complete, and 300 of 588 domain rows remain unverified. No semantic acceptance or complete-run optimization claim is allowed."
+  ]
+}

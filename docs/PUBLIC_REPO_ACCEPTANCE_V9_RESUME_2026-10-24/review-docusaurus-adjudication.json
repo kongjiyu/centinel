@@ -1,0 +1,1342 @@
+{
+  "schemaVersion": "public-repo-review-independent-adjudication-v1",
+  "instanceId": "facebook__docusaurus-9897",
+  "reviewId": "2bae2cf4-a5d0-4705-9eb3-77d893dac421",
+  "runDirectory": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-24T15-46-37-089Z",
+  "policyVersion": "review-2026-10-24-batch-domain-coverage-v9",
+  "workflowStatus": "pending_approval",
+  "modelStatus": "succeeded",
+  "workflowAcceptance": "NOT_ACCEPTED",
+  "claims": [
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "d6bf5cd1-a1d3-4968-9535-2f5cfbe1326e",
+      "origin": "model",
+      "claimKey": "docusaurus:unpinned-install-tool",
+      "verdict": "true",
+      "claim": "The selected postinstall chain invokes an unversioned npx package absent from the selected root manifest dependencies.",
+      "reason": "postinstall runs yarn lock:update, whose command is npx --yes yarn-deduplicate. The complete devDependencies contains no yarn-deduplicate pin. This is a concrete installation reproducibility weakness: the command does not bind a package version. Actual cache/registry resolution, CI execution and compromise are separate unresolved consequences; no installation was performed.",
+      "sourceEvidence": [
+        {
+          "filePath": "package.json",
+          "lineNumber": 47,
+          "excerpt": "    \"postinstall\": \"yarn lock:update && yarn build:packages\",\n    \"prepare\": \"husky install\","
+        },
+        {
+          "filePath": "package.json",
+          "lineNumber": 65,
+          "excerpt": "    \"lock:update\": \"npx --yes yarn-deduplicate\","
+        },
+        {
+          "filePath": "package.json",
+          "lineNumber": 68,
+          "excerpt": "  \"devDependencies\": {\n    \"@crowdin/cli\": \"^3.13.0\",\n    \"@swc/core\": \"1.2.197\",\n    \"@swc/jest\": \"^0.2.26\",\n    \"@testing-library/react-hooks\": \"^8.0.1\",\n    \"@types/fs-extra\": \"^9.0.13\",\n    \"@types/jest\": \"^29.5.3\",\n    \"@types/lodash\": \"^4.14.197\",\n    \"@types/node\": \"^18.16.19\",\n    \"@types/prompts\": \"^2.4.4\",\n    \"@types/react\": \"^18.2.15\",\n    \"@types/react-dev-utils\": \"^9.0.11\",\n    \"@types/react-test-renderer\": \"^18.0.0\",\n    \"@types/semver\": \"^7.5.0\",\n    \"@types/shelljs\": \"^0.8.12\",\n    \"@typescript-eslint/eslint-plugin\": \"^5.62.0\",\n    \"@typescript-eslint/parser\": \"^5.62.0\",\n    \"cross-env\": \"^7.0.3\",\n    \"cspell\": \"^8.1.0\",\n    \"eslint\": \"^8.45.0\",\n    \"eslint-config-airbnb\": \"^19.0.4\",\n    \"eslint-config-prettier\": \"^8.8.0\",\n    \"eslint-plugin-header\": \"^3.1.1\",\n    \"eslint-plugin-import\": \"^2.27.5\",\n    \"eslint-plugin-jest\": \"^27.2.3\",\n    \"eslint-plugin-jsx-a11y\": \"^6.7.1\",\n    \"eslint-plugin-react\": \"^7.32.2\",\n    \"eslint-plugin-react-hooks\": \"^4.6.0\",\n    \"eslint-plugin-regexp\": \"^1.15.0\",\n    \"husky\": \"^8.0.3\",\n    \"image-size\": \"^1.0.2\",\n    \"jest\": \"^29.6.1\",\n    \"jest-environment-jsdom\": \"^29.6.1\",\n    \"jest-serializer-ansi-escapes\": \"^2.0.1\",\n    \"jest-serializer-react-helmet-async\": \"^1.0.21\",\n    \"lerna\": \"^6.6.2\",\n    \"lerna-changelog\": \"^2.2.0\",\n    \"lint-staged\": \"^13.2.3\",\n    \"npm-run-all\": \"^4.1.5\",\n    \"prettier\": \"^2.8.4\",\n    \"react\": \"^18.0.0\",\n    \"react-dom\": \"^18.0.0\",\n    \"react-helmet-async\": \"^1.3.0\",\n    \"react-test-renderer\": \"^18.0.0\",\n    \"rimraf\": \"^3.0.2\",\n    \"sharp\": \"^0.32.3\",\n    \"strip-ansi\": \"^6.0.1\",\n    \"stylelint\": \"^14.16.1\",\n    \"stylelint-config-prettier\": \"^9.0.5\",\n    \"stylelint-config-standard\": \"^29.0.0\",\n    \"typescript\": \"~5.2.2\"\n  }"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "d6bf5cd1-a1d3-4968-9535-2f5cfbe1326e",
+      "origin": "model",
+      "claimKey": "docusaurus:install-registry-compromise",
+      "verdict": "unknown",
+      "claim": "A real installation retrieves mutable registry code or is exposed to package compromise.",
+      "reason": "Selected package scripts do not establish installed npx version, workspace cache, lockfiles, network settings, lifecycle enablement or CI behavior. Conditional unpinned invocation is supported, while an actual registry download, compromise or installation impact requires environment evidence.",
+      "sourceEvidence": [
+        {
+          "filePath": "package.json",
+          "lineNumber": 47,
+          "excerpt": "    \"postinstall\": \"yarn lock:update && yarn build:packages\",\n    \"prepare\": \"husky install\","
+        },
+        {
+          "filePath": "package.json",
+          "lineNumber": 65,
+          "excerpt": "    \"lock:update\": \"npx --yes yarn-deduplicate\","
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "a28b5a5b-e144-42f7-abb6-08934c889678",
+      "origin": "model",
+      "claimKey": "docusaurus:credential-url-downstream-disclosure",
+      "verdict": "unknown",
+      "claim": "The credential-bearing URL causes an unintended secret disclosure through downstream handling.",
+      "reason": "Both branches intentionally construct an authenticated Git push URL from a parameter named gitCredentials. The representation visibly contains that value, but no selected caller logs/displays/persists the result and no redaction contract is supplied. Intentional authentication data flow alone does not establish an unintended disclosure defect. The finding itself acknowledges the missing downstream behavior; retain its security consequence as Unknown rather than credit a mere representation observation.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 264,
+          "excerpt": "/** Constructs an HTTP URL that can be used to push to GitHub. */\nexport function buildHttpsUrl(\n  gitCredentials: string,\n  githubHost: string,\n  organizationName: string,\n  projectName: string,\n  githubPort?: string,\n): string {\n  if (githubPort) {\n    return `https://${gitCredentials}@${githubHost}:${githubPort}/${organizationName}/${projectName}.git`;\n  }\n  return `https://${gitCredentials}@${githubHost}/${organizationName}/${projectName}.git`;\n}"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 54,
+          "excerpt": "  addTrailingSlash,\n  removeTrailingSlash,\n  hasSSHProtocol,\n  buildHttpsUrl,\n  buildSshUrl,\n} from './urlUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "f0792651-b663-40fa-b0e2-6be1c259aac3",
+      "origin": "model",
+      "claimKey": "docusaurus:credential-url-downstream-disclosure",
+      "verdict": "unknown",
+      "claim": "The credential-bearing URL causes an unintended secret disclosure through downstream handling.",
+      "reason": "Both branches intentionally construct an authenticated Git push URL from a parameter named gitCredentials. The representation visibly contains that value, but no selected caller logs/displays/persists the result and no redaction contract is supplied. Intentional authentication data flow alone does not establish an unintended disclosure defect. The finding itself acknowledges the missing downstream behavior; retain its security consequence as Unknown rather than credit a mere representation observation.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 264,
+          "excerpt": "/** Constructs an HTTP URL that can be used to push to GitHub. */\nexport function buildHttpsUrl(\n  gitCredentials: string,\n  githubHost: string,\n  organizationName: string,\n  projectName: string,\n  githubPort?: string,\n): string {\n  if (githubPort) {\n    return `https://${gitCredentials}@${githubHost}:${githubPort}/${organizationName}/${projectName}.git`;\n  }\n  return `https://${gitCredentials}@${githubHost}/${organizationName}/${projectName}.git`;\n}"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 54,
+          "excerpt": "  addTrailingSlash,\n  removeTrailingSlash,\n  hasSSHProtocol,\n  buildHttpsUrl,\n  buildSshUrl,\n} from './urlUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "2fa7e72d-c51b-47d7-b839-2d63179d3dfa",
+      "origin": "model",
+      "claimKey": "docusaurus:extension-case-inconsistency",
+      "verdict": "true",
+      "claim": "fileToPath normalizes index extensions case-insensitively and ordinary extensions case-sensitively.",
+      "reason": "The exported helper directly accepts string input. With index.MD the first case-insensitive branch returns /; with foo.MD the second expression retains .MD, while foo.md loses it. This establishes inconsistent normalization in the helper, not that the omitted content-sourcing plugins accept uppercase extensions.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 124,
+          "excerpt": "/**\n * Converts file path to a reasonable URL path, e.g. `'index.md'` -> `'/'`,\n * `'foo/bar.js'` -> `'/foo/bar'`\n */\nexport function fileToPath(file: string): string {\n  const indexRE = /(?<dirname>^|.*\\/)index\\.(?:mdx?|jsx?|tsx?)$/i;\n  const extRE = /\\.(?:mdx?|jsx?|tsx?)$/;\n\n  if (indexRE.test(file)) {\n    return file.replace(indexRE, '/$1');\n  }\n  return `/${file.replace(extRE, '').replace(/\\\\/g, '/')}`;\n}"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 44,
+          "excerpt": "export {\n  normalizeUrl,\n  getEditUrl,\n  fileToPath,\n  encodePath,\n  isValidPathname,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "2fa7e72d-c51b-47d7-b839-2d63179d3dfa",
+      "origin": "model",
+      "claimKey": "docusaurus:uppercase-content-supported-runtime",
+      "verdict": "unknown",
+      "claim": "Uppercase content filenames are supported by omitted content plugins and produce broken deployed URLs.",
+      "reason": "No selected caller invokes fileToPath, and globUtils default ignore patterns do not define the content inclusion policy. The helper inconsistency is verified separately; end-to-end support for uppercase filename variants and deployed URL effects remain unverified.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 124,
+          "excerpt": "/**\n * Converts file path to a reasonable URL path, e.g. `'index.md'` -> `'/'`,\n * `'foo/bar.js'` -> `'/foo/bar'`\n */\nexport function fileToPath(file: string): string {\n  const indexRE = /(?<dirname>^|.*\\/)index\\.(?:mdx?|jsx?|tsx?)$/i;\n  const extRE = /\\.(?:mdx?|jsx?|tsx?)$/;\n\n  if (indexRE.test(file)) {\n    return file.replace(indexRE, '/$1');\n  }\n  return `/${file.replace(extRE, '').replace(/\\\\/g, '/')}`;\n}"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/globUtils.ts",
+          "lineNumber": 16,
+          "excerpt": "\n/**\n * The default glob patterns we ignore when sourcing content.\n * - Ignore files and folders starting with `_` recursively\n * - Ignore tests\n */\nexport const GlobExcludeDefault = [\n  '**/_*.{js,jsx,ts,tsx,md,mdx}',\n  '**/_*/**',\n  '**/*.test.{js,jsx,ts,tsx}',\n  '**/__tests__/**',\n];"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "87c331db-4065-44da-991c-6a24a55c7b40",
+      "origin": "model",
+      "claimKey": "docusaurus:raw-prototype-key-grouping",
+      "verdict": "true",
+      "claim": "groupTaggedItems can throw when its callback directly supplies a raw inherited object key.",
+      "reason": "The callback returns Tag[] without any helper-local normalization. result={} inherits __proto__/constructor; ??= does not replace a non-null inherited value, and .items.push then reads missing items. This proves conditional raw exported-helper failure for a direct callback returning such a key, not global prototype pollution or a normal front-matter build exploit.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 99,
+          "excerpt": "export function groupTaggedItems<Item>(\n  items: readonly Item[],\n  /**\n   * A callback telling me how to get the tags list of the current item. Usually\n   * simply getting it from some metadata of the current item.\n   */\n  getItemTags: (item: Item) => readonly Tag[],\n): {[permalink: string]: TaggedItemGroup<Item>} {\n  const result: {[permalink: string]: TaggedItemGroup<Item>} = {};\n\n  items.forEach((item) => {\n    getItemTags(item).forEach((tag) => {\n      // Init missing tag groups\n      // TODO: it's not really clear what should be the behavior if 2 tags have\n      // the same permalink but the label is different for each\n      // For now, the first tag found wins\n      result[tag.permalink] ??= {\n        tag,\n        items: [],\n      };\n\n      // Add item to group\n      result[tag.permalink]!.items.push(item);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 64,
+          "excerpt": "  type TagModule,\n  type FrontMatterTag,\n  normalizeFrontMatterTags,\n  groupTaggedItems,\n  getTagVisibility,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "298f35ca-74e1-41ad-9d87-8eb332d49c2e",
+      "origin": "model",
+      "claimKey": "docusaurus:raw-prototype-key-grouping",
+      "verdict": "true",
+      "claim": "groupTaggedItems can throw when its callback directly supplies a raw inherited object key.",
+      "reason": "The callback returns Tag[] without any helper-local normalization. result={} inherits __proto__/constructor; ??= does not replace a non-null inherited value, and .items.push then reads missing items. This proves conditional raw exported-helper failure for a direct callback returning such a key, not global prototype pollution or a normal front-matter build exploit.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 99,
+          "excerpt": "export function groupTaggedItems<Item>(\n  items: readonly Item[],\n  /**\n   * A callback telling me how to get the tags list of the current item. Usually\n   * simply getting it from some metadata of the current item.\n   */\n  getItemTags: (item: Item) => readonly Tag[],\n): {[permalink: string]: TaggedItemGroup<Item>} {\n  const result: {[permalink: string]: TaggedItemGroup<Item>} = {};\n\n  items.forEach((item) => {\n    getItemTags(item).forEach((tag) => {\n      // Init missing tag groups\n      // TODO: it's not really clear what should be the behavior if 2 tags have\n      // the same permalink but the label is different for each\n      // For now, the first tag found wins\n      result[tag.permalink] ??= {\n        tag,\n        items: [],\n      };\n\n      // Add item to group\n      result[tag.permalink]!.items.push(item);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 64,
+          "excerpt": "  type TagModule,\n  type FrontMatterTag,\n  normalizeFrontMatterTags,\n  groupTaggedItems,\n  getTagVisibility,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "298f35ca-74e1-41ad-9d87-8eb332d49c2e",
+      "origin": "model",
+      "claimKey": "docusaurus:normalized-frontmatter-prototype-key-build",
+      "verdict": "unknown",
+      "claim": "Crafted front matter can pass a raw __proto__ permalink into grouping and abort a site build.",
+      "reason": "Concrete selected counter-evidence: normalizeFrontMatterTag always prepends tagsPath through normalizeUrl. With a conventional /tags base, a supplied __proto__ permalink becomes /tags/__proto__, which is an ordinary own-key candidate and does not collide with Object.prototype. No selected build caller establishes a missing normalization, unusual empty base or raw callback path from front matter; the helper-level conditional failure is distinct and credited once.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 34,
+          "excerpt": "function normalizeFrontMatterTag(\n  tagsPath: string,\n  frontMatterTag: FrontMatterTag,\n): Tag {\n  function toTagObject(tagString: string): Tag {\n    return {\n      label: tagString,\n      permalink: _.kebabCase(tagString),\n    };\n  }\n\n  // TODO maybe make ensure the permalink is valid url path?\n  function normalizeTagPermalink(permalink: string): string {\n    // Note: we always apply tagsPath on purpose. For versioned docs, v1/doc.md\n    // and v2/doc.md tags with custom permalinks don't lead to the same created\n    // page. tagsPath is different for each doc version\n    return normalizeUrl([tagsPath, permalink]);\n  }\n\n  const tag: Tag =\n    typeof frontMatterTag === 'string'\n      ? toTagObject(frontMatterTag)\n      : frontMatterTag;\n\n  return {\n    label: tag.label,\n    permalink: normalizeTagPermalink(tag.permalink),\n  };"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 64,
+          "excerpt": "/**\n * Takes tag objects as they are defined in front matter, and normalizes each\n * into a standard tag object. The permalink is created by appending the\n * sluggified label to `tagsPath`. Front matter tags already containing\n * permalinks would still have `tagsPath` prepended.\n *\n * The result will always be unique by permalinks. The behavior with colliding\n * permalinks is undetermined.\n */\nexport function normalizeFrontMatterTags(\n  /** Base path to append the tag permalinks to. */\n  tagsPath: string,\n  /** Can be `undefined`, so that we can directly pipe in `frontMatter.tags`. */\n  frontMatterTags: FrontMatterTag[] | undefined = [],\n): Tag[] {\n  const tags = frontMatterTags.map((tag) =>\n    normalizeFrontMatterTag(tagsPath, tag),\n  );\n\n  return _.uniqBy(tags, (tag) => tag.permalink);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 99,
+          "excerpt": "export function groupTaggedItems<Item>(\n  items: readonly Item[],\n  /**\n   * A callback telling me how to get the tags list of the current item. Usually\n   * simply getting it from some metadata of the current item.\n   */\n  getItemTags: (item: Item) => readonly Tag[],\n): {[permalink: string]: TaggedItemGroup<Item>} {\n  const result: {[permalink: string]: TaggedItemGroup<Item>} = {};\n\n  items.forEach((item) => {\n    getItemTags(item).forEach((tag) => {\n      // Init missing tag groups\n      // TODO: it's not really clear what should be the behavior if 2 tags have\n      // the same permalink but the label is different for each\n      // For now, the first tag found wins\n      result[tag.permalink] ??= {\n        tag,\n        items: [],\n      };\n\n      // Add item to group\n      result[tag.permalink]!.items.push(item);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 68,
+          "excerpt": "    if (component !== '/') {\n      if (i > 0) {\n        // Removing the starting slashes for each component but the first.\n        component = component.replace(\n          /^\\/+/,\n          // Special case where the first element of rawUrls is empty\n          // [\"\", \"/hello\"] => /hello\n          component.startsWith('/') && !hasStartingSlash ? '/' : '',\n        );\n      }\n\n      hasEndingSlash = component.endsWith('/');\n      // Removing the ending slashes for each component but the last. For the\n      // last component we will combine multiple slashes to a single one.\n      component = component.replace(/\\/+$/, i < urls.length - 1 ? '' : '/');\n    }\n\n    hasStartingSlash = true;\n    resultArray.push(component);\n  }\n\n  let str = resultArray.join('/');\n  // Each input component is now separated by a single slash except the possible\n  // first plain protocol part.\n\n  // Remove trailing slash before parameters or hash.\n  str = str.replace(/\\/(?<search>\\?|&|#[^!])/g, '$1');\n\n  // Replace ? in parameters with &.\n  const parts = str.split('?');\n  str = parts.shift()! + (parts.length > 0 ? '?' : '') + parts.join('&');\n\n  // Dedupe forward slashes in the entire path, avoiding protocol slashes.\n  str = str.replace(/(?<textBefore>[^:/]\\/)\\/+/g, '$1');\n\n  // Dedupe forward slashes at the beginning of the path.\n  str = str.replace(/^\\/+/g, '/');\n\n  return str;"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "3c09cb08-2f39-40de-a2ea-40328dc1bc3f",
+      "origin": "model",
+      "claimKey": "docusaurus:utf8-byte-boundary-truncation",
+      "verdict": "true",
+      "claim": "The non-Windows/non-macOS shortName branch can split a UTF-8 code point.",
+      "reason": "The slice end simplifies to 244 bytes irrespective of the original length. A string of 243 ASCII characters followed by a multibyte character leaves an incomplete sequence at that offset; Buffer UTF-8 decoding substitutes a replacement character. This is an exported-helper conditional correctness fact. Windows/macOS take the character-slice branch. The only selected caller passes kebabCase output, which narrows ordinary reachability; no actual generated filename corruption is asserted.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/pathUtils.ts",
+          "lineNumber": 10,
+          "excerpt": "// Based on https://github.com/gatsbyjs/gatsby/pull/21518/files\n// macOS (APFS) and Windows (NTFS) filename length limit = 255 chars,\n// Others = 255 bytes\nconst MAX_PATH_SEGMENT_CHARS = 255;\nconst MAX_PATH_SEGMENT_BYTES = 255;\n// Space for appending things to the string like file extensions and so on\nconst SPACE_FOR_APPENDING = 10;\n\nconst isMacOs = () => process.platform === 'darwin';\nconst isWindows = () => process.platform === 'win32';\n\nexport const isNameTooLong = (str: string): boolean =>\n  // Not entirely correct: we can't assume FS from OS. But good enough?\n  isMacOs() || isWindows()\n    ? // Windows (NTFS) and macOS (APFS) filename length limit (255 chars)\n      str.length + SPACE_FOR_APPENDING > MAX_PATH_SEGMENT_CHARS\n    : // Other (255 bytes)\n      Buffer.from(str).length + SPACE_FOR_APPENDING > MAX_PATH_SEGMENT_BYTES;\n\nexport function shortName(str: string): string {\n  if (isMacOs() || isWindows()) {\n    const overflowingChars = str.length - MAX_PATH_SEGMENT_CHARS;\n    return str.slice(\n      0,\n      str.length - overflowingChars - SPACE_FOR_APPENDING - 1,\n    );\n  }\n  const strBuffer = Buffer.from(str);\n  const overflowingBytes =\n    Buffer.byteLength(strBuffer) - MAX_PATH_SEGMENT_BYTES;\n  return strBuffer\n    .slice(\n      0,\n      Buffer.byteLength(strBuffer) - overflowingBytes - SPACE_FOR_APPENDING - 1,\n    )\n    .toString();\n}"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/hashUtils.ts",
+          "lineNumber": 28,
+          "excerpt": "export function docuHash(str: string): string {\n  if (str === '/') {\n    return 'index';\n  }\n  const shortHash = simpleHash(str, 3);\n  const parsedPath = `${_.kebabCase(str)}-${shortHash}`;\n  if (isNameTooLong(parsedPath)) {\n    return `${shortName(_.kebabCase(str))}-${shortHash}`;\n  }\n  return parsedPath;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 88,
+          "excerpt": "export {\n  isNameTooLong,\n  shortName,\n  posixPath,\n  toMessageRelativeFilePath,\n  aliasedSitePath,\n  escapePath,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "25697a1f-254d-4d52-830f-6eba016de70a",
+      "origin": "model",
+      "claimKey": "docusaurus:heading-code-fence-state",
+      "verdict": "true",
+      "claim": "Heading-ID rewriting can alter a heading inside a longer backtick code fence.",
+      "reason": "The function toggles one boolean for any line starting with three backticks. An opening four-backtick line enters code state; an inner three-backtick line incorrectly exits it. A following ## heading without a pre-existing ID reaches addHeadingId. This is writeMarkdownHeadingId, a different operation from the intentional three/four escape-fence scope of unwrapMdxCodeBlocks; it earns no CRLF gold credit.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 418,
+          "excerpt": "/**\n * Takes Markdown content, returns new content with heading IDs written.\n * Respects existing IDs (unless `overwrite=true`) and never generates colliding\n * IDs (through the slugger).\n */\nexport function writeMarkdownHeadingId(\n  content: string,\n  options: WriteHeadingIDOptions = {maintainCase: false, overwrite: false},\n): string {\n  const {maintainCase = false, overwrite = false} = options;\n  const lines = content.split('\\n');\n  const slugger = createSlugger();\n\n  // If we can't overwrite existing slugs, make sure other headings don't\n  // generate colliding slugs by first marking these slugs as occupied\n  if (!overwrite) {\n    lines.forEach((line) => {\n      const parsedHeading = parseMarkdownHeadingId(line);\n      if (parsedHeading.id) {\n        slugger.slug(parsedHeading.id);\n      }\n    });\n  }\n\n  let inCode = false;\n  return lines\n    .map((line) => {\n      if (line.startsWith('```')) {\n        inCode = !inCode;\n        return line;\n      }\n      // Ignore h1 headings, as we don't create anchor links for those\n      if (inCode || !line.startsWith('##')) {\n        return line;\n      }\n      const parsedHeading = parseMarkdownHeadingId(line);\n\n      // Do not process if id is already there\n      if (parsedHeading.id && !overwrite) {\n        return line;\n      }\n      return addHeadingId(parsedHeading.text, slugger, maintainCase);\n    })\n    .join('\\n');"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 70,
+          "excerpt": "export function unwrapMdxCodeBlocks(content: string): string {\n  // We only support 3/4 backticks on purpose, should be good enough\n  const regexp3 =\n    /(?<begin>^|\\n)```(?<spaces>\\x20*)mdx-code-block\\n(?<children>.*?)\\n```(?<end>\\n|$)/gs;\n  const regexp4 =\n    /(?<begin>^|\\n)````(?<spaces>\\x20*)mdx-code-block\\n(?<children>.*?)\\n````(?<end>\\n|$)/gs;\n\n  // eslint-disable-next-line @typescript-eslint/no-explicit-any\n  const replacer = (substring: string, ...args: any[]) => {\n    const groups = args.at(-1);\n    return `${groups.begin}${groups.children}${groups.end}`;\n  };\n\n  return content.replaceAll(regexp3, replacer).replaceAll(regexp4, replacer);\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "bb98d806-97a9-493e-a5bf-4ccb80e919cf",
+      "origin": "model",
+      "claimKey": "docusaurus:heading-code-fence-state",
+      "verdict": "true",
+      "claim": "Heading-ID rewriting can alter a heading inside a longer backtick code fence.",
+      "reason": "The function toggles one boolean for any line starting with three backticks. An opening four-backtick line enters code state; an inner three-backtick line incorrectly exits it. A following ## heading without a pre-existing ID reaches addHeadingId. This is writeMarkdownHeadingId, a different operation from the intentional three/four escape-fence scope of unwrapMdxCodeBlocks; it earns no CRLF gold credit.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 418,
+          "excerpt": "/**\n * Takes Markdown content, returns new content with heading IDs written.\n * Respects existing IDs (unless `overwrite=true`) and never generates colliding\n * IDs (through the slugger).\n */\nexport function writeMarkdownHeadingId(\n  content: string,\n  options: WriteHeadingIDOptions = {maintainCase: false, overwrite: false},\n): string {\n  const {maintainCase = false, overwrite = false} = options;\n  const lines = content.split('\\n');\n  const slugger = createSlugger();\n\n  // If we can't overwrite existing slugs, make sure other headings don't\n  // generate colliding slugs by first marking these slugs as occupied\n  if (!overwrite) {\n    lines.forEach((line) => {\n      const parsedHeading = parseMarkdownHeadingId(line);\n      if (parsedHeading.id) {\n        slugger.slug(parsedHeading.id);\n      }\n    });\n  }\n\n  let inCode = false;\n  return lines\n    .map((line) => {\n      if (line.startsWith('```')) {\n        inCode = !inCode;\n        return line;\n      }\n      // Ignore h1 headings, as we don't create anchor links for those\n      if (inCode || !line.startsWith('##')) {\n        return line;\n      }\n      const parsedHeading = parseMarkdownHeadingId(line);\n\n      // Do not process if id is already there\n      if (parsedHeading.id && !overwrite) {\n        return line;\n      }\n      return addHeadingId(parsedHeading.text, slugger, maintainCase);\n    })\n    .join('\\n');"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 70,
+          "excerpt": "export function unwrapMdxCodeBlocks(content: string): string {\n  // We only support 3/4 backticks on purpose, should be good enough\n  const regexp3 =\n    /(?<begin>^|\\n)```(?<spaces>\\x20*)mdx-code-block\\n(?<children>.*?)\\n```(?<end>\\n|$)/gs;\n  const regexp4 =\n    /(?<begin>^|\\n)````(?<spaces>\\x20*)mdx-code-block\\n(?<children>.*?)\\n````(?<end>\\n|$)/gs;\n\n  // eslint-disable-next-line @typescript-eslint/no-explicit-any\n  const replacer = (substring: string, ...args: any[]) => {\n    const groups = args.at(-1);\n    return `${groups.begin}${groups.children}${groups.end}`;\n  };\n\n  return content.replaceAll(regexp3, replacer).replaceAll(regexp4, replacer);\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "bb98d806-97a9-493e-a5bf-4ccb80e919cf",
+      "origin": "model",
+      "claimKey": "docusaurus:heading-code-fence-state",
+      "verdict": "true",
+      "claim": "Heading-ID rewriting also alters headings inside tilde fences.",
+      "reason": "The only state transition checks startsWith three backticks. A tilde fence never enters code state; its ## heading without an ID is processed as document text. This and longer-backtick handling share one inadequate delimiter-state root cause, so the precision key is common across both manifestations.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 442,
+          "excerpt": "  let inCode = false;\n  return lines\n    .map((line) => {\n      if (line.startsWith('```')) {\n        inCode = !inCode;\n        return line;\n      }\n      // Ignore h1 headings, as we don't create anchor links for those\n      if (inCode || !line.startsWith('##')) {\n        return line;\n      }\n      const parsedHeading = parseMarkdownHeadingId(line);\n\n      // Do not process if id is already there\n      if (parsedHeading.id && !overwrite) {\n        return line;\n      }\n      return addHeadingId(parsedHeading.text, slugger, maintainCase);\n    })\n    .join('\\n');"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "81a7a3e1-b5e3-4ab5-9bf7-2f3136f9b67b",
+      "origin": "model",
+      "claimKey": "docusaurus:directive-regexp-metacharacters",
+      "verdict": "true",
+      "claim": "Caller-supplied directive names can change regex meaning or cause construction failure.",
+      "reason": "The exported helper accepts string[] and joins entries into a capture group without escaping or validation. A direct entry [ yields an unterminated character class in new RegExp; alternation entries change the named directives matched. There is no selected caller establishing remotely controlled settings. This is conditional helper behavior only, with no credited security exploit or catastrophic-backtracking allegation.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 86,
+          "excerpt": "/**\n * Add support for our legacy \":::note Title\" admonition syntax\n * Not supported by https://github.com/remarkjs/remark-directive\n * Syntax is transformed to \":::note[Title]\" (container directive label)\n * See https://talk.commonmark.org/t/generic-directives-plugins-syntax/444\n *\n * @param content\n * @param admonitionContainerDirectives\n */\nexport function admonitionTitleToDirectiveLabel(\n  content: string,\n  admonitionContainerDirectives: string[],\n): string {\n  // this will also process \":::note Title\" inside docs code blocks\n  // good enough: we fixed older versions docs to not be affected\n\n  const directiveNameGroup = `(${admonitionContainerDirectives.join('|')})`;\n  const regexp = new RegExp(\n    `^(?<quote>(> ?)*)(?<indentation>( +|\\t+))?(?<directive>:{3,}${directiveNameGroup}) +(?<title>.*)$`,\n    'gm',\n  );\n\n  return content.replaceAll(regexp, (substring, ...args: any[]) => {\n    const groups = args.at(-1);\n\n    return `${groups.quote ?? ''}${groups.indentation ?? ''}${\n      groups.directive\n    }[${groups.title}]`;\n  });"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 70,
+          "excerpt": "export {\n  parseMarkdownHeadingId,\n  escapeMarkdownHeadingIds,\n  unwrapMdxCodeBlocks,\n  admonitionTitleToDirectiveLabel,\n  createExcerpt,\n  DEFAULT_PARSE_FRONT_MATTER,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "de6d5df1-b4ff-4bb8-9384-bf9211efd63c",
+      "origin": "model",
+      "claimKey": "docusaurus:directive-regexp-metacharacters",
+      "verdict": "true",
+      "claim": "Caller-supplied directive names can change regex meaning or cause construction failure.",
+      "reason": "The exported helper accepts string[] and joins entries into a capture group without escaping or validation. A direct entry [ yields an unterminated character class in new RegExp; alternation entries change the named directives matched. There is no selected caller establishing remotely controlled settings. This is conditional helper behavior only, with no credited security exploit or catastrophic-backtracking allegation.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 86,
+          "excerpt": "/**\n * Add support for our legacy \":::note Title\" admonition syntax\n * Not supported by https://github.com/remarkjs/remark-directive\n * Syntax is transformed to \":::note[Title]\" (container directive label)\n * See https://talk.commonmark.org/t/generic-directives-plugins-syntax/444\n *\n * @param content\n * @param admonitionContainerDirectives\n */\nexport function admonitionTitleToDirectiveLabel(\n  content: string,\n  admonitionContainerDirectives: string[],\n): string {\n  // this will also process \":::note Title\" inside docs code blocks\n  // good enough: we fixed older versions docs to not be affected\n\n  const directiveNameGroup = `(${admonitionContainerDirectives.join('|')})`;\n  const regexp = new RegExp(\n    `^(?<quote>(> ?)*)(?<indentation>( +|\\t+))?(?<directive>:{3,}${directiveNameGroup}) +(?<title>.*)$`,\n    'gm',\n  );\n\n  return content.replaceAll(regexp, (substring, ...args: any[]) => {\n    const groups = args.at(-1);\n\n    return `${groups.quote ?? ''}${groups.indentation ?? ''}${\n      groups.directive\n    }[${groups.title}]`;\n  });"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 70,
+          "excerpt": "export {\n  parseMarkdownHeadingId,\n  escapeMarkdownHeadingIds,\n  unwrapMdxCodeBlocks,\n  admonitionTitleToDirectiveLabel,\n  createExcerpt,\n  DEFAULT_PARSE_FRONT_MATTER,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "b3464316-35e2-42b2-86d9-c776443f3aae",
+      "origin": "model",
+      "claimKey": "docusaurus:malformed-markdown-link-uri",
+      "verdict": "true",
+      "claim": "Malformed percent encoding in a processed relative .md target throws instead of returning a broken-link record.",
+      "reason": "A non-fenced line [link](%ZZ.md) passes the link capture and lowercase .md filter. Its unprefixed target causes content paths and siteDir to populate sourcesToTry. The first map invokes decodeURIComponent before any lookup and throws URIError; the synchronous function has no catch. Broken links are otherwise retained and returned. Existing code-fence/HTTP/@site guards narrow this trigger. This proves the local document operation abort, not a remote service outage.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 61,
+          "excerpt": "/**\n * Takes a Markdown file and replaces relative file references with their URL\n * counterparts, e.g. `[link](./intro.md)` => `[link](/docs/intro)`, preserving\n * everything else.\n *\n * This method uses best effort to find a matching file. The file reference can\n * be relative to the directory of the current file (most likely) or any of the\n * content paths (so `/tutorials/intro.md` can be resolved as\n * `<siteDir>/docs/tutorials/intro.md`). Links that contain the `http(s):` or\n * `@site/` prefix will always be ignored."
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 88,
+          "excerpt": "   * A map from source paths to their URLs. Source paths are `@site` aliased.\n   */\n  sourceToPermalink: {[aliasedPath: string]: string};\n}): {\n  /**\n   * The content with all Markdown file references replaced with their URLs.\n   * Unresolved links are left as-is.\n   */\n  newContent: string;\n  /** The list of broken links,  */\n  brokenMarkdownLinks: BrokenMarkdownLink<T>[];\n} {\n  const brokenMarkdownLinks: BrokenMarkdownLink<T>[] = [];\n\n  // Replace internal markdown linking (except in fenced blocks).\n  let lastOpenCodeFence: CodeFence | null = null;\n  const lines = fileString.split('\\n').map((line) => {\n    const codeFence = parseCodeFence(line);\n    if (codeFence) {\n      if (!lastOpenCodeFence) {\n        lastOpenCodeFence = codeFence;\n      } else if (\n        !codeFence.definitelyOpen &&\n        lastOpenCodeFence.type === codeFence.type &&\n        lastOpenCodeFence.count <= codeFence.count\n      ) {\n        // All three conditions must be met in order for this to be considered\n        // a closing fence.\n        lastOpenCodeFence = null;\n      }\n    }\n    if (lastOpenCodeFence) {\n      return line;\n    }\n\n    let modifiedLine = line;\n    // Replace inline-style links or reference-style links e.g:\n    // This is [Document 1](doc1.md)\n    // [doc1]: doc1.md"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 129,
+          "excerpt": "    const linkCapture = (forbidden: string) =>\n      `((?!https?://|@site/)[^${forbidden}#?]+)`;\n    const linkURLPattern = `(?:(?!<)${linkCapture(\n      '()\\\\s',\n    )}${linkSuffixPattern}|<${linkCapture('>')}${linkSuffixPattern}>)`;\n    const linkPattern = new RegExp(\n      `\\\\[(?:(?!\\\\]\\\\().)*\\\\]\\\\(\\\\s*${linkURLPattern}${linkTitlePattern}\\\\s*\\\\)|^\\\\s*\\\\[[^[\\\\]]*[^[\\\\]\\\\s][^[\\\\]]*\\\\]:\\\\s*${linkURLPattern}${linkTitlePattern}$`,\n      'dgm',\n    );\n    let mdMatch = linkPattern.exec(modifiedLine);\n    while (mdMatch !== null) {\n      // Replace it to correct html link.\n      const mdLink = mdMatch.slice(1, 5).find(Boolean)!;\n      const mdLinkRange = mdMatch.indices!.slice(1, 5).find(Boolean)!;\n      if (!/\\.mdx?$/.test(mdLink)) {\n        mdMatch = linkPattern.exec(modifiedLine);\n        continue;\n      }\n\n      const sourcesToTry: string[] = [];\n      // ./file.md and ../file.md are always relative to the current file\n      if (!mdLink.startsWith('./') && !mdLink.startsWith('../')) {\n        sourcesToTry.push(...getContentPathList(contentPaths), siteDir);\n      }\n      // /file.md is always relative to the content path\n      if (!mdLink.startsWith('/')) {\n        sourcesToTry.push(path.dirname(filePath));\n      }\n\n      const aliasedSourceMatch = sourcesToTry\n        .map((p) => path.join(p, decodeURIComponent(mdLink)))\n        .map((source) => aliasedSitePath(source, siteDir))\n        .find((source) => sourceToPermalink[source]);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 181,
+          "excerpt": "      } else {\n        const brokenMarkdownLink: BrokenMarkdownLink<T> = {\n          contentPaths,\n          filePath,\n          link: mdLink,\n        };\n\n        brokenMarkdownLinks.push(brokenMarkdownLink);\n      }\n      mdMatch = linkPattern.exec(modifiedLine);\n    }\n    return modifiedLine;\n  });\n\n  const newContent = lines.join('\\n');\n\n  return {newContent, brokenMarkdownLinks};\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "46c1fcc2-1a8c-4023-a03b-09dcdb94d38d",
+      "origin": "model",
+      "claimKey": "docusaurus:malformed-markdown-link-uri",
+      "verdict": "true",
+      "claim": "Malformed percent encoding in a processed relative .md target throws instead of returning a broken-link record.",
+      "reason": "A non-fenced line [link](%ZZ.md) passes the link capture and lowercase .md filter. Its unprefixed target causes content paths and siteDir to populate sourcesToTry. The first map invokes decodeURIComponent before any lookup and throws URIError; the synchronous function has no catch. Broken links are otherwise retained and returned. Existing code-fence/HTTP/@site guards narrow this trigger. This proves the local document operation abort, not a remote service outage.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 61,
+          "excerpt": "/**\n * Takes a Markdown file and replaces relative file references with their URL\n * counterparts, e.g. `[link](./intro.md)` => `[link](/docs/intro)`, preserving\n * everything else.\n *\n * This method uses best effort to find a matching file. The file reference can\n * be relative to the directory of the current file (most likely) or any of the\n * content paths (so `/tutorials/intro.md` can be resolved as\n * `<siteDir>/docs/tutorials/intro.md`). Links that contain the `http(s):` or\n * `@site/` prefix will always be ignored."
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 88,
+          "excerpt": "   * A map from source paths to their URLs. Source paths are `@site` aliased.\n   */\n  sourceToPermalink: {[aliasedPath: string]: string};\n}): {\n  /**\n   * The content with all Markdown file references replaced with their URLs.\n   * Unresolved links are left as-is.\n   */\n  newContent: string;\n  /** The list of broken links,  */\n  brokenMarkdownLinks: BrokenMarkdownLink<T>[];\n} {\n  const brokenMarkdownLinks: BrokenMarkdownLink<T>[] = [];\n\n  // Replace internal markdown linking (except in fenced blocks).\n  let lastOpenCodeFence: CodeFence | null = null;\n  const lines = fileString.split('\\n').map((line) => {\n    const codeFence = parseCodeFence(line);\n    if (codeFence) {\n      if (!lastOpenCodeFence) {\n        lastOpenCodeFence = codeFence;\n      } else if (\n        !codeFence.definitelyOpen &&\n        lastOpenCodeFence.type === codeFence.type &&\n        lastOpenCodeFence.count <= codeFence.count\n      ) {\n        // All three conditions must be met in order for this to be considered\n        // a closing fence.\n        lastOpenCodeFence = null;\n      }\n    }\n    if (lastOpenCodeFence) {\n      return line;\n    }\n\n    let modifiedLine = line;\n    // Replace inline-style links or reference-style links e.g:\n    // This is [Document 1](doc1.md)\n    // [doc1]: doc1.md"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 129,
+          "excerpt": "    const linkCapture = (forbidden: string) =>\n      `((?!https?://|@site/)[^${forbidden}#?]+)`;\n    const linkURLPattern = `(?:(?!<)${linkCapture(\n      '()\\\\s',\n    )}${linkSuffixPattern}|<${linkCapture('>')}${linkSuffixPattern}>)`;\n    const linkPattern = new RegExp(\n      `\\\\[(?:(?!\\\\]\\\\().)*\\\\]\\\\(\\\\s*${linkURLPattern}${linkTitlePattern}\\\\s*\\\\)|^\\\\s*\\\\[[^[\\\\]]*[^[\\\\]\\\\s][^[\\\\]]*\\\\]:\\\\s*${linkURLPattern}${linkTitlePattern}$`,\n      'dgm',\n    );\n    let mdMatch = linkPattern.exec(modifiedLine);\n    while (mdMatch !== null) {\n      // Replace it to correct html link.\n      const mdLink = mdMatch.slice(1, 5).find(Boolean)!;\n      const mdLinkRange = mdMatch.indices!.slice(1, 5).find(Boolean)!;\n      if (!/\\.mdx?$/.test(mdLink)) {\n        mdMatch = linkPattern.exec(modifiedLine);\n        continue;\n      }\n\n      const sourcesToTry: string[] = [];\n      // ./file.md and ../file.md are always relative to the current file\n      if (!mdLink.startsWith('./') && !mdLink.startsWith('../')) {\n        sourcesToTry.push(...getContentPathList(contentPaths), siteDir);\n      }\n      // /file.md is always relative to the content path\n      if (!mdLink.startsWith('/')) {\n        sourcesToTry.push(path.dirname(filePath));\n      }\n\n      const aliasedSourceMatch = sourcesToTry\n        .map((p) => path.join(p, decodeURIComponent(mdLink)))\n        .map((source) => aliasedSitePath(source, siteDir))\n        .find((source) => sourceToPermalink[source]);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 181,
+          "excerpt": "      } else {\n        const brokenMarkdownLink: BrokenMarkdownLink<T> = {\n          contentPaths,\n          filePath,\n          link: mdLink,\n        };\n\n        brokenMarkdownLinks.push(brokenMarkdownLink);\n      }\n      mdMatch = linkPattern.exec(modifiedLine);\n    }\n    return modifiedLine;\n  });\n\n  const newContent = lines.join('\\n');\n\n  return {newContent, brokenMarkdownLinks};\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "fbd3e71e-999a-4b32-822e-42573c98b9d3",
+      "origin": "model",
+      "claimKey": "docusaurus:malformed-markdown-link-uri",
+      "verdict": "true",
+      "claim": "Malformed percent encoding in a processed relative .md target throws instead of returning a broken-link record.",
+      "reason": "A non-fenced line [link](%ZZ.md) passes the link capture and lowercase .md filter. Its unprefixed target causes content paths and siteDir to populate sourcesToTry. The first map invokes decodeURIComponent before any lookup and throws URIError; the synchronous function has no catch. Broken links are otherwise retained and returned. Existing code-fence/HTTP/@site guards narrow this trigger. This proves the local document operation abort, not a remote service outage.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 61,
+          "excerpt": "/**\n * Takes a Markdown file and replaces relative file references with their URL\n * counterparts, e.g. `[link](./intro.md)` => `[link](/docs/intro)`, preserving\n * everything else.\n *\n * This method uses best effort to find a matching file. The file reference can\n * be relative to the directory of the current file (most likely) or any of the\n * content paths (so `/tutorials/intro.md` can be resolved as\n * `<siteDir>/docs/tutorials/intro.md`). Links that contain the `http(s):` or\n * `@site/` prefix will always be ignored."
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 88,
+          "excerpt": "   * A map from source paths to their URLs. Source paths are `@site` aliased.\n   */\n  sourceToPermalink: {[aliasedPath: string]: string};\n}): {\n  /**\n   * The content with all Markdown file references replaced with their URLs.\n   * Unresolved links are left as-is.\n   */\n  newContent: string;\n  /** The list of broken links,  */\n  brokenMarkdownLinks: BrokenMarkdownLink<T>[];\n} {\n  const brokenMarkdownLinks: BrokenMarkdownLink<T>[] = [];\n\n  // Replace internal markdown linking (except in fenced blocks).\n  let lastOpenCodeFence: CodeFence | null = null;\n  const lines = fileString.split('\\n').map((line) => {\n    const codeFence = parseCodeFence(line);\n    if (codeFence) {\n      if (!lastOpenCodeFence) {\n        lastOpenCodeFence = codeFence;\n      } else if (\n        !codeFence.definitelyOpen &&\n        lastOpenCodeFence.type === codeFence.type &&\n        lastOpenCodeFence.count <= codeFence.count\n      ) {\n        // All three conditions must be met in order for this to be considered\n        // a closing fence.\n        lastOpenCodeFence = null;\n      }\n    }\n    if (lastOpenCodeFence) {\n      return line;\n    }\n\n    let modifiedLine = line;\n    // Replace inline-style links or reference-style links e.g:\n    // This is [Document 1](doc1.md)\n    // [doc1]: doc1.md"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 129,
+          "excerpt": "    const linkCapture = (forbidden: string) =>\n      `((?!https?://|@site/)[^${forbidden}#?]+)`;\n    const linkURLPattern = `(?:(?!<)${linkCapture(\n      '()\\\\s',\n    )}${linkSuffixPattern}|<${linkCapture('>')}${linkSuffixPattern}>)`;\n    const linkPattern = new RegExp(\n      `\\\\[(?:(?!\\\\]\\\\().)*\\\\]\\\\(\\\\s*${linkURLPattern}${linkTitlePattern}\\\\s*\\\\)|^\\\\s*\\\\[[^[\\\\]]*[^[\\\\]\\\\s][^[\\\\]]*\\\\]:\\\\s*${linkURLPattern}${linkTitlePattern}$`,\n      'dgm',\n    );\n    let mdMatch = linkPattern.exec(modifiedLine);\n    while (mdMatch !== null) {\n      // Replace it to correct html link.\n      const mdLink = mdMatch.slice(1, 5).find(Boolean)!;\n      const mdLinkRange = mdMatch.indices!.slice(1, 5).find(Boolean)!;\n      if (!/\\.mdx?$/.test(mdLink)) {\n        mdMatch = linkPattern.exec(modifiedLine);\n        continue;\n      }\n\n      const sourcesToTry: string[] = [];\n      // ./file.md and ../file.md are always relative to the current file\n      if (!mdLink.startsWith('./') && !mdLink.startsWith('../')) {\n        sourcesToTry.push(...getContentPathList(contentPaths), siteDir);\n      }\n      // /file.md is always relative to the content path\n      if (!mdLink.startsWith('/')) {\n        sourcesToTry.push(path.dirname(filePath));\n      }\n\n      const aliasedSourceMatch = sourcesToTry\n        .map((p) => path.join(p, decodeURIComponent(mdLink)))\n        .map((source) => aliasedSitePath(source, siteDir))\n        .find((source) => sourceToPermalink[source]);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 181,
+          "excerpt": "      } else {\n        const brokenMarkdownLink: BrokenMarkdownLink<T> = {\n          contentPaths,\n          filePath,\n          link: mdLink,\n        };\n\n        brokenMarkdownLinks.push(brokenMarkdownLink);\n      }\n      mdMatch = linkPattern.exec(modifiedLine);\n    }\n    return modifiedLine;\n  });\n\n  const newContent = lines.join('\\n');\n\n  return {newContent, brokenMarkdownLinks};\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1e79997e-8c75-498e-9e9d-f5063b6e4010",
+      "origin": "model",
+      "claimKey": "docusaurus:data-file-parent-path",
+      "verdict": "true",
+      "claim": "A relative parent path can escape the selected content directory in getDataFilePath and reach its reader.",
+      "reason": "A relative ../outside.yml value is admitted by the string contract. findFolderContainingFile tests the joined parent path; if it exists, getDataFilePath resolves the same relative value outside the content root. getDataFileData reads the result before YAML validation. The catch logs and rethrows; validation is after the read and is not a containment guard. The defect is conditional helper containment, not a proven application authorization bypass.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "type DataFileParams = {\n  /** Path to the potential data file, relative to `contentPaths` */\n  filePath: string;\n  /**\n   * Includes the base path and localized path, both of which are eligible for\n   * sourcing data files. Both paths should be absolute.\n   */\n  contentPaths: ContentPaths;\n};\n\n/**\n * Looks for a data file in the potential content paths; loads a localized data\n * file in priority.\n *\n * @returns An absolute path to the data file, or `undefined` if there isn't one.\n */\nexport async function getDataFilePath({\n  filePath,\n  contentPaths,\n}: DataFileParams): Promise<string | undefined> {\n  const contentPath = await findFolderContainingFile(\n    getContentPathList(contentPaths),\n    filePath,\n  );\n  if (contentPath) {\n    return path.resolve(contentPath, filePath);\n  }\n  return undefined;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 52,
+          "excerpt": "export async function getDataFileData<T>(\n  params: DataFileParams & {\n    /** Used for the \"The X file looks invalid\" message. */\n    fileType: string;\n  },\n  validate: (content: unknown) => T,\n): Promise<T | undefined> {\n  const filePath = await getDataFilePath(params);\n  if (!filePath) {\n    return undefined;\n  }\n  try {\n    const contentString = await fs.readFile(filePath, {encoding: 'utf8'});\n    const unsafeContent = Yaml.load(contentString);\n    return validate(unsafeContent);\n  } catch (err) {\n    logger.error`The ${params.fileType} file at path=${filePath} looks invalid.`;\n    throw err;\n  }"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 82,
+          "excerpt": "/**\n * @param folderPaths a list of absolute paths.\n * @param relativeFilePath file path relative to each `folderPaths`.\n * @returns the first folder path in which the file exists, or `undefined` if\n * none is found.\n */\nexport async function findFolderContainingFile(\n  folderPaths: string[],\n  relativeFilePath: string,\n): Promise<string | undefined> {\n  return findAsyncSequential(folderPaths, (folderPath) =>\n    fs.pathExists(path.join(folderPath, relativeFilePath)),\n  );\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "011c1e29-82c4-4652-8842-7f785120e6a2",
+      "origin": "model",
+      "claimKey": "docusaurus:data-file-parent-path",
+      "verdict": "true",
+      "claim": "A relative parent path can escape the selected content directory in getDataFilePath and reach its reader.",
+      "reason": "A relative ../outside.yml value is admitted by the string contract. findFolderContainingFile tests the joined parent path; if it exists, getDataFilePath resolves the same relative value outside the content root. getDataFileData reads the result before YAML validation. The catch logs and rethrows; validation is after the read and is not a containment guard. The defect is conditional helper containment, not a proven application authorization bypass.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "type DataFileParams = {\n  /** Path to the potential data file, relative to `contentPaths` */\n  filePath: string;\n  /**\n   * Includes the base path and localized path, both of which are eligible for\n   * sourcing data files. Both paths should be absolute.\n   */\n  contentPaths: ContentPaths;\n};\n\n/**\n * Looks for a data file in the potential content paths; loads a localized data\n * file in priority.\n *\n * @returns An absolute path to the data file, or `undefined` if there isn't one.\n */\nexport async function getDataFilePath({\n  filePath,\n  contentPaths,\n}: DataFileParams): Promise<string | undefined> {\n  const contentPath = await findFolderContainingFile(\n    getContentPathList(contentPaths),\n    filePath,\n  );\n  if (contentPath) {\n    return path.resolve(contentPath, filePath);\n  }\n  return undefined;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 52,
+          "excerpt": "export async function getDataFileData<T>(\n  params: DataFileParams & {\n    /** Used for the \"The X file looks invalid\" message. */\n    fileType: string;\n  },\n  validate: (content: unknown) => T,\n): Promise<T | undefined> {\n  const filePath = await getDataFilePath(params);\n  if (!filePath) {\n    return undefined;\n  }\n  try {\n    const contentString = await fs.readFile(filePath, {encoding: 'utf8'});\n    const unsafeContent = Yaml.load(contentString);\n    return validate(unsafeContent);\n  } catch (err) {\n    logger.error`The ${params.fileType} file at path=${filePath} looks invalid.`;\n    throw err;\n  }"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 82,
+          "excerpt": "/**\n * @param folderPaths a list of absolute paths.\n * @param relativeFilePath file path relative to each `folderPaths`.\n * @returns the first folder path in which the file exists, or `undefined` if\n * none is found.\n */\nexport async function findFolderContainingFile(\n  folderPaths: string[],\n  relativeFilePath: string,\n): Promise<string | undefined> {\n  return findAsyncSequential(folderPaths, (folderPath) =>\n    fs.pathExists(path.join(folderPath, relativeFilePath)),\n  );\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1e79997e-8c75-498e-9e9d-f5063b6e4010",
+      "origin": "model",
+      "claimKey": "docusaurus:data-file-untrusted-read",
+      "verdict": "unknown",
+      "claim": "An untrusted application actor can read an unauthorized YAML file through this utility.",
+      "reason": "Only the exported utilities and internal getDataFileData-to-getDataFilePath chain are selected. No application caller binds a user-controlled relative path, trust boundary or filesystem permission. A normal trusted build configuration may intentionally address sibling data. Preserve the conditional path fact separately from the unresolved security consequence.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "type DataFileParams = {\n  /** Path to the potential data file, relative to `contentPaths` */\n  filePath: string;\n  /**\n   * Includes the base path and localized path, both of which are eligible for\n   * sourcing data files. Both paths should be absolute.\n   */\n  contentPaths: ContentPaths;\n};\n\n/**\n * Looks for a data file in the potential content paths; loads a localized data\n * file in priority.\n *\n * @returns An absolute path to the data file, or `undefined` if there isn't one.\n */\nexport async function getDataFilePath({\n  filePath,\n  contentPaths,\n}: DataFileParams): Promise<string | undefined> {\n  const contentPath = await findFolderContainingFile(\n    getContentPathList(contentPaths),\n    filePath,\n  );\n  if (contentPath) {\n    return path.resolve(contentPath, filePath);\n  }\n  return undefined;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/dataFileUtils.ts",
+          "lineNumber": 52,
+          "excerpt": "export async function getDataFileData<T>(\n  params: DataFileParams & {\n    /** Used for the \"The X file looks invalid\" message. */\n    fileType: string;\n  },\n  validate: (content: unknown) => T,\n): Promise<T | undefined> {\n  const filePath = await getDataFilePath(params);\n  if (!filePath) {\n    return undefined;\n  }\n  try {\n    const contentString = await fs.readFile(filePath, {encoding: 'utf8'});\n    const unsafeContent = Yaml.load(contentString);\n    return validate(unsafeContent);\n  } catch (err) {\n    logger.error`The ${params.fileType} file at path=${filePath} looks invalid.`;\n    throw err;\n  }"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 109,
+          "excerpt": "export {escapeShellArg} from './shellUtils';\nexport {loadFreshModule} from './moduleUtils';\nexport {\n  getDataFilePath,\n  getDataFileData,\n  getContentPathList,\n  findFolderContainingFile,\n  getFolderContainingFile,\n} from './dataFileUtils';\nexport {isDraft, isUnlisted} from './contentVisibilityUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "aa07084f-6b24-478e-9c1f-2c4840e800fe",
+      "origin": "model",
+      "claimKey": "docusaurus:short-hash-name-collision",
+      "verdict": "true",
+      "claim": "The three-hex suffix cannot guarantee uniqueness for inputs sharing the normalized filename.",
+      "reason": "simpleHash truncates MD5 to three hex characters, so there are 4096 suffix values. docuHash combines this with kebabCase, not the original string, and may further truncate the name. More than 4096 distinct punctuation/separator variants mapping to the same normalized name must collide. This refutes the unqualified avoiding-name-collision comment as a guarantee; it does not establish observed asset overwrite. The selected webpack asset naming uses contenthash, so that distinct pipeline must not be accused of this collision.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/hashUtils.ts",
+          "lineNumber": 12,
+          "excerpt": "/** Thin wrapper around `crypto.createHash(\"md5\")`. */\nexport function md5Hash(str: string): string {\n  return createHash('md5').update(str).digest('hex');\n}\n\n/** Creates an MD5 hash and truncates it to the given length. */\nexport function simpleHash(str: string, length: number): string {\n  return md5Hash(str).substring(0, length);\n}\n\n// Based on https://github.com/gatsbyjs/gatsby/pull/21518/files\n/**\n * Given an input string, convert to kebab-case and append a hash, avoiding name\n * collision. Also removes part of the string if its larger than the allowed\n * filename per OS, avoiding `ERRNAMETOOLONG` error.\n */\nexport function docuHash(str: string): string {\n  if (str === '/') {\n    return 'index';\n  }\n  const shortHash = simpleHash(str, 3);\n  const parsedPath = `${_.kebabCase(str)}-${shortHash}`;\n  if (isNameTooLong(parsedPath)) {\n    return `${shortName(_.kebabCase(str))}-${shortHash}`;\n  }\n  return parsedPath;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 63,
+          "excerpt": "  const fileLoaderFileName = (folder: AssetFolder) =>\n    path.posix.join(\n      OUTPUT_STATIC_ASSETS_DIR_NAME,\n      folder,\n      '[name]-[contenthash].[ext]',\n    );\n\n  const loaders: FileLoaderUtils['loaders'] = {\n    file: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve(`file-loader`),\n      options: {\n        name: fileLoaderFileName(options.folder),\n      },\n    }),\n    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1775ff12-83c2-4eca-9118-95b450dbca7d",
+      "origin": "model",
+      "claimKey": "docusaurus:short-hash-name-collision",
+      "verdict": "true",
+      "claim": "The three-hex suffix cannot guarantee uniqueness for inputs sharing the normalized filename.",
+      "reason": "simpleHash truncates MD5 to three hex characters, so there are 4096 suffix values. docuHash combines this with kebabCase, not the original string, and may further truncate the name. More than 4096 distinct punctuation/separator variants mapping to the same normalized name must collide. This refutes the unqualified avoiding-name-collision comment as a guarantee; it does not establish observed asset overwrite. The selected webpack asset naming uses contenthash, so that distinct pipeline must not be accused of this collision.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/hashUtils.ts",
+          "lineNumber": 12,
+          "excerpt": "/** Thin wrapper around `crypto.createHash(\"md5\")`. */\nexport function md5Hash(str: string): string {\n  return createHash('md5').update(str).digest('hex');\n}\n\n/** Creates an MD5 hash and truncates it to the given length. */\nexport function simpleHash(str: string, length: number): string {\n  return md5Hash(str).substring(0, length);\n}\n\n// Based on https://github.com/gatsbyjs/gatsby/pull/21518/files\n/**\n * Given an input string, convert to kebab-case and append a hash, avoiding name\n * collision. Also removes part of the string if its larger than the allowed\n * filename per OS, avoiding `ERRNAMETOOLONG` error.\n */\nexport function docuHash(str: string): string {\n  if (str === '/') {\n    return 'index';\n  }\n  const shortHash = simpleHash(str, 3);\n  const parsedPath = `${_.kebabCase(str)}-${shortHash}`;\n  if (isNameTooLong(parsedPath)) {\n    return `${shortName(_.kebabCase(str))}-${shortHash}`;\n  }\n  return parsedPath;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 63,
+          "excerpt": "  const fileLoaderFileName = (folder: AssetFolder) =>\n    path.posix.join(\n      OUTPUT_STATIC_ASSETS_DIR_NAME,\n      folder,\n      '[name]-[contenthash].[ext]',\n    );\n\n  const loaders: FileLoaderUtils['loaders'] = {\n    file: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve(`file-loader`),\n      options: {\n        name: fileLoaderFileName(options.folder),\n      },\n    }),\n    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "aa07084f-6b24-478e-9c1f-2c4840e800fe",
+      "origin": "model",
+      "claimKey": "docusaurus:short-hash-asset-overwrite",
+      "verdict": "unknown",
+      "claim": "A docuHash collision overwrites or aliases generated assets in an actual supplied application.",
+      "reason": "No selected call site invokes docuHash. Its theoretical noninjectivity is supported, but a concrete consumer, colliding accepted inputs, collision handling and a file-write consequence are missing. getFileLoaderUtils instead uses [name]-[contenthash].[ext], which is counter-evidence to extrapolating this helper into that selected asset path.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/hashUtils.ts",
+          "lineNumber": 22,
+          "excerpt": "// Based on https://github.com/gatsbyjs/gatsby/pull/21518/files\n/**\n * Given an input string, convert to kebab-case and append a hash, avoiding name\n * collision. Also removes part of the string if its larger than the allowed\n * filename per OS, avoiding `ERRNAMETOOLONG` error.\n */\nexport function docuHash(str: string): string {\n  if (str === '/') {\n    return 'index';\n  }\n  const shortHash = simpleHash(str, 3);\n  const parsedPath = `${_.kebabCase(str)}-${shortHash}`;\n  if (isNameTooLong(parsedPath)) {\n    return `${shortName(_.kebabCase(str))}-${shortHash}`;\n  }\n  return parsedPath;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 63,
+          "excerpt": "  const fileLoaderFileName = (folder: AssetFolder) =>\n    path.posix.join(\n      OUTPUT_STATIC_ASSETS_DIR_NAME,\n      folder,\n      '[name]-[contenthash].[ext]',\n    );\n\n  const loaders: FileLoaderUtils['loaders'] = {\n    file: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve(`file-loader`),\n      options: {\n        name: fileLoaderFileName(options.folder),\n      },\n    }),\n    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1775ff12-83c2-4eca-9118-95b450dbca7d",
+      "origin": "model",
+      "claimKey": "docusaurus:short-hash-asset-overwrite",
+      "verdict": "unknown",
+      "claim": "A docuHash collision overwrites or aliases generated assets in an actual supplied application.",
+      "reason": "No selected call site invokes docuHash. Its theoretical noninjectivity is supported, but a concrete consumer, colliding accepted inputs, collision handling and a file-write consequence are missing. getFileLoaderUtils instead uses [name]-[contenthash].[ext], which is counter-evidence to extrapolating this helper into that selected asset path.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/hashUtils.ts",
+          "lineNumber": 22,
+          "excerpt": "// Based on https://github.com/gatsbyjs/gatsby/pull/21518/files\n/**\n * Given an input string, convert to kebab-case and append a hash, avoiding name\n * collision. Also removes part of the string if its larger than the allowed\n * filename per OS, avoiding `ERRNAMETOOLONG` error.\n */\nexport function docuHash(str: string): string {\n  if (str === '/') {\n    return 'index';\n  }\n  const shortHash = simpleHash(str, 3);\n  const parsedPath = `${_.kebabCase(str)}-${shortHash}`;\n  if (isNameTooLong(parsedPath)) {\n    return `${shortName(_.kebabCase(str))}-${shortHash}`;\n  }\n  return parsedPath;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 63,
+          "excerpt": "  const fileLoaderFileName = (folder: AssetFolder) =>\n    path.posix.join(\n      OUTPUT_STATIC_ASSETS_DIR_NAME,\n      folder,\n      '[name]-[contenthash].[ext]',\n    );\n\n  const loaders: FileLoaderUtils['loaders'] = {\n    file: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve(`file-loader`),\n      options: {\n        name: fileLoaderFileName(options.folder),\n      },\n    }),\n    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "6a0acf9c-b127-4cf4-a96a-39ae6fa9d0db",
+      "origin": "model",
+      "claimKey": "docusaurus:site-alias-outside-resolution",
+      "verdict": "unknown",
+      "claim": "aliasedSitePath permits an unauthorized file read through webpack.",
+      "reason": "The function intentionally retains ../ and explicitly delegates resolution to webpack. It only returns a string and performs no read. Its selected caller in markdownLinks maps source candidates to aliases and looks them up in the supplied sourceToPermalink map; it does not pass arbitrary aliases into a loader. Outside resolution/trust permissions depend on an omitted consumer. An @site/../ string is demonstrable but is not itself a demonstrated security defect.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/pathUtils.ts",
+          "lineNumber": 83,
+          "excerpt": "/**\n * Alias filepath relative to site directory, very useful so that we\n * don't expose user's site structure.\n * Example: some/path/to/website/docs/foo.md -> @site/docs/foo.md\n */\nexport function aliasedSitePath(filePath: string, siteDir: string): string {\n  const relativePath = posixPath(path.relative(siteDir, filePath));\n  // Cannot use path.join() as it resolves '../' and removes\n  // the '@site'. Let webpack loader resolve it.\n  return `@site/${relativePath}`;\n}"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 148,
+          "excerpt": "      const sourcesToTry: string[] = [];\n      // ./file.md and ../file.md are always relative to the current file\n      if (!mdLink.startsWith('./') && !mdLink.startsWith('../')) {\n        sourcesToTry.push(...getContentPathList(contentPaths), siteDir);\n      }\n      // /file.md is always relative to the content path\n      if (!mdLink.startsWith('/')) {\n        sourcesToTry.push(path.dirname(filePath));\n      }\n\n      const aliasedSourceMatch = sourcesToTry\n        .map((p) => path.join(p, decodeURIComponent(mdLink)))\n        .map((source) => aliasedSitePath(source, siteDir))\n        .find((source) => sourceToPermalink[source]);\n\n      const permalink: string | undefined = aliasedSourceMatch\n        ? sourceToPermalink[aliasedSourceMatch]\n        : undefined;"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "c059abe4-9885-499e-b3f1-b7af619ebe09",
+      "origin": "model",
+      "claimKey": "docusaurus:tag-duplicate-loss-contract",
+      "verdict": "false",
+      "claim": "Discarding colliding tag permalinks violates the selected normalization contract.",
+      "reason": "The complete comment explicitly promises unique-by-permalink results and declares collision behavior undetermined. uniqBy implements that promise. groupTaggedItems also says routes must be unique and intentionally merges labels such as some label/some-label. Keeping the first entry is consistent with this contract; no requirement to reject, retain all labels or warn is supplied. A policy improvement can be considered, but the alleged unexpected data-loss defect is not established.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 64,
+          "excerpt": "/**\n * Takes tag objects as they are defined in front matter, and normalizes each\n * into a standard tag object. The permalink is created by appending the\n * sluggified label to `tagsPath`. Front matter tags already containing\n * permalinks would still have `tagsPath` prepended.\n *\n * The result will always be unique by permalinks. The behavior with colliding\n * permalinks is undetermined.\n */\nexport function normalizeFrontMatterTags(\n  /** Base path to append the tag permalinks to. */\n  tagsPath: string,\n  /** Can be `undefined`, so that we can directly pipe in `frontMatter.tags`. */\n  frontMatterTags: FrontMatterTag[] | undefined = [],\n): Tag[] {\n  const tags = frontMatterTags.map((tag) =>\n    normalizeFrontMatterTag(tagsPath, tag),\n  );\n\n  return _.uniqBy(tags, (tag) => tag.permalink);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 91,
+          "excerpt": "/**\n * Permits to group docs/blog posts by tag (provided by front matter).\n *\n * @returns a map from tag permalink to the items and other relevant tag data.\n * The record is indexed by permalink, because routes must be unique in the end.\n * Labels may vary on 2 MD files but they are normalized. Docs with\n * label='some label' and label='some-label' should end up in the same page.\n */"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 110,
+          "excerpt": "    getItemTags(item).forEach((tag) => {\n      // Init missing tag groups\n      // TODO: it's not really clear what should be the behavior if 2 tags have\n      // the same permalink but the label is different for each\n      // For now, the first tag found wins\n      result[tag.permalink] ??= {\n        tag,\n        items: [],\n      };\n\n      // Add item to group\n      result[tag.permalink]!.items.push(item);\n    });\n  });\n\n  // If user add twice the same tag to a md doc (weird but possible),\n  // we don't want the item to appear twice in the list...\n  Object.values(result).forEach((group) => {\n    group.items = _.uniq(group.items);"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "2506b391-d132-4b6c-989b-ca7a5540b213",
+      "origin": "model",
+      "claimKey": "docusaurus:git-shell-filename-interpolation",
+      "verdict": "true",
+      "claim": "The exported Git-date helper embeds an existing filename in a shell command without escaping shell syntax.",
+      "reason": "The existence check verifies only -f. path.basename removes directories but retains shell-significant characters permitted by a POSIX filesystem. The command string is double quoted; that does not escape a contained quote or command substitution on shells that interpret them. args is assembled from fixed options and an enum comparison, so it is not the alleged arbitrary string entry. This proves a conditional unsafe shell-command construction; no command was executed.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/gitUtils.ts",
+          "lineNumber": 75,
+          "excerpt": "export async function getFileCommitDate(\n  file: string,\n  {\n    age = 'oldest',\n    includeAuthor = false,\n  }: {\n    age?: 'oldest' | 'newest';\n    includeAuthor?: boolean;\n  },\n): Promise<{\n  date: Date;\n  timestamp: number;\n  author?: string;\n}> {\n  if (!shell.which('git')) {\n    throw new GitNotFoundError(\n      `Failed to retrieve git history for \"${file}\" because git is not installed.`,\n    );\n  }\n\n  if (!shell.test('-f', file)) {\n    throw new Error(\n      `Failed to retrieve git history for \"${file}\" because the file does not exist.`,\n    );\n  }\n\n  const args = [\n    `--format=%ct${includeAuthor ? ',%an' : ''}`,\n    '--max-count=1',\n    age === 'oldest' ? '--follow --diff-filter=A' : undefined,\n  ]\n    .filter(Boolean)\n    .join(' ');\n\n  const result = await new Promise<{\n    code: number;\n    stdout: string;\n    stderr: string;\n  }>((resolve) => {\n    shell.exec(\n      `git log ${args} -- \"${path.basename(file)}\"`,\n      {\n        // Setting cwd is important, see: https://github.com/facebook/docusaurus/pull/5048\n        cwd: path.dirname(file),\n        silent: true,\n      },\n      (code, stdout, stderr) => {\n        resolve({code, stdout, stderr});\n      },\n    );"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';\nexport {\n  getFileCommitDate,\n  FileNotTrackedError,\n  GitNotFoundError,\n} from './gitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "2506b391-d132-4b6c-989b-ca7a5540b213",
+      "origin": "model",
+      "claimKey": "docusaurus:git-shell-application-execution",
+      "verdict": "unknown",
+      "claim": "An application attacker can execute commands through getFileCommitDate in a supported deployment.",
+      "reason": "The selected sample does not contain ShellJS implementation, actual shell/platform configuration, application callers or the origin of existing filenames. A POSIX shell-sensitive name is a supported conditional risk, but external control, whether a build processes such a file and actual privileges remain unverified. Windows filename restrictions and shell semantics differ. No runtime reproduction was authorized.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/gitUtils.ts",
+          "lineNumber": 89,
+          "excerpt": "  if (!shell.which('git')) {\n    throw new GitNotFoundError(\n      `Failed to retrieve git history for \"${file}\" because git is not installed.`,\n    );\n  }\n\n  if (!shell.test('-f', file)) {\n    throw new Error(\n      `Failed to retrieve git history for \"${file}\" because the file does not exist.`,\n    );\n  }\n\n  const args = [\n    `--format=%ct${includeAuthor ? ',%an' : ''}`,\n    '--max-count=1',\n    age === 'oldest' ? '--follow --diff-filter=A' : undefined,\n  ]\n    .filter(Boolean)\n    .join(' ');\n\n  const result = await new Promise<{\n    code: number;\n    stdout: string;\n    stderr: string;\n  }>((resolve) => {\n    shell.exec(\n      `git log ${args} -- \"${path.basename(file)}\"`,\n      {\n        // Setting cwd is important, see: https://github.com/facebook/docusaurus/pull/5048\n        cwd: path.dirname(file),\n        silent: true,\n      },\n      (code, stdout, stderr) => {\n        resolve({code, stdout, stderr});\n      },\n    );"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';\nexport {\n  getFileCommitDate,\n  FileNotTrackedError,\n  GitNotFoundError,\n} from './gitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "ba40da2b-a060-4043-be3f-33b50199d831",
+      "origin": "model",
+      "claimKey": "docusaurus:git-shell-filename-interpolation",
+      "verdict": "true",
+      "claim": "The exported Git-date helper embeds an existing filename in a shell command without escaping shell syntax.",
+      "reason": "The existence check verifies only -f. path.basename removes directories but retains shell-significant characters permitted by a POSIX filesystem. The command string is double quoted; that does not escape a contained quote or command substitution on shells that interpret them. args is assembled from fixed options and an enum comparison, so it is not the alleged arbitrary string entry. This proves a conditional unsafe shell-command construction; no command was executed.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/gitUtils.ts",
+          "lineNumber": 75,
+          "excerpt": "export async function getFileCommitDate(\n  file: string,\n  {\n    age = 'oldest',\n    includeAuthor = false,\n  }: {\n    age?: 'oldest' | 'newest';\n    includeAuthor?: boolean;\n  },\n): Promise<{\n  date: Date;\n  timestamp: number;\n  author?: string;\n}> {\n  if (!shell.which('git')) {\n    throw new GitNotFoundError(\n      `Failed to retrieve git history for \"${file}\" because git is not installed.`,\n    );\n  }\n\n  if (!shell.test('-f', file)) {\n    throw new Error(\n      `Failed to retrieve git history for \"${file}\" because the file does not exist.`,\n    );\n  }\n\n  const args = [\n    `--format=%ct${includeAuthor ? ',%an' : ''}`,\n    '--max-count=1',\n    age === 'oldest' ? '--follow --diff-filter=A' : undefined,\n  ]\n    .filter(Boolean)\n    .join(' ');\n\n  const result = await new Promise<{\n    code: number;\n    stdout: string;\n    stderr: string;\n  }>((resolve) => {\n    shell.exec(\n      `git log ${args} -- \"${path.basename(file)}\"`,\n      {\n        // Setting cwd is important, see: https://github.com/facebook/docusaurus/pull/5048\n        cwd: path.dirname(file),\n        silent: true,\n      },\n      (code, stdout, stderr) => {\n        resolve({code, stdout, stderr});\n      },\n    );"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';\nexport {\n  getFileCommitDate,\n  FileNotTrackedError,\n  GitNotFoundError,\n} from './gitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "ba40da2b-a060-4043-be3f-33b50199d831",
+      "origin": "model",
+      "claimKey": "docusaurus:git-shell-application-execution",
+      "verdict": "unknown",
+      "claim": "An application attacker can execute commands through getFileCommitDate in a supported deployment.",
+      "reason": "The selected sample does not contain ShellJS implementation, actual shell/platform configuration, application callers or the origin of existing filenames. A POSIX shell-sensitive name is a supported conditional risk, but external control, whether a build processes such a file and actual privileges remain unverified. Windows filename restrictions and shell semantics differ. No runtime reproduction was authorized.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/gitUtils.ts",
+          "lineNumber": 89,
+          "excerpt": "  if (!shell.which('git')) {\n    throw new GitNotFoundError(\n      `Failed to retrieve git history for \"${file}\" because git is not installed.`,\n    );\n  }\n\n  if (!shell.test('-f', file)) {\n    throw new Error(\n      `Failed to retrieve git history for \"${file}\" because the file does not exist.`,\n    );\n  }\n\n  const args = [\n    `--format=%ct${includeAuthor ? ',%an' : ''}`,\n    '--max-count=1',\n    age === 'oldest' ? '--follow --diff-filter=A' : undefined,\n  ]\n    .filter(Boolean)\n    .join(' ');\n\n  const result = await new Promise<{\n    code: number;\n    stdout: string;\n    stderr: string;\n  }>((resolve) => {\n    shell.exec(\n      `git log ${args} -- \"${path.basename(file)}\"`,\n      {\n        // Setting cwd is important, see: https://github.com/facebook/docusaurus/pull/5048\n        cwd: path.dirname(file),\n        silent: true,\n      },\n      (code, stdout, stderr) => {\n        resolve({code, stdout, stderr});\n      },\n    );"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';\nexport {\n  getFileCommitDate,\n  FileNotTrackedError,\n  GitNotFoundError,\n} from './gitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "7844b850-24b1-40dc-b91b-1ed61a87956e",
+      "origin": "model",
+      "claimKey": "docusaurus:output-html-parent-read",
+      "verdict": "true",
+      "claim": "Parent-directory segments in a permalink can produce an HTML candidate outside outDir.",
+      "reason": "path.join normalizes ../ segments, and no containment check follows. With trailingSlash=false and ../outside.html, the second candidate is outside outDir and retains its html extension; if it exists, findAsyncSequential selects it and fs.readFile returns its bytes. The existing-file predicate and trailingSlash choice are necessary conditions, not containment safeguards. Remote actor control is scored separately.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 65,
+          "excerpt": "/**\n * @param permalink The URL that the HTML file corresponds to, without base URL\n * @param outDir Full path to the output directory\n * @param trailingSlash The site config option. If provided, only one path will\n * be read.\n * @returns This returns a buffer, which you have to decode string yourself if\n * needed. (Not always necessary since the output isn't for human consumption\n * anyways, and most HTML manipulation libs accept buffers)\n * @throws Throws when the HTML file is not found at any of the potential paths.\n * This should never happen as it would lead to a 404.\n */\nexport async function readOutputHTMLFile(\n  permalink: string,\n  outDir: string,\n  trailingSlash: boolean | undefined,\n): Promise<Buffer> {\n  const withTrailingSlashPath = path.join(outDir, permalink, 'index.html');\n  const withoutTrailingSlashPath = (() => {\n    const basePath = path.join(outDir, permalink.replace(/\\/$/, ''));\n    const htmlSuffix = /\\.html?$/i.test(basePath) ? '' : '.html';\n    return `${basePath}${htmlSuffix}`;\n  })();\n\n  const possibleHtmlPaths = [\n    trailingSlash !== false && withTrailingSlashPath,\n    trailingSlash !== true && withoutTrailingSlashPath,\n  ].filter((p): p is string => Boolean(p));\n\n  const HTMLPath = await findAsyncSequential(possibleHtmlPaths, fs.pathExists);\n\n  if (!HTMLPath) {\n    throw new Error(\n      `Expected output HTML file to be found at ${withTrailingSlashPath} for permalink ${permalink}.`,\n    );\n  }\n  return fs.readFile(HTMLPath);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/jsUtils.ts",
+          "lineNumber": 1,
+          "excerpt": "/**\n * Copyright (c) Facebook, Inc. and its affiliates.\n *\n * This source code is licensed under the MIT license found in the\n * LICENSE file in the root directory of this source tree.\n */\n\n/** Adds a given string prefix to `str`. */\nexport function addPrefix(str: string, prefix: string): string {\n  return str.startsWith(prefix) ? str : `${prefix}${str}`;\n}\n\n/** Adds a given string suffix to `str`. */\nexport function addSuffix(str: string, suffix: string): string {\n  return str.endsWith(suffix) ? str : `${str}${suffix}`;\n}\n\n/** Removes a given string suffix from `str`. */\nexport function removeSuffix(str: string, suffix: string): string {\n  if (suffix === '') {\n    // str.slice(0, 0) is \"\"\n    return str;\n  }\n  return str.endsWith(suffix) ? str.slice(0, -suffix.length) : str;\n}\n\n/** Removes a given string prefix from `str`. */\nexport function removePrefix(str: string, prefix: string): string {\n  return str.startsWith(prefix) ? str.slice(prefix.length) : str;\n}\n\n/**\n * `Array#map` for async operations where order matters.\n * @param array The array to traverse.\n * @param action An async action to be performed on every array item. Will be\n * awaited before working on the next.\n * @returns The list of results returned from every `action(item)`\n */\nexport async function mapAsyncSequential<T, R>(\n  array: T[],\n  action: (t: T) => Promise<R>,\n): Promise<R[]> {\n  const results: R[] = [];\n  for (const t of array) {\n    const result = await action(t);\n    results.push(result);\n  }\n  return results;\n}\n\n/**\n * `Array#find` for async operations where order matters.\n * @param array The array to traverse.\n * @param predicate An async predicate to be called on every array item. Should\n * return a boolean indicating whether the currently element should be returned.\n * @returns The function immediately returns the first item on which `predicate`\n * returns `true`, or `undefined` if none matches the predicate.\n */\nexport async function findAsyncSequential<T>(\n  array: T[],\n  predicate: (t: T) => Promise<boolean>,\n): Promise<T | undefined> {\n  for (const t of array) {\n    if (await predicate(t)) {\n      return t;\n    }\n  }\n  return undefined;\n}\n"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "43afc0f7-ff5b-491c-9695-bd422786e3b2",
+      "origin": "model",
+      "claimKey": "docusaurus:output-html-parent-read",
+      "verdict": "true",
+      "claim": "Parent-directory segments in a permalink can produce an HTML candidate outside outDir.",
+      "reason": "path.join normalizes ../ segments, and no containment check follows. With trailingSlash=false and ../outside.html, the second candidate is outside outDir and retains its html extension; if it exists, findAsyncSequential selects it and fs.readFile returns its bytes. The existing-file predicate and trailingSlash choice are necessary conditions, not containment safeguards. Remote actor control is scored separately.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 65,
+          "excerpt": "/**\n * @param permalink The URL that the HTML file corresponds to, without base URL\n * @param outDir Full path to the output directory\n * @param trailingSlash The site config option. If provided, only one path will\n * be read.\n * @returns This returns a buffer, which you have to decode string yourself if\n * needed. (Not always necessary since the output isn't for human consumption\n * anyways, and most HTML manipulation libs accept buffers)\n * @throws Throws when the HTML file is not found at any of the potential paths.\n * This should never happen as it would lead to a 404.\n */\nexport async function readOutputHTMLFile(\n  permalink: string,\n  outDir: string,\n  trailingSlash: boolean | undefined,\n): Promise<Buffer> {\n  const withTrailingSlashPath = path.join(outDir, permalink, 'index.html');\n  const withoutTrailingSlashPath = (() => {\n    const basePath = path.join(outDir, permalink.replace(/\\/$/, ''));\n    const htmlSuffix = /\\.html?$/i.test(basePath) ? '' : '.html';\n    return `${basePath}${htmlSuffix}`;\n  })();\n\n  const possibleHtmlPaths = [\n    trailingSlash !== false && withTrailingSlashPath,\n    trailingSlash !== true && withoutTrailingSlashPath,\n  ].filter((p): p is string => Boolean(p));\n\n  const HTMLPath = await findAsyncSequential(possibleHtmlPaths, fs.pathExists);\n\n  if (!HTMLPath) {\n    throw new Error(\n      `Expected output HTML file to be found at ${withTrailingSlashPath} for permalink ${permalink}.`,\n    );\n  }\n  return fs.readFile(HTMLPath);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/jsUtils.ts",
+          "lineNumber": 1,
+          "excerpt": "/**\n * Copyright (c) Facebook, Inc. and its affiliates.\n *\n * This source code is licensed under the MIT license found in the\n * LICENSE file in the root directory of this source tree.\n */\n\n/** Adds a given string prefix to `str`. */\nexport function addPrefix(str: string, prefix: string): string {\n  return str.startsWith(prefix) ? str : `${prefix}${str}`;\n}\n\n/** Adds a given string suffix to `str`. */\nexport function addSuffix(str: string, suffix: string): string {\n  return str.endsWith(suffix) ? str : `${str}${suffix}`;\n}\n\n/** Removes a given string suffix from `str`. */\nexport function removeSuffix(str: string, suffix: string): string {\n  if (suffix === '') {\n    // str.slice(0, 0) is \"\"\n    return str;\n  }\n  return str.endsWith(suffix) ? str.slice(0, -suffix.length) : str;\n}\n\n/** Removes a given string prefix from `str`. */\nexport function removePrefix(str: string, prefix: string): string {\n  return str.startsWith(prefix) ? str.slice(prefix.length) : str;\n}\n\n/**\n * `Array#map` for async operations where order matters.\n * @param array The array to traverse.\n * @param action An async action to be performed on every array item. Will be\n * awaited before working on the next.\n * @returns The list of results returned from every `action(item)`\n */\nexport async function mapAsyncSequential<T, R>(\n  array: T[],\n  action: (t: T) => Promise<R>,\n): Promise<R[]> {\n  const results: R[] = [];\n  for (const t of array) {\n    const result = await action(t);\n    results.push(result);\n  }\n  return results;\n}\n\n/**\n * `Array#find` for async operations where order matters.\n * @param array The array to traverse.\n * @param predicate An async predicate to be called on every array item. Should\n * return a boolean indicating whether the currently element should be returned.\n * @returns The function immediately returns the first item on which `predicate`\n * returns `true`, or `undefined` if none matches the predicate.\n */\nexport async function findAsyncSequential<T>(\n  array: T[],\n  predicate: (t: T) => Promise<boolean>,\n): Promise<T | undefined> {\n  for (const t of array) {\n    if (await predicate(t)) {\n      return t;\n    }\n  }\n  return undefined;\n}\n"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "7844b850-24b1-40dc-b91b-1ed61a87956e",
+      "origin": "model",
+      "claimKey": "docusaurus:output-html-absolute-join-reset",
+      "verdict": "false",
+      "claim": "An absolute permalink by itself resets path.join and discards outDir.",
+      "reason": "Node path.join concatenates and normalizes segments; unlike path.resolve, a later rooted segment does not reset the already joined prefix. For the POSIX example outDir=/site/build and permalink=/secret, the result is /site/build/secret/index.html, not /secret/index.html. The ../ traversal mechanism is real and separately credited; absolute syntax alone is the wrong cause.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 76,
+          "excerpt": "export async function readOutputHTMLFile(\n  permalink: string,\n  outDir: string,\n  trailingSlash: boolean | undefined,\n): Promise<Buffer> {\n  const withTrailingSlashPath = path.join(outDir, permalink, 'index.html');\n  const withoutTrailingSlashPath = (() => {\n    const basePath = path.join(outDir, permalink.replace(/\\/$/, ''));\n    const htmlSuffix = /\\.html?$/i.test(basePath) ? '' : '.html';\n    return `${basePath}${htmlSuffix}`;"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "7844b850-24b1-40dc-b91b-1ed61a87956e",
+      "origin": "model",
+      "claimKey": "docusaurus:output-html-untrusted-read",
+      "verdict": "unknown",
+      "claim": "An untrusted actor can exploit readOutputHTMLFile to read outside the authorized site output.",
+      "reason": "No selected application caller or security containment requirement establishes untrusted permalink control. The bytes are returned to the caller rather than automatically transmitted. Relative path escape at the helper is concrete; authorization bypass or data disclosure at application level remains unverified.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 65,
+          "excerpt": "/**\n * @param permalink The URL that the HTML file corresponds to, without base URL\n * @param outDir Full path to the output directory\n * @param trailingSlash The site config option. If provided, only one path will\n * be read.\n * @returns This returns a buffer, which you have to decode string yourself if\n * needed. (Not always necessary since the output isn't for human consumption\n * anyways, and most HTML manipulation libs accept buffers)\n * @throws Throws when the HTML file is not found at any of the potential paths.\n * This should never happen as it would lead to a 404.\n */\nexport async function readOutputHTMLFile(\n  permalink: string,\n  outDir: string,\n  trailingSlash: boolean | undefined,\n): Promise<Buffer> {\n  const withTrailingSlashPath = path.join(outDir, permalink, 'index.html');\n  const withoutTrailingSlashPath = (() => {\n    const basePath = path.join(outDir, permalink.replace(/\\/$/, ''));\n    const htmlSuffix = /\\.html?$/i.test(basePath) ? '' : '.html';\n    return `${basePath}${htmlSuffix}`;\n  })();\n\n  const possibleHtmlPaths = [\n    trailingSlash !== false && withTrailingSlashPath,\n    trailingSlash !== true && withoutTrailingSlashPath,\n  ].filter((p): p is string => Boolean(p));\n\n  const HTMLPath = await findAsyncSequential(possibleHtmlPaths, fs.pathExists);\n\n  if (!HTMLPath) {\n    throw new Error(\n      `Expected output HTML file to be found at ${withTrailingSlashPath} for permalink ${permalink}.`,\n    );\n  }\n  return fs.readFile(HTMLPath);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "43afc0f7-ff5b-491c-9695-bd422786e3b2",
+      "origin": "model",
+      "claimKey": "docusaurus:output-html-untrusted-read",
+      "verdict": "unknown",
+      "claim": "An untrusted actor can exploit readOutputHTMLFile to read outside the authorized site output.",
+      "reason": "No selected application caller or security containment requirement establishes untrusted permalink control. The bytes are returned to the caller rather than automatically transmitted. Relative path escape at the helper is concrete; authorization bypass or data disclosure at application level remains unverified.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 65,
+          "excerpt": "/**\n * @param permalink The URL that the HTML file corresponds to, without base URL\n * @param outDir Full path to the output directory\n * @param trailingSlash The site config option. If provided, only one path will\n * be read.\n * @returns This returns a buffer, which you have to decode string yourself if\n * needed. (Not always necessary since the output isn't for human consumption\n * anyways, and most HTML manipulation libs accept buffers)\n * @throws Throws when the HTML file is not found at any of the potential paths.\n * This should never happen as it would lead to a 404.\n */\nexport async function readOutputHTMLFile(\n  permalink: string,\n  outDir: string,\n  trailingSlash: boolean | undefined,\n): Promise<Buffer> {\n  const withTrailingSlashPath = path.join(outDir, permalink, 'index.html');\n  const withoutTrailingSlashPath = (() => {\n    const basePath = path.join(outDir, permalink.replace(/\\/$/, ''));\n    const htmlSuffix = /\\.html?$/i.test(basePath) ? '' : '.html';\n    return `${basePath}${htmlSuffix}`;\n  })();\n\n  const possibleHtmlPaths = [\n    trailingSlash !== false && withTrailingSlashPath,\n    trailingSlash !== true && withoutTrailingSlashPath,\n  ].filter((p): p is string => Boolean(p));\n\n  const HTMLPath = await findAsyncSequential(possibleHtmlPaths, fs.pathExists);\n\n  if (!HTMLPath) {\n    throw new Error(\n      `Expected output HTML file to be found at ${withTrailingSlashPath} for permalink ${permalink}.`,\n    );\n  }\n  return fs.readFile(HTMLPath);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "4f756489-8a6b-411b-ab45-f47f0fc7d3c9",
+      "origin": "model",
+      "claimKey": "docusaurus:generated-file-parent-write",
+      "verdict": "true",
+      "claim": "generate can write outside generatedFilesDir for an absolute or parent-relative file value.",
+      "reason": "The documented file parameter is relative to the directory, but no runtime containment check exists. path.resolve honors absolute values and ../; skipCache=true reaches outputFile directly. With cache enabled the changed-content branch also writes. This proves conditional helper write behavior; it does not prove untrusted application control.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "/**\n * Outputs a file to the generated files directory. Only writes files if content\n * differs from cache (for hot reload performance).\n *\n * @param generatedFilesDir Absolute path.\n * @param file Path relative to `generatedFilesDir`. File will always be\n * outputted; no need to ensure directory exists.\n * @param content String content to write.\n * @param skipCache If `true` (defaults as `true` for production), file is\n * force-rewritten, skipping cache.\n */\nexport async function generate(\n  generatedFilesDir: string,\n  file: string,\n  content: string,\n  skipCache: boolean = process.env.NODE_ENV === 'production',\n): Promise<void> {\n  const filepath = path.resolve(generatedFilesDir, file);\n\n  if (skipCache) {\n    await fs.outputFile(filepath, content);\n    // Cache still needs to be reset, otherwise, writing \"A\", \"B\", and \"A\" where\n    // \"B\" skips cache will cause the last \"A\" not be able to overwrite as the\n    // first \"A\" remains in cache. But if the file never existed in cache, no\n    // need to register it.\n    if (fileHash.get(filepath)) {\n      fileHash.set(filepath, createHash('md5').update(content).digest('hex'));\n    }\n    return;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 46,
+          "excerpt": "  let lastHash = fileHash.get(filepath);\n\n  // If file already exists but it's not in runtime cache yet, we try to\n  // calculate the content hash and then compare. This is to avoid unnecessary\n  // overwriting and we can reuse old file.\n  if (!lastHash && (await fs.pathExists(filepath))) {\n    const lastContent = await fs.readFile(filepath, 'utf8');\n    lastHash = createHash('md5').update(lastContent).digest('hex');\n    fileHash.set(filepath, lastHash);\n  }\n\n  const currentHash = createHash('md5').update(content).digest('hex');\n\n  if (lastHash !== currentHash) {\n    await fs.outputFile(filepath, content);\n    fileHash.set(filepath, currentHash);\n  }"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "4f756489-8a6b-411b-ab45-f47f0fc7d3c9",
+      "origin": "model",
+      "claimKey": "docusaurus:generated-file-untrusted-write",
+      "verdict": "unknown",
+      "claim": "An attacker can control generate file paths and overwrite unauthorized application files.",
+      "reason": "No selected caller invokes generate with input from an untrusted actor. Output permissions and sandbox boundaries are not supplied. Relative path contracts are often trusted build API contracts; the conditional helper escape alone cannot establish remote exploitability or actual unauthorized overwrite.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "/**\n * Outputs a file to the generated files directory. Only writes files if content\n * differs from cache (for hot reload performance).\n *\n * @param generatedFilesDir Absolute path.\n * @param file Path relative to `generatedFilesDir`. File will always be\n * outputted; no need to ensure directory exists.\n * @param content String content to write.\n * @param skipCache If `true` (defaults as `true` for production), file is\n * force-rewritten, skipping cache.\n */\nexport async function generate(\n  generatedFilesDir: string,\n  file: string,\n  content: string,\n  skipCache: boolean = process.env.NODE_ENV === 'production',\n): Promise<void> {\n  const filepath = path.resolve(generatedFilesDir, file);\n\n  if (skipCache) {\n    await fs.outputFile(filepath, content);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "968901dc-dde1-4555-a298-42b59ceeb402",
+      "origin": "model",
+      "claimKey": "docusaurus:generated-file-parent-write",
+      "verdict": "true",
+      "claim": "generate can write outside generatedFilesDir for an absolute or parent-relative file value.",
+      "reason": "The documented file parameter is relative to the directory, but no runtime containment check exists. path.resolve honors absolute values and ../; skipCache=true reaches outputFile directly. With cache enabled the changed-content branch also writes. This proves conditional helper write behavior; it does not prove untrusted application control.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "/**\n * Outputs a file to the generated files directory. Only writes files if content\n * differs from cache (for hot reload performance).\n *\n * @param generatedFilesDir Absolute path.\n * @param file Path relative to `generatedFilesDir`. File will always be\n * outputted; no need to ensure directory exists.\n * @param content String content to write.\n * @param skipCache If `true` (defaults as `true` for production), file is\n * force-rewritten, skipping cache.\n */\nexport async function generate(\n  generatedFilesDir: string,\n  file: string,\n  content: string,\n  skipCache: boolean = process.env.NODE_ENV === 'production',\n): Promise<void> {\n  const filepath = path.resolve(generatedFilesDir, file);\n\n  if (skipCache) {\n    await fs.outputFile(filepath, content);\n    // Cache still needs to be reset, otherwise, writing \"A\", \"B\", and \"A\" where\n    // \"B\" skips cache will cause the last \"A\" not be able to overwrite as the\n    // first \"A\" remains in cache. But if the file never existed in cache, no\n    // need to register it.\n    if (fileHash.get(filepath)) {\n      fileHash.set(filepath, createHash('md5').update(content).digest('hex'));\n    }\n    return;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 46,
+          "excerpt": "  let lastHash = fileHash.get(filepath);\n\n  // If file already exists but it's not in runtime cache yet, we try to\n  // calculate the content hash and then compare. This is to avoid unnecessary\n  // overwriting and we can reuse old file.\n  if (!lastHash && (await fs.pathExists(filepath))) {\n    const lastContent = await fs.readFile(filepath, 'utf8');\n    lastHash = createHash('md5').update(lastContent).digest('hex');\n    fileHash.set(filepath, lastHash);\n  }\n\n  const currentHash = createHash('md5').update(content).digest('hex');\n\n  if (lastHash !== currentHash) {\n    await fs.outputFile(filepath, content);\n    fileHash.set(filepath, currentHash);\n  }"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "968901dc-dde1-4555-a298-42b59ceeb402",
+      "origin": "model",
+      "claimKey": "docusaurus:generated-file-untrusted-write",
+      "verdict": "unknown",
+      "claim": "An attacker can control generate file paths and overwrite unauthorized application files.",
+      "reason": "No selected caller invokes generate with input from an untrusted actor. Output permissions and sandbox boundaries are not supplied. Relative path contracts are often trusted build API contracts; the conditional helper escape alone cannot establish remote exploitability or actual unauthorized overwrite.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/emitUtils.ts",
+          "lineNumber": 15,
+          "excerpt": "/**\n * Outputs a file to the generated files directory. Only writes files if content\n * differs from cache (for hot reload performance).\n *\n * @param generatedFilesDir Absolute path.\n * @param file Path relative to `generatedFilesDir`. File will always be\n * outputted; no need to ensure directory exists.\n * @param content String content to write.\n * @param skipCache If `true` (defaults as `true` for production), file is\n * force-rewritten, skipping cache.\n */\nexport async function generate(\n  generatedFilesDir: string,\n  file: string,\n  content: string,\n  skipCache: boolean = process.env.NODE_ENV === 'production',\n): Promise<void> {\n  const filepath = path.resolve(generatedFilesDir, file);\n\n  if (skipCache) {\n    await fs.outputFile(filepath, content);"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 26,
+          "excerpt": "export {generate, readOutputHTMLFile} from './emitUtils';"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1a786d09-098a-4a9c-bad3-2b00e0117dd6",
+      "origin": "model",
+      "claimKey": "docusaurus:port-incomplete-validation",
+      "verdict": "true",
+      "claim": "DEFAULT_PORT can contain NaN, a partial integer parse, or an out-of-range integer.",
+      "reason": "The nonempty environment string is passed directly to parseInt. abc becomes NaN, 3000x becomes 3000, and 70000 stays out of the ordinary TCP port range. The value is exported without further checks in constants. No selected server consumer establishes the eventual startup behavior.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 85,
+          "excerpt": "/** Dev server opens on this port by default. */\nexport const DEFAULT_PORT = process.env.PORT\n  ? parseInt(process.env.PORT, 10)\n  : 3000;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 14,
+          "excerpt": "  BABEL_CONFIG_FILE_NAME,\n  GENERATED_FILES_DIR_NAME,\n  SRC_DIR_NAME,\n  DEFAULT_STATIC_DIR_NAME,\n  OUTPUT_STATIC_ASSETS_DIR_NAME,\n  THEME_PATH,\n  DEFAULT_I18N_DIR_NAME,\n  CODE_TRANSLATIONS_FILE_NAME,\n  DEFAULT_PORT,\n  DEFAULT_PLUGIN_ID,\n  WEBPACK_URL_LOADER_LIMIT,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1a786d09-098a-4a9c-bad3-2b00e0117dd6",
+      "origin": "model",
+      "claimKey": "docusaurus:port-deployment-failure",
+      "verdict": "unknown",
+      "claim": "Malformed PORT causes a supported Docusaurus startup failure or incorrect deployed behavior.",
+      "reason": "No selected consumer uses DEFAULT_PORT other than re-export. An omitted caller may validate, choose a free port, handle NaN or provide a diagnostic. The unchecked value fact is supported; a concrete startup failure and quality of its diagnostic require omitted caller/runtime evidence.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 85,
+          "excerpt": "/** Dev server opens on this port by default. */\nexport const DEFAULT_PORT = process.env.PORT\n  ? parseInt(process.env.PORT, 10)\n  : 3000;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 14,
+          "excerpt": "  BABEL_CONFIG_FILE_NAME,\n  GENERATED_FILES_DIR_NAME,\n  SRC_DIR_NAME,\n  DEFAULT_STATIC_DIR_NAME,\n  OUTPUT_STATIC_ASSETS_DIR_NAME,\n  THEME_PATH,\n  DEFAULT_I18N_DIR_NAME,\n  CODE_TRANSLATIONS_FILE_NAME,\n  DEFAULT_PORT,\n  DEFAULT_PLUGIN_ID,\n  WEBPACK_URL_LOADER_LIMIT,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "4fcafa9d-1af9-49c5-b76a-3a278d478230",
+      "origin": "model",
+      "claimKey": "docusaurus:port-incomplete-validation",
+      "verdict": "true",
+      "claim": "DEFAULT_PORT can contain NaN, a partial integer parse, or an out-of-range integer.",
+      "reason": "The nonempty environment string is passed directly to parseInt. abc becomes NaN, 3000x becomes 3000, and 70000 stays out of the ordinary TCP port range. The value is exported without further checks in constants. No selected server consumer establishes the eventual startup behavior.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 85,
+          "excerpt": "/** Dev server opens on this port by default. */\nexport const DEFAULT_PORT = process.env.PORT\n  ? parseInt(process.env.PORT, 10)\n  : 3000;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 14,
+          "excerpt": "  BABEL_CONFIG_FILE_NAME,\n  GENERATED_FILES_DIR_NAME,\n  SRC_DIR_NAME,\n  DEFAULT_STATIC_DIR_NAME,\n  OUTPUT_STATIC_ASSETS_DIR_NAME,\n  THEME_PATH,\n  DEFAULT_I18N_DIR_NAME,\n  CODE_TRANSLATIONS_FILE_NAME,\n  DEFAULT_PORT,\n  DEFAULT_PLUGIN_ID,\n  WEBPACK_URL_LOADER_LIMIT,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "4fcafa9d-1af9-49c5-b76a-3a278d478230",
+      "origin": "model",
+      "claimKey": "docusaurus:port-deployment-failure",
+      "verdict": "unknown",
+      "claim": "Malformed PORT causes a supported Docusaurus startup failure or incorrect deployed behavior.",
+      "reason": "No selected consumer uses DEFAULT_PORT other than re-export. An omitted caller may validate, choose a free port, handle NaN or provide a diagnostic. The unchecked value fact is supported; a concrete startup failure and quality of its diagnostic require omitted caller/runtime evidence.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 85,
+          "excerpt": "/** Dev server opens on this port by default. */\nexport const DEFAULT_PORT = process.env.PORT\n  ? parseInt(process.env.PORT, 10)\n  : 3000;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/index.ts",
+          "lineNumber": 14,
+          "excerpt": "  BABEL_CONFIG_FILE_NAME,\n  GENERATED_FILES_DIR_NAME,\n  SRC_DIR_NAME,\n  DEFAULT_STATIC_DIR_NAME,\n  OUTPUT_STATIC_ASSETS_DIR_NAME,\n  THEME_PATH,\n  DEFAULT_I18N_DIR_NAME,\n  CODE_TRANSLATIONS_FILE_NAME,\n  DEFAULT_PORT,\n  DEFAULT_PLUGIN_ID,\n  WEBPACK_URL_LOADER_LIMIT,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "1a786d09-098a-4a9c-bad3-2b00e0117dd6",
+      "origin": "model",
+      "claimKey": "docusaurus:port-zero-unusable",
+      "verdict": "false",
+      "claim": "Port zero is intrinsically an unusable TCP server port.",
+      "reason": "Zero is the standard server request for an OS-assigned ephemeral port; it is not intrinsically unusable. The supplied comment does not prohibit that mode, and no selected server API rejects zero. abc and 70000 are distinct invalid-value cases and do not justify bundling zero with them.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 85,
+          "excerpt": "/** Dev server opens on this port by default. */\nexport const DEFAULT_PORT = process.env.PORT\n  ? parseInt(process.env.PORT, 10)\n  : 3000;"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "42e06b2a-7068-4d95-9e2a-efa43a482e0e",
+      "origin": "model",
+      "claimKey": "docusaurus:loader-limit-type-surface",
+      "verdict": "true",
+      "claim": "The URL-loader limit environment override remains a string while its fallback is numeric.",
+      "reason": "Nullish coalescing preserves empty/nonnumeric/negative text. getFileLoaderUtils forwards it directly as url-loader options.limit and also interpolates it into an inline loader query. This confirms an inconsistent unvalidated value surface; it does not establish dependency rejection, coercion, incorrect asset size behavior or startup failure.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 93,
+          "excerpt": "/**\n * Allow overriding the limit after which the url loader will no longer inline\n * assets.\n *\n * @see https://github.com/facebook/docusaurus/issues/5493\n */\nexport const WEBPACK_URL_LOADER_LIMIT =\n  process.env.WEBPACK_URL_LOADER_LIMIT ?? 10000;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 58,
+          "excerpt": "export function getFileLoaderUtils(): FileLoaderUtils {\n  // Files/images < urlLoaderLimit will be inlined as base64 strings directly in\n  // the html\n  const urlLoaderLimit = WEBPACK_URL_LOADER_LIMIT;\n\n  const fileLoaderFileName = (folder: AssetFolder) =>\n    path.posix.join(\n      OUTPUT_STATIC_ASSETS_DIR_NAME,\n      folder,\n      '[name]-[contenthash].[ext]',\n    );\n\n  const loaders: FileLoaderUtils['loaders'] = {\n    file: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve(`file-loader`),\n      options: {\n        name: fileLoaderFileName(options.folder),\n      },\n    }),\n    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 89,
+          "excerpt": "    // This is used to force url-loader+file-loader on markdown images\n    // https://webpack.js.org/concepts/loaders/#inline\n    inlineMarkdownImageFileLoader: `!${escapePath(\n      require.resolve('url-loader'),\n    )}?limit=${urlLoaderLimit}&name=${fileLoaderFileName(\n      'images',\n    )}&fallback=${escapePath(require.resolve('file-loader'))}!`,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "42e06b2a-7068-4d95-9e2a-efa43a482e0e",
+      "origin": "model",
+      "claimKey": "docusaurus:loader-limit-runtime-impact",
+      "verdict": "unknown",
+      "claim": "String or malformed loader limits cause a concrete URL-loader behavior regression.",
+      "reason": "The selected webpack wrapper is present, so forwarding is verified, but url-loader/file-loader implementations and validation/coercion contracts are outside the selection. String query values may be intentionally supported. No authorized dependency/runtime reproduction establishes a failure or asset-inlining consequence.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/constants.ts",
+          "lineNumber": 93,
+          "excerpt": "/**\n * Allow overriding the limit after which the url loader will no longer inline\n * assets.\n *\n * @see https://github.com/facebook/docusaurus/issues/5493\n */\nexport const WEBPACK_URL_LOADER_LIMIT =\n  process.env.WEBPACK_URL_LOADER_LIMIT ?? 10000;"
+        },
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 77,
+          "excerpt": "    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),\n      },\n    }),\n\n    // TODO avoid conflicts with the ideal-image plugin\n    // TODO this may require a little breaking change for ideal-image users?\n    // Maybe with the ideal image plugin, all md images should be \"ideal\"?\n    // This is used to force url-loader+file-loader on markdown images\n    // https://webpack.js.org/concepts/loaders/#inline\n    inlineMarkdownImageFileLoader: `!${escapePath(\n      require.resolve('url-loader'),\n    )}?limit=${urlLoaderLimit}&name=${fileLoaderFileName(\n      'images',\n    )}&fallback=${escapePath(require.resolve('file-loader'))}!`,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "fe465cf2-3321-4ea6-80ef-07866fbcea93",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-length:packages/docusaurus-utils/src/webpackUtils.ts:58",
+      "verdict": "true",
+      "claim": "getFileLoaderUtils spans 118 physical source lines.",
+      "reason": "Trusted TypeScript AST confirms the exact physical span. This supports the reported maintainability measurement; the count alone does not demonstrate a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 58,
+          "excerpt": "export function getFileLoaderUtils(): FileLoaderUtils {\n  // Files/images < urlLoaderLimit will be inlined as base64 strings directly in\n  // the html\n  const urlLoaderLimit = WEBPACK_URL_LOADER_LIMIT;\n\n  const fileLoaderFileName = (folder: AssetFolder) =>\n    path.posix.join(\n      OUTPUT_STATIC_ASSETS_DIR_NAME,\n      folder,\n      '[name]-[contenthash].[ext]',\n    );\n\n  const loaders: FileLoaderUtils['loaders'] = {\n    file: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve(`file-loader`),\n      options: {\n        name: fileLoaderFileName(options.folder),\n      },\n    }),\n    url: (options: {folder: AssetFolder}) => ({\n      loader: require.resolve('url-loader'),\n      options: {\n        limit: urlLoaderLimit,\n        name: fileLoaderFileName(options.folder),\n        fallback: require.resolve('file-loader'),\n      },\n    }),\n\n    // TODO avoid conflicts with the ideal-image plugin\n    // TODO this may require a little breaking change for ideal-image users?\n    // Maybe with the ideal image plugin, all md images should be \"ideal\"?\n    // This is used to force url-loader+file-loader on markdown images\n    // https://webpack.js.org/concepts/loaders/#inline\n    inlineMarkdownImageFileLoader: `!${escapePath(\n      require.resolve('url-loader'),\n    )}?limit=${urlLoaderLimit}&name=${fileLoaderFileName(\n      'images',\n    )}&fallback=${escapePath(require.resolve('file-loader'))}!`,\n    inlineMarkdownAssetImageFileLoader: `!${escapePath(\n      require.resolve('file-loader'),\n    )}?name=${fileLoaderFileName('images')}!`,\n    inlineMarkdownLinkFileLoader: `!${escapePath(\n      require.resolve('file-loader'),\n    )}?name=${fileLoaderFileName('files')}!`,\n  };\n\n  const rules: FileLoaderUtils['rules'] = {\n    /**\n     * Loads image assets, inlines images via a data URI if they are below\n     * the size threshold\n     */\n    images: () => ({\n      use: [loaders.url({folder: 'images'})],\n      test: /\\.(?:ico|jpe?g|png|gif|webp|avif)(?:\\?.*)?$/i,\n    }),\n\n    fonts: () => ({\n      use: [loaders.url({folder: 'fonts'})],\n      test: /\\.(?:woff2?|eot|ttf|otf)$/i,\n    }),\n\n    /**\n     * Loads audio and video and inlines them via a data URI if they are below\n     * the size threshold\n     */\n    media: () => ({\n      use: [loaders.url({folder: 'medias'})],\n      test: /\\.(?:mp4|avi|mov|mkv|mpg|mpeg|vob|wmv|m4v|webm|ogv|wav|mp3|m4a|aac|oga|flac)$/i,\n    }),\n\n    svg: () => ({\n      test: /\\.svg$/i,\n      oneOf: [\n        {\n          use: [\n            {\n              loader: require.resolve('@svgr/webpack'),\n              options: {\n                prettier: false,\n                svgo: true,\n                svgoConfig: {\n                  plugins: [\n                    {\n                      name: 'preset-default',\n                      params: {\n                        overrides: {\n                          removeTitle: false,\n                          removeViewBox: false,\n                        },\n                      },\n                    },\n                  ],\n                },\n                titleProp: true,\n                ref: ![path],\n              },\n            },\n          ],\n          // We don't want to use SVGR loader for non-React source code\n          // ie we don't want to use SVGR for CSS files...\n          issuer: {\n            and: [/\\.(?:tsx?|jsx?|mdx?)$/i],\n          },\n        },\n        {\n          use: [loaders.url({folder: 'images'})],\n        },\n      ],\n    }),\n\n    otherAssets: () => ({\n      use: [loaders.file({folder: 'files'})],\n      test: /\\.(?:pdf|docx?|xlsx?|zip|rar)$/i,\n    }),\n  };\n\n  return {loaders, rules};\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "dd1ae0dd-be74-41c4-b0bc-8748fc80bf70",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/webpackUtils.ts:86",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/webpackUtils.ts",
+          "lineNumber": 86,
+          "excerpt": "    // TODO avoid conflicts with the ideal-image plugin"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "03a8e04b-9454-4f13-862b-80643ddf275d",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/urlUtils.ts:240",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 240,
+          "excerpt": "// TODO deduplicate: also present in @docusaurus/utils-common"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "b1ae624b-6fd5-43be-8d81-f0503b605bf0",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/urlUtils.ts:230",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/urlUtils.ts",
+          "lineNumber": 230,
+          "excerpt": "  // TODO do we really need resolve-pathname lib anymore?"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "8a275e71-68b6-469b-b519-3abcc8a060bf",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/tags.ts:112",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 112,
+          "excerpt": "      // TODO: it's not really clear what should be the behavior if 2 tags have"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "6c3f8c3a-081c-406c-9754-6ce1a5035966",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/tags.ts:45",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/tags.ts",
+          "lineNumber": 45,
+          "excerpt": "  // TODO maybe make ensure the permalink is valid url path?"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "42c48262-433f-4841-8c3e-290c08e9cd71",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/shellUtils.ts:8",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/shellUtils.ts",
+          "lineNumber": 8,
+          "excerpt": "// TODO move from shelljs to execa later?"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "01373891-014f-460f-b68a-91ece86f858b",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/markdownUtils.ts:227",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 227,
+          "excerpt": "  // TODO Docusaurus v4: replace gray-matter by a better lib"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "5b9bb724-f857-4d19-8a23-161f33150eb3",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/markdownUtils.ts:117",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 117,
+          "excerpt": "// TODO: Find a better way to do so, possibly by compiling the Markdown content,"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "ead43337-0a5f-493c-b01a-aae9f49a84d7",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/markdownUtils.ts:65",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 65,
+          "excerpt": " * TODO Titus suggested a clean solution based on ```mdx eval and Remark"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "201b2d33-8069-487c-be0b-87d6a04797a8",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:packages/docusaurus-utils/src/markdownUtils.ts:53",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 53,
+          "excerpt": "    // TODO probably not the most efficient impl..."
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "203029f7-19c6-47b9-b4a7-6e0c68905949",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-length:packages/docusaurus-utils/src/markdownLinks.ts:72",
+      "verdict": "true",
+      "claim": "replaceMarkdownLinks spans 127 physical source lines.",
+      "reason": "Trusted TypeScript AST confirms the exact physical span. This supports the reported maintainability measurement; the count alone does not demonstrate a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownLinks.ts",
+          "lineNumber": 72,
+          "excerpt": "export function replaceMarkdownLinks<T extends ContentPaths>({\n  siteDir,\n  fileString,\n  filePath,\n  contentPaths,\n  sourceToPermalink,\n}: {\n  /** Absolute path to the site directory, used to resolve aliased paths. */\n  siteDir: string;\n  /** The Markdown file content to be processed. */\n  fileString: string;\n  /** Absolute path to the current file containing `fileString`. */\n  filePath: string;\n  /** The content paths which the file reference may live in. */\n  contentPaths: T;\n  /**\n   * A map from source paths to their URLs. Source paths are `@site` aliased.\n   */\n  sourceToPermalink: {[aliasedPath: string]: string};\n}): {\n  /**\n   * The content with all Markdown file references replaced with their URLs.\n   * Unresolved links are left as-is.\n   */\n  newContent: string;\n  /** The list of broken links,  */\n  brokenMarkdownLinks: BrokenMarkdownLink<T>[];\n} {\n  const brokenMarkdownLinks: BrokenMarkdownLink<T>[] = [];\n\n  // Replace internal markdown linking (except in fenced blocks).\n  let lastOpenCodeFence: CodeFence | null = null;\n  const lines = fileString.split('\\n').map((line) => {\n    const codeFence = parseCodeFence(line);\n    if (codeFence) {\n      if (!lastOpenCodeFence) {\n        lastOpenCodeFence = codeFence;\n      } else if (\n        !codeFence.definitelyOpen &&\n        lastOpenCodeFence.type === codeFence.type &&\n        lastOpenCodeFence.count <= codeFence.count\n      ) {\n        // All three conditions must be met in order for this to be considered\n        // a closing fence.\n        lastOpenCodeFence = null;\n      }\n    }\n    if (lastOpenCodeFence) {\n      return line;\n    }\n\n    let modifiedLine = line;\n    // Replace inline-style links or reference-style links e.g:\n    // This is [Document 1](doc1.md)\n    // [doc1]: doc1.md\n    const linkTitlePattern = '(?:\\\\s+(?:\\'.*?\\'|\".*?\"|\\\\(.*?\\\\)))?';\n    const linkSuffixPattern = '(?:\\\\?[^#>\\\\s]+)?(?:#[^>\\\\s]+)?';\n    const linkCapture = (forbidden: string) =>\n      `((?!https?://|@site/)[^${forbidden}#?]+)`;\n    const linkURLPattern = `(?:(?!<)${linkCapture(\n      '()\\\\s',\n    )}${linkSuffixPattern}|<${linkCapture('>')}${linkSuffixPattern}>)`;\n    const linkPattern = new RegExp(\n      `\\\\[(?:(?!\\\\]\\\\().)*\\\\]\\\\(\\\\s*${linkURLPattern}${linkTitlePattern}\\\\s*\\\\)|^\\\\s*\\\\[[^[\\\\]]*[^[\\\\]\\\\s][^[\\\\]]*\\\\]:\\\\s*${linkURLPattern}${linkTitlePattern}$`,\n      'dgm',\n    );\n    let mdMatch = linkPattern.exec(modifiedLine);\n    while (mdMatch !== null) {\n      // Replace it to correct html link.\n      const mdLink = mdMatch.slice(1, 5).find(Boolean)!;\n      const mdLinkRange = mdMatch.indices!.slice(1, 5).find(Boolean)!;\n      if (!/\\.mdx?$/.test(mdLink)) {\n        mdMatch = linkPattern.exec(modifiedLine);\n        continue;\n      }\n\n      const sourcesToTry: string[] = [];\n      // ./file.md and ../file.md are always relative to the current file\n      if (!mdLink.startsWith('./') && !mdLink.startsWith('../')) {\n        sourcesToTry.push(...getContentPathList(contentPaths), siteDir);\n      }\n      // /file.md is always relative to the content path\n      if (!mdLink.startsWith('/')) {\n        sourcesToTry.push(path.dirname(filePath));\n      }\n\n      const aliasedSourceMatch = sourcesToTry\n        .map((p) => path.join(p, decodeURIComponent(mdLink)))\n        .map((source) => aliasedSitePath(source, siteDir))\n        .find((source) => sourceToPermalink[source]);\n\n      const permalink: string | undefined = aliasedSourceMatch\n        ? sourceToPermalink[aliasedSourceMatch]\n        : undefined;\n\n      if (permalink) {\n        // MDX won't be happy if the permalink contains a space, we need to\n        // convert it to %20\n        const encodedPermalink = permalink\n          .split('/')\n          .map((part) => part.replace(/\\s/g, '%20'))\n          .join('/');\n        modifiedLine = `${modifiedLine.slice(\n          0,\n          mdLinkRange[0],\n        )}${encodedPermalink}${modifiedLine.slice(mdLinkRange[1])}`;\n        // Adjust the lastIndex to avoid passing over the next link if the\n        // newly replaced URL is shorter.\n        linkPattern.lastIndex += encodedPermalink.length - mdLink.length;\n      } else {\n        const brokenMarkdownLink: BrokenMarkdownLink<T> = {\n          contentPaths,\n          filePath,\n          link: mdLink,\n        };\n\n        brokenMarkdownLinks.push(brokenMarkdownLink);\n      }\n      mdMatch = linkPattern.exec(modifiedLine);\n    }\n    return modifiedLine;\n  });\n\n  const newContent = lines.join('\\n');\n\n  return {newContent, brokenMarkdownLinks};\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "a97f16d4-7590-4d09-9d34-e6a943c7c2bc",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:.eslintrc.js:193",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": ".eslintrc.js",
+          "lineNumber": 193,
+          "excerpt": "      // TODO make an internal plugin to ensure this"
+        }
+      ]
+    },
+    {
+      "instanceId": "facebook__docusaurus-9897",
+      "findingId": "e6bb99cc-dd08-42b6-b043-961af2321248",
+      "origin": "deterministic",
+      "claimKey": "docusaurus:deterministic-note:.eslintrc.js:104",
+      "verdict": "true",
+      "claim": "The reported TODO maintenance note exists at the cited location.",
+      "reason": "The exact comment is present. This is a factual maintenance observation, not independent proof of a behavioral defect, exploitable security issue or violated mandatory project policy.",
+      "sourceEvidence": [
+        {
+          "filePath": ".eslintrc.js",
+          "lineNumber": 104,
+          "excerpt": "        // TODO: TS doesn't make Boolean a narrowing function yet,"
+        }
+      ]
+    }
+  ],
+  "goldMatches": [],
+  "goldMisses": [
+    {
+      "issueId": "mdx-block-crlf",
+      "canonicalOccurrenceIds": [
+        "occurrence-1"
+      ],
+      "creditedIssueHits": 0,
+      "creditedOccurrenceHits": 0,
+      "reason": "None of the 29 model findings identifies unwrapMdxCodeBlocks, its bare-LF extraction assumption or retained CRLF escape fences. The heading-ID fence-state and directive-regex findings concern different operations and mechanisms. A deterministic TODO at markdownUtils65 is not a CRLF prediction. The registered defect remains in regexp3/regexp4: CRLF after mdx-code-block prevents the required immediate LF, leaving embedded MDX escaped instead of unwrapped. LF three/four-backtick forms are supported intentionally; arbitrary fence-length support is not required. Missing TabItem compilation is registered gold context, not independently reproduced runtime evidence.",
+      "sourceEvidence": [
+        {
+          "filePath": "packages/docusaurus-utils/src/markdownUtils.ts",
+          "lineNumber": 61,
+          "excerpt": "/**\n * Hacky temporary escape hatch for Crowdin bad MDX support\n * See https://docusaurus.io/docs/i18n/crowdin#mdx\n *\n * TODO Titus suggested a clean solution based on ```mdx eval and Remark\n * See https://github.com/mdx-js/mdx/issues/701#issuecomment-947030041\n *\n * @param content\n */\nexport function unwrapMdxCodeBlocks(content: string): string {\n  // We only support 3/4 backticks on purpose, should be good enough\n  const regexp3 =\n    /(?<begin>^|\\n)```(?<spaces>\\x20*)mdx-code-block\\n(?<children>.*?)\\n```(?<end>\\n|$)/gs;\n  const regexp4 =\n    /(?<begin>^|\\n)````(?<spaces>\\x20*)mdx-code-block\\n(?<children>.*?)\\n````(?<end>\\n|$)/gs;\n\n  // eslint-disable-next-line @typescript-eslint/no-explicit-any\n  const replacer = (substring: string, ...args: any[]) => {\n    const groups = args.at(-1);\n    return `${groups.begin}${groups.children}${groups.end}`;\n  };\n\n  return content.replaceAll(regexp3, replacer).replaceAll(regexp4, replacer);\n}"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Independent adjudication of this successful new Review; Axios supplied verification/output structure only, never Docusaurus judgments.",
+    "Unknowns retain missing dependency, caller, normalization, runtime and application trust evidence. Conditional helper facts do not establish deployed vulnerabilities.",
+    "No upstream code/dependencies/tests were executed or installed. No network, provider, app, approval, retry, fallback or production mutations occurred.",
+    "One execution-eligible case cannot establish acceptance of the fixed five-project/seven-occurrence benchmark. Source inspection and bounded graph disclosure do not prove whole-program correctness or security."
+  ],
+  "mitigationSuggestions": [
+    {
+      "claimKeys": [
+        "docusaurus:normalized-frontmatter-prototype-key-build",
+        "docusaurus:site-alias-outside-resolution"
+      ],
+      "status": "proposed-not-implemented",
+      "action": "Require selected caller argument provenance and complete upstream normalization/guard evidence before elevating a raw helper condition into a build or security consequence. Preserve a separate conditional helper claim and explicit unresolved application path."
+    },
+    {
+      "claimKeys": [
+        "docusaurus:tag-duplicate-loss-contract",
+        "docusaurus:output-html-absolute-join-reset",
+        "docusaurus:port-zero-unusable"
+      ],
+      "status": "proposed-not-implemented",
+      "action": "Use generic counter-evidence checks for documented deduplication, operation-specific path semantics and valid boundary modes. Do not treat an intentional documented contract or ordinary observation as a violated requirement."
+    },
+    {
+      "claimKeys": [
+        "docusaurus:credential-url-downstream-disclosure",
+        "docusaurus:git-shell-application-execution",
+        "docusaurus:loader-limit-runtime-impact",
+        "docusaurus:port-deployment-failure"
+      ],
+      "status": "proposed-not-implemented",
+      "action": "Keep dependency/runtime/trust effects unverified until supplied evidence identifies an actual caller, accepted input contract, relevant capability and sink. Exact quotes cannot establish these missing causal links."
+    },
+    {
+      "claimKeys": [],
+      "status": "proposed-not-implemented",
+      "action": "Investigate generic line-ending boundary and nearby-operation contract comparison coverage using independent fixtures. The validated source sweep inspected the gold file but missed a different selected operation. Keep this registered gold mechanism and benchmark answers out of production prompts and app inputs."
+    }
+  ]
+}

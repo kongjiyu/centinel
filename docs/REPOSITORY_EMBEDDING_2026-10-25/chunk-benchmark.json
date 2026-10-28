@@ -1,0 +1,96 @@
+{
+  "capturedAt": "2026-10-25T15:43:59.703Z",
+  "policy": "source-chunk-2026-10-25-function-aware-v1",
+  "execution": "Trusted static parser only; no model, vector provider, repository execution or database calls.",
+  "caveat": "Chunk counts approximate cold-index request counts only when one request is made per chunk; they are not provider token counts. Legacy duplicate-body suppression is excluded.",
+  "results": [
+    {
+      "alias": "axios",
+      "files": 52,
+      "sourceCharacters": 146849,
+      "legacyWindowCharacters": 158609,
+      "legacyWindowChunks": 101,
+      "semanticChunkCharacters": 146849,
+      "semanticChunks": 218,
+      "fragments": 36,
+      "kinds": {
+        "code": 89,
+        "doc_section": 76,
+        "class": 3,
+        "function": 50
+      },
+      "exactByteReconstruction": true
+    },
+    {
+      "alias": "docusaurus",
+      "files": 29,
+      "sourceCharacters": 129481,
+      "legacyWindowCharacters": 139801,
+      "legacyWindowChunks": 72,
+      "semanticChunkCharacters": 129481,
+      "semanticChunks": 163,
+      "fragments": 25,
+      "kinds": {
+        "text": 3,
+        "code": 39,
+        "doc_section": 37,
+        "function": 82,
+        "class": 2
+      },
+      "exactByteReconstruction": true
+    },
+    {
+      "alias": "immutable-js",
+      "files": 80,
+      "sourceCharacters": 196709,
+      "legacyWindowCharacters": 213029,
+      "legacyWindowChunks": 148,
+      "semanticChunkCharacters": 196709,
+      "semanticChunks": 436,
+      "fragments": 24,
+      "kinds": {
+        "text": 1,
+        "code": 106,
+        "doc_section": 26,
+        "class": 32,
+        "function": 271
+      },
+      "exactByteReconstruction": true
+    },
+    {
+      "alias": "three-js",
+      "files": 10,
+      "sourceCharacters": 68514,
+      "legacyWindowCharacters": 74754,
+      "legacyWindowChunks": 36,
+      "semanticChunkCharacters": 68514,
+      "semanticChunks": 110,
+      "fragments": 17,
+      "kinds": {
+        "text": 1,
+        "code": 17,
+        "doc_section": 5,
+        "class": 5,
+        "function": 82
+      },
+      "exactByteReconstruction": true
+    },
+    {
+      "alias": "preact",
+      "files": 21,
+      "sourceCharacters": 126266,
+      "legacyWindowCharacters": 137786,
+      "legacyWindowChunks": 69,
+      "semanticChunkCharacters": 126266,
+      "semanticChunks": 108,
+      "fragments": 41,
+      "kinds": {
+        "text": 2,
+        "doc_section": 28,
+        "code": 38,
+        "function": 40
+      },
+      "exactByteReconstruction": true
+    }
+  ]
+}

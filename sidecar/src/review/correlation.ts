@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { PersistedReviewFinding, StaticFindingInput, StaticReviewScope } from './types.js';
+import { ASSESSMENT_VALIDATION_VERSION } from './assessmentValidation.js';
 
 export type CorrelationClass = 'new' | 'recurring' | 'carried_over' | 'resolved' | 'regressed';
 export type CorrelationMethod = 'stable_id' | 'fingerprint' | 'heuristic' | 'unmatched';
@@ -30,7 +31,9 @@ export type FindingCorrelation = {
 };
 
 export type FindingResolutionEligibility = {
-  version: 1;
+  version: 1 | 2;
+  assessmentValidationVersion?: string;
+  locationBasis?: { kind: 'exact_assessed_reference'; filePath: string; lineNumber: number; sourceVersion: string; featureId: string; domain: string };
   basis: 'not_reproduced_in_comparable_review';
   parentSourceManifestId: string;
   sourceManifestId: string;
@@ -49,6 +52,7 @@ export type EvaluatedFindingSource = {
 };
 
 export type FindingResolutionContext = {
+  assessmentValidation?: { version: string; artifactIds: string[]; inspectedReferences?: Array<{ artifactId: string; filePath: string; lineNumber: number; sourceVersion: string | null; featureId: string; domain: string; pathId?: string }> };
   modelStatus: 'not_requested' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
   parentSourceManifestId: string | null;
   sourceManifestId: string | null;
@@ -189,6 +193,7 @@ function sourceCoverage(sources: EvaluatedFindingSource[]): string[] | null {
 function resolutionContextIsEligible(context: FindingResolutionContext | undefined): context is FindingResolutionContext {
   return Boolean(context
     && context.modelStatus === 'succeeded'
+    && context.assessmentValidation?.version === ASSESSMENT_VALIDATION_VERSION
     && context.parentSourceManifestId?.trim()
     && context.sourceManifestId?.trim()
     && context.allSourcesReadable
@@ -471,9 +476,17 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
         sourceIdentity: previous.sourceIdentity ?? parentManifestSource.sourceIdentity,
         filePath: previous.filePath || parentManifestSource.filePath,
       }));
-    const eligibility: FindingResolutionEligibility | undefined = resolved && evaluatedSource && input.resolutionContext
+    const assessmentValidation = input.resolutionContext?.assessmentValidation;
+    const verifiedScope = evaluatedSource && assessmentValidation?.version === ASSESSMENT_VALIDATION_VERSION
+      && assessmentValidation.artifactIds.includes(evaluatedSource.artifactId);
+    const inspected = input.resolutionContext?.assessmentValidation?.inspectedReferences?.find(ref => ref.artifactId === evaluatedSource?.artifactId
+      && ref.filePath.replace(/\\/g, '/') === previous.filePath.replace(/\\/g, '/') && ref.lineNumber === previous.lineNumber
+      && normalizedVersion(ref.sourceVersion) === reviewedSourceVersion && ref.featureId && ['security', 'business', 'technical', 'personnel'].includes(ref.domain));
+    const eligibility: FindingResolutionEligibility | undefined = resolved && verifiedScope && inspected && evaluatedSource && input.resolutionContext
       ? {
-        version: 1,
+        version: 2,
+        assessmentValidationVersion: ASSESSMENT_VALIDATION_VERSION,
+        locationBasis: { kind: 'exact_assessed_reference', filePath: inspected.filePath, lineNumber: inspected.lineNumber, sourceVersion: inspected.sourceVersion!, featureId: inspected.featureId, domain: inspected.domain },
         basis: 'not_reproduced_in_comparable_review',
         parentSourceManifestId: input.resolutionContext.parentSourceManifestId!,
         sourceManifestId: input.resolutionContext.sourceManifestId!,
@@ -493,10 +506,10 @@ export function correlateReviewFindings(input: FindingCorrelationInput): Finding
       childReviewId: input.childReviewId,
       previous,
       current: null,
-      classification: resolved ? 'resolved' : 'carried_over',
+      classification: eligibility ? 'resolved' : 'carried_over',
       method: 'unmatched',
       score: 0,
-      detail: resolved
+      detail: eligibility
         ? 'This finding was not reproduced in a comparable re-review of the same source after its version changed.'
         : uncertainMatch
           ? 'A possible recurrence needs confirmation; this old finding remains open until the match is assessed.'

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getDb, saveDb } from './db.js';
 import type { AiProvider, AiApiFormat } from './settings.js';
-import type { TokenUsage } from './aiClient.js';
+import type { TokenUsage, TokenUsageObservation } from './aiClient.js';
 
 export type CallKind = 'review' | 'test' | 'dynamic';
 export type TokenScope = 'text' | 'vision' | 'embedding';
@@ -17,15 +17,33 @@ export type TokenUsageRow = {
   provider: AiProvider;
   apiFormat: AiApiFormat;
   model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  totalTokens: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  totalTokens: number | null;
+  /** Provider-aware total used by summaries; null means the ledger cannot determine it safely. */
+  canonicalTotalTokens?: number | null;
+  totalTokensStatus?: 'provider_reported' | 'provider_derived' | 'unavailable';
+  providerReportedTotalTokens?: number | null;
   createdAt: string;
+  /** Safe optional execution diagnostics from the authenticated durable ledger. */
+  outcome?: 'in_progress' | 'success' | 'retryable_error' | 'permanent_error' | 'malformed_response' | 'cancelled' | null;
+  errorCode?: string | null;
+  durationMs?: number | null;
+  statusCode?: number | null;
+  /** Safe provider receipt and partial-usage provenance. */
+  responseReceived?: boolean | null;
+  usageObservation?: TokenUsageObservation | null;
+  accountingBasis?: 'assumed_zero_no_response' | null;
+  accountedTokens?: number | null;
+  indexTrigger?: 'source_changed' | 'review' | null;
+  indexFingerprint?: string | null;
 };
 
-export type TokenUsageInput = TokenUsage & {
+export type TokenUsageInput = Omit<TokenUsage, 'inputTokens' | 'outputTokens'> & {
+  inputTokens: number;
+  outputTokens: number;
   scope: TokenScope;
   callKind?: CallKind;
   projectId?: string | null;
@@ -46,6 +64,18 @@ export type TokenUsageGroup = {
   totalCacheRead: number;
   totalCacheCreation: number;
   totalCalls: number;
+  /** Optional for compatibility with report snapshots and legacy local stores. */
+  totalTokens?: number;
+  providerReportedTotalTokens?: number;
+  providerReportedCalls?: number;
+  unknownTotalCalls?: number;
+  unknownInputCalls?: number;
+  unknownOutputCalls?: number;
+  unknownCacheReadCalls?: number;
+  unknownCacheCreationCalls?: number;
+  assumedZeroNoResponseCalls?: number;
+  assumedZeroNoResponseTokens?: number;
+  accountedTokens?: number;
 };
 
 export type TokenUsageSummary = {
@@ -55,6 +85,18 @@ export type TokenUsageSummary = {
     cacheRead: number;
     cacheCreation: number;
     calls: number;
+    /** Optional for compatibility with historical local usage summaries. */
+    totalTokens?: number;
+    providerReportedTotalTokens?: number;
+    providerReportedCalls?: number;
+    unknownTotalCalls?: number;
+    unknownInputCalls?: number;
+    unknownOutputCalls?: number;
+    unknownCacheReadCalls?: number;
+    unknownCacheCreationCalls?: number;
+    assumedZeroNoResponseCalls?: number;
+    assumedZeroNoResponseTokens?: number;
+    accountedTokens?: number;
   };
   byGroup: TokenUsageGroup[];
   recent: TokenUsageRow[];
@@ -83,7 +125,8 @@ export async function recordTokenUsage(input: TokenUsageInput): Promise<TokenUsa
     outputTokens: input.outputTokens,
     cacheReadTokens: input.cacheReadTokens ?? 0,
     cacheCreationTokens: input.cacheCreationTokens ?? 0,
-    totalTokens: input.totalTokens ?? (input.inputTokens + input.outputTokens + (input.cacheReadTokens ?? 0) + (input.cacheCreationTokens ?? 0)),
+    totalTokens: input.totalTokens ?? (input.inputTokens + input.outputTokens
+      + (/anthropic/i.test(input.apiFormat) ? (input.cacheReadTokens ?? 0) + (input.cacheCreationTokens ?? 0) : 0)),
     createdAt: new Date().toISOString(),
   };
   db.run(
@@ -124,8 +167,8 @@ function mapUsageRow(raw: unknown[]): TokenUsageRow {
     provider: raw[7] as AiProvider,
     apiFormat: raw[8] as AiApiFormat,
     model: raw[9] as string,
-    inputTokens: Number(raw[10] ?? 0),
-    outputTokens: Number(raw[11] ?? 0),
+    inputTokens: raw[10] == null ? null : Number(raw[10]),
+    outputTokens: raw[11] == null ? null : Number(raw[11]),
     cacheReadTokens: Number(raw[12] ?? 0),
     cacheCreationTokens: Number(raw[13] ?? 0),
     totalTokens: Number(raw[14] ?? 0),

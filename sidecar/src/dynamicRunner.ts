@@ -317,9 +317,9 @@ export async function runDynamicSession(
     if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
     budget.beforeCall();
     let result:VisionResult;
-    try{result=await request();}catch(error){budget.recordUsage();throw error;}
+    try{result=await request();}catch(error){const detail=error&&typeof error==='object'?error as {usage?:TokenUsage;responseReceived?:boolean}:{};budget.recordUsage(detail.usage,detail.responseReceived);throw error;}
     budget.recordUsage(result.usage);
-    if(result.usage)try{await recordUsage({...result.usage,scope:images?'vision':'text',callKind:'dynamic',projectId:session.projectId,sessionId:session.id,stage:stage??`request_${budget.modelCalls}`,provider:setting.provider,apiFormat:setting.apiFormat,model:setting.model});}catch{debugLog.log('warn','token_usage','Request usage could not be persisted.');}
+    if(result.usage&&Number.isSafeInteger(result.usage.inputTokens)&&Number.isSafeInteger(result.usage.outputTokens)&&result.usage.usageObservation?.completeness!=='partial')try{await recordUsage({...result.usage,inputTokens:result.usage.inputTokens!,outputTokens:result.usage.outputTokens!,scope:images?'vision':'text',callKind:'dynamic',projectId:session.projectId,sessionId:session.id,stage:stage??`request_${budget.modelCalls}`,provider:setting.provider,apiFormat:setting.apiFormat,model:setting.model});}catch{debugLog.log('warn','token_usage','Request usage could not be persisted.');}
     budget.assertAccountedLimit();
     if (result.rawText && result.rawText.length > 64_000) throw new ExecutionBudgetExceeded('Model response output limit reached; oversized output was excluded from retained evidence.');
     return result;

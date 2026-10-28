@@ -4,6 +4,11 @@ import type { EvidenceSufficiencyAssessment, StaticSession } from './types';
 const session = { id: 'r1', projectId: 'p1' } as StaticSession;
 const assessment = { id: 'a1', reviewId: 'r1', projectId: 'p1', confirmedRequirementCount: 0, assessedAt: '2026-10-18T00:00:00Z', gaps: [] } as unknown as EvidenceSufficiencyAssessment;
 describe('saved document gaps as findings', () => {
+  it('retains requirement identity and all related source references', () => {
+    const refs = [{ artifactId: 'doc', filePath: 'requirements.md', lineNumber: 3, sourceVersion: 'v1', relation: 'requirement' as const }, { artifactId: 'code', filePath: 'payment.ts', relation: 'code' as const }];
+    const findings = reviewEvidenceFindings(session, { ...assessment, confirmedRequirementCount: 1, gaps: [{ id: 'coverage', code: 'traceability_mappings_incomplete', title: 'Incomplete Requirement Coverage', detail: 'Mapping incomplete.', remediation: 'Review the criterion.', severity: 'warning', affectedStages: [], requirementId: 'pay-once', references: refs }] });
+    expect(findings[0]).toMatchObject({ requirementId: 'pay-once', relatedSources: refs });
+  });
   it('includes unconfirmed business requirements with evidence and a next action', () => {
     const findings = reviewEvidenceFindings(session, assessment);
     expect(findings).toHaveLength(1);

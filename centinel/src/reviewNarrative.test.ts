@@ -15,6 +15,19 @@ const trace = (events: HarnessEvent[], modelStatus = 'succeeded'): ReviewHarness
   workflow: { version: 'v1', reference: '', stages: [] }, review: { id: session.id, name: session.name, status: session.status, modelStatus, progress: { stage: 'complete', completedStages: [] }, updatedAt: '' }, events,
 });
 describe('review narrative', () => {
+  it('shows bounded retry waits without provider payloads or a false active retry after termination', () => {
+    const retry: HarnessEvent = { reviewId: session.id, event: 'review_retry_scheduled', createdAt: '2026-10-18T00:00:00Z',
+      detail: { kind: 'ai', attempt: 2, maxAttempts: 5, delayMs: 3000, nextAttemptAt: '2026-10-18T00:00:03Z', service: 'PRIVATE PAYLOAD' } };
+    const running = { ...session, status: 'running' } as StaticSession;
+    const input = { session: running, findings: [], trace: trace([retry]), now: Date.parse('2026-10-18T00:00:01Z') };
+    expect(buildReviewNarrative(input).retryUpdate).toBe('AI request: waiting to retry attempt 2 of 5 in 2s.');
+    expect(buildReviewNarrative({ ...input, session }).retryUpdate).toBe('AI request: retry attempt 2 of 5 was scheduled after a 3s wait.');
+    expect(buildReviewNarrative({ ...input, trace: trace([{ ...retry, detail: { ...retry.detail, kind: 'external', maxAttempts: 3 } }]) }).retryUpdate)
+      .toContain('Service request: waiting to retry attempt 2 of 3');
+    for (const invalid of [{ ...retry, reviewId: 'another-review' }, { ...retry, detail: { ...retry.detail, attempt: 6 } }, { ...retry, detail: { ...retry.detail, delayMs: -1 } }]) {
+      expect(buildReviewNarrative({ ...input, trace: trace([invalid]) }).retryUpdate).toBeNull();
+    }
+  });
   it('summarizes recorded project comparison outcomes without inventing verification for older reviews', () => {
     const result = buildReviewNarrative({ session, findings: [], trace: trace([event('correlate_findings', 'completed', '2026-10-18T00:01:00Z',
       { output: { checkedProjectHistory: true, counts: { new: 1, recurring: 2, regressed: 0, resolved: 3, carried_over: 1 }, ambiguousCount: 1 } }, 'persisting_evidence')]) });
@@ -47,7 +60,7 @@ describe('review narrative', () => {
     const result = buildReviewNarrative({ session: { ...session, updatedAt: '2027-01-01T00:00:00Z' }, trace: trace(events), findings: [] });
     expect(result.timing.duration).toBe('10s');
     expect(result.stages[0].duration).toBe('10s');
-    expect(result.timing.completedAt).toBe('2026-10-18T00:00:10.000Z');
+    expect(result.timing.endedAt).toBe('2026-10-18T00:00:10.000Z');
   });
   it('recovers timing when audit timestamps tie or a start row is missing', () => {
     const result = buildReviewNarrative({ session, trace: trace([event('run_model', 'completed', '2026-10-18T00:01:00Z', { durationMs: 35416 }, 'model_analysis')]), findings: [] });
@@ -56,11 +69,18 @@ describe('review narrative', () => {
     expect(formatReviewDuration(null)).toBe('Not recorded');
     expect(formatReviewDuration(3601000)).toBe('1h 0m 1s');
   });
+  it('preserves the recorded execution stop boundary without treating later decisions as execution time', () => {
+    const events = [event('run_model', 'failed', '2026-10-18T00:01:00Z', { durationMs: 30000 }, 'model_analysis')];
+    for (const status of ['blocked', 'failed', 'cancelled'] as const) {
+      const stopped = buildReviewNarrative({ session: { ...session, status, updatedAt: '2027-01-01T00:00:00Z' }, trace: trace(events, 'partial'), findings: [] });
+      expect(stopped.timing).toEqual({ duration: '30s', endedAt: '2026-10-18T00:01:00.000Z' });
+    }
+  });
   it('reports live elapsed time and never treats interrupted work as a pass', () => {
     const events = [event('read_source', 'started', '2026-10-18T00:00:00Z')];
     const live = buildReviewNarrative({ session: { ...session, status: 'running' }, trace: trace(events), findings: [], now: Date.parse('2026-10-18T00:00:12Z') });
     expect(live.timing.duration).toBe('12s');
-    expect(live.timing.completedAt).toBeNull();
+    expect(live.timing.endedAt).toBeNull();
     expect(live.stages[0].state).toBe('In progress');
     expect(live.stages[0].purpose).toContain('I’ll start');
     expect(live.stages[1].state).toBe('Not started');

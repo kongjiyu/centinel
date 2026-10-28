@@ -70,6 +70,17 @@ describe('deterministic-only repository readiness', () => {
     expect(result).not.toHaveProperty('categories');
   });
 
+  it('does not require tsconfig for a JavaScript implementation with declaration-only TypeScript files', () => {
+    const result = assessRepositoryReadiness(input([
+      repoArtifact('js-source', 'src/index.js', 'export const ready = true;', 'source_code'),
+      repoArtifact('types', 'types/index.d.ts', 'export declare const ready: boolean;', 'source_code'),
+      repoArtifact('manifest', 'package.json', '{"name":"declaration-fixture","types":"types/index.d.ts"}'),
+    ]));
+
+    expect(result.result).toMatchObject({ id: 'repository', state: 'completed', checksPassed: 2, checksTotal: 2 });
+    expect(result.findings.some(finding => finding.description.includes('tsconfig.json'))).toBe(false);
+  });
+
   it('keeps incomplete source coverage incomplete without needing a provider', () => {
     const result = assessRepositoryReadiness(input([
       { artifact: artifact('code', 'index.js', { type: 'source_code', source: 'repository' }), content: null, error: 'Not available' },
@@ -255,6 +266,11 @@ describe('assessProjectReadiness', () => {
     expect(result.categories.find(category => category.id === 'design')?.state).toBe('incomplete');
     expect(result.categories.find(category => category.id === 'standards')?.state).toBe('completed');
     expect(result.findings.some(finding => finding.references.some(reference => reference.artifactId === 'forged-id'))).toBe(false);
+    const diagnostics = result.validationDiagnostics?.categories;
+    expect(diagnostics?.find(category => category.category === 'requirements')?.checks.find(check => check.id === 'clarity')
+      ?.reasonCounts?.citation_source_unknown).toBe(1);
+    expect(diagnostics?.find(category => category.category === 'design')?.checks.find(check => check.id === 'responsibilities')
+      ?.reasonCounts?.citation_not_exact).toBe(1);
   });
 
   it('A4 keeps omitted categories and missing criteria Incomplete instead of treating them as Missing or Completed', async () => {

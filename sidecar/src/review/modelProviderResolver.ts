@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import crypto from 'node:crypto';
 import { decryptSecret } from '../tokenVault.js';
 import { createSupabaseClient } from '../supabase.js';
 import type { AiApiFormat, AiProvider } from '../settings.js';
@@ -52,6 +53,8 @@ export type ResolvedModelProviderChain = {
   primaryMetadata: Pick<ModelProviderSettings, 'provider' | 'apiFormat' | 'model'>;
   fallbackMetadata: Pick<ModelProviderSettings, 'provider' | 'apiFormat' | 'model'> | null;
   configurationId: string | null;
+  /** Hash only; never expose credentials or endpoint details in cache receipts. */
+  configurationFingerprint: string;
 };
 
 export class ModelConfigurationError extends Error {
@@ -187,9 +190,9 @@ export async function resolveModelProviderChain(
   if (record.ownerId && record.ownerId !== scope.ownerId) throw new ModelConfigurationError('Model Provider owner mismatch.', 'invalid_configuration');
   const settings = resolveSettings(record);
   settings.primary.ownerId = scope.ownerId;
-  const primaryProvider = new ConfiguredTextModelProvider({ settings: settings.primary, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens });
+  const primaryProvider = new ConfiguredTextModelProvider({ projectId: scope.projectId, settings: settings.primary, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens });
   const fallbackProvider = settings.fallback
-    ? new ConfiguredTextModelProvider({ settings: settings.fallback, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens })
+    ? new ConfiguredTextModelProvider({ projectId: scope.projectId, settings: settings.fallback, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens })
     : null;
   return {
     ...settings,
@@ -200,6 +203,12 @@ export async function resolveModelProviderChain(
       ? { provider: settings.fallback.provider, apiFormat: settings.fallback.apiFormat, model: settings.fallback.model }
       : null,
     configurationId: record.id ?? null,
+    configurationFingerprint: crypto.createHash('sha256').update(JSON.stringify({
+      version: 1, ownerId: scope.ownerId, configurationId: record.id ?? null,
+      primary: { provider: settings.primary.provider, apiFormat: settings.primary.apiFormat, model: settings.primary.model, baseUrl: settings.primary.baseUrl },
+      fallback: settings.fallback ? { provider: settings.fallback.provider, apiFormat: settings.fallback.apiFormat, model: settings.fallback.model, baseUrl: settings.fallback.baseUrl } : null,
+      maxOutputTokens: options.maxOutputTokens ?? 8192, codexParameters: 'isolated_home_provider_defaults',
+    })).digest('hex'),
   };
 }
 

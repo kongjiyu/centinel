@@ -148,6 +148,9 @@ export type AiProviderSetting = {
   apiKeyPreview: string;
   baseUrl: string;
   model: string;
+  /** Embedding-only protocol; existing custom configurations remain valid. */
+  embeddingProvider?: 'voyage' | 'custom';
+  embeddingDimensions?: number;
   fallbackEnabled?: boolean;
   fallbackProvider?: AiProvider | null;
   fallbackApiFormat?: AiApiFormat | null;
@@ -157,6 +160,8 @@ export type AiProviderSetting = {
   fallbackModel?: string;
   updatedAt: string;
 };
+
+export type { EmbeddingSettingsCatalog, EmbeddingModelOption, EmbeddingModelUsage, EmbeddingProviderId } from '../../sidecar/src/embeddingSettingsTypes';
 
 export type AiProviderPreset = {
   id: string;
@@ -207,6 +212,7 @@ export type ArtifactSource = 'documents' | 'repository' | 'directory' | 'drive';
 export type Artifact = {
   id: string;
   projectId: string;
+  sourceId?: string | null;
   versionId?: string;
   type: ArtifactType;
   source: ArtifactSource;
@@ -234,7 +240,7 @@ export type ReviewScopeSelection = {
   pullRequest?: string;
 };
 
-/** Per-review model usage. Token counts are provider-reported values only. */
+/** Per-review measured usage, tagged adapter totals, and separate accounting assumptions. */
 export type ReviewModelUsage = {
   totals: {
     input: number;
@@ -242,6 +248,17 @@ export type ReviewModelUsage = {
     cacheRead: number;
     cacheCreation: number;
     calls: number;
+    totalTokens?: number | null;
+    providerReportedTotalTokens?: number;
+    providerReportedCalls?: number;
+    unknownTotalCalls?: number;
+    unknownInputCalls?: number;
+    unknownOutputCalls?: number;
+    unknownCacheReadCalls?: number;
+    unknownCacheCreationCalls?: number;
+    assumedZeroNoResponseCalls?: number;
+    assumedZeroNoResponseTokens?: number;
+    accountedTokens?: number;
   };
   byGroup: Array<{
     provider: AiProvider;
@@ -252,6 +269,17 @@ export type ReviewModelUsage = {
     totalCacheRead: number;
     totalCacheCreation: number;
     totalCalls: number;
+    totalTokens?: number | null;
+    providerReportedTotalTokens?: number;
+    providerReportedCalls?: number;
+    unknownTotalCalls?: number;
+    unknownInputCalls?: number;
+    unknownOutputCalls?: number;
+    unknownCacheReadCalls?: number;
+    unknownCacheCreationCalls?: number;
+    assumedZeroNoResponseCalls?: number;
+    assumedZeroNoResponseTokens?: number;
+    accountedTokens?: number;
   }>;
   recent: Array<{
     id: string;
@@ -264,13 +292,172 @@ export type ReviewModelUsage = {
     provider: AiProvider;
     apiFormat: AiApiFormat;
     model: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheCreationTokens: number;
-    totalTokens: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    cacheReadTokens: number | null;
+    cacheCreationTokens: number | null;
+    totalTokens: number | null;
     createdAt: string;
+    totalTokensStatus?: 'provider_reported' | 'provider_derived' | 'unavailable';
+    responseReceived?: boolean | null;
+    usageObservation?: { source: 'provider_response' | 'provider_error_response' | 'codex_thread_total' | 'codex_turn_last'; completeness: 'complete' | 'partial'; missingCounters?: string[] } | null;
+    accountingBasis?: 'assumed_zero_no_response' | null;
+    accountedTokens?: number | null;
+    indexTrigger?: 'source_changed' | 'review' | null;
+    indexFingerprint?: string | null;
   }>;
+  reviewUsage?: ReviewUsageProjection;
+};
+
+export type ReviewUsagePhase =
+  | 'initial_analysis'
+  | 'domain_repair'
+  | 'citation_repair'
+  | 'semantic_support'
+  | 'support_repair'
+  | 'response_repair'
+  | 'source_indexing'
+  | 'context_retrieval';
+
+export type ReviewUsagePhaseBreakdown = {
+  phase: ReviewUsagePhase;
+  calls: number;
+  repairCalls: number;
+  inputTokens?: number;
+  unknownInputCalls?: number;
+  outputTokens?: number;
+  unknownOutputCalls?: number;
+  cacheReadTokens?: number;
+  unknownCacheReadCalls?: number;
+  cacheCreationTokens?: number;
+  unknownCacheCreationCalls?: number;
+  providerReportedTotalTokens?: number;
+  providerReportedTotalCalls?: number;
+  unknownProviderTotalCalls?: number;
+  canonicalTotalTokens?: number;
+  unknownCanonicalTotalCalls?: number;
+  assumedZeroNoResponseCalls?: number;
+  assumedZeroNoResponseTokens?: number;
+  accountedTokens?: number;
+};
+
+export type ReviewUsageProjection = {
+  reusedAssessments?: {
+    status: 'available' | 'partial' | 'unavailable';
+    batchCount: number | null;
+    minimumCallsAvoided: number | null;
+    originReviewIds: string[];
+    uniqueFileCount: number | null;
+    files: Array<{ artifactId: string; artifactVersionId: string | null; contentHash: string | null; filePath: string; lineStart: number | null; lineEnd: number | null }>;
+  };
+  status: 'available' | 'partial' | 'unavailable';
+  totalProviderReportedTokens: number;
+  providerReportedCalls: number;
+  unknownProviderTotalCalls: number;
+  canonicalTotalTokens: number;
+  unknownCanonicalTotalCalls: number;
+  assumedZeroNoResponseCalls?: number;
+  assumedZeroNoResponseTokens?: number;
+  accountedTokens?: number;
+  byStage: Array<{
+    stage: string;
+    operations: string[];
+    state: 'not_reached' | 'running' | 'completed' | 'stopped';
+    calls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    cancelledCalls: number;
+    inProgressCalls: number;
+    repairCalls: number;
+    phases: ReviewUsagePhaseBreakdown[];
+    inputTokens: number;
+    unknownInputCalls: number;
+    outputTokens: number;
+    unknownOutputCalls: number;
+    cacheReadTokens: number;
+    unknownCacheReadCalls: number;
+    cacheCreationTokens: number;
+    unknownCacheCreationCalls: number;
+    providerReportedTotalTokens: number;
+    providerReportedTotalCalls: number;
+    unknownProviderTotalCalls: number;
+    canonicalTotalTokens: number;
+    unknownCanonicalTotalCalls: number;
+    assumedZeroNoResponseCalls?: number;
+    assumedZeroNoResponseTokens?: number;
+    accountedTokens?: number;
+    requestContext: {
+      callsWithContext: number;
+      callsWithoutContext: number;
+      estimatedInputTokens: number;
+      estimatedCalls: number;
+      componentsCharacters: Record<string, number>;
+    };
+    aiFileCount: number | null;
+    aiFileAppearances: number | null;
+    aiFiles: Array<{
+      artifactId: string;
+      artifactVersionId: string | null;
+      contentHash: string | null;
+      filePath: string;
+      appearances: number;
+      phases: ReviewUsagePhase[];
+      ranges: Array<{ lineStart: number | null; lineEnd: number | null }>;
+    }>;
+    physicalReadAttempts: number | null;
+    physicalReadFileCount: number | null;
+    physicalFiles: Array<{
+      artifactId: string;
+      artifactVersionId: string | null;
+      contentHash: string | null;
+      filePath: string;
+      readAttempts: number;
+      successfulReads: number;
+      failedReads: number;
+      lines: number | null;
+      characters: number | null;
+    }>;
+  }>;
+  sourceInventory: {
+    status: 'available' | 'partial' | 'unavailable';
+    totalUniqueFiles: number | null;
+    knownUniqueFiles: number;
+    aiFileAppearances: number | null;
+    repeatedFileAppearances: number | null;
+    unknownAiFileAttempts: number;
+    files: Array<{
+      artifactId: string;
+      artifactVersionId: string | null;
+      contentHash: string | null;
+      filePath: string;
+      appearances: number;
+      stages: string[];
+      phases: ReviewUsagePhase[];
+      ranges: Array<{ lineStart: number | null; lineEnd: number | null }>;
+    }>;
+    physical: {
+      status: 'available' | 'partial' | 'unavailable';
+      readAttempts: number | null;
+      uniqueFiles: number | null;
+      unknownReadAttempts: number;
+      byStage: Array<{
+        stage: string;
+        readAttempts: number;
+        uniqueFiles: number;
+        files: Array<{
+          artifactId: string;
+          artifactVersionId: string | null;
+          contentHash: string | null;
+          filePath: string;
+          readAttempts: number;
+          successfulReads: number;
+          failedReads: number;
+          lines: number | null;
+          characters: number | null;
+        }>;
+      }>;
+    };
+  };
 };
 
 export type ReviewType = 'requirement_review' | 'code_review' | 'requirement_to_code_traceability' | 'cross_artifact_consistency';
@@ -348,6 +535,8 @@ export type EvidenceGap = {
   remediation: string;
   affectedStages: string[];
   artifactId?: string;
+  requirementId?: string;
+  references?: FindingSourceReference[];
 };
 
 export type EvidenceContradiction = {
@@ -446,7 +635,10 @@ export type FindingLineageHistoryEntry = {
 
 export type Finding = {
   /** Source-backed feature/path link validated by the Review runner. */
-  location?: { sourceLocator?: { analysis?: { featureId: string; pathId: string; domain: string } } | null };
+  location?: { ruleId?: string | null; sourceVersion?: string | null; domain?: string | null; issueType?: string | null; logicFlow?: string[]; relatedLocations?: Array<{ artifactId?: string | null; filePath: string; lineNumber: number; evidence: string; sourceVersion?: string | null }>; sourceLocator?: { artifactId?: string; filePath?: string; lineStart?: number; excerpt?: string; analysis?: { featureId: string; pathId: string; domain: string }; citationEvidence?: { version: 1; verification: 'verified' | 'needs_verification'; reason: 'source_match' | 'support_unverified'; candidates: Array<{ artifactId: string; sourceVersion: string; filePath: string; lineNumber: number; excerpt: string; score: number; confidence: 'high' | 'medium' | 'low'; match: 'exact' | 'relocated_exact' | 'approximate'; referenceIndex: number }>; unmatchedReferences: number } | null } | null };
+  artifactVersionId?: string | null;
+  requirementId?: string | null;
+  relatedSources?: FindingSourceReference[];
   /** Saved analysis origin, when supplied by the service. */
   verifier?: string | null;
   /** A finding derived from this review's saved document assessment. */
@@ -480,6 +672,15 @@ export type Finding = {
   lineageHistory?: FindingLineageHistoryEntry[];
   /** Original project issue ID is retained; this identifies its latest evidence. */
   latestOccurrence?: { findingId: string; reviewId: string | null; classification: 'recurring' | 'regressed' };
+};
+
+export type FindingSourceReference = {
+  artifactId?: string | null;
+  filePath: string;
+  lineNumber?: number | null;
+  sourceVersion?: string | null;
+  excerpt?: string;
+  relation: 'code' | 'document' | 'requirement';
 };
 
 export type ReviewStageId =
@@ -522,6 +723,14 @@ export type ReviewSourceManifestItem = {
   capturedAt: string;
 };
 
+export type ReviewSourceArtifact = {
+  id: string;
+  fileName: string;
+  filePath: string;
+  contentHash: string;
+  artifactVersionId?: string | null;
+};
+
 export type ReviewSourceManifest = {
   sessionId: string;
   projectId: string;
@@ -530,11 +739,15 @@ export type ReviewSourceManifest = {
   updatedAt?: string;
   sources: ReviewSourceManifestItem[];
   artifactCount: number | null;
+  /** Exact artifacts saved with this Review. Legacy snapshots may omit these. */
+  artifacts?: ReviewSourceArtifact[];
 };
 
 export type TraceabilityState = 'complete' | 'incomplete' | 'missing';
 
 export type ReviewTraceabilityRecord = {
+  evidenceStatus?: 'verified' | 'stale' | 'unavailable';
+  evidenceReason?: string | null;
   requirementId: string;
   title: string;
   description: string;
@@ -678,3 +891,7 @@ export type StandardRule = {
   updatedAt: string;
 };
 export type { ReadinessStatus as ProjectReadinessStatus, ReadinessAssessment, ReadinessCategoryResult, ReadinessGap } from '../../sidecar/src/readiness/types';
+export type SourceIndexStatus = {
+  state: 'none' | 'queued' | 'running' | 'ready' | 'paused' | 'failed' | 'superseded';
+  fingerprint?: string; updatedAt?: string; errorCode?: string | null;
+};

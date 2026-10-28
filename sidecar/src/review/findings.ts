@@ -4,6 +4,10 @@ import type { Finding as DeterministicFinding } from '../staticEngine.js';
 import type { StaticFindingInput } from './types.js';
 
 export type ModelFindingLike = {
+  domain?: unknown;
+  issueType?: unknown;
+  logicFlow?: unknown;
+  relatedLocations?: unknown;
   title?: unknown;
   description?: unknown;
   severity?: unknown;
@@ -84,8 +88,8 @@ export function normalizeDeterministicFinding(finding: DeterministicFinding, art
     artifactId: artifactId ?? null,
     ruleId: text(finding.ruleId) || null,
     evidence: text(finding.evidence),
-    recommendation: `Review and address this ${text(finding.category, 'static analysis').replace(/_/g, ' ')} finding.`,
-    confidence: 'high',
+    recommendation: finding.recommendation ?? `Review and address this ${text(finding.category, 'static analysis').replace(/_/g, ' ')} finding.`,
+    confidence: finding.confidence ?? 'high',
     riskLevel: deriveRiskLevel(finding.severity, priority),
   };
 }
@@ -98,6 +102,10 @@ export function normalizeModelFinding(finding: ModelFindingLike): StaticFindingI
   const explicitPriority = normalizeRiskPriority(finding.priority);
   const priority = explicitPriority ?? inferPriority(severity, category);
   const normalized: StaticFindingInput = {
+    ...(['security', 'business', 'technical', 'personnel'].includes(String(finding.domain)) ? { domain: finding.domain as StaticFindingInput['domain'] } : {}),
+    ...(typeof finding.issueType === 'string' && /^[a-z][a-z0-9_]{1,79}$/.test(finding.issueType) ? { issueType: finding.issueType } : {}),
+    ...(Array.isArray(finding.logicFlow) ? { logicFlow: finding.logicFlow.filter((value): value is string => typeof value === 'string').slice(0, 10) } : {}),
+    ...(Array.isArray(finding.relatedLocations) ? { relatedLocations: structuredClone(finding.relatedLocations).slice(0,16) as StaticFindingInput['relatedLocations'] } : {}),
     source: 'model',
     title: title.slice(0, 240),
     description: text(finding.description, title),
@@ -141,6 +149,13 @@ function confidenceRank(value: string): number {
 }
 
 function duplicates(left: StaticFindingInput, right: StaticFindingInput): boolean {
+  const needsVerification = (finding: StaticFindingInput) => {
+    const evidence = finding.sourceLocator?.citationEvidence;
+    return evidence && typeof evidence === 'object' && 'verification' in evidence && evidence.verification === 'needs_verification';
+  };
+  // Keep uncertainty from suppressing an independently validated observation
+  // (or deterministic rule), even when the model assigned itself high confidence.
+  if (Boolean(needsVerification(left)) !== Boolean(needsVerification(right))) return false;
   if (left.category !== right.category) return false;
   if (left.artifactId && right.artifactId && left.artifactId !== right.artifactId) return false;
   if (left.sourceIdentity && right.sourceIdentity && left.sourceIdentity !== right.sourceIdentity) return false;

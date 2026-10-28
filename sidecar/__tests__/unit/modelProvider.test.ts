@@ -10,6 +10,23 @@ const request = {
 describe('ConfiguredTextModelProvider', () => {
   afterEach(() => vi.unstubAllEnvs());
 
+  it('scopes a live evaluation to trusted project bindings while preserving the global hold', async () => {
+    vi.stubEnv('CENTINEL_AI_ASSESSMENT_PROJECT_ALLOWLIST', 'project-1');
+    vi.stubEnv('CENTINEL_AI_ASSESSMENT_PAUSED', '0');
+    const resolveSettings = vi.fn(async () => null);
+    const scoped = new ConfiguredTextModelProvider({ projectId: 'project-1', resolveSettings });
+    await expect(scoped.analyze(request)).rejects.toMatchObject({ code: 'provider_not_configured' });
+    expect(resolveSettings).toHaveBeenCalledOnce();
+    resolveSettings.mockClear();
+    // Input cannot impersonate an orchestration project, including unbound transports.
+    for (const projectId of ['other-project', undefined]) {
+      await expect(new ConfiguredTextModelProvider({ projectId, resolveSettings }).analyze(request)).rejects.toMatchObject({ code: 'assessment_paused' });
+    }
+    vi.stubEnv('CENTINEL_AI_ASSESSMENT_PAUSED', '1');
+    await expect(scoped.analyze(request)).rejects.toMatchObject({ code: 'assessment_paused' });
+    expect(resolveSettings).not.toHaveBeenCalled();
+  });
+
   it.each(['codex-app-server', 'openai-compatible'] as const)('holds %s assessment before configuration or network access', async apiFormat => {
     vi.stubEnv('CENTINEL_AI_ASSESSMENT_PAUSED', '1');
     const resolveSettings = vi.fn(async () => ({ ownerId: 'test-user', provider: apiFormat === 'codex-app-server' ? 'codex' as const : 'custom' as const,
@@ -60,6 +77,25 @@ describe('ConfiguredTextModelProvider', () => {
     expect(body.messages[0]).toEqual({ role: 'system', content: 'Return JSON' });
   });
 
+  it('retains known provider usage when structured JSON parsing fails', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'this is not json' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    }), { status: 200 }));
+    const provider = new ConfiguredTextModelProvider({
+      settings: { provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret',
+        baseUrl: 'https://example.test/v1/chat/completions', model: 'fixture-model' },
+      fetchImpl,
+    });
+
+    await expect(provider.analyze(request)).rejects.toMatchObject({
+      code: 'malformed_response', usage: {
+        inputTokens: 10, outputTokens: 4, totalTokens: 14, providerReportedTotalTokens: 14,
+        totalTokensSource: 'provider_reported',
+      },
+    });
+  });
+
   it('supports Anthropic-compatible base URL normalization and repair prompts', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       content: [{ type: 'text', text: '```json\n{"findings":[]}\n```' }],
@@ -103,6 +139,65 @@ describe('ConfiguredTextModelProvider', () => {
     await expect(provider.analyze(request)).rejects.toMatchObject({
       code: 'rate_limited', statusCode: 429, retryable: false, retryAfterMs: 2000,
     });
+  });
+
+  it('retains only provider usage counters from an HTTP error response', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      error: { message: 'PRIVATE_PROMPT', usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
+    }), { status: 503 }));
+    const provider = new ConfiguredTextModelProvider({
+      settings: { provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret',
+        baseUrl: 'https://example.test', model: 'fixture-model' }, fetchImpl,
+    });
+
+    await expect(provider.analyze(request)).rejects.toMatchObject({
+      code: 'http_503', responseReceived: true,
+      usage: { inputTokens: 10, outputTokens: 2, providerReportedTotalTokens: 12,
+        usageObservation: { source: 'provider_error_response', completeness: 'partial', missingCounters: ['cacheReadTokens'] } },
+    });
+  });
+
+  it('retains usage when a successful HTTP response has a malformed envelope', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      choices: { malformed: true }, usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+    }), { status: 200 }));
+    const provider = new ConfiguredTextModelProvider({
+      settings: { provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret',
+        baseUrl: 'https://example.test', model: 'fixture-model' }, fetchImpl,
+    });
+
+    await expect(provider.analyze(request)).rejects.toMatchObject({
+      code: 'malformed_response', responseReceived: true,
+      usage: { inputTokens: 10, outputTokens: 2, providerReportedTotalTokens: 12 },
+    });
+  });
+
+  it('bounds stalled error-body reads and still applies the structured 429 pause', async () => {
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, { status: 429 }));
+    const provider = new ConfiguredTextModelProvider({
+      settings: { provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret',
+        baseUrl: 'https://example.test', model: 'fixture-model' }, fetchImpl,
+    });
+    const started = Date.now();
+
+    await expect(provider.analyze(request)).rejects.toMatchObject({ code: 'rate_limited', responseReceived: true });
+    expect(Date.now() - started).toBeLessThan(3_500);
+    expect(cancelled).toHaveBeenCalled();
+  });
+
+  it('marks a fetch rejection as a no-response failure without inventing usage', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('private URL and prompt details'));
+    const provider = new ConfiguredTextModelProvider({
+      settings: { provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'secret',
+        baseUrl: 'https://example.test', model: 'fixture-model' }, fetchImpl,
+    });
+
+    await expect(provider.analyze(request)).rejects.toMatchObject({
+      code: 'network_error', responseReceived: false,
+    });
+    await expect(provider.analyze(request)).rejects.toMatchObject({ usage: undefined });
   });
 
   it('forwards the cancellation signal to fetch', async () => {

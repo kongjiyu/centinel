@@ -8,10 +8,14 @@ import { entityIdTitle, formatEntityId } from '../utils/entityId';
 import { userFacingError } from '../utils/userFacingError';
 import { deriveRiskLevelWithFallback, priorityRank, riskLevelRank } from '../riskPolicy';
 import { Select } from './Select';
+import { findingDomain, findingGroupDomains, findingSourceReferences, groupFindings, groupStatus } from '../findingGroups';
+import { FindingEvidence, FindingOccurrences } from './FindingEvidence';
+import { FindingDocument } from './FindingDocument';
 
 type Props = {
   projectId: string;
   supplementalFindings?: Finding[];
+  supplementalUnavailableMessage?: string | null;
   readOnly?: boolean;
   /** Optional review scope. When supplied, the shared project presentation
    * reads only findings produced by that review session. */
@@ -112,7 +116,7 @@ function FindingActions({
   );
 }
 
-export function FindingsPanel({ supplementalFindings, readOnly = false, projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange, onOpenReview }: Props) {
+export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange, onOpenReview }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -215,16 +219,17 @@ export function FindingsPanel({ supplementalFindings, readOnly = false, projectI
           if (filterRiskLevel === 'critical_or_high' ? level !== 'critical' && level !== 'high' : level !== filterRiskLevel) return false;
         }
         if (filterCategory !== 'all' && finding.category?.trim().toLowerCase() !== filterCategory.toLowerCase()) return false;
-        if (query && ![finding.title, finding.description, finding.filePath, finding.category, sourceLabel(finding.source)].some(value => value?.toLowerCase().includes(query))) return false;
+        if (query && ![finding.title, finding.description, finding.filePath, finding.category, finding.evidenceText, ...findingSourceReferences(finding).map(ref => ref.filePath), ...(finding.location?.logicFlow ?? []), findingDomain(finding), groupFindings([finding])[0].title, sourceLabel(finding.source)].some(value => value?.toLowerCase().includes(query))) return false;
         return true;
       })
       .sort(compareFindings);
   }, [filterCategory, filterPriority, filterRiskLevel, filterSeverity, filterSource, filterStatus, findings, presentation, searchQuery]);
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const pagedFindings = presentation === 'project'
-    ? sorted.slice(page * pageSize, page * pageSize + pageSize)
-    : sorted.slice(0, visibleCount);
+  const grouped = useMemo(() => groupFindings(sorted), [sorted]);
+  const pageCount = Math.max(1, Math.ceil(grouped.length / pageSize));
+  const pagedFindings = (presentation === 'project'
+    ? grouped.slice(page * pageSize, page * pageSize + pageSize)
+    : grouped.slice(0, visibleCount)).map(group => ({ ...group.representative, title: group.title }));
 
   useEffect(() => { setPage(current => Math.min(current, pageCount - 1)); }, [pageCount]);
   useEffect(() => {
@@ -232,11 +237,11 @@ export function FindingsPanel({ supplementalFindings, readOnly = false, projectI
   }, [presentation, selectedId, sorted]);
   useEffect(() => {
     if (presentation !== 'project' || !focusFindingId) return;
-    const index = sorted.findIndex(finding => finding.id === focusFindingId);
+    const index = grouped.findIndex(group => group.members.some(finding => finding.id === focusFindingId));
     if (index < 0) return;
     setPage(Math.floor(index / pageSize));
     setSelectedId(focusFindingId);
-  }, [focusFindingId, pageSize, presentation, sorted]);
+  }, [focusFindingId, pageSize, presentation, grouped]);
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -289,80 +294,57 @@ export function FindingsPanel({ supplementalFindings, readOnly = false, projectI
   if (loading) return <div className="panel-loading" role="status">Loading findings...</div>;
 
   if (presentation === 'project') {
-    const selectedFinding = sorted.find(finding => finding.id === selectedId) ?? null;
+    const selectedGroup = grouped.find(group => group.members.some(finding => finding.id === selectedId));
+    const selectedFinding = selectedGroup?.members.find(finding => finding.id === selectedId) ?? null;
+    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => { const id = selectedGroup.representative.id; setSelectedId(null); window.requestAnimationFrame(() => document.getElementById(`finding-row-${id}`)?.focus()); }} onOpenReview={onOpenReview} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
     return (
-      <div className="project-findings-layout">
+      <div className="project-findings-layout findings-table-only">
         <section className="card detail-card findings-card findings-panel findings-panel-project" aria-labelledby="project-findings-heading">
-          <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Findings</h3><strong className="findings-project-total">{findings.length} total</strong></div>
+          <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Findings</h3><strong className="findings-project-total">{groupFindings(findings).length} issue types · {findings.length} flagged items</strong></div>
           {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void loadFindings()}>Retry</button></div>}
+          {supplementalUnavailableMessage && <p className="findings-supplemental-context" role="status">{supplementalUnavailableMessage}</p>}
           {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
           {findings.length > 0 && filterToolbar(false)}
-          {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : (
+          {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 && supplementalUnavailableMessage ? 'No current findings are available in this view. Some document evidence is unavailable; see the message above.' : findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : (
             <section className="project-findings-table-region" aria-label="Findings table">
-              <table className="project-findings-table" aria-label={sessionId ? 'Review findings' : 'Project findings'}><thead><tr><th scope="col">ID</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Risk</th><th scope="col">Description</th></tr></thead><tbody>
-                {pagedFindings.map(finding => <tr key={finding.id} tabIndex={0} aria-selected={selectedId === finding.id} className={selectedId === finding.id ? 'selected' : undefined} onClick={() => setSelectedId(finding.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedId(finding.id); } }}>
-                  <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td><td><span className={`finding-status finding-status-${displayedFindingStatus(finding)}`}>{findingStatusLabel(displayedFindingStatus(finding))}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); setSelectedId(finding.id); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td>
-                </tr>)}
+              <table className="project-findings-table" aria-label={sessionId ? 'Review findings' : 'Project findings'}><thead><tr><th scope="col">ID</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Risk</th><th scope="col">Domain</th><th scope="col">Finding</th></tr></thead><tbody>
+                {pagedFindings.map(finding => { const group = grouped.find(item => item.representative.id === finding.id)!; return <tr id={`finding-row-${finding.id}`} key={finding.id} tabIndex={0} aria-selected={group.members.some(item => item.id === selectedId)} className={group.members.some(item => item.id === selectedId) ? 'selected' : undefined} onClick={() => setSelectedId(finding.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedId(finding.id); } }}>
+                  <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td><td><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td>{findingGroupDomains(group)}</td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{group.members.length > 1 ? `${group.members.length} affected occurrences` : finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); setSelectedId(finding.id); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td>
+                </tr>; })}
               </tbody></table>
               {pageCount > 1 && <div className="findings-pagination" aria-label="Finding pages"><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={page === 0}>Previous</button><span>Page {page + 1} of {pageCount}</span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1}>Next</button></div>}
             </section>
           )}
         </section>
 
-        <aside className="card detail-card project-finding-details" aria-label="Finding details">
-          {selectedFinding ? <>
-            {(selectedFinding.source !== 'static' || selectedFinding.verifier === 'readiness') && <div className="project-finding-source-status"><strong>{originLabel(selectedFinding)}</strong></div>}
-            <div className="project-finding-title-status"><h4>{selectedFinding.title}</h4><span className="finding-id-label" title={entityIdTitle('Finding ID:', selectedFinding.id)}>{formatEntityId(selectedFinding.id)}</span></div>
-            <dl className="project-finding-facts">
-              <div><dt>Priority</dt><dd>{selectedFinding.priority || 'Not set'}</dd></div>
-              <div><dt>Risk Level</dt><dd><RiskBadge finding={selectedFinding} /></dd></div>
-              <div><dt>Location</dt><dd className="finding-location-path">{locationLabel(selectedFinding)}</dd></div>
-            </dl>
-            <section><h5>Description</h5><p>{selectedFinding.description || 'No description was supplied.'}</p></section>
-            {selectedFinding.recommendation && <section><h5>Recommendation</h5><p>{selectedFinding.recommendation}</p></section>}
-            {selectedFinding.evidenceText && <section><h5>Evidence</h5><pre>{selectedFinding.evidenceText}</pre></section>}
-            {selectedFinding.resolutionEvidence && <section className="finding-resolution-evidence" aria-label="Resolution evidence">
-              <h5>Resolution evidence</h5>
-              <p>Not reproduced in the comparable re-review: <strong>{selectedFinding.resolutionEvidence.reviewName}</strong>.</p>
-              <p>Source version: <code>{selectedFinding.resolutionEvidence.previousSourceVersion}</code> → <code>{selectedFinding.resolutionEvidence.reviewedSourceVersion}</code></p>
-              <p>Source manifest: <code>{selectedFinding.resolutionEvidence.sourceManifestId}</code></p>
-              {onOpenReview && <button type="button" className="btn-link" aria-label={`Open review ${selectedFinding.resolutionEvidence.reviewName}`} onClick={() => onOpenReview(selectedFinding.resolutionEvidence!.reviewId)}>Open review</button>}
-            </section>}
-            {selectedFinding.lineageHistory?.length ? <section className="finding-lineage-history" aria-label="Prior finding history">
-              <h5>Prior finding history</h5>
-              <ul>{selectedFinding.lineageHistory.map(entry => <li key={entry.findingId}>
-                <span>{entry.classification === 'regressed' ? 'Regressed' : 'Recurring'} in {entry.reviewName || entry.reviewId || 'an earlier review'}: {entry.title} ({entry.status})</span>
-                {entry.sourceVersion && <small>Source version: <code>{entry.sourceVersion}</code></small>}
-                {onOpenReview && entry.reviewId && <button type="button" className="btn-link" aria-label={`Open review ${entry.reviewName || entry.reviewId}`} onClick={() => onOpenReview(entry.reviewId!)}>Open review</button>}
-              </li>)}</ul>
-            </section> : null}
-            <FindingActions readOnly={readOnly} finding={selectedFinding} updatingId={updatingId} onUpdate={(id, status) => void handleUpdateStatus(id, status)} />
-          </> : <div className="project-finding-details-empty">Select a finding to review its details</div>}
-        </aside>
+
       </div>
     );
   }
 
   return (
     <div className="findings-panel">
-      <div className="panel-header"><div><h3>Findings</h3><p className="panel-description">Triage issues from Review and Dynamic Testing in one list.</p></div><span className="findings-total-count">{findings.length} total</span></div>
+      <div className="panel-header"><div><h3>Findings</h3><p className="panel-description">Triage issues from Review and Dynamic Testing in one list.</p></div><span className="findings-total-count">{groupFindings(findings).length} issue types · {findings.length} flagged items</span></div>
       {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void loadFindings()}>Retry</button></div>}
       {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
       {findings.length > 0 && filterToolbar(true)}
       {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : <>
         <div className="findings-list">
-          {pagedFindings.map(finding => {
-            const expanded = expandedId === finding.id;
+          {pagedFindings.map(row => {
+            const group = grouped.find(item => item.representative.id === row.id)!;
+            const finding = group.members.find(item => item.id === selectedId) ?? group.representative;
+            const expanded = expandedId === row.id;
             const detailId = `finding-detail-${finding.id}`;
-            return <div key={finding.id} className={`finding-row finding-${displayedFindingStatus(finding)}`}>
-              <button type="button" className="finding-header" onClick={() => setExpandedId(expanded ? null : finding.id)} aria-expanded={expanded} aria-controls={detailId}>
-                <span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span><SeverityBadge severity={finding.severity} /><span className="finding-title">{finding.title}</span><span className={`badge badge-source-${finding.source}`}>{originLabel(finding)}</span><span className={`finding-status finding-status-${displayedFindingStatus(finding)}`}>{findingStatusLabel(displayedFindingStatus(finding))}</span><time dateTime={updatedTime(finding)} title={`Updated ${new Date(updatedTime(finding)).toLocaleString()}`}>{new Date(updatedTime(finding)).toLocaleDateString()}</time><ChevronDown className="finding-disclosure" size={16} aria-hidden="true" />
+            return <div key={row.id} className={`finding-row finding-${displayedFindingStatus(finding)}`}>
+              <button type="button" className="finding-header" onClick={() => setExpandedId(expanded ? null : row.id)} aria-expanded={expanded} aria-controls={detailId}>
+                <span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span><SeverityBadge severity={finding.severity} /><span className="finding-title">{group.title}{group.members.length > 1 && <small className="finding-group-count">{group.members.length} affected occurrences</small>}</span><span className={`badge badge-source-${finding.source}`}>{originLabel(finding)}</span><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span><time dateTime={updatedTime(finding)} title={`Updated ${new Date(updatedTime(finding)).toLocaleString()}`}>{new Date(updatedTime(finding)).toLocaleDateString()}</time><ChevronDown className="finding-disclosure" size={16} aria-hidden="true" />
               </button>
-              {expanded && <div className="finding-detail" id={detailId} role="region" aria-label={`${finding.title} details`}>
+              {expanded && <div className="finding-detail" id={detailId} role="region" aria-label={`${group.title} details`}>
                 <div className="finding-detail-content">
                   <div className="finding-source-status">{(finding.source !== 'static' || finding.verifier === 'readiness') && <strong>{originLabel(finding)}</strong>}<span className={`finding-status finding-status-${displayedFindingStatus(finding)}`}>{findingStatusLabel(displayedFindingStatus(finding))}</span></div>
-                  <div className="finding-detail-title-status"><h4>{finding.title}</h4><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></div>
+                  <div className="finding-detail-title-status"><h4>{group.title}</h4><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></div>
                   <dl className="finding-facts"><div><dt>Priority</dt><dd>{finding.priority || 'Not set'}</dd></div><div><dt>Risk Level</dt><dd><RiskBadge finding={finding} /></dd></div><div><dt>Location</dt><dd className="finding-location-path">{locationLabel(finding)}</dd></div></dl>
+                  <FindingOccurrences group={group} selectedId={finding.id} onSelect={setSelectedId} /><FindingEvidence key={finding.id} finding={finding} />
                   <section><h4>Description</h4><p className="finding-description">{finding.description || 'No description was supplied.'}</p></section>
                   {finding.recommendation && <section className="finding-recommendation"><h4>Recommendation</h4><p>{finding.recommendation}</p></section>}
                   {finding.evidenceText && <section className="finding-evidence"><h4>Evidence</h4><pre>{finding.evidenceText}</pre></section>}
@@ -372,7 +354,7 @@ export function FindingsPanel({ supplementalFindings, readOnly = false, projectI
             </div>;
           })}
         </div>
-        {visibleCount < sorted.length && <div className="findings-more"><button className="btn-secondary" type="button" onClick={() => setVisibleCount(count => count + FINDINGS_BATCH_SIZE)}>Show {Math.min(FINDINGS_BATCH_SIZE, sorted.length - visibleCount)} more</button></div>}
+        {visibleCount < grouped.length && <div className="findings-more"><button className="btn-secondary" type="button" onClick={() => setVisibleCount(count => count + FINDINGS_BATCH_SIZE)}>Show {Math.min(FINDINGS_BATCH_SIZE, grouped.length - visibleCount)} more</button></div>}
       </>}
     </div>
   );

@@ -4,11 +4,12 @@ import { SupabaseReportSnapshotSource } from '../../src/report/supabaseSnapshot.
 import { SupabaseStaticReviewRepository } from '../../src/review/supabaseRepository.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
 import { findingSourceIdentityHash } from '../../src/review/correlation.js';
+import { ASSESSMENT_VALIDATION_VERSION } from '../../src/review/assessmentValidation.js';
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('current project risk after review reconciliation', () => {
-  async function setup() {
+  async function setup(validationVersion = ASSESSMENT_VALIDATION_VERSION) {
     const projectId = 'project'; const filePath = 'src/account.ts';
     const memory = new InMemoryStaticReviewRepository();
     const reviews = await Promise.all(['old', 'new'].map(async (id, i) => {
@@ -19,7 +20,7 @@ describe('current project risk after review reconciliation', () => {
     vi.spyOn(SupabaseStaticReviewRepository.prototype, 'listReviews').mockResolvedValue(reviews);
     const correlation = { id: 'correlation', parentReviewId: 'old', childReviewId: 'new', parentFindingId: 'finding', childFindingId: null,
       classification: 'resolved' as const, method: 'unmatched' as const, score: 0, stableFingerprint: 'fingerprint', resolutionEligibility: {
-        version: 1 as const, basis: 'not_reproduced_in_comparable_review' as const,
+        version: 2 as const, assessmentValidationVersion: validationVersion, locationBasis: { kind: 'exact_assessed_reference' as const, filePath, lineNumber: 1, sourceVersion: 'new-hash', featureId: 'account', domain: 'security' }, basis: 'not_reproduced_in_comparable_review' as const,
         parentSourceManifestId: 'manifest-old', sourceManifestId: 'manifest-new', reviewedArtifactId: 'artifact', parentArtifactId: 'artifact',
         sourceIdentityHash: findingSourceIdentityHash({ artifactId: 'artifact', sourceIdentity: filePath, filePath }), parentSourceVersion: 'old-hash', reviewedSourceVersion: 'new-hash',
       } };
@@ -29,7 +30,7 @@ describe('current project risk after review reconciliation', () => {
     } : null);
     const finding = { id: 'finding', project_id: projectId, review_session_id: 'old', source: 'static', status: 'new',
       artifact_id: 'artifact', title: 'Missing authorization', category: 'security', severity: 'high', priority: 'high',
-      location: { filePath, sourceIdentity: filePath, sourceVersion: 'old-hash' }, created_at: '2026-10-19T00:00:00Z', updated_at: '2026-10-19T00:00:00Z' };
+      location: { filePath, lineNumber: 1, sourceIdentity: filePath, sourceVersion: 'old-hash' }, created_at: '2026-10-19T00:00:00Z', updated_at: '2026-10-19T00:00:00Z' };
     const rows: Record<string, Array<Record<string, unknown>>> = { projects: [{ id: projectId }], findings: [finding],
       review_source_snapshots: ['old', 'new'].map(id => ({ id: `manifest-${id}`, project_id: projectId, review_session_id: id, status: 'available',
         snapshot: { artifacts: [{ id: 'artifact', path: filePath, metadata: { originalPath: filePath, contentHash: `${id}-hash` } }] } })),
@@ -48,16 +49,35 @@ describe('current project risk after review reconciliation', () => {
   it('removes a verified derived resolution from assessment/export risk without changing saved history', async () => {
     const { source, finding } = await setup();
     expect((await source.getProjectAssessment('project')).summary).toMatchObject({ high: 0, classified: 0 });
+    const report = await source.getProjectAssessmentWithCurrentFindings('project');
+    expect(report.currentFindings).toMatchObject({
+      status: 'available', reason: null,
+      items: [{ id: 'finding', persistedStatus: 'new', effectiveStatus: 'fixed', effectiveDisposition: 'resolved',
+        resolutionEvidence: { basis: 'not_reproduced_in_comparable_review', reviewId: 'new' } }],
+    });
+    expect(report.summary).toMatchObject({ high: 0, classified: 0 });
     expect(finding.status).toBe('new');
     expect((await source.listAllFindings('project'))[0].status).toBe('new');
   });
   it('keeps risk when changed-source evidence is unavailable', async () => {
     const { source, rows } = await setup(); rows.review_source_snapshots = [];
     expect((await source.getProjectAssessment('project')).summary).toMatchObject({ critical: 1, classified: 1 });
+    expect((await source.getProjectAssessmentWithCurrentFindings('project')).currentFindings).toMatchObject({
+      status: 'available', items: [{ id: 'finding', effectiveStatus: 'new', effectiveDisposition: 'new', resolutionEvidence: null }],
+    });
+  });
+  it('keeps historical risk when the saved resolution predates consequence-support validation', async () => {
+    const { source, finding } = await setup('static-assessment-2026-10-21.1');
+    expect((await source.getProjectAssessment('project')).summary).toMatchObject({ critical: 1, classified: 1 });
+    expect((await source.getProjectAssessmentWithCurrentFindings('project')).currentFindings).toMatchObject({
+      status: 'available', items: [{ id: 'finding', effectiveStatus: 'new', resolutionEvidence: null }],
+    });
+    expect(finding.status).toBe('new');
   });
   it('fails the assessment rather than returning a misleading current count if correlation loading fails', async () => {
     const { source } = await setup();
     vi.spyOn(SupabaseStaticReviewRepository.prototype, 'getFindingCorrelationSnapshot').mockRejectedValue(new Error('Unavailable'));
     await expect(source.getProjectAssessment('project')).rejects.toThrow('Unavailable');
+    await expect(source.getProjectAssessmentWithCurrentFindings('project')).rejects.toThrow('Unavailable');
   });
 });

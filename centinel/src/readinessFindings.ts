@@ -38,6 +38,8 @@ function mapReadinessGap(assessmentId: string, assessedAt: string, projectId: st
     createdAt: assessedAt,
     updatedAt: assessedAt,
     artifactId: firstReference?.artifactId ?? null,
+    relatedSources: gap.references.map(reference => ({ artifactId: reference.artifactId, filePath: reference.path, sourceVersion: reference.sourceVersion,
+      excerpt: reference.excerpt, relation: gap.category === 'repository' ? 'code' : gap.category === 'requirements' ? 'requirement' : 'document' })),
     category: `Readiness · ${CATEGORY_LABELS[gap.category]}`,
     fromRemarks: false,
     filePath: firstReference?.path ?? '',

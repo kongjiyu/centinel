@@ -1,3 +1,5 @@
+import { readPromptAnalysisMap } from '../fixtures/promptAnalysisMap.js';
+import { candidateSupportResult, isCandidateSupportRequest } from '../fixtures/semanticSupport.js';
 import { describe, expect, it } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import {
@@ -90,6 +92,24 @@ function evidenceInput(overrides: Partial<EvidenceSufficiencyInput> = {}): Evide
 }
 
 describe('Prose evidence boundaries', () => {
+  it.each(['code_review', 'requirement_to_code_traceability'])('exposes each incomplete requirement and its actual references in %s', reviewType => {
+    const result = assessEvidenceSufficiency(evidenceInput({
+      reviewType,
+      confirmedRequirements: [{ id: 'pay-once', projectId: 'project-a', title: 'Charge once', description: 'A retry must not create a second charge.', category: 'business', priority: 'high', sourceCandidateId: null,
+        sourceLocator: { artifactId: requirementArtifact.id, filePath: requirementArtifact.filePath, lineStart: 3, excerpt: 'A retry must not create a second charge.' }, sourceVersion: 'req-version', confidence: 1, createdAt: '2026-09-21' }],
+      traceability: [{ requirementId: 'pay-once', state: 'incomplete', sourceArtifactIds: [codeArtifact.id] }, { requirementId: 'missing-link', state: 'missing' }, { requirementId: 'covered', state: 'complete' }],
+    }));
+    const gaps = result.gaps.filter(gap => gap.code === 'traceability_mappings_incomplete');
+    expect(gaps).toHaveLength(2);
+    expect(new Set(gaps.map(gap => gap.id)).size).toBe(2);
+    expect(gaps[0]).toMatchObject({ requirementId: 'pay-once', severity: 'warning', title: 'Incomplete Requirement Coverage' });
+    expect(gaps[0].references).toEqual([
+      expect.objectContaining({ relation: 'requirement', filePath: 'requirements.md', lineNumber: 3, sourceVersion: 'req-version' }),
+      expect.objectContaining({ relation: 'code', filePath: 'src/auth.ts', sourceVersion: 'code-hash-v1' }),
+    ]);
+    expect(gaps[1].references).toEqual([]);
+    expect(gaps[0].detail).toContain('does not establish');
+  });
   const tests = "describe('acceptRanges: false', function () {\n  it('should not include Accept-Ranges', function (done) {})\n})\ndescribe('acceptRanges: true', function () {\n  it('should include Accept-Ranges', function (done) {})\n})";
   it.each(['source_code', 'requirement'] as const)('does not turn option-specific JavaScript tests into conflicting requirements (%s)', type => {
     const source = { artifact: { ...codeArtifact, type, filePath: 'test/test.js' }, content: tests };
@@ -298,10 +318,11 @@ describe('grounding in Model Provider static analysis', () => {
     const model: StaticAnalysisModelProvider = {
       analyze: async request => {
         prompts.push(request.prompt);
+        if (isCandidateSupportRequest(request)) return { result: candidateSupportResult(request), settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'test-model' } };
         return {
-          result: { findings: [
-            { title: 'Tenant validation missing', description: 'The handler returns data without ownership validation.', severity: 'high', category: 'security', filePath: codeArtifact.filePath, lineNumber: 12, evidence: 'return account before validation', recommendation: 'Validate tenant ownership.', confidence: 'high', requirementId: requirement.id, standardId: rule.standardId, standardRuleId: rule.id, sourceLocator: { filePath: 'invented/path', lineStart: 999 } },
-            { title: 'Untrusted standard citation', severity: 'medium', category: 'security', filePath: codeArtifact.filePath, lineNumber: 15, evidence: 'unverified', recommendation: 'Review.', confidence: 'medium', requirementId: 'invented-requirement', standardId: 'invented-standard', standardRuleId: 'invented-rule' },
+          result: { featureAssessments: readPromptAnalysisMap(request).features.map((feature: any) => ({ featureId: feature.id, assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({ domain, status: 'assessed', outcome: 'no_issue_identified', summary: 'The local branch was assessed.', evidence: feature.entryPoints })) })), findings: [
+            { title: 'Tenant validation missing', description: 'The handler returns data without ownership validation.', severity: 'high', category: 'security', filePath: codeArtifact.filePath, lineNumber: 1, evidence: 'The handler returns private account data.', recommendation: 'Validate tenant ownership.', confidence: 'high', requirementId: requirement.id, standardId: rule.standardId, standardRuleId: rule.id, sourceLocator: { filePath: 'invented/path', lineStart: 999 } },
+            { title: 'Untrusted standard citation', description: 'Inspect the account handler.', severity: 'medium', category: 'security', filePath: codeArtifact.filePath, lineNumber: 1, evidence: 'The handler returns private account data.', recommendation: 'Review.', confidence: 'medium', requirementId: 'invented-requirement', standardId: 'invented-standard', standardRuleId: 'invented-rule' },
           ] },
           settings: { provider: 'mimo', apiFormat: 'openai-compatible', model: 'test-model' },
         };
@@ -312,7 +333,7 @@ describe('grounding in Model Provider static analysis', () => {
       modelMetadata: async () => ({ provider: 'mimo', apiFormat: 'openai-compatible', model: 'test-model' }),
       deterministic: async () => [],
       artifacts: async () => [codeArtifact],
-      readArtifactContent: async () => 'The handler returns private account data.',
+      readArtifactContent: async () => '// The handler returns private account data.\nexport function account() { return true; }',
     });
     const started = await orchestrator.start({
       projectId: 'project-a', reviewType: 'general_review', artifacts: [codeArtifact],
@@ -323,7 +344,11 @@ describe('grounding in Model Provider static analysis', () => {
     expect(prompts[0]).toContain(`requirementId=${requirement.id}`);
     expect(prompts[0]).toContain(`standardRuleId=${rule.id}`);
     expect(repository.findings[0]).toMatchObject({ requirementId: requirement.id, standardId: rule.standardId, standardRuleId: rule.id, sourceLocator: { filePath: 'standards/API.md', lineStart: 4, standardVersion: '1.0' } });
-    expect(repository.findings[1]).toMatchObject({ requirementId: null, standardId: null, standardRuleId: null, sourceLocator: null });
+    // Rejected authority IDs leave no invented locator fields. The current
+    // evidence-link projection retains an empty locator object in this case.
+    expect(repository.findings[1]).toMatchObject({ requirementId: null, standardId: null, standardRuleId: null, sourceLocator: {} });
+    expect(repository.findings[1].sourceLocator).toMatchObject({ citationEvidence: { verification: 'verified' } });
+    expect(repository.findings[1].sourceLocator).not.toHaveProperty('requirementId');
     expect(repository.audits.some(event => event.event === 'model_grounding_references_rejected')).toBe(true);
   });
 });

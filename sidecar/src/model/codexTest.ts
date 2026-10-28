@@ -23,6 +23,6 @@ export async function testCodexProvider(backend: CodexBackend, model: string, vi
     try { answer = JSON.parse(response.text).answer; } catch { /* fail below */ }
     const pass = answer === (vision ? 'red' : 'ready');
     return { status: pass ? 'pass' : 'fail', message: pass
-      ? `Codex ${vision ? 'screenshot' : 'text'} test passed.` : 'Codex returned an unexpected test response.', usage: response.usage };
+      ? `Codex ${vision ? 'screenshot' : 'text'} test passed.` : 'Codex returned an unexpected test response.', usage: response.usage, responseReceived: true };
   } finally { if (dir) await fs.rm(dir, { recursive: true, force: true }); }
 }

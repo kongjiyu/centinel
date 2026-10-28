@@ -1,0 +1,178 @@
+[
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "repository_completed_when_expected_imports_are_readable",
+    "verdict": "true",
+    "reason": "Fresh .3 snapshot b988679f-400b-432a-8de7-22373e9efdc5 completed at 2026-10-24T05:24:20.825Z, stale=false. Repository completed reports 21 selected sources and 2/2 checks. Independently reread all 21 expected files and matched frozen bytes/SHA-256, current-run imported artifact hashes/version IDs and the frozen manifest/input/acceptance bundle. Original package.json, including its embedded ESLint/Prettier configuration, parses without diagnostics under the trusted workspace parser. This supports selected-source availability only, not a full build or correct runtime. No upstream code/dependencies were executed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 2,
+        "excerpt": "\"name\": \"preact\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 91,
+        "excerpt": "\"eslintConfig\": {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+        "lineNumber": 1,
+        "excerpt": "root = true"
+      }
+    ]
+  },
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "requirements_present_not_missing",
+    "verdict": "true",
+    "reason": "Fresh raw requirements presence is present; effective Requirements is incomplete, not missing. README explicitly states modern-browser/IE11 support, rendering behavior and a concrete one-DOM-update example; CONTRIBUTING states repository/release workflows. All seven raw checks have three passes. Effective clarity/consistency/testability/boundaries/exceptions pass; business_decisions and scope become unknown after invalid exact/source citations. This independently proves substantive requirements presence, without accepting every claimed size/browser/testability outcome as runtime verified or treating filtered raw passes as complete requirements.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+        "lineNumber": 16,
+        "excerpt": "- Supports all modern browsers and IE11"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+        "lineNumber": 61,
+        "excerpt": "Future calls to render() will reuse the existing tree and update it in-place in the DOM."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+        "lineNumber": 75,
+        "excerpt": "// ^ this second invocation of render(...) will use a single DOM call to update the text of the <h1>"
+      }
+    ]
+  },
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "design_present_not_missing",
+    "verdict": "true",
+    "reason": "Fresh raw design presence is present; effective Design is incomplete, not missing. CONTRIBUTING distinguishes the core, compatibility, hooks/debug/testing addons and renderer extension points; selected VNode/component implementations provide concrete interfaces and data/flow decisions. All six raw design checks have three passes; effective responsibilities/interfaces/data/flows/failure_decisions pass, while scope remains unknown after citation_source_unknown=3 and scope citation/coverage limits. This is actual embedded design, not a separately invented architecture document or a certification of complete design.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+        "lineNumber": 22,
+        "excerpt": "src/  # Source code of our core"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+        "lineNumber": 73,
+        "excerpt": "Unique to Preact we do support several ways to hook into our renderer."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/src/create-element.js",
+        "lineNumber": 58,
+        "excerpt": "export function createVNode(type, props, key, ref, original) {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/src/component.js",
+        "lineNumber": 13,
+        "excerpt": "export function Component(props, context) {"
+      }
+    ]
+  },
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "standards_present_not_missing",
+    "verdict": "true",
+    "reason": "Fresh raw standards presence is present; effective Standards is completed, which is an allowed frozen standards state. Original EditorConfig defines tabs and scoped space-indentation exceptions; package.json configures ESLint rules, Prettier and staged-file automation. Each standards raw check has one pass/two unknowns; the relevant standards content supports effective applicability/checkability/conflicts pass with valid classification, inventory and scope evidence. This presence assertion does not independently certify every external extended rule or actual enforcement in the upstream runtime.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+        "lineNumber": 3,
+        "excerpt": "[*]\nindent_style = tab"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+        "lineNumber": 10,
+        "excerpt": "[{*.json,.*rc,*.yml}]\nindent_style = space\nindent_size = 2"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 140,
+        "excerpt": "\"useTabs\": true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 112,
+        "excerpt": "\"no-unused-vars\": [\n        2,"
+      }
+    ]
+  },
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+    "verdict": "true",
+    "reason": "Applicability/checkability passes have original rule evidence. package.json explicitly targets src/test/debug/compat/hooks/test-utils with ESLint, gives error-level no-unused-vars options, stages formatting for named extensions and wires lint-staged to pre-commit; EditorConfig names global and per-extension rules. Both raw counts are 1 pass/2 unknown, effective pass, basisValid/evidenceValid=true with no criterion reasons. No global absence of tools/configuration is asserted. Unknown batches are not evidence that project standards are absent. This proves availability of concrete checking methods, not that upstream commands/hooks were executed or every inherited rule is compatible.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 89,
+        "excerpt": "\"lint\": \"eslint src test debug compat hooks test-utils\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 112,
+        "excerpt": "\"no-unused-vars\": [\n        2,"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 151,
+        "excerpt": "\"pre-commit\": \"lint-staged\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/.editorconfig",
+        "lineNumber": 10,
+        "excerpt": "[{*.json,.*rc,*.yml}]\nindent_style = space\nindent_size = 2"
+      }
+    ]
+  },
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "no_invented_requirement_or_design_document",
+    "verdict": "true",
+    "reason": "Fresh independent verification matched all 233 retained reference objects: 124 distinct path/excerpt pairs across 19 selected files. Exact original excerpts, frozen content hashes and current imported artifact/version IDs agree; no nonexistent requirement/design document is cited. None of the retained references has a saved lineNumber; exact match lines were independently located. Diagnostics explicitly retain rejected nonexact/unknown-source citations in requirement business/scope and design scope, so valid filtered references do not imply raw-output or full semantic accuracy. Full checks and matched lines are recorded in readiness-preact-verification.json.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+        "lineNumber": 59,
+        "excerpt": "With Preact, you create user interfaces by assembling trees of components and elements."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+        "lineNumber": 71,
+        "excerpt": "## What does `options.js` do?"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/src/create-element.js",
+        "lineNumber": 11,
+        "excerpt": "export function createElement(type, props, children) {"
+      }
+    ]
+  },
+  {
+    "instanceId": "preactjs__preact-2757",
+    "id": "no_whole_repository_or_bug_free_certification",
+    "verdict": "true",
+    "reason": "The fresh completed job preserves incomplete Requirements and Design, with three evidence-needed findings for business decisions and requirements/design scope. Standards completed concerns original selected rules, not absence of code defects or whole-repository/runtime correctness. Repository completed denotes only the 21-file frozen selection. No retained finding/basis certifies a bug-free renderer, full external ecosystem or whole repository. No mixed raw pass/gap criterion or batch_status_conflict occurs. The prior quota-paused attempt with an older snapshot is explicitly excluded as current evidence. These seven partial assertions remain separate from full16 semantic accuracy and all Static Review acceptance.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/package.json",
+        "lineNumber": 6,
+        "excerpt": "\"description\": \"Fast 3kb React-compatible Virtual DOM library.\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/CONTRIBUTING.md",
+        "lineNumber": 22,
+        "excerpt": "src/  # Source code of our core"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/preact/README.md",
+        "lineNumber": 61,
+        "excerpt": "Future calls to render() will reuse the existing tree and update it in-place in the DOM."
+      }
+    ]
+  }
+]

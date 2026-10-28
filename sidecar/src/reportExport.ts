@@ -28,7 +28,17 @@ export function renderProjectReport(snapshot: ProjectReportSnapshot): string {
 }
 
 export function renderProjectReportJson(snapshot: ProjectReportSnapshot): string {
-  return canonicalJson(snapshot);
+  const compatibleSnapshot = snapshot.currentFindings === undefined
+    ? {
+      ...snapshot,
+      currentFindings: {
+        status: 'unavailable' as const,
+        reason: 'This legacy report snapshot has no reconciled current inventory.',
+        items: [],
+      },
+    }
+    : snapshot;
+  return canonicalJson(compatibleSnapshot);
 }
 
 export async function renderProjectReportFiles(snapshot: ProjectReportSnapshot): Promise<ProjectReportRenderings> {

@@ -1,10 +1,18 @@
 import crypto from 'node:crypto';
+import { analysisMapFromEvents } from './assessmentBatches.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
-import type { ReviewTraceabilityRecord } from './evidenceTypes.js';
+import type {
+  FrozenReviewGrounding,
+  ReviewTraceabilityMapping,
+  ReviewTraceabilityMetadata,
+  ReviewTraceabilityRecord,
+  ReviewTraceabilitySnapshot,
+  TraceabilityEvidenceStatus,
+} from './evidenceTypes.js';
 import { summarizeTraceability } from './traceabilitySummary.js';
-import type { EvidenceSufficiencyAssessment, EvidenceContradictionDisposition } from './evidenceSufficiency.js';
+import { mergeEvidenceSufficiencyAssessments, type EvidenceSufficiencyAssessment, type EvidenceContradictionDisposition } from './evidenceSufficiency.js';
 import type { FindingCorrelation, FindingCorrelationSnapshot, CorrelationAmbiguity, FindingResolutionEligibility } from './correlation.js';
 import type {
   ConfirmedRequirement,
@@ -24,6 +32,7 @@ import type {
   ReviewOperationRecord,
   ReviewProgressState,
   ReviewSourceManifestMode,
+  CaptureReviewTraceabilityInput,
   StaticReviewPatch,
   StaticReviewRecord,
   StaticReviewRepository,
@@ -159,6 +168,55 @@ function mapSnapshotArtifact(value: unknown): Artifact {
   };
 }
 
+function mapTraceabilitySnapshot(row: Row, reviewId = text(row, 'review_session_id'), projectId = text(row, 'project_id')): ReviewTraceabilitySnapshot {
+  const rawSummary = objectValue(row.summary);
+  const snapshotVersion = Number(rawSummary.snapshotVersion);
+  const inclusionBasis = rawSummary.inclusionBasis && typeof rawSummary.inclusionBasis === 'object'
+    ? structuredClone(rawSummary.inclusionBasis) as ReviewTraceabilityMetadata['inclusionBasis']
+    : null;
+  const grounding = rawSummary.grounding && typeof rawSummary.grounding === 'object'
+    ? structuredClone(rawSummary.grounding) as FrozenReviewGrounding
+    : null;
+  const metadata: ReviewTraceabilityMetadata | null = snapshotVersion === 2
+    ? {
+      snapshotVersion: 2,
+      sourceManifestId: nullableText(rawSummary, 'sourceManifestId'),
+      inclusionBasis,
+      grounding,
+      unavailableReason: nullableText(rawSummary, 'unavailableReason'),
+    }
+    : null;
+  const records = Array.isArray(row.records) ? structuredClone(row.records) as ReviewTraceabilityRecord[] : [];
+  const summaryValues = { ...rawSummary };
+  for (const key of ['snapshotVersion', 'sourceManifestId', 'inclusionBasis', 'grounding', 'unavailableReason']) delete summaryValues[key];
+  const summary = row.summary && typeof row.summary === 'object' && !Array.isArray(row.summary)
+    ? summaryValues as unknown as ReviewTraceabilitySnapshot['summary']
+    : null;
+  return {
+    sessionId: reviewId,
+    projectId,
+    status: text(row, 'status', 'unavailable') as ReviewTraceabilitySnapshot['status'],
+    records,
+    summary,
+    capturedAt: text(row, 'created_at'),
+    updatedAt: text(row, 'created_at'),
+    metadata,
+  };
+}
+
+function normalizedHash(value: string | null): string | null {
+  if (!value) return null;
+  return value.trim().replace(/^sha256:/i, '').toLowerCase();
+}
+
+function nonEmptyText(row: Row, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = nullableText(row, key);
+    if (value) return value;
+  }
+  return null;
+}
+
 function mapRequirementCandidate(row: Row): RequirementCandidate {
   return {
     id: text(row, 'id'),
@@ -223,12 +281,31 @@ function mapStandardRule(row: Row): StandardRule {
 
 function mapPersistedFinding(row: Row): PersistedReviewFinding {
   const location = objectValue(row.location);
+  const domain = ['security', 'business', 'technical', 'personnel'].includes(String(location.domain))
+    ? location.domain as PersistedReviewFinding['domain'] : undefined;
+  const issueType = typeof location.issueType === 'string' && /^[a-z][a-z0-9_]{1,79}$/.test(location.issueType) ? location.issueType : undefined;
+  const logicFlow = Array.isArray(location.logicFlow) && location.logicFlow.length <= 10
+    && location.logicFlow.every(item => typeof item === 'string' && item.trim() && item.length <= 500)
+    ? [...location.logicFlow] as string[] : undefined;
+  const relatedLocations = Array.isArray(location.relatedLocations) && location.relatedLocations.length <= 16
+    && location.relatedLocations.every(item => item && typeof item === 'object' && !Array.isArray(item)
+      && typeof item.filePath === 'string' && item.filePath.trim() && Number.isSafeInteger(item.lineNumber) && item.lineNumber > 0
+      && typeof item.evidence === 'string' && item.evidence.trim()
+      && (item.artifactId == null || typeof item.artifactId === 'string') && (item.sourceVersion == null || typeof item.sourceVersion === 'string'))
+    ? location.relatedLocations.map(item => ({ filePath: item.filePath, lineNumber: item.lineNumber, evidence: item.evidence,
+      ...(Object.hasOwn(item, 'artifactId') ? { artifactId: item.artifactId } : {}),
+      ...(Object.hasOwn(item, 'sourceVersion') ? { sourceVersion: item.sourceVersion } : {}),
+    })) as PersistedReviewFinding['relatedLocations'] : undefined;
   const source = text(row, 'verifier') === 'deterministic' ? 'deterministic' : 'model';
   return {
     id: text(row, 'id'),
     projectId: text(row, 'project_id'),
     reviewId: text(row, 'review_session_id'),
     source,
+    ...(domain ? { domain } : {}),
+    ...(issueType ? { issueType } : {}),
+    ...(logicFlow ? { logicFlow } : {}),
+    ...(relatedLocations ? { relatedLocations } : {}),
     title: text(row, 'title'),
     description: text(row, 'description'),
     severity: text(row, 'severity'),
@@ -256,7 +333,7 @@ function mapPersistedFinding(row: Row): PersistedReviewFinding {
 
 function mapResolutionEligibility(value: unknown): FindingResolutionEligibility | undefined {
   const row = objectValue(value);
-  if (row.version !== 1 || row.basis !== 'not_reproduced_in_comparable_review') return undefined;
+  if ((row.version !== 1 && row.version !== 2) || row.basis !== 'not_reproduced_in_comparable_review') return undefined;
   const parentSourceManifestId = typeof row.parentSourceManifestId === 'string' ? row.parentSourceManifestId : '';
   const sourceManifestId = typeof row.sourceManifestId === 'string' ? row.sourceManifestId : '';
   const reviewedArtifactId = typeof row.reviewedArtifactId === 'string' ? row.reviewedArtifactId : '';
@@ -264,9 +341,16 @@ function mapResolutionEligibility(value: unknown): FindingResolutionEligibility 
   const sourceIdentityHash = typeof row.sourceIdentityHash === 'string' ? row.sourceIdentityHash : '';
   const parentSourceVersion = typeof row.parentSourceVersion === 'string' ? row.parentSourceVersion : '';
   const reviewedSourceVersion = typeof row.reviewedSourceVersion === 'string' ? row.reviewedSourceVersion : '';
+  const location = objectValue(row.locationBasis);
   if (!parentSourceManifestId || !sourceManifestId || !reviewedArtifactId || !parentArtifactId || !sourceIdentityHash || !parentSourceVersion || !reviewedSourceVersion) return undefined;
   return {
-    version: 1,
+    version: row.version,
+    ...(row.version === 2 && typeof row.assessmentValidationVersion === 'string'
+      ? { assessmentValidationVersion: row.assessmentValidationVersion }
+      : {}),
+    ...(row.version === 2 && location.kind === 'exact_assessed_reference' && typeof location.filePath === 'string' && typeof location.lineNumber === 'number'
+      && Number.isInteger(location.lineNumber) && location.lineNumber > 0 && typeof location.sourceVersion === 'string' && typeof location.featureId === 'string' && typeof location.domain === 'string'
+      ? { locationBasis: { kind: 'exact_assessed_reference' as const, filePath: location.filePath, lineNumber: location.lineNumber, sourceVersion: location.sourceVersion, featureId: location.featureId, domain: location.domain } } : {}),
     basis: 'not_reproduced_in_comparable_review',
     parentSourceManifestId,
     sourceManifestId,
@@ -435,7 +519,22 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     return rows.filter(row => text(row, 'event_type').startsWith('harness_step_')
       || text(row, 'event_type') === 'model_attempt'
       || text(row, 'event_type') === 'review_analysis_map_saved'
-      || text(row, 'event_type') === 'review_retry_scheduled')
+      || text(row, 'event_type') === 'review_analysis_batch_saved'
+      || text(row, 'event_type') === 'review_analysis_batch_unverified'
+      || text(row, 'event_type') === 'review_assessment_validated'
+      || text(row, 'event_type') === 'review_retry_scheduled'
+      || text(row, 'event_type') === 'review_assessment_rejected'
+      || text(row, 'event_type') === 'review_assessment_repair_scheduled'
+      || text(row, 'event_type') === 'review_candidate_support_scheduled'
+      || text(row, 'event_type') === 'review_candidate_support_incomplete'
+      || text(row, 'event_type') === 'review_candidate_support_saved'
+      || text(row, 'event_type') === 'review_candidate_support_limited'
+      || text(row, 'event_type') === 'review_candidate_support_conflict'
+      || text(row, 'event_type') === 'review_batch_needs_verification'
+      || text(row, 'event_type') === 'review_batch_cache_reused'
+      || text(row, 'event_type') === 'review_batch_cache_rejected'
+      || text(row, 'event_type') === 'review_source_batches_finished'
+      || text(row, 'event_type') === 'review_batches_planned')
       .map(row => {
         const payload = objectValue(row.payload);
         return { id: text(row, 'id'), projectId, reviewId, event: text(row, 'event_type'), stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: objectValue(payload.detail), createdAt: text(row, 'created_at') };
@@ -446,6 +545,19 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     const rows = await this.allRows('review_sessions', 'review list', query => query.select('*')
       .eq('project_id', projectId).order('created_at', { ascending: false }).order('id'));
     return rows.map(mapReview);
+  }
+
+  /** Directory rows need identity/lifecycle only; never fetch scope, prompts,
+   * saved summaries, or the potentially large progress history for every Review. */
+  async listReviewSummaries(projectId: string): Promise<StaticReviewRecord[]> {
+    const rows = await this.allRows('review_sessions', 'review summary list', query => query
+      .select('id,project_id,name,review_type,status,failure_reason,created_at,updated_at,progress_stage:progress->>stage')
+      .eq('project_id', projectId).order('created_at', { ascending: false }).order('id'));
+    return rows.map(row => mapReview({
+      id: row.id, project_id: row.project_id, name: row.name, review_type: row.review_type,
+      status: row.status, failure_reason: row.failure_reason, created_at: row.created_at, updated_at: row.updated_at,
+      progress: row.progress_stage ? { stage: row.progress_stage } : null,
+    }));
   }
 
   async listActiveReviews(): Promise<StaticReviewRecord[]> {
@@ -549,29 +661,186 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     return artifacts ? artifacts.map(mapSnapshotArtifact) : null;
   }
 
+  async captureTraceabilitySnapshot(reviewId: string, projectId: string, input: CaptureReviewTraceabilityInput): Promise<ReviewTraceabilitySnapshot> {
+    const existing = await this.from('review_traceability_snapshots').select('*').eq('review_session_id', reviewId).maybeSingle();
+    if (existing.error) throw errorFor('traceability snapshot lookup', existing.error);
+    if (existing.data) return mapTraceabilitySnapshot(asRow(existing.data), reviewId, projectId);
+
+    const capturedAt = new Date().toISOString();
+    const signal = input.signal;
+    let snapshot: ReviewTraceabilitySnapshot;
+    if (input.reuseFromReviewId) {
+      const inherited = await this.getTraceabilitySnapshot(input.reuseFromReviewId);
+      if (inherited?.metadata?.snapshotVersion === 2) {
+        snapshot = { ...structuredClone(inherited), sessionId: reviewId, projectId };
+      } else {
+        snapshot = {
+          sessionId: reviewId, projectId, status: 'unavailable', records: [],
+          summary: { complete: 0, incomplete: 0, missing: 0, attention: 0, unavailable: 0 },
+          capturedAt, updatedAt: capturedAt,
+          metadata: {
+            snapshotVersion: 2,
+            sourceManifestId: input.sourceManifestId,
+            inclusionBasis: null,
+            grounding: null,
+            unavailableReason: inherited ? 'legacy_parent_context_unavailable' : 'frozen_parent_context_unavailable',
+          },
+        };
+      }
+      await this.insertTraceabilitySnapshot(snapshot);
+      return structuredClone(snapshot);
+    }
+
+    const requirements = input.grounding?.confirmedRequirements
+      ?? await this.listConfirmedRequirements(projectId, input.scope.requirementIds, signal);
+    const enabledStandardRules = input.grounding?.enabledStandardRules
+      ?? (await this.listStandardRules(projectId, input.scope.standardIds, signal)).filter(rule => rule.enabled);
+    const selectedRequirementSet = input.scope.requirementIds?.length ? new Set(input.scope.requirementIds) : null;
+    const selectedRequirements = requirements.filter(item => !selectedRequirementSet || selectedRequirementSet.has(item.id));
+    const requirementsById = new Map(selectedRequirements.map(item => [item.id, item]));
+    const explicitRequirementIds = input.scope.requirementIds?.length ? [...input.scope.requirementIds] : null;
+    const selectedRequirementIds = explicitRequirementIds ?? selectedRequirements.map(item => item.id);
+    const explicitArtifactIds = input.scope.artifactIds?.length ? [...input.scope.artifactIds] : null;
+    const selectedArtifactIds = explicitArtifactIds ?? input.artifacts.map(item => item.id);
+    const artifactsById = new Map(input.artifacts.map(item => [item.id, item]));
+    const unavailableArtifactIds = new Set(input.unavailableArtifactIds ?? []);
+    const records: ReviewTraceabilityRecord[] = [];
+
+    for (const requirementId of selectedRequirementIds) {
+      signal?.throwIfAborted();
+      const requirement = requirementsById.get(requirementId);
+      if (!requirement) {
+        records.push({
+          requirementId, title: '', description: '', category: '', state: 'incomplete',
+          mappingIds: [], sourceArtifactIds: [], sourceSymbolIds: [], confidence: null,
+          capturedAt, evidenceStatus: 'unavailable', evidenceReason: 'selected_requirement_unavailable_at_capture', mappings: [],
+        });
+        continue;
+      }
+
+      const rows = await this.allRows('requirement_mappings', 'traceability mappings query', query =>
+        query.select('*').eq('requirement_id', requirement.id).order('id'), signal);
+      const mappings: ReviewTraceabilityMapping[] = [];
+      for (const row of rows) {
+        const artifactId = nullableText(row, 'artifact_id');
+        const fileId = nullableText(row, 'file_id');
+        const targetArtifactId = artifactId ?? fileId;
+        // An explicit artifact scope excludes known mappings to other files.
+        if (explicitArtifactIds && targetArtifactId && !explicitArtifactIds.includes(targetArtifactId)) continue;
+        const targetConflict = Boolean(artifactId && fileId && artifactId !== fileId);
+        const target = targetArtifactId ? artifactsById.get(targetArtifactId) : undefined;
+        const mappingVersionId = nonEmptyText(row, ['artifact_version_id', 'mapped_version_id']);
+        const mappingContentHash = nonEmptyText(row, ['source_version', 'content_hash']);
+        let evidenceStatus: TraceabilityEvidenceStatus = 'unavailable';
+        let evidenceReason: string | null = null;
+        if (targetConflict) evidenceReason = 'mapping_target_identity_conflict';
+        else if (!targetArtifactId) evidenceReason = 'mapping_target_missing';
+        else if (!target) evidenceReason = 'target_not_in_reviewed_scope';
+        else if (unavailableArtifactIds.has(target.id)) evidenceReason = 'reviewed_target_unreadable';
+        else if (!target.versionId && !target.contentHash) evidenceReason = 'reviewed_target_version_missing';
+        else if (!mappingVersionId && !mappingContentHash) evidenceReason = 'mapping_version_proof_missing';
+        else {
+          const versionMatches = !mappingVersionId || (target.versionId != null && mappingVersionId === target.versionId);
+          const hashMatches = !mappingContentHash || normalizedHash(mappingContentHash) === normalizedHash(target.contentHash);
+          if (!versionMatches || !hashMatches) {
+            evidenceStatus = 'stale';
+            evidenceReason = 'mapping_version_does_not_match_reviewed_source';
+          } else {
+            evidenceStatus = 'verified';
+          }
+        }
+        mappings.push({
+          id: text(row, 'id'),
+          targetArtifactId,
+          targetSymbolId: nullableText(row, 'symbol_id'),
+          coverageStatus: text(row, 'coverage_status', 'unknown').trim().toLowerCase(),
+          confidence: row.confidence == null ? null : Number(row.confidence),
+          mappingVersionId,
+          mappingContentHash,
+          reviewedVersionId: target?.versionId ?? null,
+          reviewedContentHash: target?.contentHash ?? null,
+          evidenceStatus,
+          evidenceReason,
+        });
+      }
+      const complete = mappings.length > 0 && mappings.every(item => item.evidenceStatus === 'verified'
+        && /^(complete|covered|verified|full|pass|passed|fully[_ -]?covered)$/.test(item.coverageStatus));
+      const state: ReviewTraceabilityRecord['state'] = mappings.length === 0 ? 'missing' : complete ? 'complete' : 'incomplete';
+      const confidenceValues = mappings.map(item => item.confidence).filter((value): value is number => value !== null && Number.isFinite(value));
+      const unavailable = mappings.find(item => item.evidenceStatus !== 'verified');
+      records.push({
+        requirementId: requirement.id,
+        title: requirement.title,
+        description: requirement.description,
+        category: requirement.category,
+        state,
+        mappingIds: mappings.map(item => item.id),
+        sourceArtifactIds: Array.from(new Set(mappings.flatMap(item => item.targetArtifactId ? [item.targetArtifactId] : []))),
+        sourceSymbolIds: Array.from(new Set(mappings.flatMap(item => item.targetSymbolId ? [item.targetSymbolId] : []))),
+        confidence: confidenceValues.length ? Math.min(...confidenceValues) : null,
+        capturedAt,
+        ...(unavailable ? { evidenceStatus: unavailable.evidenceStatus, evidenceReason: unavailable.evidenceReason } : { evidenceStatus: 'verified' as const }),
+        mappings,
+      });
+    }
+
+    const summary = summarizeTraceability(records);
+    summary.unavailable = records.filter(item => item.evidenceStatus === 'stale' || item.evidenceStatus === 'unavailable').length;
+    const metadata: ReviewTraceabilityMetadata = {
+      snapshotVersion: 2,
+      sourceManifestId: input.sourceManifestId,
+      inclusionBasis: {
+        requirementSelection: explicitRequirementIds ? 'explicit' : 'project',
+        artifactSelection: explicitArtifactIds ? 'explicit' : 'full_manifest',
+        selectedRequirementIds,
+        selectedArtifactIds,
+        sourceManifestId: input.sourceManifestId,
+      },
+      grounding: structuredClone({ confirmedRequirements: selectedRequirements, enabledStandardRules }),
+      unavailableReason: null,
+    };
+    snapshot = { sessionId: reviewId, projectId, status: 'available', records, summary, capturedAt, updatedAt: capturedAt, metadata };
+    await this.insertTraceabilitySnapshot(snapshot);
+    return structuredClone(snapshot);
+  }
+
+  async getTraceabilitySnapshot(reviewId: string): Promise<ReviewTraceabilitySnapshot | null> {
+    const result = await this.from('review_traceability_snapshots').select('*').eq('review_session_id', reviewId).maybeSingle();
+    if (result.error) throw errorFor('traceability snapshot lookup', result.error);
+    return result.data ? mapTraceabilitySnapshot(asRow(result.data), reviewId) : null;
+  }
+
+  private async insertTraceabilitySnapshot(snapshot: ReviewTraceabilitySnapshot): Promise<void> {
+    const summary = {
+      ...(snapshot.summary ?? { complete: 0, incomplete: 0, missing: 0, attention: 0 }),
+      ...(snapshot.metadata ?? {}),
+    };
+    const result = await this.from('review_traceability_snapshots').insert({
+      project_id: snapshot.projectId,
+      review_session_id: snapshot.sessionId,
+      status: snapshot.status,
+      records: snapshot.records,
+      summary,
+      created_at: snapshot.capturedAt,
+    });
+    if (result.error) throw errorFor('traceability snapshot save', result.error);
+  }
+
   async saveTraceabilitySnapshot(reviewId: string, projectId: string): Promise<void> {
     const existing = await this.from('review_traceability_snapshots').select('id').eq('review_session_id', reviewId).maybeSingle();
     if (existing.error) throw errorFor('traceability snapshot lookup', existing.error);
     if (existing.data) return;
-    const requirements = await this.allRows('requirements', 'traceability requirements query', query =>
-      query.select('id,title,description,category').eq('project_id', projectId).order('created_at').order('id'));
     const capturedAt = new Date().toISOString();
-    const records: ReviewTraceabilityRecord[] = [];
-    for (const req of requirements) {
-      const rows = await this.allRows('requirement_mappings', 'traceability mappings query', query =>
-        query.select('id,file_id,symbol_id,coverage_status,confidence').eq('requirement_id', req.id).order('id'));
-      const normalized = rows.map(value => {
-        const row = asRow(value);
-        return { id: text(row, 'id'), fileId: nullableText(row, 'file_id'), symbolId: nullableText(row, 'symbol_id'), coverage: text(row, 'coverage_status').trim().toLowerCase(), confidence: Number(row.confidence) };
-      });
-      const complete = normalized.length > 0 && normalized.every(item => /^(complete|covered|verified|full|pass|passed|fully[_ -]?covered)$/.test(item.coverage));
-      const state: ReviewTraceabilityRecord['state'] = normalized.length === 0 ? 'missing' : complete ? 'complete' : 'incomplete';
-      const confidenceValues = normalized.map(item => item.confidence).filter(Number.isFinite);
-      records.push({ requirementId: text(req, 'id'), title: text(req, 'title'), description: text(req, 'description'), category: text(req, 'category'), state, mappingIds: normalized.map(item => item.id), sourceArtifactIds: Array.from(new Set(normalized.flatMap(item => item.fileId ? [item.fileId] : []))), sourceSymbolIds: Array.from(new Set(normalized.flatMap(item => item.symbolId ? [item.symbolId] : []))), confidence: confidenceValues.length ? Math.min(...confidenceValues) : null, capturedAt });
-    }
-    const summary = summarizeTraceability(records);
-    const result = await this.from('review_traceability_snapshots').insert({ project_id: projectId, review_session_id: reviewId, status: 'available', records, summary, created_at: capturedAt });
-    if (result.error) throw errorFor('traceability snapshot save', result.error);
+    await this.insertTraceabilitySnapshot({
+      sessionId: reviewId,
+      projectId,
+      status: 'unavailable',
+      records: [],
+      summary: { complete: 0, incomplete: 0, missing: 0, attention: 0, unavailable: 0 },
+      capturedAt,
+      updatedAt: capturedAt,
+      metadata: { snapshotVersion: 2, sourceManifestId: null, inclusionBasis: null, grounding: null, unavailableReason: 'frozen_context_not_provided' },
+    });
   }
 
   async getLatestDecision(reviewId: string): Promise<StaticReviewDecision | null> {
@@ -634,6 +903,22 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       created_at: assessment.assessedAt,
     }, { onConflict: 'review_session_id', ignoreDuplicates: true });
     if (result.error) throw errorFor('evidence sufficiency save', result.error);
+  }
+
+  async appendEvidenceSufficiency(assessment: EvidenceSufficiencyAssessment): Promise<EvidenceSufficiencyAssessment> {
+    const review = await this.getReview(assessment.reviewId);
+    if (review?.status !== 'running') throw new Error('Evidence sufficiency is immutable after Review execution ends.');
+    const frozen = await this.getEvidenceSufficiency(assessment.reviewId);
+    if (!frozen) throw new Error('The frozen evidence sufficiency assessment is unavailable.');
+    const merged = mergeEvidenceSufficiencyAssessments(frozen, assessment);
+    const result = await this.from('review_evidence_assessments').update({
+      id: merged.id,
+      readiness: merged.readiness,
+      assessment: merged,
+      created_at: merged.assessedAt,
+    }).eq('review_session_id', assessment.reviewId).select('review_session_id').maybeSingle();
+    if (result.error || !result.data) throw errorFor('evidence sufficiency append', result.error ?? new Error('assessment changed concurrently'));
+    return merged;
   }
 
   async getEvidenceSufficiency(reviewId: string): Promise<EvidenceSufficiencyAssessment | null> {
@@ -757,6 +1042,12 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     const rows = await this.allRows('findings', 'review findings list', query => query.select('*')
       .eq('review_session_id', reviewId).order('created_at').order('id'));
     return rows.map(mapPersistedFinding);
+  }
+  async getBatchCacheBasis(reviewId: string) {
+    const review = await this.getReview(reviewId);
+    if (!review || !['blocked', 'failed', 'cancelled', 'pending_approval', 'completed', 'approved', 'changes_requested'].includes(review.status)) return null;
+    const analysisMap = analysisMapFromEvents(await this.getHarnessEvents(review.projectId, reviewId));
+    return analysisMap ? { reviewId, projectId: review.projectId, analysisMap, findings: await this.listReviewFindings(reviewId) } : null;
   }
 
   async saveRequirementCandidates(drafts: RequirementCandidateDraft[]): Promise<RequirementCandidate[]> {
@@ -949,12 +1240,20 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
   }
 
   async saveFinding(finding: PersistedReviewFinding): Promise<void> {
+    const uncertain = (locator: unknown) => objectValue(objectValue(locator).citationEvidence).verification === 'needs_verification';
     const existing = finding.fingerprint
-      ? await this.from('findings').select('id').eq('review_session_id', finding.reviewId).eq('correlation_fingerprint', finding.fingerprint).maybeSingle()
-      : { data: null, error: null };
-    if (existing.error) throw errorFor('finding idempotency lookup', existing.error);
+      ? await this.allRows('findings', 'finding idempotency lookup', query => query.select('id,verifier,source_locator')
+        .eq('project_id', finding.projectId).eq('review_session_id', finding.reviewId)
+        .eq('correlation_fingerprint', finding.fingerprint).eq('verifier', finding.source).order('id'))
+      : [];
+    // Preserve the stable correlation fingerprint, while keeping independent
+    // verifier/uncertainty observations from overwriting each other's evidence.
+    const existingObservations = existing.filter(row =>
+      row.verifier === finding.source && uncertain(row.source_locator) === uncertain(finding.sourceLocator));
+    if (existingObservations.length > 1) throw new Error('Finding observation identity is ambiguous; saved evidence was not overwritten.');
+    const existingObservation = existingObservations[0];
     const row: Row = {
-      id: existing.data ? String((existing.data as Row).id) : finding.id,
+      id: existingObservation ? String(existingObservation.id) : finding.id,
       project_id: finding.projectId,
       review_session_id: finding.reviewId,
       source: 'static',
@@ -978,6 +1277,10 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       source_version: finding.sourceVersion ?? null,
       source_locator: finding.sourceLocator ?? {},
       location: {
+        domain: finding.domain ?? null,
+        issueType: finding.issueType ?? null,
+        logicFlow: finding.logicFlow ?? [],
+        relatedLocations: finding.relatedLocations ?? [],
         filePath: finding.filePath,
         lineNumber: finding.lineNumber,
         ruleId: finding.ruleId ?? null,
@@ -1029,6 +1332,13 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
         scope: 'text',
         statusCode: record.statusCode ?? null,
         retryAfterMs: record.retryAfterMs ?? null,
+        providerReportedTotalTokens: record.usage?.providerReportedTotalTokens ?? null,
+        normalizedTotalTokens: record.usage?.totalTokens ?? null,
+        normalizedTotalTokensSource: record.usage?.totalTokensSource ?? null,
+        responseReceived: record.responseReceived ?? null,
+        usageObservation: record.usageObservation ?? record.usage?.usageObservation ?? null,
+        usageAccounting: record.usageAccounting ?? null,
+        usageContext: record.usageContext ?? null,
       },
       created_at: record.createdAt,
     }, { onConflict: 'id' }));
@@ -1042,8 +1352,14 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
   }
 
   async recordAudit(event: ReviewAuditEvent): Promise<void> {
-    const id = event.id ?? stableUuid(`${event.reviewId}\u0000${event.event}\u0000${event.stage ?? ''}\u0000${event.createdAt}\u0000${JSON.stringify(event.detail ?? {})}`);
-    await this.externalRequest('review audit save', () => this.from('audit_events').upsert({ id, project_id: event.projectId, actor_id: this.actorId ?? null, event_type: event.event, entity_type: 'review', entity_id: event.reviewId, payload: { stage: event.stage ?? null, detail: event.detail ?? {} }, created_at: event.createdAt }, { onConflict: 'id' }));
+    await this.recordAudits([event]);
+  }
+
+  async recordAudits(events: ReviewAuditEvent[]): Promise<void> {
+    if (events.length > 256) throw new Error('Review audit write exceeds its bounded batch.');
+    if (!events.length) return;
+    const rows = events.map(event => ({ id: event.id ?? stableUuid(`${event.reviewId}\u0000${event.event}\u0000${event.stage ?? ''}\u0000${event.createdAt}\u0000${JSON.stringify(event.detail ?? {})}`), project_id: event.projectId, actor_id: this.actorId ?? null, event_type: event.event, entity_type: 'review', entity_id: event.reviewId, payload: { stage: event.stage ?? null, detail: event.detail ?? {} }, created_at: event.createdAt }));
+    await this.externalRequest('review audit save', () => this.from('audit_events').upsert(rows, { onConflict: 'id' }));
   }
 }
 

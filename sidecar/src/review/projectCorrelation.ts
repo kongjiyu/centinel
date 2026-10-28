@@ -19,6 +19,7 @@ export function correlateProjectReview(input: {
   manifests: Map<string, Artifact[] | null>;
   evaluated: Array<{ artifact: Artifact; readable: boolean }>;
   modelPolicyVersion: string;
+  assessmentValidation?: FindingResolutionContext['assessmentValidation'];
 }): FindingCorrelationSnapshot | null {
   const { review } = input;
   const explicitParentId = review.iteration?.parentReviewId ?? review.lineage.parentReviewId;
@@ -64,6 +65,7 @@ export function correlateProjectReview(input: {
       const context: FindingResolutionContext | undefined = parent.modelStatus === 'succeeded' && parent.progress?.stage === 'complete'
         && parent.config.modelPolicyVersion === input.modelPolicyVersion
         && review.config.modelPolicyVersion === input.modelPolicyVersion ? {
+          assessmentValidation: input.assessmentValidation,
           modelStatus: input.modelStatus, parentSourceManifestId: parent.sourceManifestId, sourceManifestId: input.sourceManifestId,
           allSourcesReadable: input.evaluated.length > 0 && input.evaluated.every(item => item.readable),
           parentSourceArtifacts: (parent.sourceManifestId ? input.manifests.get(parent.sourceManifestId) ?? [] : []).map(source),

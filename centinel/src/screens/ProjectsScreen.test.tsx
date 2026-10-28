@@ -11,7 +11,7 @@ vi.mock('../api/client', () => ({
   api: {
     listStaticSessions: vi.fn(),
     listDynamicSessions: vi.fn(),
-    listArtifacts: vi.fn(),
+    listArtifacts: vi.fn(), getSourcePresence: vi.fn(),
   },
 }));
 
@@ -21,7 +21,7 @@ describe('Project creation', () => {
     folderPicker.mockReset();
     vi.mocked(api.listStaticSessions).mockResolvedValue([]);
     vi.mocked(api.listDynamicSessions).mockResolvedValue([]);
-    vi.mocked(api.listArtifacts).mockResolvedValue([]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: false });
   });
 
   it('submits the chosen workspace and preserves values when creation fails', async () => {
@@ -139,17 +139,7 @@ describe('Project directory', () => {
     window.localStorage.clear();
     vi.mocked(api.listStaticSessions).mockImplementation(async projectId => projectId === 'review-project' ? [review] : []);
     vi.mocked(api.listDynamicSessions).mockImplementation(async projectId => projectId === 'dynamic-project' ? [test] : []);
-    vi.mocked(api.listArtifacts).mockImplementation(async projectId => [{
-      id: `artifact-${projectId}`,
-      projectId,
-      type: 'source_code',
-      source: 'documents',
-      fileName: 'source.ts',
-      filePath: `C:/work/${projectId}/source.ts`,
-      originalPath: null,
-      contentHash: projectId,
-      createdAt: '2026-09-01T08:00:00.000Z',
-    }]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
   });
 
   it('uses the shared table and honors carried state and activity filters', async () => {

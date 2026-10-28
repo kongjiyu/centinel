@@ -1,0 +1,1051 @@
+{
+  "schemaVersion": "public-repo-review-independent-adjudication-v1",
+  "instanceId": "axios__axios-4738",
+  "reviewId": "4cf606de-7bc7-482d-aee2-8df0f3cbdb97",
+  "runDirectory": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-24T15-46-37-089Z",
+  "policyVersion": "review-2026-10-24-batch-domain-coverage-v9",
+  "workflowStatus": "pending_approval",
+  "modelStatus": "succeeded",
+  "workflowAcceptance": "NOT_ACCEPTED",
+  "claims": [
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "9ace7df5-7105-45ac-9f9f-61410d4646d6",
+      "origin": "model",
+      "claimKey": "axios:interceptor-clear-type-omission",
+      "verdict": "true",
+      "claim": "The documented runtime interceptor clear method is absent from AxiosInterceptorManager types.",
+      "reason": "README explicitly calls both clear methods. The runtime manager implements clear, while the complete declared interface contains only use/eject; the request/response interceptor properties are typed by that interface. TypeScript cannot resolve clear on those declared properties. This is a type/API mismatch, not a missing runtime implementation.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 651,
+          "excerpt": "You can also clear all interceptors for requests or responses.\n```js\nconst instance = axios.create();\ninstance.interceptors.request.use(function () {/*...*/});\ninstance.interceptors.request.clear(); // Removes interceptors from requests\ninstance.interceptors.response.use(function () {/*...*/});\ninstance.interceptors.response.clear(); // Removes interceptors from responses\n```"
+        },
+        {
+          "filePath": "index.d.ts",
+          "lineNumber": 268,
+          "excerpt": "export interface AxiosInterceptorManager<V> {\n  use<T = V>(onFulfilled?: (value: V) => T | Promise<T>, onRejected?: (error: any) => any, options?: AxiosInterceptorOptions): number;\n  eject(id: number): void;\n}\n\nexport class Axios {\n  constructor(config?: AxiosRequestConfig);\n  defaults: AxiosDefaults;\n  interceptors: {\n    request: AxiosInterceptorManager<AxiosRequestConfig>;\n    response: AxiosInterceptorManager<AxiosResponse>;\n  };"
+        },
+        {
+          "filePath": "lib/core/InterceptorManager.js",
+          "lineNumber": 38,
+          "excerpt": "/**\n * Clear all interceptors from the stack\n */\nInterceptorManager.prototype.clear = function clear() {\n  if (this.handlers) {\n    this.handlers = [];\n  }\n};"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "ea535736-8514-4883-85cb-bdec2fea1acd",
+      "origin": "model",
+      "claimKey": "axios:callable-instance-nested-response-type",
+      "verdict": "true",
+      "claim": "Default callable AxiosInstance overloads wrap the response type twice.",
+      "reason": "AxiosPromise<T> is Promise<AxiosResponse<T>>. Substituting the callable default R=AxiosResponse<T> into AxiosPromise<R> yields the nested response, whereas Axios.request returns Promise<R>. Runtime createInstance binds request, so callable and method returns share the runtime shape. The declared data type therefore differs from that runtime contract.",
+      "sourceEvidence": [
+        {
+          "filePath": "index.d.ts",
+          "lineNumber": 190,
+          "excerpt": "export interface AxiosResponse<T = any, D = any>  {\n  data: T;\n  status: number;\n  statusText: string;\n  headers: AxiosResponseHeaders;\n  config: AxiosRequestConfig<D>;\n  request?: any;\n}"
+        },
+        {
+          "filePath": "index.d.ts",
+          "lineNumber": 233,
+          "excerpt": "export type AxiosPromise<T = any> = Promise<AxiosResponse<T>>;"
+        },
+        {
+          "filePath": "index.d.ts",
+          "lineNumber": 280,
+          "excerpt": "  getUri(config?: AxiosRequestConfig): string;\n  request<T = any, R = AxiosResponse<T>, D = any>(config: AxiosRequestConfig<D>): Promise<R>;\n  get<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;\n  delete<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;\n  head<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;\n  options<T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): Promise<R>;\n  post<T = any, R = AxiosResponse<T>, D = any>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<R>;\n  put<T = any, R = AxiosResponse<T>, D = any>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<R>;\n  patch<T = any, R = AxiosResponse<T>, D = any>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<R>;\n  postForm<T = any, R = AxiosResponse<T>, D = any>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<R>;\n  putForm<T = any, R = AxiosResponse<T>, D = any>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<R>;\n  patchForm<T = any, R = AxiosResponse<T>, D = any>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<R>;\n}\n\nexport interface AxiosInstance extends Axios {\n  <T = any, R = AxiosResponse<T>, D = any>(config: AxiosRequestConfig<D>): AxiosPromise<R>;\n  <T = any, R = AxiosResponse<T>, D = any>(url: string, config?: AxiosRequestConfig<D>): AxiosPromise<R>;"
+        },
+        {
+          "filePath": "lib/axios.js",
+          "lineNumber": 15,
+          "excerpt": "function createInstance(defaultConfig) {\n  var context = new Axios(defaultConfig);\n  var instance = bind(Axios.prototype.request, context);\n\n  // Copy axios.prototype to instance\n  utils.extend(instance, Axios.prototype, context);\n\n  // Copy context to instance\n  utils.extend(instance, context);"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 532,
+          "excerpt": "  // `data` is the response that was provided by the server\n  data: {},\n\n  // `status` is the HTTP status code from the server response\n  status: 200,\n\n  // `statusText` is the HTTP status message from the server response\n  statusText: 'OK',\n\n  // `headers` the HTTP headers that the server responded with\n  // All header names are lowercase and can be accessed using the bracket notation.\n  // Example: `response.headers['content-type']`\n  headers: {},\n\n  // `config` is the config that was provided to `axios` for the request\n  config: {},"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "2fa8b2a6-6191-4fd6-bea8-a864aaa7a760",
+      "origin": "model",
+      "claimKey": "axios:extend-target-prototype-mutation",
+      "verdict": "true",
+      "claim": "extend can mutate an ordinary destination prototype through an own enumerable __proto__ source key.",
+      "reason": "forEach admits own enumerable keys and extend assigns their values without filtering. An object-valued own __proto__ data property reaches the inherited setter on an ordinary destination. This is target-local mutation, not global Object.prototype pollution. Selected createInstance calls copy Axios.prototype and a constructed context, so an external untrusted request exploit is not established and receives no credit.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 256,
+          "excerpt": "function forEach(obj, fn) {\n  // Don't bother if no value provided\n  if (obj === null || typeof obj === 'undefined') {\n    return;\n  }\n\n  // Force an array if not already something iterable\n  if (typeof obj !== 'object') {\n    /*eslint no-param-reassign:0*/\n    obj = [obj];\n  }\n\n  if (isArray(obj)) {\n    // Iterate over array values\n    for (var i = 0, l = obj.length; i < l; i++) {\n      fn.call(null, obj[i], i, obj);\n    }\n  } else {\n    // Iterate over object keys\n    for (var key in obj) {\n      if (Object.prototype.hasOwnProperty.call(obj, key)) {\n        fn.call(null, obj[key], key, obj);\n      }\n    }\n  }"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 328,
+          "excerpt": "function extend(a, b, thisArg) {\n  forEach(b, function assignValue(val, key) {\n    if (thisArg && typeof val === 'function') {\n      a[key] = bind(val, thisArg);\n    } else {\n      a[key] = val;\n    }\n  });\n  return a;\n}"
+        },
+        {
+          "filePath": "lib/axios.js",
+          "lineNumber": 15,
+          "excerpt": "function createInstance(defaultConfig) {\n  var context = new Axios(defaultConfig);\n  var instance = bind(Axios.prototype.request, context);\n\n  // Copy axios.prototype to instance\n  utils.extend(instance, Axios.prototype, context);\n\n  // Copy context to instance\n  utils.extend(instance, context);"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "fafdb43d-c40a-4c4d-8e7e-cbaab198bfa4",
+      "origin": "model",
+      "claimKey": "axios:extend-target-prototype-mutation",
+      "verdict": "true",
+      "claim": "extend can mutate an ordinary destination prototype through an own enumerable __proto__ source key.",
+      "reason": "forEach admits own enumerable keys and extend assigns their values without filtering. An object-valued own __proto__ data property reaches the inherited setter on an ordinary destination. This is target-local mutation, not global Object.prototype pollution. Selected createInstance calls copy Axios.prototype and a constructed context, so an external untrusted request exploit is not established and receives no credit.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 256,
+          "excerpt": "function forEach(obj, fn) {\n  // Don't bother if no value provided\n  if (obj === null || typeof obj === 'undefined') {\n    return;\n  }\n\n  // Force an array if not already something iterable\n  if (typeof obj !== 'object') {\n    /*eslint no-param-reassign:0*/\n    obj = [obj];\n  }\n\n  if (isArray(obj)) {\n    // Iterate over array values\n    for (var i = 0, l = obj.length; i < l; i++) {\n      fn.call(null, obj[i], i, obj);\n    }\n  } else {\n    // Iterate over object keys\n    for (var key in obj) {\n      if (Object.prototype.hasOwnProperty.call(obj, key)) {\n        fn.call(null, obj[key], key, obj);\n      }\n    }\n  }"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 328,
+          "excerpt": "function extend(a, b, thisArg) {\n  forEach(b, function assignValue(val, key) {\n    if (thisArg && typeof val === 'function') {\n      a[key] = bind(val, thisArg);\n    } else {\n      a[key] = val;\n    }\n  });\n  return a;\n}"
+        },
+        {
+          "filePath": "lib/axios.js",
+          "lineNumber": 15,
+          "excerpt": "function createInstance(defaultConfig) {\n  var context = new Axios(defaultConfig);\n  var instance = bind(Axios.prototype.request, context);\n\n  // Copy axios.prototype to instance\n  utils.extend(instance, Axios.prototype, context);\n\n  // Copy context to instance\n  utils.extend(instance, context);"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "9d8aee64-a71f-4aaa-b382-f1cfc5a0b8af",
+      "origin": "model",
+      "claimKey": "axios:toarray-invalid-length",
+      "verdict": "true",
+      "claim": "Malformed numeric array-like lengths can throw RangeError rather than return null.",
+      "reason": "Only numeric type is checked before Array(length); negative, fractional, non-finite or above-maximum array lengths violate the constructor contract. toFormData reaches this helper for an object-valued top-level [] field; the public toFormData export makes that path available. Valid ordinary arrays bypass this allocation. This is the malformed-length failure, not proof of resource exhaustion.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 419,
+          "excerpt": "/**\n * Returns new array from array like object or null if failed\n * @param {*} [thing]\n * @returns {?Array}\n */\nfunction toArray(thing) {\n  if (!thing) return null;\n  if (isArray(thing)) return thing;\n  var i = thing.length;\n  if (!isNumber(i)) return null;\n  var arr = new Array(i);\n  while (i-- > 0) {\n    arr[i] = thing[i];\n  }\n  return arr;\n}"
+        },
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 104,
+          "excerpt": "  function defaultVisitor(value, key, path) {\n    var arr = value;\n\n    if (value && !path && typeof value === 'object') {\n      if (utils.endsWith(key, '{}')) {\n        // eslint-disable-next-line no-param-reassign\n        key = metaTokens ? key : key.slice(0, -2);\n        // eslint-disable-next-line no-param-reassign\n        value = JSON.stringify(value);\n      } else if (\n        (utils.isArray(value) && isFlatArray(value)) ||\n        (utils.isFileList(value) || utils.endsWith(key, '[]') && (arr = utils.toArray(value))\n        )) {\n        // eslint-disable-next-line no-param-reassign\n        key = removeBrackets(key);\n\n        arr.forEach(function each(el, index) {\n          !utils.isUndefined(el) && formData.append(\n            // eslint-disable-next-line no-nested-ternary\n            indexes === true ? renderKey([key], index, dots) : (indexes === null ? key : key + '[]'),\n            convertValue(el)\n          );\n        });\n        return false;\n      }"
+        },
+        {
+          "filePath": "lib/axios.js",
+          "lineNumber": 40,
+          "excerpt": "axios.CanceledError = require('./cancel/CanceledError');\naxios.CancelToken = require('./cancel/CancelToken');\naxios.isCancel = require('./cancel/isCancel');\naxios.VERSION = require('./env/data').version;\naxios.toFormData = require('./helpers/toFormData');"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "9d8aee64-a71f-4aaa-b382-f1cfc5a0b8af",
+      "origin": "model",
+      "claimKey": "axios:toarray-resource-exhaustion",
+      "verdict": "unknown",
+      "claim": "Large accepted lengths can exhaust memory or other application resources.",
+      "reason": "Array(length) may allocate sparse storage; source alone does not establish engine allocation strategy, failure threshold or an attacker-controlled application entry. The copy loop scales with length, but no controlled resource reproduction or explicit resource budget is supplied. The invalid-length exception is scored separately.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 424,
+          "excerpt": "function toArray(thing) {\n  if (!thing) return null;\n  if (isArray(thing)) return thing;\n  var i = thing.length;\n  if (!isNumber(i)) return null;\n  var arr = new Array(i);\n  while (i-- > 0) {\n    arr[i] = thing[i];\n  }\n  return arr;\n}"
+        },
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 104,
+          "excerpt": "  function defaultVisitor(value, key, path) {\n    var arr = value;\n\n    if (value && !path && typeof value === 'object') {\n      if (utils.endsWith(key, '{}')) {\n        // eslint-disable-next-line no-param-reassign\n        key = metaTokens ? key : key.slice(0, -2);\n        // eslint-disable-next-line no-param-reassign\n        value = JSON.stringify(value);\n      } else if (\n        (utils.isArray(value) && isFlatArray(value)) ||\n        (utils.isFileList(value) || utils.endsWith(key, '[]') && (arr = utils.toArray(value))\n        )) {\n        // eslint-disable-next-line no-param-reassign\n        key = removeBrackets(key);\n\n        arr.forEach(function each(el, index) {\n          !utils.isUndefined(el) && formData.append(\n            // eslint-disable-next-line no-nested-ternary\n            indexes === true ? renderKey([key], index, dots) : (indexes === null ? key : key + '[]'),\n            convertValue(el)\n          );\n        });\n        return false;\n      }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "e7b81cc3-6b3b-4789-b8e3-0e17a8bcc38d",
+      "origin": "model",
+      "claimKey": "axios:matchall-no-progress",
+      "verdict": "true",
+      "claim": "A matching non-global or non-advancing zero-width regex can make matchAll loop forever.",
+      "reason": "The helper repeats exec and pushes every match without checking flags or progress. A matching non-global regex repeats the same result; a global zero-width match need not advance lastIndex. This proves the helper-level conditional nontermination under those arguments.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 457,
+          "excerpt": "function matchAll(regExp, str) {\n  var matches;\n  var arr = [];\n\n  while ((matches = regExp.exec(str)) !== null) {\n    arr.push(matches);\n  }\n\n  return arr;"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 504,
+          "excerpt": "  toArray: toArray,\n  isTypedArray: isTypedArray,\n  isFileList: isFileList,\n  forEachEntry: forEachEntry,\n  matchAll: matchAll,\n  isHTMLForm: isHTMLForm,"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "e7b81cc3-6b3b-4789-b8e3-0e17a8bcc38d",
+      "origin": "model",
+      "claimKey": "axios:matchall-application-dos",
+      "verdict": "unknown",
+      "claim": "Caller-controlled expressions create an application denial-of-service path through matchAll.",
+      "reason": "The only selected caller fixes a global regex whose alternatives consume at least a word character or bracket pair. User field names cannot change that expression or make it match an empty string. Direct helper use with an unsafe regex is possible, but selected source does not establish the alleged application trust boundary or externally reachable exhaustion.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/formDataToJSON.js",
+          "lineNumber": 5,
+          "excerpt": "function parsePropPath(name) {\n  // foo[x][y][z]\n  // foo.x.y.z\n  // foo-x-y-z\n  // foo x y z\n  return utils.matchAll(/\\w+|\\[(\\w*)]/g, name).map(function(match) {\n    return match[0] === '[]' ? '' : match[1] || match[0];\n  });\n}"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 457,
+          "excerpt": "function matchAll(regExp, str) {\n  var matches;\n  var arr = [];\n\n  while ((matches = regExp.exec(str)) !== null) {\n    arr.push(matches);\n  }\n\n  return arr;"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "c2c5580c-4dbc-4d0f-ad9b-33c2d3139cf6",
+      "origin": "model",
+      "claimKey": "axios:toflatobject-prototype-mutation",
+      "verdict": "false",
+      "claim": "An own __proto__ property passes the merged-name guard and mutates the destination prototype.",
+      "reason": "Concrete counter-evidence: merged is an ordinary empty object and !merged[prop] is required before assignment. For __proto__, merged[prop] resolves to Object.prototype and is truthy; the branch is skipped. constructor and other inherited names are also skipped. The claimed dangerous name does not pass the actual guard under the stated normal-object conditions.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 375,
+          "excerpt": "function toFlatObject(sourceObj, destObj, filter, propFilter) {\n  var props;\n  var i;\n  var prop;\n  var merged = {};\n\n  destObj = destObj || {};\n  // eslint-disable-next-line no-eq-null,eqeqeq\n  if (sourceObj == null) return destObj;\n\n  do {\n    props = Object.getOwnPropertyNames(sourceObj);\n    i = props.length;\n    while (i-- > 0) {\n      prop = props[i];\n      if ((!propFilter || propFilter(prop, sourceObj, destObj)) && !merged[prop]) {\n        destObj[prop] = sourceObj[prop];\n        merged[prop] = true;\n      }\n    }\n    sourceObj = filter !== false && Object.getPrototypeOf(sourceObj);\n  } while (sourceObj && (!filter || filter(sourceObj, destObj)) && sourceObj !== Object.prototype);\n\n  return destObj;"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "c2c5580c-4dbc-4d0f-ad9b-33c2d3139cf6",
+      "origin": "model",
+      "claimKey": "axios:toflatobject-inherited-key-omission",
+      "verdict": "true",
+      "claim": "Normal-object merged bookkeeping skips source keys that collide with truthy inherited names.",
+      "reason": "Because the membership test uses !merged[prop] rather than an own-key check, a source own constructor, toString or __proto__ name is skipped even on first encounter. The helper therefore omits such source properties while flattening; this is distinct from the rejected mutation consequence. No broader exploit is credited.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 375,
+          "excerpt": "function toFlatObject(sourceObj, destObj, filter, propFilter) {\n  var props;\n  var i;\n  var prop;\n  var merged = {};\n\n  destObj = destObj || {};\n  // eslint-disable-next-line no-eq-null,eqeqeq\n  if (sourceObj == null) return destObj;\n\n  do {\n    props = Object.getOwnPropertyNames(sourceObj);\n    i = props.length;\n    while (i-- > 0) {\n      prop = props[i];\n      if ((!propFilter || propFilter(prop, sourceObj, destObj)) && !merged[prop]) {\n        destObj[prop] = sourceObj[prop];\n        merged[prop] = true;\n      }\n    }\n    sourceObj = filter !== false && Object.getPrototypeOf(sourceObj);\n  } while (sourceObj && (!filter || filter(sourceObj, destObj)) && sourceObj !== Object.prototype);\n\n  return destObj;"
+        },
+        {
+          "filePath": "lib/core/AxiosError.js",
+          "lineNumber": 79,
+          "excerpt": "AxiosError.from = function(error, code, config, request, response, customProps) {\n  var axiosError = Object.create(prototype);\n\n  utils.toFlatObject(error, axiosError, function filter(obj) {\n    return obj !== Error.prototype;\n  });\n\n  AxiosError.call(axiosError, error.message, code, config, request, response);\n\n  axiosError.cause = error;\n\n  axiosError.name = error.name;"
+        },
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 57,
+          "excerpt": "  options = utils.toFlatObject(options, {\n    metaTokens: true,\n    dots: false,\n    indexes: false\n  }, false, function defined(option, source) {\n    // eslint-disable-next-line no-eq-null,eqeqeq\n    return !utils.isUndefined(source[option]);\n  });"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "6bffc317-c716-40bf-8990-e9ec89e6d6fa",
+      "origin": "model",
+      "claimKey": "axios:merge-result-prototype-mutation",
+      "verdict": "true",
+      "claim": "merge can replace its result prototype with properties supplied under an own __proto__ key.",
+      "reason": "The result is an ordinary object. Own input names reach assignValue, whose plain-object, array and direct-value branches all assign result[key]. With an object-valued __proto__ property this invokes the inherited setter and changes only that result prototype. The selected config/header merges show usage but do not establish arbitrary remote control of config or global prototype mutation.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 300,
+          "excerpt": "function merge(/* obj1, obj2, obj3, ... */) {\n  var result = {};\n  function assignValue(val, key) {\n    if (isPlainObject(result[key]) && isPlainObject(val)) {\n      result[key] = merge(result[key], val);\n    } else if (isPlainObject(val)) {\n      result[key] = merge({}, val);\n    } else if (isArray(val)) {\n      result[key] = val.slice();\n    } else {\n      result[key] = val;\n    }\n  }\n\n  for (var i = 0, l = arguments.length; i < l; i++) {\n    forEach(arguments[i], assignValue);\n  }\n  return result;"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 256,
+          "excerpt": "function forEach(obj, fn) {\n  // Don't bother if no value provided\n  if (obj === null || typeof obj === 'undefined') {\n    return;\n  }\n\n  // Force an array if not already something iterable\n  if (typeof obj !== 'object') {\n    /*eslint no-param-reassign:0*/\n    obj = [obj];\n  }\n\n  if (isArray(obj)) {\n    // Iterate over array values\n    for (var i = 0, l = obj.length; i < l; i++) {\n      fn.call(null, obj[i], i, obj);\n    }\n  } else {\n    // Iterate over object keys\n    for (var key in obj) {\n      if (Object.prototype.hasOwnProperty.call(obj, key)) {\n        fn.call(null, obj[key], key, obj);\n      }\n    }\n  }"
+        },
+        {
+          "filePath": "lib/core/mergeConfig.js",
+          "lineNumber": 18,
+          "excerpt": "  function getMergedValue(target, source) {\n    if (utils.isPlainObject(target) && utils.isPlainObject(source)) {\n      return utils.merge(target, source);\n    } else if (utils.isPlainObject(source)) {\n      return utils.merge({}, source);\n    } else if (utils.isArray(source)) {\n      return source.slice();\n    }\n    return source;"
+        },
+        {
+          "filePath": "lib/core/dispatchRequest.js",
+          "lineNumber": 43,
+          "excerpt": "  // Flatten headers\n  config.headers = utils.merge(\n    config.headers.common || {},\n    config.headers[config.method] || {},\n    config.headers\n  );\n"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "6128e429-542c-4ca8-9348-28a45a898832",
+      "origin": "model",
+      "claimKey": "axios:readme-config-missing-commas",
+      "verdict": "true",
+      "claim": "The request-configuration example omits property separators after decompress and insecureHTTPParser.",
+      "reason": "Both values are followed by another property without a comma, inside the displayed configuration object. JavaScript object literal grammar cannot accept that copied example. Duplicate domain reports share this one documentation cause.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 484,
+          "excerpt": "  // `decompress` indicates whether or not the response body should be decompressed \n  // automatically. If set to `true` will also remove the 'content-encoding' header \n  // from the responses objects of all decompressed responses\n  // - Node only (XHR cannot turn off decompression)\n  decompress: true // default\n\n  // `insecureHTTPParser` boolean.\n  // Indicates where to use an insecure HTTP parser that accepts invalid HTTP headers.\n  // This may allow interoperability with non-conformant HTTP implementations.\n  // Using the insecure parser should be avoided.\n  // see options https://nodejs.org/dist/latest-v12.x/docs/api/http.html#http_http_request_url_options_callback\n  // see also https://nodejs.org/en/blog/vulnerability/february-2020-security-releases/#strict-http-header-parsing-none\n  insecureHTTPParser: undefined // default\n\n  // transitional options for backward compatibility that may be removed in the newer versions\n  transitional: {\n    // silent JSON parsing mode\n    // `true`  - ignore JSON parsing errors and set response.data to null if parsing failed (old behaviour)\n    // `false` - throw SyntaxError if JSON parsing failed (Note: responseType must be set to 'json')\n    silentJSONParsing: true, // default value for the current Axios version\n\n    // try to parse the response string as JSON even if `responseType` is not 'json'\n    forcedJSONParsing: true,\n    \n    // throw ETIMEDOUT error instead of generic ECONNABORTED on request timeouts\n    clarifyTimeoutError: false,\n  },"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "e82f8bc3-7649-4d04-b38c-d67d157e1c5f",
+      "origin": "model",
+      "claimKey": "axios:readme-config-missing-commas",
+      "verdict": "true",
+      "claim": "The request-configuration example omits property separators after decompress and insecureHTTPParser.",
+      "reason": "Both values are followed by another property without a comma, inside the displayed configuration object. JavaScript object literal grammar cannot accept that copied example. Duplicate domain reports share this one documentation cause.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 484,
+          "excerpt": "  // `decompress` indicates whether or not the response body should be decompressed \n  // automatically. If set to `true` will also remove the 'content-encoding' header \n  // from the responses objects of all decompressed responses\n  // - Node only (XHR cannot turn off decompression)\n  decompress: true // default\n\n  // `insecureHTTPParser` boolean.\n  // Indicates where to use an insecure HTTP parser that accepts invalid HTTP headers.\n  // This may allow interoperability with non-conformant HTTP implementations.\n  // Using the insecure parser should be avoided.\n  // see options https://nodejs.org/dist/latest-v12.x/docs/api/http.html#http_http_request_url_options_callback\n  // see also https://nodejs.org/en/blog/vulnerability/february-2020-security-releases/#strict-http-header-parsing-none\n  insecureHTTPParser: undefined // default\n\n  // transitional options for backward compatibility that may be removed in the newer versions\n  transitional: {\n    // silent JSON parsing mode\n    // `true`  - ignore JSON parsing errors and set response.data to null if parsing failed (old behaviour)\n    // `false` - throw SyntaxError if JSON parsing failed (Note: responseType must be set to 'json')\n    silentJSONParsing: true, // default value for the current Axios version\n\n    // try to parse the response string as JSON even if `responseType` is not 'json'\n    forcedJSONParsing: true,\n    \n    // throw ETIMEDOUT error instead of generic ECONNABORTED on request timeouts\n    clarifyTimeoutError: false,\n  },"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "6128e429-542c-4ca8-9348-28a45a898832",
+      "origin": "model",
+      "claimKey": "axios:readme-formserializer-semicolons",
+      "verdict": "true",
+      "claim": "The displayed formSerializer object uses invalid semicolon property separators.",
+      "reason": "The visitor arrow-function value is followed by a semicolon inside the object; dots/metaTokens/indexes also use semicolons. These are not valid JavaScript property separators. The duplicate finding adds no unique numerator.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 517,
+          "excerpt": "  formSerializer: {\n      visitor: (value, key, path, helpers)=> {}; // custom visitor funaction to serrialize form values\n      dots: boolean; // use dots instead of brackets format\n      metaTokens: boolean; // keep special endings like {} in parameter key \n      indexes: boolean; // array indexes format null - no brackets, false - empty brackets, true - brackets with indexes\n  }\n}\n```"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "202c50b3-84ab-48ee-8bf0-831d954534af",
+      "origin": "model",
+      "claimKey": "axios:readme-formserializer-semicolons",
+      "verdict": "true",
+      "claim": "The displayed formSerializer object uses invalid semicolon property separators.",
+      "reason": "The visitor arrow-function value is followed by a semicolon inside the object; dots/metaTokens/indexes also use semicolons. These are not valid JavaScript property separators. The duplicate finding adds no unique numerator.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 517,
+          "excerpt": "  formSerializer: {\n      visitor: (value, key, path, helpers)=> {}; // custom visitor funaction to serrialize form values\n      dots: boolean; // use dots instead of brackets format\n      metaTokens: boolean; // keep special endings like {} in parameter key \n      indexes: boolean; // array indexes format null - no brackets, false - empty brackets, true - brackets with indexes\n  }\n}\n```"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "7938b66c-87c6-43ca-bdb6-391f74fe45d3",
+      "origin": "model",
+      "claimKey": "axios:formdata-predicate-side-effects",
+      "verdict": "true",
+      "claim": "FormData classification can invoke a candidate method and propagate its exception or side effects.",
+      "reason": "After the native-instance/tag checks fail, isFunction(thing.toString) permits an ordinary function and the predicate directly invokes it without catch. A custom object supplied as request data reaches classification in transformRequest. This establishes invocation of code already supplied by the caller, not newly acquired remote code execution or an authentication bypass.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 183,
+          "excerpt": "/**\n * Determine if a value is a FormData\n *\n * @param {Object} thing The value to test\n * @returns {boolean} True if value is an FormData, otherwise false\n */\nfunction isFormData(thing) {\n  var pattern = '[object FormData]';\n  return thing && (\n    (typeof FormData === 'function' && thing instanceof FormData) ||\n    toString.call(thing) === pattern ||\n    (isFunction(thing.toString) && thing.toString() === pattern)\n  );\n}"
+        },
+        {
+          "filePath": "lib/defaults/index.js",
+          "lineNumber": 55,
+          "excerpt": "  transformRequest: [function transformRequest(data, headers) {\n    normalizeHeaderName(headers, 'Accept');\n    normalizeHeaderName(headers, 'Content-Type');\n\n    var contentType = headers && headers['Content-Type'] || '';\n    var hasJSONContentType = contentType.indexOf('application/json') > -1;\n    var isObjectPayload = utils.isObject(data);\n\n    if (isObjectPayload && utils.isHTMLForm(data)) {\n      data = new FormData(data);\n    }\n\n    var isFormData = utils.isFormData(data);\n\n    if (isFormData) {\n      if (!hasJSONContentType) {\n        return data;\n      }\n      return hasJSONContentType ? JSON.stringify(formDataToJSON(data)) : data;\n    }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "331b374d-a4ea-4960-aca8-3cacd7f10da5",
+      "origin": "model",
+      "claimKey": "axios:null-transitional-native-error",
+      "verdict": "true",
+      "claim": "A null transitional options value reaches Object.keys(null) and throws native TypeError instead of the intended AxiosError.",
+      "reason": "The only selected assertOptions caller checks transitional !== undefined, which admits null. mergeConfig preserves a null source value. The validator accepts typeof null as object, then calls Object.keys. No earlier null guard resolves this path. This is invalid-input error classification, not an accepted valid null option.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/validator.js",
+          "lineNumber": 60,
+          "excerpt": "function assertOptions(options, schema, allowUnknown) {\n  if (typeof options !== 'object') {\n    throw new AxiosError('options must be an object', AxiosError.ERR_BAD_OPTION_VALUE);\n  }\n  var keys = Object.keys(options);\n  var i = keys.length;\n  while (i-- > 0) {\n    var opt = keys[i];\n    var validator = schema[opt];\n    if (validator) {\n      var value = options[opt];\n      var result = value === undefined || validator(value, opt, options);\n      if (result !== true) {\n        throw new AxiosError('option ' + opt + ' must be ' + result, AxiosError.ERR_BAD_OPTION_VALUE);\n      }\n      continue;\n    }\n    if (allowUnknown !== true) {\n      throw new AxiosError('Unknown option ' + opt, AxiosError.ERR_BAD_OPTION);\n    }\n  }"
+        },
+        {
+          "filePath": "lib/core/Axios.js",
+          "lineNumber": 41,
+          "excerpt": "  config = mergeConfig(this.defaults, config);\n\n  // Set config.method\n  if (config.method) {\n    config.method = config.method.toLowerCase();\n  } else if (this.defaults.method) {\n    config.method = this.defaults.method.toLowerCase();\n  } else {\n    config.method = 'get';\n  }\n\n  var transitional = config.transitional;\n\n  if (transitional !== undefined) {\n    validator.assertOptions(transitional, {\n      silentJSONParsing: validators.transitional(validators.boolean),\n      forcedJSONParsing: validators.transitional(validators.boolean),\n      clarifyTimeoutError: validators.transitional(validators.boolean)\n    }, false);\n  }"
+        },
+        {
+          "filePath": "lib/core/mergeConfig.js",
+          "lineNumber": 18,
+          "excerpt": "  function getMergedValue(target, source) {\n    if (utils.isPlainObject(target) && utils.isPlainObject(source)) {\n      return utils.merge(target, source);\n    } else if (utils.isPlainObject(source)) {\n      return utils.merge({}, source);\n    } else if (utils.isArray(source)) {\n      return source.slice();\n    }\n    return source;"
+        },
+        {
+          "filePath": "lib/core/mergeConfig.js",
+          "lineNumber": 29,
+          "excerpt": "  // eslint-disable-next-line consistent-return\n  function mergeDeepProperties(prop) {\n    if (!utils.isUndefined(config2[prop])) {\n      return getMergedValue(config1[prop], config2[prop]);\n    } else if (!utils.isUndefined(config1[prop])) {\n      return getMergedValue(undefined, config1[prop]);\n    }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "1847f73e-3119-49ab-a67a-d7b6af6a01c9",
+      "origin": "model",
+      "claimKey": "axios:formdata-symbol-conditional-failure",
+      "verdict": "true",
+      "claim": "If Symbol is unavailable and the FormData capability check is reached, direct Symbol access throws.",
+      "reason": "isSpecCompliant directly reads Symbol.toStringTag. Reach requires a truthy _Blob plus a truthy candidate with a function append method; the _Blob && guard can otherwise skip this function. An explicitly supplied Blob option can make the check reachable. This is a conditional compatibility fact only.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 32,
+          "excerpt": "function isSpecCompliant(thing) {\n  return thing && utils.isFunction(thing.append) && thing[Symbol.toStringTag] === 'FormData' && thing[Symbol.iterator];\n}"
+        },
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 48,
+          "excerpt": "function toFormData(obj, formData, options) {\n  if (!utils.isObject(obj)) {\n    throw new TypeError('target must be an object');\n  }\n\n  // eslint-disable-next-line no-param-reassign\n  formData = formData || new (envFormData || FormData)();\n\n  // eslint-disable-next-line no-param-reassign\n  options = utils.toFlatObject(options, {\n    metaTokens: true,\n    dots: false,\n    indexes: false\n  }, false, function defined(option, source) {\n    // eslint-disable-next-line no-eq-null,eqeqeq\n    return !utils.isUndefined(source[option]);\n  });\n\n  var metaTokens = options.metaTokens;\n  // eslint-disable-next-line no-use-before-define\n  var visitor = options.visitor || defaultVisitor;\n  var dots = options.dots;\n  var indexes = options.indexes;\n  var _Blob = options.Blob || typeof Blob !== 'undefined' && Blob;\n  var useBlob = _Blob && isSpecCompliant(formData);\n\n  if (!utils.isFunction(visitor)) {\n    throw new TypeError('visitor must be a function');"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "1847f73e-3119-49ab-a67a-d7b6af6a01c9",
+      "origin": "model",
+      "claimKey": "axios:formdata-symbol-supported-runtime-regression",
+      "verdict": "unknown",
+      "claim": "The Symbol access breaks a supported unpolyfilled serialization runtime.",
+      "reason": "README lists IE11 but does not establish exact polyfills, Blob/FormData capabilities, bundling or the deployed environment. _Blob short-circuiting also narrows reachability. No authorized runtime reproduction establishes a supported no-Symbol configuration, so the compatibility-impact allegation remains unresolved.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 70,
+          "excerpt": "## Browser Support\n\n![Chrome](https://raw.githubusercontent.com/alrra/browser-logos/main/src/chrome/chrome_48x48.png) | ![Firefox](https://raw.githubusercontent.com/alrra/browser-logos/main/src/firefox/firefox_48x48.png) | ![Safari](https://raw.githubusercontent.com/alrra/browser-logos/main/src/safari/safari_48x48.png) | ![Opera](https://raw.githubusercontent.com/alrra/browser-logos/main/src/opera/opera_48x48.png) | ![Edge](https://raw.githubusercontent.com/alrra/browser-logos/main/src/edge/edge_48x48.png) | ![IE](https://raw.githubusercontent.com/alrra/browser-logos/master/src/archive/internet-explorer_9-11/internet-explorer_9-11_48x48.png) |\n--- | --- | --- | --- | --- | --- |\nLatest ✔ | Latest ✔ | Latest ✔ | Latest ✔ | Latest ✔ | 11 ✔ |\n\n[![Browser Matrix](https://saucelabs.com/open_sauce/build_matrix/axios.svg)](https://saucelabs.com/u/axios)"
+        },
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 32,
+          "excerpt": "function isSpecCompliant(thing) {\n  return thing && utils.isFunction(thing.append) && thing[Symbol.toStringTag] === 'FormData' && thing[Symbol.iterator];\n}"
+        },
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 68,
+          "excerpt": "  var visitor = options.visitor || defaultVisitor;\n  var dots = options.dots;\n  var indexes = options.indexes;\n  var _Blob = options.Blob || typeof Blob !== 'undefined' && Blob;\n  var useBlob = _Blob && isSpecCompliant(formData);\n\n  if (!utils.isFunction(visitor)) {\n    throw new TypeError('visitor must be a function');"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "2c19b3e4-cd3a-4982-9832-80001bf4cef9",
+      "origin": "model",
+      "claimKey": "axios:parseheaders-inherited-name-collision",
+      "verdict": "true",
+      "claim": "A constructor response header is combined with an inherited value instead of being preserved.",
+      "reason": "XHR sends raw response headers to parseHeaders. Lowercasing preserves constructor; parsed={} inherits a truthy constructor, so line 47 concatenates the inherited function representation with the supplied value on its first occurrence. __proto__ is another collision, but this does not prove global pollution or downstream exploitation.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/parseHeaders.js",
+          "lineNumber": 27,
+          "excerpt": "module.exports = function parseHeaders(headers) {\n  var parsed = {};\n  var key;\n  var val;\n  var i;\n\n  if (!headers) { return parsed; }\n\n  utils.forEach(headers.split('\\n'), function parser(line) {\n    i = line.indexOf(':');\n    key = utils.trim(line.slice(0, i)).toLowerCase();\n    val = utils.trim(line.slice(i + 1));\n\n    if (key) {\n      if (parsed[key] && ignoreDuplicateOf.indexOf(key) >= 0) {\n        return;\n      }\n      if (key === 'set-cookie') {\n        parsed[key] = (parsed[key] ? parsed[key] : []).concat([val]);\n      } else {\n        parsed[key] = parsed[key] ? parsed[key] + ', ' + val : val;\n      }\n    }\n  });\n\n  return parsed;"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 52,
+          "excerpt": "    function onloadend() {\n      if (!request) {\n        return;\n      }\n      // Prepare the response\n      var responseHeaders = 'getAllResponseHeaders' in request ? parseHeaders(request.getAllResponseHeaders()) : null;\n      var responseData = !responseType || responseType === 'text' ||  responseType === 'json' ?\n        request.responseText : request.response;\n      var response = {\n        data: responseData,\n        status: request.status,\n        statusText: request.statusText,\n        headers: responseHeaders,\n        config: config,\n        request: request\n      };"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "dad7d0b4-094f-4f92-8f68-58a934a522e0",
+      "origin": "model",
+      "claimKey": "axios:data-uri-response-limit-bypass",
+      "verdict": "true",
+      "claim": "Node GET data-URI decoding returns a payload without enforcing the configured finite maxContentLength.",
+      "reason": "The full data URI is decoded to Buffer in fromDataURI. The HTTP adapter data branch returns before HTTP stream accounting and performs no maxContentLength check. maxContentLength is documented as a Node response-size limit, so a finite limit can be exceeded by decoded data. Both reports share the same unbounded data-URI path and count once. The source establishes the bypass, not process exhaustion.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/fromDataURI.js",
+          "lineNumber": 25,
+          "excerpt": "  if (protocol === 'data') {\n    uri = protocol.length ? uri.slice(protocol.length + 1) : uri;\n\n    var match = DATA_URL_PATTERN.exec(uri);\n\n    if (!match) {\n      throw new AxiosError('Invalid URL', AxiosError.ERR_INVALID_URL);\n    }\n\n    var mime = match[1];\n    var isBase64 = match[2];\n    var body = match[3];\n    var buffer = Buffer.from(decodeURIComponent(body), isBase64 ? 'base64' : 'utf8');\n\n    if (asBlob) {\n      if (!_Blob) {\n        throw new AxiosError('Blob is not supported', AxiosError.ERR_NOT_SUPPORT);\n      }\n\n      return new _Blob([buffer], {type: mime});\n    }\n\n    return buffer;"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 111,
+          "excerpt": "    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 335,
+          "excerpt": "        var responseBuffer = [];\n        var totalResponseBytes = 0;\n        responseStream.on('data', function handleStreamData(chunk) {\n          responseBuffer.push(chunk);\n          totalResponseBytes += chunk.length;\n\n          // make sure the content length is not over the maxContentLength if specified\n          if (config.maxContentLength > -1 && totalResponseBytes > config.maxContentLength) {\n            // stream.destroy() emit aborted event before calling reject() on Node.js v16\n            rejected = true;\n            responseStream.destroy();\n            reject(new AxiosError('maxContentLength size of ' + config.maxContentLength + ' exceeded',\n              AxiosError.ERR_BAD_RESPONSE, config, lastRequest));\n          }\n        });"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 414,
+          "excerpt": "  // `maxContentLength` defines the max size of the http response content in bytes allowed in node.js\n  maxContentLength: 2000,\n\n  // `maxBodyLength` (Node only option) defines the max size of the http request content in bytes allowed\n  maxBodyLength: 2000,"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "dad7d0b4-094f-4f92-8f68-58a934a522e0",
+      "origin": "model",
+      "claimKey": "axios:data-uri-application-resource-exhaustion",
+      "verdict": "unknown",
+      "claim": "An untrusted data URI can exhaust application memory or block execution materially.",
+      "reason": "Synchronous decoding and Buffer creation scale with input, but the frozen sources do not identify an actual application attacker entry, accepted maximum URL size, engine memory budget or measured blocking/failure threshold. Keep the proven configured response-limit bypass separate from the unresolved operational attack claim. No upstream code was run.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/fromDataURI.js",
+          "lineNumber": 25,
+          "excerpt": "  if (protocol === 'data') {\n    uri = protocol.length ? uri.slice(protocol.length + 1) : uri;\n\n    var match = DATA_URL_PATTERN.exec(uri);\n\n    if (!match) {\n      throw new AxiosError('Invalid URL', AxiosError.ERR_INVALID_URL);\n    }\n\n    var mime = match[1];\n    var isBase64 = match[2];\n    var body = match[3];\n    var buffer = Buffer.from(decodeURIComponent(body), isBase64 ? 'base64' : 'utf8');\n\n    if (asBlob) {\n      if (!_Blob) {\n        throw new AxiosError('Blob is not supported', AxiosError.ERR_NOT_SUPPORT);\n      }\n\n      return new _Blob([buffer], {type: mime});\n    }\n\n    return buffer;"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 111,
+          "excerpt": "    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "5d9fb98e-e0b4-4afa-a4f7-d6ff870f65e1",
+      "origin": "model",
+      "claimKey": "axios:data-uri-response-limit-bypass",
+      "verdict": "true",
+      "claim": "Node GET data-URI decoding returns a payload without enforcing the configured finite maxContentLength.",
+      "reason": "The full data URI is decoded to Buffer in fromDataURI. The HTTP adapter data branch returns before HTTP stream accounting and performs no maxContentLength check. maxContentLength is documented as a Node response-size limit, so a finite limit can be exceeded by decoded data. Both reports share the same unbounded data-URI path and count once. The source establishes the bypass, not process exhaustion.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/fromDataURI.js",
+          "lineNumber": 25,
+          "excerpt": "  if (protocol === 'data') {\n    uri = protocol.length ? uri.slice(protocol.length + 1) : uri;\n\n    var match = DATA_URL_PATTERN.exec(uri);\n\n    if (!match) {\n      throw new AxiosError('Invalid URL', AxiosError.ERR_INVALID_URL);\n    }\n\n    var mime = match[1];\n    var isBase64 = match[2];\n    var body = match[3];\n    var buffer = Buffer.from(decodeURIComponent(body), isBase64 ? 'base64' : 'utf8');\n\n    if (asBlob) {\n      if (!_Blob) {\n        throw new AxiosError('Blob is not supported', AxiosError.ERR_NOT_SUPPORT);\n      }\n\n      return new _Blob([buffer], {type: mime});\n    }\n\n    return buffer;"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 111,
+          "excerpt": "    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 335,
+          "excerpt": "        var responseBuffer = [];\n        var totalResponseBytes = 0;\n        responseStream.on('data', function handleStreamData(chunk) {\n          responseBuffer.push(chunk);\n          totalResponseBytes += chunk.length;\n\n          // make sure the content length is not over the maxContentLength if specified\n          if (config.maxContentLength > -1 && totalResponseBytes > config.maxContentLength) {\n            // stream.destroy() emit aborted event before calling reject() on Node.js v16\n            rejected = true;\n            responseStream.destroy();\n            reject(new AxiosError('maxContentLength size of ' + config.maxContentLength + ' exceeded',\n              AxiosError.ERR_BAD_RESPONSE, config, lastRequest));\n          }\n        });"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 414,
+          "excerpt": "  // `maxContentLength` defines the max size of the http response content in bytes allowed in node.js\n  maxContentLength: 2000,\n\n  // `maxBodyLength` (Node only option) defines the max size of the http request content in bytes allowed\n  maxBodyLength: 2000,"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "5d9fb98e-e0b4-4afa-a4f7-d6ff870f65e1",
+      "origin": "model",
+      "claimKey": "axios:data-uri-application-resource-exhaustion",
+      "verdict": "unknown",
+      "claim": "An untrusted data URI can exhaust application memory or block execution materially.",
+      "reason": "Synchronous decoding and Buffer creation scale with input, but the frozen sources do not identify an actual application attacker entry, accepted maximum URL size, engine memory budget or measured blocking/failure threshold. Keep the proven configured response-limit bypass separate from the unresolved operational attack claim. No upstream code was run.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/fromDataURI.js",
+          "lineNumber": 25,
+          "excerpt": "  if (protocol === 'data') {\n    uri = protocol.length ? uri.slice(protocol.length + 1) : uri;\n\n    var match = DATA_URL_PATTERN.exec(uri);\n\n    if (!match) {\n      throw new AxiosError('Invalid URL', AxiosError.ERR_INVALID_URL);\n    }\n\n    var mime = match[1];\n    var isBase64 = match[2];\n    var body = match[3];\n    var buffer = Buffer.from(decodeURIComponent(body), isBase64 ? 'base64' : 'utf8');\n\n    if (asBlob) {\n      if (!_Blob) {\n        throw new AxiosError('Blob is not supported', AxiosError.ERR_NOT_SUPPORT);\n      }\n\n      return new _Blob([buffer], {type: mime});\n    }\n\n    return buffer;"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 111,
+          "excerpt": "    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "ccab8039-020f-4d23-a4de-f5cab98bf261",
+      "origin": "model",
+      "claimKey": "axios:formdata-global-prototype-pollution",
+      "verdict": "true",
+      "claim": "A FormData name __proto__[polluted] can cause formDataToJSON to write Object.prototype.polluted.",
+      "reason": "The fixed regex accepts __proto__ and polluted as path segments. At the first segment obj.__proto__ is Object.prototype, which is truthy and passes isObject, so no replacement array is created. Recursion writes the final property on that shared prototype. The method is exposed by axios.formToJSON for valid iterable FormData and also used by JSON FormData transformation. A fresh nonexisting polluted key suffices; no remote application entry is inferred.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/formDataToJSON.js",
+          "lineNumber": 5,
+          "excerpt": "function parsePropPath(name) {\n  // foo[x][y][z]\n  // foo.x.y.z\n  // foo-x-y-z\n  // foo x y z\n  return utils.matchAll(/\\w+|\\[(\\w*)]/g, name).map(function(match) {\n    return match[0] === '[]' ? '' : match[1] || match[0];\n  });\n}"
+        },
+        {
+          "filePath": "lib/helpers/formDataToJSON.js",
+          "lineNumber": 28,
+          "excerpt": "function formDataToJSON(formData) {\n  function buildPath(path, value, target, index) {\n    var name = path[index++];\n    var isNumericKey = Number.isFinite(+name);\n    var isLast = index >= path.length;\n    name = !name && utils.isArray(target) ? target.length : name;\n\n    if (isLast) {\n      if (utils.hasOwnProperty(target, name)) {\n        target[name] = [target[name], value];\n      } else {\n        target[name] = value;\n      }\n\n      return !isNumericKey;\n    }\n\n    if (!target[name] || !utils.isObject(target[name])) {\n      target[name] = [];\n    }\n\n    var result = buildPath(path, value, target[name], index);\n\n    if (result && utils.isArray(target[name])) {\n      target[name] = arrayToObject(target[name]);\n    }\n\n    return !isNumericKey;\n  }\n\n  if (utils.isFormData(formData) && utils.isFunction(formData.entries)) {\n    var obj = {};\n\n    utils.forEachEntry(formData, function(name, value) {\n      buildPath(parsePropPath(name), value, obj, 0);\n    });\n\n    return obj;"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 107,
+          "excerpt": " */\nfunction isObject(val) {\n  return val !== null && typeof val === 'object';\n}\n\n/**\n * Determine if a value is a plain Object\n *\n * @param {Object} val The value to test\n * @return {boolean} True if value is a plain Object, otherwise false"
+        },
+        {
+          "filePath": "lib/utils.js",
+          "lineNumber": 444,
+          "excerpt": "function forEachEntry(obj, fn) {\n  var generator = obj && obj[Symbol.iterator];\n\n  var iterator = generator.call(obj);\n\n  var result;\n\n  while ((result = iterator.next()) && !result.done) {\n    var pair = result.value;\n    fn.call(obj, pair[0], pair[1]);\n  }"
+        },
+        {
+          "filePath": "lib/axios.js",
+          "lineNumber": 61,
+          "excerpt": "axios.formToJSON = function(thing) {\n  return formDataToJSON(utils.isHTMLForm(thing) ? new FormData(thing) : thing);\n};"
+        },
+        {
+          "filePath": "lib/defaults/index.js",
+          "lineNumber": 67,
+          "excerpt": "    var isFormData = utils.isFormData(data);\n\n    if (isFormData) {\n      if (!hasJSONContentType) {\n        return data;\n      }\n      return hasJSONContentType ? JSON.stringify(formDataToJSON(data)) : data;\n    }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "3e1d9418-17e8-4212-8bf3-fa1693738129",
+      "origin": "model",
+      "claimKey": "axios:cookie-metadata-attribute-injection",
+      "verdict": "unknown",
+      "claim": "Untrusted cookie metadata can alter browser cookie scope or security attributes.",
+      "reason": "write concatenates raw name/path/domain into document.cookie and escapes only the value. This verifies the string construction. However, no selected caller invokes write, and no supplied application trust boundary or authorized browser reproduction establishes interpretation of injected attributes, their precedence, domain acceptance or an actual scope/security change. The complete claimed security consequence remains Unknown; the string-concatenation observation is not separately credited as a defect.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/cookies.js",
+          "lineNumber": 5,
+          "excerpt": "module.exports = (\n  utils.isStandardBrowserEnv() ?\n\n  // Standard browser envs support document.cookie\n    (function standardBrowserEnv() {\n      return {\n        write: function write(name, value, expires, path, domain, secure) {\n          var cookie = [];\n          cookie.push(name + '=' + encodeURIComponent(value));\n\n          if (utils.isNumber(expires)) {\n            cookie.push('expires=' + new Date(expires).toGMTString());\n          }\n\n          if (utils.isString(path)) {\n            cookie.push('path=' + path);\n          }\n\n          if (utils.isString(domain)) {\n            cookie.push('domain=' + domain);\n          }\n\n          if (secure === true) {\n            cookie.push('secure');\n          }\n\n          document.cookie = cookie.join('; ');\n        },\n\n        read: function read(name) {\n          var match = document.cookie.match(new RegExp('(^|;\\\\s*)(' + name + ')=([^;]*)'));\n          return (match ? decodeURIComponent(match[3]) : null);\n        },\n\n        remove: function remove(name) {\n          this.write(name, '', Date.now() - 86400000);"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 143,
+          "excerpt": "    // Add xsrf header\n    // This is only done if running in a standard browser environment.\n    // Specifically not if we're in a web worker, or react-native.\n    if (utils.isStandardBrowserEnv()) {\n      // Add xsrf header\n      var xsrfValue = (config.withCredentials || isURLSameOrigin(fullPath)) && config.xsrfCookieName ?\n        cookies.read(config.xsrfCookieName) :\n        undefined;\n\n      if (xsrfValue) {\n        requestHeaders[config.xsrfHeaderName] = xsrfValue;\n      }"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "836d07f9-e321-45a2-b138-3731a988cde9",
+      "origin": "model",
+      "claimKey": "axios:cookie-name-regexp-injection",
+      "verdict": "true",
+      "claim": "An unescaped cookie name can alter matching or throw on malformed regex syntax.",
+      "reason": "The browser helper concatenates name directly into RegExp. A name containing an unmatched [ makes pattern construction fail; a regex metacharacter such as . broadens lookup. XHR supplies config.xsrfCookieName after the standard-browser and origin/credentials checks. This is a conditional helper/config correctness issue; attacker control of application configuration is not established.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/cookies.js",
+          "lineNumber": 34,
+          "excerpt": "        read: function read(name) {\n          var match = document.cookie.match(new RegExp('(^|;\\\\s*)(' + name + ')=([^;]*)'));\n          return (match ? decodeURIComponent(match[3]) : null);"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 143,
+          "excerpt": "    // Add xsrf header\n    // This is only done if running in a standard browser environment.\n    // Specifically not if we're in a web worker, or react-native.\n    if (utils.isStandardBrowserEnv()) {\n      // Add xsrf header\n      var xsrfValue = (config.withCredentials || isURLSameOrigin(fullPath)) && config.xsrfCookieName ?\n        cookies.read(config.xsrfCookieName) :\n        undefined;\n\n      if (xsrfValue) {\n        requestHeaders[config.xsrfHeaderName] = xsrfValue;\n      }"
+        },
+        {
+          "filePath": "lib/defaults/index.js",
+          "lineNumber": 148,
+          "excerpt": "  xsrfCookieName: 'XSRF-TOKEN',\n  xsrfHeaderName: 'X-XSRF-TOKEN',"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "9ed99b52-00e8-4820-8369-c6ffe1c97faa",
+      "origin": "model",
+      "claimKey": "axios:silent-json-null-doc-mismatch",
+      "verdict": "true",
+      "claim": "Silent malformed-JSON handling returns the original string instead of the documented null.",
+      "reason": "The README explicitly promises null on parsing failure. With responseType=json and silentJSONParsing=true, the SyntaxError is suppressed because strictJSONParsing is false; transformResponse falls through to return data. The default forced parsing path also retains its original string on failure. No null assignment exists in this transform.",
+      "sourceEvidence": [
+        {
+          "filePath": "README.md",
+          "lineNumber": 498,
+          "excerpt": "  // transitional options for backward compatibility that may be removed in the newer versions\n  transitional: {\n    // silent JSON parsing mode\n    // `true`  - ignore JSON parsing errors and set response.data to null if parsing failed (old behaviour)\n    // `false` - throw SyntaxError if JSON parsing failed (Note: responseType must be set to 'json')\n    silentJSONParsing: true, // default value for the current Axios version\n\n    // try to parse the response string as JSON even if `responseType` is not 'json'\n    forcedJSONParsing: true,"
+        },
+        {
+          "filePath": "lib/defaults/index.js",
+          "lineNumber": 118,
+          "excerpt": "  transformResponse: [function transformResponse(data) {\n    var transitional = this.transitional || defaults.transitional;\n    var forcedJSONParsing = transitional && transitional.forcedJSONParsing;\n    var JSONRequested = this.responseType === 'json';\n\n    if (data && utils.isString(data) && ((forcedJSONParsing && !this.responseType) || JSONRequested)) {\n      var silentJSONParsing = transitional && transitional.silentJSONParsing;\n      var strictJSONParsing = !silentJSONParsing && JSONRequested;\n\n      try {\n        return JSON.parse(data);\n      } catch (e) {\n        if (strictJSONParsing) {\n          if (e.name === 'SyntaxError') {\n            throw AxiosError.from(e, AxiosError.ERR_BAD_RESPONSE, this, null, this.response);\n          }\n          throw e;\n        }\n      }\n    }\n\n    return data;\n  }],"
+        },
+        {
+          "filePath": "lib/defaults/transitional.js",
+          "lineNumber": 1,
+          "excerpt": "'use strict';\n\nmodule.exports = {\n  silentJSONParsing: true,\n  forcedJSONParsing: true,\n  clarifyTimeoutError: false\n};"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "14949a51-8b0a-47c7-b415-5298ef012b01",
+      "origin": "model",
+      "claimKey": "axios:error-json-config-credential-disclosure",
+      "verdict": "true",
+      "claim": "Logging the documented toJSON result can disclose Authorization values retained in request config.",
+      "reason": "AxiosError keeps the config and toJSON returns it without redaction. README documents Authorization defaults and directly logging error.toJSON(). On an ordinary error carrying such a header, the logged object therefore includes that header. This conditional documented-flow exposure is supported; it does not prove a specific application logged secrets, remote exfiltration or any particular logging infrastructure.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/core/AxiosError.js",
+          "lineNumber": 24,
+          "excerpt": "  this.message = message;\n  this.name = 'AxiosError';\n  code && (this.code = code);\n  config && (this.config = config);\n  request && (this.request = request);\n  response && (this.response = response);"
+        },
+        {
+          "filePath": "lib/core/AxiosError.js",
+          "lineNumber": 32,
+          "excerpt": "utils.inherits(AxiosError, Error, {\n  toJSON: function toJSON() {\n    return {\n      // Standard\n      message: this.message,\n      name: this.name,\n      // Microsoft\n      description: this.description,\n      number: this.number,\n      // Mozilla\n      fileName: this.fileName,\n      lineNumber: this.lineNumber,\n      columnNumber: this.columnNumber,\n      stack: this.stack,\n      // Axios\n      config: this.config,\n      code: this.code,\n      status: this.response && this.response.status ? this.response.status : null\n    };"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 580,
+          "excerpt": "// Important: If axios is used with multiple domains, the AUTH_TOKEN will be sent to all of them.\n// See below for an example using Custom instance defaults instead.\naxios.defaults.headers.common['Authorization'] = AUTH_TOKEN;\n"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 744,
+          "excerpt": "Using `toJSON` you get an object with more information about the HTTP error.\n\n```js\naxios.get('/user/12345')\n  .catch(function (error) {\n    console.log(error.toJSON());\n  });\n```"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 387,
+          "excerpt": "    // Handle errors\n    req.on('error', function handleRequestError(err) {\n      // @todo remove\n      // if (req.aborted && err.code !== AxiosError.ERR_FR_TOO_MANY_REDIRECTS) return;\n      reject(AxiosError.from(err, null, config, req));\n    });"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "f782eb9d-9826-4e3f-aeb5-b0106c78d4c5",
+      "origin": "model",
+      "claimKey": "axios:synchronous-interceptor-error-masking",
+      "verdict": "true",
+      "claim": "A throwing synchronous fulfillment handler with no rejection callback is replaced by TypeError.",
+      "reason": "use stores the callback as supplied, and README explicitly demonstrates null rejection with synchronous:true. The synchronous catch unconditionally calls onRejected outside a protecting catch. Thus a thrown fulfillment error is replaced by invoking null/undefined. Both returned findings describe the same cause and count once. Asynchronous chains use Promise.then and are a separate control.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/core/InterceptorManager.js",
+          "lineNumber": 17,
+          "excerpt": "InterceptorManager.prototype.use = function use(fulfilled, rejected, options) {\n  this.handlers.push({\n    fulfilled: fulfilled,\n    rejected: rejected,\n    synchronous: options ? options.synchronous : false,\n    runWhen: options ? options.runWhen : null\n  });\n  return this.handlers.length - 1;\n};"
+        },
+        {
+          "filePath": "lib/core/Axios.js",
+          "lineNumber": 62,
+          "excerpt": "  // filter out skipped interceptors\n  var requestInterceptorChain = [];\n  var synchronousRequestInterceptors = true;\n  this.interceptors.request.forEach(function unshiftRequestInterceptors(interceptor) {\n    if (typeof interceptor.runWhen === 'function' && interceptor.runWhen(config) === false) {\n      return;\n    }\n\n    synchronousRequestInterceptors = synchronousRequestInterceptors && interceptor.synchronous;\n\n    requestInterceptorChain.unshift(interceptor.fulfilled, interceptor.rejected);\n  });\n\n  var responseInterceptorChain = [];\n  this.interceptors.response.forEach(function pushResponseInterceptors(interceptor) {\n    responseInterceptorChain.push(interceptor.fulfilled, interceptor.rejected);\n  });\n\n  var promise;\n\n  if (!synchronousRequestInterceptors) {\n    var chain = [dispatchRequest, undefined];\n\n    Array.prototype.unshift.apply(chain, requestInterceptorChain);\n    chain = chain.concat(responseInterceptorChain);\n\n    promise = Promise.resolve(config);\n    while (chain.length) {\n      promise = promise.then(chain.shift(), chain.shift());\n    }\n\n    return promise;\n  }\n\n\n  var newConfig = config;\n  while (requestInterceptorChain.length) {\n    var onFulfilled = requestInterceptorChain.shift();\n    var onRejected = requestInterceptorChain.shift();\n    try {\n      newConfig = onFulfilled(newConfig);\n    } catch (error) {\n      onRejected(error);\n      break;"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 667,
+          "excerpt": "When you add request interceptors, they are presumed to be asynchronous by default. This can cause a delay\nin the execution of your axios request when the main thread is blocked (a promise is created under the hood for \nthe interceptor and your request gets put on the bottom of the call stack). If your request interceptors are synchronous you can add a flag\nto the options object that will tell axios to run the code synchronously and avoid any delays in request execution.\n\n```js\naxios.interceptors.request.use(function (config) {\n  config.headers.test = 'I am only a header!';\n  return config;\n}, null, { synchronous: true });"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "169dedbe-1f88-406a-aa46-77dbf743352f",
+      "origin": "model",
+      "claimKey": "axios:synchronous-interceptor-error-masking",
+      "verdict": "true",
+      "claim": "A throwing synchronous fulfillment handler with no rejection callback is replaced by TypeError.",
+      "reason": "use stores the callback as supplied, and README explicitly demonstrates null rejection with synchronous:true. The synchronous catch unconditionally calls onRejected outside a protecting catch. Thus a thrown fulfillment error is replaced by invoking null/undefined. Both returned findings describe the same cause and count once. Asynchronous chains use Promise.then and are a separate control.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/core/InterceptorManager.js",
+          "lineNumber": 17,
+          "excerpt": "InterceptorManager.prototype.use = function use(fulfilled, rejected, options) {\n  this.handlers.push({\n    fulfilled: fulfilled,\n    rejected: rejected,\n    synchronous: options ? options.synchronous : false,\n    runWhen: options ? options.runWhen : null\n  });\n  return this.handlers.length - 1;\n};"
+        },
+        {
+          "filePath": "lib/core/Axios.js",
+          "lineNumber": 62,
+          "excerpt": "  // filter out skipped interceptors\n  var requestInterceptorChain = [];\n  var synchronousRequestInterceptors = true;\n  this.interceptors.request.forEach(function unshiftRequestInterceptors(interceptor) {\n    if (typeof interceptor.runWhen === 'function' && interceptor.runWhen(config) === false) {\n      return;\n    }\n\n    synchronousRequestInterceptors = synchronousRequestInterceptors && interceptor.synchronous;\n\n    requestInterceptorChain.unshift(interceptor.fulfilled, interceptor.rejected);\n  });\n\n  var responseInterceptorChain = [];\n  this.interceptors.response.forEach(function pushResponseInterceptors(interceptor) {\n    responseInterceptorChain.push(interceptor.fulfilled, interceptor.rejected);\n  });\n\n  var promise;\n\n  if (!synchronousRequestInterceptors) {\n    var chain = [dispatchRequest, undefined];\n\n    Array.prototype.unshift.apply(chain, requestInterceptorChain);\n    chain = chain.concat(responseInterceptorChain);\n\n    promise = Promise.resolve(config);\n    while (chain.length) {\n      promise = promise.then(chain.shift(), chain.shift());\n    }\n\n    return promise;\n  }\n\n\n  var newConfig = config;\n  while (requestInterceptorChain.length) {\n    var onFulfilled = requestInterceptorChain.shift();\n    var onRejected = requestInterceptorChain.shift();\n    try {\n      newConfig = onFulfilled(newConfig);\n    } catch (error) {\n      onRejected(error);\n      break;"
+        },
+        {
+          "filePath": "README.md",
+          "lineNumber": 667,
+          "excerpt": "When you add request interceptors, they are presumed to be asynchronous by default. This can cause a delay\nin the execution of your axios request when the main thread is blocked (a promise is created under the hood for \nthe interceptor and your request gets put on the bottom of the call stack). If your request interceptors are synchronous you can add a flag\nto the options object that will tell axios to run the code synchronously and avoid any delays in request execution.\n\n```js\naxios.interceptors.request.use(function (config) {\n  config.headers.test = 'I am only a header!';\n  return config;\n}, null, { synchronous: true });"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "7c5b470c-c3e4-45bd-997a-0fae41d5845f",
+      "origin": "model",
+      "claimKey": "axios:xhr-cancellation-undefined-req",
+      "verdict": "true",
+      "claim": "The generated XHR cancellation-error branch reads undefined req and interrupts rejection/abort cleanup.",
+      "reason": "The adapter declares request, never req. A later active-request AbortSignal event with truthy type evaluates new CanceledError(...,req), throwing before reject and request.abort. Public dispatch rejects an initially aborted signal before adapter entry; the later signal event still reaches this defect. A normal CancelToken object without type takes the other branch, so not every cancellation is affected. Both findings share this cause. For asynchronous signal events the exception is not automatically the request promise rejection; the intended rejection can be bypassed and the request may stay active.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 16,
+          "excerpt": "module.exports = function xhrAdapter(config) {\n  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;\n    var responseType = config.responseType;\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n\n    if (utils.isFormData(requestData) && utils.isStandardBrowserEnv()) {\n      delete requestHeaders['Content-Type']; // Let the browser set it\n    }\n\n    var request = new XMLHttpRequest();"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 190,
+          "excerpt": "    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 219,
+          "excerpt": "\n    // Send the request\n    request.send(requestData);\n  });\n};"
+        },
+        {
+          "filePath": "lib/core/dispatchRequest.js",
+          "lineNumber": 12,
+          "excerpt": "function throwIfCancellationRequested(config) {\n  if (config.cancelToken) {\n    config.cancelToken.throwIfRequested();\n  }\n\n  if (config.signal && config.signal.aborted) {\n    throw new CanceledError();\n  }\n}\n\n/**\n * Dispatch a request to the server using the configured adapter.\n *\n * @param {object} config The config that is to be used for the request\n * @returns {Promise} The Promise to be fulfilled\n */\nmodule.exports = function dispatchRequest(config) {\n  throwIfCancellationRequested(config);\n\n  // Ensure headers exist"
+        },
+        {
+          "filePath": "lib/cancel/CancelToken.js",
+          "lineNumber": 54,
+          "excerpt": "      // Cancellation has already been requested\n      return;\n    }\n\n    token.reason = new CanceledError(message, config, request);\n    resolvePromise(token.reason);\n  });\n}\n\n/**\n * Throws a `CanceledError` if cancellation has been requested."
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "aaf2cdb7-e750-4f32-a6d9-b26fe7951242",
+      "origin": "model",
+      "claimKey": "axios:xhr-cancellation-undefined-req",
+      "verdict": "true",
+      "claim": "The generated XHR cancellation-error branch reads undefined req and interrupts rejection/abort cleanup.",
+      "reason": "The adapter declares request, never req. A later active-request AbortSignal event with truthy type evaluates new CanceledError(...,req), throwing before reject and request.abort. Public dispatch rejects an initially aborted signal before adapter entry; the later signal event still reaches this defect. A normal CancelToken object without type takes the other branch, so not every cancellation is affected. Both findings share this cause. For asynchronous signal events the exception is not automatically the request promise rejection; the intended rejection can be bypassed and the request may stay active.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 16,
+          "excerpt": "module.exports = function xhrAdapter(config) {\n  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;\n    var responseType = config.responseType;\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n\n    if (utils.isFormData(requestData) && utils.isStandardBrowserEnv()) {\n      delete requestHeaders['Content-Type']; // Let the browser set it\n    }\n\n    var request = new XMLHttpRequest();"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 190,
+          "excerpt": "    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 219,
+          "excerpt": "\n    // Send the request\n    request.send(requestData);\n  });\n};"
+        },
+        {
+          "filePath": "lib/core/dispatchRequest.js",
+          "lineNumber": 12,
+          "excerpt": "function throwIfCancellationRequested(config) {\n  if (config.cancelToken) {\n    config.cancelToken.throwIfRequested();\n  }\n\n  if (config.signal && config.signal.aborted) {\n    throw new CanceledError();\n  }\n}\n\n/**\n * Dispatch a request to the server using the configured adapter.\n *\n * @param {object} config The config that is to be used for the request\n * @returns {Promise} The Promise to be fulfilled\n */\nmodule.exports = function dispatchRequest(config) {\n  throwIfCancellationRequested(config);\n\n  // Ensure headers exist"
+        },
+        {
+          "filePath": "lib/cancel/CancelToken.js",
+          "lineNumber": 54,
+          "excerpt": "      // Cancellation has already been requested\n      return;\n    }\n\n    token.reason = new CanceledError(message, config, request);\n    resolvePromise(token.reason);\n  });\n}\n\n/**\n * Throws a `CanceledError` if cancellation has been requested."
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "5a796dc0-d710-42cd-93b4-87d8193c2f05",
+      "origin": "model",
+      "claimKey": "axios:http-serialization-continues-after-reject",
+      "verdict": "true",
+      "claim": "A stateful params serializer failure can reject yet allow request creation and sending to continue.",
+      "reason": "The reject wrapper sets rejected=true but the construction/send path never checks it. The first buildURL exception is caught without return, then options.path calls it again. This version accepts paramsSerializer as an options object: an encode callback or visitor can throw once and then succeed. buildURL/AxiosURLSearchParams show that concrete selected path, so a function-valued paramsSerializer assumption is unnecessary. transport.request and req.end follow despite the settled rejection. Network activity can begin after rejection has been issued; actual wall-clock delivery order to a catch consumer is not asserted.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 96,
+          "excerpt": "    var resolve = function resolve(value) {\n      done();\n      resolvePromise(value);\n    };\n    var rejected = false;\n    var reject = function reject(value) {\n      done();\n      rejected = true;\n      rejectPromise(value);\n    };"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 234,
+          "excerpt": "    try {\n      buildURL(parsed.path, config.params, config.paramsSerializer).replace(/^\\?/, '');\n    } catch (err) {\n      var customErr = new Error(err.message);\n      customErr.config = config;\n      customErr.url = config.url;\n      customErr.exists = true;\n      reject(customErr);\n    }\n\n    var options = {\n      path: buildURL(parsed.path, config.params, config.paramsSerializer).replace(/^\\?/, ''),\n      method: method,\n      headers: headers,\n      agents: { http: config.httpAgent, https: config.httpsAgent },\n      auth: auth,\n      protocol: protocol,\n      beforeRedirect: dispatchBeforeRedirect,\n      beforeRedirects: {}\n    };\n\n    if (config.socketPath) {\n      options.socketPath = config.socketPath;\n    } else {\n      options.hostname = parsed.hostname;\n      options.port = parsed.port;\n      setProxy(options, config.proxy, protocol + '//' + parsed.hostname + (parsed.port ? ':' + parsed.port : '') + options.path);\n    }\n\n    var transport;\n    var isHttpsRequest = isHttps.test(options.protocol);\n    options.agent = isHttpsRequest ? config.httpsAgent : config.httpAgent;\n    if (config.transport) {\n      transport = config.transport;\n    } else if (config.maxRedirects === 0) {\n      transport = isHttpsRequest ? https : http;\n    } else {\n      if (config.maxRedirects) {\n        options.maxRedirects = config.maxRedirects;\n      }\n      if (config.beforeRedirect) {\n        options.beforeRedirects.config = config.beforeRedirect;\n      }\n      transport = isHttpsRequest ? httpsFollow : httpFollow;\n    }\n\n    if (config.maxBodyLength > -1) {\n      options.maxBodyLength = config.maxBodyLength;\n    } else {\n      // follow-redirects does not skip comparison, so it should always succeed for axios -1 unlimited\n      options.maxBodyLength = Infinity;\n    }\n\n    if (config.insecureHTTPParser) {\n      options.insecureHTTPParser = config.insecureHTTPParser;\n    }\n\n    // Create the request\n    var req = transport.request(options, function handleResponse(res) {"
+        },
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 450,
+          "excerpt": "    // Send the request\n    if (utils.isStream(data)) {\n      data.on('error', function handleStreamError(err) {\n        reject(AxiosError.from(err, config, null, req));\n      }).pipe(req);\n    } else {\n      req.end(data);\n    }\n  });"
+        },
+        {
+          "filePath": "lib/helpers/buildURL.js",
+          "lineNumber": 24,
+          "excerpt": "module.exports = function buildURL(url, params, options) {\n  /*eslint no-param-reassign:0*/\n  if (!params) {\n    return url;\n  }\n\n  var hashmarkIndex = url.indexOf('#');\n\n  if (hashmarkIndex !== -1) {\n    url = url.slice(0, hashmarkIndex);\n  }\n\n  var _encode = options && options.encode || encode;\n\n  var serializerParams = utils.isURLSearchParams(params) ?\n    params.toString() :\n    new AxiosURLSearchParams(params, options).toString(_encode);\n\n  if (serializerParams) {\n    url += (url.indexOf('?') === -1 ? '?' : '&') + serializerParams;\n  }"
+        },
+        {
+          "filePath": "lib/helpers/AxiosURLSearchParams.js",
+          "lineNumber": 20,
+          "excerpt": "function AxiosURLSearchParams(params, options) {\n  this._pairs = [];\n\n  params && toFormData(params, this, options);\n}\n\nvar prototype = AxiosURLSearchParams.prototype;\n\nprototype.append = function append(name, value) {\n  this._pairs.push([name, value]);\n};\n\nprototype.toString = function toString(encoder) {\n  var _encode = encoder ? function(value) {\n    return encoder.call(this, value, encode);\n  } : encode;\n\n  return this._pairs.map(function each(pair) {\n    return _encode(pair[0]) + '=' + _encode(pair[1]);\n  }, '').join('&');"
+        },
+        {
+          "filePath": "index.d.ts",
+          "lineNumber": 119,
+          "excerpt": "export interface ParamEncoder {\n  (value: any, defaultEncoder: (value: any) => any): any;\n}\n\nexport interface ParamsSerializerOptions extends SerializerOptions {\n  encode?: ParamEncoder;\n}\n\nexport interface AxiosRequestConfig<D = any> {\n  url?: string;\n  method?: Method | string;\n  baseURL?: string;\n  transformRequest?: AxiosRequestTransformer | AxiosRequestTransformer[];\n  transformResponse?: AxiosResponseTransformer | AxiosResponseTransformer[];\n  headers?: AxiosRequestHeaders;\n  params?: any;\n  paramsSerializer?: ParamsSerializerOptions;"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "fd93773e-d549-4d7e-badc-006aea8c0cfb",
+      "origin": "deterministic",
+      "claimKey": "axios:deterministic-toformdata-length",
+      "verdict": "true",
+      "claim": "toFormData spans 130 physical source lines.",
+      "reason": "The trusted TypeScript AST confirms the physical span. Nested adapter/Promise callbacks share one maintainability cause per adapter. The factual length observation does not independently establish a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/helpers/toFormData.js",
+          "lineNumber": 48,
+          "excerpt": "function toFormData(obj, formData, options) {\n  if (!utils.isObject(obj)) {\n    throw new TypeError('target must be an object');\n  }\n\n  // eslint-disable-next-line no-param-reassign\n  formData = formData || new (envFormData || FormData)();\n\n  // eslint-disable-next-line no-param-reassign\n  options = utils.toFlatObject(options, {\n    metaTokens: true,\n    dots: false,\n    indexes: false\n  }, false, function defined(option, source) {\n    // eslint-disable-next-line no-eq-null,eqeqeq\n    return !utils.isUndefined(source[option]);\n  });\n\n  var metaTokens = options.metaTokens;\n  // eslint-disable-next-line no-use-before-define\n  var visitor = options.visitor || defaultVisitor;\n  var dots = options.dots;\n  var indexes = options.indexes;\n  var _Blob = options.Blob || typeof Blob !== 'undefined' && Blob;\n  var useBlob = _Blob && isSpecCompliant(formData);\n\n  if (!utils.isFunction(visitor)) {\n    throw new TypeError('visitor must be a function');\n  }\n\n  function convertValue(value) {\n    if (value === null) return '';\n\n    if (utils.isDate(value)) {\n      return value.toISOString();\n    }\n\n    if (!useBlob && utils.isBlob(value)) {\n      throw new AxiosError('Blob is not supported. Use a Buffer instead.');\n    }\n\n    if (utils.isArrayBuffer(value) || utils.isTypedArray(value)) {\n      return useBlob && typeof Blob === 'function' ? new Blob([value]) : Buffer.from(value);\n    }\n\n    return value;\n  }\n\n  /**\n   *\n   * @param {*} value\n   * @param {String|Number} key\n   * @param {Array<String|Number>} path\n   * @this {FormData}\n   * @returns {boolean} return true to visit the each prop of the value recursively\n   */\n  function defaultVisitor(value, key, path) {\n    var arr = value;\n\n    if (value && !path && typeof value === 'object') {\n      if (utils.endsWith(key, '{}')) {\n        // eslint-disable-next-line no-param-reassign\n        key = metaTokens ? key : key.slice(0, -2);\n        // eslint-disable-next-line no-param-reassign\n        value = JSON.stringify(value);\n      } else if (\n        (utils.isArray(value) && isFlatArray(value)) ||\n        (utils.isFileList(value) || utils.endsWith(key, '[]') && (arr = utils.toArray(value))\n        )) {\n        // eslint-disable-next-line no-param-reassign\n        key = removeBrackets(key);\n\n        arr.forEach(function each(el, index) {\n          !utils.isUndefined(el) && formData.append(\n            // eslint-disable-next-line no-nested-ternary\n            indexes === true ? renderKey([key], index, dots) : (indexes === null ? key : key + '[]'),\n            convertValue(el)\n          );\n        });\n        return false;\n      }\n    }\n\n    if (isVisitable(value)) {\n      return true;\n    }\n\n    formData.append(renderKey(path, key, dots), convertValue(value));\n\n    return false;\n  }\n\n  var stack = [];\n\n  var exposedHelpers = Object.assign(predicates, {\n    defaultVisitor: defaultVisitor,\n    convertValue: convertValue,\n    isVisitable: isVisitable\n  });\n\n  function build(value, path) {\n    if (utils.isUndefined(value)) return;\n\n    if (stack.indexOf(value) !== -1) {\n      throw Error('Circular reference detected in ' + path.join('.'));\n    }\n\n    stack.push(value);\n\n    utils.forEach(value, function each(el, key) {\n      var result = !utils.isUndefined(el) && visitor.call(\n        formData, el, utils.isString(key) ? key.trim() : key, path, exposedHelpers\n      );\n\n      if (result === true) {\n        build(el, path ? path.concat(key) : [key]);\n      }\n    });\n\n    stack.pop();\n  }\n\n  if (!utils.isObject(obj)) {\n    throw new TypeError('data must be an object');\n  }\n\n  build(obj);\n\n  return formData;\n}"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "7296f2e5-331e-4015-b7b9-253783c4b3fe",
+      "origin": "deterministic",
+      "claimKey": "axios:deterministic-xhr-adapter-length",
+      "verdict": "true",
+      "claim": "dispatchXhrRequest spans 206 physical source lines.",
+      "reason": "The trusted TypeScript AST confirms the physical span. Nested adapter/Promise callbacks share one maintainability cause per adapter. The factual length observation does not independently establish a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 17,
+          "excerpt": "  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;\n    var responseType = config.responseType;\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n\n    if (utils.isFormData(requestData) && utils.isStandardBrowserEnv()) {\n      delete requestHeaders['Content-Type']; // Let the browser set it\n    }\n\n    var request = new XMLHttpRequest();\n\n    // HTTP basic authentication\n    if (config.auth) {\n      var username = config.auth.username || '';\n      var password = config.auth.password ? unescape(encodeURIComponent(config.auth.password)) : '';\n      requestHeaders.Authorization = 'Basic ' + btoa(username + ':' + password);\n    }\n\n    var fullPath = buildFullPath(config.baseURL, config.url);\n\n    request.open(config.method.toUpperCase(), buildURL(fullPath, config.params, config.paramsSerializer), true);\n\n    // Set the request timeout in MS\n    request.timeout = config.timeout;\n\n    function onloadend() {\n      if (!request) {\n        return;\n      }\n      // Prepare the response\n      var responseHeaders = 'getAllResponseHeaders' in request ? parseHeaders(request.getAllResponseHeaders()) : null;\n      var responseData = !responseType || responseType === 'text' ||  responseType === 'json' ?\n        request.responseText : request.response;\n      var response = {\n        data: responseData,\n        status: request.status,\n        statusText: request.statusText,\n        headers: responseHeaders,\n        config: config,\n        request: request\n      };\n\n      settle(function _resolve(value) {\n        resolve(value);\n        done();\n      }, function _reject(err) {\n        reject(err);\n        done();\n      }, response);\n\n      // Clean up request\n      request = null;\n    }\n\n    if ('onloadend' in request) {\n      // Use onloadend if available\n      request.onloadend = onloadend;\n    } else {\n      // Listen for ready state to emulate onloadend\n      request.onreadystatechange = function handleLoad() {\n        if (!request || request.readyState !== 4) {\n          return;\n        }\n\n        // The request errored out and we didn't get a response, this will be\n        // handled by onerror instead\n        // With one exception: request that using file: protocol, most browsers\n        // will return status as 0 even though it's a successful request\n        if (request.status === 0 && !(request.responseURL && request.responseURL.indexOf('file:') === 0)) {\n          return;\n        }\n        // readystate handler is calling before onerror or ontimeout handlers,\n        // so we should call onloadend on the next 'tick'\n        setTimeout(onloadend);\n      };\n    }\n\n    // Handle browser request cancellation (as opposed to a manual cancellation)\n    request.onabort = function handleAbort() {\n      if (!request) {\n        return;\n      }\n\n      reject(new AxiosError('Request aborted', AxiosError.ECONNABORTED, config, request));\n\n      // Clean up request\n      request = null;\n    };\n\n    // Handle low level network errors\n    request.onerror = function handleError() {\n      // Real errors are hidden from us by the browser\n      // onerror should only fire if it's a network error\n      reject(new AxiosError('Network Error', AxiosError.ERR_NETWORK, config, request));\n\n      // Clean up request\n      request = null;\n    };\n\n    // Handle timeout\n    request.ontimeout = function handleTimeout() {\n      var timeoutErrorMessage = config.timeout ? 'timeout of ' + config.timeout + 'ms exceeded' : 'timeout exceeded';\n      var transitional = config.transitional || transitionalDefaults;\n      if (config.timeoutErrorMessage) {\n        timeoutErrorMessage = config.timeoutErrorMessage;\n      }\n      reject(new AxiosError(\n        timeoutErrorMessage,\n        transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n        config,\n        request));\n\n      // Clean up request\n      request = null;\n    };\n\n    // Add xsrf header\n    // This is only done if running in a standard browser environment.\n    // Specifically not if we're in a web worker, or react-native.\n    if (utils.isStandardBrowserEnv()) {\n      // Add xsrf header\n      var xsrfValue = (config.withCredentials || isURLSameOrigin(fullPath)) && config.xsrfCookieName ?\n        cookies.read(config.xsrfCookieName) :\n        undefined;\n\n      if (xsrfValue) {\n        requestHeaders[config.xsrfHeaderName] = xsrfValue;\n      }\n    }\n\n    // Add headers to the request\n    if ('setRequestHeader' in request) {\n      utils.forEach(requestHeaders, function setRequestHeader(val, key) {\n        if (typeof requestData === 'undefined' && key.toLowerCase() === 'content-type') {\n          // Remove Content-Type if data is undefined\n          delete requestHeaders[key];\n        } else {\n          // Otherwise add header to the request\n          request.setRequestHeader(key, val);\n        }\n      });\n    }\n\n    // Add withCredentials to request if needed\n    if (!utils.isUndefined(config.withCredentials)) {\n      request.withCredentials = !!config.withCredentials;\n    }\n\n    // Add responseType to request if needed\n    if (responseType && responseType !== 'json') {\n      request.responseType = config.responseType;\n    }\n\n    // Handle progress if needed\n    if (typeof config.onDownloadProgress === 'function') {\n      request.addEventListener('progress', config.onDownloadProgress);\n    }\n\n    // Not all browsers support upload events\n    if (typeof config.onUploadProgress === 'function' && request.upload) {\n      request.upload.addEventListener('progress', config.onUploadProgress);\n    }\n\n    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }\n    }\n\n    if (!requestData) {\n      requestData = null;\n    }\n\n    var protocol = parseProtocol(fullPath);\n\n    if (protocol && platform.protocols.indexOf(protocol) === -1) {\n      reject(new AxiosError('Unsupported protocol ' + protocol + ':', AxiosError.ERR_BAD_REQUEST, config));\n      return;\n    }\n\n\n    // Send the request\n    request.send(requestData);\n  });"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "718644f1-81a6-4bb8-a512-86228ac4b2b1",
+      "origin": "deterministic",
+      "claimKey": "axios:deterministic-xhr-adapter-length",
+      "verdict": "true",
+      "claim": "xhrAdapter spans 208 physical source lines.",
+      "reason": "The trusted TypeScript AST confirms the physical span. Nested adapter/Promise callbacks share one maintainability cause per adapter. The factual length observation does not independently establish a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 16,
+          "excerpt": "module.exports = function xhrAdapter(config) {\n  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;\n    var responseType = config.responseType;\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n\n    if (utils.isFormData(requestData) && utils.isStandardBrowserEnv()) {\n      delete requestHeaders['Content-Type']; // Let the browser set it\n    }\n\n    var request = new XMLHttpRequest();\n\n    // HTTP basic authentication\n    if (config.auth) {\n      var username = config.auth.username || '';\n      var password = config.auth.password ? unescape(encodeURIComponent(config.auth.password)) : '';\n      requestHeaders.Authorization = 'Basic ' + btoa(username + ':' + password);\n    }\n\n    var fullPath = buildFullPath(config.baseURL, config.url);\n\n    request.open(config.method.toUpperCase(), buildURL(fullPath, config.params, config.paramsSerializer), true);\n\n    // Set the request timeout in MS\n    request.timeout = config.timeout;\n\n    function onloadend() {\n      if (!request) {\n        return;\n      }\n      // Prepare the response\n      var responseHeaders = 'getAllResponseHeaders' in request ? parseHeaders(request.getAllResponseHeaders()) : null;\n      var responseData = !responseType || responseType === 'text' ||  responseType === 'json' ?\n        request.responseText : request.response;\n      var response = {\n        data: responseData,\n        status: request.status,\n        statusText: request.statusText,\n        headers: responseHeaders,\n        config: config,\n        request: request\n      };\n\n      settle(function _resolve(value) {\n        resolve(value);\n        done();\n      }, function _reject(err) {\n        reject(err);\n        done();\n      }, response);\n\n      // Clean up request\n      request = null;\n    }\n\n    if ('onloadend' in request) {\n      // Use onloadend if available\n      request.onloadend = onloadend;\n    } else {\n      // Listen for ready state to emulate onloadend\n      request.onreadystatechange = function handleLoad() {\n        if (!request || request.readyState !== 4) {\n          return;\n        }\n\n        // The request errored out and we didn't get a response, this will be\n        // handled by onerror instead\n        // With one exception: request that using file: protocol, most browsers\n        // will return status as 0 even though it's a successful request\n        if (request.status === 0 && !(request.responseURL && request.responseURL.indexOf('file:') === 0)) {\n          return;\n        }\n        // readystate handler is calling before onerror or ontimeout handlers,\n        // so we should call onloadend on the next 'tick'\n        setTimeout(onloadend);\n      };\n    }\n\n    // Handle browser request cancellation (as opposed to a manual cancellation)\n    request.onabort = function handleAbort() {\n      if (!request) {\n        return;\n      }\n\n      reject(new AxiosError('Request aborted', AxiosError.ECONNABORTED, config, request));\n\n      // Clean up request\n      request = null;\n    };\n\n    // Handle low level network errors\n    request.onerror = function handleError() {\n      // Real errors are hidden from us by the browser\n      // onerror should only fire if it's a network error\n      reject(new AxiosError('Network Error', AxiosError.ERR_NETWORK, config, request));\n\n      // Clean up request\n      request = null;\n    };\n\n    // Handle timeout\n    request.ontimeout = function handleTimeout() {\n      var timeoutErrorMessage = config.timeout ? 'timeout of ' + config.timeout + 'ms exceeded' : 'timeout exceeded';\n      var transitional = config.transitional || transitionalDefaults;\n      if (config.timeoutErrorMessage) {\n        timeoutErrorMessage = config.timeoutErrorMessage;\n      }\n      reject(new AxiosError(\n        timeoutErrorMessage,\n        transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n        config,\n        request));\n\n      // Clean up request\n      request = null;\n    };\n\n    // Add xsrf header\n    // This is only done if running in a standard browser environment.\n    // Specifically not if we're in a web worker, or react-native.\n    if (utils.isStandardBrowserEnv()) {\n      // Add xsrf header\n      var xsrfValue = (config.withCredentials || isURLSameOrigin(fullPath)) && config.xsrfCookieName ?\n        cookies.read(config.xsrfCookieName) :\n        undefined;\n\n      if (xsrfValue) {\n        requestHeaders[config.xsrfHeaderName] = xsrfValue;\n      }\n    }\n\n    // Add headers to the request\n    if ('setRequestHeader' in request) {\n      utils.forEach(requestHeaders, function setRequestHeader(val, key) {\n        if (typeof requestData === 'undefined' && key.toLowerCase() === 'content-type') {\n          // Remove Content-Type if data is undefined\n          delete requestHeaders[key];\n        } else {\n          // Otherwise add header to the request\n          request.setRequestHeader(key, val);\n        }\n      });\n    }\n\n    // Add withCredentials to request if needed\n    if (!utils.isUndefined(config.withCredentials)) {\n      request.withCredentials = !!config.withCredentials;\n    }\n\n    // Add responseType to request if needed\n    if (responseType && responseType !== 'json') {\n      request.responseType = config.responseType;\n    }\n\n    // Handle progress if needed\n    if (typeof config.onDownloadProgress === 'function') {\n      request.addEventListener('progress', config.onDownloadProgress);\n    }\n\n    // Not all browsers support upload events\n    if (typeof config.onUploadProgress === 'function' && request.upload) {\n      request.upload.addEventListener('progress', config.onUploadProgress);\n    }\n\n    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }\n    }\n\n    if (!requestData) {\n      requestData = null;\n    }\n\n    var protocol = parseProtocol(fullPath);\n\n    if (protocol && platform.protocols.indexOf(protocol) === -1) {\n      reject(new AxiosError('Unsupported protocol ' + protocol + ':', AxiosError.ERR_BAD_REQUEST, config));\n      return;\n    }\n\n\n    // Send the request\n    request.send(requestData);\n  });\n};"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "97e76465-3c1a-4234-a4b6-3ac24721d49a",
+      "origin": "deterministic",
+      "claimKey": "axios:deterministic-http-adapter-length",
+      "verdict": "true",
+      "claim": "dispatchHttpRequest spans 374 physical source lines.",
+      "reason": "The trusted TypeScript AST confirms the physical span. Nested adapter/Promise callbacks share one maintainability cause per adapter. The factual length observation does not independently establish a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 85,
+          "excerpt": "  return new Promise(function dispatchHttpRequest(resolvePromise, rejectPromise) {\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n    var resolve = function resolve(value) {\n      done();\n      resolvePromise(value);\n    };\n    var rejected = false;\n    var reject = function reject(value) {\n      done();\n      rejected = true;\n      rejectPromise(value);\n    };\n    var data = config.data;\n    var responseType = config.responseType;\n    var responseEncoding = config.responseEncoding;\n    var method = config.method.toUpperCase();\n\n    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }\n\n    if (supportedProtocols.indexOf(protocol) === -1) {\n      return reject(new AxiosError(\n        'Unsupported protocol ' + protocol,\n        AxiosError.ERR_BAD_REQUEST,\n        config\n      ));\n    }\n\n    var headers = config.headers;\n    var headerNames = {};\n\n    Object.keys(headers).forEach(function storeLowerName(name) {\n      headerNames[name.toLowerCase()] = name;\n    });\n\n    // Set User-Agent (required by some servers)\n    // See https://github.com/axios/axios/issues/69\n    if ('user-agent' in headerNames) {\n      // User-Agent is specified; handle case where no UA header is desired\n      if (!headers[headerNames['user-agent']]) {\n        delete headers[headerNames['user-agent']];\n      }\n      // Otherwise, use specified value\n    } else {\n      // Only set header if it hasn't been set in config\n      headers['User-Agent'] = 'axios/' + VERSION;\n    }\n\n    // support for https://www.npmjs.com/package/form-data api\n    if (utils.isFormData(data) && utils.isFunction(data.getHeaders)) {\n      Object.assign(headers, data.getHeaders());\n    } else if (data && !utils.isStream(data)) {\n      if (Buffer.isBuffer(data)) {\n        // Nothing to do...\n      } else if (utils.isArrayBuffer(data)) {\n        data = Buffer.from(new Uint8Array(data));\n      } else if (utils.isString(data)) {\n        data = Buffer.from(data, 'utf-8');\n      } else {\n        return reject(new AxiosError(\n          'Data after transformation must be a string, an ArrayBuffer, a Buffer, or a Stream',\n          AxiosError.ERR_BAD_REQUEST,\n          config\n        ));\n      }\n\n      if (config.maxBodyLength > -1 && data.length > config.maxBodyLength) {\n        return reject(new AxiosError(\n          'Request body larger than maxBodyLength limit',\n          AxiosError.ERR_BAD_REQUEST,\n          config\n        ));\n      }\n\n      // Add Content-Length header if data exists\n      if (!headerNames['content-length']) {\n        headers['Content-Length'] = data.length;\n      }\n    }\n\n    // HTTP basic authentication\n    var auth = undefined;\n    if (config.auth) {\n      var username = config.auth.username || '';\n      var password = config.auth.password || '';\n      auth = username + ':' + password;\n    }\n\n    if (!auth && parsed.auth) {\n      var urlAuth = parsed.auth.split(':');\n      var urlUsername = urlAuth[0] || '';\n      var urlPassword = urlAuth[1] || '';\n      auth = urlUsername + ':' + urlPassword;\n    }\n\n    if (auth && headerNames.authorization) {\n      delete headers[headerNames.authorization];\n    }\n\n    try {\n      buildURL(parsed.path, config.params, config.paramsSerializer).replace(/^\\?/, '');\n    } catch (err) {\n      var customErr = new Error(err.message);\n      customErr.config = config;\n      customErr.url = config.url;\n      customErr.exists = true;\n      reject(customErr);\n    }\n\n    var options = {\n      path: buildURL(parsed.path, config.params, config.paramsSerializer).replace(/^\\?/, ''),\n      method: method,\n      headers: headers,\n      agents: { http: config.httpAgent, https: config.httpsAgent },\n      auth: auth,\n      protocol: protocol,\n      beforeRedirect: dispatchBeforeRedirect,\n      beforeRedirects: {}\n    };\n\n    if (config.socketPath) {\n      options.socketPath = config.socketPath;\n    } else {\n      options.hostname = parsed.hostname;\n      options.port = parsed.port;\n      setProxy(options, config.proxy, protocol + '//' + parsed.hostname + (parsed.port ? ':' + parsed.port : '') + options.path);\n    }\n\n    var transport;\n    var isHttpsRequest = isHttps.test(options.protocol);\n    options.agent = isHttpsRequest ? config.httpsAgent : config.httpAgent;\n    if (config.transport) {\n      transport = config.transport;\n    } else if (config.maxRedirects === 0) {\n      transport = isHttpsRequest ? https : http;\n    } else {\n      if (config.maxRedirects) {\n        options.maxRedirects = config.maxRedirects;\n      }\n      if (config.beforeRedirect) {\n        options.beforeRedirects.config = config.beforeRedirect;\n      }\n      transport = isHttpsRequest ? httpsFollow : httpFollow;\n    }\n\n    if (config.maxBodyLength > -1) {\n      options.maxBodyLength = config.maxBodyLength;\n    } else {\n      // follow-redirects does not skip comparison, so it should always succeed for axios -1 unlimited\n      options.maxBodyLength = Infinity;\n    }\n\n    if (config.insecureHTTPParser) {\n      options.insecureHTTPParser = config.insecureHTTPParser;\n    }\n\n    // Create the request\n    var req = transport.request(options, function handleResponse(res) {\n      if (req.aborted) return;\n\n      // uncompress the response body transparently if required\n      var responseStream = res;\n\n      // return the last request in case of redirects\n      var lastRequest = res.req || req;\n\n      // if decompress disabled we should not decompress\n      if (config.decompress !== false) {\n        // if no content, but headers still say that it is encoded,\n        // remove the header not confuse downstream operations\n        if (data && data.length === 0 && res.headers['content-encoding']) {\n          delete res.headers['content-encoding'];\n        }\n\n        switch (res.headers['content-encoding']) {\n        /*eslint default-case:0*/\n        case 'gzip':\n        case 'compress':\n        case 'deflate':\n          // add the unzipper to the body stream processing pipeline\n          responseStream = responseStream.pipe(zlib.createUnzip());\n\n          // remove the content-encoding in order to not confuse downstream operations\n          delete res.headers['content-encoding'];\n          break;\n        }\n      }\n\n      var response = {\n        status: res.statusCode,\n        statusText: res.statusMessage,\n        headers: res.headers,\n        config: config,\n        request: lastRequest\n      };\n\n      if (responseType === 'stream') {\n        response.data = responseStream;\n        settle(resolve, reject, response);\n      } else {\n        var responseBuffer = [];\n        var totalResponseBytes = 0;\n        responseStream.on('data', function handleStreamData(chunk) {\n          responseBuffer.push(chunk);\n          totalResponseBytes += chunk.length;\n\n          // make sure the content length is not over the maxContentLength if specified\n          if (config.maxContentLength > -1 && totalResponseBytes > config.maxContentLength) {\n            // stream.destroy() emit aborted event before calling reject() on Node.js v16\n            rejected = true;\n            responseStream.destroy();\n            reject(new AxiosError('maxContentLength size of ' + config.maxContentLength + ' exceeded',\n              AxiosError.ERR_BAD_RESPONSE, config, lastRequest));\n          }\n        });\n\n        responseStream.on('aborted', function handlerStreamAborted() {\n          if (rejected) {\n            return;\n          }\n          responseStream.destroy();\n          reject(new AxiosError(\n            'maxContentLength size of ' + config.maxContentLength + ' exceeded',\n            AxiosError.ERR_BAD_RESPONSE,\n            config,\n            lastRequest\n          ));\n        });\n\n        responseStream.on('error', function handleStreamError(err) {\n          if (req.aborted) return;\n          reject(AxiosError.from(err, null, config, lastRequest));\n        });\n\n        responseStream.on('end', function handleStreamEnd() {\n          try {\n            var responseData = responseBuffer.length === 1 ? responseBuffer[0] : Buffer.concat(responseBuffer);\n            if (responseType !== 'arraybuffer') {\n              responseData = responseData.toString(responseEncoding);\n              if (!responseEncoding || responseEncoding === 'utf8') {\n                responseData = utils.stripBOM(responseData);\n              }\n            }\n            response.data = responseData;\n          } catch (err) {\n            reject(AxiosError.from(err, null, config, response.request, response));\n          }\n          settle(resolve, reject, response);\n        });\n      }\n    });\n\n    // Handle errors\n    req.on('error', function handleRequestError(err) {\n      // @todo remove\n      // if (req.aborted && err.code !== AxiosError.ERR_FR_TOO_MANY_REDIRECTS) return;\n      reject(AxiosError.from(err, null, config, req));\n    });\n\n    // set tcp keep alive to prevent drop connection by peer\n    req.on('socket', function handleRequestSocket(socket) {\n      // default interval of sending ack packet is 1 minute\n      socket.setKeepAlive(true, 1000 * 60);\n    });\n\n    // Handle request timeout\n    if (config.timeout) {\n      // This is forcing a int timeout to avoid problems if the `req` interface doesn't handle other types.\n      var timeout = parseInt(config.timeout, 10);\n\n      if (isNaN(timeout)) {\n        reject(new AxiosError(\n          'error trying to parse `config.timeout` to int',\n          AxiosError.ERR_BAD_OPTION_VALUE,\n          config,\n          req\n        ));\n\n        return;\n      }\n\n      // Sometime, the response will be very slow, and does not respond, the connect event will be block by event loop system.\n      // And timer callback will be fired, and abort() will be invoked before connection, then get \"socket hang up\" and code ECONNRESET.\n      // At this time, if we have a large number of request, nodejs will hang up some socket on background. and the number will up and up.\n      // And then these socket which be hang up will devouring CPU little by little.\n      // ClientRequest.setTimeout will be fired on the specify milliseconds, and can make sure that abort() will be fired after connect.\n      req.setTimeout(timeout, function handleRequestTimeout() {\n        req.abort();\n        var transitional = config.transitional || transitionalDefaults;\n        reject(new AxiosError(\n          'timeout of ' + timeout + 'ms exceeded',\n          transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n          config,\n          req\n        ));\n      });\n    }\n\n    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (req.aborted) return;\n\n        req.abort();\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }\n    }\n\n\n    // Send the request\n    if (utils.isStream(data)) {\n      data.on('error', function handleStreamError(err) {\n        reject(AxiosError.from(err, config, null, req));\n      }).pipe(req);\n    } else {\n      req.end(data);\n    }\n  });"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "e3687fbc-66a6-4e38-bb19-46e149aa6d1b",
+      "origin": "deterministic",
+      "claimKey": "axios:deterministic-http-adapter-length",
+      "verdict": "true",
+      "claim": "httpAdapter spans 376 physical source lines.",
+      "reason": "The trusted TypeScript AST confirms the physical span. Nested adapter/Promise callbacks share one maintainability cause per adapter. The factual length observation does not independently establish a behavioral defect or mandate splitting.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 84,
+          "excerpt": "module.exports = function httpAdapter(config) {\n  return new Promise(function dispatchHttpRequest(resolvePromise, rejectPromise) {\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n    var resolve = function resolve(value) {\n      done();\n      resolvePromise(value);\n    };\n    var rejected = false;\n    var reject = function reject(value) {\n      done();\n      rejected = true;\n      rejectPromise(value);\n    };\n    var data = config.data;\n    var responseType = config.responseType;\n    var responseEncoding = config.responseEncoding;\n    var method = config.method.toUpperCase();\n\n    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }\n\n    if (supportedProtocols.indexOf(protocol) === -1) {\n      return reject(new AxiosError(\n        'Unsupported protocol ' + protocol,\n        AxiosError.ERR_BAD_REQUEST,\n        config\n      ));\n    }\n\n    var headers = config.headers;\n    var headerNames = {};\n\n    Object.keys(headers).forEach(function storeLowerName(name) {\n      headerNames[name.toLowerCase()] = name;\n    });\n\n    // Set User-Agent (required by some servers)\n    // See https://github.com/axios/axios/issues/69\n    if ('user-agent' in headerNames) {\n      // User-Agent is specified; handle case where no UA header is desired\n      if (!headers[headerNames['user-agent']]) {\n        delete headers[headerNames['user-agent']];\n      }\n      // Otherwise, use specified value\n    } else {\n      // Only set header if it hasn't been set in config\n      headers['User-Agent'] = 'axios/' + VERSION;\n    }\n\n    // support for https://www.npmjs.com/package/form-data api\n    if (utils.isFormData(data) && utils.isFunction(data.getHeaders)) {\n      Object.assign(headers, data.getHeaders());\n    } else if (data && !utils.isStream(data)) {\n      if (Buffer.isBuffer(data)) {\n        // Nothing to do...\n      } else if (utils.isArrayBuffer(data)) {\n        data = Buffer.from(new Uint8Array(data));\n      } else if (utils.isString(data)) {\n        data = Buffer.from(data, 'utf-8');\n      } else {\n        return reject(new AxiosError(\n          'Data after transformation must be a string, an ArrayBuffer, a Buffer, or a Stream',\n          AxiosError.ERR_BAD_REQUEST,\n          config\n        ));\n      }\n\n      if (config.maxBodyLength > -1 && data.length > config.maxBodyLength) {\n        return reject(new AxiosError(\n          'Request body larger than maxBodyLength limit',\n          AxiosError.ERR_BAD_REQUEST,\n          config\n        ));\n      }\n\n      // Add Content-Length header if data exists\n      if (!headerNames['content-length']) {\n        headers['Content-Length'] = data.length;\n      }\n    }\n\n    // HTTP basic authentication\n    var auth = undefined;\n    if (config.auth) {\n      var username = config.auth.username || '';\n      var password = config.auth.password || '';\n      auth = username + ':' + password;\n    }\n\n    if (!auth && parsed.auth) {\n      var urlAuth = parsed.auth.split(':');\n      var urlUsername = urlAuth[0] || '';\n      var urlPassword = urlAuth[1] || '';\n      auth = urlUsername + ':' + urlPassword;\n    }\n\n    if (auth && headerNames.authorization) {\n      delete headers[headerNames.authorization];\n    }\n\n    try {\n      buildURL(parsed.path, config.params, config.paramsSerializer).replace(/^\\?/, '');\n    } catch (err) {\n      var customErr = new Error(err.message);\n      customErr.config = config;\n      customErr.url = config.url;\n      customErr.exists = true;\n      reject(customErr);\n    }\n\n    var options = {\n      path: buildURL(parsed.path, config.params, config.paramsSerializer).replace(/^\\?/, ''),\n      method: method,\n      headers: headers,\n      agents: { http: config.httpAgent, https: config.httpsAgent },\n      auth: auth,\n      protocol: protocol,\n      beforeRedirect: dispatchBeforeRedirect,\n      beforeRedirects: {}\n    };\n\n    if (config.socketPath) {\n      options.socketPath = config.socketPath;\n    } else {\n      options.hostname = parsed.hostname;\n      options.port = parsed.port;\n      setProxy(options, config.proxy, protocol + '//' + parsed.hostname + (parsed.port ? ':' + parsed.port : '') + options.path);\n    }\n\n    var transport;\n    var isHttpsRequest = isHttps.test(options.protocol);\n    options.agent = isHttpsRequest ? config.httpsAgent : config.httpAgent;\n    if (config.transport) {\n      transport = config.transport;\n    } else if (config.maxRedirects === 0) {\n      transport = isHttpsRequest ? https : http;\n    } else {\n      if (config.maxRedirects) {\n        options.maxRedirects = config.maxRedirects;\n      }\n      if (config.beforeRedirect) {\n        options.beforeRedirects.config = config.beforeRedirect;\n      }\n      transport = isHttpsRequest ? httpsFollow : httpFollow;\n    }\n\n    if (config.maxBodyLength > -1) {\n      options.maxBodyLength = config.maxBodyLength;\n    } else {\n      // follow-redirects does not skip comparison, so it should always succeed for axios -1 unlimited\n      options.maxBodyLength = Infinity;\n    }\n\n    if (config.insecureHTTPParser) {\n      options.insecureHTTPParser = config.insecureHTTPParser;\n    }\n\n    // Create the request\n    var req = transport.request(options, function handleResponse(res) {\n      if (req.aborted) return;\n\n      // uncompress the response body transparently if required\n      var responseStream = res;\n\n      // return the last request in case of redirects\n      var lastRequest = res.req || req;\n\n      // if decompress disabled we should not decompress\n      if (config.decompress !== false) {\n        // if no content, but headers still say that it is encoded,\n        // remove the header not confuse downstream operations\n        if (data && data.length === 0 && res.headers['content-encoding']) {\n          delete res.headers['content-encoding'];\n        }\n\n        switch (res.headers['content-encoding']) {\n        /*eslint default-case:0*/\n        case 'gzip':\n        case 'compress':\n        case 'deflate':\n          // add the unzipper to the body stream processing pipeline\n          responseStream = responseStream.pipe(zlib.createUnzip());\n\n          // remove the content-encoding in order to not confuse downstream operations\n          delete res.headers['content-encoding'];\n          break;\n        }\n      }\n\n      var response = {\n        status: res.statusCode,\n        statusText: res.statusMessage,\n        headers: res.headers,\n        config: config,\n        request: lastRequest\n      };\n\n      if (responseType === 'stream') {\n        response.data = responseStream;\n        settle(resolve, reject, response);\n      } else {\n        var responseBuffer = [];\n        var totalResponseBytes = 0;\n        responseStream.on('data', function handleStreamData(chunk) {\n          responseBuffer.push(chunk);\n          totalResponseBytes += chunk.length;\n\n          // make sure the content length is not over the maxContentLength if specified\n          if (config.maxContentLength > -1 && totalResponseBytes > config.maxContentLength) {\n            // stream.destroy() emit aborted event before calling reject() on Node.js v16\n            rejected = true;\n            responseStream.destroy();\n            reject(new AxiosError('maxContentLength size of ' + config.maxContentLength + ' exceeded',\n              AxiosError.ERR_BAD_RESPONSE, config, lastRequest));\n          }\n        });\n\n        responseStream.on('aborted', function handlerStreamAborted() {\n          if (rejected) {\n            return;\n          }\n          responseStream.destroy();\n          reject(new AxiosError(\n            'maxContentLength size of ' + config.maxContentLength + ' exceeded',\n            AxiosError.ERR_BAD_RESPONSE,\n            config,\n            lastRequest\n          ));\n        });\n\n        responseStream.on('error', function handleStreamError(err) {\n          if (req.aborted) return;\n          reject(AxiosError.from(err, null, config, lastRequest));\n        });\n\n        responseStream.on('end', function handleStreamEnd() {\n          try {\n            var responseData = responseBuffer.length === 1 ? responseBuffer[0] : Buffer.concat(responseBuffer);\n            if (responseType !== 'arraybuffer') {\n              responseData = responseData.toString(responseEncoding);\n              if (!responseEncoding || responseEncoding === 'utf8') {\n                responseData = utils.stripBOM(responseData);\n              }\n            }\n            response.data = responseData;\n          } catch (err) {\n            reject(AxiosError.from(err, null, config, response.request, response));\n          }\n          settle(resolve, reject, response);\n        });\n      }\n    });\n\n    // Handle errors\n    req.on('error', function handleRequestError(err) {\n      // @todo remove\n      // if (req.aborted && err.code !== AxiosError.ERR_FR_TOO_MANY_REDIRECTS) return;\n      reject(AxiosError.from(err, null, config, req));\n    });\n\n    // set tcp keep alive to prevent drop connection by peer\n    req.on('socket', function handleRequestSocket(socket) {\n      // default interval of sending ack packet is 1 minute\n      socket.setKeepAlive(true, 1000 * 60);\n    });\n\n    // Handle request timeout\n    if (config.timeout) {\n      // This is forcing a int timeout to avoid problems if the `req` interface doesn't handle other types.\n      var timeout = parseInt(config.timeout, 10);\n\n      if (isNaN(timeout)) {\n        reject(new AxiosError(\n          'error trying to parse `config.timeout` to int',\n          AxiosError.ERR_BAD_OPTION_VALUE,\n          config,\n          req\n        ));\n\n        return;\n      }\n\n      // Sometime, the response will be very slow, and does not respond, the connect event will be block by event loop system.\n      // And timer callback will be fired, and abort() will be invoked before connection, then get \"socket hang up\" and code ECONNRESET.\n      // At this time, if we have a large number of request, nodejs will hang up some socket on background. and the number will up and up.\n      // And then these socket which be hang up will devouring CPU little by little.\n      // ClientRequest.setTimeout will be fired on the specify milliseconds, and can make sure that abort() will be fired after connect.\n      req.setTimeout(timeout, function handleRequestTimeout() {\n        req.abort();\n        var transitional = config.transitional || transitionalDefaults;\n        reject(new AxiosError(\n          'timeout of ' + timeout + 'ms exceeded',\n          transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n          config,\n          req\n        ));\n      });\n    }\n\n    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (req.aborted) return;\n\n        req.abort();\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }\n    }\n\n\n    // Send the request\n    if (utils.isStream(data)) {\n      data.on('error', function handleStreamError(err) {\n        reject(AxiosError.from(err, config, null, req));\n      }).pipe(req);\n    } else {\n      req.end(data);\n    }\n  });\n};"
+        }
+      ]
+    },
+    {
+      "instanceId": "axios__axios-4738",
+      "findingId": "b94a6880-0301-47d1-b5cf-cdb521ce8db8",
+      "origin": "deterministic",
+      "claimKey": "axios:deterministic-http-todo",
+      "verdict": "true",
+      "claim": "The reported HTTP TODO maintenance note exists.",
+      "reason": "The exact note is present. This supports a maintenance observation, not demonstrated defect severity or a required project policy violation.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 389,
+          "excerpt": "      // @todo remove\n      // if (req.aborted && err.code !== AxiosError.ERR_FR_TOO_MANY_REDIRECTS) return;\n      reject(AxiosError.from(err, null, config, req));"
+        }
+      ]
+    }
+  ],
+  "goldMatches": [],
+  "goldMisses": [
+    {
+      "issueId": "node-timeout-custom-message",
+      "creditedIssueHits": 0,
+      "creditedOccurrenceHits": 0,
+      "reason": "None of the 27 model findings identifies the Node timeout callback ignoring config.timeoutErrorMessage. The timeout defect is still present at HTTP421-430 while XHR127-137 honors the option. Cancellation, serializer continuation, data-URI limits and type/document mismatches have different causes. Successful execution does not turn these into a behavioral gold match.",
+      "sourceEvidence": [
+        {
+          "filePath": "lib/adapters/http.js",
+          "lineNumber": 421,
+          "excerpt": "      req.setTimeout(timeout, function handleRequestTimeout() {\n        req.abort();\n        var transitional = config.transitional || transitionalDefaults;\n        reject(new AxiosError(\n          'timeout of ' + timeout + 'ms exceeded',\n          transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n          config,\n          req\n        ));\n      });"
+        },
+        {
+          "filePath": "lib/adapters/xhr.js",
+          "lineNumber": 127,
+          "excerpt": "    request.ontimeout = function handleTimeout() {\n      var timeoutErrorMessage = config.timeout ? 'timeout of ' + config.timeout + 'ms exceeded' : 'timeout exceeded';\n      var transitional = config.transitional || transitionalDefaults;\n      if (config.timeoutErrorMessage) {\n        timeoutErrorMessage = config.timeoutErrorMessage;\n      }\n      reject(new AxiosError(\n        timeoutErrorMessage,\n        transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n        config,\n        request));"
+        },
+        {
+          "filePath": "index.d.ts",
+          "lineNumber": 137,
+          "excerpt": "  timeout?: number;\n  timeoutErrorMessage?: string;"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Independent adjudication of this successful new Review only; earlier adjudications supplied format context, never verdict input.",
+    "Exact source citations and helper-local conditional defects do not establish remote attacker reach or whole-system exploitability.",
+    "Operational resource-exhaustion, cookie security impact and supported no-Symbol runtime regression remain Unknown without authorized reproduction.",
+    "No upstream code/dependencies/tests were executed or installed; no network, provider, app, approval, retry, fallback or production mutations were performed.",
+    "This is one completed Review in a fixed five-case/seven-occurrence benchmark. A successful case cannot certify partial benchmark acceptance."
+  ],
+  "mitigationSuggestions": [
+    {
+      "claimKeys": [
+        "axios:toflatobject-prototype-mutation"
+      ],
+      "status": "proposed-not-implemented",
+      "action": "Require candidate dangerous keys to be traced through every selected guard. Add evaluator counterexamples for ordinary-object membership checks that accidentally block a proposed mutation while causing a different omission. Keep source truth and security consequence separate."
+    },
+    {
+      "claimKeys": [
+        "axios:matchall-application-dos",
+        "axios:toarray-resource-exhaustion",
+        "axios:data-uri-application-resource-exhaustion",
+        "axios:cookie-metadata-attribute-injection"
+      ],
+      "status": "proposed-not-implemented",
+      "action": "Preserve explicit uncertainty for resource budgets, application attacker entry and browser effects. Establish caller argument provenance and a supported contract before promoting a helper fact into a system exploit. Add safe-caller and bounded-runtime negative controls; do not run imported upstream code in the adjudicator."
+    },
+    {
+      "claimKeys": [
+        "axios:formdata-symbol-supported-runtime-regression"
+      ],
+      "status": "proposed-not-implemented",
+      "action": "Include complete short-circuit guards and an explicit supported runtime capability matrix before compatibility-impact claims. Retain conditional source behavior separately from unverified environment impact."
+    },
+    {
+      "claimKeys": [],
+      "status": "proposed-not-implemented",
+      "action": "Investigate why the validated bounded sweep and HTTP technical domain rows miss a concrete selected cross-adapter configuration inconsistency despite inspecting both files. Strengthen generic contract comparison and branch-specific diagnostics using independent fixtures. Keep this registered gold and oracle out of product prompts and model inputs."
+    }
+  ]
+}

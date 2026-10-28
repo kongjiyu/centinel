@@ -21,6 +21,8 @@ export type Finding = {
   category: string;
   message: string;
   evidence: string;
+  confidence?: 'high' | 'medium' | 'low';
+  recommendation?: string;
 };
 
 export type StaticAnalysisOptions = {
@@ -88,14 +90,17 @@ export async function runStaticAnalysis(
       continue;
     }
 
-    // Run each applicable rule
+    const runRules = async () => {
     for (const rule of applicableRules) {
-      checkCancelled();
-      const findings = options.harness
-        ? await options.harness.step('deterministic_analysis', 'check_rule', { artifactId: artifact.id, ruleId: rule.id, ruleName: rule.name }, async () => rule.analyze(content, artifact.filePath), value => ({ findingCount: value.length }))
-        : rule.analyze(content, artifact.filePath);
-      allFindings.push(...findings);
-    }
+        checkCancelled();
+        const findings = options.harness
+          ? await options.harness.step('deterministic_analysis', 'check_rule', { artifactId: artifact.id, ruleId: rule.id, ruleName: rule.name }, async () => rule.analyze(content, artifact.filePath), value => ({ findingCount: value.length }))
+          : rule.analyze(content, artifact.filePath);
+        allFindings.push(...findings);
+      }
+    };
+    if (options.harness) await options.harness.bufferRuleEvents(runRules);
+    else await runRules();
   }
 
   // Per-rule and per-file breakdown — logged so the user can see which rules

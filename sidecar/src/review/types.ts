@@ -1,8 +1,10 @@
 import type { Artifact } from '../artifacts.js';
-import type { TokenUsage } from '../aiClient.js';
+import type { TokenUsage, TokenUsageObservation, UsageAccounting } from '../aiClient.js';
 import type { AiApiFormat, AiProvider } from '../settings.js';
 import type { EvidenceSufficiencyAssessment, EvidenceContradictionDisposition } from './evidenceSufficiency.js';
 import type { FindingCorrelationSnapshot } from './correlation.js';
+import type { FrozenReviewGrounding, ReviewTraceabilitySnapshot } from './evidenceTypes.js';
+import type { ReviewRequestUsageContext } from './usageContext.js';
 
 /** Lifecycle states owned by the review orchestrator.
  *
@@ -38,6 +40,21 @@ export type StaticReviewScope = {
   sourceIds?: string[];
   /** Optional human-readable scope label preserved in the immutable review. */
   label?: string;
+};
+
+export type CaptureReviewTraceabilityInput = {
+  scope: StaticReviewScope;
+  sourceManifestId: string | null;
+  /** Exact artifact versions loaded from the Review's frozen source manifest. */
+  artifacts: Artifact[];
+  /** Source targets that could not be read from their frozen versions. */
+  unavailableArtifactIds?: string[];
+  /** Confirmed requirements and enabled rules captured for this execution. */
+  grounding?: FrozenReviewGrounding;
+  signal?: AbortSignal;
+  /** Copy the parent's immutable context for a saved-source retry. Missing or
+   * legacy parent context remains unavailable; it is never reconstructed. */
+  reuseFromReviewId?: string;
 };
 
 export type ReviewProgressState = {
@@ -128,6 +145,10 @@ export type ReviewOperationRecord = {
 };
 
 export type StaticFindingInput = {
+  domain?: 'security' | 'business' | 'technical' | 'personnel';
+  issueType?: string;
+  logicFlow?: string[];
+  relatedLocations?: Array<{ filePath: string; lineNumber: number; evidence: string; artifactId?: string | null; sourceVersion?: string | null }>;
   source: 'deterministic' | 'model';
   title: string;
   description: string;
@@ -178,6 +199,8 @@ export type StaticModelRequest = {
   systemPrompt: string;
   prompt: string;
   repair?: boolean;
+  /** Safe source/segment diagnostics for this actual provider request. */
+  usageContext?: ReviewRequestUsageContext;
   signal?: AbortSignal;
 };
 
@@ -216,6 +239,14 @@ export type ModelAttemptRecord = {
   retryAfterMs?: number;
   errorCode?: string;
   errorMessage?: string;
+  /** True only when a provider response was observed; false supports a separately labeled zero assumption. */
+  responseReceived?: boolean;
+  /** Safe source/completeness markers and allowlisted counter names only. */
+  usageObservation?: TokenUsageObservation;
+  /** Explicit accounting assumption; never written for an in-progress reservation. */
+  usageAccounting?: UsageAccounting;
+  /** Allowlisted phase/source references and estimates; never source text. */
+  usageContext?: ReviewRequestUsageContext;
   usage?: TokenUsage;
   createdAt: string;
 };
@@ -261,16 +292,22 @@ export type StaticReviewRepository = {
    * fall back to the old local Review database. */
   saveSourceManifest(reviewId: string, projectId: string, artifacts: Artifact[], mode: ReviewSourceManifestMode): Promise<{ id: string }>;
   loadSourceManifestArtifacts(sourceManifestId: string): Promise<Artifact[] | null>;
+  captureTraceabilitySnapshot(reviewId: string, projectId: string, input: CaptureReviewTraceabilityInput): Promise<ReviewTraceabilitySnapshot>;
+  getTraceabilitySnapshot(reviewId: string): Promise<ReviewTraceabilitySnapshot | null>;
+  /** @deprecated Only retained for old adapters. New Reviews must capture
+   * traceability with the frozen source manifest before analysis starts. */
   saveTraceabilitySnapshot(reviewId: string, projectId: string): Promise<void>;
   getLatestDecision?(reviewId: string): Promise<StaticReviewDecision | null>;
   getTraceabilityReadiness?(projectId: string, requirementIds?: string[], signal?: AbortSignal): Promise<Array<{ requirementId: string; state: 'complete' | 'incomplete' | 'missing' }>>;
   saveReviewIteration?(childReviewId: string, projectId: string, iteration: StaticReviewIteration): Promise<void>;
   saveEvidenceSufficiency(assessment: EvidenceSufficiencyAssessment): Promise<void>;
+  appendEvidenceSufficiency(assessment: EvidenceSufficiencyAssessment): Promise<EvidenceSufficiencyAssessment>;
   getEvidenceSufficiency(reviewId: string): Promise<EvidenceSufficiencyAssessment | null>;
   listContradictionDispositions?(projectId: string, signal?: AbortSignal): Promise<EvidenceContradictionDisposition[]>;
   saveFindingCorrelations(snapshot: FindingCorrelationSnapshot): Promise<void>;
   getFindingCorrelationSnapshot?(childReviewId: string): Promise<FindingCorrelationSnapshot | null>;
   listReviewFindings(reviewId: string): Promise<PersistedReviewFinding[]>;
+  getBatchCacheBasis?(reviewId: string): Promise<import('./batchCacheValidation.js').BatchCacheBasis | null>;
 
   /** Finding, progress, usage, and audit persistence must fail closed. */
   saveFinding(finding: PersistedReviewFinding): Promise<void>;
@@ -280,6 +317,8 @@ export type StaticReviewRepository = {
    * provider-call budget after process recovery. */
   getModelAttemptCount(reviewId: string, stage: string): Promise<number>;
   recordAudit(event: ReviewAuditEvent): Promise<void>;
+  /** Bounded bulk persistence for free deterministic rule events only. */
+  recordAudits?(events: ReviewAuditEvent[]): Promise<void>;
 };
 
 export type StaticReviewStartInput = {
@@ -303,6 +342,7 @@ export type StaticReviewRetryInput = {
   reviewId: string;
   idempotencyKey?: string;
   refreshSourceManifest?: boolean;
+  reuseValidatedBatches?: boolean;
   artifacts?: Artifact[];
 };
 

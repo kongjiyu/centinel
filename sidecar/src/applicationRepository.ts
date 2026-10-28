@@ -285,6 +285,14 @@ export class CentinelApplicationRepository {
     return this.store.listArtifacts(projectId, signal);
   }
 
+  /** Directory setup needs existence only, never the inventory/version history. */
+  async hasArtifacts(projectId: string): Promise<boolean> {
+    await this.requireProjectMember(projectId);
+    const result = await this.client.from('artifacts').select('id').eq('project_id', projectId).limit(1);
+    if (result.error) throw new ApplicationRepositoryError(`Source presence lookup failed: ${result.error.message}`);
+    return Array.isArray(result.data) && result.data.length > 0;
+  }
+
   /** Reject stale or foreign Review selections before creating a durable run. */
   async validateReviewScope(projectId: string, scope: {
     artifactIds: string[];
@@ -667,6 +675,31 @@ export class CentinelApplicationRepository {
     if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
     const version = await this.getArtifactVersion(projectId, versionId, signal);
     if (!version) throw new ApplicationRepositoryError('Artifact version not found.', 'artifact_version_not_found', 404);
+    return this.downloadVerifiedArtifactVersion(version, signal);
+  }
+
+  /** Read one frozen version after a single member-scoped version lookup. */
+  async downloadFrozenArtifactVersion(input: {
+    projectId: string;
+    artifactId: string;
+    versionId: string;
+    expectedContentHash?: string;
+  }, signal?: AbortSignal): Promise<Buffer> {
+    if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+    const version = await this.getArtifactVersion(input.projectId, input.versionId, signal);
+    if (!version || version.id !== input.versionId || version.projectId !== input.projectId || version.artifactId !== input.artifactId) {
+      throw new ApplicationRepositoryError('Frozen artifact version is unavailable.', 'artifact_version_not_found', 404);
+    }
+    const expectedHash = input.expectedContentHash?.replace(/^sha256:/i, '').toLowerCase();
+    if (expectedHash && /^[a-f0-9]{64}$/.test(expectedHash) && expectedHash !== version.contentHash.toLowerCase()) {
+      throw new ApplicationRepositoryError('Frozen artifact version hash does not match the selected source.', 'artifact_hash_mismatch', 409);
+    }
+    return this.downloadVerifiedArtifactVersion(version, signal);
+  }
+
+  private async downloadVerifiedArtifactVersion(version: StoreArtifactVersion, signal?: AbortSignal): Promise<Buffer> {
+    if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+    const projectId = version.projectId;
     if (!version.storagePath) throw new ApplicationRepositoryError('Artifact version has no private Storage object.', 'artifact_storage_missing', 409);
     if (version.storagePath !== `${projectId}/${version.artifactId}/${version.contentHash}`) {
       throw new ApplicationRepositoryError('Artifact version Storage path is outside its project and artifact scope.', 'artifact_storage_scope_invalid', 409);

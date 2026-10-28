@@ -17,6 +17,7 @@ export function reviewEvidenceFindings(session: StaticSession, assessment: Evide
     title: gap.title, description: gap.detail, recommendation: gap.remediation,
     evidenceText: `Document check saved at ${assessment.assessedAt}. ${gap.detail}`,
     evidenceGap: { assessmentId: assessment.id, code: gap.code }, status: 'new', confidence: 'high',
+    requirementId: gap.requirementId, relatedSources: gap.references,
     createdAt: assessment.assessedAt, artifactId: gap.artifactId ?? null, filePath: '', lineNumber: null, fromRemarks: false,
   }));
 }

@@ -14,6 +14,7 @@ import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
 import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
 import { projectReadinessFindings } from '../readinessFindings';
+import { reviewEvidenceFindings } from '../reviewEvidenceFindings';
 import { assessReviewSourceCurrency, latestSuccessfulReview } from '../reviewCurrency';
 import { effectiveFindingStatus } from '../findingStatus';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot, ReviewSourceManifest } from '../types';
@@ -105,6 +106,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [findingsError, setFindingsError] = useState<string | null>(null);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
   const [readinessStatus, setReadinessStatus] = useState<ProjectReadinessStatus | null>(null);
+  const [reviewGapState, setReviewGapState] = useState<{ projectId: string; reviewId: string; findings: Finding[]; message: string | null } | null>(null);
   useEffect(() => { setReadinessStatus(null); }, [project.id]);
   const [latestTraceabilitySummary, setLatestTraceabilitySummary] = useState<{ complete: number; incomplete: number; missing: number; attention: number } | null>(null);
   const [latestTraceabilityReview, setLatestTraceabilityReview] = useState<StaticSession | null>(null);
@@ -139,6 +141,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [findingsFilter, setFindingsFilter] = useState<{ riskLevel?: 'critical_or_high'; status?: 'unresolved'; category?: string; search?: string } | null>(null);
 
   const { state: activeReviewState } = useActiveReviewState();
+  const activeReviewRevision = activeReviewState?.session.projectId === project.id
+    ? `${activeReviewState.session.id}:${activeReviewState.session.status}` : null;
 
   useEffect(() => {
     if(initialAction==='dynamic'){onNavigate({name:'dynamic-testing',projectId:project.id});return;}
@@ -201,14 +205,21 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
 
-  useEffect(() => { loadDynamicSessions(); loadProjectFindings(); loadReportHistory(); }, [loadDynamicSessions, loadProjectFindings, loadReportHistory]);
+  // Opening Source/Settings/Collaborators must not run the entire project
+  // evidence pipeline. Those sections own their own data requests.
   useEffect(() => {
-    if (activeSection !== 'project-overview') return;
-    loadArtifacts();
-    loadStaticSessions();
+    if (activeSection === 'project-overview') void loadDynamicSessions();
+  }, [activeSection, loadDynamicSessions]);
+  useEffect(() => {
+    if (activeSection === 'project-overview' || activeSection === 'project-assessment') void loadProjectFindings();
+  }, [activeSection, loadProjectFindings]);
+  useEffect(() => {
+    if (activeSection === 'project-overview') void loadArtifacts();
+    if (['project-overview', 'project-assessment', 'project-findings'].includes(activeSection)) void loadStaticSessions();
   }, [activeSection, loadArtifacts, loadStaticSessions]);
 
   useEffect(() => {
+    if (activeSection !== 'project-assessment') return;
     if (typeof api.getProjectAssessment !== 'function') {
       setAssessmentData(null);
       return;
@@ -218,7 +229,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       .then(data => { if (!cancelled) setAssessmentData(data.status === 'available' ? data : null); })
       .catch(() => { if (!cancelled) setAssessmentData(null); });
     return () => { cancelled = true; };
-  }, [project.id, projectFindings, staticSessions]);
+  }, [activeSection, project.id, activeReviewRevision]);
 
   useEffect(() => {
     const snapshot = activeReviewState?.session;
@@ -236,12 +247,13 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [activeReviewState?.session, project.id]);
 
   useEffect(() => {
+    if (activeSection !== 'project-overview') return;
     const hasActive = dynamicSessions.some(s => s.status === 'running' || s.status === 'queued') ||
       staticSessions.some(s => s.status === 'running' || s.status === 'queued');
     if (!hasActive) return;
     const interval = setInterval(() => { loadDynamicSessions(); loadStaticSessions(); }, 2000);
     return () => clearInterval(interval);
-  }, [dynamicSessions, staticSessions, loadDynamicSessions, loadStaticSessions]);
+  }, [activeSection, dynamicSessions, staticSessions, loadDynamicSessions, loadStaticSessions]);
 
   const handleExportReport = async () => {
     setExporting(true);
@@ -369,6 +381,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const latestDynamicState = latestDynamicTest ? projectActivityLifecycle(latestDynamicTest, 'dynamic') : null;
 
   useEffect(() => {
+    if (activeSection !== 'project-overview') return;
     if (!lastSuccessfulReview) {
       setReviewSourceManifestLoad(null);
       return;
@@ -391,7 +404,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       });
 
     return () => { cancelled = true; };
-  }, [lastSuccessfulReview?.id, project.id]);
+  }, [activeSection, lastSuccessfulReview?.id, project.id]);
 
   const reviewSourceCurrency = useMemo(() => {
     if (!lastSuccessfulReview || !reviewSourceManifestLoad || reviewSourceManifestLoad.reviewId !== lastSuccessfulReview.id || reviewSourceManifestLoad.status === 'loading' || !artifactsLoaded) return null;
@@ -402,6 +415,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [artifacts, artifactsError, artifactsLoaded, lastSuccessfulReview, reviewSourceManifestLoad]);
 
   useEffect(() => {
+    if (activeSection !== 'project-assessment') return;
     const completedReview = [...staticSessions]
       .filter(review => review.status === 'success' && review.currentDecision?.decision === 'approved')
       .sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null;
@@ -427,7 +441,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       .catch(() => { if (!cancelled) setLatestTraceabilitySummary(null); })
       .finally(() => { if (!cancelled) setTraceabilitySummaryLoading(false); });
     return () => { cancelled = true; };
-  }, [assessmentData, project.id, staticSessions]);
+  }, [activeSection, assessmentData, project.id, staticSessions]);
 
   const recurringPatterns = useMemo(() => {
     const approvedSessionIds = new Set(staticSessions.filter(review => review.status === 'success' && review.currentDecision?.decision === 'approved').map(review => review.id));
@@ -548,6 +562,22 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [artifacts.length, artifactsError, dynamicSessions, lastSuccessfulReview, recurringPatterns, reviewSourceCurrency, staticSessions, unresolvedFindings]);
 
   const readinessFindings = useMemo(() => projectReadinessFindings(readinessStatus), [readinessStatus]);
+  const latestSavedReview = useMemo(() => [...staticSessions].filter(review => !['queued', 'prepared', 'running'].includes(review.status)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id))[0], [staticSessions]);
+  useEffect(() => {
+    if (activeSection !== 'project-findings' || !latestSavedReview) return;
+    let disposed = false;
+    const identity = { projectId: project.id, reviewId: latestSavedReview.id };
+    setReviewGapState({ ...identity, findings: [], message: 'Loading the latest Review’s document findings…' });
+    if (typeof api.getReviewEvidenceSufficiency !== 'function') {
+      setReviewGapState({ ...identity, findings: [], message: 'The latest Review’s saved document assessment is unavailable.' }); return;
+    }
+    void api.getReviewEvidenceSufficiency(project.id, latestSavedReview.id).then(assessment => {
+      if (!disposed) setReviewGapState({ ...identity, findings: reviewEvidenceFindings(latestSavedReview, assessment), message: assessment ? null : 'The latest Review has no saved document assessment.' });
+    }).catch(() => { if (!disposed) setReviewGapState({ ...identity, findings: [], message: 'The latest Review’s document findings could not be loaded. Reopen Findings to retry.' }); });
+    return () => { disposed = true; };
+  }, [activeSection, project.id, latestSavedReview?.id, latestSavedReview?.updatedAt]);
+  const currentReviewGaps = reviewGapState?.projectId === project.id && reviewGapState.reviewId === latestSavedReview?.id ? reviewGapState : null;
+  const supplementalProjectFindings = useMemo(() => [...readinessFindings, ...(currentReviewGaps?.findings ?? [])], [readinessFindings, currentReviewGaps?.findings]);
 
   const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
   const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);
@@ -861,7 +891,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       <div className="detail-grid" id="project-overview">
         {/* Artifacts */}
         {activeSection === 'project-source' && <section className="card detail-card sources-card" id="project-source">
-          <ArtifactsPanel projectId={project.id} onOpenSettings={() => onNavigate({ name: 'settings' })} />
+          <ArtifactsPanel projectId={project.id} initialView="repository" onOpenSettings={() => onNavigate({ name: 'settings' })} />
         </section>}
 
         {showReportHistory && <Modal isOpen onClose={() => setShowReportHistory(false)} title="Report history" width={760}><section className="project-reports-card" aria-label="Project report history">
@@ -1002,7 +1032,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         {activeSection === 'project-findings' && <div id="project-findings">
            <FindingsPanel
              projectId={project.id}
-             supplementalFindings={readinessFindings}
+             supplementalFindings={supplementalProjectFindings}
+             supplementalUnavailableMessage={[readinessStatus?.stale && readinessStatus.snapshot ? 'Readiness findings describe previous sources and are hidden until a current assessment is available.' : null, currentReviewGaps?.message].filter(Boolean).join(' ') || null}
              presentation="project"
              onOpenReview={reviewId => {
                const review = staticSessions.find(session => session.id === reviewId);

@@ -32,6 +32,13 @@ function CategoryState({ state }: { state: ReadinessCategoryResult['state'] | nu
   );
 }
 
+function assessmentDateLabel(value: string | undefined): string | null {
+  if (!value?.trim()) return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return null;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(time);
+}
+
 export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
   const [status, setStatus] = useState<ProjectReadinessStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -116,6 +123,23 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
     ? userFacingError(status.error, 'The readiness assessment could not finish. Check the project sources and AI connection, then retry.')
     : null;
   const errorMessage = requestError ?? statusError;
+  const isStaleSnapshot = Boolean(status?.stale && snapshot);
+  const assessedAt = assessmentDateLabel(snapshot?.assessedAt);
+  const jobState = !status
+    ? loadingStatus ? 'Loading assessment status.' : 'Assessment status unavailable.'
+    : status.status === 'queued'
+      ? 'Assessment queued.'
+      : status.status === 'running'
+        ? 'Checking updated sources.'
+        : status.status === 'paused'
+          ? 'Assessment paused. Manual resume is required.'
+          : status.status === 'failed'
+            ? snapshot ? 'Assessment failed. The saved result is still available.' : 'Assessment failed. No saved result is available.'
+            : status.stale && snapshot
+              ? 'Awaiting manual assessment.'
+              : snapshot
+                ? 'Assessment is current.'
+                : 'No assessment is saved yet.';
 
   return (
     <section className="card detail-card project-readiness-compact-card" aria-labelledby="project-readiness-heading" aria-busy={busy}>
@@ -128,9 +152,8 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
           </button>
         </div>
       </header>
-      <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
-        {loadingStatus && !status ? 'Loading project readiness status.' : status?.status === 'queued' ? 'Project readiness assessment queued.' : status?.status === 'running' ? 'Project readiness assessment in progress.' : ''}
-      </p>
+      {isStaleSnapshot && <p className="project-readiness-previous"><strong>Previous assessment — sources have changed</strong><span>{assessedAt ? `Assessed ${assessedAt}` : 'Assessment date unavailable.'}</span></p>}
+      <p className="project-readiness-job-state" role="status" aria-live="polite" aria-atomic="true">{jobState}</p>
       <ul className="project-readiness-categories" aria-label="Project readiness categories">
         {CATEGORY_ORDER.map(id => (
           <li key={id}>

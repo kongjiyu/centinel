@@ -24,6 +24,41 @@ async function belongsToWorkspace(port) {
   } catch { return false; }
 }
 
+async function hasWorkspaceDesktopApp() {
+  const executable = path.join(root, 'centinel', 'src-tauri', 'target', 'debug', process.platform === 'win32' ? 'centinel.exe' : 'centinel');
+  if (process.platform === 'win32') {
+    try {
+      const expected = executable.replace(/'/g, "''");
+      const command = `$expected = [System.IO.Path]::GetFullPath('${expected}'); $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'centinel.exe'" -ErrorAction Stop); $matchingProcesses = $processes | Where-Object { $_.ExecutablePath -and [System.String]::Equals([System.IO.Path]::GetFullPath($_.ExecutablePath), $expected, [System.StringComparison]::OrdinalIgnoreCase) }; if ($matchingProcesses) { 'running' } elseif ($processes | Where-Object { -not $_.ExecutablePath }) { 'unknown' } else { 'stopped' }`;
+      const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+      if (stdout.trim() === 'running') return true;
+      if (stdout.trim() === 'stopped') return false;
+      return null;
+    } catch { return null; }
+  }
+  try {
+    const { stdout } = await promisify(execFile)('ps', ['-eo', 'args='], { encoding: 'utf8', timeout: 10000 });
+    const commandLines = stdout.split(/\r?\n/);
+    if (commandLines.some(commandLine => commandLine.includes(executable))) return true;
+    if (commandLines.some(commandLine => /centinel/i.test(commandLine) && /target[\\/]debug/i.test(commandLine))) return null;
+    return false;
+  } catch { return null; }
+}
+
+export function resolveAppAction(frontendState, desktopRunning) {
+  if (frontendState === 'conflict') return 'conflict';
+  if (desktopRunning === null) return 'unknown';
+  if (desktopRunning) return frontendState === 'reuse' ? 'reuse' : 'conflict';
+  return frontendState === 'reuse' ? 'launch-shell' : 'launch';
+}
+
+export function getServiceArgs(service, reuseFrontend = false) {
+  if (service.name !== 'app' || !reuseFrontend) return service.args;
+  // The Tauri CLI normally starts beforeDevCommand (Vite). If Vite is already
+  // running, reuse it and launch only the native shell.
+  return [...service.args, '--config', JSON.stringify({ build: { beforeDevCommand: null } })];
+}
+
 export async function probeService(service) {
   const occupied = await new Promise(resolve => {
     const socket = net.connect({ host: 'localhost', port: service.port });
@@ -55,21 +90,37 @@ async function main() {
   };
   try {
   const states = await Promise.all(services.map(probeService));
+  const desktopRunning = await hasWorkspaceDesktopApp();
+  const appAction = resolveAppAction(states[2], desktopRunning);
   for (let index = 0; index < services.length; index++) {
     const service = services[index];
-    console.log(`[dev] ${service.name} :${service.port} — ${states[index]}`);
+    const stateLabel = service.name === 'app'
+      ? ({
+          'launch-shell': 'reuse (Vite only; desktop shell missing)',
+          launch: 'available (desktop shell missing)',
+          unknown: `${states[index]} (desktop process state unknown; launch blocked)`,
+          conflict: states[index] === 'conflict' ? states[index] : `${states[index]} (Centinel process has no healthy Vite server)`,
+          reuse: states[index],
+        }[appAction])
+      : states[index];
+    console.log(`[dev] ${service.name} :${service.port} — ${stateLabel}`);
     if (states[index] === 'conflict') throw new Error(`Port ${service.port} is occupied by an unrecognized or unhealthy service. Inspect it with Get-NetTCPConnection -LocalPort ${service.port}; stop its owning process before retrying.`);
   }
+  if (appAction === 'unknown') throw new Error('Could not confirm whether this checkout\'s Centinel desktop process is already running. Refusing to launch a duplicate window; check process-query permissions and retry.');
+  if (appAction === 'conflict') throw new Error('A Centinel desktop process is already running but its Vite server is not healthy. Refusing to launch a second window; inspect the existing app before retrying.');
   if (process.argv.includes('--check')) return;
   process.once('SIGINT', () => stop(0));
   process.once('SIGTERM', () => stop(0));
   for (let index = 0; index < services.length; index++) {
-    if (states[index] === 'reuse') continue;
     const service = services[index];
+    if (service.name === 'app') {
+      if (appAction === 'reuse') continue;
+    } else if (states[index] === 'reuse') continue;
+    const reuseFrontend = service.name === 'app' && appAction === 'launch-shell';
     // The pnpm lifecycle supplies its JS entry point: no nested npm or shell.
     const pnpmEntry = process.env.npm_execpath;
     if (!pnpmEntry || !/pnpm/i.test(pnpmEntry)) throw new Error('Launch this command through pnpm dev.');
-    const child = spawn(process.execPath, [pnpmEntry, ...service.args], { cwd: root, stdio: 'inherit', detached: process.platform !== 'win32' });
+    const child = spawn(process.execPath, [pnpmEntry, ...getServiceArgs(service, reuseFrontend)], { cwd: root, stdio: 'inherit', detached: process.platform !== 'win32' });
     owned.add(child);
     child.once('error', error => { console.error(`[dev] ${service.name}: ${error.message}`); stop(1); });
     child.once('exit', code => { owned.delete(child); if (!stopping) { console.error(`[dev] ${service.name} exited (${code ?? 'signal'}).`); stop(code ?? 1); } });

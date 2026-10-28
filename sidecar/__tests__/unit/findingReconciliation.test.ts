@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findingSourceIdentityHash, type FindingCorrelation } from '../../src/review/correlation.js';
+import { ASSESSMENT_VALIDATION_VERSION } from '../../src/review/assessmentValidation.js';
 import { reconcileProjectFindings, presentReconciledProjectFindings, type ProjectFindingForReconciliation, type ReconciliationManifest } from '../../src/review/findingReconciliation.js';
 import type { StoreFinding } from '../../src/store/types.js';
 import type { StaticReviewRecord } from '../../src/review/types.js';
@@ -38,13 +39,15 @@ function finding(overrides: Partial<ProjectFindingForReconciliation> = {}): Proj
   return {
     id: 'finding-parent', projectId, sessionId: 'review-parent', source: 'static', status: 'new',
     artifactId: 'artifact-1', sourceIdentity: sourcePath, sourceVersion: 'sha256:old-hash',
-    filePath: sourcePath, title: 'Authorization check is missing', severity: 'high', createdAt: '2026-10-01T00:00:00Z',
+    filePath: sourcePath, lineNumber: 20, title: 'Authorization check is missing', severity: 'high', createdAt: '2026-10-01T00:00:00Z',
     ...overrides,
   };
 }
 
 const eligibility = {
-  version: 1 as const,
+  version: 2 as const,
+  assessmentValidationVersion: ASSESSMENT_VALIDATION_VERSION,
+  locationBasis: { kind: 'exact_assessed_reference' as const, filePath: sourcePath, lineNumber: 20, sourceVersion: 'sha256:new-hash', featureId: 'account', domain: 'security' },
   basis: 'not_reproduced_in_comparable_review' as const,
   parentSourceManifestId: parentManifest.id,
   sourceManifestId: childManifest.id,
@@ -76,6 +79,15 @@ function reconcile(overrides: Partial<Parameters<typeof reconcileProjectFindings
 }
 
 describe('project finding reconciliation', () => {
+  it('does not derive resolution from legacy v1 proof lacking assessment validation', () => {
+    expect(reconcile({ correlations: [resolvedCorrelation({ resolutionEligibility: { ...eligibility, version: 1, assessmentValidationVersion: undefined } })] })[0].resolutionEvidence).toBeUndefined();
+  });
+  it('rejects a resolution proof created by the prior assessment validation policy', () => {
+    expect(reconcile({ correlations: [resolvedCorrelation({ resolutionEligibility: { ...eligibility, assessmentValidationVersion: 'static-assessment-2026-10-21.1' } })] })[0].resolutionEvidence).toBeUndefined();
+  });
+  it.each([undefined, { ...eligibility.locationBasis, lineNumber: 99 }, { ...eligibility.locationBasis, sourceVersion: 'unreviewed-version' }])('does not derive resolution without matching assessed location evidence (%j)', locationBasis => {
+    expect(reconcile({ correlations: [resolvedCorrelation({ resolutionEligibility: { ...eligibility, locationBasis } })] })[0].resolutionEvidence).toBeUndefined();
+  });
   it('presents a finding as resolved only when a complete comparable re-review recorded eligible changed-source evidence', () => {
     expect(reconcile()[0]).toMatchObject({
       id: 'finding-parent', status: 'new',

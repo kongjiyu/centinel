@@ -34,12 +34,14 @@ function clientArtifact(artifact: StoreArtifact, latest?: StoreArtifactVersion):
   return {
     id: artifact.id,
     projectId: artifact.projectId,
+    sourceId: artifact.sourceId,
     versionId: latest?.id,
     type,
     source: displaySource(artifact),
     fileName: artifact.name,
     filePath: artifact.path,
-    originalPath: typeof artifact.metadata.originalPath === 'string' ? artifact.metadata.originalPath : null,
+    originalPath: typeof artifact.metadata.originalPath === 'string' ? artifact.metadata.originalPath
+      : artifact.sourceId && typeof artifact.metadata.sourcePath === 'string' ? artifact.metadata.sourcePath : null,
     contentHash: latest?.contentHash ?? '',
     createdAt: artifact.createdAt,
   };
@@ -77,11 +79,18 @@ export async function getClientArtifact(client: SupabaseClient, userId: string, 
   return toClientArtifact(new CentinelApplicationRepository(client, userId), artifact, signal);
 }
 
-export async function readClientArtifactContent(client: SupabaseClient, userId: string, artifactId: string, frozenVersionId?: string, signal?: AbortSignal): Promise<string> {
+export async function readClientArtifactContent(client: SupabaseClient, userId: string, artifactId: string, frozenVersionId?: string, signal?: AbortSignal, frozenProjectId?: string, frozenContentHash?: string): Promise<string> {
   if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+  const repository = new CentinelApplicationRepository(client, userId);
+  if (frozenVersionId && frozenProjectId) {
+    // Review execution already selected the immutable version. Membership and
+    // artifact ownership are checked against that version, even if today's
+    // artifact row has been removed. Never select a replacement current version.
+    return (await repository.downloadFrozenArtifactVersion({ projectId: frozenProjectId, versionId: frozenVersionId,
+      artifactId, expectedContentHash: frozenContentHash }, signal)).toString('utf8');
+  }
   const artifact = await getClientArtifact(client, userId, artifactId, signal);
   if (!artifact) throw new Error('Artifact not found.');
-  const repository = new CentinelApplicationRepository(client, userId);
   const versionId = frozenVersionId ?? artifact.versionId;
   if (!versionId) throw new Error('Artifact has no durable version.');
   const version = await repository.getArtifactVersion(artifact.projectId, versionId, signal);

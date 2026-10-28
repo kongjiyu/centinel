@@ -1,0 +1,178 @@
+[
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "repository_completed_when_expected_imports_are_readable",
+    "verdict": "true",
+    "reason": "Fresh .3 snapshot 0e0c56f3-c976-4370-b0f9-e4043ecb235a completed at 2026-10-23T18:51:02.319Z, stale=false. Repository is completed with 80 selected sources and 2/2 checks. Independently reread all 80 expected files and matched frozen byte lengths/SHA-256 plus current-run imported artifact hashes/version IDs. Original package, ESLint and Prettier JSON parse with zero diagnostics under the trusted workspace parser. Frozen manifest/input/acceptance files still match FREEZE.json. This supports selected-input availability, not full-repository runtime correctness; no upstream source or dependencies were executed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/package.json",
+        "lineNumber": 2,
+        "excerpt": "\"name\": \"immutable\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.eslintrc.json",
+        "lineNumber": 2,
+        "excerpt": "\"root\": true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.prettierrc.json",
+        "lineNumber": 2,
+        "excerpt": "\"singleQuote\": true"
+      }
+    ]
+  },
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "requirements_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw requirements presence is present; effective Requirements is incomplete, not missing. README directly states immutable/nonmutating update behavior and supplies worked value/identity examples, independently proving substantive requirements. Four raw batches yield testability 3 pass/1 unknown (effective pass), exceptions 3 gap/1 unknown (effective gap), and other criteria predominantly passes/unknowns but effectively unknown after citation/scope/comparison limits. The exceptions finding is specifically about the mutable-copy warning lacking a defined error or recovery outcome; it does not erase the explicitly documented ordinary behavior. This assertion establishes presence only, not all seven criterion judgments.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 26,
+        "excerpt": "[Immutable][] data cannot be changed once created"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 29,
+        "excerpt": "a mutative API which does not update the data in-place, but instead always\nyields new updated data."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 561,
+        "excerpt": "assert.equal(list2.size, 6);"
+      }
+    ]
+  },
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "design_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw design presence is present; effective Design is incomplete, not missing. README explains structural sharing and lazy sequence responsibility, and selected Collection/getIn implementations expose specialization and traversal interfaces. All six design checks have four raw passes and effective pass. The category nevertheless remains incomplete because sourceInventoryValid=false/source_inventory_invalid=1. Six passing checks are not promoted to complete classification or complete architecture.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 36,
+        "excerpt": "structural sharing via [hash maps tries][] and [vector tries][]"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 39,
+        "excerpt": "Immutable.js also provides a lazy `Seq`, allowing efficient\nchaining of collection methods like `map` and `filter` without creating\nintermediate representations."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/Collection.js",
+        "lineNumber": 14,
+        "excerpt": "export class KeyedCollection extends Collection {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/functional/getIn.js",
+        "lineNumber": 5,
+        "excerpt": "export function getIn(collection, searchKeyPath, notSetValue) {"
+      }
+    ]
+  },
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "standards_present_not_missing",
+    "verdict": "true",
+    "reason": "Raw standards presence is present; effective Standards is incomplete, not missing. Original EditorConfig, ESLint and Prettier rules establish file applicability and concrete conventions; package scripts specify formatting/linting checks. Each raw standards criterion has 3 pass/1 unknown. Effective applicability/conflicts stay unknown after scope/citation/comparison limitations, while checkability passes. The category classification evidence is not fully valid, so this is observed standards presence rather than complete standards certification.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.editorconfig",
+        "lineNumber": 9,
+        "excerpt": "[*.{js,d.ts,json,html,md,sh}]\ncharset = utf-8\nindent_style = space\nindent_size = 2"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.eslintrc.json",
+        "lineNumber": 38,
+        "excerpt": "\"no-unused-vars\": \"error\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.prettierrc.json",
+        "lineNumber": 2,
+        "excerpt": "\"singleQuote\": true"
+      }
+    ]
+  },
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+    "verdict": "true",
+    "reason": "The resulting applicability/checkability judgments have original rule evidence. Applicability remains unknown despite identifiable source globs because a scope-coverage citation failed; checkability passes with basisValid/evidenceValid=true and no criterion reasons. package.json explicitly runs formatting/lint/type-check/build/tests and targets source directories; ESLint supplies error-level rules, Prettier chooses single quotes and EditorConfig supplies scoped whitespace rules. No unknown is upgraded to pass, no global absence of checking commands is asserted, and no external rule compatibility or successful tool execution is claimed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/package.json",
+        "lineNumber": 59,
+        "excerpt": "\"test\": \"run-s format lint type-check build unit-test\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/package.json",
+        "lineNumber": 61,
+        "excerpt": "\"lint\": \"run-s lint:*\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.eslintrc.json",
+        "lineNumber": 38,
+        "excerpt": "\"no-unused-vars\": \"error\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.editorconfig",
+        "lineNumber": 11,
+        "excerpt": "indent_style = space\nindent_size = 2"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.prettierrc.json",
+        "lineNumber": 2,
+        "excerpt": "\"singleQuote\": true"
+      }
+    ]
+  },
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "no_invented_requirement_or_design_document",
+    "verdict": "true",
+    "reason": "Verified all 270 retained reference objects: 181 distinct path/excerpt pairs across 50 selected files. Every exact source excerpt, contentHash, artifact identity and version ID matches frozen bytes and current-run imports; no nonexistent requirements/design document is cited. No saved lineNumber fields exist, so match lines were independently located. Raw diagnostics still disclose rejected citations and incomplete inventory/classification evidence; filtered retained provenance does not establish raw-response or full semantic accuracy. Detailed checks are in readiness-immutable-js-verification.json.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 35,
+        "excerpt": "These data structures are highly efficient on modern JavaScript VMs by using"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/Collection.js",
+        "lineNumber": 7,
+        "excerpt": "export class Collection {"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/src/functional/getIn.js",
+        "lineNumber": 11,
+        "excerpt": "return notSetValue;"
+      }
+    ]
+  },
+  {
+    "instanceId": "immutable-js__immutable-js-2006",
+    "id": "no_whole_repository_or_bug_free_certification",
+    "verdict": "true",
+    "reason": "The completed job preserves incomplete Requirements, Design and Standards; Repository completed applies only to 80 selected files. Design is incomplete despite 6/6 passing criteria because source inventory validation failed. The requirements misuse warning is narrow and source-backed: README warns that returning a mutable copy could result in undesired behavior, while nearby text separately documents methods that always return new immutable structures. Findings otherwise request evidence for unresolved criteria/classification. No retained statement certifies the whole repository, absence of bugs or external runtime behavior. No mixed raw pass/gap criterion or batch_status_conflict occurs here. These seven partial assertions are separate from all16 semantic judgments and Review acceptance.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 565,
+        "excerpt": "Use caution to not\nreturn a mutable copy, which could result in undesired behavior."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/README.md",
+        "lineNumber": 571,
+        "excerpt": "and `splice` will always return new immutable data-structures and never mutate\na mutable collection."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/immutable-js/.editorconfig",
+        "lineNumber": 9,
+        "excerpt": "[*.{js,d.ts,json,html,md,sh}]"
+      }
+    ]
+  }
+]

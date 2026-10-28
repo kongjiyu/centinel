@@ -7,6 +7,7 @@ import { RefreshableSupabaseRuntime, SupabaseScopedClientCache } from '../../src
 import { createRefreshableStaticReviewRuntime } from '../../src/runtime/staticReviewRuntime.js';
 import { InMemoryReviewLeaseRepository, ReviewLeaseCoordinator, recoverExpiredReviews } from '../../src/review/lease.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
+import { SupabaseStaticReviewRepository } from '../../src/review/supabaseRepository.js';
 import { ingestArtifacts, throwIfAborted } from '../../src/review/abort.js';
 import type { Artifact, } from '../../src/artifacts.js';
 import type { StaticAnalysisModelProvider } from '../../src/review/types.js';
@@ -53,6 +54,24 @@ function scopedClient(rows: Record<string, Record<string, unknown> | null>, call
 }
 
 describe('Phase 3 model/runtime contracts', () => {
+  it('forwards project correlation history reads through the refreshed authenticated repository', async () => {
+    const clients: any[] = [];
+    const runtime = new RefreshableSupabaseRuntime({ userId: 'user-1', accessToken: 'token-1', clientFactory: () => {
+      const client = { marker: clients.length }; clients.push(client); return client as any;
+    } });
+    const history = vi.spyOn(SupabaseStaticReviewRepository.prototype, 'listReviews').mockResolvedValue([]);
+    try {
+      const repository = createRefreshableStaticReviewRuntime(runtime).repository;
+      await expect(repository.listReviews('project-1')).resolves.toEqual([]);
+      runtime.replaceAccessToken('token-2');
+      await expect(repository.listReviews('project-1')).resolves.toEqual([]);
+      expect(history).toHaveBeenCalledTimes(2);
+      expect(history).toHaveBeenNthCalledWith(1, 'project-1');
+      expect(history).toHaveBeenNthCalledWith(2, 'project-1');
+      expect((history.mock.contexts[0] as any).client).toBe(clients[0]);
+      expect((history.mock.contexts[1] as any).client).toBe(clients[1]);
+    } finally { history.mockRestore(); }
+  });
   it('resolves encrypted project settings and a deliberate fallback without exposing plaintext in metadata', async () => {
     process.env.CENTINEL_TOKEN_ENCRYPTION_KEY = 'phase3-test-key';
     const row = {
@@ -158,14 +177,44 @@ describe('Phase 3 model/runtime contracts', () => {
     const attempt = {
       reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis', attempt: 1, provider: 'mimo', apiFormat: 'openai-compatible', model: 'mimo',
       outcome: 'retryable_error' as const, durationMs: 12, errorCode: 'http_429', errorMessage: 'Authorization: super-secret', createdAt: '2026-09-22T00:00:00.000Z',
-      usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7 },
+      usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7, providerReportedTotalTokens: 7, totalTokensSource: 'provider_reported' },
     };
     await record(attempt);
     await record(attempt);
     expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ usage: { providerReportedTotalTokens: 7, totalTokensSource: 'provider_reported' } });
     expect(audits).toHaveLength(1);
     expect(JSON.stringify(records[0])).not.toContain('super-secret');
     expect(summarizeModelUsage([attempt])).toMatchObject({ calls: 1, failedCalls: 1, inputTokens: 3, outputTokens: 4, totalTokens: 7 });
+
+    const missingTotal = { ...attempt, attempt: 2, usage: { inputTokens: 3, outputTokens: 4 } };
+    await record(missingTotal);
+    expect(records).toHaveLength(2);
+    expect((records[1] as { usage: Record<string, unknown> }).usage).not.toHaveProperty('totalTokens');
+  });
+
+  it('keeps assumed no-response zeros distinct from unknown and partial provider usage', () => {
+    const totals = summarizeModelUsage([
+      { reviewId: 'review', projectId: 'project', stage: 'model_analysis', attempt: 1, provider: 'custom', apiFormat: 'openai-compatible', model: 'model',
+        outcome: 'retryable_error', durationMs: 2, responseReceived: false,
+        usageAccounting: { basis: 'assumed_zero_no_response', accountedTokens: 0 }, createdAt: '2026-10-27T00:00:00.000Z' },
+      { reviewId: 'review', projectId: 'project', stage: 'model_analysis', attempt: 2, provider: 'custom', apiFormat: 'openai-compatible', model: 'model',
+        outcome: 'permanent_error', durationMs: 2, responseReceived: true, createdAt: '2026-10-27T00:00:00.000Z' },
+      { reviewId: 'review', projectId: 'project', stage: 'model_analysis', attempt: 3, provider: 'custom', apiFormat: 'openai-compatible', model: 'model',
+        outcome: 'retryable_error', durationMs: 2, responseReceived: true,
+        usage: { inputTokens: 7, usageObservation: { source: 'provider_error_response', completeness: 'partial', missingCounters: ['outputTokens'] } },
+        createdAt: '2026-10-27T00:00:00.000Z' },
+      { reviewId: 'review', projectId: 'project', stage: 'model_analysis', attempt: 4, provider: 'custom', apiFormat: 'openai-compatible', model: 'model',
+        outcome: 'in_progress', durationMs: 0, responseReceived: false,
+        usageAccounting: { basis: 'assumed_zero_no_response', accountedTokens: 0 }, createdAt: '2026-10-27T00:00:00.000Z' },
+      { reviewId: 'review', projectId: 'project', stage: 'model_analysis', attempt: 5, provider: 'custom', apiFormat: 'openai-compatible', model: 'model',
+        outcome: 'success', durationMs: 2, responseReceived: false,
+        usageAccounting: { basis: 'assumed_zero_no_response', accountedTokens: 0 }, createdAt: '2026-10-27T00:00:00.000Z' },
+    ]);
+    expect(totals).toMatchObject({ calls: 5, failedCalls: 3, successfulCalls: 1, inProgressCalls: 1,
+      inputTokens: 7, unknownInputCalls: 4, outputTokens: 0, unknownOutputCalls: 5,
+      totalTokens: 0, unknownTotalCalls: 5, accountedTokens: 0,
+      assumedZeroNoResponseCalls: 1, assumedZeroNoResponseTokens: 0 });
   });
 
   it('replaces stale RLS clients after token refresh and keys cache by canonical user plus fingerprint', async () => {
@@ -223,6 +272,25 @@ describe('Phase 3 model/runtime contracts', () => {
     expect(state).toEqual({ state: 'available' });
     expect(secondCalls).toEqual(expect.arrayContaining(['model_configurations', 'source_items', 'project_sources']));
     expect(firstCalls).toEqual(['review_sessions']);
+  });
+  it('forwards cache-basis reads through the production proxy and its refreshed bearer client', async () => {
+    const first = {} as any; const refreshed = {} as any;
+    const runtime = new RefreshableSupabaseRuntime({ userId: 'user-1', accessToken: 'token-1', client: first,
+      clientFactory: () => refreshed });
+    const adapter = createRefreshableStaticReviewRuntime(runtime);
+    const clients: unknown[] = [];
+    const lookup = vi.spyOn(SupabaseStaticReviewRepository.prototype, 'getBatchCacheBasis').mockImplementation(async function (reviewId) {
+      clients.push((this as any).client);
+      return { reviewId, projectId: 'project-1', analysisMap: {} as any, findings: [] };
+    });
+    try {
+      expect(typeof adapter.repository.getBatchCacheBasis).toBe('function');
+      expect((await adapter.repository.getBatchCacheBasis!('parent-1'))?.reviewId).toBe('parent-1');
+      runtime.replaceAccessToken('token-2');
+      expect((await adapter.repository.getBatchCacheBasis!('parent-2'))?.reviewId).toBe('parent-2');
+      expect(clients).toEqual([first, refreshed]);
+      expect(lookup).toHaveBeenCalledTimes(2);
+    } finally { lookup.mockRestore(); }
   });
 });
 

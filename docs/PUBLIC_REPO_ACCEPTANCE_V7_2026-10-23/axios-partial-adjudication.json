@@ -1,0 +1,972 @@
+{
+  "schemaVersion": "public-repo-v7-partial-independent-adjudication-v1",
+  "status": "independently-adjudicated-partial-output-not-workflow-acceptance",
+  "instanceId": "axios__axios-4738",
+  "reviewSessionId": "b79db77e-6332-416c-9292-6b92fbedb693",
+  "policyVersion": "review-2026-10-23-selected-module-coverage-v7",
+  "baseCommit": "9bb016f95e6de871a44f3276fd06562704a0abb0",
+  "workflow": {
+    "status": "blocked",
+    "modelStatus": "partial",
+    "stage": "provider_paused",
+    "pauseCode": "quota_exhausted",
+    "acceptance": "NOT_ACCEPTED",
+    "reason": "Quota-blocked Review retains partial predictions; it has not completed all required assessment batches, final coverage validation, or workflow acceptance checks."
+  },
+  "inputs": {
+    "findings": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-22T17-42-32-144Z/0048-review-findings.json",
+    "manifest": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-22T17-42-32-144Z/0049-review-manifest.json",
+    "harness": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-22T17-42-32-144Z/0052-review-harness.json",
+    "frozenGold": "docs/PUBLIC_REPO_OUTCOME_EVALUATION_2026-10-22/manifest.json",
+    "inputDirectory": "C:\\Cstan\\Projects\\centinel\\evidence\\public-repo-outcomes-2026-10-22\\assessed-inputs\\axios"
+  },
+  "method": {
+    "mode": "independent-read-only-static-source-adjudication",
+    "productionCodeChanged": false,
+    "frozenGoldChanged": false,
+    "upstreamCodeOrDependenciesExecuted": false,
+    "liveProviderCalls": 0,
+    "verification": "Read exact frozen sources and caller/callee paths; compared every cited source SHA-256 against frozen input-files.json. No runtime reproduction is claimed.",
+    "claimPolicy": "Atomic independently testable assertions have stable cause-based keys. Duplicate findings share keys. Supporting mechanics of one cause are not inflated into separate claims. Overbroad or independently unsupported impact claims are split. True source-size/TODO diagnostics are not behavioral gold hits."
+  },
+  "observedPredictions": {
+    "total": 19,
+    "model": 13,
+    "deterministic": 6,
+    "duplicateModelPairs": [
+      [
+        "06298f11-5a29-430d-beea-e5634df6fcc5",
+        "7e623dbb-e239-4ae8-84ee-64c885a15d05"
+      ],
+      [
+        "ae1339ab-9c5f-4272-b2ef-2bcb5862dae7",
+        "7873254b-a355-4152-bf15-4e69161eea09"
+      ],
+      [
+        "90dc94fa-5167-4dd7-88bf-de2e0474b3ab",
+        "f021d631-f3e7-412a-9cea-493e7cce0f01"
+      ]
+    ],
+    "modelUniqueClaims": {
+      "true": 10,
+      "false": 1,
+      "unknown": 2
+    },
+    "deterministicUniqueClaims": {
+      "true": 6,
+      "false": 0,
+      "unknown": 0
+    }
+  },
+  "claims": [
+    {
+      "findingId": "57ea6bb3-86e7-4595-af05-deb6e0efec56",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:null-transitional-native-typeerror",
+      "verdict": "true",
+      "statement": "Null options bypass the coded validator guard and throw a native TypeError.",
+      "reason": "Reachable through axios({transitional:null}): mergeDeepProperties preserves null; Axios.request validates every transitional value other than undefined. typeof null is object, so Object.keys(null) throws instead of ERR_BAD_OPTION_VALUE. This is an invalid-input error-contract defect, not evidence that valid request configurations fail.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/helpers/validator.js",
+          "lineNumber": 60,
+          "endLineNumber": 64,
+          "sourceVersion": "22224aad7904e2d8f36e58174b1aed90ef802cd8fab900859c5d6d1d03487264",
+          "evidence": "function assertOptions(options, schema, allowUnknown) {\n  if (typeof options !== 'object') {\n    throw new AxiosError('options must be an object', AxiosError.ERR_BAD_OPTION_VALUE);\n  }\n  var keys = Object.keys(options);"
+        },
+        {
+          "path": "lib/core/Axios.js",
+          "lineNumber": 41,
+          "endLineNumber": 59,
+          "sourceVersion": "991592b416c87eaf6cfbb5dfc5c8b4c221f34ec780f5d423f08a501491fdf3d7",
+          "evidence": "  config = mergeConfig(this.defaults, config);\n\n  // Set config.method\n  if (config.method) {\n    config.method = config.method.toLowerCase();\n  } else if (this.defaults.method) {\n    config.method = this.defaults.method.toLowerCase();\n  } else {\n    config.method = 'get';\n  }\n\n  var transitional = config.transitional;\n\n  if (transitional !== undefined) {\n    validator.assertOptions(transitional, {\n      silentJSONParsing: validators.transitional(validators.boolean),\n      forcedJSONParsing: validators.transitional(validators.boolean),\n      clarifyTimeoutError: validators.transitional(validators.boolean)\n    }, false);"
+        },
+        {
+          "path": "lib/core/mergeConfig.js",
+          "lineNumber": 18,
+          "endLineNumber": 34,
+          "sourceVersion": "cd47ea0de85b3677bc70902084bc0feb3e23f3aaae1ff8d04c3f0a2991f2f4ab",
+          "evidence": "  function getMergedValue(target, source) {\n    if (utils.isPlainObject(target) && utils.isPlainObject(source)) {\n      return utils.merge(target, source);\n    } else if (utils.isPlainObject(source)) {\n      return utils.merge({}, source);\n    } else if (utils.isArray(source)) {\n      return source.slice();\n    }\n    return source;\n  }\n\n  // eslint-disable-next-line consistent-return\n  function mergeDeepProperties(prop) {\n    if (!utils.isUndefined(config2[prop])) {\n      return getMergedValue(config1[prop], config2[prop]);\n    } else if (!utils.isUndefined(config1[prop])) {\n      return getMergedValue(undefined, config1[prop]);"
+        }
+      ]
+    },
+    {
+      "findingId": "e345a93f-2f56-40d9-a3ef-7e63cd4e5ed1",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:formdata-acyclic-depth-stack-exhaustion",
+      "verdict": "true",
+      "statement": "Extremely deep acyclic plain objects can overflow the serializer call stack.",
+      "reason": "toFormData is publicly exported and used by multipart transformation. Plain objects return true from the default visitor; build recursively descends with no depth bound. The stack array detects repeated identities only. An arbitrarily deep acyclic object therefore remains eligible until the engine stack limit. Availability impact is conditional on an application accepting such input; no deployed attacker endpoint or process-wide termination was demonstrated.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/helpers/toFormData.js",
+          "lineNumber": 7,
+          "endLineNumber": 9,
+          "sourceVersion": "cc35e27c17151ce0e10b7cd850b48acab10d8caa9cfcd4191d56bd8385d20fb3",
+          "evidence": "function isVisitable(thing) {\n  return utils.isPlainObject(thing) || utils.isArray(thing);\n}"
+        },
+        {
+          "path": "lib/helpers/toFormData.js",
+          "lineNumber": 131,
+          "endLineNumber": 174,
+          "sourceVersion": "cc35e27c17151ce0e10b7cd850b48acab10d8caa9cfcd4191d56bd8385d20fb3",
+          "evidence": "    if (isVisitable(value)) {\n      return true;\n    }\n\n    formData.append(renderKey(path, key, dots), convertValue(value));\n\n    return false;\n  }\n\n  var stack = [];\n\n  var exposedHelpers = Object.assign(predicates, {\n    defaultVisitor: defaultVisitor,\n    convertValue: convertValue,\n    isVisitable: isVisitable\n  });\n\n  function build(value, path) {\n    if (utils.isUndefined(value)) return;\n\n    if (stack.indexOf(value) !== -1) {\n      throw Error('Circular reference detected in ' + path.join('.'));\n    }\n\n    stack.push(value);\n\n    utils.forEach(value, function each(el, key) {\n      var result = !utils.isUndefined(el) && visitor.call(\n        formData, el, utils.isString(key) ? key.trim() : key, path, exposedHelpers\n      );\n\n      if (result === true) {\n        build(el, path ? path.concat(key) : [key]);\n      }\n    });\n\n    stack.pop();\n  }\n\n  if (!utils.isObject(obj)) {\n    throw new TypeError('data must be an object');\n  }\n\n  build(obj);"
+        },
+        {
+          "path": "lib/axios.js",
+          "lineNumber": 44,
+          "endLineNumber": 44,
+          "sourceVersion": "3cd99c3ca283bb481a36637f93320f918145630ce21ff3cd87292466663ddbfd",
+          "evidence": "axios.toFormData = require('./helpers/toFormData');"
+        },
+        {
+          "path": "lib/defaults/index.js",
+          "lineNumber": 94,
+          "endLineNumber": 106,
+          "sourceVersion": "9611362ccbc9bd8c4cbdf909a579c317bac9a8557da1d1f4aa15917412a66eeb",
+          "evidence": "    if (isObjectPayload) {\n      if (contentType.indexOf('application/x-www-form-urlencoded') !== -1) {\n        return toURLEncodedForm(data, this.formSerializer).toString();\n      }\n\n      if ((isFileList = utils.isFileList(data)) || contentType.indexOf('multipart/form-data') > -1) {\n        var _FormData = this.env && this.env.FormData;\n\n        return toFormData(\n          isFileList ? {'files[]': data} : data,\n          _FormData && new _FormData(),\n          this.formSerializer\n        );"
+        }
+      ]
+    },
+    {
+      "findingId": "66f9ca17-5242-48be-ac94-e48fd5616004",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:colonless-header-helper-misparse",
+      "verdict": "true",
+      "statement": "The header helper fabricates a key/value for a colon-free nontrivial line.",
+      "reason": "For a line such as Broken, indexOf returns -1; slice(0,-1) becomes Broke, lowercased to broke, while slice(0) retains Broken. The nonempty key is stored. This verifies the helper behavior only; the deployed response path is a separate claim below.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/helpers/parseHeaders.js",
+          "lineNumber": 27,
+          "endLineNumber": 52,
+          "sourceVersion": "ca69a987e7fb096a5c88704869f4b9b5716aa4b4142cb2fb966f51033e4fbc70",
+          "evidence": "module.exports = function parseHeaders(headers) {\n  var parsed = {};\n  var key;\n  var val;\n  var i;\n\n  if (!headers) { return parsed; }\n\n  utils.forEach(headers.split('\\n'), function parser(line) {\n    i = line.indexOf(':');\n    key = utils.trim(line.slice(0, i)).toLowerCase();\n    val = utils.trim(line.slice(i + 1));\n\n    if (key) {\n      if (parsed[key] && ignoreDuplicateOf.indexOf(key) >= 0) {\n        return;\n      }\n      if (key === 'set-cookie') {\n        parsed[key] = (parsed[key] ? parsed[key] : []).concat([val]);\n      } else {\n        parsed[key] = parsed[key] ? parsed[key] + ', ' + val : val;\n      }\n    }\n  });\n\n  return parsed;"
+        }
+      ]
+    },
+    {
+      "findingId": "66f9ca17-5242-48be-ac94-e48fd5616004",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:colonless-header-real-runtime-reachability",
+      "verdict": "unknown",
+      "statement": "A real response runtime can supply colon-free text to this helper and corrupt user-visible response metadata.",
+      "reason": "The selected production caller obtains text from XMLHttpRequest.getAllResponseHeaders. The frozen selection contains no XMLHttpRequest implementation, browser conformance evidence, or malformed-header reproduction establishing that this runtime emits colon-free lines. The Node adapter uses res.headers directly. A synthetic direct helper input does not establish the claimed end-to-end runtime trigger.",
+      "disposition": "Noted",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 52,
+          "endLineNumber": 66,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "    function onloadend() {\n      if (!request) {\n        return;\n      }\n      // Prepare the response\n      var responseHeaders = 'getAllResponseHeaders' in request ? parseHeaders(request.getAllResponseHeaders()) : null;\n      var responseData = !responseType || responseType === 'text' ||  responseType === 'json' ?\n        request.responseText : request.response;\n      var response = {\n        data: responseData,\n        status: request.status,\n        statusText: request.statusText,\n        headers: responseHeaders,\n        config: config,\n        request: request"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 323,
+          "endLineNumber": 329,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "      var response = {\n        status: res.statusCode,\n        statusText: res.statusMessage,\n        headers: res.headers,\n        config: config,\n        request: lastRequest\n      };"
+        },
+        {
+          "path": "lib/helpers/parseHeaders.js",
+          "lineNumber": 35,
+          "endLineNumber": 49,
+          "sourceVersion": "ca69a987e7fb096a5c88704869f4b9b5716aa4b4142cb2fb966f51033e4fbc70",
+          "evidence": "  utils.forEach(headers.split('\\n'), function parser(line) {\n    i = line.indexOf(':');\n    key = utils.trim(line.slice(0, i)).toLowerCase();\n    val = utils.trim(line.slice(i + 1));\n\n    if (key) {\n      if (parsed[key] && ignoreDuplicateOf.indexOf(key) >= 0) {\n        return;\n      }\n      if (key === 'set-cookie') {\n        parsed[key] = (parsed[key] ? parsed[key] : []).concat([val]);\n      } else {\n        parsed[key] = parsed[key] ? parsed[key] + ', ' + val : val;\n      }\n    }"
+        }
+      ]
+    },
+    {
+      "findingId": "8d7acf9d-9db7-41c5-bbca-c97d618a4c17",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:formdata-prototype-path-pollution",
+      "verdict": "true",
+      "statement": "A nested __proto__ FormData field name can mutate Object.prototype.",
+      "reason": "The public formToJSON API reaches this parser. A FormData entry named __proto__.polluted parses into two components. The ordinary result object inherits __proto__; utils.isObject(Object.prototype) is true, so traversal enters that shared prototype and assigns the final polluted key. No dangerous-key rejection or own-property check protects intermediate components. The terminal own-property test does not prevent the preceding inherited traversal.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/helpers/formDataToJSON.js",
+          "lineNumber": 5,
+          "endLineNumber": 12,
+          "sourceVersion": "463f6ed10109b401ba44a42e76c963273214cfcae3f0b503d6281d9f6eb603d0",
+          "evidence": "function parsePropPath(name) {\n  // foo[x][y][z]\n  // foo.x.y.z\n  // foo-x-y-z\n  // foo x y z\n  return utils.matchAll(/\\w+|\\[(\\w*)]/g, name).map(function(match) {\n    return match[0] === '[]' ? '' : match[1] || match[0];\n  });"
+        },
+        {
+          "path": "lib/helpers/formDataToJSON.js",
+          "lineNumber": 28,
+          "endLineNumber": 65,
+          "sourceVersion": "463f6ed10109b401ba44a42e76c963273214cfcae3f0b503d6281d9f6eb603d0",
+          "evidence": "function formDataToJSON(formData) {\n  function buildPath(path, value, target, index) {\n    var name = path[index++];\n    var isNumericKey = Number.isFinite(+name);\n    var isLast = index >= path.length;\n    name = !name && utils.isArray(target) ? target.length : name;\n\n    if (isLast) {\n      if (utils.hasOwnProperty(target, name)) {\n        target[name] = [target[name], value];\n      } else {\n        target[name] = value;\n      }\n\n      return !isNumericKey;\n    }\n\n    if (!target[name] || !utils.isObject(target[name])) {\n      target[name] = [];\n    }\n\n    var result = buildPath(path, value, target[name], index);\n\n    if (result && utils.isArray(target[name])) {\n      target[name] = arrayToObject(target[name]);\n    }\n\n    return !isNumericKey;\n  }\n\n  if (utils.isFormData(formData) && utils.isFunction(formData.entries)) {\n    var obj = {};\n\n    utils.forEachEntry(formData, function(name, value) {\n      buildPath(parsePropPath(name), value, obj, 0);\n    });\n\n    return obj;"
+        },
+        {
+          "path": "lib/utils.js",
+          "lineNumber": 108,
+          "endLineNumber": 110,
+          "sourceVersion": "47cf4239766fe859b9ad8037bdd7c95546184883991d40668c997e9562ed3844",
+          "evidence": "function isObject(val) {\n  return val !== null && typeof val === 'object';\n}"
+        },
+        {
+          "path": "lib/axios.js",
+          "lineNumber": 61,
+          "endLineNumber": 63,
+          "sourceVersion": "3cd99c3ca283bb481a36637f93320f918145630ce21ff3cd87292466663ddbfd",
+          "evidence": "axios.formToJSON = function(thing) {\n  return formDataToJSON(utils.isHTMLForm(thing) ? new FormData(thing) : thing);\n};"
+        }
+      ]
+    },
+    {
+      "findingId": "77ad7620-0ecc-4294-b596-45cf1900c507",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:ci-provider-documentation-divergence",
+      "verdict": "true",
+      "statement": "CONTRIBUTING names Travis CI while README advertises GitHub Actions build status.",
+      "reason": "Both conflicting guidance locations exist verbatim in the same frozen snapshot. Contributors are directed to different CI providers for acceptance and build status. This verifies a documentation consistency concern, without asserting which provider was exclusively authoritative at that historical revision.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "CONTRIBUTING.md",
+          "lineNumber": 18,
+          "endLineNumber": 20,
+          "sourceVersion": "688b5efdf07f202092f67efa2f7fa1e5ec672fea76bb9e2e6697947a1a51a0cd",
+          "evidence": "### Testing\n\nPlease update the tests to reflect your code changes. Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 1,
+          "endLineNumber": 5,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "# axios\n\n[![npm version](https://img.shields.io/npm/v/axios.svg?style=flat-square)](https://www.npmjs.org/package/axios)\n[![CDNJS](https://img.shields.io/cdnjs/v/axios.svg?style=flat-square)](https://cdnjs.com/libraries/axios)\n![Build status](https://github.com/axios/axios/actions/workflows/ci.yml/badge.svg)"
+        }
+      ]
+    },
+    {
+      "findingId": "77ad7620-0ecc-4294-b596-45cf1900c507",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:travis-obsolete-exclusive-actions",
+      "verdict": "unknown",
+      "statement": "Travis is obsolete and GitHub Actions is the sole active pull-request validation system.",
+      "reason": "A GitHub Actions badge does not prove that Travis checks were disabled or no longer required. The selected input contains neither provider configurations nor recorded check runs. The obsolete-status-page causal assertion is stronger than the independently supported documentation divergence.",
+      "disposition": "Noted",
+      "sourceEvidence": [
+        {
+          "path": "CONTRIBUTING.md",
+          "lineNumber": 20,
+          "endLineNumber": 20,
+          "sourceVersion": "688b5efdf07f202092f67efa2f7fa1e5ec672fea76bb9e2e6697947a1a51a0cd",
+          "evidence": "Please update the tests to reflect your code changes. Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 5,
+          "endLineNumber": 5,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "![Build status](https://github.com/axios/axios/actions/workflows/ci.yml/badge.svg)"
+        }
+      ]
+    },
+    {
+      "findingId": "ee136824-ec09-43fd-81c2-87d39074291b",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:error-json-unredacted-secrets",
+      "verdict": "true",
+      "statement": "Serializing AxiosError exposes credential-bearing request configuration without redaction.",
+      "reason": "AxiosError stores the supplied config and toJSON returns that same config object. README documents plaintext Basic credentials, bearer authorization headers and proxy auth, and explicitly recommends console.log(error.toJSON()). An error from the HTTP adapter retains config. Therefore an application following that logging pattern can expose those secrets. This is conditional exposure at a serialization boundary, not proof that this snapshot itself transmits logs or secrets to a remote service.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/core/AxiosError.js",
+          "lineNumber": 15,
+          "endLineNumber": 29,
+          "sourceVersion": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+          "evidence": "function AxiosError(message, code, config, request, response) {\n  Error.call(this);\n\n  if (Error.captureStackTrace) {\n    Error.captureStackTrace(this, this.constructor);\n  } else {\n    this.stack = (new Error()).stack;\n  }\n\n  this.message = message;\n  this.name = 'AxiosError';\n  code && (this.code = code);\n  config && (this.config = config);\n  request && (this.request = request);\n  response && (this.response = response);"
+        },
+        {
+          "path": "lib/core/AxiosError.js",
+          "lineNumber": 32,
+          "endLineNumber": 50,
+          "sourceVersion": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+          "evidence": "utils.inherits(AxiosError, Error, {\n  toJSON: function toJSON() {\n    return {\n      // Standard\n      message: this.message,\n      name: this.name,\n      // Microsoft\n      description: this.description,\n      number: this.number,\n      // Mozilla\n      fileName: this.fileName,\n      lineNumber: this.lineNumber,\n      columnNumber: this.columnNumber,\n      stack: this.stack,\n      // Axios\n      config: this.config,\n      code: this.code,\n      status: this.response && this.response.status ? this.response.status : null\n    };"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 387,
+          "endLineNumber": 392,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "    // Handle errors\n    req.on('error', function handleRequestError(err) {\n      // @todo remove\n      // if (req.aborted && err.code !== AxiosError.ERR_FR_TOO_MANY_REDIRECTS) return;\n      reject(AxiosError.from(err, null, config, req));\n    });"
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 377,
+          "endLineNumber": 385,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "  // `auth` indicates that HTTP Basic auth should be used, and supplies credentials.\n  // This will set an `Authorization` header, overwriting any existing\n  // `Authorization` custom headers you have set using `headers`.\n  // Please note that only HTTP Basic auth is configurable through this parameter.\n  // For Bearer tokens and such, use `Authorization` custom headers instead.\n  auth: {\n    username: 'janedoe',\n    password: 's00pers3cret'\n  },"
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 461,
+          "endLineNumber": 474,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "  // `auth` indicates that HTTP Basic auth should be used to connect to the proxy, and\n  // supplies credentials.\n  // This will set an `Proxy-Authorization` header, overwriting any existing\n  // `Proxy-Authorization` custom headers you have set using `headers`.\n  // If the proxy server uses HTTPS, then you must set the protocol to `https`. \n  proxy: {\n    protocol: 'https',\n    host: '127.0.0.1',\n    port: 9000,\n    auth: {\n      username: 'mikeymike',\n      password: 'rapunz3l'\n    }\n  },"
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 744,
+          "endLineNumber": 750,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "Using `toJSON` you get an object with more information about the HTTP error.\n\n```js\naxios.get('/user/12345')\n  .catch(function (error) {\n    console.log(error.toJSON());\n  });"
+        }
+      ]
+    },
+    {
+      "findingId": "06298f11-5a29-430d-beea-e5634df6fcc5",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:synchronous-interceptor-masks-original-error",
+      "verdict": "true",
+      "statement": "A throwing synchronous interceptor with no rejection callback causes a new TypeError.",
+      "reason": "InterceptorManager stores rejected without validating/defaulting it, and README demonstrates null with synchronous:true. Axios.request collects that null and invokes it unconditionally when fulfilled throws. The new TypeError masks the original exception and escapes synchronously; it is outside the later dispatchRequest try/catch. The second retained finding reports the same cause and shares this claimKey.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/core/InterceptorManager.js",
+          "lineNumber": 17,
+          "endLineNumber": 24,
+          "sourceVersion": "33def837e507e1ab1ba8ff20f4c8238a7ec3c6b66d0ee19634675d9caa42cb09",
+          "evidence": "InterceptorManager.prototype.use = function use(fulfilled, rejected, options) {\n  this.handlers.push({\n    fulfilled: fulfilled,\n    rejected: rejected,\n    synchronous: options ? options.synchronous : false,\n    runWhen: options ? options.runWhen : null\n  });\n  return this.handlers.length - 1;"
+        },
+        {
+          "path": "lib/core/Axios.js",
+          "lineNumber": 98,
+          "endLineNumber": 113,
+          "sourceVersion": "991592b416c87eaf6cfbb5dfc5c8b4c221f34ec780f5d423f08a501491fdf3d7",
+          "evidence": "  while (requestInterceptorChain.length) {\n    var onFulfilled = requestInterceptorChain.shift();\n    var onRejected = requestInterceptorChain.shift();\n    try {\n      newConfig = onFulfilled(newConfig);\n    } catch (error) {\n      onRejected(error);\n      break;\n    }\n  }\n\n  try {\n    promise = dispatchRequest(newConfig);\n  } catch (error) {\n    return Promise.reject(error);\n  }"
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 672,
+          "endLineNumber": 676,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "```js\naxios.interceptors.request.use(function (config) {\n  config.headers.test = 'I am only a header!';\n  return config;\n}, null, { synchronous: true });"
+        }
+      ]
+    },
+    {
+      "findingId": "7e623dbb-e239-4ae8-84ee-64c885a15d05",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:synchronous-interceptor-masks-original-error",
+      "verdict": "true",
+      "statement": "A throwing synchronous interceptor with no rejection callback causes a new TypeError.",
+      "reason": "InterceptorManager stores rejected without validating/defaulting it, and README demonstrates null with synchronous:true. Axios.request collects that null and invokes it unconditionally when fulfilled throws. The new TypeError masks the original exception and escapes synchronously; it is outside the later dispatchRequest try/catch. The second retained finding reports the same cause and shares this claimKey.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/core/InterceptorManager.js",
+          "lineNumber": 17,
+          "endLineNumber": 24,
+          "sourceVersion": "33def837e507e1ab1ba8ff20f4c8238a7ec3c6b66d0ee19634675d9caa42cb09",
+          "evidence": "InterceptorManager.prototype.use = function use(fulfilled, rejected, options) {\n  this.handlers.push({\n    fulfilled: fulfilled,\n    rejected: rejected,\n    synchronous: options ? options.synchronous : false,\n    runWhen: options ? options.runWhen : null\n  });\n  return this.handlers.length - 1;"
+        },
+        {
+          "path": "lib/core/Axios.js",
+          "lineNumber": 98,
+          "endLineNumber": 113,
+          "sourceVersion": "991592b416c87eaf6cfbb5dfc5c8b4c221f34ec780f5d423f08a501491fdf3d7",
+          "evidence": "  while (requestInterceptorChain.length) {\n    var onFulfilled = requestInterceptorChain.shift();\n    var onRejected = requestInterceptorChain.shift();\n    try {\n      newConfig = onFulfilled(newConfig);\n    } catch (error) {\n      onRejected(error);\n      break;\n    }\n  }\n\n  try {\n    promise = dispatchRequest(newConfig);\n  } catch (error) {\n    return Promise.reject(error);\n  }"
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 672,
+          "endLineNumber": 676,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "```js\naxios.interceptors.request.use(function (config) {\n  config.headers.test = 'I am only a header!';\n  return config;\n}, null, { synchronous: true });"
+        }
+      ]
+    },
+    {
+      "findingId": "ae1339ab-9c5f-4272-b2ef-2bcb5862dae7",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:xhr-abortsignal-undefined-req",
+      "verdict": "true",
+      "statement": "AbortSignal cancellation can evaluate an undeclared req before rejecting or aborting the XHR.",
+      "reason": "The adapter declares request, with no req binding anywhere in the full frozen file. For onCanceled() or an AbortSignal abort event, !cancel || cancel.type selects new CanceledError(...,req); argument evaluation throws before reject and request.abort. A later abort event can leave the active request running and promise unresolved until another event. An already-aborted signal throws inside the Promise executor, rejecting with ReferenceError rather than hanging; the defect is branch-specific. Both retained locations report the same underlying defect.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 16,
+          "endLineNumber": 36,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "module.exports = function xhrAdapter(config) {\n  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;\n    var responseType = config.responseType;\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n\n    if (utils.isFormData(requestData) && utils.isStandardBrowserEnv()) {\n      delete requestHeaders['Content-Type']; // Let the browser set it\n    }\n\n    var request = new XMLHttpRequest();"
+        },
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 190,
+          "endLineNumber": 205,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }"
+        }
+      ]
+    },
+    {
+      "findingId": "7873254b-a355-4152-bf15-4e69161eea09",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:xhr-abortsignal-undefined-req",
+      "verdict": "true",
+      "statement": "AbortSignal cancellation can evaluate an undeclared req before rejecting or aborting the XHR.",
+      "reason": "The adapter declares request, with no req binding anywhere in the full frozen file. For onCanceled() or an AbortSignal abort event, !cancel || cancel.type selects new CanceledError(...,req); argument evaluation throws before reject and request.abort. A later abort event can leave the active request running and promise unresolved until another event. An already-aborted signal throws inside the Promise executor, rejecting with ReferenceError rather than hanging; the defect is branch-specific. Both retained locations report the same underlying defect.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 16,
+          "endLineNumber": 36,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "module.exports = function xhrAdapter(config) {\n  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;\n    var responseType = config.responseType;\n    var onCanceled;\n    function done() {\n      if (config.cancelToken) {\n        config.cancelToken.unsubscribe(onCanceled);\n      }\n\n      if (config.signal) {\n        config.signal.removeEventListener('abort', onCanceled);\n      }\n    }\n\n    if (utils.isFormData(requestData) && utils.isStandardBrowserEnv()) {\n      delete requestHeaders['Content-Type']; // Let the browser set it\n    }\n\n    var request = new XMLHttpRequest();"
+        },
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 190,
+          "endLineNumber": 205,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "    if (config.cancelToken || config.signal) {\n      // Handle cancellation\n      // eslint-disable-next-line func-names\n      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);\n      }"
+        }
+      ]
+    },
+    {
+      "findingId": "7873254b-a355-4152-bf15-4e69161eea09",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:xhr-all-cancellation-throws-req",
+      "verdict": "false",
+      "statement": "Every cancellation invocation throws ReferenceError before abort/cleanup.",
+      "reason": "The second finding describes cancellation without the first finding's branch qualification. Normal CancelToken cancellation supplies its CanceledError reason, a truthy object without a type field. The ternary selects cancel directly and never evaluates req; request.abort and request=null execute. AbortSignal cancellation is broken, but the universal wording is contradicted by the selected CancelToken implementation.",
+      "disposition": "Dismissed",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 193,
+          "endLineNumber": 204,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "      onCanceled = function(cancel) {\n        if (!request) {\n          return;\n        }\n        reject(!cancel || cancel.type ? new CanceledError(null, config, req) : cancel);\n        request.abort();\n        request = null;\n      };\n\n      config.cancelToken && config.cancelToken.subscribe(onCanceled);\n      if (config.signal) {\n        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);"
+        },
+        {
+          "path": "lib/cancel/CancelToken.js",
+          "lineNumber": 25,
+          "endLineNumber": 32,
+          "sourceVersion": "9deef45bcc0277dbf758e966c8a5cab544c381fb44f79071562011010bd95e67",
+          "evidence": "  this.promise.then(function(cancel) {\n    if (!token._listeners) return;\n\n    var i = token._listeners.length;\n\n    while (i-- > 0) {\n      token._listeners[i](cancel);\n    }"
+        },
+        {
+          "path": "lib/cancel/CancelToken.js",
+          "lineNumber": 52,
+          "endLineNumber": 59,
+          "sourceVersion": "9deef45bcc0277dbf758e966c8a5cab544c381fb44f79071562011010bd95e67",
+          "evidence": "  executor(function cancel(message, config, request) {\n    if (token.reason) {\n      // Cancellation has already been requested\n      return;\n    }\n\n    token.reason = new CanceledError(message, config, request);\n    resolvePromise(token.reason);"
+        }
+      ]
+    },
+    {
+      "findingId": "90dc94fa-5167-4dd7-88bf-de2e0474b3ab",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:http-upload-stream-error-argument-order",
+      "verdict": "true",
+      "statement": "The upload-stream error path places config in code and loses the intended config field.",
+      "reason": "The HTTP adapter calls AxiosError.from(err,config,null,req), whereas from declares (error,code,config,request,...). AxiosError assigns truthy code into this.code and skips falsy config. An ordinary fresh stream Error therefore yields an object-valued code and lacks request config. The response/request error handlers use the correct order. Both retained findings are duplicates of this one causal defect.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 450,
+          "endLineNumber": 457,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "    // Send the request\n    if (utils.isStream(data)) {\n      data.on('error', function handleStreamError(err) {\n        reject(AxiosError.from(err, config, null, req));\n      }).pipe(req);\n    } else {\n      req.end(data);\n    }"
+        },
+        {
+          "path": "lib/core/AxiosError.js",
+          "lineNumber": 24,
+          "endLineNumber": 29,
+          "sourceVersion": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+          "evidence": "  this.message = message;\n  this.name = 'AxiosError';\n  code && (this.code = code);\n  config && (this.config = config);\n  request && (this.request = request);\n  response && (this.response = response);"
+        },
+        {
+          "path": "lib/core/AxiosError.js",
+          "lineNumber": 79,
+          "endLineNumber": 86,
+          "sourceVersion": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+          "evidence": "AxiosError.from = function(error, code, config, request, response, customProps) {\n  var axiosError = Object.create(prototype);\n\n  utils.toFlatObject(error, axiosError, function filter(obj) {\n    return obj !== Error.prototype;\n  });\n\n  AxiosError.call(axiosError, error.message, code, config, request, response);"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 364,
+          "endLineNumber": 366,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "        responseStream.on('error', function handleStreamError(err) {\n          if (req.aborted) return;\n          reject(AxiosError.from(err, null, config, lastRequest));"
+        }
+      ]
+    },
+    {
+      "findingId": "f021d631-f3e7-412a-9cea-493e7cce0f01",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:http-upload-stream-error-argument-order",
+      "verdict": "true",
+      "statement": "The upload-stream error path places config in code and loses the intended config field.",
+      "reason": "The HTTP adapter calls AxiosError.from(err,config,null,req), whereas from declares (error,code,config,request,...). AxiosError assigns truthy code into this.code and skips falsy config. An ordinary fresh stream Error therefore yields an object-valued code and lacks request config. The response/request error handlers use the correct order. Both retained findings are duplicates of this one causal defect.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 450,
+          "endLineNumber": 457,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "    // Send the request\n    if (utils.isStream(data)) {\n      data.on('error', function handleStreamError(err) {\n        reject(AxiosError.from(err, config, null, req));\n      }).pipe(req);\n    } else {\n      req.end(data);\n    }"
+        },
+        {
+          "path": "lib/core/AxiosError.js",
+          "lineNumber": 24,
+          "endLineNumber": 29,
+          "sourceVersion": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+          "evidence": "  this.message = message;\n  this.name = 'AxiosError';\n  code && (this.code = code);\n  config && (this.config = config);\n  request && (this.request = request);\n  response && (this.response = response);"
+        },
+        {
+          "path": "lib/core/AxiosError.js",
+          "lineNumber": 79,
+          "endLineNumber": 86,
+          "sourceVersion": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+          "evidence": "AxiosError.from = function(error, code, config, request, response, customProps) {\n  var axiosError = Object.create(prototype);\n\n  utils.toFlatObject(error, axiosError, function filter(obj) {\n    return obj !== Error.prototype;\n  });\n\n  AxiosError.call(axiosError, error.message, code, config, request, response);"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 364,
+          "endLineNumber": 366,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "        responseStream.on('error', function handleStreamError(err) {\n          if (req.aborted) return;\n          reject(AxiosError.from(err, null, config, lastRequest));"
+        }
+      ]
+    },
+    {
+      "findingId": "393d30a6-1c33-4a4f-b52e-a8a6a23c0395",
+      "instanceId": "axios__axios-4738",
+      "origin": "model",
+      "claimKey": "axios:http-data-uri-content-limit-bypass",
+      "verdict": "true",
+      "statement": "The Node data-URI branch decodes and returns the whole payload without enforcing maxContentLength.",
+      "reason": "The GET data: branch calls fromDataURI and returns settle before the normal response-stream limit. fromDataURI decodes the complete body and allocates Buffer.from with no size check. A valid large base64 or percent-encoded data URI can therefore allocate and return beyond a positive configured maxContentLength. README describes that option as a Node response-content byte limit. Memory exhaustion is a conditional risk; no large allocation or upstream code was executed.",
+      "disposition": "Act on",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 111,
+          "endLineNumber": 153,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "    // Parse url\n    var fullPath = buildFullPath(config.baseURL, config.url);\n    var parsed = url.parse(fullPath);\n    var protocol = parsed.protocol || supportedProtocols[0];\n\n    if (protocol === 'data:') {\n      var convertedData;\n\n      if (method !== 'GET') {\n        return settle(resolve, reject, {\n          status: 405,\n          statusText: 'method not allowed',\n          headers: {},\n          config: config\n        });\n      }\n\n      try {\n        convertedData = fromDataURI(config.url, responseType === 'blob', {\n          Blob: config.env && config.env.Blob\n        });\n      } catch (err) {\n        throw AxiosError.from(err, AxiosError.ERR_BAD_REQUEST, config);\n      }\n\n      if (responseType === 'text') {\n        convertedData = convertedData.toString(responseEncoding);\n\n        if (!responseEncoding || responseEncoding === 'utf8') {\n          data = utils.stripBOM(convertedData);\n        }\n      } else if (responseType === 'stream') {\n        convertedData = stream.Readable.from(convertedData);\n      }\n\n      return settle(resolve, reject, {\n        data: convertedData,\n        status: 200,\n        statusText: 'OK',\n        headers: {},\n        config: config\n      });\n    }"
+        },
+        {
+          "path": "lib/helpers/fromDataURI.js",
+          "lineNumber": 25,
+          "endLineNumber": 47,
+          "sourceVersion": "0dc8c2dd19d29983720318c2097fbd9766f4fbe532cb3c348eca06983a73b70e",
+          "evidence": "  if (protocol === 'data') {\n    uri = protocol.length ? uri.slice(protocol.length + 1) : uri;\n\n    var match = DATA_URL_PATTERN.exec(uri);\n\n    if (!match) {\n      throw new AxiosError('Invalid URL', AxiosError.ERR_INVALID_URL);\n    }\n\n    var mime = match[1];\n    var isBase64 = match[2];\n    var body = match[3];\n    var buffer = Buffer.from(decodeURIComponent(body), isBase64 ? 'base64' : 'utf8');\n\n    if (asBlob) {\n      if (!_Blob) {\n        throw new AxiosError('Blob is not supported', AxiosError.ERR_NOT_SUPPORT);\n      }\n\n      return new _Blob([buffer], {type: mime});\n    }\n\n    return buffer;"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 335,
+          "endLineNumber": 347,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "        var responseBuffer = [];\n        var totalResponseBytes = 0;\n        responseStream.on('data', function handleStreamData(chunk) {\n          responseBuffer.push(chunk);\n          totalResponseBytes += chunk.length;\n\n          // make sure the content length is not over the maxContentLength if specified\n          if (config.maxContentLength > -1 && totalResponseBytes > config.maxContentLength) {\n            // stream.destroy() emit aborted event before calling reject() on Node.js v16\n            rejected = true;\n            responseStream.destroy();\n            reject(new AxiosError('maxContentLength size of ' + config.maxContentLength + ' exceeded',\n              AxiosError.ERR_BAD_RESPONSE, config, lastRequest));"
+        },
+        {
+          "path": "README.md",
+          "lineNumber": 414,
+          "endLineNumber": 415,
+          "sourceVersion": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+          "evidence": "  // `maxContentLength` defines the max size of the http response content in bytes allowed in node.js\n  maxContentLength: 2000,"
+        }
+      ]
+    },
+    {
+      "findingId": "272fe0c3-f14a-4014-868f-7c3832030083",
+      "instanceId": "axios__axios-4738",
+      "origin": "deterministic",
+      "claimKey": "axios:long-function:toFormData",
+      "verdict": "true",
+      "statement": "toFormData spans 130 physical lines inclusively.",
+      "reason": "The declaration and closing boundary delimit lines 48-177; inclusive count 130 agrees with the retained diagnostic. This is a correct size heuristic, not evidence of a functional defect or that splitting it is required. The adapter/Promise-executor pairs overlap almost entirely and should not be interpreted as independent behavioral defects.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/helpers/toFormData.js",
+          "lineNumber": 48,
+          "endLineNumber": 50,
+          "sourceVersion": "cc35e27c17151ce0e10b7cd850b48acab10d8caa9cfcd4191d56bd8385d20fb3",
+          "evidence": "function toFormData(obj, formData, options) {\n  if (!utils.isObject(obj)) {\n    throw new TypeError('target must be an object');"
+        },
+        {
+          "path": "lib/helpers/toFormData.js",
+          "lineNumber": 175,
+          "endLineNumber": 177,
+          "sourceVersion": "cc35e27c17151ce0e10b7cd850b48acab10d8caa9cfcd4191d56bd8385d20fb3",
+          "evidence": "\n  return formData;\n}"
+        }
+      ]
+    },
+    {
+      "findingId": "59a71c25-69c9-48e4-9333-6713a37b117f",
+      "instanceId": "axios__axios-4738",
+      "origin": "deterministic",
+      "claimKey": "axios:long-function:dispatchXhrRequest",
+      "verdict": "true",
+      "statement": "dispatchXhrRequest spans 206 physical lines inclusively.",
+      "reason": "The declaration and closing boundary delimit lines 17-222; inclusive count 206 agrees with the retained diagnostic. This is a correct size heuristic, not evidence of a functional defect or that splitting it is required. The adapter/Promise-executor pairs overlap almost entirely and should not be interpreted as independent behavioral defects.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 17,
+          "endLineNumber": 19,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;\n    var requestHeaders = config.headers;"
+        },
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 220,
+          "endLineNumber": 222,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "    // Send the request\n    request.send(requestData);\n  });"
+        }
+      ]
+    },
+    {
+      "findingId": "d2127492-950d-49f0-915a-e86aaa25496e",
+      "instanceId": "axios__axios-4738",
+      "origin": "deterministic",
+      "claimKey": "axios:long-function:xhrAdapter",
+      "verdict": "true",
+      "statement": "xhrAdapter spans 208 physical lines inclusively.",
+      "reason": "The declaration and closing boundary delimit lines 16-223; inclusive count 208 agrees with the retained diagnostic. This is a correct size heuristic, not evidence of a functional defect or that splitting it is required. The adapter/Promise-executor pairs overlap almost entirely and should not be interpreted as independent behavioral defects.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 16,
+          "endLineNumber": 18,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "module.exports = function xhrAdapter(config) {\n  return new Promise(function dispatchXhrRequest(resolve, reject) {\n    var requestData = config.data;"
+        },
+        {
+          "path": "lib/adapters/xhr.js",
+          "lineNumber": 221,
+          "endLineNumber": 223,
+          "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+          "evidence": "    request.send(requestData);\n  });\n};"
+        }
+      ]
+    },
+    {
+      "findingId": "85e29158-887c-4b9e-a992-c17c858f2929",
+      "instanceId": "axios__axios-4738",
+      "origin": "deterministic",
+      "claimKey": "axios:long-function:dispatchHttpRequest",
+      "verdict": "true",
+      "statement": "dispatchHttpRequest spans 374 physical lines inclusively.",
+      "reason": "The declaration and closing boundary delimit lines 85-458; inclusive count 374 agrees with the retained diagnostic. This is a correct size heuristic, not evidence of a functional defect or that splitting it is required. The adapter/Promise-executor pairs overlap almost entirely and should not be interpreted as independent behavioral defects.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 85,
+          "endLineNumber": 87,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "  return new Promise(function dispatchHttpRequest(resolvePromise, rejectPromise) {\n    var onCanceled;\n    function done() {"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 456,
+          "endLineNumber": 458,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "      req.end(data);\n    }\n  });"
+        }
+      ]
+    },
+    {
+      "findingId": "256af669-6cff-4147-bd0d-fd5862d545ef",
+      "instanceId": "axios__axios-4738",
+      "origin": "deterministic",
+      "claimKey": "axios:long-function:httpAdapter",
+      "verdict": "true",
+      "statement": "httpAdapter spans 376 physical lines inclusively.",
+      "reason": "The declaration and closing boundary delimit lines 84-459; inclusive count 376 agrees with the retained diagnostic. This is a correct size heuristic, not evidence of a functional defect or that splitting it is required. The adapter/Promise-executor pairs overlap almost entirely and should not be interpreted as independent behavioral defects.",
+      "disposition": "Consider",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 84,
+          "endLineNumber": 86,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "module.exports = function httpAdapter(config) {\n  return new Promise(function dispatchHttpRequest(resolvePromise, rejectPromise) {\n    var onCanceled;"
+        },
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 457,
+          "endLineNumber": 459,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "    }\n  });\n};"
+        }
+      ]
+    },
+    {
+      "findingId": "9ace0236-1342-46e4-818c-b5808ccad096",
+      "instanceId": "axios__axios-4738",
+      "origin": "deterministic",
+      "claimKey": "axios:http-todo-remove-marker",
+      "verdict": "true",
+      "statement": "The HTTP request-error handler contains a TODO remove marker.",
+      "reason": "The literal @todo remove comment is present above commented request-aborted handling. The retained finding asks to verify relevance rather than asserting a runtime failure; marker presence is true, while its urgency is not established.",
+      "disposition": "Noted",
+      "sourceEvidence": [
+        {
+          "path": "lib/adapters/http.js",
+          "lineNumber": 387,
+          "endLineNumber": 392,
+          "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+          "evidence": "    // Handle errors\n    req.on('error', function handleRequestError(err) {\n      // @todo remove\n      // if (req.aborted && err.code !== AxiosError.ERR_FR_TOO_MANY_REDIRECTS) return;\n      reject(AxiosError.from(err, null, config, req));\n    });"
+        }
+      ]
+    }
+  ],
+  "goldMatches": [
+    {
+      "issueId": "node-timeout-custom-message",
+      "origin": "model",
+      "matched": false,
+      "findingId": null,
+      "claimKey": null,
+      "occurrenceIds": [],
+      "reason": "None of the 13 retained model findings identifies the ignored Node timeoutErrorMessage option or incorrect emitted timeout message. Stream metadata and data-URI issues concern different causes and receive no sibling-claim credit."
+    }
+  ],
+  "goldRecall": {
+    "issue": {
+      "numerator": 0,
+      "denominator": 1
+    },
+    "occurrence": {
+      "numerator": 0,
+      "denominator": 1
+    },
+    "status": "zero-credit-in-retained-partial-predictions-not-a-final-complete-review-false-negative",
+    "sourceEvidence": [
+      {
+        "path": "lib/adapters/http.js",
+        "lineNumber": 421,
+        "endLineNumber": 430,
+        "sourceVersion": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+        "evidence": "      req.setTimeout(timeout, function handleRequestTimeout() {\n        req.abort();\n        var transitional = config.transitional || transitionalDefaults;\n        reject(new AxiosError(\n          'timeout of ' + timeout + 'ms exceeded',\n          transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n          config,\n          req\n        ));\n      });"
+      },
+      {
+        "path": "lib/adapters/xhr.js",
+        "lineNumber": 127,
+        "endLineNumber": 137,
+        "sourceVersion": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+        "evidence": "    request.ontimeout = function handleTimeout() {\n      var timeoutErrorMessage = config.timeout ? 'timeout of ' + config.timeout + 'ms exceeded' : 'timeout exceeded';\n      var transitional = config.transitional || transitionalDefaults;\n      if (config.timeoutErrorMessage) {\n        timeoutErrorMessage = config.timeoutErrorMessage;\n      }\n      reject(new AxiosError(\n        timeoutErrorMessage,\n        transitional.clarifyTimeoutError ? AxiosError.ETIMEDOUT : AxiosError.ECONNABORTED,\n        config,\n        request));"
+      },
+      {
+        "path": "index.d.ts",
+        "lineNumber": 137,
+        "endLineNumber": 138,
+        "sourceVersion": "1b25b178e5569f9a68cf22778d003809c67e943a3d2a559e50cfc42476a9bc17",
+        "evidence": "  timeout?: number;\n  timeoutErrorMessage?: string;"
+      }
+    ],
+    "reason": "This adjudication covers the quota-blocked parent attempt only. Its 13 saved batch deltas do not establish completion of all 20 planned batches. A manually continued child Review must be evaluated independently; no child outcome is inferred here."
+  },
+  "observedPredictionDefects": [
+    {
+      "type": "duplicate-causal-findings",
+      "detail": "Three independently saved model pairs repeat the same defect under different titles. Raw finding counts overstate issue diversity."
+    },
+    {
+      "type": "scope-overstatement",
+      "findingId": "7873254b-a355-4152-bf15-4e69161eea09",
+      "detail": "The unqualified cancellation statement includes the working normal CancelToken branch; only the no-object/event branch evaluates req."
+    },
+    {
+      "type": "unsupported-runtime-reachability",
+      "findingId": "66f9ca17-5242-48be-ac94-e48fd5616004",
+      "detail": "Colon-free helper misparsing is real, but real XMLHttpRequest malformed-header output is not established."
+    },
+    {
+      "type": "unsupported-exclusive-provider-inference",
+      "findingId": "77ad7620-0ecc-4294-b596-45cf1900c507",
+      "detail": "Two CI documentation providers are observable; sole active provider and obsolete Travis status are not proven by a badge."
+    },
+    {
+      "type": "partial-output-no-gold-hit",
+      "detail": "No retained partial prediction identifies the sole frozen Axios gold issue. This earns zero hit credit but cannot establish a false negative from a final completed Review."
+    }
+  ],
+  "sourceHashVerification": [
+    {
+      "path": "lib/helpers/validator.js",
+      "sha256": "22224aad7904e2d8f36e58174b1aed90ef802cd8fab900859c5d6d1d03487264",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/core/Axios.js",
+      "sha256": "991592b416c87eaf6cfbb5dfc5c8b4c221f34ec780f5d423f08a501491fdf3d7",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/core/mergeConfig.js",
+      "sha256": "cd47ea0de85b3677bc70902084bc0feb3e23f3aaae1ff8d04c3f0a2991f2f4ab",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/helpers/toFormData.js",
+      "sha256": "cc35e27c17151ce0e10b7cd850b48acab10d8caa9cfcd4191d56bd8385d20fb3",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/axios.js",
+      "sha256": "3cd99c3ca283bb481a36637f93320f918145630ce21ff3cd87292466663ddbfd",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/defaults/index.js",
+      "sha256": "9611362ccbc9bd8c4cbdf909a579c317bac9a8557da1d1f4aa15917412a66eeb",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/helpers/parseHeaders.js",
+      "sha256": "ca69a987e7fb096a5c88704869f4b9b5716aa4b4142cb2fb966f51033e4fbc70",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/adapters/xhr.js",
+      "sha256": "f60ab8e1b34086106be3c4cd1cdc11535a150b0fff14eed056e25bbfd3d39a3e",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/adapters/http.js",
+      "sha256": "b9730b38b647e649ae1adb0c2552648c306e18d53893873d3744cac2620ea086",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/helpers/formDataToJSON.js",
+      "sha256": "463f6ed10109b401ba44a42e76c963273214cfcae3f0b503d6281d9f6eb603d0",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/utils.js",
+      "sha256": "47cf4239766fe859b9ad8037bdd7c95546184883991d40668c997e9562ed3844",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "688b5efdf07f202092f67efa2f7fa1e5ec672fea76bb9e2e6697947a1a51a0cd",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "README.md",
+      "sha256": "e0237e77e7215eaf151b57be51faac028dde39a884e4c1f490abcd133aae392f",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/core/AxiosError.js",
+      "sha256": "2362c0840b661a2dc7119e4222c32c45f1242e0131630428053c653869f3c191",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/core/InterceptorManager.js",
+      "sha256": "33def837e507e1ab1ba8ff20f4c8238a7ec3c6b66d0ee19634675d9caa42cb09",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/cancel/CancelToken.js",
+      "sha256": "9deef45bcc0277dbf758e966c8a5cab544c381fb44f79071562011010bd95e67",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "lib/helpers/fromDataURI.js",
+      "sha256": "0dc8c2dd19d29983720318c2097fbd9766f4fbe532cb3c348eca06983a73b70e",
+      "matchesFrozenInput": true
+    },
+    {
+      "path": "index.d.ts",
+      "sha256": "1b25b178e5569f9a68cf22778d003809c67e943a3d2a559e50cfc42476a9bc17",
+      "matchesFrozenInput": true
+    }
+  ],
+  "limitations": [
+    "Partial retained predictions are insufficient to estimate completed-workflow performance.",
+    "Static control/data-flow verification was used; imported upstream source and dependencies were never executed.",
+    "Environment-specific exploitability and deployed application trust boundaries were not established.",
+    "Gold defines one known Axios issue and is not an exhaustive bug truth set.",
+    "A fresh manual continuation may produce later evidence; this immutable-attempt adjudication does not score or predict its output."
+  ],
+  "validationRepairSummary": {
+    "source": "evidence/public-repo-outcomes-2026-10-22/run-2026-10-22T17-42-32-144Z/0052-review-harness.json",
+    "scheduledRepairs": 13,
+    "reasonCounts": {
+      "source_evidence": 12,
+      "domain_coverage": 1
+    },
+    "feedbackCodeCounts": {
+      "excerpt_mismatch": 14
+    },
+    "rejectedFindingOccurrences": 14,
+    "affectedBatches": 5,
+    "modelAttemptOutcomes": {
+      "success": 13,
+      "malformed_response": 13,
+      "permanent_error": 1
+    },
+    "plannedBatches": 20,
+    "persistedBatchDeltaEvents": 13,
+    "interpretation": "Twelve source-evidence repair events contain fourteen excerpt_mismatch feedback occurrences; one domain_coverage repair has no rejected excerpt. These are repeated repair observations, not fourteen distinct final retained defects. All thirteen malformed_response attempts have a scheduled repair event here; they should not all be described as response JSON parsing failures. No prompt, response body, private reasoning, source content, or secrets are included in this summary."
+  },
+  "verification": {
+    "adjudicatedSavedFindings": 19,
+    "savedFindingCoveragePassed": true,
+    "exactSourceExcerptChecksPassed": true,
+    "goldMatchValidationPassed": true,
+    "modelPrecision": {
+      "tp": 10,
+      "fp": 1,
+      "unknown": 2,
+      "numerator": 10,
+      "denominator": 11,
+      "value": 0.9090909090909091,
+      "lowerBound": 0.7692307692307693,
+      "upperBound": 0.9230769230769231
+    },
+    "deterministicPrecision": {
+      "tp": 6,
+      "fp": 0,
+      "unknown": 0,
+      "numerator": 6,
+      "denominator": 6,
+      "value": 1,
+      "lowerBound": 1,
+      "upperBound": 1
+    },
+    "note": "Precision describes independently adjudicated unique claims in this partial saved output only; it is not completed-workflow acceptance."
+  }
+}

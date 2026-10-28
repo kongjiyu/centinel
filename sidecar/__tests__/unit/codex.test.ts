@@ -6,9 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { spawn } from 'node:child_process';
-import { CodexAppServer, type ExternalChatgptTokens } from '../../src/model/codex.js';
+import { CodexAppServer, codexGenerationTimeoutMs, type ExternalChatgptTokens } from '../../src/model/codex.js';
 import { localCodexTokenSource } from '../../src/model/localCodexAuth.js';
 import { testCodexProvider } from '../../src/model/codexTest.js';
+import { ConfiguredTextModelProvider } from '../../src/review/modelProvider.js';
+import { ReviewCancelledError, runModelOperation } from '../../src/review/retry.js';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanup.splice(0)) fn(); vi.unstubAllEnvs(); });
@@ -77,7 +79,7 @@ function expectPrivateWindowsAcl(target: string): void {
   expect(acl.rules.every(rule => rule.type === 'Allow' && rule.rights === 'FullControl' && !rule.inherited)).toBe(true);
 }
 
-function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; account?: string; hang?: boolean; external?: () => ExternalChatgptTokens; turnError?: Record<string, unknown>; earlyError?: Record<string, unknown> } = {}) {
+function fixture(options: { generationTimeoutMs?: number; hold?: boolean; usageBeforeHold?: boolean; error?: boolean; images?: boolean; unknownModalities?: boolean; account?: string; hang?: boolean; external?: () => ExternalChatgptTokens; cumulativeUsage?: boolean; turnError?: Record<string, unknown>; earlyError?: Record<string, unknown> } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-codex-unit-'));
   const calls: any[] = [];
   const children: any[] = [];
@@ -92,9 +94,12 @@ function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; a
       let result: any = {};
       if (message.method === 'account/read') result = { account: { type: options.account ?? 'chatgpt', email: 'tester@example.test' } };
       if (message.method === 'account/login/start') result = { loginId: 'login-1', authUrl: 'https://auth.openai.com/oauth/authorize?state=test' };
-      if (message.method === 'model/list') result = { data: [{ model: 'model-1', displayName: 'Model One', inputModalities: options.images === false ? ['text'] : ['text', 'image'], isDefault: true }], nextCursor: null };
+      if (message.method === 'model/list') result = { data: [{ model: 'model-1', displayName: 'Model One', ...(!options.unknownModalities ? { inputModalities: options.images === false ? ['text'] : ['text', 'image'] } : {}), isDefault: true }], nextCursor: null };
       if (message.method === 'account/rateLimits/read') result = { rateLimitsByLimitId: { codex: { primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 123 }, credits: { hasCredits: false, balance: '0', private: 'never-export' }, rateLimitReachedType: null, accountId: 'never-export' } } };
       if (message.method === 'thread/start') result = { thread: { id: 'thread-1' } };
+      if (message.method === 'turn/start' && (!options.hold || options.usageBeforeHold) && !options.earlyError) {
+        send({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { last: { inputTokens: 10, outputTokens: 2, cachedInputTokens: 3, totalTokens: 12 }, ...(options.cumulativeUsage ? { total: { inputTokens: 30, outputTokens: 6, cachedInputTokens: 9, totalTokens: 36 } } : {}) } } });
+      }
       if (message.method === 'turn/start' && !options.hold) {
         if (options.earlyError) {
           send({ method: 'error', params: { threadId: 'thread-1', willRetry: true, error: options.earlyError } });
@@ -102,7 +107,6 @@ function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; a
         }
         if (!options.turnError) {
           send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'comment', type: 'agentMessage', phase: 'commentary', text: 'private commentary' } } });
-          send({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { last: { inputTokens: 10, outputTokens: 2, cachedInputTokens: 3, totalTokens: 12 } } } });
           send({ method: 'item/completed', params: { threadId: 'thread-1', item: { id: 'answer', type: 'agentMessage', phase: 'final_answer', text: '{"answer":"ready"}' } } });
         }
         send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { status: options.turnError ? 'failed' : 'completed', ...(options.turnError ? { error: options.turnError } : {}) } } });
@@ -111,13 +115,105 @@ function fixture(options: { hold?: boolean; error?: boolean; images?: boolean; a
     });
     return child;
   });
-  const client = new CodexAppServer(home, launch as unknown as typeof spawn, options.hang ? 20 : 2000, options.external);
+  const catalogFetch = vi.fn(async () => new Response(JSON.stringify({models:[{
+    slug:'model-1',display_name:'Model One',visibility:'list',input_modalities:options.images===false?['text']:['text','image'],
+  }]})));
+  const client = new CodexAppServer(home, launch as unknown as typeof spawn, options.hang ? 20 : 2000, options.external, catalogFetch as typeof fetch, options.generationTimeoutMs);
   cleanup.push(() => { client.close(); fs.rmSync(home, { recursive: true, force: true }); });
-  return { client, launch, calls, children, home };
+  return { client, launch, calls, children, home, catalogFetch };
 }
 const input = { model: 'model-1', prompt: 'Return JSON', systemPrompt: 'Analyze supplied content.' };
 
 describe('isolated Codex app-server transport', () => {
+  it('keeps a bounded generation deadline separate from the RPC deadline', async () => {
+    const { client, calls, children } = fixture({ hold: true, generationTimeoutMs: 6000 });
+    vi.useFakeTimers();
+    try {
+      const pending = client.generate(input);
+      await vi.waitFor(() => expect(calls.some(call => call.method === 'turn/start')).toBe(true));
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(children[0].kill).not.toHaveBeenCalled();
+      const assertion = expect(pending).rejects.toMatchObject({ code: 'codex_timeout' });
+      await vi.advanceTimersByTimeAsync(4000);
+      await assertion;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('bounds runtime generation configuration without changing RPC timeouts', () => {
+    vi.stubEnv('CENTINEL_CODEX_GENERATION_TIMEOUT_MS', '900000'); expect(codexGenerationTimeoutMs()).toBe(900000);
+    for (const invalid of ['0', '119999', '1800001', 'NaN']) {
+      vi.stubEnv('CENTINEL_CODEX_GENERATION_TIMEOUT_MS', invalid); expect(codexGenerationTimeoutMs()).toBe(600000);
+    }
+  });
+
+  it('records cumulative usage for its fresh ephemeral thread instead of only the last internal turn', async () => {
+    const { client } = fixture({ cumulativeUsage: true });
+    expect((await client.generate(input)).usage).toMatchObject({ inputTokens: 30, outputTokens: 6, cacheReadTokens: 9, totalTokens: 36 });
+  });
+  it('retains the latest correlated usage when a Codex turn fails', async () => {
+    const { client } = fixture({ turnError: { message: 'private response' } });
+    await expect(client.generate(input)).rejects.toMatchObject({
+      code: 'codex_turn_failed', responseReceived: true,
+      usage: { inputTokens: 10, outputTokens: 2, providerReportedTotalTokens: 12,
+        usageObservation: { source: 'codex_turn_last', completeness: 'partial', missingCounters: ['cacheCreationTokens'] } },
+    });
+  });
+  it('retains usage observed before generation timeout', async () => {
+    const { client, calls } = fixture({ hold: true, usageBeforeHold: true, generationTimeoutMs: 6000 });
+    vi.useFakeTimers();
+    try {
+      const pending = client.generate(input);
+      await vi.waitFor(() => expect(calls.some(call => call.method === 'turn/start')).toBe(true));
+      const assertion = expect(pending).rejects.toMatchObject({ code: 'codex_timeout', responseReceived: true,
+        usage: { inputTokens: 10, outputTokens: 2, providerReportedTotalTokens: 12 } });
+      await vi.advanceTimersByTimeAsync(6100);
+      await assertion;
+    } finally { vi.useRealTimers(); }
+  });
+  it('records correlated Codex usage on active cancellation through the Review attempt ledger', async () => {
+    const { client, calls } = fixture({ hold: true, usageBeforeHold: true });
+    const controller = new AbortController();
+    const model = new ConfiguredTextModelProvider({ settings: {
+      ownerId: 'owner-1', provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: 'model-1',
+    }, codexBackend: client });
+    const attempts: Array<Record<string, unknown>> = [];
+    const operation = runModelOperation({ ...input, reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis' }, model, {
+      reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis', provider: 'codex', apiFormat: 'codex-app-server', model: 'model-1',
+      signal: controller.signal, maxTotalAttempts: 1,
+      onAttempt: attempt => attempts.push(attempt),
+    });
+    await vi.waitFor(() => expect(calls.some(call => call.method === 'turn/start')).toBe(true));
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+
+    await expect(operation).rejects.toBeInstanceOf(ReviewCancelledError);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ outcome: 'cancelled', responseReceived: true,
+      usage: { inputTokens: 10, outputTokens: 2, providerReportedTotalTokens: 12,
+        usageObservation: { source: 'codex_turn_last', completeness: 'partial', missingCounters: ['cacheCreationTokens'] } } });
+  });
+  it('caches current account choices briefly and refreshes them explicitly without inference', async () => {
+    const {client,catalogFetch,calls}=fixture({external:()=>({accessToken:'test-access',chatgptAccountId:'account-one'})});
+    expect((await client.models())[0].id).toBe('model-1');
+    await client.models();
+    expect(catalogFetch).toHaveBeenCalledTimes(1);
+    await client.models(true);
+    expect(catalogFetch).toHaveBeenCalledTimes(2);
+    expect(calls.some(call=>call.method==='turn/start')).toBe(false);
+  });
+  it('preserves real CLI choices with an explicit warning when the public account catalog rejects an older OAuth session', async () => {
+    const {client,catalogFetch}=fixture({external:()=>({accessToken:'test-access',chatgptAccountId:'account-one'})});
+    catalogFetch.mockResolvedValue(new Response('never expose this body',{status:403}));
+    expect(await client.models()).toMatchObject([{id:'model-1',catalogSource:'codex',catalogWarning:'account_catalog_unavailable'}]);
+    expect((await client.generate(input)).text).toBe('{"answer":"ready"}');
+    expect(catalogFetch).toHaveBeenCalledTimes(1);
+  });
+  it('requires confirmed native screenshot support when the CLI omits modalities', async () => {
+    const {client,calls}=fixture({unknownModalities:true});
+    expect(await client.models()).toMatchObject([{supportsImages:false,imageSupportKnown:false}]);
+    await expect(client.generate({...input,imagePaths:['not-read.png']})).rejects.toMatchObject({code:'codex_vision_unsupported'});
+    expect(calls.some(call=>call.method==='turn/start')).toBe(false);
+  });
   it('reads only safe capacity fields without inference or treating zero credits as exhausted included usage', async () => {
     const { client, calls } = fixture();
     expect(await client.capacity()).toEqual([{ primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 123 }, secondary: null, hasCredits: false, limitReached: false }]);
@@ -198,13 +294,25 @@ describe('isolated Codex app-server transport', () => {
   it.each([
     { codexErrorInfo: { badRequest: { httpStatusCode: 429 } } },
     { codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: '429' } } },
-    { codexErrorInfo: 'responseTooManyFailedAttempts' },
+    { codexErrorInfo: 'unknown-sensitive-server-value' },
   ])('keeps unknown or malformed turn errors generic', async turnError => {
     const { client } = fixture({ turnError: { message: 'private-secret-prompt', ...turnError } });
     const error = await client.generate(input).then(() => null, value => value);
     expect(error).toMatchObject({ code: 'codex_turn_failed', retryable: false });
     expect((error as Error).message).not.toContain('private-secret-prompt');
     expect((error as { statusCode?: number }).statusCode).toBeUndefined();
+  });
+  it.each([
+    ['ResponseStreamDisconnected', 'codex_stream_disconnected'],
+    ['responseTooManyFailedAttempts', 'codex_attempts_exhausted'],
+    [{ httpConnectionFailed: { httpStatusCode: 503 } }, 'codex_http_connection_failed'],
+    ['Unauthorized', 'codex_unauthorized'],
+  ])('retains only allowlisted structured failure diagnostics without guessing quota', async (codexErrorInfo, code) => {
+    const { client } = fixture({ turnError: { codexErrorInfo, message: 'private-prompt-secret', additionalDetails: 'private detail' } });
+    const error = await client.generate(input).then(() => null, value => value);
+    expect(error).toMatchObject({ code, retryable: false, responseReceived: true, usage: { inputTokens: 10, outputTokens: 2 } });
+    expect(JSON.stringify(error)).not.toMatch(/private-prompt-secret|private detail/);
+    expect(error.message).not.toMatch(/private-prompt-secret|private detail|exhausted usage quota/);
   });
   it('rejects models without screenshots before starting a turn', async () => {
     const { client, calls } = fixture({ images: false });
@@ -258,6 +366,6 @@ describe('isolated Codex app-server transport', () => {
   });
   it('does not pass a screenshot test on a text-only response', async () => {
     const { client } = fixture();
-    expect(await testCodexProvider(client, 'model-1', true)).toMatchObject({ status: 'fail' });
+    expect(await testCodexProvider(client, 'model-1', true)).toMatchObject({ status: 'fail', responseReceived: true });
   });
 });

@@ -14,7 +14,7 @@ export type ConnectedSourceWorkerCoordinatorOptions = {
   leaseSeconds?: number;
   onUnexpectedError?: (cause: unknown, job: BackgroundSourceJob) => void;
   onRunFailed?: (auth: AuthenticatedRequest, job: BackgroundSourceJob) => void;
-  onRunFinished?: (auth: AuthenticatedRequest, job: BackgroundSourceJob, run: ConnectedSourceSyncRun) => void;
+  onRunFinished?: (auth: AuthenticatedRequest, job: BackgroundSourceJob, run: ConnectedSourceSyncRun) => void | Promise<void>;
 };
 
 /**
@@ -99,7 +99,7 @@ export class ConnectedSourceWorkerCoordinator {
         workerLeaseToken: leaseToken,
       });
       const run = result.run;
-      if (run.status !== 'partial' || run.errorCode || run.retryable) { this.onRunFinished?.(auth, job, run); return; }
+      if (run.status !== 'partial' || run.errorCode || run.retryable) { await this.onRunFinished?.(auth, job, run); return; }
 
       const nextCursor = JSON.stringify(run.cursorEnd ?? run.cursorStart ?? null);
       if (nextCursor === previousCursor) repeatedCursorBatches++;
@@ -113,7 +113,7 @@ export class ConnectedSourceWorkerCoordinator {
           expectedCursorKey: nextCursor,
           workerLeaseToken: leaseToken,
         });
-        if (failedRun) this.onRunFinished?.(auth, job, failedRun);
+        if (failedRun) await this.onRunFinished?.(auth, job, failedRun);
         return;
       }
       previousCursor = nextCursor;

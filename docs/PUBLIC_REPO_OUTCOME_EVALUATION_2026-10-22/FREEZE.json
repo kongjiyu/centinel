@@ -1,0 +1,18 @@
+{
+  "frozenAtUtc": "2026-10-22T09:15:17.8288594Z",
+  "schemaVersion": "public-repo-outcomes-freeze-v1",
+  "files": [
+    {
+      "sha256": "01c8e47b9c1c5e97051c3834d182dfb4bf961f9296bf589a97d6ccb987e52e3e",
+      "path": "manifest.json"
+    },
+    {
+      "sha256": "d2acc09227d931aea257cb6f21b2ca2ef9c964ccc1bb97692adb8cea06e60ca6",
+      "path": "input-files.json"
+    },
+    {
+      "sha256": "ba322ea9e4f609b84878eee5a7c00f1770c44ea571a2e1afd7f522813b59b163",
+      "path": "ACCEPTANCE.md"
+    }
+  ]
+}

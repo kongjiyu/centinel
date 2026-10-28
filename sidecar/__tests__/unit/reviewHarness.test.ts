@@ -5,6 +5,19 @@ import type { ReviewAuditEvent, StaticFindingInput } from '../../src/review/type
 import type { Artifact } from '../../src/artifacts.js';
 
 describe('Review harness audit boundaries', () => {
+  it('writes free rule events in one batch but reserves a paid step immediately', async () => {
+    const immediate: Array<Omit<ReviewAuditEvent, 'createdAt'>> = [];
+    const batches: Array<Array<Omit<ReviewAuditEvent, 'createdAt'>>> = [];
+    const harness=new ReviewHarness({reviewId:'r',projectId:'p'},async event=>{ immediate.push(event); },async events=>{ batches.push(events); });
+    await harness.bufferRuleEvents(async()=>{
+      await harness.step('deterministic_analysis','check_rule',{ruleId:'rule'},async()=>[]);
+      expect(batches).toHaveLength(0);
+      await harness.step('model_analysis','run_model',{},async()=>{ expect(immediate[0].event).toBe('harness_step_started'); });
+    });
+    expect(batches).toHaveLength(1);
+    expect(batches[0].map(event=>event.event)).toEqual(['harness_step_started','harness_step_completed']);
+    expect(immediate).toHaveLength(2);
+  });
   it('pairs persisted start and completion events without recording operation contents', async () => {
     const events: Array<Omit<ReviewAuditEvent, 'createdAt'>> = [];
     const harness = new ReviewHarness({ reviewId: 'review', projectId: 'project' }, async event => { events.push(event); });

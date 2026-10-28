@@ -1,13 +1,25 @@
+import crypto from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildProjectReportSnapshot } from '../../src/report/snapshot.js';
 import { createSupabaseReportSnapshotSource } from '../../src/report/supabaseSnapshot.js';
 import { CentinelApplicationRepository } from '../../src/applicationRepository.js';
-import { listClientArtifacts } from '../../src/applicationApi.js';
+import { listClientArtifacts, readClientArtifactContent } from '../../src/applicationApi.js';
 
 type AnyRow = Record<string, unknown>;
 
 describe('project loading latency boundaries', () => {
+  it('exposes durable connected-source identity and source paths without substituting Storage identities', async () => {
+    const fake = fakeClient({ projects: [{ id: 'project-1', owner_id: 'user-1' }], artifacts: [
+      { id: 'remote', project_id: 'project-1', source_id: 'source-1', path: 'connected/source-1/blob-id', name: 'file.ts', kind: 'connected_source',
+        metadata: { provider: 'github', sourcePath: 'src/file.ts', sourceId: 'untrusted-metadata-id' } },
+      { id: 'local', project_id: 'project-1', source_id: null, path: 'local/file.ts', name: 'file.ts', kind: 'source_code',
+        metadata: { source: 'repository', originalPath: 'C:/repo/file.ts', sourcePath: 'ignored.ts' } },
+    ] });
+    const loaded = await listClientArtifacts(new CentinelApplicationRepository(fake.client, 'user-1'), 'project-1');
+    expect(loaded.find(item => item.id === 'remote')).toMatchObject({ sourceId: 'source-1', filePath: 'connected/source-1/blob-id', originalPath: 'src/file.ts', source: 'repository' });
+    expect(loaded.find(item => item.id === 'local')).toMatchObject({ sourceId: null, originalPath: 'C:/repo/file.ts' });
+  });
   it('returns project rows without waiting for pending Storage cleanup', async () => {
     const fake = fakeClient({ projects: [{ id: 'project-1', owner_id: 'user-1', name: 'Ready project' }] });
     const from = vi.mocked(fake.client.from).getMockImplementation()!;
@@ -247,6 +259,50 @@ describe('Phase 3A Supabase authority seams', () => {
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(fake.download).toHaveBeenCalledWith(`project-1/artifact-1/${contentHash}`, {}, { signal: controller.signal });
+  });
+
+  it('reads one exact frozen artifact version with one member check and one version lookup', async () => {
+    const contentHash = crypto.createHash('sha256').update('artifact').digest('hex');
+    const fake = fakeClient({
+      projects: [{ id: 'project-1' }],
+      artifact_versions: [{ id: 'version-1', project_id: 'project-1', artifact_id: 'artifact-1', content_hash: contentHash,
+        storage_path: `project-1/artifact-1/${contentHash}` }],
+    });
+    const repository = new CentinelApplicationRepository(fake.client, 'user-1');
+
+    await expect(repository.downloadFrozenArtifactVersion({ projectId: 'project-1', artifactId: 'artifact-1', versionId: 'version-1', expectedContentHash: contentHash }))
+      .resolves.toEqual(Buffer.from('artifact'));
+    expect(vi.mocked(fake.client.from).mock.calls.map(([table]) => table)).toEqual(['projects', 'artifact_versions']);
+    expect(fake.download).toHaveBeenCalledWith(`project-1/artifact-1/${contentHash}`, {}, { signal: undefined });
+  });
+
+  it.each([
+    { label: 'wrong artifact', input: { projectId: 'project-1', artifactId: 'other-artifact', versionId: 'version-1' } },
+    { label: 'wrong project', input: { projectId: 'other-project', artifactId: 'artifact-1', versionId: 'version-1' } },
+    { label: 'wrong frozen hash', input: { projectId: 'project-1', artifactId: 'artifact-1', versionId: 'version-1', expectedContentHash: 'f'.repeat(64) } },
+  ])('rejects $label before downloading bytes', async ({ input }) => {
+    const contentHash = crypto.createHash('sha256').update('artifact').digest('hex');
+    const fake = fakeClient({
+      projects: [{ id: 'project-1' }, { id: 'other-project' }],
+      artifact_versions: [{ id: 'version-1', project_id: 'project-1', artifact_id: 'artifact-1', content_hash: contentHash,
+        storage_path: `project-1/artifact-1/${contentHash}` }],
+    });
+    const repository = new CentinelApplicationRepository(fake.client, 'user-1');
+    await expect(repository.downloadFrozenArtifactVersion(input)).rejects.toThrow();
+    expect(fake.download).not.toHaveBeenCalled();
+  });
+
+  it('uses the project, version, artifact, and frozen hash supplied by readiness without reading the current artifact row', async () => {
+    const contentHash = crypto.createHash('sha256').update('artifact').digest('hex');
+    const fake = fakeClient({
+      projects: [{ id: 'project-1' }],
+      artifact_versions: [{ id: 'version-1', project_id: 'project-1', artifact_id: 'artifact-1', content_hash: contentHash,
+        storage_path: `project-1/artifact-1/${contentHash}` }],
+    });
+
+    await expect(readClientArtifactContent(fake.client, 'user-1', 'artifact-1', 'version-1', undefined, 'project-1', contentHash))
+      .resolves.toBe('artifact');
+    expect(vi.mocked(fake.client.from).mock.calls.map(([table]) => table)).toEqual(['projects', 'artifact_versions']);
   });
 
   it('routes project CRUD through Supabase and enforces owner-only writes', async () => {

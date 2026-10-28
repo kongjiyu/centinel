@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
@@ -7,6 +7,11 @@ import initSqlJs from 'sql.js';
 import { setTestDb, clearTestDb } from '../../src/db.js';
 import { createSidecarServer } from '../../src/index.js';
 import { findingSourceIdentityHash } from '../../src/review/correlation.js';
+import { ASSESSMENT_VALIDATION_VERSION } from '../../src/review/assessmentValidation.js';
+import { readClientArtifactContent } from '../../src/applicationApi.js';
+import { RefreshableSupabaseRuntime } from '../../src/runtime/supabaseRuntime.js';
+import { ConnectedSourceImporter } from '../../src/integrations/index.js';
+import { SourceIndexCoordinator } from '../../src/review/sourceIndexJobs.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const otherId = '22222222-2222-4222-8222-222222222222';
@@ -229,6 +234,68 @@ describe('active sidecar HTTP bearer contract', () => {
     return { status: response.status, body: await response.json() as Record<string, unknown> };
   }
 
+  it.each(['success', 'partial'])('manual source Resume handles %s through the indexing/worker integration', async state => {
+    const notify = vi.spyOn(SourceIndexCoordinator.prototype, 'notify').mockResolvedValue({ state: 'queued' } as any);
+    const resume = vi.spyOn(ConnectedSourceImporter.prototype, 'resumeSync')
+      .mockResolvedValueOnce({ run: { id: 'run', projectId: ownerProject, sourceId: 'source', status: state, errorCode: null, retryable: false } } as any)
+      .mockResolvedValue({ run: { id: 'run', projectId: ownerProject, sourceId: 'source', status: 'success', errorCode: null, retryable: false } } as any);
+    try {
+      const response = await fetch(`${baseUrl}/projects/${ownerProject}/sources/source/sync-runs/run/resume`, {
+        method: 'POST', headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' }, body: '{}',
+      });
+      expect(response.status).toBe(200);
+      await vi.waitFor(() => expect(notify).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: ownerId }), ownerProject));
+      expect(resume).toHaveBeenCalledTimes(state === 'partial' ? 2 : 1);
+    } finally { notify.mockRestore(); resume.mockRestore(); }
+  });
+
+  it('requires authentication and project membership before index status or resume access', async () => {
+    const recover = vi.spyOn(SourceIndexCoordinator.prototype, 'recover');
+    const resume = vi.spyOn(SourceIndexCoordinator.prototype, 'resume');
+    try {
+      expect((await get(`/projects/${ownerProject}/repository-index/build`)).status).toBe(401);
+      expect((await get(`/projects/${otherProject}/repository-index/build`, 'owner-token')).status).toBe(403);
+      const response = await fetch(`${baseUrl}/projects/${otherProject}/repository-index/build`, { method: 'POST', headers: { Authorization: 'Bearer owner-token' } });
+      expect(response.status).toBe(403); expect(recover).not.toHaveBeenCalled(); expect(resume).not.toHaveBeenCalled();
+    } finally { recover.mockRestore(); resume.mockRestore(); }
+  });
+
+  it('adopts refreshed verified credentials on ordinary Review polling without a new Start request', async () => {
+    const initialReviews = reviews.length; const initialOperations = reviewOperations.length;
+    const initialAuditEvents = auditEvents.length;
+    const replace = vi.spyOn(RefreshableSupabaseRuntime.prototype, 'replaceAccessToken');
+    try {
+      const started = await fetch(`${baseUrl}/projects/${ownerProject}/static-sessions`, {
+        method: 'POST', headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Polling refresh fixture', scope: { artifactIds: [ownerArtifact] }, idempotencyKey: 'http-polling-refresh' }),
+      });
+      expect(started.status).toBe(201);
+      replace.mockClear();
+      expect((await get(`/projects/${ownerProject}/static-sessions?view=summary`, 'owner-refreshed-token')).status).toBe(200);
+      // Both the Review and source-index runtimes adopt the authenticated refresh.
+      expect(replace).toHaveBeenCalledTimes(2);
+      expect(replace).toHaveBeenCalledWith('owner-refreshed-token', expect.any(Object));
+      expect(replace.mock.contexts.every(runtime => runtime.state().userId === ownerId)).toBe(true);
+      replace.mockClear();
+      expect((await get(`/projects/${ownerProject}/static-sessions?view=summary`, 'invalid-token', ownerId)).status).toBe(401);
+      expect(replace).not.toHaveBeenCalled();
+      await get(`/projects/${otherProject}/static-sessions?view=summary`, 'other-token');
+      expect(replace.mock.contexts.every(runtime => runtime.state().userId !== ownerId)).toBe(true);
+    } finally {
+      replace.mockRestore(); reviews.splice(initialReviews); reviewOperations.splice(initialOperations); auditEvents.splice(initialAuditEvents);
+    }
+  });
+
+  it('authorizes lightweight source presence and Review summary views exactly like full reads', async () => {
+    expect(await get(`/projects/${ownerProject}/artifacts?view=presence`, 'owner-token'))
+      .toMatchObject({ status: 200, body: { hasSources: true } });
+    expect((await get(`/projects/${ownerProject}/static-sessions?view=summary`, 'owner-token')).status).toBe(200);
+    for (const suffix of ['artifacts?view=presence', 'static-sessions?view=summary']) {
+      expect((await get(`/projects/${ownerProject}/${suffix}`)).status).toBe(401);
+      expect((await get(`/projects/${otherProject}/${suffix}`, 'owner-token', otherId)).status).toBe(403);
+    }
+  });
+
   it('allows only health without a bearer and never trusts the supplied user header', async () => {
     expect((await get('/health')).status).toBe(200);
     expect(await get('/projects', undefined, ownerId)).toMatchObject({ status: 401, body: { code: 'unauthenticated' } });
@@ -238,6 +305,28 @@ describe('active sidecar HTTP bearer contract', () => {
     expect(visible.status).toBe(200);
     expect((visible.body as unknown as Array<{ id: string }>).map(project => project.id)).toEqual([ownerProject, ownerSecondProject]);
     expect(await get(`/projects/${otherProject}`, 'owner-token', otherId)).toMatchObject({ status: 403, body: { code: 'project_access_denied' } });
+  });
+
+  it('authenticates the embedding catalog and returns only the signed-in owner’s recorded usage', async () => {
+    expect((await get('/settings/ai/embedding/models')).status).toBe(401);
+    const privateRow = { ...modelUsage[1], id: 'other-embedding-usage', owner_id: otherId,
+      model: 'PRIVATE_OTHER_MODEL', input_tokens: 999_999 };
+    modelUsage.push(privateRow);
+    try {
+      const response = await get('/settings/ai/embedding/models', 'owner-token', otherId);
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ source: 'published_catalog', remaining: { status: 'not_reported', tokens: null } });
+      expect(JSON.stringify(response.body)).not.toContain('PRIVATE_OTHER_MODEL');
+      expect((response.body as any).usage).toEqual(expect.arrayContaining([expect.objectContaining({ model: 'embedding-model', knownTokens: 4, calls: 1 })]));
+    } finally { modelUsage.splice(modelUsage.indexOf(privateRow), 1); }
+  });
+
+  it('keeps a failed embedding diagnostic readable while protecting the test route with authentication', async () => {
+    const route = `${baseUrl}/settings/ai/embedding/test`;
+    expect((await fetch(route, { method: 'POST' })).status).toBe(401);
+    const response = await fetch(route, { method: 'POST', headers: { Authorization: 'Bearer owner-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: 'fail', message: 'The saved embedding configuration is incomplete.' });
   });
 
   it('guards all local Dynamic endpoints with shared project membership', async () => {
@@ -490,6 +579,38 @@ describe('active sidecar HTTP bearer contract', () => {
     expect((await get(`${path}?versionId=${otherVersion}`, 'owner-token')).status).toBe(404);
   });
 
+  it('reads a Review-owned frozen version after current artifact removal and supports reused manifests', async () => {
+    const review = reviews.find(item => item.id === ownerReview)!;
+    const oldManifestId = review.source_manifest_id;
+    const savedSnapshot = sourceSnapshots[0].snapshot;
+    const removedIndex = artifacts.findIndex(item => item.id === ownerArtifact);
+    const [removed] = artifacts.splice(removedIndex, 1);
+    const childId = '12121212-1212-4212-8212-121212121212';
+    const initialReviews = reviews.length;
+    review.source_manifest_id = 'source-snapshot-1';
+    sourceSnapshots[0].snapshot = { capturedAt: '2026-09-23T00:00:00Z', artifacts: [{ id: ownerArtifact, project_id: ownerProject,
+      version_id: ownerVersion, path: 'saved/policy.txt', name: 'policy.txt', kind: 'requirement', metadata: { contentHash: artifactHash } }] };
+    reviews.push({ ...review, id: childId, lineage: { parentReviewId: ownerReview, reusedSourceManifest: true } });
+    try {
+      const base = `/projects/${ownerProject}/static-sessions/${childId}`;
+      const manifest = await get(`${base}/source-manifest`, 'owner-token');
+      expect(manifest).toMatchObject({ status: 200, body: { sessionId: childId, artifactCount: 1,
+        artifacts: [{ id: ownerArtifact, artifactVersionId: ownerVersion, filePath: 'saved/policy.txt', contentHash: artifactHash }] } });
+      const contentPath = `${base}/source-artifacts/${ownerArtifact}/content`;
+      expect(await get(contentPath, 'owner-token')).toMatchObject({ status: 200, body: { versionId: ownerVersion, content: Buffer.from('artifact').toString('base64'), contentHash: artifactHash } });
+      expect(await readClientArtifactContent(bearerClient('owner-token'), ownerId, ownerArtifact, ownerVersion, undefined, ownerProject)).toBe('artifact');
+      await expect(readClientArtifactContent(bearerClient('other-token'), otherId, ownerArtifact, ownerVersion, undefined, ownerProject)).rejects.toThrow();
+      expect((await get(contentPath, 'other-token')).status).toBe(403);
+      expect((await get(`${base}/source-artifacts/${otherArtifact}/content`, 'owner-token')).status).toBe(404);
+      expect((await get(`/projects/${ownerSecondProject}/static-sessions/${childId}/source-artifacts/${ownerArtifact}/content`, 'owner-token')).status).toBe(404);
+    } finally {
+      artifacts.splice(removedIndex, 0, removed);
+      reviews.splice(initialReviews);
+      review.source_manifest_id = oldManifestId;
+      sourceSnapshots[0].snapshot = savedSnapshot;
+    }
+  });
+
   it('lists and renews only the bearer user private reports', async () => {
     const historyPath = `/projects/${ownerProject}/reports`;
     const history = await get(historyPath, 'owner-token');
@@ -650,7 +771,7 @@ describe('active sidecar HTTP bearer contract', () => {
     const now = '2026-10-18T00:00:00.000Z';
     const sourceIdentityHash = findingSourceIdentityHash({ artifactId: ownerArtifact, sourceIdentity: 'policy.txt', filePath: 'policy.txt' });
     const sourceEvidence = {
-      version: 1, basis: 'not_reproduced_in_comparable_review', parentSourceManifestId: parentManifestId,
+      version: 2, assessmentValidationVersion: ASSESSMENT_VALIDATION_VERSION, locationBasis: { kind: 'exact_assessed_reference', filePath: 'policy.txt', lineNumber: 1, sourceVersion: `sha256:${'b'.repeat(64)}`, featureId: 'policy', domain: 'security' }, basis: 'not_reproduced_in_comparable_review', parentSourceManifestId: parentManifestId,
       sourceManifestId: childManifestId, reviewedArtifactId: ownerArtifact, parentArtifactId: ownerArtifact,
       sourceIdentityHash, parentSourceVersion: `sha256:${'a'.repeat(64)}`, reviewedSourceVersion: `sha256:${'b'.repeat(64)}`,
     };
@@ -658,7 +779,7 @@ describe('active sidecar HTTP bearer contract', () => {
       { id: parentReviewId, project_id: ownerProject, name: 'Original review', review_type: 'code_review', status: 'changes_requested', model_status: 'succeeded', scope: { artifactIds: [ownerArtifact], sourceIds: [] }, config: { instructions: 'Inspect the policy', checks: ['security'] }, lineage: { parentReviewId: null, lineageRootId: parentReviewId, reusedSourceManifest: false }, source_manifest_id: parentManifestId, created_at: '2026-10-17T00:00:00.000Z', updated_at: now },
       { id: childReviewId, project_id: ownerProject, name: 'Re-review', review_type: 'code_review', status: 'completed', model_status: 'succeeded', scope: { artifactIds: [ownerArtifact], sourceIds: [] }, config: { instructions: 'Inspect the policy', checks: ['security'] }, lineage: { parentReviewId, lineageRootId: parentReviewId, reusedSourceManifest: false }, source_manifest_id: childManifestId, created_at: now, updated_at: now },
     );
-    findings.push({ id: parentFindingId, project_id: ownerProject, review_session_id: parentReviewId, status: 'new', source: 'static', severity: 'high', priority: 'high', title: 'Policy issue', description: 'Issue in the policy', category: 'security', evidence_text: 'Old evidence', recommendation: 'Fix it', confidence: 'high', artifact_id: ownerArtifact, location: { filePath: 'policy.txt', sourceIdentity: 'policy.txt', sourceVersion: `sha256:${'a'.repeat(64)}` }, created_at: '2026-10-17T00:00:00.000Z' });
+    findings.push({ id: parentFindingId, project_id: ownerProject, review_session_id: parentReviewId, status: 'new', source: 'static', severity: 'high', priority: 'high', title: 'Policy issue', description: 'Issue in the policy', category: 'security', evidence_text: 'Old evidence', recommendation: 'Fix it', confidence: 'high', artifact_id: ownerArtifact, location: { filePath: 'policy.txt', lineNumber: 1, sourceIdentity: 'policy.txt', sourceVersion: `sha256:${'a'.repeat(64)}` }, created_at: '2026-10-17T00:00:00.000Z' });
     sourceSnapshots.push(
       { id: parentManifestId, project_id: ownerProject, review_session_id: parentReviewId, status: 'available', snapshot: { artifacts: [{ id: ownerArtifact, path: 'policy.txt', metadata: { originalPath: 'policy.txt', contentHash: `sha256:${'a'.repeat(64)}` } }] }, created_at: now },
       { id: childManifestId, project_id: ownerProject, review_session_id: childReviewId, status: 'available', snapshot: { artifacts: [{ id: ownerArtifact, path: 'policy.txt', metadata: { originalPath: 'policy.txt', contentHash: `sha256:${'b'.repeat(64)}` } }] }, created_at: now },

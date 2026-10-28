@@ -1,0 +1,173 @@
+[
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "repository_completed_when_expected_imports_are_readable",
+    "verdict": "true",
+    "reason": "Fresh readiness-2026-10-23.3 snapshot 966bc489-7f31-4800-b4c5-0470d3a8b5bf completed at 2026-10-23T14:01:45.959Z, stale=false. Repository is completed with 52 sources and 2/2 checks. New independent byte reads verified all 52 expected imported files against frozen lengths/SHA-256 and current-run imported artifact hashes/version IDs. The frozen manifest/input/acceptance bundle also matches FREEZE.json. Original package.json, JSONC tsconfig.json and ESLint JavaScript parse with zero diagnostics using the trusted workspace TypeScript parser. No upstream code or dependencies were executed. This supports selected-input availability only, not full-repository build or correctness.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"Promise based HTTP client for the browser and node.js\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/tsconfig.json",
+        "lineNumber": 7,
+        "excerpt": "\"strict\": true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 2,
+        "excerpt": "module.exports = {"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "requirements_present_not_missing",
+    "verdict": "true",
+    "reason": "Fresh raw requirements presence is present; effective Requirements is incomplete, not missing. README independently supplies substantive request configuration/default and timeout behavior. Across three raw batches, clarity/testability/business_decisions/boundaries/exceptions each have 3 pass; consistency has 1 pass/2 unknown and is effectively unknown; scope has 3 raw pass but becomes unknown after one nonexact scope-coverage citation. Effective Requirements therefore has 5 pass/2 unknown. This assertion establishes requirements presence and conservative incomplete disclosure, not the correctness of every individual quality judgment.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 300,
+        "excerpt": "Only the `url` is required. Requests will default to `GET` if `method` is not specified."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 364,
+        "excerpt": "If the request takes longer than `timeout`, the request will be aborted."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 20,
+        "excerpt": "Please update the tests to reflect your code changes."
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "design_present_not_missing",
+    "verdict": "true",
+    "reason": "Fresh raw design presence is present; effective Design is incomplete, not missing. Original dispatch/merge responsibility comments and API declarations independently establish embedded design. Across three raw batches, all six design checks have 3 pass; effective responsibilities/interfaces/flows/failure_decisions/scope pass, while data is unknown after citation_source_unknown=1 and evidence_insufficient_distinct=1. The unknown preserves a citation limitation despite typed structures existing. This is neither an invented design document nor a complete-design certification.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+        "lineNumber": 23,
+        "excerpt": "Dispatch a request to the server using the configured adapter."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/mergeConfig.js",
+        "lineNumber": 6,
+        "excerpt": "Config-specific merge-function which creates a new config-object"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/index.d.ts",
+        "lineNumber": 127,
+        "excerpt": "export interface AxiosRequestConfig<D = any> {"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "standards_present_not_missing",
+    "verdict": "true",
+    "reason": "Fresh raw standards presence is present; effective Standards is incomplete, not missing. The original ESLint file explicitly supplies browser/Node applicability and concrete rule severities/options; CONTRIBUTING states a CI acceptance gate and test commands. Standards applicability and checkability each have raw {pass:2,gap:0,unknown:1,invalid:0} and effective pass; conflicts has raw {pass:1,gap:0,unknown:2,invalid:0} and effective unknown. The irrelevant/missing-content batch does not establish an absent standards category. No external style-guide content was fetched or presumed.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 8,
+        "excerpt": "'env': {\n    'browser': true,\n    'node': true"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 100,
+        "excerpt": "'indent': [2, 2]"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 20,
+        "excerpt": "Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "standards_applicability_and_checkability_have_original_rule_evidence",
+    "verdict": "true",
+    "reason": "The fresh effective applicability/checkability passes have original source evidence. package.json targets lib/**/*.js with ESLint, original local configuration specifies environment selectors and exact equality/indent/quote/semicolon rules, and CONTRIBUTING documents concrete test commands and a failing-CI rejection gate. The raw counts are 2 pass/1 unknown for each and the merged diagnostics report basisValid=true, evidenceValid=true with no reason counts for these checks. This narrowly supports applicability/checkability; it does not prove current external CI enforcement, external-style compatibility, execution of these commands, or all standards completeness. The retained conflict criterion correctly remains unknown.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+        "lineNumber": 14,
+        "excerpt": "\"fix\": \"eslint --fix lib/**/*.js\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 63,
+        "excerpt": "'eqeqeq': [2, \"smart\"]"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/.eslintrc.js",
+        "lineNumber": 136,
+        "excerpt": "'semi': [2, 'always']"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 28,
+        "excerpt": "- `grunt test` run the jasmine and mocha tests"
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 20,
+        "excerpt": "Pull requests will not be accepted if they are failing on [Travis CI](https://travis-ci.org/axios/axios)."
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "no_invented_requirement_or_design_document",
+    "verdict": "true",
+    "reason": "Fresh independent retained-reference verification found 270/270 exact reference objects: 165 distinct path/excerpt pairs across 36 selected files. Every retained excerpt matches the original source and every contentHash/artifactId/sourceVersion matches the frozen bytes and current-run imported artifact/version; no nonexistent requirements/design file is cited. None of the saved references has a lineNumber, so matched line locations were independently derived rather than claiming saved line-number validation. Diagnostics disclose one rejected requirements scope quotation and one unknown design citation source; these were not treated as valid evidence. Retained exact provenance does not prove all raw or semantic statements correct. Full checks and derived match lines are preserved in readiness-axios-verification.json.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/README.md",
+        "lineNumber": 300,
+        "excerpt": "Only the `url` is required."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+        "lineNumber": 23,
+        "excerpt": "Dispatch a request to the server using the configured adapter."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/index.d.ts",
+        "lineNumber": 190,
+        "excerpt": "export interface AxiosResponse<T = any, D = any>  {"
+      }
+    ]
+  },
+  {
+    "instanceId": "axios__axios-4738",
+    "id": "no_whole_repository_or_bug_free_certification",
+    "verdict": "true",
+    "reason": "The completed job keeps Requirements, Design and Standards incomplete and publishes four evidence-needed findings: requirements consistency/scope, design data, and standards rule conflicts. All four describe unverified criteria rather than asserting global absence. No retained finding or criterion certifies the whole repository, bug absence, or external runtime correctness; repository completion concerns the 52-file frozen selection. This run contains zero raw gap outcomes and zero batch_status_conflict counts, so it does not live-exercise or validate the new neutral mixed-batch conflict branch. These seven supported partial assertions are not full 16-criterion semantic acceptance, and no Review outcome is inferred.",
+    "sourceEvidence": [
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/package.json",
+        "lineNumber": 4,
+        "excerpt": "\"description\": \"Promise based HTTP client for the browser and node.js\""
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/CONTRIBUTING.md",
+        "lineNumber": 24,
+        "excerpt": "Please update the [docs](README.md) accordingly so that there are no discrepancies between the API and the documentation."
+      },
+      {
+        "filePath": "evidence/public-repo-outcomes-2026-10-22/assessed-inputs/axios/lib/core/dispatchRequest.js",
+        "lineNumber": 23,
+        "excerpt": "Dispatch a request to the server using the configured adapter."
+      }
+    ]
+  }
+]

@@ -15,11 +15,72 @@ export type ReadinessDependencies = {
   store(auth: AuthenticatedRequest): ReadinessStore;
   inspect(auth: AuthenticatedRequest, projectId: string): Promise<ReadinessIndex>;
   read(auth: AuthenticatedRequest, artifact: Artifact, signal: AbortSignal): Promise<string>;
-  provider(auth: AuthenticatedRequest): Pick<StaticAnalysisModelProvider, 'analyze'>;
+  provider(auth: AuthenticatedRequest, currentAuth?: () => AuthenticatedRequest): Pick<StaticAnalysisModelProvider, 'analyze'>;
   assess?: typeof assessProjectReadiness;
   now?: () => Date;
   debounceMs?: number;
+  jobTimeoutMs?: number;
 };
+
+const SOURCE_READ_CONCURRENCY = 4;
+const DEFAULT_READINESS_JOB_TIMEOUT_MS = 900_000;
+const MAX_READINESS_JOB_TIMEOUT_MS = 1_200_000;
+
+function readinessJobTimeoutMs(configured: number | undefined): number {
+  if (configured === undefined || !Number.isFinite(configured)) return DEFAULT_READINESS_JOB_TIMEOUT_MS;
+  return Math.max(1, Math.min(MAX_READINESS_JOB_TIMEOUT_MS, Math.floor(configured)));
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+}
+
+async function readFrozenSourceBatch(
+  index: ReadinessIndex,
+  read: ReadinessDependencies['read'],
+  authFor: () => AuthenticatedRequest,
+  signal: AbortSignal,
+): Promise<ReadinessArtifact[]> {
+  const results = new Array<ReadinessArtifact>(index.artifacts.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      throwIfAborted(signal);
+      const sourceIndex = next++;
+      if (sourceIndex >= index.artifacts.length) return;
+      const artifact = index.artifacts[sourceIndex];
+      let unavailableReason: ReadinessArtifact['unavailableReason'];
+      try {
+        const content = await read(authFor(), artifact, signal);
+        throwIfAborted(signal);
+        if (content.includes('\0') || /^%PDF-|^PK\u0003\u0004/.test(content)) {
+          unavailableReason = 'unsupported_format';
+          throw new Error('Unsupported text extraction');
+        }
+        const expected = artifact.contentHash.replace(/^sha256:/, '');
+        if (/^[a-f0-9]{64}$/i.test(expected)
+          && crypto.createHash('sha256').update(content).digest('hex') !== expected.toLowerCase()) {
+          unavailableReason = 'content_changed';
+          throw new Error('Source hash mismatch');
+        }
+        results[sourceIndex] = { artifact, content };
+      } catch (error) {
+        if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+        results[sourceIndex] = {
+          artifact,
+          content: null,
+          unavailableReason: unavailableReason ?? sourceReadIssue(error),
+          error: 'The selected version could not be read as verified text. Refresh the source or provide a supported text document.',
+        };
+      }
+    }
+  };
+
+  const workerCount = Math.min(SOURCE_READ_CONCURRENCY, index.artifacts.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  throwIfAborted(signal);
+  return results;
+}
 
 export function emptyReadiness(projectId: string): ReadinessStatus {
   return { projectId, requestId: null, status: 'idle', trigger: null, requestedAt: null, startedAt: null, completedAt: null, error: null, errorCode: null, snapshot: null, stale: false };
@@ -138,27 +199,20 @@ export class ProjectReadinessCoordinator {
         if (index.fingerprint !== job.sourceFingerprint) { await this.request(auth, projectId, 'sources_changed'); continue; }
         await this.save(store, { ...job, status: 'running', startedAt, error: null, errorCode: null });
         const controller = new AbortController();
-        timeout = setTimeout(() => controller.abort(), 180_000);
-        const artifacts: ReadinessArtifact[] = [...index.unavailable, ...(index.preloaded ?? [])];
-        for (const artifact of index.artifacts) {
-          auth = this.context(original);
-          let unavailableReason: ReadinessArtifact['unavailableReason'];
-          try {
-            const content = await this.deps.read(auth, artifact, controller.signal);
-            if (content.includes('\0') || /^%PDF-|^PK\u0003\u0004/.test(content)) { unavailableReason = 'unsupported_format'; throw new Error('Unsupported text extraction'); }
-            const expected = artifact.contentHash.replace(/^sha256:/, '');
-            if (/^[a-f0-9]{64}$/i.test(expected) && crypto.createHash('sha256').update(content).digest('hex') !== expected.toLowerCase()) { unavailableReason = 'content_changed'; throw new Error('Source hash mismatch'); }
-            artifacts.push({ artifact, content });
-          } catch (error) {
-            if (controller.signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
-            artifacts.push({ artifact, content: null, unavailableReason: unavailableReason ?? sourceReadIssue(error), error: 'The selected version could not be read as verified text. Refresh the source or provide a supported text document.' });
-          }
-        }
+        timeout = setTimeout(() => controller.abort(), readinessJobTimeoutMs(this.deps.jobTimeoutMs));
+        const artifacts: ReadinessArtifact[] = [
+          ...index.unavailable,
+          ...(index.preloaded ?? []),
+          ...await readFrozenSourceBatch(index, this.deps.read, () => this.context(original), controller.signal),
+        ];
         const input: ReadinessInput = { projectId, description: index.description, sourceFingerprint: index.fingerprint, artifacts };
-        const snapshot: ReadinessAssessment = await (this.deps.assess ?? assessProjectReadiness)(input, this.deps.provider(this.context(original)), controller.signal);
+        const provider = this.deps.provider(this.context(original), () => this.context(original));
+        const snapshot: ReadinessAssessment = await (this.deps.assess ?? assessProjectReadiness)(input, provider, controller.signal);
+        throwIfAborted(controller.signal);
         auth = this.context(original); store = this.deps.store(auth);
         const current = await this.inspectSources(auth, projectId);
         const latest = await this.latest(store, projectId);
+        throwIfAborted(controller.signal);
         if (latest?.requestId !== job.requestId) continue;
         if (current.importing || current.fingerprint !== job.sourceFingerprint) { await this.request(auth, projectId, 'sources_changed'); continue; }
         if (snapshot.projectId !== projectId || snapshot.sourceFingerprint !== job.sourceFingerprint) throw new ReadinessSourceChangesError();

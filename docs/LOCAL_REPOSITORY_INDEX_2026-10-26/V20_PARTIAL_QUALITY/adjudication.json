@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "centinel-v20-partial-independent-adjudication-v1",
+  "reviewId": "1deb8b4b-10b5-4da3-b627-0e7a50ed4d8b",
+  "parentReviewId": "a679eca3-7cec-4860-a3b1-bec7770ac0c7",
+  "instanceId": "axios__axios-4738",
+  "policyVersion": "review-2026-10-28-validated-batch-cache-v20",
+  "evaluator": "Independent delegated reviewer; requested SOL6.1 High context retained",
+  "scope": "Actual saved v20 partial result only; original frozen source, callers and complete relevant functions inspected; unchanged source executed with inert transports and explicit environment stubs",
+  "workflowAcceptance": "fail_partial_execution_gold_miss_and_incomplete_domain_evidence",
+  "workflowStatus": "blocked",
+  "modelStatus": "partial",
+  "precisionScope": "Unique supported causal/factual claims at the explicitly reviewed local or conditional scope. Diagnostic length/TODO truth is distinct from defect severity; direct-adapter setup is distinct from guarded public dispatch; CORS transmission is conditional and was not executed.",
+  "deduplication": "The two XHR undeclared-req predictions share one cause. Consistent with the fixed historical and v19 treatment, nested Promise executor/wrapper length warnings share one maintainability cause for each adapter. No unique claim is discarded; every saved UUID appears below.",
+  "metrics": {
+    "recordedPredictions": 13,
+    "recordedModelPredictions": 7,
+    "recordedDeterministicPredictions": 6,
+    "uniquePredictions": 10,
+    "uniqueModelPredictions": 6,
+    "uniqueDeterministicObservations": 4,
+    "true": 10,
+    "false": 0,
+    "unknown": 0,
+    "unadjudicated": 0,
+    "resolvedPartialPrecision": 1,
+    "conservativePartialPrecisionBound": 1,
+    "optimisticPartialPrecisionBound": 1,
+    "modelOnlyPartialPrecision": 1,
+    "fullRunPrecision": null,
+    "rawProductionNeedsVerificationRecords": 3,
+    "rawProductionNeedsVerificationUniqueClaims": 3,
+    "goldIssueHits": 0,
+    "goldIssueDenominator": 1,
+    "goldOccurrenceHits": 0,
+    "goldOccurrenceDenominator": 1,
+    "partialArtifactIssueRecall": 0,
+    "partialArtifactOccurrenceRecall": 0,
+    "fullRunRecall": null,
+    "findingReferencesValid": 28,
+    "findingReferencesTotal": 28,
+    "primaryEvidenceReferenceValidity": 1,
+    "assessmentAnchorsValid": 90,
+    "assessmentAnchorsTotal": 90,
+    "evidencedAssessedDomainRows": 89,
+    "reportedAssessedDomainRows": 92,
+    "assessedDomainRowsWithoutEvidence": 3,
+    "candidateExcerptsValid": 66,
+    "candidateExcerptsTotal": 66,
+    "mapAnchorsValid": 1119,
+    "mapAnchorsTotal": 1119,
+    "offlineProbeGroupsPassed": 9,
+    "knownProviderReportedPartialTokens": 289982,
+    "unknownProviderTotalCalls": 1,
+    "reusedAssessmentBatches": 0
+  },
+  "claims": [
+    {
+      "claimKey": "axios:xhr-terminal-listeners-not-cleaned",
+      "findingIds": ["24b5505a-63b0-4928-9424-9a56d14cbbea"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "productionCitationVerification": "needs_verification",
+      "productionCitationReason": "support_unverified",
+      "source": ["lib/adapters/xhr.js:22-29", "lib/adapters/xhr.js:52-78", "lib/adapters/xhr.js:104-141", "lib/adapters/xhr.js:190-205", "lib/cancel/CancelToken.js:76-100"],
+      "reason": "The three terminal failure handlers reject and clear request without done(). A subsequent loadend returns before cleanup because request is null. Cancellation callbacks still reside on the reusable token/signal, retaining their closed-over configuration and request-executor state. For each error/timeout/browser-abort path, two fake requests produced two additional retained token and signal listeners. A successful loadend control removed its own subscriptions. No real browser event sequence, heap size or eventual garbage collection was measured; the local retention is directly established."
+    },
+    {
+      "claimKey": "axios:xhr-cancellation-undefined-req",
+      "findingIds": ["efd895c4-cefb-4dde-8781-b95410364707", "052f43e8-a4ec-4aa2-9078-c557083247ff"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "productionCitationVerification": ["needs_verification", "verified"],
+      "source": ["lib/adapters/xhr.js:193-204", "lib/core/dispatchRequest.js:12-29", "lib/core/Axios.js:97-113", "README.md:757-769"],
+      "reason": "The XHR module declares request and never req. An abort event after send selects the new CanceledError(...req) expression and throws before rejection or request.abort(). The inert transport probe confirms this. The newer description's already-aborted ReferenceError statement is true for direct adapter invocation only: ordinary public Axios dispatch checks signal.aborted first and rejects CanceledError without invoking XHR. A separate public-request negative control confirms that guard. Count the shared active-request defect once; do not extend the direct-adapter setup subclaim to normal already-aborted public calls.",
+      "scopeCorrection": "Already-aborted ReferenceError is adapter-local; public pre-aborted calls are guarded and correctly yield CanceledError."
+    },
+    {
+      "claimKey": "axios:stream-abort-misdiagnosed-as-size-limit",
+      "findingIds": ["5e5064e7-6f19-4c21-99c0-db0773728ed4"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "productionCitationVerification": "verified",
+      "source": ["lib/adapters/http.js:337-362"],
+      "reason": "The un-rejected aborted handler always reports maxContentLength exceeded without checking bytes or whether a limit is enabled. A zero-body fake stream abort with maxContentLength -1 produced the misleading size-limit error. The actual byte-limit branch separately marks rejected before destroying the stream."
+    },
+    {
+      "claimKey": "axios:credentialed-cross-origin-xsrf-copy",
+      "findingIds": ["e597a091-8c5d-480e-a39c-b5fc3763f5b5"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "productionCitationVerification": "needs_verification",
+      "productionCitationReason": "support_unverified",
+      "source": ["lib/adapters/xhr.js:143-172", "lib/helpers/cookies.js:34-36", "lib/helpers/isURLSameOrigin.js:47-58", "README.md:367-369"],
+      "reason": "withCredentials short-circuits the same-origin restriction on reading the current document's XSRF cookie, copies it to requestHeaders, installs it on XHR and sends. The probe confirms the cookie-to-cross-origin-header primitive with same-origin false and a false-withCredentials negative control. The saved disclosure is conditional on a destination accepting the credentialed CORS request/header; native browser/CORS transmission, attacker-controlled URL reach and deployed exploitability remain unverified. The raw production support_unverified status is preserved."
+    },
+    {
+      "claimKey": "axios:empty-request-decompression-bypass",
+      "findingIds": ["dde98a15-391d-4917-83fd-9163c7ce6150"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "productionCitationVerification": "verified",
+      "source": ["lib/adapters/http.js:183-212", "lib/adapters/http.js:301-319", "README.md:484-486"],
+      "reason": "An empty request Buffer remains truthy and has length zero, so the adapter deletes the response encoding before choosing decompression. A nonempty gzip response then returned raw compressed bytes with its encoding header absent. A nonempty-request negative control decompressed the identical response in the inert transport probe."
+    },
+    {
+      "claimKey": "axios:data-uri-bom-wrong-target",
+      "findingIds": ["e09ed56e-f40a-4243-a7e5-d9298943024e"],
+      "verdict": "true",
+      "disposition": "Act on",
+      "productionCitationVerification": "verified",
+      "source": ["lib/adapters/http.js:128-147", "lib/adapters/http.js:371-375", "lib/helpers/fromDataURI.js:25-47"],
+      "reason": "The UTF-8 text data-URI path writes the stripped string into request variable data but returns convertedData. The probe using a valid base64 BOM-prefixed URI returned U+FEFF. The ordinary HTTP response decoder writes the stripped result into its returned variable."
+    },
+    {
+      "claimKey": "axios:deterministic-toformdata-length",
+      "findingIds": ["671056b3-016c-423a-a3b0-9b315913f27a"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/helpers/toFormData.js:48-177"],
+      "reason": "Independent TypeScript AST confirms 130 inclusive physical lines. This validates the observation only; medium severity and a mandatory split do not follow from length."
+    },
+    {
+      "claimKey": "axios:deterministic-xhr-adapter-length",
+      "findingIds": ["d7a870e9-c0ea-4d5c-b8c6-aef680812f9c", "611bc6e0-e72f-4559-a763-86cb4eb5c597"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/adapters/xhr.js:16-223", "lib/adapters/xhr.js:17-222"],
+      "reason": "AST confirms 208 wrapper lines and 206 nested executor lines. They share one adapter maintainability cause and count once, as in the frozen historical/v19 dedup policy. Defect severity is not established by the factual count."
+    },
+    {
+      "claimKey": "axios:deterministic-http-adapter-length",
+      "findingIds": ["f8048289-266b-415e-86fd-023203efda3a", "bd021929-84af-49e0-9411-407462e1e98c"],
+      "verdict": "true",
+      "disposition": "Consider",
+      "source": ["lib/adapters/http.js:84-459", "lib/adapters/http.js:85-458"],
+      "reason": "AST confirms 376 wrapper lines and 374 nested executor lines. They share one adapter maintainability cause and count once. Defect severity is not established by the factual count."
+    },
+    {
+      "claimKey": "axios:deterministic-http-todo",
+      "findingIds": ["ac43cfeb-0c4b-4af9-b5ba-b8a8e4198c77"],
+      "verdict": "true",
+      "disposition": "Noted",
+      "source": ["lib/adapters/http.js:389-391"],
+      "reason": "The exact TODO comment exists. The observation asks for relevance/priority verification and does not prove a behavioral defect or policy violation."
+    }
+  ],
+  "gold": {
+    "issueId": "node-timeout-custom-message",
+    "issueOutcome": "miss_in_saved_partial_result",
+    "occurrenceOutcome": "miss_in_saved_partial_result",
+    "source": ["lib/adapters/http.js:421-430", "lib/adapters/xhr.js:127-137", "index.d.ts:137-138"],
+    "reason": "None of the seven saved model records identifies Node timeoutErrorMessage being ignored. Recorded AI-context ranges 36-460 and 82-460 contain the complete gold range. An inert transport probe confirms the custom message is ignored, the default timeout message and ECONNABORTED stay valid, and selected XHR source handles the configured message. The gold is a false negative for this saved partial artifact; final completed-run recall is unavailable."
+  },
+  "domainEvidenceExceptions": [
+    {"featureId":"feature-3b25017e7a58","domain":"security","status":"assessed","outcome":"potential_gap","evidenceCount":0},
+    {"featureId":"feature-773e34d6ce34","domain":"security","status":"assessed","outcome":"potential_gap","evidenceCount":0},
+    {"featureId":"feature-689b87bcd3c3","domain":"security","status":"assessed","outcome":"potential_gap","evidenceCount":0}
+  ],
+  "limitations": [
+    "The 10/10 unique precision and [1.00,1.00] adjudication bounds describe saved bounded claims after source tracing, not statistical confidence, full-run precision or complete behavioral severity accuracy. The adapter-only pre-aborted subclaim requires the stated scope caveat.",
+    "Three production needs_verification records remain untouched. One duplicates a separately verified cancellation observation. Independent source validity or causal support cannot rewrite production metadata, finalization or absence proof.",
+    "Only 3/22 distinct planned batches are saved, 0/3 independent source-sweep batches completed, and 496/588 domain rows remain unverified. Of the 92 labelled assessed rows, three have empty evidence and cannot count as validated assessed rows.",
+    "The 90 valid assessment anchors cover 89 evidenced rows; one row has two anchors. Exact source identity/line validity is distinct from semantic adjudication of every no-issue or not-applicable summary; no exhaustive negative gold exists.",
+    "Known partial provider usage is 289982 tokens including 64 query-embedding tokens and 289918 model-analysis tokens; one model call remains unknown. No complete-run usage delta, index-attributed optimization saving or cost acceptance is established.",
+    "The supplied projection records zero reused assessment batches. It does not verify a subsequent retry's cache hits, cache semantic safety or token savings. No v19 audit was retrofitted and v19 adjudication was preserved.",
+    "The supplied evidence assessment's readiness=ready is a Review preflight availability assessment, not a Project Readiness semantic evaluation. No full Readiness outcome, full benchmark acceptance or whole-system high/critical recall follows.",
+    "Nine offline probe groups passed using unchanged selected functions, inert transports and explicit environment stubs. No app API, provider, remote network, source import, database or production mutation was used. Native browser/CORS effects and live resource behavior remain unverified."
+  ]
+}

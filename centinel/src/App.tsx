@@ -22,6 +22,7 @@ import { AuthScreen } from './screens/AuthScreen';
 import { api } from './api/client';
 import { reconcileOneDueSlackSource, SLACK_RECONCILIATION_INTERVAL_MS } from './integrations/slackReconciliation';
 import { startGitHubReconciliation } from './integrations/githubReconciliation';
+import { startRepositoryIndexSync } from './integrations/repositoryIndexSync';
 import type { Project, AiProviderSetting, Screen } from './types';
 import { ActiveReviewProvider } from './hooks/useActiveReview';
 import { ReviewToast } from './components/ReviewToast';
@@ -59,6 +60,8 @@ function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
   const navigate = (next: Screen) => setScreen(next.name === 'project-detail' && next.initialAction === 'dynamic' ? { name: 'dynamic-testing', projectId: next.projectId } : next);
   const [projects, setProjects] = useState<Project[]>([]);
+  const indexSyncProjectIds = useRef<string[]>([]);
+  indexSyncProjectIds.current = projects.map(project => project.id);
   const [aiSettings, setAiSettings] = useState<AiProviderSetting[]>([]);
   const [sidecarOnline, setSidecarOnline] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -219,6 +222,11 @@ function App() {
   useEffect(() => {
     if (entryMode !== 'workspace' || !accountUserId) return;
     return startGitHubReconciliation(api);
+  }, [entryMode, accountUserId]);
+
+  useEffect(() => {
+    if (entryMode !== 'workspace' || !accountUserId) return;
+    return startRepositoryIndexSync(api, () => indexSyncProjectIds.current);
   }, [entryMode, accountUserId]);
 
   const returnToSignIn = () => {
