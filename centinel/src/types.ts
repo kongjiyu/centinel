@@ -196,6 +196,9 @@ export type DynamicSession = {
   failureReason: string;
   createdAt: string;
   updatedAt: string;
+  /** Set when this activity is a shared Mission/Run rather than a local legacy session. */
+  runId?: string;
+  missionId?: string;
 };
 
 export type DynamicEvidence = {

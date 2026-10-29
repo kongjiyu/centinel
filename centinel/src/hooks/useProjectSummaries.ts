@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { projectActivityLifecycle, reviewLifecycleState, type ProjectActivityLifecycle } from '../reviewViewModel';
 import type { DynamicSession, Project, StaticSession } from '../types';
+import { latestPerSavedTest, loadDynamicActivity } from '../dynamic/runActivity';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 
 export type ActivityTypeFilter = 'all' | 'review' | 'dynamic';
@@ -25,6 +26,8 @@ export type ProjectAction = {
   updatedAt: string;
   sessionId?: string;
   sessionName?: string;
+  /** Shared Run behind a Dynamic Testing action, when available. */
+  runId?: string;
 };
 
 export type ProjectSummary = {
@@ -167,21 +170,25 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
 
 function getDynamicAction(project: Project, sessions: DynamicSession[], unavailable: boolean): ProjectAction | null {
   if (unavailable && sessions.length === 0) return null;
-  const session = sortedSessions(sessions).find(item => item.status === 'failure' || item.status === 'blocked');
-  if (!session || (session.status !== 'failure' && session.status !== 'blocked')) return null;
+  // Only the latest Run of each saved test can still require action.
+  const session = sortedSessions(latestPerSavedTest(sessions)).find(item => item.status === 'failure' || item.status === 'blocked');
+  if (!session) return null;
+  // A shared Run's failure is an independently failed check. Legacy failure
+  // also covers uncertain checker outcomes, so it stays Needs attention.
+  const failed = session.status === 'failure' && Boolean(session.runId);
 
   return {
     id: `dynamic:${session.id}`,
     project,
     module: 'Dynamic Testing',
-    // Legacy failure includes uncertain checker outcomes; only Run details prove a verdict.
-    state: session.status === 'blocked' ? 'Blocked' : 'Needs attention',
+    state: failed ? 'Failed' : 'Needs attention',
     action: 'Inspect',
-    tone: session.status === 'blocked' ? 'warning' : 'danger',
+    tone: session.status === 'failure' ? 'danger' : 'warning',
     reason: userFacingError(session.failureReason, `${session.name} ended before its test goal could be verified.`),
     updatedAt: sessionUpdatedAt(session),
     sessionId: session.id,
     sessionName: session.name,
+    ...(session.runId ? { runId: session.runId } : {}),
   };
 }
 
@@ -254,6 +261,7 @@ export function getProjectState(summary: ProjectSummary): ProjectState {
   }
   if (lifecycle === 'Completed') return { group: 'completed', label: lifecycle, tone: 'success' };
   if (lifecycle === 'Cancelled') return { group: 'cancelled', label: lifecycle, tone: 'neutral' };
+  if (lifecycle === 'Needs attention') return { group: 'needs_attention', label: lifecycle, tone: 'warning' };
   return { group: 'needs_attention', label: lifecycle, tone: 'danger' };
 }
 
@@ -311,14 +319,15 @@ export function useProjectSummaries(projects: Project[]) {
     const loadProject = async (project: Project) => {
       const [staticResult, dynamicResult, presenceResult] = await Promise.allSettled([
         api.listStaticSessions(project.id, { summary: true }),
-        api.listDynamicSessions(project.id),
+        loadDynamicActivity(project.id),
         api.getSourcePresence(project.id),
       ]);
-      const projectUnavailable = [staticResult, dynamicResult, presenceResult].some(result => result.status === 'rejected');
+      const projectUnavailable = [staticResult, dynamicResult, presenceResult].some(result => result.status === 'rejected')
+        || (dynamicResult.status === 'fulfilled' && dynamicResult.value.unavailable);
       const summary = buildSummary(
         project,
         staticResult.status === 'fulfilled' ? staticResult.value : [],
-        dynamicResult.status === 'fulfilled' ? dynamicResult.value : [],
+        dynamicResult.status === 'fulfilled' ? dynamicResult.value.sessions : [],
         presenceResult.status === 'fulfilled' ? presenceResult.value.hasSources : false,
         projectUnavailable,
       );

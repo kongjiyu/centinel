@@ -23,6 +23,7 @@ import {
   type ProjectAction,
 } from '../hooks/useProjectSummaries';
 import type { AiProviderSetting, Project, Screen } from '../types';
+import { dynamicActivityScreen } from '../dynamic/runActivity';
 import './DashboardScreen.css';
 
 type Props = {
@@ -148,7 +149,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
 
   const openAction = (action: ProjectAction) => {
     if (action.module === 'Dynamic Testing' && action.sessionId && action.action === 'Inspect') {
-      onNavigate({ name: 'dynamic-session', projectId: action.project.id, sessionId: action.sessionId });
+      onNavigate(dynamicActivityScreen(action.project.id, { id: action.sessionId, runId: action.runId }));
       return;
     }
     if (action.module === 'Review' && action.sessionId) {

@@ -3,7 +3,7 @@
 - 日期：2026-10-30
 - 代码版本：已合并最新 `origin/main`（`6b6dcc3`，包含 Static 团队的 `ed89a10`、`b6c2891`、`6b6dcc3`）+ PR #43。本地 merge commit 为 `a28bb9e`，**尚未 push**。
 - 方法：在本 worktree 实际运行 sidecar（37731）和前端（1421），用测试账号走完整条用户路径。同时读代码，定位每个问题的根因。
-- 上一轮（不含 Static）的评审见 `QA_SYSTEM_REVIEW_2026-10-28.md`（在 [PR #43](https://github.com/kongjiyu/centinel/pull/43) 中，合并后位于 `docs/` 根目录）。
+- 上一轮（不含 Static）的评审见 [QA_SYSTEM_REVIEW_2026-10-28.md](QA_SYSTEM_REVIEW_2026-10-28.md)。
 
 ---
 

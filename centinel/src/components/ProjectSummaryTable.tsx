@@ -4,7 +4,8 @@ import {
   getProjectState,
   type ProjectSummary,
 } from '../hooks/useProjectSummaries';
-import type { Screen } from '../types';
+import type { DynamicSession, Screen } from '../types';
+import { dynamicActivityScreen } from '../dynamic/runActivity';
 import { formatEntityId } from '../utils/entityId';
 import './ProjectSummaryTable.css';
 
@@ -27,7 +28,7 @@ function openSummary(summary: ProjectSummary, onNavigate: Props['onNavigate']) {
   if (!activity) {
     onNavigate({ name: 'project-detail', projectId: summary.project.id });
   } else if (activity.kind === 'dynamic') {
-    onNavigate({ name: 'dynamic-session', projectId: summary.project.id, sessionId: activity.session.id });
+    onNavigate(dynamicActivityScreen(summary.project.id, activity.session as DynamicSession));
   } else {
     onNavigate({ name: 'review-activity', projectId: summary.project.id, sessionId: activity.session.id, reviewName: activity.session.name });
   }

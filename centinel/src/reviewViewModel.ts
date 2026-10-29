@@ -35,6 +35,7 @@ export type ProjectActivityLifecycle =
   | 'Completed'
   | 'Cancelled'
   | 'Paused'
+  | 'Needs attention'
   | 'Failed';
 
 export type ReviewCapabilities = {
@@ -153,9 +154,10 @@ export function projectActivityLifecycle(
     case 'running': return 'In progress';
     case 'success': return 'Completed';
     case 'cancelled': return 'Cancelled';
+    // A blocked, interrupted or inconclusive browser test is not a failed
+    // check; the Dynamic Testing result view labels it Needs attention.
+    case 'blocked': return 'Needs attention';
     case 'failure':
-    case 'blocked':
-      return 'Failed';
     default:
       return 'Failed';
   }
@@ -164,7 +166,7 @@ export function projectActivityLifecycle(
 export function projectActivityLifecycleTone(state: ProjectActivityLifecycle): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
   if (state === 'Completed') return 'success';
   if (state === 'In progress' || state === 'Queued') return 'running';
-  if (state === 'Need Approval') return 'warning';
+  if (state === 'Need Approval' || state === 'Needs attention') return 'warning';
   if (state === 'Failed') return 'danger';
   return 'neutral';
 }
