@@ -66,7 +66,7 @@ pnpm build
 Settings → Model Provider → **Codex with ChatGPT** connects a local Codex CLI
 using browser sign-in. Select a model separately for Review and Dynamic testing;
 Dynamic requires screenshot support. API providers remain available and source
-indexing still uses its own embedding API. See [Codex setup and boundaries](docs/CODEX_PROVIDER.md).
+indexing still uses its own embedding API. See [Codex setup and boundaries](docs/project/CODEX_PROVIDER.md).
 
 ## Checks
 
@@ -89,7 +89,7 @@ centinel/
 │   └── src-tauri/         # Tauri backend (Rust)
 ├── sidecar/               # Node.js sidecar service
 │   └── src/               # Review, reports, integrations, Playwright, Supabase adapters
-├── docs/                  # PRD, setup, current feature specs and acceptance audits
+├── docs/                  # PRD, setup, and module docs (see docs/README.md)
 └── .env.example           # Runtime configuration template (no Model Provider keys)
 ```
 

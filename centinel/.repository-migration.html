@@ -1,7 +1,0 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><title>Reviewed repository-index retention migration</title></head><body><h1>Reviewed repository-index retention migration</h1><p id="fingerprint">Loading exact local migration…</p><button id="copy" disabled>Copy reviewed SQL</button><pre id="sql" style="white-space:pre-wrap"></pre><script type="module">
-import sql from '../supabase/migrations/202610260001_repository_index_retention.sql?raw';
-document.querySelector('#sql').textContent=sql;
-const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sql));
-document.querySelector('#fingerprint').textContent='SHA-256: '+[...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,'0')).join('');
-const button=document.querySelector('#copy');button.disabled=false;button.onclick=async()=>{await navigator.clipboard.writeText(sql);button.textContent='Reviewed SQL copied';};
-</script></body></html>

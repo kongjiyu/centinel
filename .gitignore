@@ -58,3 +58,10 @@ supabase/.temp/
 
 # Device-local generated report acceptance exports
 output/pdf/
+
+# Local scratch output and one-off UI preview harnesses
+/tmp/
+/output/
+centinel/.*.html
+centinel/.*.ts
+centinel/.*.tsx
