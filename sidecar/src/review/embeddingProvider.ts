@@ -28,8 +28,8 @@ export class EmbeddingProviderError extends ModelProviderError {
   readonly safeUsage?: { inputTokens: number | null; providerReportedTotalTokens: number | null };
 
   constructor(message: string, code: string, safeUsage?: { inputTokens: number | null; providerReportedTotalTokens: number | null },
-    receipt: { responseReceived?: boolean; usageObservation?: TokenUsageObservation } = {}) {
-    super(message, { code, ...(providerPause({ code }) ? { retryable: false } : {}),
+    receipt: { retryAfterMs?: number; responseReceived?: boolean; usageObservation?: TokenUsageObservation } = {}) {
+    super(message, { code, retryAfterMs: receipt.retryAfterMs, ...(providerPause({ code }) ? { retryable: false } : {}),
       responseReceived: receipt.responseReceived ?? (safeUsage ? true : undefined), usageObservation: receipt.usageObservation });
     this.name = 'EmbeddingProviderError';
     this.safeUsage = safeUsage;
@@ -143,7 +143,16 @@ async function requestEmbeddings(
       observedSafeUsage = safeUsage;
       observedUsageObservation = receipt.usageObservation;
       const pause = await responseProviderPause(response);
-      if (pause) throw new EmbeddingProviderError(pause.message, pause.code, safeUsage, receipt);
+      if (pause) {
+        let retryAfterMs: number | undefined;
+        const header = response.headers?.get('retry-after');
+        if (header) {
+          const seconds = Number(header);
+          const milliseconds = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+          if (Number.isFinite(milliseconds) && milliseconds >= 0) retryAfterMs = milliseconds;
+        }
+        throw new EmbeddingProviderError(pause.message, pause.code, safeUsage, { ...receipt, retryAfterMs });
+      }
       throw new EmbeddingProviderError(`The source-indexing provider returned HTTP ${response.status}.`, `http_${response.status}`, safeUsage, receipt);
     }
     try { payload = await response.json(); }

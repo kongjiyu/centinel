@@ -1,12 +1,14 @@
 /** Only structured provider metadata establishes a capacity stop. Never infer
  * exhausted credits from free-form messages, source text or a generic 429. */
 export type ProviderPauseCode = 'rate_limited' | 'quota_exhausted' | 'credits_exhausted' | 'billing_required';
+export type ReviewProviderPauseCode = ProviderPauseCode | 'provider_unavailable';
 export const PROVIDER_PAUSE_MESSAGES: Record<ProviderPauseCode, string> = {
   rate_limited: 'Paused: the Model Provider rejected the request because of a rate limit. Remaining account allowance may still be available. Check provider access, then retry manually. No automatic retry will run.',
   quota_exhausted: 'Paused: the Model Provider reported an exhausted usage quota. Restore provider access, then retry manually. No automatic retry will run.',
   credits_exhausted: 'Paused: the Model Provider reported insufficient credits. Restore provider access, then retry manually. No automatic retry will run.',
   billing_required: 'Paused: the Model Provider reported a payment or spending limit. Check provider billing, then retry manually. No automatic retry will run.',
 };
+export const REVIEW_PROVIDER_UNAVAILABLE_MESSAGE = 'Paused: the Model Provider remained unavailable after the permitted attempt policy. The cause is unconfirmed; check provider access, then retry manually. No automatic retry will run.';
 const CODES: Record<string, ProviderPauseCode> = {
   rate_limited: 'rate_limited', rate_limit: 'rate_limited', rate_limit_exceeded: 'rate_limited',
   rate_limit_error: 'rate_limited', codex_rate_limited: 'rate_limited', http_429: 'rate_limited',
@@ -25,6 +27,20 @@ export function providerPause(error: unknown): { code: ProviderPauseCode; messag
   const status = value.statusCode ?? value.status;
   const code = known ?? (status === 429 ? 'rate_limited' : status === 402 ? 'billing_required' : undefined);
   return code ? { code, message: PROVIDER_PAUSE_MESSAGES[code] } : null;
+}
+
+/** Review-only neutral pause. Unlike providerPause(), this accepts the
+ * internal marker only when runModelOperation creates the pause after bounded
+ * retries or for an unclassified Codex turn failure. Shared Readiness and
+ * source-index capacity handling must continue using providerPause(). */
+export function reviewProviderPause(error: unknown): { code: ReviewProviderPauseCode; message: string } | null {
+  const capacityPause = providerPause(error);
+  if (capacityPause) return capacityPause;
+  if (!error || typeof error !== 'object') return null;
+  const value = error as { code?: unknown; reviewPause?: unknown };
+  return value.code === 'provider_unavailable' && value.reviewPause === true
+    ? { code: 'provider_unavailable', message: REVIEW_PROVIDER_UNAVAILABLE_MESSAGE }
+    : null;
 }
 
 /** Inspect a bounded response solely for allowlisted error codes. Never retain

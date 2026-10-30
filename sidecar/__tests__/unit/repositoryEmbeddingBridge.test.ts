@@ -106,7 +106,7 @@ describe('repository embedding bridge', () => {
   });
 
   it('splits a large upstream batch without losing order or inventing aggregate usage', async () => {
-    const inputs = ['a'.repeat(10_000), 'b'.repeat(10_000), 'c'.repeat(10_000)];
+    const inputs = ['a'.repeat(100_000), 'b'.repeat(100_000), 'c'.repeat(100_000)];
     const embed = vi.fn(async (_configuration, group: string[]) => ({
       embeddings: group.map(input => Array(1024).fill(input.charCodeAt(0))), model: configuration.model,
       inputTokens: 20, providerReportedTotalTokens: group[0]![0] === 'b' ? null : 20,
@@ -127,14 +127,14 @@ describe('repository embedding bridge', () => {
   });
 
   it('retains successful microbatch usage and stops later groups when capacity fails', async () => {
-    const failure = new EmbeddingProviderError('Provider rate limit.', 'rate_limit_exceeded');
+    const failure = new EmbeddingProviderError('Provider credits exhausted.', 'credits_exhausted');
     const embed = vi.fn().mockResolvedValueOnce(result).mockRejectedValueOnce(failure);
     const saveUsage = vi.fn(async () => undefined);
     const bridge = await openRepositoryEmbeddingBridge({ client: {} as SupabaseClient, ownerId: 'owner', projectId: 'project', configuration,
       inputType: 'document', sources: [], embed, saveUsage, admit: async () => ({ reconcile: () => undefined }) });
     try {
       const response = await fetch(`${bridge.baseUrl}/embeddings`, { method: 'POST', headers: { Authorization: `Bearer ${bridge.token}` },
-        body: JSON.stringify({ model: configuration.model, input: ['a', 'b', 'c'].map(value => value.repeat(10_000)) }) });
+        body: JSON.stringify({ model: configuration.model, input: ['a', 'b', 'c'].map(value => value.repeat(100_000)) }) });
       expect(response.status).toBe(400); expect(embed).toHaveBeenCalledTimes(2);
       expect(bridge.failure()).toBe(failure); expect(saveUsage).toHaveBeenCalledTimes(4);
       expect(saveUsage.mock.calls[1]![0]).toMatchObject({ outcome: 'success', inputTokens: 5 });
@@ -158,6 +158,64 @@ describe('repository embedding bridge', () => {
       } }) }));
       expect(JSON.stringify(await response.json())).not.toContain('PRIVATE_VOYAGE_KEY');
       expect(JSON.stringify(saveUsage.mock.calls)).not.toContain('PRIVATE_VOYAGE_KEY');
+    } finally { await bridge.close(); }
+  });
+
+  it('retries temporary limits with increasing waits and separate durable usage attempts', async () => {
+    let calls = 0;
+    const embed = vi.fn(async () => { if (++calls < 4) throw new EmbeddingProviderError('Temporary limit', 'rate_limited'); return result; });
+    const rows: any[] = []; const waits: number[] = [];
+    const beforeProvider = vi.fn(async () => undefined);
+    const bridge = await openRepositoryEmbeddingBridge({ client: {} as SupabaseClient, ownerId: 'retry-owner', projectId: 'project', configuration,
+      inputType: 'query', sources: [], embed, saveUsage: async row => { rows.push(row); }, beforeProvider,
+      admit: async () => ({ reconcile: () => undefined }), retrySleep: async ms => { waits.push(ms); } });
+    try {
+      const response = await fetch(`${bridge.baseUrl}/embeddings`, { method: 'POST', headers: { Authorization: `Bearer ${bridge.token}` }, body: JSON.stringify({ model: configuration.model, input: ['query'] }) });
+      expect(response.status).toBe(200); expect(bridge.failure()).toBeUndefined();
+      expect(waits).toHaveLength(3); expect(waits[0]).toBeGreaterThanOrEqual(60000); expect(waits[1]).toBeGreaterThanOrEqual(120000); expect(waits[2]).toBeGreaterThanOrEqual(240000);
+      expect(beforeProvider).toHaveBeenCalledTimes(4);
+      expect(rows.filter(row => row.outcome === 'in_progress').map(row => row.attempt)).toEqual([1, 2, 3, 4]);
+      expect(new Set(rows.map(row => row.id)).size).toBe(4);
+      expect(rows.filter(row => row.outcome === 'transient_error')).toHaveLength(3);
+    } finally { await bridge.close(); }
+  });
+
+  it('stops after four temporary-limit attempts without an unbounded retry', async () => {
+    const failure = new EmbeddingProviderError('Temporary limit', 'rate_limited');
+    const embed = vi.fn(async () => { throw failure; });
+    const bridge = await openRepositoryEmbeddingBridge({ client: {} as SupabaseClient, ownerId: 'owner', projectId: 'project', configuration,
+      inputType: 'query', sources: [], embed, saveUsage: async () => undefined,
+      admit: async () => ({ reconcile: () => undefined }), retrySleep: async () => undefined });
+    try {
+      const response = await fetch(`${bridge.baseUrl}/embeddings`, { method: 'POST', headers: { Authorization: `Bearer ${bridge.token}` }, body: JSON.stringify({ model: configuration.model, input: ['query'] }) });
+      expect(response.status).toBe(400); expect(embed).toHaveBeenCalledTimes(4); expect(bridge.failure()).toBe(failure);
+    } finally { await bridge.close(); }
+  });
+
+  it('cancels a backoff without another provider request', async () => {
+    const controller = new AbortController();
+    const embed = vi.fn(async () => { throw new EmbeddingProviderError('Temporary limit', 'rate_limited'); });
+    const bridge = await openRepositoryEmbeddingBridge({ client: {} as SupabaseClient, ownerId: 'owner', projectId: 'project', configuration,
+      inputType: 'query', sources: [], embed, saveUsage: async () => undefined, signal: controller.signal,
+      admit: async () => ({ reconcile: () => undefined }), retrySleep: async () => { controller.abort(); } });
+    try {
+      const response = await fetch(`${bridge.baseUrl}/embeddings`, { method: 'POST', headers: { Authorization: `Bearer ${bridge.token}` }, body: JSON.stringify({ model: configuration.model, input: ['query'] }) });
+      expect(response.status).toBe(400); expect(embed).toHaveBeenCalledTimes(1);
+    } finally { await bridge.close(); }
+  });
+
+  it('shares the backoff ceiling across partitioned groups and never shortens Retry-After', async () => {
+    const first = new EmbeddingProviderError('Temporary', 'rate_limited', undefined, { retryAfterMs: 400000 });
+    const second = new EmbeddingProviderError('Temporary', 'rate_limited', undefined, { retryAfterMs: 300000 });
+    const embed = vi.fn().mockRejectedValueOnce(first).mockResolvedValueOnce(result).mockRejectedValueOnce(second);
+    const waits: number[] = [];
+    const bridge = await openRepositoryEmbeddingBridge({ client: {} as SupabaseClient, ownerId: 'owner', projectId: 'project', configuration,
+      inputType: 'document', sources: [], embed, saveUsage: async () => undefined,
+      admit: async () => ({ reconcile: () => undefined }), retrySleep: async ms => { waits.push(ms); } });
+    try {
+      const response = await fetch(`${bridge.baseUrl}/embeddings`, { method: 'POST', headers: { Authorization: `Bearer ${bridge.token}` }, body: JSON.stringify({ model: configuration.model, input: ['a'.repeat(100000), 'b'.repeat(100000)] }) });
+      expect(response.status).toBe(400); expect(embed).toHaveBeenCalledTimes(3);
+      expect(waits).toEqual([400000]); expect(bridge.failure()).toBe(second);
     } finally { await bridge.close(); }
   });
 

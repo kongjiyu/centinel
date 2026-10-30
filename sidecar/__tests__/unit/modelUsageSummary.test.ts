@@ -18,19 +18,26 @@ describe('Supabase Model Provider usage summary', () => {
     const rows = [
       { id: 'failed', outcome: 'permanent_error', error_code: 'codex_turn_failed', duration_ms: 1200 },
       { id: 'capacity', outcome: 'permanent_error', error_code: 'quota_exhausted', duration_ms: 42 },
+      { id: 'provider-paused', outcome: 'retryable_error', error_code: 'provider_unavailable', duration_ms: 15000 },
+      { id: 'index-pause', outcome: 'retryable_error', error_code: 'provider_unavailable', duration_ms: 20 },
       { id: 'http', outcome: 'retryable_error', error_code: 'http_503', duration_ms: 11 },
       { id: 'unknown', outcome: 'PRIVATE_RESPONSE_BODY', error_code: 'PRIVATE_PROVIDER_SECRET', duration_ms: -1 },
       { id: 'legacy' },
-    ].map(row => ({ project_id: 'project', review_session_id: null, stage: 'project_readiness_assessment', attempt: 1,
-      provider: 'codex', model: 'model', input_tokens: 0, output_tokens: 0, metadata: { errorMessage: 'PRIVATE_METADATA' }, ...row }));
+    ].map(row => ({ project_id: 'project', review_session_id: null, attempt: 1,
+      provider: 'codex', model: 'model', input_tokens: 0, output_tokens: 0,
+      metadata: { errorMessage: 'PRIVATE_METADATA', ...(row.id === 'provider-paused' ? { callKind: 'review', scope: 'text' }
+        : row.id === 'index-pause' ? { callKind: 'review', scope: 'embedding' } : {}) },
+      ...row, stage: row.id === 'provider-paused' ? 'model_analysis' : row.id === 'index-pause' ? 'source_indexing' : 'project_readiness_assessment' }));
     const query: any = { select: () => query, eq: () => query, order: () => query, range: () => query,
       then: (resolve: (value: unknown) => void) => resolve({ data: rows, error: null }) };
     const result = await getSupabaseModelUsageSummary({ from: () => query } as unknown as SupabaseClient, 'owner', { projectId: 'project' });
     expect(result.recent[0]).toMatchObject({ outcome: 'permanent_error', errorCode: 'codex_turn_failed', durationMs: 1200 });
     expect(result.recent[1]).toMatchObject({ errorCode: 'quota_exhausted' });
-    expect(result.recent[2]).toMatchObject({ errorCode: 'http_503' });
-    expect(result.recent[3]).toMatchObject({ outcome: null, errorCode: null, durationMs: null });
-    expect(result.recent[4]).toMatchObject({ outcome: null, errorCode: null, durationMs: null });
+    expect(result.recent[2]).toMatchObject({ errorCode: 'provider_unavailable', durationMs: 15000 });
+    expect(result.recent[3]).toMatchObject({ errorCode: null, durationMs: 20 });
+    expect(result.recent[4]).toMatchObject({ errorCode: 'http_503' });
+    expect(result.recent[5]).toMatchObject({ outcome: null, errorCode: null, durationMs: null });
+    expect(result.recent[6]).toMatchObject({ outcome: null, errorCode: null, durationMs: null });
     expect(JSON.stringify(result)).not.toContain('PRIVATE_');
   });
 

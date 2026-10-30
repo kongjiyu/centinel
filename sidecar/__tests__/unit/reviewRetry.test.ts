@@ -8,6 +8,7 @@ import {
   runExternalOperation,
   runModelOperation,
 } from '../../src/review/retry.js';
+import { reviewProviderPause } from '../../src/review/providerPause.js';
 import type { StaticAnalysisModelProvider } from '../../src/review/types.js';
 
 function provider(implementation: StaticAnalysisModelProvider['analyze']): StaticAnalysisModelProvider {
@@ -20,6 +21,18 @@ const request = {
 };
 
 describe('static-review retry policy', () => {
+  it('pauses an exhausted recovered reservation budget without sending or reserving another request', async () => {
+    const analyze = vi.fn();
+    const reserve = vi.fn();
+    const attempt = vi.fn();
+    const error = await runModelOperation(request, { analyze }, { reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis',
+      provider: 'fixture', apiFormat: 'openai-compatible', model: 'offline', attemptOffset: 5, maxTotalAttempts: 5,
+      onAttemptStarted: reserve, onAttempt: attempt }).catch(error => error);
+    expect(reviewProviderPause(error)).toMatchObject({ code: 'provider_unavailable' });
+    expect(analyze).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
+    expect(attempt).not.toHaveBeenCalled();
+  });
   it('classifies permanent credentials and transient provider statuses', () => {
     expect(classifyModelError(new ModelProviderError('bad key', { code: 'invalid_credentials', retryable: false })).kind).toBe('permanent');
     expect(classifyModelError({ status: 429, message: 'rate limited' }).kind).toBe('paused');
@@ -63,7 +76,7 @@ describe('static-review retry policy', () => {
     expect(calls).toBe(1);
   });
 
-  it('does not exceed five AI attempts and emits the fixed waits before each retry', async () => {
+  it('pauses neutrally after five transient AI attempts and emits the fixed waits before each retry', async () => {
     const calls: number[] = [];
     const attempts: string[] = [];
     const waits: number[] = [];
@@ -73,14 +86,15 @@ describe('static-review retry policy', () => {
       calls.push(calls.length + 1);
       throw new ModelProviderError('temporary', { code: 'server_busy', retryable: true });
     });
-    await expect(runModelOperation(request, failing, {
+    const terminalError = await runModelOperation(request, failing, {
       reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis',
       provider: 'mimo', apiFormat: 'openai-compatible', model: 'primary',
       now: () => new Date('2026-10-13T00:00:00.000Z'),
       sleep: async delayMs => { order.push('wait'); waits.push(delayMs); },
       onRetry: event => { order.push('event'); retryEvents.push(event); },
       onAttempt: attempt => { attempts.push(`${attempt.attempt}:${attempt.outcome}`); },
-    })).rejects.toMatchObject({ code: 'retry_exhausted' });
+    }).catch(error => error);
+    expect(terminalError).toMatchObject({ code: 'provider_unavailable', reviewPause: true });
     expect(calls).toHaveLength(5);
     expect(waits).toEqual([1_000, 3_000, 7_000, 15_000]);
     expect(order).toEqual(['event', 'wait', 'event', 'wait', 'event', 'wait', 'event', 'wait']);
@@ -88,6 +102,48 @@ describe('static-review retry policy', () => {
     expect(retryEvents.map(event => [event.attempt, event.maxAttempts, event.delayMs])).toEqual([
       [2, 5, 1_000], [3, 5, 3_000], [4, 5, 7_000], [5, 5, 15_000],
     ]);
+    expect(reviewProviderPause(terminalError)).toMatchObject({ code: 'provider_unavailable' });
+  });
+
+  it('pauses neutrally on a generic Codex turn failure without replaying unknown consumption', async () => {
+    const usage = { inputTokens: 91, usageObservation: {
+      source: 'codex_turn_last' as const, completeness: 'partial' as const, missingCounters: ['outputTokens' as const],
+    } };
+    const failure = new ModelProviderError('Codex could not complete this operation. Check model access and account usage limits.', {
+      code: 'codex_turn_failed', retryable: false, responseReceived: true, usage, usageObservation: usage.usageObservation,
+    });
+    const analyze = vi.fn(async () => { throw failure; });
+    const fallback = { analyze: vi.fn(async () => ({ result: {}, settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'fallback' } })) };
+    const sleep = vi.fn(async () => undefined);
+    const attempts: Array<{ outcome: string; errorCode?: string; responseReceived?: boolean; usage?: unknown }> = [];
+    const pending = runModelOperation(request, { analyze }, {
+      reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis',
+      provider: 'codex', apiFormat: 'codex-app-server', model: 'codex', fallback, sleep,
+      onAttempt: attempt => attempts.push({ outcome: attempt.outcome, errorCode: attempt.errorCode,
+        responseReceived: attempt.responseReceived, usage: attempt.usage }),
+    });
+    const terminalError = await pending.catch(error => error);
+
+    expect(terminalError).toMatchObject({ code: 'provider_unavailable', reviewPause: true, responseReceived: true,
+      usage, usageObservation: usage.usageObservation });
+    expect(reviewProviderPause(terminalError)).toMatchObject({ code: 'provider_unavailable' });
+    expect(terminalError.message).not.toMatch(/quota exhausted|credits exhausted/i);
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(fallback.analyze).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+    expect(attempts).toEqual([{ outcome: 'permanent_error', errorCode: 'codex_turn_failed', responseReceived: true, usage }]);
+    expect(classifyModelError(failure).kind).toBe('permanent');
+  });
+
+  it('keeps malformed-response exhaustion outside provider pauses', async () => {
+    const malformed = provider(async () => {
+      throw new ModelProviderError('invalid model response', { code: 'malformed_response', malformed: true, retryable: true });
+    });
+    await expect(runModelOperation(request, malformed, {
+      reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis',
+      provider: 'mimo', apiFormat: 'openai-compatible', model: 'fixture', maxAttempts: 2, maxTotalAttempts: 2,
+      sleep: async () => undefined,
+    })).rejects.toMatchObject({ code: 'retry_exhausted' });
   });
 
   it('bounds one embedding-like AI request to five total calls and reserves before each paid call', async () => {

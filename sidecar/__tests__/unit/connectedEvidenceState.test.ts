@@ -24,7 +24,7 @@ describe('connected source evidence state', () => {
     const query = (data: unknown) => {
       const chain: any = {
         select: vi.fn(() => chain), eq: vi.fn(() => chain), order: vi.fn(() => chain),
-        limit: vi.fn(() => chain), maybeSingle: vi.fn(async () => ({ data, error: null })),
+        limit: vi.fn(() => chain), abortSignal: vi.fn(() => chain), maybeSingle: vi.fn(async () => ({ data, error: null })),
       };
       return chain;
     };
@@ -35,10 +35,13 @@ describe('connected source evidence state', () => {
       if (table === 'project_sources') return source;
       throw new Error(`Unexpected table: ${table}`);
     }) };
-    const result = await new SupabaseConnectedEvidenceStateResolver(client, { now: () => now }).resolve({ id: 'artifact-1', projectId: 'project-1' } as Artifact);
+    const signal = new AbortController().signal;
+    const result = await new SupabaseConnectedEvidenceStateResolver(client, { now: () => now }).resolve({ id: 'artifact-1', projectId: 'project-1' } as Artifact, signal);
     expect(result).toEqual(connected ? { state: 'available' } : undefined);
     expect(item.eq).toHaveBeenCalledWith('project_id', 'project-1');
     expect(item.eq).toHaveBeenCalledWith('artifact_id', 'artifact-1');
     expect(client.from).toHaveBeenCalledTimes(connected ? 2 : 1);
+    expect(item.abortSignal).toHaveBeenCalledWith(signal);
+    if (connected) expect(source.abortSignal).toHaveBeenCalledWith(signal);
   });
 });

@@ -76,6 +76,18 @@ describe('AppShell module launch', () => {
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-entry' });
   });
 
+  it('opens Help from the Settings navigation category', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderShell({ name: 'dashboard' }, onNavigate);
+
+    expect(screen.getAllByText('Settings').length).toBeGreaterThanOrEqual(2);
+    const helpButton = within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('button', { name: 'Help' });
+    expect(helpButton.querySelector('svg')).toHaveClass('lucide-circle-question-mark');
+    await user.click(helpButton);
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'help' });
+  });
+
   it('keeps Dynamic Testing in the same selection dialog and restores focus on cancel', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();

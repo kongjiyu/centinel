@@ -1,9 +1,13 @@
+import { boundedSourceRead, retryTimedOutSourceRead } from './abort.js';
+import { registerVerifiedSourceTexts, type VerifiedSourceText } from './sourceText.js';
+import { verifiedSourceText } from './sourceText.js';
 import crypto from 'node:crypto';
 import type { ValidatedBatchCache, ValidatedBatchCacheRecord } from './batchCheckpoint.js';
 import { ValidatedBatchCacheError } from './batchCheckpoint.js';
 import { BatchCachePersistenceError, batchRequestIdentity, projectPublicAssessment, validateCachedBatch, type BatchCacheBasis } from './batchCacheValidation.js';
 import { ReviewHarness } from './harness.js';
 import { analysisMapForBatchPrompt, contextForAssessmentBatch, planAssessmentBatches, findingsWithinBatch, type AssessmentSourceSegment } from './assessmentBatches.js';
+import { prepareAssessmentPlan } from './assessmentPlan.js';
 import { ASSESSMENT_VALIDATION_VERSION, CANDIDATE_SUPPORT_SCHEMA, MAX_SUPPORT_CANDIDATES, MAX_SUPPORT_CANDIDATE_TEXT, candidateSupportId, candidateSemanticKey, schemaForAssessmentMap, InvalidModelAssessmentError, validateAssessmentResponse, validateCandidateSupportResponse, partitionFindingCandidates, validateFindingEvidence, assessedArtifactIds, inspectedAssessmentReferences, type CandidateSupportAuthority } from './assessmentValidation.js';
 import { specializeSupportSchema } from './assessmentResponseSchema.js';
 import { SUPPORT_REFERENCE_FAILURE_CODES } from './assessmentValidation.js';
@@ -14,7 +18,7 @@ import type { RetrievedContext } from './contextTypes.js';
 import type { Finding as DeterministicFinding } from '../staticEngine.js';
 import type { ConfiguredTextModelProvider } from './modelProvider.js';
 import { MAX_MODEL_ATTEMPTS, ModelProviderError, ReviewCancelledError, runModelOperation } from './retry.js';
-import { providerPause } from './providerPause.js';
+import { reviewProviderPause } from './providerPause.js';
 import { ModelConfigurationError, type ResolvedModelProviderChain } from './modelProviderResolver.js';
 import { ReviewLeaseLostError, type ReviewLeaseCoordinator, type ReviewLeaseHandle } from './lease.js';
 import { findingFingerprint, normalizeAndDeduplicateFindings, normalizeDeterministicFinding, normalizeModelFindings } from './findings.js';
@@ -22,7 +26,7 @@ import { toModelUsageRecord } from './usageAudit.js';
 import { compactAnalysisMapForPrompt, deterministicFactsForPacket } from './promptContextCompaction.js';
 import { assertPreparedIteration, prepareReviewIteration } from './iteration.js';
 
-export const STATIC_REVIEW_MODEL_POLICY_VERSION = 'review-2026-10-28-validated-batch-cache-v20';
+export const STATIC_REVIEW_MODEL_POLICY_VERSION = 'review-2026-10-30-bounded-full-scope-v22';
 const SEMANTIC_SUPPORT_CHALLENGE_RESERVE = 2;
 const SEMANTIC_SUPPORT_GENERATION_LIMIT = MAX_MODEL_ATTEMPTS - SEMANTIC_SUPPORT_CHALLENGE_RESERVE;
 
@@ -199,6 +203,7 @@ export type StaticReviewOrchestratorDependencies = {
   repository: StaticReviewRepository;
   groundingRepository?: GroundingRepository;
   artifacts?: (projectId: string, signal?: AbortSignal) => Promise<Artifact[]>;
+  readArtifactBytes?: (artifact: Artifact, signal?: AbortSignal) => Promise<Uint8Array>;
   readArtifactContent?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>;
   evidenceSourceState?: (artifact: Artifact, signal?: AbortSignal) => Promise<{ state: EvidenceSourceState; detail?: string } | undefined> | { state: EvidenceSourceState; detail?: string } | undefined;
   index?: (projectId: string, artifacts: Artifact[], signal?: AbortSignal, reviewId?: string, frozenReader?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>) => Promise<void>;
@@ -683,11 +688,12 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       }
       sourceManifestId = await harness.step('freezing_sources', 'freeze_manifest', { artifactIds: artifacts.map(item => item.id), scope: review.scope, mode: sourceManifestMode }, () => this.saveManifest(review, artifacts, sourceManifestMode));
       const contentReader = this.deps.readArtifactContent;
-      if (!contentReader) throw new Error('An authenticated frozen-artifact reader is required.');
+      if (!contentReader && !this.deps.readArtifactBytes) throw new Error('An authenticated frozen-artifact reader is required.');
       const verifiedSources = new Map<string, EvidenceArtifact>();
+      const verifiedTexts: Array<{ artifact: Artifact; result: VerifiedSourceText }> = [];
       let nextSource = 0;
       let sourcePoolFailed = false;
-      await Promise.all(Array.from({ length: Math.min(4, artifacts.length) }, async () => {
+      await harness.bufferSourceEvents(() => Promise.allSettled(Array.from({ length: Math.min(4, artifacts.length) }, async () => {
         try {
           for (;;) {
             if (sourcePoolFailed) return;
@@ -695,10 +701,16 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
             const artifact = artifacts[nextSource++];
             if (!artifact) return;
             checkCancelled(signal);
-            const state = this.deps.evidenceSourceState ? await harness.step('freezing_sources', 'inspect_source', { artifactId: artifact.id }, async () => this.deps.evidenceSourceState!(artifact, signal), value => ({ state: value?.state ?? 'available' })) : undefined;
+            const state = this.deps.evidenceSourceState ? await harness.step('freezing_sources', 'inspect_source', { artifactId: artifact.id }, async () => boundedSourceRead(readSignal => Promise.resolve(this.deps.evidenceSourceState!(artifact, readSignal)), signal), value => ({ state: value?.state ?? 'available' })) : undefined;
             try {
-              const content = await harness.step('freezing_sources', 'read_source', { artifactId: artifact.id, fileName: artifact.fileName }, async () => {
-                const content = await contentReader(artifact, signal);
+              const content = await retryTimedOutSourceRead(attempt => harness.step('freezing_sources', 'read_source', { artifactId: artifact.id, fileName: artifact.fileName, attempt }, async () => {
+                if (this.deps.readArtifactBytes) {
+                  const bytes = await this.deps.readArtifactBytes(artifact, signal);
+                  const result = await verifiedSourceText(artifact, bytes, signal);
+                  verifiedTexts.push({ artifact, result });
+                  return result.text;
+                }
+                const content = await contentReader!(artifact, signal);
                 const expectedHash = artifact.contentHash.replace(/^sha256:/i, '');
                 if (/^[a-f0-9]{64}$/i.test(expectedHash)) {
                   const actualHash = crypto.createHash('sha256').update(content, 'utf8').digest('hex');
@@ -707,7 +719,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
                   }
                 }
                 return content;
-              }, value => ({ characters: value.length, lines: value.split(/\r?\n/).length, hashChecked: /^[a-f0-9]{64}$/i.test(artifact.contentHash.replace(/^sha256:/i, '')) }));
+              }, value => ({ characters: value.length, lines: value.split(/\r?\n/).length, hashChecked: /^[a-f0-9]{64}$/i.test(artifact.contentHash.replace(/^sha256:/i, '')) })), signal);
               verifiedSources.set(artifact.id, { artifact, ...state, content });
             } catch (error) {
               if (isAbortLike(error) || signal.aborted) throw new ReviewCancelledError();
@@ -724,6 +736,9 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           sourcePoolFailed = true;
           throw error;
         }
+      })).then(results => {
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) throw failed.reason;
       }));
       evidenceArtifacts = artifacts.map(artifact => verifiedSources.get(artifact.id)!);
       const frozenReader = async (artifact: Artifact, readSignal?: AbortSignal) => {
@@ -732,6 +747,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
         if (!frozen || frozen.artifact.contentHash !== artifact.contentHash || typeof frozen.content !== 'string' || frozen.state && frozen.state !== 'available') throw new Error('Verified frozen source is unavailable.');
         return frozen.content;
       };
+      registerVerifiedSourceTexts(frozenReader, verifiedTexts);
 
       const reuseFromReviewId = sourceManifestMode === 'reuse' ? review.iteration?.parentReviewId ?? review.lineage.parentReviewId ?? undefined : undefined;
       const reusedTraceability = reuseFromReviewId ? await this.deps.repository.getTraceabilitySnapshot(reuseFromReviewId) : null;
@@ -760,7 +776,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       checkCancelled(signal);
       const dispositions = this.deps.repository.listContradictionDispositions ? await harness.step('freezing_sources', 'load_dispositions', {}, () => this.deps.repository.listContradictionDispositions!(review.projectId, signal), value => ({ count: value.length })) : undefined;
       checkCancelled(signal);
-      const assessment = await harness.step('freezing_sources', 'assess_evidence', { artifactCount: evidenceArtifacts.length }, async () => assessEvidenceSufficiency({
+      let assessment = await harness.step('freezing_sources', 'assess_evidence', { artifactCount: evidenceArtifacts.length }, async () => assessEvidenceSufficiency({
         reviewId: review.id,
         projectId: review.projectId,
         reviewType: review.reviewType,
@@ -776,6 +792,79 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           : undefined,
         now: this.now(),
       }), value => ({ readiness: value.readiness, gaps: value.gaps.map(gap => ({ code: gap.code, severity: gap.severity })), contradictions: value.contradictions.length }));
+      let preparedAnalysisMap = assessment.readiness === 'blocked' ? null
+        : await harness.step('freezing_sources', 'check_source_support', { artifactCount: evidenceArtifacts.length },
+          async () => deriveReviewAnalysisMap(evidenceArtifacts), value => ({ unsupportedExecutableArtifacts: value.coverage.unsupportedExecutableArtifacts ?? 0 }));
+      if (preparedAnalysisMap) await this.audit({ reviewId: review.id, projectId: review.projectId,
+        event: 'review_analysis_map_saved', stage: 'freezing_sources',
+        detail: { phase: 'prepared', analysisMap: reviewAnalysisMapForAudit(preparedAnalysisMap) } });
+      // Missing bodies remain source-access failures, not claims about parser
+      // capability. Preserve their existing conservative terminal handling.
+      const allSourcesReadable = evidenceArtifacts.every(item => typeof item.content === 'string' && (!item.state || item.state === 'available'));
+      const unsupportedSources = allSourcesReadable
+        ? preparedAnalysisMap?.coverage.unsupportedArtifacts.filter(item => item.parserExclusion !== 'configuration' && item.parserExclusion !== 'plain_text_logic') ?? [] : [];
+      for (const unsupported of unsupportedSources) {
+        assessment = withEvidenceSufficiencyGap(assessment, {
+          code: 'source_analysis_unsupported', severity: 'blocking', title: 'Selected source cannot be analyzed',
+          detail: `${unsupported.filePath}: ${unsupported.reason}`,
+          remediation: 'Use analysis support for this source language or format. Retrying unchanged sources cannot remove this capability limit.',
+          artifactId: unsupported.artifactId, affectedStages: ['model_analysis'],
+        });
+      }
+      const listedUnsupported = unsupportedSources.length;
+      const unsupportedCount = allSourcesReadable
+        ? Math.max(0, (preparedAnalysisMap?.coverage.unsupportedExecutableArtifacts ?? listedUnsupported)
+          - (preparedAnalysisMap?.coverage.plainTextLogicArtifactCount ?? 0)) : 0;
+      if (unsupportedCount > listedUnsupported) assessment = withEvidenceSufficiencyGap(assessment, {
+        code: 'source_analysis_inventory_incomplete', severity: 'blocking', title: 'Additional sources cannot be analyzed',
+        detail: `${unsupportedCount - listedUnsupported} additional unsupported executable sources exceed the bounded diagnostic listing.`,
+        remediation: 'Use supported analysis for every selected executable source before relying on complete coverage.', affectedStages: ['model_analysis'],
+      });
+      if (allSourcesReadable && preparedAnalysisMap && (preparedAnalysisMap.coverage.featureInventoryTruncated
+        || preparedAnalysisMap.coverage.selectedModuleGraphTruncated
+        || (preparedAnalysisMap.coverage.exportExpansionTruncatedCount ?? 0) > 0)) {
+        assessment = withEvidenceSufficiencyGap(assessment, {
+          code: 'source_analysis_inventory_incomplete', severity: 'blocking', title: 'Selected analysis scope exceeds current limits',
+          detail: [preparedAnalysisMap.coverage.featureInventoryTruncated
+            ? `${preparedAnalysisMap.coverage.omittedEntryPointCount ?? 0} operation or text units were omitted.` : '',
+          preparedAnalysisMap.coverage.selectedModuleGraphTruncated ? 'Selected-module graph analysis reached its work limit.' : '',
+          (preparedAnalysisMap.coverage.exportExpansionTruncatedCount ?? 0) > 0 ? 'Selected export expansion is incomplete.' : '',
+          'Complete selected-source analysis cannot be established within the current inventory limits.'].filter(Boolean).join(' '),
+          remediation: 'Complete the bounded analysis inventory before starting paid indexing or assessment. Retrying unchanged sources cannot remove this limit.',
+          affectedStages: ['model_analysis'],
+        });
+      }
+      if (allSourcesReadable && preparedAnalysisMap && assessment.readiness !== 'blocked') {
+        try {
+          const plan = await harness.step('freezing_sources', 'plan_assessment_batches', {},
+            async () => prepareAssessmentPlan(preparedAnalysisMap!, evidenceArtifacts), value => ({ batchCount: value.batches.length,
+              textContextFallback: !!value.syntaxMap }));
+          if (plan.syntaxMap) {
+            await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_syntax_map_saved', stage: 'freezing_sources',
+              detail: { phase: 'diagnostic_only', analysisMap: reviewAnalysisMapForAudit(plan.syntaxMap) } });
+            preparedAnalysisMap = plan.map;
+            await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_analysis_map_saved', stage: 'freezing_sources',
+              detail: { phase: 'prepared', analysisMap: reviewAnalysisMapForAudit(preparedAnalysisMap) } });
+          }
+        } catch (cause) {
+          if (!(cause instanceof ModelProviderError) || cause.code !== 'context_limit') throw cause;
+          assessment = withEvidenceSufficiencyGap(assessment, {
+            code: 'source_analysis_context_limit', severity: 'blocking', title: 'Selected assessment cannot fit current context limits',
+            detail: 'The complete required source packets or batch inventory exceed the bounded assessment plan. No selected source has been dropped.',
+            remediation: 'Complete a bounded assessment plan for the entire selected scope before starting paid indexing or assessment.',
+            affectedStages: ['model_analysis'],
+          });
+        }
+        const unresolvedFeatures = preparedAnalysisMap.features.filter(feature => feature.entryPointStatus === 'unresolved');
+        const unresolvedCount = unresolvedFeatures.length;
+        if (unresolvedCount) assessment = withEvidenceSufficiencyGap(assessment, {
+          code: 'source_analysis_unresolved', severity: 'blocking', title: 'Selected operation bodies remain unresolved',
+          detail: `${unresolvedCount} selected operation bodies could not be resolved from the frozen sources. Their locations are attached as evidence references.${unresolvedCount > 100 ? ` The first 100 locations are listed; ${unresolvedCount - 100} additional operations also remain unverified.` : ''}`,
+          remediation: 'Extend analysis support for the referenced callback or export forms, then retry. The selected source code is retained; external caller and runtime boundaries must remain explicit.',
+          references: unresolvedFeatures.slice(0, 100).flatMap(feature => feature.entryPoints.slice(0, 1).map(ref => ({ ...ref, relation: 'code' as const }))),
+          affectedStages: ['model_analysis'],
+        });
+      }
       evidenceAssessment = assessment;
       await harness.step('freezing_sources', 'save_assessment', { readiness: assessment.readiness }, () => this.deps.repository.saveEvidenceSufficiency(assessment));
       await this.audit({
@@ -820,8 +909,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       await this.checkpoint(lease, 'model_analysis', completedStages);
       await this.progress(review, 'model_analysis', completedStages);
       checkCancelled(signal);
-      let analysisMap = await harness.step('model_analysis', 'map_feature_paths', { artifactCount: evidenceArtifacts.length }, async () => deriveReviewAnalysisMap(evidenceArtifacts), value => ({ features: value.features.length, parsedArtifacts: value.coverage.parsedArtifacts, unresolvedEdges: value.coverage.unresolvedEdgeCount }));
-      await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_analysis_map_saved', stage: 'model_analysis', detail: { phase: 'prepared', analysisMap: reviewAnalysisMapForAudit(analysisMap) } });
+      let analysisMap = await harness.step('model_analysis', 'map_feature_paths', { artifactCount: evidenceArtifacts.length }, async () => preparedAnalysisMap!, value => ({ features: value.features.length, parsedArtifacts: value.coverage.parsedArtifacts, unresolvedEdges: value.coverage.unresolvedEdgeCount }));
       const batches = planAssessmentBatches(analysisMap, evidenceArtifacts, context);
       await this.audit({
         reviewId: review.id, projectId: review.projectId, event: 'review_batches_planned', stage: 'model_analysis',
@@ -831,12 +919,14 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
             id: batch.id, featureIds: batch.features.map(feature => feature.id),
             ...(batch.packetDiagnostics ? { packetDiagnostics: batch.packetDiagnostics } : {}),
             sources: batch.sources.map(source => ({ artifactId: source.artifact.id,
-              sourceVersion: source.artifact.contentHash, lineStart: source.lineStart, lineEnd: source.lineEnd })),
+              sourceVersion: source.artifact.contentHash, lineStart: source.lineStart, lineEnd: source.lineEnd,
+              ...(source.lineWindow ? { lineWindow: source.lineWindow } : {}) })),
           })),
         },
       });
-      const unsupportedExecutable = analysisMap.coverage.unsupportedExecutableArtifacts
-        ?? analysisMap.coverage.unsupportedArtifacts.filter(item => item.parserExclusion !== 'configuration').length;
+      const unsupportedExecutable = Math.max(0, (analysisMap.coverage.unsupportedExecutableArtifacts
+        ?? analysisMap.coverage.unsupportedArtifacts.filter(item => item.parserExclusion !== 'configuration').length)
+        - (analysisMap.coverage.plainTextLogicArtifactCount ?? 0));
       try {
         // These map/input gaps cannot be repaired by another provider response.
         // Preserve deterministic evidence and fail before spending model quota.
@@ -897,8 +987,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           checkCancelled(signal);
           const operation = batches.length === 1 ? 'model_analysis' : `model_analysis:${batch.id}`;
           const batchMap = { ...analysisMap, features: batch.features };
-          const batchArtifactIds = new Set(batch.sources.map(source => source.artifact.id));
-          const batchEvidence = evidenceArtifacts.filter(item => batchArtifactIds.has(item.artifact.id));
+          const batchEvidence = batch.sources;
           const promptMap = analysisMapForBatchPrompt(batchMap, batch.sources);
           const modelRequest = await harness.step('model_analysis', 'build_request', { batchId: batch.id, artifactCount: batchEvidence.length, features: batch.features.length }, () => this.buildModelRequest(review, contextForAssessmentBatch(context, batch.sources), deterministic, signal, batch.sources, confirmedRequirements, enabledStandardRules, evidenceAssessment, promptMap, frozenTraceability.records), value => ({ promptCharacters: value.prompt.length, systemPromptCharacters: value.systemPrompt.length }));
           modelRequest.stage = operation;
@@ -1363,7 +1452,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
                   referenceFailures: [...new Set(supportFeedback.flatMap(issue => issue.referenceFailure
                     && SUPPORT_REFERENCE_FAILURE_CODES.includes(issue.referenceFailure) ? [issue.referenceFailure] : []))],
                   validationVersion: ASSESSMENT_VALIDATION_VERSION } });
-              if (isAbortLike(error) || signal.aborted || providerPause(error)
+              if (isAbortLike(error) || signal.aborted || reviewProviderPause(error)
                 || !(error instanceof ModelProviderError && ['retry_exhausted', 'malformed_response'].includes(error.code))) throw error;
               throw new InvalidModelAssessmentError('semantic_support', supportCandidates.length - supportRecords.size);
             }
@@ -1446,7 +1535,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
             }
           }
           } catch (error) {
-            if (isAbortLike(error) || signal.aborted || providerPause(error) || !(error instanceof InvalidModelAssessmentError)) throw error;
+            if (isAbortLike(error) || signal.aborted || reviewProviderPause(error) || !(error instanceof InvalidModelAssessmentError)) throw error;
             deferredEvidenceBatches++;
             firstDeferredEvidenceError ??= error;
             await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_batch_needs_verification', stage: 'model_analysis',
@@ -1474,7 +1563,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       } catch (error) {
         if (isAbortLike(error) || signal.aborted) throw new ReviewCancelledError();
         if (error instanceof BatchCachePersistenceError) throw error;
-        if (providerPause(error)) throw error;
+        if (reviewProviderPause(error)) throw error;
         if (error instanceof InvalidModelAssessmentError) throw error;
         modelStatus = 'failed';
         modelFailurePermanent = error instanceof ModelConfigurationError || (error instanceof ModelProviderError && error.retryable === false);
@@ -1505,7 +1594,9 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       const baseSummary = modelStatus === 'failed'
         ? `Deterministic analysis retained ${normalized.all.length} finding${normalized.all.length === 1 ? '' : 's'}; Model Provider analysis was unavailable.`
         : `Static review completed with ${normalized.all.length} finding${normalized.all.length === 1 ? '' : 's'} (${normalized.deterministic.length} deterministic, ${normalized.model.length} model).`;
-      const summary = baseSummary + (reconciliation ? ` Existing findings: ${reconciliation.counts.recurring} recurring, ${reconciliation.counts.regressed} regressed, ${reconciliation.counts.resolved} resolved, ${reconciliation.counts.carried_over} still require verification; ${reconciliation.ambiguities.length} uncertain matches.` : '');
+      const textLogicCount = preparedAnalysisMap?.coverage.plainTextLogicArtifactCount ?? 0;
+      const textLogicSummary = textLogicCount ? ` ${textLogicCount} source file${textLogicCount === 1 ? ' was' : 's were'} assessed as plain-text logic; parser paths and runtime behavior remain unverified for those files.${preparedAnalysisMap?.coverage.assessmentMode === 'plain_text_context_fallback' ? ' The original operation map is diagnostic only because its dependency context exceeded the bounded assessment plan.' : ''}` : '';
+      const summary = baseSummary + textLogicSummary + (reconciliation ? ` Existing findings: ${reconciliation.counts.recurring} recurring, ${reconciliation.counts.regressed} regressed, ${reconciliation.counts.resolved} resolved, ${reconciliation.counts.carried_over} still require verification; ${reconciliation.ambiguities.length} uncertain matches.` : '');
       const terminal = await this.deps.repository.transitionReview(review.id, ['running'], {
         status: modelFailurePermanent ? 'failed' : 'pending_approval',
         deterministicFindingCount: normalized.deterministic.length,
@@ -1527,7 +1618,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
         });
         return cancelled ?? ((await this.deps.repository.getReview(review.id)) ?? review);
       }
-      const pause = error instanceof ModelProviderError ? providerPause(error) : null;
+      const pause = error instanceof ModelProviderError ? reviewProviderPause(error) : null;
       if (error instanceof InvalidModelAssessmentError) {
         const retained = normalizeAndDeduplicateFindings(deterministic, model);
         let retentionFailed = false;
@@ -1904,7 +1995,8 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
         const lineEnd = segment.lineEnd ?? item.content.split('\n').length;
         const hasFollowingSourceSegment = evidenceArtifacts.some(next => next.artifact.id === item.artifact.id
           && (next as Partial<AssessmentSourceSegment>).lineStart === lineEnd + 1);
-        sections.push(`--- Artifact: ${promptLabel(item.artifact.filePath || item.artifact.fileName)} (${promptLabel(item.artifact.type)}; ${promptLabel(item.artifact.id)}; sourceVersion=${promptLabel(item.artifact.contentHash)}; original lines ${segment.lineStart ?? 1}-${lineEnd}) ---\n${renderNumberedSource(item.content, segment.lineStart ?? 1, hasFollowingSourceSegment)}`);
+        const windowMetadata = segment.lineWindow ? `; lineWindow=${JSON.stringify(segment.lineWindow)}` : '';
+        sections.push(`--- Artifact: ${promptLabel(item.artifact.filePath || item.artifact.fileName)} (${promptLabel(item.artifact.type)}; ${promptLabel(item.artifact.id)}; sourceVersion=${promptLabel(item.artifact.contentHash)}; original lines ${segment.lineStart ?? 1}-${lineEnd}${windowMetadata}) ---\n${renderNumberedSource(item.content, segment.lineStart ?? 1, hasFollowingSourceSegment, segment.lineWindow)}`);
       }
     }
     const contextSummary = context

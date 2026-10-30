@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import ts from 'typescript';
 import type { Artifact } from '../artifacts.js';
 import type { EvidenceArtifact } from './evidenceSufficiency.js';
 import { DEFAULT_EXPORT_EXPRESSION, SelectedModuleResolver } from './selectedModuleResolver.js';
+import { hasPlainTextSourceIntent, isReadablePlainText, segmentPlainTextLogic, type PlainTextLogicSourceRange } from './plainTextLogic.js';
 
 export type ReviewDomain = 'security' | 'business' | 'technical' | 'personnel';
 export type AnalysisPathKind = 'normal' | 'alternate' | 'failure' | 'recovery' | 'unresolved';
@@ -30,7 +32,9 @@ export type ReviewAnalysisFeature = {
   id: string;
   label: string;
   provisional: true;
-  entryPointStatus?: 'resolved' | 'unresolved';
+  analysisKind?: 'plain_text_logic';
+  sourceRange?: PlainTextLogicSourceRange;
+  entryPointStatus?: 'resolved' | 'external_boundary' | 'unresolved';
   entryPoints: AnalysisEvidenceReference[];
   paths: FeatureAnalysisPath[];
   assessments: FeatureAnalysisAssessment[];
@@ -40,6 +44,8 @@ export type ReviewAnalysisMap = {
   schemaVersion: 1;
   status: 'unverified' | 'partial' | 'assessed';
   coverage: {
+    assessmentMode?: 'plain_text_context_fallback';
+    syntaxFeatureCount?: number;
     sourceArtifacts: number;
     parsedArtifacts: number;
     /** Parsed artifacts that contain executable operation or module-initialization code. */
@@ -57,8 +63,12 @@ export type ReviewAnalysisMap = {
     selectedModuleGraphWorkLimit?: number;
     selectedModuleGraphTruncated?: boolean;
     exportExpansionTruncatedCount?: number;
-    unsupportedArtifacts: Array<{ artifactId: string; filePath: string; reason: string; parserExclusion?: 'configuration' }>;
+    unsupportedArtifacts: Array<{ artifactId: string; filePath: string; reason: string; parserExclusion?: 'configuration' | 'plain_text_logic' }>;
     unsupportedExecutableArtifacts?: number;
+    plainTextLogicArtifactCount?: number;
+    plainTextLogicUnitCount?: number;
+    omittedPlainTextLogicUnitCount?: number;
+    externalCallbackBoundaryCount?: number;
     unresolvedEdgeCount: number;
     featureInventoryLimit: number;
     omittedEntryPointCount: number;
@@ -73,11 +83,10 @@ const DOMAINS: ReviewDomain[] = ['security', 'business', 'technical', 'personnel
 const SUPPORTED_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const CONFIG_EXTENSIONS = new Set(['.json', '.yaml', '.yml', '.html', '.css']);
 export const MAX_FEATURES_PER_BATCH = 30;
-const MAX_FEATURE_INVENTORY = 1_000;
+const MAX_FEATURE_INVENTORY = 2_048;
 const MAX_PATHS_PER_FEATURE = 12;
 const MAX_UNRESOLVED_PER_FEATURE = 12;
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all']);
-const UI_EVENTS = new Set(['onClick', 'onSubmit', 'onChange', 'onKeyDown', 'onBlur']);
 
 type ParsedArtifact = { artifact: Artifact; source: ts.SourceFile };
 type FunctionEntry = { name: string; node: ts.FunctionLikeDeclaration; artifact: Artifact; source: ts.SourceFile };
@@ -85,10 +94,31 @@ type FeatureDraft = {
   label: string;
   refs: AnalysisEvidenceReference[];
   handler?: FunctionEntry;
+  handlers?: FunctionEntry[];
   key: string;
+  analysisKind?: 'plain_text_logic';
+  sourceRange?: PlainTextLogicSourceRange;
   middleware?: boolean;
   unresolvedReason?: string;
   initializationLabel?: string;
+  externalCallbackBoundaryReason?: string;
+  callbackRuntimeBoundaryReason?: string;
+};
+
+type CallbackResolution =
+  | { status: 'resolved'; handlers: FunctionEntry[]; runtimeBoundaryReason?: string }
+  | { status: 'external_boundary'; handlers: FunctionEntry[]; reason: string; runtimeBoundaryReason?: string }
+  | { status: 'unresolved'; handlers: FunctionEntry[]; reason: string }
+  | { status: 'empty'; handlers: [] };
+
+type CallbackResolverContext = {
+  checker: ts.TypeChecker;
+  resolver: SelectedModuleResolver;
+  parsedBySource: Map<ts.SourceFile, ParsedArtifact>;
+  functionsByNode: Map<ts.FunctionLikeDeclaration, FunctionEntry>;
+  importCache: Map<string, CallbackResolution>;
+  mutatedSymbols: Set<ts.Symbol>;
+  work: number;
 };
 
 function extension(filePath: string): string {
@@ -144,6 +174,754 @@ function collectFunctions(parsed: ParsedArtifact[]): FunctionEntry[] {
     visit(item.source);
   }
   return output;
+}
+
+const MAX_CALLBACK_RESOLUTION_DEPTH = 16;
+const MAX_CALLBACK_RESOLUTION_WORK = 20_000;
+
+function callbackFileKey(fileName: string): string {
+  const resolved = path.resolve(fileName).replace(/\\/g, '/');
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/** Bind only the frozen selected sources. noResolve/noLib prevents ambient disk reads. */
+function callbackChecker(parsed: ParsedArtifact[]): ts.TypeChecker | undefined {
+  if (!parsed.length) return undefined;
+  const options: ts.CompilerOptions = {
+    allowJs: true,
+    checkJs: false,
+    noEmit: true,
+    noLib: true,
+    noResolve: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.ESNext,
+    jsx: ts.JsxEmit.Preserve,
+  };
+  const sources = new Map(parsed.map(item => [callbackFileKey(item.source.fileName), item.source]));
+  if (sources.size !== parsed.length) return undefined;
+  const host = ts.createCompilerHost(options);
+  host.getSourceFile = fileName => sources.get(callbackFileKey(fileName));
+  host.fileExists = fileName => sources.has(callbackFileKey(fileName));
+  host.readFile = fileName => sources.get(callbackFileKey(fileName))?.text;
+  const program = ts.createProgram(parsed.map(item => item.source.fileName), options, host);
+  return program.getTypeChecker();
+}
+
+function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
+function writableReferenceWithin(node: ts.Identifier, target: ts.Node): boolean {
+  let current: ts.Node = node;
+  while (current !== target) {
+    const parent = current.parent;
+    if ((ts.isPropertyAccessExpression(parent) && parent.expression === current)
+      || (ts.isElementAccessExpression(parent) && parent.expression === current)
+      || (ts.isArrayLiteralExpression(parent) && parent.elements.some(item => item === current))
+      || (ts.isObjectLiteralExpression(parent) && parent.properties.some(item => item === current))
+      || (ts.isPropertyAssignment(parent) && parent.initializer === current)
+      || (ts.isShorthandPropertyAssignment(parent) && parent.name === current)) {
+      current = parent;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function isWriteReference(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (ts.isBinaryExpression(parent) && isAssignmentOperator(parent.operatorToken.kind)
+    && writableReferenceWithin(node, parent.left)) return true;
+  if ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
+    && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken, ts.SyntaxKind.DeleteKeyword].includes(parent.operator)
+    && parent.operand === node) return true;
+  if ((ts.isForInStatement(parent) || ts.isForOfStatement(parent))
+    && writableReferenceWithin(node, parent.initializer)) return true;
+  return false;
+}
+
+function isMemberWriteReference(node: ts.PropertyAccessExpression | ts.ElementAccessExpression): boolean {
+  const parent = node.parent;
+  if (ts.isBinaryExpression(parent) && isAssignmentOperator(parent.operatorToken.kind) && parent.left === node) return true;
+  if (ts.isDeleteExpression(parent) && parent.expression === node) return true;
+  if ((ts.isForInStatement(parent) || ts.isForOfStatement(parent)) && parent.initializer === node) return true;
+  return (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
+    && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken, ts.SyntaxKind.DeleteKeyword].includes(parent.operator)
+    && parent.operand === node;
+}
+
+function rootObjectIdentifier(node: ts.Expression): ts.Identifier | undefined {
+  let current = unwrapExpression(node);
+  while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+    current = unwrapExpression(current.expression);
+  }
+  return ts.isIdentifier(current) ? current : undefined;
+}
+
+function collectMutatedSymbols(parsed: ParsedArtifact[], checker: ts.TypeChecker): Set<ts.Symbol> {
+  const mutated = new Set<ts.Symbol>();
+  for (const item of parsed) {
+    const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && isWriteReference(node)) {
+        const symbol = checker.getSymbolAtLocation(node);
+        if (symbol) mutated.add(symbol);
+      }
+      if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && isMemberWriteReference(node)) {
+        const member = ts.isPropertyAccessExpression(node) ? node.name : node;
+        const memberSymbol = checker.getSymbolAtLocation(member);
+        if (memberSymbol) mutated.add(memberSymbol);
+        const root = rootObjectIdentifier(node.expression);
+        const rootSymbol = root && checker.getSymbolAtLocation(root);
+        if (rootSymbol) mutated.add(rootSymbol);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(item.source);
+  }
+  return mutated;
+}
+
+function createCallbackResolverContext(
+  parsed: ParsedArtifact[],
+  resolver: SelectedModuleResolver,
+  parsedBySource: Map<ts.SourceFile, ParsedArtifact>,
+  functions: FunctionEntry[],
+): CallbackResolverContext | undefined {
+  const checker = callbackChecker(parsed);
+  if (!checker) return undefined;
+  return {
+    checker,
+    resolver,
+    parsedBySource,
+    functionsByNode: new Map(functions.map(item => [item.node, item])),
+    importCache: new Map(),
+    mutatedSymbols: collectMutatedSymbols(parsed, checker),
+    work: 0,
+  };
+}
+
+const CALLBACK_TARGET_UNRESOLVED = 'The JSX callback target could not be resolved to a unique, stable body in the selected frozen sources.';
+
+function unresolvedCallback(reason = CALLBACK_TARGET_UNRESOLVED): CallbackResolution {
+  return { status: 'unresolved', handlers: [], reason };
+}
+
+function externalCallback(reason: string, runtimeBoundaryReason?: string): CallbackResolution {
+  return { status: 'external_boundary', handlers: [], reason,
+    ...(runtimeBoundaryReason ? { runtimeBoundaryReason } : {}) };
+}
+
+function isImportSymbol(symbol: ts.Symbol): boolean {
+  return !!symbol.declarations?.some(declaration => ts.isImportSpecifier(declaration)
+    || ts.isImportClause(declaration) || ts.isNamespaceImport(declaration) || ts.isImportEqualsDeclaration(declaration));
+}
+
+function parameterAncestor(node: ts.Node): ts.ParameterDeclaration | undefined {
+  for (let current: ts.Node | undefined = node; current; current = current.parent) {
+    if (ts.isParameter(current)) return current;
+    if (ts.isSourceFile(current)) return undefined;
+  }
+  return undefined;
+}
+
+function hasParameterAncestor(node: ts.Node): boolean {
+  return !!parameterAncestor(node);
+}
+
+function uniqueHandlers(handlers: FunctionEntry[]): FunctionEntry[] {
+  return [...new Map(handlers.map(handler => [`${handler.artifact.id}:${handler.node.getStart(handler.source, false)}:${handler.node.end}`, handler])).values()];
+}
+
+function mergeCallbackAlternatives(left: CallbackResolution, right: CallbackResolution): CallbackResolution {
+  if (left.status === 'unresolved') return left;
+  if (right.status === 'unresolved') return right;
+  const handlers = uniqueHandlers([...left.handlers, ...right.handlers]);
+  if (handlers.length > 8) return unresolvedCallback('The JSX callback expression selects more targets than the bounded resolver can safely map.');
+  const runtimeBoundaryReason = left.status === 'resolved' ? left.runtimeBoundaryReason
+    : left.status === 'external_boundary' ? left.runtimeBoundaryReason : undefined;
+  const otherRuntimeReason = right.status === 'resolved' ? right.runtimeBoundaryReason
+    : right.status === 'external_boundary' ? right.runtimeBoundaryReason : undefined;
+  const external = left.status === 'external_boundary' || right.status === 'external_boundary';
+  if (external) return {
+    status: 'external_boundary', handlers,
+    reason: 'At least one callback target is supplied by a caller and its implementation is outside the selected frozen sources.',
+    ...(runtimeBoundaryReason || otherRuntimeReason ? { runtimeBoundaryReason: runtimeBoundaryReason ?? otherRuntimeReason } : {}),
+  };
+  if (!handlers.length) return { status: 'empty', handlers: [] };
+  const hasEmptyAlternative = left.status === 'empty' || right.status === 'empty';
+  return {
+    status: 'resolved', handlers,
+    ...(runtimeBoundaryReason || otherRuntimeReason || hasEmptyAlternative
+      ? { runtimeBoundaryReason: runtimeBoundaryReason ?? otherRuntimeReason ?? 'The callback is conditionally absent on one selected local branch.' } : {}),
+  };
+}
+
+function parameterCallback(symbol: ts.Symbol, context: CallbackResolverContext): CallbackResolution | undefined {
+  const parameters = (symbol.declarations ?? []).map(parameterAncestor).filter((item): item is ts.ParameterDeclaration => !!item);
+  if (!parameters.length) return undefined;
+  if (context.mutatedSymbols.has(symbol)) return unresolvedCallback('The caller-supplied callback parameter is reassigned or mutated in the selected source.');
+  if (parameters.some(parameter => !!parameter.initializer)
+    || symbol.declarations?.some(declaration => ts.isBindingElement(declaration) && hasParameterAncestor(declaration) && !!declaration.initializer)) {
+    return unresolvedCallback('The callback parameter has a local default expression and a caller-supplied value; its selected target is ambiguous.');
+  }
+  return {
+    status: 'external_boundary', handlers: [],
+    reason: 'The JSX callback is supplied through a parameter of the containing function; its caller-provided implementation is outside the selected source scope.',
+  };
+}
+
+function declarationBindingSymbol(declaration: ts.Declaration, checker: ts.TypeChecker): ts.Symbol | undefined {
+  const name = (declaration as ts.NamedDeclaration).name;
+  return name && ts.isIdentifier(name) ? checker.getSymbolAtLocation(name) : undefined;
+}
+
+function selectedDeclarationResolution(
+  module: { artifact: Artifact; source: ts.SourceFile },
+  localName: string,
+  current: ParsedArtifact,
+  context: CallbackResolverContext,
+  visited: Set<ts.Symbol>,
+  depth: number,
+): CallbackResolution {
+  const parsed = context.parsedBySource.get(module.source);
+  if (!parsed) return unresolvedCallback('The imported callback is not in the selected frozen source set.');
+  if (localName === DEFAULT_EXPORT_EXPRESSION) {
+    const assignment = module.source.statements.find(ts.isExportAssignment);
+    if (assignment) return resolveCallbackExpression(assignment.expression, parsed, context, visited, depth + 1);
+    const declaration = module.source.statements.find(statement =>
+      (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement))
+      && hasModifier(statement, ts.SyntaxKind.DefaultKeyword));
+    if (declaration && ts.isFunctionDeclaration(declaration) && declaration.body) {
+      const binding = declarationBindingSymbol(declaration, context.checker);
+      if (binding && context.mutatedSymbols.has(binding)) return unresolvedCallback('The selected imported callback binding is reassigned or mutated.');
+      if (binding && visited.has(binding)) return unresolvedCallback('The selected imported callback binding contains a cycle.');
+      const handler = context.functionsByNode.get(declaration);
+      return handler ? { status: 'resolved', handlers: [handler] } : unresolvedCallback();
+    }
+    return unresolvedCallback('The selected default export does not resolve to one local callback body.');
+  }
+  const declaration = context.resolver.declarations(module).get(localName);
+  if (!declaration) return unresolvedCallback('The selected import has no unique local callback declaration.');
+  const binding = declarationBindingSymbol(declaration, context.checker);
+  if (binding && context.mutatedSymbols.has(binding)) return unresolvedCallback('The selected imported callback binding is reassigned or mutated.');
+  if (binding && visited.has(binding)) return unresolvedCallback('The selected imported callback binding contains a cycle.');
+  const selectedVisited = binding ? new Set(visited).add(binding) : visited;
+  return resolveCallbackDeclaration(declaration, parsed, context, selectedVisited, depth + 1);
+}
+
+function selectedImportResolution(
+  parsed: ParsedArtifact,
+  localName: string,
+  context: CallbackResolverContext,
+  visited: Set<ts.Symbol>,
+  depth: number,
+): CallbackResolution {
+  const key = `${parsed.artifact.id}\u0000${localName}`;
+  const cached = context.importCache.get(key);
+  if (cached) return cached;
+  const result = context.resolver.resolveLocal(parsed, localName);
+  const resolved = result.status === 'resolved'
+    ? selectedDeclarationResolution(result.module, result.localName, parsed, context, visited, depth + 1)
+    : unresolvedCallback(result.status === 'type_only'
+      ? 'The imported callback is type-only and has no selected executable body.'
+      : result.reason || 'The imported callback does not resolve to one selected frozen body.');
+  context.importCache.set(key, resolved);
+  return resolved;
+}
+
+function variableDeclarationForBinding(node: ts.Node): ts.VariableDeclaration | undefined {
+  for (let current: ts.Node | undefined = node; current; current = current.parent) {
+    if (ts.isVariableDeclaration(current)) return current;
+    if (ts.isParameter(current) || ts.isSourceFile(current)) return undefined;
+  }
+  return undefined;
+}
+
+function resolveObjectMember(
+  object: ts.Expression,
+  memberName: string,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  visited: Set<ts.Symbol>,
+  depth: number,
+): CallbackResolution {
+  if (depth > MAX_CALLBACK_RESOLUTION_DEPTH || ++context.work > MAX_CALLBACK_RESOLUTION_WORK) {
+    return unresolvedCallback('The selected callback exceeded the bounded lexical-resolution work limit.');
+  }
+  const expression = unwrapExpression(object);
+  if (ts.isObjectLiteralExpression(expression)) {
+    if (expression.properties.some(property => ts.isSpreadAssignment(property))) {
+      return unresolvedCallback('The selected callback object contains a spread whose property precedence is unresolved.');
+    }
+    const hasUnknownComputedKey = expression.properties.some(property => {
+      const name = 'name' in property ? property.name : undefined;
+      return !!name && ts.isComputedPropertyName(name) && staticPropertyName(name) === undefined;
+    });
+    if (hasUnknownComputedKey) {
+      return unresolvedCallback('The selected callback object contains a computed key that may overwrite its callback property.');
+    }
+    const matches = expression.properties.filter(property => staticPropertyName(property.name) === memberName);
+    if (matches.length !== 1) return unresolvedCallback('The selected object callback property is missing or ambiguous.');
+    const property = matches[0]!;
+    if (ts.isMethodDeclaration(property) && property.body) {
+      const handler = context.functionsByNode.get(property);
+      return handler ? { status: 'resolved', handlers: [handler] } : unresolvedCallback();
+    }
+    if (ts.isPropertyAssignment(property)) return resolveCallbackExpression(property.initializer, parsed, context, visited, depth + 1);
+    if (ts.isShorthandPropertyAssignment(property)) return resolveCallbackExpression(property.name, parsed, context, visited, depth + 1);
+    return unresolvedCallback('The selected object callback property is not a statically callable value.');
+  }
+  if (ts.isIdentifier(expression)) {
+    const symbol = context.checker.getSymbolAtLocation(expression);
+    if (!symbol) return unresolvedCallback();
+    if (visited.has(symbol)) return unresolvedCallback('The selected callback object alias contains a cycle.');
+    const nextVisited = new Set(visited).add(symbol);
+    if (context.mutatedSymbols.has(symbol)) return unresolvedCallback('The selected callback object is mutated, so its property target is unresolved.');
+    const external = parameterCallback(symbol, context);
+    if (external) return external;
+    if (isImportSymbol(symbol)) {
+      const binding = context.resolver.imports(parsed).get(expression.text);
+      if (!binding || binding.typeOnly) return unresolvedCallback('The imported callback object is not a selected runtime binding.');
+      if (binding.importedName === '*') {
+        const target = context.resolver.resolveModule(parsed, binding.moduleSpecifier);
+        if (!target.module) return unresolvedCallback(target.reason);
+        const exported = context.resolver.resolveExport(target.module, memberName);
+        return exported.status === 'resolved'
+          ? selectedDeclarationResolution(exported.module, exported.localName, parsed, context, nextVisited, depth + 1)
+          : unresolvedCallback(exported.status === 'unresolved' ? exported.reason : 'The selected namespace member is type-only.');
+      }
+      return unresolvedCallback('A default-imported callback object has an unresolved selected member.');
+    }
+    const declaration = symbol.declarations?.filter(ts.isVariableDeclaration);
+    if (declaration?.length === 1 && declaration[0].initializer) {
+      return resolveObjectMember(declaration[0].initializer, memberName, parsed, context, nextVisited, depth + 1);
+    }
+  }
+  return unresolvedCallback('The JSX callback property is dynamic or not backed by one selected object literal.');
+}
+
+function resolveCallbackDeclaration(
+  declaration: ts.Declaration,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  visited: Set<ts.Symbol>,
+  depth: number,
+): CallbackResolution {
+  if (isFunctionLike(declaration)) {
+    const handler = context.functionsByNode.get(declaration);
+    return handler ? { status: 'resolved', handlers: [handler] } : unresolvedCallback('The selected callback declaration has no executable body.');
+  }
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    return resolveCallbackExpression(declaration.initializer, parsed, context, visited, depth + 1);
+  }
+  if (ts.isBindingElement(declaration)) {
+    const parameter = hasParameterAncestor(declaration);
+    if (parameter) return {
+      status: 'external_boundary', handlers: [],
+      reason: 'The JSX callback is destructured from a parameter of the containing function; its caller-provided implementation is outside the selected source scope.',
+    };
+    const variable = variableDeclarationForBinding(declaration);
+    if (!variable?.initializer) return unresolvedCallback('The destructured callback has no statically available initializer.');
+    if (ts.isArrayBindingPattern(declaration.parent)) {
+      const elements = declaration.parent.elements;
+      if (elements.length === 2 && elements[1] === declaration && ts.isIdentifier(declaration.name)
+        && !declaration.dotDotDotToken && !declaration.initializer) {
+        const initializer = unwrapExpression(variable.initializer);
+        if (ts.isCallExpression(initializer) && isReactHookCall(initializer, 'useState', parsed, context)) {
+          return externalCallback('The callback is the setter returned in the second slot of an imported React useState tuple.',
+            'React state scheduling and the surrounding hook lifecycle remain external runtime behavior.');
+        }
+      }
+      return unresolvedCallback('The array-destructured callback is not a uniquely proven React state setter.');
+    }
+    const propertyName = staticPropertyName(declaration.propertyName ?? declaration.name as ts.PropertyName);
+    if (propertyName && ts.isObjectLiteralExpression(unwrapExpression(variable.initializer))) {
+      return resolveObjectMember(variable.initializer, propertyName, parsed, context, visited, depth + 1);
+    }
+    if (propertyName && ts.isObjectBindingPattern(declaration.parent)) {
+      const contextMember = resolveSelectedContextHookMember(variable.initializer, propertyName, parsed, context, depth + 1);
+      if (contextMember) return contextMember;
+    }
+    return resolveCallbackExpression(variable.initializer, parsed, context, visited, depth + 1);
+  }
+  return unresolvedCallback('The selected callback binding is not a stable local function, variable, or parameter.');
+}
+
+function isReactHookCall(call: ts.CallExpression, hookName: string, parsed: ParsedArtifact, context: CallbackResolverContext): boolean {
+  const imports = context.resolver.imports(parsed);
+  const isImportedReactBinding = (identifier: ts.Identifier, importedNames: string[]) => {
+    const binding = imports.get(identifier.text);
+    const symbol = context.checker.getSymbolAtLocation(identifier);
+    return !!binding && binding.moduleSpecifier === 'react' && !binding.typeOnly
+      && importedNames.includes(binding.importedName) && !!symbol && isImportSymbol(symbol)
+      && !context.mutatedSymbols.has(symbol);
+  };
+  if (ts.isIdentifier(call.expression)) return isImportedReactBinding(call.expression, [hookName]);
+  if (!ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== hookName
+    || !ts.isIdentifier(call.expression.expression)) return false;
+  const member = context.checker.getSymbolAtLocation(call.expression.name);
+  return (!member || !context.mutatedSymbols.has(member))
+    && isImportedReactBinding(call.expression.expression, ['*', 'default']);
+}
+
+function isReactUseCallback(call: ts.CallExpression, parsed: ParsedArtifact, context: CallbackResolverContext): boolean {
+  return isReactHookCall(call, 'useCallback', parsed, context);
+}
+
+const VITEST_MOCK_CONFIGURATION_METHODS = new Set([
+  'mockImplementation', 'mockImplementationOnce', 'mockReturnThis', 'mockReturnValue', 'mockReturnValueOnce',
+  'mockResolvedValue', 'mockResolvedValueOnce', 'mockRejectedValue', 'mockRejectedValueOnce',
+]);
+
+function isImportedVitestVi(identifier: ts.Identifier, parsed: ParsedArtifact, context: CallbackResolverContext): boolean {
+  const binding = context.resolver.imports(parsed).get(identifier.text);
+  const symbol = context.checker.getSymbolAtLocation(identifier);
+  return !!binding && binding.moduleSpecifier === 'vitest' && binding.importedName === 'vi' && !binding.typeOnly
+    && !!symbol && isImportSymbol(symbol) && !context.mutatedSymbols.has(symbol);
+}
+
+function isVitestMockCallback(rawExpression: ts.Expression, parsed: ParsedArtifact, context: CallbackResolverContext): boolean {
+  let expression = unwrapExpression(rawExpression);
+  for (let depth = 0; depth < 8; depth++) {
+    if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) return false;
+    const property = expression.expression.name;
+    const member = context.checker.getSymbolAtLocation(property);
+    if (member && context.mutatedSymbols.has(member)) return false;
+    if (property.text === 'fn') {
+      return ts.isIdentifier(expression.expression.expression)
+        && isImportedVitestVi(expression.expression.expression, parsed, context);
+    }
+    if (!VITEST_MOCK_CONFIGURATION_METHODS.has(property.text)) return false;
+    expression = unwrapExpression(expression.expression.expression);
+  }
+  return false;
+}
+
+function soleDirectReturnExpression(fn: ts.FunctionLikeDeclaration): ts.Expression | undefined {
+  if (!fn.body) return undefined;
+  if (!ts.isBlock(fn.body)) return fn.body;
+  const returns: ts.ReturnStatement[] = [];
+  const visit = (node: ts.Node) => {
+    if (node !== fn.body && isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node)) returns.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(fn.body);
+  if (returns.length !== 1) return undefined;
+  let current: ts.Node = returns[0]!;
+  while (current.parent !== fn.body) {
+    current = current.parent;
+    if (!ts.isBlock(current)) return undefined;
+  }
+  return returns[0]!.expression;
+}
+
+function functionFromDeclaration(declaration: ts.Declaration | undefined): ts.FunctionLikeDeclaration | undefined {
+  if (!declaration) return undefined;
+  if (isFunctionLike(declaration) && declaration.body) return declaration;
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    const initializer = unwrapExpression(declaration.initializer);
+    if (isFunctionLike(initializer) && initializer.body) return initializer;
+  }
+  return undefined;
+}
+
+function selectedContextValueObject(
+  rawExpression: ts.Expression,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  visited = new Set<ts.Symbol>(),
+  depth = 0,
+): ts.ObjectLiteralExpression | undefined {
+  if (depth > MAX_CALLBACK_RESOLUTION_DEPTH || ++context.work > MAX_CALLBACK_RESOLUTION_WORK) return undefined;
+  const expression = unwrapExpression(rawExpression);
+  if (ts.isObjectLiteralExpression(expression)) return expression;
+  if (ts.isIdentifier(expression)) {
+    const symbol = context.checker.getSymbolAtLocation(expression);
+    if (!symbol || visited.has(symbol) || context.mutatedSymbols.has(symbol)) return undefined;
+    const declarations = (symbol.declarations ?? []).filter(ts.isVariableDeclaration);
+    if (declarations.length !== 1 || !declarations[0]!.initializer) return undefined;
+    const nextVisited = new Set(visited).add(symbol);
+    return selectedContextValueObject(declarations[0]!.initializer!, parsed, context, nextVisited, depth + 1);
+  }
+  if (ts.isCallExpression(expression) && isReactHookCall(expression, 'useMemo', parsed, context)
+    && expression.arguments[0]) {
+    const callback = unwrapExpression(expression.arguments[0]);
+    if (!isFunctionLike(callback) || !callback.body) return undefined;
+    const returned = soleDirectReturnExpression(callback);
+    return returned ? selectedContextValueObject(returned, parsed, context, visited, depth + 1) : undefined;
+  }
+  return undefined;
+}
+
+function selectedReactContextMember(
+  contextSymbol: ts.Symbol,
+  memberName: string,
+  context: CallbackResolverContext,
+): { parsed: ParsedArtifact; expression?: ts.Expression; handler?: FunctionEntry } | undefined {
+  if (context.mutatedSymbols.has(contextSymbol)) return undefined;
+  const declarations = (contextSymbol.declarations ?? []).filter(ts.isVariableDeclaration);
+  const declaration = declarations.length === 1 ? declarations[0] : undefined;
+  if (!declaration?.initializer) return undefined;
+  const parsed = context.parsedBySource.get(declaration.getSourceFile());
+  const initializer = unwrapExpression(declaration.initializer);
+  if (!parsed || !ts.isCallExpression(initializer) || !isReactHookCall(initializer, 'createContext', parsed, context)) return undefined;
+
+  const providerValues: Array<ts.Expression | undefined> = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const tag = node.tagName;
+      if (ts.isPropertyAccessExpression(tag) && tag.name.text === 'Provider' && ts.isIdentifier(tag.expression)
+        && context.checker.getSymbolAtLocation(tag.expression) === contextSymbol) {
+        const value = node.attributes.properties.find((attribute): attribute is ts.JsxAttribute =>
+          ts.isJsxAttribute(attribute) && ts.isIdentifier(attribute.name) && attribute.name.text === 'value');
+        providerValues.push(value?.initializer && ts.isJsxExpression(value.initializer)
+          ? value.initializer.expression : undefined);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed.source);
+  const providerValue = providerValues.length === 1 ? providerValues[0] : undefined;
+  if (!providerValue) return undefined;
+  const object = selectedContextValueObject(providerValue, parsed, context);
+  if (!object || object.properties.some(property => ts.isSpreadAssignment(property)
+    || ('name' in property && !!property.name && ts.isComputedPropertyName(property.name) && staticPropertyName(property.name) === undefined))) return undefined;
+  const matches = object.properties.filter(property => staticPropertyName('name' in property ? property.name : undefined) === memberName);
+  if (matches.length !== 1) return undefined;
+  const property = matches[0]!;
+  if (ts.isMethodDeclaration(property) && property.body) {
+    const handler = context.functionsByNode.get(property);
+    return handler ? { parsed, handler } : undefined;
+  }
+  if (ts.isPropertyAssignment(property)) return { parsed, expression: property.initializer };
+  if (ts.isShorthandPropertyAssignment(property)) return { parsed, expression: property.name };
+  return undefined;
+}
+
+function contextReadCall(
+  rawExpression: ts.Expression,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  visited = new Set<ts.Symbol>(),
+): ts.CallExpression | undefined {
+  const expression = unwrapExpression(rawExpression);
+  if (ts.isCallExpression(expression)) return isReactHookCall(expression, 'useContext', parsed, context) ? expression : undefined;
+  if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = context.checker.getSymbolAtLocation(expression);
+  if (!symbol || visited.has(symbol) || context.mutatedSymbols.has(symbol)) return undefined;
+  const declarations = (symbol.declarations ?? []).filter(ts.isVariableDeclaration);
+  if (declarations.length !== 1 || !declarations[0]!.initializer) return undefined;
+  return contextReadCall(declarations[0]!.initializer!, parsed, context, new Set(visited).add(symbol));
+}
+
+function resolveSelectedContextHookMember(
+  rawExpression: ts.Expression,
+  memberName: string,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  depth: number,
+): CallbackResolution | undefined {
+  const expression = unwrapExpression(rawExpression);
+  if (!ts.isCallExpression(expression) || !ts.isIdentifier(expression.expression)) return undefined;
+  const localName = expression.expression.text;
+  const binding = context.resolver.imports(parsed).get(localName);
+  const importSymbol = context.checker.getSymbolAtLocation(expression.expression);
+  if (!binding || binding.importedName === '*' || !importSymbol || !isImportSymbol(importSymbol)) return undefined;
+  if (binding.typeOnly || !importSymbol || context.mutatedSymbols.has(importSymbol)) {
+    return unresolvedCallback('The selected context hook binding is type-only, mutated, or unavailable as a stable runtime import.');
+  }
+  if (depth > MAX_CALLBACK_RESOLUTION_DEPTH || ++context.work > MAX_CALLBACK_RESOLUTION_WORK) {
+    return unresolvedCallback('The selected callback exceeded the bounded lexical-resolution work limit.');
+  }
+  const hook = context.resolver.resolveLocal(parsed, localName);
+  if (hook.status !== 'resolved') return unresolvedCallback(hook.status === 'type_only'
+    ? 'The selected context hook is type-only.' : hook.reason || 'The selected context hook is not uniquely available in frozen sources.');
+  const hookParsed = context.parsedBySource.get(hook.module.source);
+  const hookDeclaration = context.resolver.declarations(hook.module).get(hook.localName);
+  const hookSymbol = hookDeclaration && declarationBindingSymbol(hookDeclaration, context.checker);
+  const hookBindings: ts.Declaration[] = [];
+  for (const statement of hook.module.source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === hook.localName) hookBindings.push(statement);
+    if (ts.isVariableStatement(statement)) hookBindings.push(...statement.declarationList.declarations.filter(declaration =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === hook.localName));
+  }
+  const hookFunctionDeclarations = hookBindings.filter(isFunctionLike);
+  const hookFunctionBodies = hookFunctionDeclarations.filter(declaration => !!declaration.body);
+  const hookVariableDeclarations = hookBindings.filter(ts.isVariableDeclaration);
+  const hookFunction = hookFunctionDeclarations.length
+    ? hookFunctionBodies.length === 1 && hookVariableDeclarations.length === 0 ? hookFunctionBodies[0]
+      : undefined
+    : hookVariableDeclarations.length === 1 && hookBindings.length === 1
+      ? functionFromDeclaration(hookVariableDeclarations[0]) : undefined;
+  if (!hookParsed || !hookFunction || (hookSymbol && context.mutatedSymbols.has(hookSymbol))) {
+    return unresolvedCallback('The selected context hook does not have one stable local function body.');
+  }
+  const returned = soleDirectReturnExpression(hookFunction);
+  const contextRead = returned && contextReadCall(returned, hookParsed, context);
+  if (!contextRead || contextRead.arguments.length !== 1 || !ts.isIdentifier(contextRead.arguments[0])) {
+    return unresolvedCallback('The selected context hook does not return one direct React context value.');
+  }
+  const contextSymbol = context.checker.getSymbolAtLocation(contextRead.arguments[0]);
+  if (!contextSymbol || context.mutatedSymbols.has(contextSymbol)) {
+    return unresolvedCallback('The selected context hook binding is missing or mutated.');
+  }
+  const member = selectedReactContextMember(contextSymbol, memberName, context);
+  if (!member) return unresolvedCallback('The selected context hook member is absent, ambiguous, or not backed by one selected React provider.');
+  const property: CallbackResolution = member.handler
+    ? { status: 'resolved', handlers: [member.handler] }
+    : member.expression
+      ? resolveCallbackExpression(member.expression, member.parsed, context, new Set(), depth + 1)
+      : unresolvedCallback('The selected context hook member has no callback value.');
+  if (property.status === 'unresolved' || property.status === 'empty') {
+    return unresolvedCallback('The selected context hook member is not backed by a stable callback value.');
+  }
+  return {
+    status: 'external_boundary', handlers: property.handlers,
+    reason: 'The callback is selected through a frozen-source React context hook; active provider selection remains a runtime boundary.',
+    runtimeBoundaryReason: 'React context provider selection and hook lifecycle remain outside the selected source map.',
+  };
+}
+
+function uniqueLocalFunction(symbol: ts.Symbol, context: CallbackResolverContext): ts.FunctionLikeDeclaration | undefined {
+  if (isImportSymbol(symbol) || context.mutatedSymbols.has(symbol)) return undefined;
+  const declarations = symbol.declarations ?? [];
+  const functionDeclarations = declarations.filter((declaration): declaration is ts.FunctionLikeDeclaration =>
+    isFunctionLike(declaration) && !!declaration.body);
+  const variableDeclarations = declarations.filter(ts.isVariableDeclaration);
+  if (functionDeclarations.length === 1 && variableDeclarations.length === 0) return functionDeclarations[0];
+  if (functionDeclarations.length === 0 && variableDeclarations.length === 1 && declarations.length === 1) {
+    return functionFromDeclaration(variableDeclarations[0]);
+  }
+  return undefined;
+}
+
+function resolveLocalCallbackFactoryCall(
+  call: ts.CallExpression,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  depth: number,
+): CallbackResolution | undefined {
+  if (!ts.isIdentifier(call.expression)) return undefined;
+  const symbol = context.checker.getSymbolAtLocation(call.expression);
+  if (!symbol || isImportSymbol(symbol)) return undefined;
+  if (depth > MAX_CALLBACK_RESOLUTION_DEPTH || ++context.work > MAX_CALLBACK_RESOLUTION_WORK) {
+    return unresolvedCallback('The selected callback exceeded the bounded lexical-resolution work limit.');
+  }
+  if (context.mutatedSymbols.has(symbol)) return unresolvedCallback('The selected local callback factory binding is reassigned or mutated.');
+  const factory = uniqueLocalFunction(symbol, context);
+  if (!factory) return undefined;
+  const returned = soleDirectReturnExpression(factory);
+  const callback = returned && unwrapExpression(returned);
+  if (!callback || !isFunctionLike(callback) || !callback.body) {
+    return unresolvedCallback('The selected local callback factory does not return one stable inline function body.');
+  }
+  const handler = context.functionsByNode.get(callback);
+  if (!handler) return unresolvedCallback('The selected local callback factory returns a function without a mapped executable body.');
+  return { status: 'resolved', handlers: [handler],
+    runtimeBoundaryReason: 'The selected local callback factory is mapped, while argument values and invocation-time captures remain runtime dependent.' };
+}
+
+function resolveCallbackExpression(
+  rawExpression: ts.Expression,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+  visited = new Set<ts.Symbol>(),
+  depth = 0,
+): CallbackResolution {
+  if (depth > MAX_CALLBACK_RESOLUTION_DEPTH || ++context.work > MAX_CALLBACK_RESOLUTION_WORK) {
+    return unresolvedCallback('The selected callback exceeded the bounded lexical-resolution work limit.');
+  }
+  const expression = unwrapExpression(rawExpression);
+  if (ts.isFunctionLike(expression)) {
+    const handler = context.functionsByNode.get(expression);
+    return handler ? { status: 'resolved', handlers: [handler] } : unresolvedCallback('The JSX callback function has no executable body.');
+  }
+  if (ts.isIdentifier(expression)) {
+    if (expression.text === 'undefined') return { status: 'empty', handlers: [] };
+    const symbol = ts.isShorthandPropertyAssignment(expression.parent) && expression.parent.name === expression
+      ? context.checker.getShorthandAssignmentValueSymbol(expression.parent) ?? context.checker.getSymbolAtLocation(expression)
+      : context.checker.getSymbolAtLocation(expression);
+    if (!symbol) return unresolvedCallback();
+    if (visited.has(symbol)) return unresolvedCallback('The selected callback alias contains a cycle.');
+    const nextVisited = new Set(visited).add(symbol);
+    if (context.mutatedSymbols.has(symbol)) return unresolvedCallback('The selected callback binding is reassigned or mutated.');
+    const external = parameterCallback(symbol, context);
+    if (external) return external;
+    if (isImportSymbol(symbol)) return selectedImportResolution(parsed, expression.text, context, nextVisited, depth + 1);
+    const declarations = symbol.declarations ?? [];
+    const functions = declarations.filter((item): item is ts.FunctionLikeDeclaration => isFunctionLike(item) && !!item.body);
+    if (functions.length === 1) {
+      const handler = context.functionsByNode.get(functions[0]!);
+      return handler ? { status: 'resolved', handlers: [handler] } : unresolvedCallback();
+    }
+    if (functions.length > 1) return unresolvedCallback('The callback identifier resolves to multiple function bodies.');
+    if (declarations.length === 1) return resolveCallbackDeclaration(declarations[0]!, parsed, context, nextVisited, depth + 1);
+    const variables = declarations.filter(ts.isVariableDeclaration);
+    if (variables.length === 1) return resolveCallbackDeclaration(variables[0]!, parsed, context, nextVisited, depth + 1);
+    return unresolvedCallback('The callback identifier is shadowed, ambiguous, or has no selected body.');
+  }
+  if (ts.isConditionalExpression(expression)) {
+    const left = resolveCallbackExpression(expression.whenTrue, parsed, context, visited, depth + 1);
+    const right = resolveCallbackExpression(expression.whenFalse, parsed, context, visited, depth + 1);
+    return mergeCallbackAlternatives(left, right);
+  }
+  if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken,
+    ts.SyntaxKind.AmpersandAmpersandToken].includes(expression.operatorToken.kind)) {
+    const left = resolveCallbackExpression(expression.left, parsed, context, visited, depth + 1);
+    const right = resolveCallbackExpression(expression.right, parsed, context, visited, depth + 1);
+    return mergeCallbackAlternatives(left, right);
+  }
+  if (ts.isCallExpression(expression)) {
+    if (isVitestMockCallback(expression, parsed, context)) {
+      return externalCallback('The callback is a Vitest mock function created by an imported test-runtime binding.',
+        'Vitest mock invocation and configured behavior remain external runtime behavior.');
+    }
+    if (isReactUseCallback(expression, parsed, context)) {
+      if (!expression.arguments[0]) return unresolvedCallback('The imported React useCallback call has no selected callback argument.');
+      const callback = resolveCallbackExpression(expression.arguments[0], parsed, context, visited, depth + 1);
+      if (callback.status === 'unresolved' || callback.status === 'empty') return callback;
+      const runtimeBoundaryReason = 'The selected callback body is mapped, but the external React hook lifecycle remains unverified.';
+      return { ...callback, runtimeBoundaryReason };
+    }
+    const factory = resolveLocalCallbackFactoryCall(expression, parsed, context, depth + 1);
+    if (factory) return factory;
+    return unresolvedCallback('The JSX callback is produced by an unrecognized call; its return value is not inferred.');
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    const member = context.checker.getSymbolAtLocation(expression.name);
+    if (member && context.mutatedSymbols.has(member)) return unresolvedCallback('The selected callback property is reassigned or mutated.');
+    const external = ts.isIdentifier(expression.expression)
+      ? context.checker.getSymbolAtLocation(expression.expression) : undefined;
+    if (external) {
+      const parameter = parameterCallback(external, context);
+      if (parameter) return parameter;
+    }
+    return resolveObjectMember(expression.expression, expression.name.text, parsed, context, visited, depth + 1);
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {
+    const memberName = staticText(expression.argumentExpression);
+    if (memberName !== undefined) return resolveObjectMember(expression.expression, memberName, parsed, context, visited, depth + 1);
+  }
+  if (expression.kind === ts.SyntaxKind.NullKeyword || expression.kind === ts.SyntaxKind.FalseKeyword) return { status: 'empty', handlers: [] };
+  return unresolvedCallback('The JSX callback uses a dynamic expression outside the bounded selected-source resolver.');
+}
+
+function resolveJsxCallback(
+  expression: ts.Expression | undefined,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext | undefined,
+  functionsByNode: Map<ts.FunctionLikeDeclaration, FunctionEntry>,
+): CallbackResolution {
+  if (!expression) return unresolvedCallback('The JSX callback attribute has no statically supplied callback expression.');
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isFunctionLike(unwrapped)) {
+    const handler = functionsByNode.get(unwrapped);
+    return handler ? { status: 'resolved', handlers: [handler] } : unresolvedCallback('The JSX callback function has no executable body.');
+  }
+  return context ? resolveCallbackExpression(unwrapped, parsed, context) : unresolvedCallback();
 }
 
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
@@ -223,10 +1001,15 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
   }
 
   const exportedPrototypeLocals = new Set<string>();
-  const operationKey = (node: ts.Node, name: string, kind = 'export') => `${parsed.artifact.id}|${kind}|${sourceLine(source, node)}|${name}`;
+  const operationKey = (node: ts.Node, name: string, kind = 'export') => {
+    const owner = parsedBySource.get(node.getSourceFile());
+    const sourceFile = owner?.source ?? source;
+    return `${owner?.artifact.id ?? parsed.artifact.id}|${kind}|${node.getStart(sourceFile, false)}-${node.getEnd()}|${name}`;
+  };
   const keyForNode = (node: ts.Node, name: string, kind = 'export') => {
     const owner = parsedBySource.get(node.getSourceFile());
-    return `${owner?.artifact.id ?? parsed.artifact.id}|${kind}|${owner ? sourceLine(owner.source, node) : sourceLine(source, node)}|${name}`;
+    const sourceFile = owner?.source ?? source;
+    return `${owner?.artifact.id ?? parsed.artifact.id}|${kind}|${node.getStart(sourceFile, false)}-${node.getEnd()}|${name}`;
   };
   const addUnresolved = (name: string, node: ts.Node, reason: string, kind = 'export') => {
     sink(`Unresolved exported operation ${name}`, undefined, node, keyForNode(node, name, kind), reason);
@@ -409,7 +1192,7 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
     if (ts.isFunctionDeclaration(declaration)) {
       const handler = allFunctions.find(item => item.node === declaration);
       if (handler) sink(`Exported operation ${publicName}`, handler, evidenceNode,
-        `${parsed.artifact.id}|selected-export|${sourceLine(source, evidenceNode)}|${publicName}|${target.artifact.id}`);
+        keyForNode(handler.node, `${publicName}|${target.artifact.id}`, 'selected-export'));
       else addUnresolved(publicName, evidenceNode, 'The selected export has no statically available function body.', 'selected-module');
       return;
     }
@@ -438,7 +1221,7 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
     if (isFunctionLike(expression)) {
       const handler = allFunctions.find(item => item.node === expression);
       if (handler) sink(`Exported operation ${publicName}`, handler, evidenceNode,
-        `${parsed.artifact.id}|selected-export|${sourceLine(source, evidenceNode)}|${publicName}|${target.artifact.id}`);
+        keyForNode(handler.node, `${publicName}|${target.artifact.id}`, 'selected-export'));
       else addUnresolved(publicName, evidenceNode, 'The selected exported function body cannot be resolved.', 'selected-module');
       return;
     }
@@ -486,7 +1269,7 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
         if (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
           const handler = allFunctions.find(item => item.node === property);
           if (handler) sink(`Exported operation ${childName}`, handler, property,
-            `${parsed.artifact.id}|selected-export|${sourceLine(source, evidenceNode)}|${childName}|${target.artifact.id}`);
+            keyForNode(property, `${childName}|${target.artifact.id}`, 'selected-export'));
           else addUnresolved(childName, property, 'The selected object member has no statically available function body.', 'selected-module');
         } else if (ts.isPropertyAssignment(property)) {
           const value = unwrapExpression(property.initializer);
@@ -549,7 +1332,7 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
         if (local.status === 'resolved') {
           const factory = selectedFunctionEntry(local.module, local.localName);
           if (factory) sink(`Factory operation ${factory.name} initializes ${publicName}`, factory, expression,
-            `${parsed.artifact.id}|selected-factory|${sourceLine(source, evidenceNode)}|${publicName}|${target.artifact.id}`);
+            keyForNode(expression, `${publicName}|${target.artifact.id}|${factory.name}`, 'selected-factory'));
         }
       }
       addInitializationBoundary(publicName, expression,
@@ -1157,14 +1940,14 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
             const registration = ts.isCallExpression(parent) ? calleeName(parent) ?? 'call'
               : ts.isIdentifier(parent.expression) ? parent.expression.text : 'constructor';
             const label = `Callback operation ${callback.name} registered within ${caller.name}`;
-            sink(label, callback, parent, `${parsed.artifact.id}|callback|${sourceLine(source, parent)}|${registration}|${callback.name}`);
+            sink(label, callback, parent, keyForNode(parent, `${registration}|${callback.name}`, 'callback'));
             exportedNodes.add(callback.node);
           }
         } else if (parent && ts.isCallExpression(parent) && parent.expression === callbackNode) {
           const immediatelyInvoked = functionByNode.get(node);
           if (immediatelyInvoked && !exportedNodes.has(immediatelyInvoked.node)) {
             sink(`Internal operation ${immediatelyInvoked.name} called by ${caller.name}`, immediatelyInvoked, parent,
-              `${parsed.artifact.id}|iife|${sourceLine(source, parent)}|${caller.name}|${immediatelyInvoked.name}`);
+              keyForNode(parent, `${caller.name}|${immediatelyInvoked.name}`, 'iife'));
             exportedNodes.add(immediatelyInvoked.node);
           }
         }
@@ -1177,7 +1960,7 @@ function collectExportedOperations(parsed: ParsedArtifact, functions: FunctionEn
         const callee = internalFunctions.get(node.expression.text);
         if (callee && !exportedNodes.has(callee.node)) {
           const label = `Internal operation ${callee.name} called by ${caller.name}`;
-          sink(label, callee, node, `${parsed.artifact.id}|reachable|${sourceLine(source, node)}|${caller.name}|${callee.name}`);
+          sink(label, callee, node, keyForNode(node, `${caller.name}|${callee.name}`, 'reachable'));
           exportedNodes.add(callee.node);
         }
       }
@@ -1253,13 +2036,59 @@ function calleeName(call: ts.CallExpression): string | undefined {
   return undefined;
 }
 
-function directHandler(call: ts.CallExpression, functions: FunctionEntry[]): FunctionEntry | undefined {
+type RouteHandlerResolution = { handler?: FunctionEntry; runtimeBoundaryReason?: string };
+
+function selectedLocalWrapperCallback(
+  wrapperCall: ts.CallExpression,
+  parsed: ParsedArtifact,
+  context: CallbackResolverContext,
+): RouteHandlerResolution {
+  if (!ts.isIdentifier(wrapperCall.expression) || wrapperCall.arguments.length !== 1) return {};
+  const wrapperSymbol = context.checker.getSymbolAtLocation(wrapperCall.expression);
+  if (!wrapperSymbol || isImportSymbol(wrapperSymbol)) return {};
+  const wrapper = uniqueLocalFunction(wrapperSymbol, context);
+  if (!wrapper || wrapper.parameters.length !== 1) return {};
+  const parameter = wrapper.parameters[0]!;
+  if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken) return {};
+  const parameterSymbol = context.checker.getSymbolAtLocation(parameter.name);
+  if (!parameterSymbol || context.mutatedSymbols.has(parameterSymbol)) return {};
+  const returned = soleDirectReturnExpression(wrapper);
+  const adapter = returned && unwrapExpression(returned);
+  if (!adapter || !isFunctionLike(adapter) || !adapter.body) return {};
+  let directCalls = 0;
+  const visit = (node: ts.Node) => {
+    if (node !== adapter && isFunctionLike(node)) return;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && context.checker.getSymbolAtLocation(node.expression) === parameterSymbol) directCalls++;
+    ts.forEachChild(node, visit);
+  };
+  if (ts.isBlock(adapter.body)) visit(adapter.body);
+  else visit(adapter.body);
+  if (directCalls === 0) return {};
+
+  const callback = unwrapExpression(wrapperCall.arguments[0]!);
+  if (!isFunctionLike(callback) || !callback.body) return {};
+  const handler = context.functionsByNode.get(callback);
+  if (!handler) return {};
+  return { handler,
+    runtimeBoundaryReason: 'The route callback is passed through a selected local wrapper; wrapper scheduling and error propagation remain explicit runtime boundaries.' };
+}
+
+function directHandler(call: ts.CallExpression, parsed: ParsedArtifact, context: CallbackResolverContext | undefined): RouteHandlerResolution {
   const last = call.arguments.at(-1);
-  if (!last) return undefined;
-  if (ts.isArrowFunction(last) || ts.isFunctionExpression(last)) return functions.find(item => item.node === last);
-  if (!ts.isIdentifier(last)) return undefined;
-  const candidates = functions.filter(item => item.source === call.getSourceFile() && item.name === last.text);
-  return candidates.length === 1 ? candidates[0] : undefined;
+  if (!last || !context) return {};
+  const expression = unwrapExpression(last);
+  if (isFunctionLike(expression)) {
+    const handler = context.functionsByNode.get(expression);
+    return handler ? { handler } : {};
+  }
+  if (ts.isIdentifier(expression)) {
+    const resolved = resolveCallbackExpression(expression, parsed, context);
+    return resolved.status === 'resolved' && resolved.handlers.length === 1
+      ? { handler: resolved.handlers[0], ...(resolved.runtimeBoundaryReason ? { runtimeBoundaryReason: resolved.runtimeBoundaryReason } : {}) }
+      : {};
+  }
+  return ts.isCallExpression(expression) ? selectedLocalWrapperCallback(expression, parsed, context) : {};
 }
 
 function safeSummary(value: unknown): string {
@@ -1343,21 +2172,41 @@ function branchPaths(feature: ReviewAnalysisFeature, handler: FunctionEntry, fun
 }
 
 /**
- * Extracts an intentionally bounded, syntax-backed map from frozen JavaScript
- * and TypeScript artifacts. It does not claim whole-program reachability or
- * enumerate dynamic, interprocedural, deployment, or runtime behavior.
+ * Extracts an intentionally bounded syntax-backed map from frozen JavaScript
+ * and TypeScript artifacts, plus explicitly marked plain-text units for other
+ * readable source languages. Unsupported text never acquires parser-backed
+ * executable-path or runtime proof.
  */
-export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAnalysisMap {
+export function deriveReviewAnalysisMap(
+  evidence: EvidenceArtifact[],
+  options: { plainTextArtifactIds?: ReadonlySet<string> } = {},
+): ReviewAnalysisMap {
   const supported: ParsedArtifact[] = [];
   const unsupportedArtifacts: ReviewAnalysisMap['coverage']['unsupportedArtifacts'] = [];
-  const sourceArtifacts = evidence.filter(item => item.artifact.type === 'source_code' || SUPPORTED_EXTENSIONS.has(extension(item.artifact.fileName)) || CONFIG_EXTENSIONS.has(extension(item.artifact.fileName)));
+  const plainTextLogicArtifacts: Array<{ item: EvidenceArtifact; segments: ReturnType<typeof segmentPlainTextLogic> }> = [];
+  const sourceArtifacts = evidence.filter(item => hasPlainTextSourceIntent(item.artifact) || SUPPORTED_EXTENSIONS.has(extension(item.artifact.fileName)) || CONFIG_EXTENSIONS.has(extension(item.artifact.fileName)));
 
   for (const item of sourceArtifacts) {
     const ext = extension(item.artifact.fileName);
     if (!SUPPORTED_EXTENSIONS.has(ext)) {
+      const configuration = CONFIG_EXTENSIONS.has(ext);
+      const availableSourceText = hasPlainTextSourceIntent(item.artifact) && typeof item.content === 'string'
+        && item.state !== 'inaccessible' && item.state !== 'deleted' && item.state !== 'stale';
+      const readableSourceText = availableSourceText && isReadablePlainText(item.content!);
+      const segments = !configuration && readableSourceText ? segmentPlainTextLogic(item.content!) : [];
+      if (readableSourceText && !configuration) plainTextLogicArtifacts.push({ item, segments });
       unsupportedArtifacts.push({ artifactId: item.artifact.id, filePath: item.artifact.filePath,
-        ...(CONFIG_EXTENSIONS.has(ext) ? { parserExclusion: 'configuration' as const } : {}),
-        reason: CONFIG_EXTENSIONS.has(ext) ? 'Configuration or markup is outside the executable JavaScript/TypeScript control-flow parser.' : 'Language or file format is not supported by the bounded JavaScript/TypeScript control-flow parser.' });
+        ...(configuration ? { parserExclusion: 'configuration' as const }
+          : readableSourceText ? { parserExclusion: 'plain_text_logic' as const } : {}),
+        reason: configuration
+          ? 'Configuration or markup is outside the executable JavaScript/TypeScript control-flow parser.'
+          : segments.length
+            ? 'Unsupported source language is retained for bounded plain-text logic assessment; parser-backed paths remain unverified.'
+            : readableSourceText
+              ? 'Empty unsupported source text is retained as plain-text-only input; no assessment unit or executable-path proof is created.'
+              : availableSourceText
+                ? 'Frozen source text contains binary control characters and is unavailable for plain-text logic assessment.'
+                : 'Language or file format is not supported by the bounded JavaScript/TypeScript control-flow parser, or frozen text is unavailable.' });
       continue;
     }
     if (typeof item.content !== 'string' || item.state === 'inaccessible' || item.state === 'deleted' || item.state === 'stale') {
@@ -1368,6 +2217,25 @@ export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAna
     const syntaxErrors = (source as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length;
     if (syntaxErrors > 0) {
       unsupportedArtifacts.push({ artifactId: item.artifact.id, filePath: item.artifact.filePath, reason: `Source has ${syntaxErrors} parser diagnostic${syntaxErrors === 1 ? '' : 's'}; feature paths are unverified.` });
+      continue;
+    }
+    if (options.plainTextArtifactIds?.has(item.artifact.id)) {
+      if (!isReadablePlainText(item.content)) {
+        unsupportedArtifacts.push({ artifactId: item.artifact.id, filePath: item.artifact.filePath,
+          reason: 'Parsed source contains unreadable control bytes and cannot enter bounded plain-text logic assessment.' });
+        continue;
+      }
+      const segments = segmentPlainTextLogic(item.content);
+      plainTextLogicArtifacts.push({ item, segments });
+      if (segments.length) {
+        unsupportedArtifacts.push({ artifactId: item.artifact.id, filePath: item.artifact.filePath,
+          parserExclusion: 'plain_text_logic',
+          reason: 'Successfully parsed source was selected for bounded plain-text logic assessment; syntax, dependency, branch and runtime coverage remain unverified.' });
+      } else {
+        unsupportedArtifacts.push({ artifactId: item.artifact.id, filePath: item.artifact.filePath,
+          parserExclusion: 'plain_text_logic',
+          reason: 'Successfully parsed source is empty after line segmentation; no assessment unit or executable-path proof is created.' });
+      }
       continue;
     }
     supported.push({ artifact: item.artifact, source });
@@ -1383,16 +2251,24 @@ export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAna
   const coverageArtifactLimit = 1_000;
   const functions = collectFunctions(supported);
   const functionByNode = new Map(functions.map(item => [item.node, item]));
+  const callbackContext = createCallbackResolverContext(supported, resolver, parsedBySource, functions);
   const drafts: FeatureDraft[] = [];
   const seenDraftKeys = new Set<string>();
   let omittedEntryPoints = 0;
+  let omittedPlainTextLogicUnits = 0;
   const addDraft = (label: string, entry: FunctionEntry | undefined, refs: AnalysisEvidenceReference[], key: string,
-    unresolvedReason?: string, initializationLabel?: string) => {
+    unresolvedReason?: string, initializationLabel?: string,
+    analysis?: { analysisKind: 'plain_text_logic'; sourceRange: PlainTextLogicSourceRange },
+    callback?: Pick<FeatureDraft, 'handlers' | 'externalCallbackBoundaryReason' | 'callbackRuntimeBoundaryReason'>) => {
     if (!refs.length) return;
     if (seenDraftKeys.has(key)) return;
     seenDraftKeys.add(key);
-    if (drafts.length >= MAX_FEATURE_INVENTORY) { omittedEntryPoints++; return; }
-    drafts.push({ label: safeSummary(label), handler: entry, refs: refs.slice(0, 4), key, unresolvedReason, initializationLabel });
+    if (drafts.length >= MAX_FEATURE_INVENTORY) {
+      omittedEntryPoints++;
+      if (analysis?.analysisKind === 'plain_text_logic') omittedPlainTextLogicUnits++;
+      return;
+    }
+    drafts.push({ label: safeSummary(label), handler: entry, refs: refs.slice(0, 4), key, unresolvedReason, initializationLabel, ...analysis, ...callback });
   };
 
   for (const parsed of supported) {
@@ -1403,24 +2279,43 @@ export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAna
         if (name && HTTP_METHODS.has(name.toLowerCase()) && /(?:^|\.)(?:app|router|server)$/i.test(receiver)) {
           const staticRoute = staticText(node.arguments[0]);
           const routeLabel = `${name.toUpperCase()} ${staticRoute ?? '[dynamic route]'}`;
-          const handler = directHandler(node, functions);
+          const routeHandler = directHandler(node, parsed, callbackContext);
+          const handler = routeHandler.handler;
           const refs = [refFor(parsed.artifact, parsed.source, node), ...(handler ? [refFor(handler.artifact, handler.source, handler.node)] : [])];
-          addDraft(`Route ${routeLabel}`, handler, refs, `${parsed.artifact.id}|route|${sourceLine(parsed.source, node)}|${routeLabel}`);
-          const routeDraft = drafts.find(item => item.key === `${parsed.artifact.id}|route|${sourceLine(parsed.source, node)}|${routeLabel}`);
+          const routeKey = `${parsed.artifact.id}|route|${node.getStart(parsed.source, false)}-${node.getEnd()}|${routeLabel}`;
+          addDraft(`Route ${routeLabel}`, handler, refs,
+            routeKey, undefined, undefined, undefined,
+            handler && routeHandler.runtimeBoundaryReason
+              ? { handlers: [handler], callbackRuntimeBoundaryReason: routeHandler.runtimeBoundaryReason } : undefined);
+          const routeDraft = drafts.find(item => item.key === routeKey);
           if (routeDraft && node.arguments.length > 2) routeDraft.middleware = true;
           if (!staticRoute) {
-            const current = drafts.find(item => item.key === `${parsed.artifact.id}|route|${sourceLine(parsed.source, node)}|${routeLabel}`);
+            const current = drafts.find(item => item.key === routeKey);
             if (current) current.refs.push(refFor(parsed.artifact, parsed.source, node));
           }
         }
-      } else if (ts.isJsxAttribute(node) && node.name && ts.isIdentifier(node.name) && UI_EVENTS.has(node.name.text)) {
+      } else if (ts.isJsxAttribute(node) && node.name && ts.isIdentifier(node.name) && /^on[A-Z]/.test(node.name.text)) {
         let parent: ts.Node | undefined = node.parent;
         while (parent && !isFunctionLike(parent)) parent = parent.parent;
         const owner = (parent ? functionByNode.get(parent)?.name : undefined) ?? 'component';
         const expression = node.initializer && ts.isJsxExpression(node.initializer) ? node.initializer.expression : undefined;
-        const entry = expression && isFunctionLike(expression) ? functionByNode.get(expression)
-          : expression && ts.isIdentifier(expression) ? functions.find(item => item.source === parsed.source && item.name === expression.text) : undefined;
-        addDraft(`UI ${node.name.text} flow in ${owner}`, entry, [refFor(parsed.artifact, parsed.source, node), ...(entry ? [refFor(entry.artifact, entry.source, entry.node)] : [])], `${parsed.artifact.id}|ui|${sourceLine(parsed.source, node)}|${node.name.text}`);
+        const resolution = resolveJsxCallback(expression, parsed, callbackContext, functionByNode);
+        const handlers = resolution.status === 'unresolved' || resolution.status === 'empty' ? [] : resolution.handlers;
+        const entry = handlers[0];
+        const refs = [refFor(parsed.artifact, parsed.source, node), ...handlers.map(handler => refFor(handler.artifact, handler.source, handler.node))];
+        const unresolvedReason = resolution.status === 'unresolved' ? resolution.reason
+          : resolution.status === 'empty' ? 'The JSX callback expression resolves to no callback target.' : undefined;
+        const callbackRuntimeBoundaryReason = 'runtimeBoundaryReason' in resolution ? resolution.runtimeBoundaryReason : undefined;
+        addDraft(`UI ${node.name.text} flow in ${owner}`, entry, refs,
+          `${parsed.artifact.id}|ui|${node.getStart(parsed.source, false)}-${node.getEnd()}|${node.name.text}`,
+          unresolvedReason,
+          undefined,
+          undefined,
+          {
+            ...(resolution.status === 'external_boundary' ? { externalCallbackBoundaryReason: resolution.reason } : {}),
+            ...(callbackRuntimeBoundaryReason ? { callbackRuntimeBoundaryReason } : {}),
+            ...(handlers.length ? { handlers } : {}),
+          });
       }
       ts.forEachChild(node, visit);
     };
@@ -1445,17 +2340,57 @@ export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAna
     exportExpansionTruncatedCount += edges.expansionTruncated;
   }
 
+  const plainTextLogicUnitCount = plainTextLogicArtifacts.reduce((sum, artifact) => sum + artifact.segments.length, 0);
+  for (const { item, segments } of plainTextLogicArtifacts) {
+    for (const segment of segments) {
+      const { lineStart, lineEnd } = segment.sourceRange;
+      const sourceVersion = item.artifact.contentHash || null;
+      const refs: AnalysisEvidenceReference[] = [{ artifactId: item.artifact.id, filePath: item.artifact.filePath, lineNumber: lineStart, sourceVersion }];
+      if (lineEnd !== lineStart) refs.push({ artifactId: item.artifact.id, filePath: item.artifact.filePath, lineNumber: lineEnd, sourceVersion });
+      const key = `${item.artifact.id}|plain-text-logic|${sourceVersion ?? ''}|${lineStart}-${lineEnd}`;
+      addDraft(`Plain-text logic review: ${item.artifact.filePath} lines ${lineStart}-${lineEnd}`, undefined, refs, key,
+        'No parser-backed entry point, branch, dependency, or runtime path is inferred for this unsupported language segment.', undefined,
+        { analysisKind: 'plain_text_logic', sourceRange: segment.sourceRange });
+    }
+  }
+
   const truncatedFeatures = omittedEntryPoints;
 
   const features: ReviewAnalysisFeature[] = drafts.map(draft => {
     const id = `feature-${digest(draft.key)}`;
+    const handlers = uniqueHandlers(draft.handlers ?? (draft.handler ? [draft.handler] : []));
+    const externalCallbackBoundary = !!draft.externalCallbackBoundaryReason;
     const feature: ReviewAnalysisFeature = { id, label: draft.label, provisional: true,
-      entryPointStatus: draft.handler || draft.initializationLabel ? 'resolved' : 'unresolved', entryPoints: draft.refs, paths: [], assessments: freshAssessments(), unresolved: [] };
+      ...(draft.analysisKind === 'plain_text_logic' ? { analysisKind: draft.analysisKind, sourceRange: draft.sourceRange } : {}),
+      ...(draft.analysisKind === 'plain_text_logic' ? {} : { entryPointStatus: draft.initializationLabel ? 'resolved' as const
+        : externalCallbackBoundary ? 'external_boundary' as const : handlers.length ? 'resolved' as const : 'unresolved' as const }),
+      entryPoints: draft.refs, paths: [], assessments: freshAssessments(), unresolved: [] };
+    if (draft.analysisKind === 'plain_text_logic') {
+      const evidence = draft.refs.slice(0, 2);
+      feature.paths.push({ id: `path-${digest(`${id}|plain-text-logic-unresolved`)}`, kind: 'unresolved',
+        label: 'Plain-text logic only; parser and runtime paths remain unresolved.', status: 'unverified', evidence });
+      feature.unresolved.push({ reason: draft.unresolvedReason ?? 'Parser-backed control flow and runtime behavior are not verified for this plain-text segment.', evidence });
+      return feature;
+    }
     if (draft.middleware) feature.unresolved.push({ reason: 'Middleware order, early exits and guards before this handler are not expanded by this local map.', evidence: draft.refs.slice(0, 1) });
-    if (draft.handler) branchPaths(feature, draft.handler, functions);
-    else if (draft.initializationLabel) {
+    if (draft.callbackRuntimeBoundaryReason) {
+      const evidence = draft.refs.slice(0, 1);
+      addPath(feature, 'unresolved', draft.callbackRuntimeBoundaryReason, evidence);
+      feature.unresolved.push({ reason: draft.callbackRuntimeBoundaryReason, evidence });
+    }
+    if (externalCallbackBoundary) {
+      const evidence = draft.refs.slice(0, 1);
+      addPath(feature, 'unresolved', 'The callback is supplied by a caller; its implementation is outside the selected frozen source set.', evidence);
+      feature.unresolved.push({ reason: draft.externalCallbackBoundaryReason!, evidence });
+    }
+    if (handlers.length) {
+      for (const handler of handlers) branchPaths(feature, handler, functions);
+    } else if (draft.initializationLabel) {
       addPath(feature, 'normal', draft.initializationLabel, draft.refs.slice(0, 1));
       feature.unresolved.push({ reason: draft.unresolvedReason ?? 'The module initialization is identified, but its returned runtime surface remains unresolved.', evidence: draft.refs.slice(0, 1) });
+    }
+    else if (externalCallbackBoundary) {
+      // The local JSX binding can be assessed, while the caller-owned body remains an explicit boundary.
     }
     else {
       addPath(feature, 'normal', 'The entry point is present, but its handler body was not resolved.', draft.refs.slice(0, 1));
@@ -1465,20 +2400,24 @@ export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAna
   });
 
   const unresolvedEdgeCount = features.reduce((sum, feature) => sum + feature.unresolved.length, 0);
+  const externalCallbackBoundaryCount = features.filter(feature => feature.entryPointStatus === 'external_boundary').length;
   const limitations = [
-    'This is bounded syntax extraction for JavaScript and TypeScript artifacts only; it is not a complete control-flow or security proof.',
+    'This is bounded syntax extraction for JavaScript and TypeScript artifacts plus explicitly marked plain-text logic reviews; it is not a complete control-flow or security proof.',
     'Features inferred from route names, exports, and UI event handlers are provisional until confirmed against requirements or design evidence.',
     'Inter-function, framework, dynamic dispatch, unselected dependencies, asynchronous, background-job, deployment, and runtime paths may be incomplete.',
   ];
   if (declarationClassifications.length) limitations.push(`${declarationClassifications.length} declaration-only artifact${declarationClassifications.length === 1 ? ' was' : 's were'} retained for full source sweeps; signatures do not create executable operations or absence-resolution proof.`);
   if (nonExecutableClassifications.length) limitations.push(`${nonExecutableClassifications.length} statically literal or inert artifact${nonExecutableClassifications.length === 1 ? ' was' : 's were'} retained for full source sweeps; these inputs do not create executable operations or absence-resolution proof.`);
-  if (unsupportedArtifactCount > 0) limitations.push(`${unsupportedArtifactCount} source or configuration artifact${unsupportedArtifactCount === 1 ? ' was' : 's were'} outside the supported parser and remain unverified.`);
+  if (unsupportedArtifactCount > 0) limitations.push(`${unsupportedArtifactCount} source or configuration artifact${unsupportedArtifactCount === 1 ? ' was' : 's were'} outside the supported parser; parser-backed coverage remains unverified.`);
+  if (plainTextLogicArtifacts.length > 0) limitations.push(`${plainTextLogicArtifacts.length} unsupported source artifact${plainTextLogicArtifacts.length === 1 ? ' uses' : 's use'} plain-text-only handling across ${plainTextLogicUnitCount} bounded assessment unit${plainTextLogicUnitCount === 1 ? '' : 's'}; parser, executable-path and runtime coverage remain unverified.`);
+  if (externalCallbackBoundaryCount > 0) limitations.push(`${externalCallbackBoundaryCount} JSX callback binding${externalCallbackBoundaryCount === 1 ? ' is' : 's are'} supplied by an enclosing caller; local binding syntax may be assessed, but callback behavior remains outside the selected source scope and cannot support absence-based resolution.`);
   if (unsupportedArtifacts.length > 100) limitations.push(`${unsupportedArtifacts.length - 100} additional unsupported artifacts were omitted from the map listing; all remain unverified.`);
   if (resolvedModuleEdgeCount || unresolvedModuleEdgeCount) limitations.push(`Selected-source module resolution mapped ${resolvedModuleEdgeCount} named edge${resolvedModuleEdgeCount === 1 ? '' : 's'} and left ${unresolvedModuleEdgeCount} edge${unresolvedModuleEdgeCount === 1 ? '' : 's'} unresolved; only frozen selected sources were considered.`);
   const selectedModuleGraphWork = resolver.graphWork;
   if (selectedModuleGraphWork.truncated) limitations.push(`Selected-source module resolution stopped at its explicit ${selectedModuleGraphWork.limit}-step work or depth bound; remaining graph scope stays unresolved.`);
   if (exportExpansionTruncatedCount) limitations.push(`${exportExpansionTruncatedCount} artifact export expansion${exportExpansionTruncatedCount === 1 ? ' reached' : 's reached'} its explicit ${MAX_EXPORT_EXPANSION_WORK}-step or ${MAX_EXPORT_EXPANSION_DEPTH}-level safety bound; omitted operation scope remains unresolved.`);
-  if (truncatedFeatures > 0) limitations.push(`${truncatedFeatures} additional recognized entry point${truncatedFeatures === 1 ? ' was' : 's were'} omitted after the deterministic ${MAX_FEATURE_INVENTORY}-feature inventory safety limit; omitted scope remains unverified.`);
+  if (truncatedFeatures > 0) limitations.push(`${truncatedFeatures} additional feature or plain-text assessment unit${truncatedFeatures === 1 ? ' was' : 's were'} omitted after the deterministic ${MAX_FEATURE_INVENTORY}-feature inventory safety limit; omitted scope remains unverified.`);
+  if (omittedPlainTextLogicUnits > 0) limitations.push(`${omittedPlainTextLogicUnits} plain-text logic unit${omittedPlainTextLogicUnits === 1 ? ' was' : 's were'} omitted at the feature inventory limit; omitted text scope remains unverified.`);
   if (!features.length && executableArtifactCount > 0) limitations.push('No statically recognizable route, exported operation, or selected UI event entry point was found in executable artifacts. Feature scope remains unresolved.');
 
   return {
@@ -1503,6 +2442,10 @@ export function deriveReviewAnalysisMap(evidence: EvidenceArtifact[]): ReviewAna
       exportExpansionTruncatedCount,
       unsupportedArtifacts: unsupportedArtifacts.slice(0, 100),
       unsupportedExecutableArtifacts: unsupportedArtifacts.filter(item => item.parserExclusion !== 'configuration').length,
+      plainTextLogicArtifactCount: plainTextLogicArtifacts.length,
+      plainTextLogicUnitCount,
+      omittedPlainTextLogicUnitCount: omittedPlainTextLogicUnits,
+      externalCallbackBoundaryCount,
       unresolvedEdgeCount,
       featureInventoryLimit: MAX_FEATURE_INVENTORY,
       omittedEntryPointCount: truncatedFeatures,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ChevronDown, FileSearch, Filter, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import { mergeReviewFindings } from '../reviewEvidenceFindings';
@@ -11,6 +11,8 @@ import { Select } from './Select';
 import { findingDomain, findingGroupDomains, findingSourceReferences, groupFindings, groupStatus } from '../findingGroups';
 import { FindingEvidence, FindingOccurrences } from './FindingEvidence';
 import { FindingDocument } from './FindingDocument';
+import { LoadingSkeleton } from './LoadingSkeleton';
+import './FindingsPanel.css';
 
 type Props = {
   projectId: string;
@@ -74,6 +76,13 @@ function RiskBadge({ finding }: { finding: Finding }) {
   return <span className={`project-finding-risk ${riskLevel ? `project-risk-level-${riskLevel}` : 'project-risk-level-unclassified'}`} title={finding.riskLevel ? 'Recorded Risk Level' : 'Risk Level calculated from available finding data'}>{riskLevel ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1) : 'Not classified'}</span>;
 }
 
+function PriorityBadge({ priority }: { priority: string | null | undefined }) {
+  const label = priority?.trim() || 'Not set';
+  const normalized = label.toLowerCase();
+  const level = ['critical', 'high', 'medium', 'low'].includes(normalized) ? normalized : 'unclassified';
+  return <span className={`project-finding-priority project-priority-level-${level}`}>{label}</span>;
+}
+
 function sourceLabel(source: Finding['source']) {
   return source === 'static' ? 'Review' : 'Dynamic Testing';
 }
@@ -134,22 +143,40 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const listScrollContext = useRef<{ element: HTMLElement | null; scrollTop: number; windowTop: number } | null>(null);
+  const loadedFindingsRef = useRef<{ loaded: boolean; findings: Finding[] }>({ loaded: false, findings: [] });
+
+  const openFinding = (id: string, source: HTMLElement) => {
+    const element = source.closest<HTMLElement>('.main-content') ?? document.querySelector<HTMLElement>('.main-content');
+    listScrollContext.current = { element, scrollTop: element?.scrollTop ?? 0, windowTop: window.scrollY };
+    setSelectedId(id);
+  };
+  const returnToFindings = (id: string) => {
+    setSelectedId(null);
+    window.requestAnimationFrame(() => {
+      const context = listScrollContext.current;
+      if (context?.element?.isConnected) context.element.scrollTop = context.scrollTop;
+      else if (context) window.scrollTo({ top: context.windowTop, behavior: 'auto' });
+      document.getElementById(`finding-row-${id}`)?.focus({ preventScroll: true });
+    });
+  };
 
   const loadFindings = useCallback(async () => {
     setLoading(true);
-    setLoadError(null);
     try {
       const nextFindings = sessionId
         ? await api.listStaticFindings(projectId, sessionId)
         : await api.listFindings(projectId);
       const combined = mergeReviewFindings(nextFindings, supplementalFindings ?? []);
+      loadedFindingsRef.current = { loaded: true, findings: combined };
       setFindings(combined);
+      setLoadError(null);
       onLoadStateChange?.(combined, null);
     } catch (cause) {
-      setFindings([]);
       const message = userFacingError(cause, 'Findings could not be loaded.');
+      if (!loadedFindingsRef.current.loaded) setFindings([]);
       setLoadError(message);
-      onLoadStateChange?.([], message);
+      onLoadStateChange?.(loadedFindingsRef.current.findings, message);
     } finally {
       setLoading(false);
     }
@@ -185,7 +212,11 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
     setActionError(null);
     try {
       await api.updateFinding(projectId, findingId, status);
-      setFindings(previous => previous.map(finding => finding.id === findingId ? { ...finding, status } : finding));
+      setFindings(previous => {
+        const updated = previous.map(finding => finding.id === findingId ? { ...finding, status } : finding);
+        loadedFindingsRef.current = { loaded: loadedFindingsRef.current.loaded, findings: updated };
+        return updated;
+      });
     } catch (cause) {
       setActionError(`Finding could not be updated. Your previous state is still shown. ${userFacingError(cause, 'Try again.')}`);
     } finally {
@@ -265,6 +296,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   };
 
   const filterPrefix = presentation === 'project' ? 'project-' : '';
+  const isProjectFindings = presentation === 'project' && !sessionId;
   const filterToolbar = (includeSource: boolean) => (
     <div className="findings-filter-shell">
       <div className="findings-filters" role="search" aria-label="Finding filters">
@@ -291,25 +323,42 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
     </div>
   );
 
-  if (loading) return <div className="panel-loading" role="status">Loading findings...</div>;
+  if (loading && isProjectFindings && !loadedFindingsRef.current.loaded) return (
+    <section className="card detail-card findings-card findings-panel findings-panel-project" aria-label="Project findings">
+      <div className="panel-header findings-project-header"><h3>Findings</h3></div>
+      {loadError && <div className="command-inline-alert" role="alert">{loadError}</div>}
+      <LoadingSkeleton variant="rows" rows={5} label="Loading findings" />
+    </section>
+  );
+
+  if (loading && !isProjectFindings) return <div className="panel-loading" role="status">Loading findings...</div>;
 
   if (presentation === 'project') {
     const selectedGroup = grouped.find(group => group.members.some(finding => finding.id === selectedId));
     const selectedFinding = selectedGroup?.members.find(finding => finding.id === selectedId) ?? null;
-    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => { const id = selectedGroup.representative.id; setSelectedId(null); window.requestAnimationFrame(() => document.getElementById(`finding-row-${id}`)?.focus()); }} onOpenReview={onOpenReview} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
+    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
     return (
-      <div className="project-findings-layout findings-table-only">
+      <div className={`project-findings-layout findings-table-only${isProjectFindings ? ' project-findings-project-only' : ''}`}>
         <section className="card detail-card findings-card findings-panel findings-panel-project" aria-labelledby="project-findings-heading">
           <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Findings</h3><strong className="findings-project-total">{groupFindings(findings).length} issue types · {findings.length} flagged items</strong></div>
+          {loading && loadedFindingsRef.current.loaded && <p className="findings-panel-refreshing" role="status">Refreshing findings…</p>}
           {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void loadFindings()}>Retry</button></div>}
           {supplementalUnavailableMessage && <p className="findings-supplemental-context" role="status">{supplementalUnavailableMessage}</p>}
           {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
           {findings.length > 0 && filterToolbar(false)}
           {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 && supplementalUnavailableMessage ? 'No current findings are available in this view. Some document evidence is unavailable; see the message above.' : findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : (
             <section className="project-findings-table-region" aria-label="Findings table">
-              <table className="project-findings-table" aria-label={sessionId ? 'Review findings' : 'Project findings'}><thead><tr><th scope="col">ID</th><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Risk</th><th scope="col">Domain</th><th scope="col">Finding</th></tr></thead><tbody>
-                {pagedFindings.map(finding => { const group = grouped.find(item => item.representative.id === finding.id)!; return <tr id={`finding-row-${finding.id}`} key={finding.id} tabIndex={0} aria-selected={group.members.some(item => item.id === selectedId)} className={group.members.some(item => item.id === selectedId) ? 'selected' : undefined} onClick={() => setSelectedId(finding.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedId(finding.id); } }}>
-                  <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td><td><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td>{findingGroupDomains(group)}</td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{group.members.length > 1 ? `${group.members.length} affected occurrences` : finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); setSelectedId(finding.id); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td>
+              <table className={`project-findings-table${isProjectFindings ? ' project-findings-table-project' : ''}`} aria-label={sessionId ? 'Review findings' : 'Project findings'}><thead><tr>
+                <th scope="col">ID</th>
+                {isProjectFindings
+                  ? <><th scope="col">Findings</th><th scope="col">Risk</th><th scope="col">Priority</th></>
+                  : <><th scope="col">Status</th><th scope="col">Priority</th><th scope="col">Severity</th><th scope="col">Risk</th><th scope="col">Domain</th><th scope="col">Finding</th></>}
+              </tr></thead><tbody>
+                {pagedFindings.map(finding => { const group = grouped.find(item => item.representative.id === finding.id)!; return <tr id={`finding-row-${finding.id}`} key={finding.id} tabIndex={0} aria-selected={group.members.some(item => item.id === selectedId)} className={group.members.some(item => item.id === selectedId) ? 'selected' : undefined} onClick={event => openFinding(finding.id, event.currentTarget)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFinding(finding.id, event.currentTarget); } }}>
+                  <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td>
+                  {isProjectFindings
+                    ? <><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{group.members.length > 1 ? `${group.members.length} affected occurrences` : finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); const row = event.currentTarget.closest<HTMLElement>('tr'); if (row) openFinding(finding.id, row); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td><td><RiskBadge finding={finding} /></td><td><PriorityBadge priority={finding.priority} /></td></>
+                    : <><td><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td>{findingGroupDomains(group)}</td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{group.members.length > 1 ? `${group.members.length} affected occurrences` : finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); const row = event.currentTarget.closest<HTMLElement>('tr'); if (row) openFinding(finding.id, row); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td></>}
                 </tr>; })}
               </tbody></table>
               {pageCount > 1 && <div className="findings-pagination" aria-label="Finding pages"><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={page === 0}>Previous</button><span>Page {page + 1} of {pageCount}</span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1}>Next</button></div>}

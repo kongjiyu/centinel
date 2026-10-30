@@ -31,6 +31,28 @@ function service(repository: InMemoryStaticReviewRepository, modelProvider: Stat
 }
 
 describe('Assessment acceptance boundary', () => {
+  it('never grants text-logic absence proof when the diagnostic inventory is truncated', () => {
+    const python = { ...artifact, id: 'python', fileName: 'worker.py', filePath: 'worker.py' };
+    const initial = deriveReviewAnalysisMap([{ artifact: python, content: 'def calculate(value):\n    return value + 1\n' }]);
+    const map = validateAssessmentResponse({ findings: [], featureAssessments: initial.features.map(feature => ({ featureId: feature.id,
+      assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({ domain, status: 'assessed', outcome: 'no_issue_identified',
+        summary: 'Local text was inspected; runtime remains unverified.', evidence: feature.entryPoints })) })) }, initial);
+    expect(map.status).toBe('assessed');
+    map.coverage.unsupportedArtifacts = []; map.coverage.unsupportedArtifactsTruncated = true;
+    expect(assessedArtifactIds(map)).toEqual([]);
+  });
+  it('withholds absence proof for external callback boundaries while retaining local proof eligibility', () => {
+    const initial = deriveReviewAnalysisMap([{ artifact, content }]);
+    const map = validateAssessmentResponse({ findings: [], featureAssessments: initial.features.map(feature => ({ featureId: feature.id,
+      assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({ domain, status: 'assessed', outcome: 'no_issue_identified',
+        summary: 'The selected local path was inspected.', evidence: feature.entryPoints })) })) }, initial);
+    expect(assessedArtifactIds(map)).toEqual([artifact.id]);
+
+    map.features[0]!.entryPointStatus = 'external_boundary';
+    map.coverage.unsupportedArtifacts = [];
+    map.coverage.unsupportedArtifactsTruncated = true;
+    expect(assessedArtifactIds(map)).toEqual([]);
+  });
   it.each(['featureInventoryTruncated','selectedModuleGraphTruncated','exportExpansionTruncatedCount'] as const)('withholds resolution proof when %s reports omitted scope', key => {
     const initial=deriveReviewAnalysisMap([{artifact,content}]);
     const map=validateAssessmentResponse({findings:[],featureAssessments:initial.features.map(feature=>({featureId:feature.id,
@@ -117,14 +139,14 @@ describe('Assessment acceptance boundary', () => {
     expect(repository.findingCorrelations.size).toBe(0);
     expect(analyze).not.toHaveBeenCalled();
   });
-  it('rejects competing direct export bodies before provider access or resolution proof', async () => {
+  it('blocks competing direct export bodies before provider access or resolution proof', async () => {
     const repository=new InMemoryStaticReviewRepository();
     const model=provider(request=>({findings:[],featureAssessments:assessments(request)}));
     const analyze=vi.spyOn(model,'analyze');
     const runner=createStaticReviewOrchestrator({repository,readArtifactContent:async()=>
       'export function same(){return 1;} export function same(){throw new Error("hidden");}',deterministic:async()=>[],modelProvider:model});
     const run=await runner.start({projectId:'project',reviewType:'code_review',artifacts:[artifact]});
-    expect(await run.completion).toMatchObject({status:'failed',modelStatus:'partial'});
+    expect(await run.completion).toMatchObject({status:'blocked',modelStatus:'not_requested'});
     expect(analyze).not.toHaveBeenCalled();
     expect(repository.audits.some(event=>event.event==='review_assessment_validated')).toBe(false);
     expect(repository.findingCorrelations.size).toBe(0);
@@ -231,6 +253,7 @@ describe('Assessment acceptance boundary', () => {
     const run = await service(repository, provider(request => {
       const rows = assessments(request);
       const map = readPromptAnalysisMap(request);
+      if (!map.features.length) return { findings: [], featureAssessments: rows };
       link = { featureId: map.features[0].id, pathId: map.features[0].paths[0].id, domain: 'security' };
       return { findings: [{ ...issue, sourceLocator: { forged: 'discard', analysis: link } }], featureAssessments: rows };
     })).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });

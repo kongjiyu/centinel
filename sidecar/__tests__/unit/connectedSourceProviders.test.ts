@@ -35,20 +35,78 @@ describe('connected source provider adapters', () => {
     const partial = { ...source, remoteRevision: 'new-commit', lastSuccessfulSyncAt: '2026-10-19T12:00:00Z', syncCursor: { treeSha: 'new-tree', offset: 40 } };
     expect(adapter.isSourceRevisionUnchanged(partial, { remoteRevision: 'new-commit', cursor: null })).toBe(false);
   });
-  it('imports extensionless and hidden fixtures while reporting binary candidates as unsupported', async () => {
-    const paths = ['test/fixtures/.hidden', 'test/fixtures/foo bar', 'LICENSE', '.eslintrc', 'folder.with.dots/README', 'binary'];
+  it('imports strict UTF-8 text regardless of extension and reports binary candidates as unsupported', async () => {
+    const paths = ['test/fixtures/.hidden', 'test/fixtures/foo bar', 'LICENSE', '.eslintrc', 'folder.with.dots/README', 'src/contract.sol', 'fixtures/custom.lang', 'binary', 'binary-control.bin', 'manual.pdf', 'archive.zip'];
+    const contents = new Map<string, Uint8Array>([
+      ['binary', new Uint8Array([0, 255, 0])],
+      ['binary-control.bin', new Uint8Array([1, 2, 3, 4])],
+      ['manual.pdf', new TextEncoder().encode('%PDF-1.7\nnot extracted')],
+      ['archive.zip', new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])],
+      ['src/contract.sol', new TextEncoder().encode('pragma solidity ^0.8.0;\ncontract Escrow {}\n')],
+      ['fixtures/custom.lang', new TextEncoder().encode('func main() { return "café"; }\n')],
+    ]);
     const http = new FakeHttp([
       json({ sha: 'commit-fixtures' }), json({ tree: { sha: 'tree-fixtures' } }),
       json({ tree: paths.map((path, i) => ({ path, type: 'blob', sha: `blob-${i}` })) }),
-      ...paths.map(path => json({ content: (path === 'binary' ? Buffer.from([0, 255, 0]) : Buffer.from(`Text for ${path}`)).toString('base64'), encoding: 'base64' })),
+      ...paths.map(path => json({ content: Buffer.from(contents.get(path) ?? new TextEncoder().encode(`Text for ${path}`)).toString('base64'), encoding: 'base64' })),
     ]);
     const adapter = new GitHubConnectedSourceAdapter({ http });
     const snapshot = await adapter.prepareSync(credentials, source);
     const page = await adapter.listItems(credentials, source, snapshot, snapshot.cursor);
     expect(page.items.map(item => item.path)).toEqual(paths);
-    expect(page.items.slice(0, -1).every(item => item.status !== 'unsupported' && item.content.length > 0)).toBe(true);
-    expect(page.items.at(-1)).toMatchObject({ path: 'binary', status: 'unsupported', content: new Uint8Array() });
+    const byPath = new Map(page.items.map(item => [item.path, item]));
+    expect(byPath.get('src/contract.sol')).toMatchObject({ mimeType: 'text/plain' });
+    expect(byPath.get('src/contract.sol')).not.toHaveProperty('status');
+    expect(Buffer.from(byPath.get('src/contract.sol')!.content)).toEqual(Buffer.from(contents.get('src/contract.sol')!));
+    expect(Buffer.from(byPath.get('fixtures/custom.lang')!.content)).toEqual(Buffer.from(contents.get('fixtures/custom.lang')!));
+    for (const path of ['binary', 'binary-control.bin', 'manual.pdf', 'archive.zip']) {
+      expect(byPath.get(path)).toMatchObject({ status: 'unsupported', content: new Uint8Array() });
+    }
     expect(page.completeSnapshot).toBe(true);
+  });
+
+  it('keeps GitHub blob inventory and size checks bounded for unsupported extensions', async () => {
+    const http = new FakeHttp([
+      json({ sha: 'commit-size' }), json({ tree: { sha: 'tree-size' } }),
+      json({ tree: [
+        { path: 'large.unknown', type: 'blob', sha: 'blob-large', size: 6 },
+        { path: 'lying-size.unknown', type: 'blob', sha: 'blob-lying', size: 1 },
+        { path: 'small.unknown', type: 'blob', sha: 'blob-small', size: 1 },
+      ] }),
+      json({ content: Buffer.from('abcdef').toString('base64'), encoding: 'base64' }),
+      json({ content: Buffer.from('x').toString('base64'), encoding: 'base64' }),
+    ]);
+    const adapter = new GitHubConnectedSourceAdapter({ http, maxFileBytes: 5, pageSize: 3 });
+    const snapshot = await adapter.prepareSync(credentials, source);
+    const page = await adapter.listItems(credentials, source, snapshot, snapshot.cursor);
+
+    expect(page.items.map(item => [item.path, item.status ?? 'available'])).toEqual([
+      ['large.unknown', 'unsupported'], ['lying-size.unknown', 'unsupported'], ['small.unknown', 'available'],
+    ]);
+    expect(http.calls.filter(call => new URL(call.url).pathname.includes('/git/blobs/')).map(call => new URL(call.url).pathname)).toEqual([
+      '/repos/acme/demo/git/blobs/blob-lying', '/repos/acme/demo/git/blobs/blob-small',
+    ]);
+    expect(page.completeSnapshot).toBe(true);
+  });
+
+  it('does not reinterpret unknown or malformed GitHub blob encodings as UTF-8 text', async () => {
+    const http = new FakeHttp([
+      json({ sha: 'commit-encoding' }), json({ tree: { sha: 'tree-encoding' } }),
+      json({ tree: [
+        { path: 'opaque.custom', type: 'blob', sha: 'blob-opaque', size: 8 },
+        { path: 'malformed.custom', type: 'blob', sha: 'blob-malformed', size: 1 },
+      ] }),
+      json({ content: 'looks like text', encoding: 'none', size: 15 }),
+      json({ content: 'YQ==!', encoding: 'base64', size: 1 }),
+    ]);
+    const adapter = new GitHubConnectedSourceAdapter({ http });
+    const snapshot = await adapter.prepareSync(credentials, source);
+    const page = await adapter.listItems(credentials, source, snapshot, snapshot.cursor);
+
+    expect(page.items.map(item => item.status)).toEqual(['unsupported', 'unsupported']);
+    expect(page.items[0]?.error).toContain('supported blob encoding');
+    expect(page.items[1]?.error).toContain('invalid blob encoding');
+    expect(page.items.every(item => item.content.length === 0)).toBe(true);
   });
   it('browses GitHub repositories and imports a text blob with commit and path provenance', async () => {
     const http = new FakeHttp([

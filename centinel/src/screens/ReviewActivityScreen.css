@@ -709,6 +709,12 @@
 .review-retry-source-choice strong { color: var(--workspace-text); font-size: 13px; line-height: 18px; }
 .review-retry-source-choice small { color: var(--workspace-text-muted); font-size: 12px; font-weight: 400; line-height: 18px; }
 .review-retry-source-choice em { align-self: start; color: var(--workspace-primary); font-size: 11px; font-style: normal; font-weight: 700; }
+.review-retry-cache-choice { display: grid; min-width: 0; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 9px; margin: 0 0 12px; padding: 11px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); cursor: pointer; }
+.review-retry-cache-choice.is-selected { border-color: var(--workspace-primary); background: var(--workspace-surface-selected); }
+.review-retry-cache-choice input { margin: 3px 0 0; accent-color: var(--workspace-primary); }
+.review-retry-cache-choice > span { display: grid; min-width: 0; gap: 3px; }
+.review-retry-cache-choice strong { color: var(--workspace-text); font-size: 13px; line-height: 18px; }
+.review-retry-cache-choice small { color: var(--workspace-text-muted); font-size: 12px; font-weight: 400; line-height: 18px; }
 .review-retry-panel-note { margin: 0 0 12px; color: var(--workspace-text-muted); font-size: 12px; line-height: 18px; }
 .review-retry-error { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--workspace-danger); background: var(--workspace-danger-subtle); }
 .review-retry-error p { margin: 0; color: var(--workspace-text); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
@@ -1428,4 +1434,42 @@
   .review-traceability-pagination { align-items: flex-start; flex-direction: column; }
   .review-model-usage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-model-usage-grid > div:first-child { grid-column: span 2; }
+}
+
+/* Outcome-first review report, scoped to the Review screen. */
+.review-next-actions { margin: 20px 0; }
+.review-next-actions ol { display: grid; gap: 0; padding-left: 24px; margin: 12px 0; }
+.review-next-actions li { padding: 12px 8px; border-bottom: 1px solid var(--workspace-border); }
+.review-next-actions li strong { display: block; margin-bottom: 6px; }
+.review-next-actions li > span { color: var(--workspace-text-muted); font-size: 13px; }
+.review-next-actions .btn-link { text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.6; }
+.review-overview-main .review-overview-summary { padding: 16px 0; }
+.review-overview-main .review-session-metrics { margin-top: 16px; }
+.review-overview-summary details { margin: 12px 0; }
+.review-overview-summary summary { cursor: pointer; font-weight: 600; }
+.review-activity-outcome { padding: 16px; background: var(--workspace-subtle); border: 1px solid var(--workspace-border); border-radius: 8px; margin-bottom: 20px; }
+.review-activity-outcome p { margin: 8px 0 0; }
+.review-analysis-scope { max-height: 480px; overflow: auto; overscroll-behavior: contain; }
+.review-overview-rail { align-self: start; }
+.review-overview-heading .review-purpose { margin: 8px 0 0; font-size: 13px; color: var(--workspace-text-muted); line-height: 1.6; }
+.review-overview-main { gap: 12px; }
+.review-next-actions { margin: 8px 0; }
+.review-overview-main .review-session-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto; }
+.review-overview-main .review-session-metrics .review-traceability-metric,
+.review-overview-main .review-session-metrics .review-severity-total { grid-column: auto; grid-row: auto; }
+.review-overview-main .review-session-metrics strong { font-size: 22px; }
+@media (max-width: 620px) { .review-overview-main .review-session-metrics { grid-template-columns: 1fr; } }
+.review-technical-history { margin-top: 20px; }
+.review-technical-history summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.review-technical-history ol { max-height: 320px; overflow: auto; padding: 0; list-style: none; }
+.review-technical-history li { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 9px 0; border-bottom: 1px solid var(--workspace-border); font-size: 12px; }
+.review-technical-history time { color: var(--workspace-text-muted); }
+.review-technical-history strong { margin-left: auto; }
+@media (max-width: 620px) {
+  .review-activity-screen .command-page-header { padding: 16px; }
+  .review-activity-screen .command-page-heading h1 { font-size: 19px; line-height: 1.4; }
+  .review-activity-screen .review-overview-card { padding: 16px; }
+  .review-activity-screen .review-overview-heading { align-items: start; flex-direction: column; gap: 10px; }
+  .review-activity-screen .review-overview-heading h2 { font-size: 19px; }
+  .review-activity-screen .review-evidence-banner { padding: 12px; }
 }

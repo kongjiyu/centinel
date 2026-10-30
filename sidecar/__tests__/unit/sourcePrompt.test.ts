@@ -36,6 +36,35 @@ describe('source prompt citation reliability', () => {
     expect(renderNumberedSource('previous\r\nlast\r', 20, true)).toBe('20 | previous\r\n21 | last\r\n');
   });
 
+  it('shows explicit partial-line UTF-16 provenance while keeping the original line number', () => {
+    const lineWindow = { startOffset: 12, endOffsetExclusive: 20, originalLineLength: 100,
+      offsetUnit: 'utf16_code_units' as const, partialLine: true as const };
+    expect(renderNumberedSource('fragment', 249_666, false, lineWindow))
+      .toBe('249666 [partial line; UTF-16 code-unit offsets [12, 20) of 100] | fragment');
+
+    const prompt = buildCandidateSupportPrompt([{ candidateId: 'partial-window-candidate', finding: {
+      source: 'model', title: 'Partial line', description: 'A bounded source observation.', severity: 'low', category: 'technical',
+      filePath: artifact.filePath, lineNumber: 249_666, evidence: 'fragment', recommendation: 'Review the setting.', confidence: 'medium',
+      artifactId: artifact.id, sourceVersion: artifact.contentHash,
+    } }], [{ ...source, content: 'fragment', lineStart: 249_666, lineEnd: 249_666, lineWindow }]);
+    expect(prompt.prompt).toContain('"startOffset":12,"endOffsetExclusive":20,"originalLineLength":100');
+    expect(prompt.prompt).toContain('249666 [partial line; UTF-16 code-unit offsets [12, 20) of 100] | fragment');
+    expect(prompt.systemPrompt).toContain('cite only text present inside that supplied window');
+  });
+
+  it('keeps partial-line citation repairs bounded to a nested supplied window', () => {
+    const lineWindow = { startOffset: 50_000, endOffsetExclusive: 74_000, originalLineLength: 100_000,
+      offsetUnit: 'utf16_code_units' as const, partialLine: true as const };
+    const partialSource = { ...source, content: 'x'.repeat(24_000), lineStart: 249_666, lineEnd: 249_666, lineWindow };
+    const repair = buildCitationRepairPrompt('base request', 'source_evidence', [{
+      findingIndex: 1, field: 'evidence', code: 'excerpt_mismatch',
+    }], { findings: [{ filePath: artifact.filePath, lineNumber: 249_666, evidence: 'PRIVATE_REJECTED_QUOTE' }] }, [partialSource]);
+
+    expect(repair).toContain('UTF-16 code-unit offsets [50000, 53200) of 100000');
+    expect(repair).not.toContain('PRIVATE_REJECTED_QUOTE');
+    expect(repair.length).toBeLessThan(5_000);
+  });
+
   it('adds bounded trusted frozen references without copying rejected citation text or IDs', () => {
     const prompt = buildCitationRepairPrompt('base request', 'source_evidence', [{
       findingIndex: 1, field: 'evidence', code: 'excerpt_mismatch',

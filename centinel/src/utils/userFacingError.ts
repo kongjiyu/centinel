@@ -44,6 +44,8 @@ export function userFacingError(error: unknown, fallback = 'Something went wrong
 }
 
 export function reviewFailureMessage(reason?: string | null): string {
+  if (/assessment_paused/.test(reason ?? '')) return 'AI assessment is paused in the application configuration. Enable assessment before explicitly retrying this review.';
+  if (/source_index.*paused|indexing.*paused/i.test(reason ?? '')) return 'Source preparation is paused. Check the source status and resume it before retrying this review.';
   return userFacingError(
     reason || '',
     'The review could not finish. Check the project sources and AI connection, then rerun the review.',

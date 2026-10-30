@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CentinelApplicationRepository } from '../../src/applicationRepository.js';
-import { importLocalRepositoryArtifacts } from '../../src/applicationApi.js';
+import { importLocalRepositoryArtifacts, inspectLocalRepository } from '../../src/applicationApi.js';
 
 const temporaryDirectories: string[] = [];
 const temporaryPrefix = 'centinel-readiness-local-import-';
@@ -37,7 +37,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function fakeRepository(options: { coverageError?: unknown; coverageReject?: Error } = {}) {
+function fakeRepository(options: { coverageError?: unknown; coverageReject?: Error; uploadFailure?: boolean } = {}) {
   const artifacts: Record<string, any>[] = [];
   const versionsByArtifact = new Map<string, Record<string, any>[]>();
   const savedContents = new Map<string, Buffer>();
@@ -68,6 +68,7 @@ function fakeRepository(options: { coverageError?: unknown; coverageReject?: Err
       return artifact;
     }),
     uploadArtifactVersion: vi.fn(async (input: { projectId: string; artifactId: string; content: Buffer }) => {
+      if (options.uploadFailure) throw new Error('Local file could not be uploaded.');
       const version = {
         id: `version-${++versionNumber}`, projectId: input.projectId, artifactId: input.artifactId,
         versionNumber: 1, contentHash: crypto.createHash('sha256').update(input.content).digest('hex'),
@@ -182,5 +183,20 @@ describe('importLocalRepositoryArtifacts readiness coverage', () => {
     expect(auditPayload).not.toContain(root);
     expect(auditPayload).not.toContain('src/auth.ts');
     expect(auditPayload).not.toContain('source-body-must-not-be-audit-data');
+  });
+
+  it('does not mark a partial source upload complete or save its new inventory fingerprint', async () => {
+    const root = await createLocalRepository();
+    const test = fakeRepository({ uploadFailure: true });
+    const inventory = await inspectLocalRepository(root);
+    const priorCoverage = { rootHash: inventory!.rootHash, imported: 3, skipped: 0, artifactIds: ['prior-artifact'],
+      inventoryFingerprint: 'a'.repeat(64), contentFingerprint: 'b'.repeat(64) };
+    const result = await importLocalRepositoryArtifacts(test.repository, 'project-1', root, { observedInventory: inventory!, priorCoverage });
+
+    expect(result.complete).toBe(false);
+    expect(result.imported).toHaveLength(0);
+    expect(test.coverageRows[0]?.payload).toMatchObject({ inventoryFingerprint: priorCoverage.inventoryFingerprint,
+      contentFingerprint: priorCoverage.contentFingerprint, artifactIds: ['prior-artifact'] });
+    expect(test.coverageRows[0]?.payload.inventoryFingerprint).not.toBe(inventory!.inventoryFingerprint);
   });
 });

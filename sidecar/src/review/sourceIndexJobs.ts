@@ -14,6 +14,7 @@ export type SourceIndexJob = {
 export interface SourceIndexJobStore {
   get(id: string): Promise<SourceIndexJob | null>;
   latest(projectId: string, ownerId: string): Promise<SourceIndexJob | null>;
+  paused(projectId: string, ownerId: string): Promise<SourceIndexJob[]>;
   insert(job: SourceIndexJob): Promise<boolean>;
   compareAndSet(previous: SourceIndexJob, next: SourceIndexJob): Promise<boolean>;
   hold(projectId: string, ownerId: string): Promise<SourceIndexHold | null>;
@@ -93,9 +94,20 @@ export class SourceIndexCoordinator {
     this.adoptSession(auth);
     const artifacts = await this.deps.artifacts(this.auth(auth.userId), projectId);
     const identity = await this.deps.describe(this.auth(auth.userId), projectId, artifacts);
-    const hold = await this.store(auth.userId).hold(projectId, auth.userId);
-    if (hold?.code && !await this.store(auth.userId).compareHold(projectId, auth.userId, hold, { revision: hold.revision + 1, code: null }))
+    const store = this.store(auth.userId);
+    // Capture exact paused revisions before clearing the hold. A later pause
+    // must never inherit permission from an earlier manual Resume.
+    const paused = await store.paused(projectId, auth.userId);
+    if (paused.some(job => job.projectId !== projectId || job.ownerId !== auth.userId || job.state !== 'paused'))
+      throw new SourceIndexStopped('resume_snapshot_invalid');
+    const hold = await store.hold(projectId, auth.userId);
+    if (hold?.code && !await store.compareHold(projectId, auth.userId, hold, { revision: hold.revision + 1, code: null }))
       throw new SourceIndexStopped('hold_changed');
+    for (const job of paused) {
+      // CAS leaves a concurrent new pause, owner transfer or live lease alone.
+      // Older identities are not scheduled here; a Review must select them.
+      await store.compareAndSet(job, this.change(job, { state: 'queued', trigger: 'manual', errorCode: null, leaseToken: null, leaseUntil: null }));
+    }
     const job = await this.queue(auth.userId, projectId, identity, 'manual', true);
     if (job.ownerId === auth.userId) this.schedule(job, artifacts);
     return job;

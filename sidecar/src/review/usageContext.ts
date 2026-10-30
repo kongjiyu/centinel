@@ -14,6 +14,14 @@ export const REVIEW_LOGICAL_PHASES = [
 
 export type ReviewLogicalPhase = typeof REVIEW_LOGICAL_PHASES[number];
 
+export type ReviewSourceLineWindow = {
+  startOffset: number;
+  endOffsetExclusive: number;
+  originalLineLength: number;
+  offsetUnit: 'utf16_code_units';
+  partialLine: true;
+};
+
 export type ReviewSourcePacketReference = {
   artifactId: string;
   artifactVersionId: string | null;
@@ -21,6 +29,8 @@ export type ReviewSourcePacketReference = {
   filePath: string;
   lineStart: number | null;
   lineEnd: number | null;
+  /** Safe source-only provenance for one exact partial original line. */
+  lineWindow?: ReviewSourceLineWindow;
 };
 
 export type ReviewRequestComponents = {
@@ -77,6 +87,18 @@ function safeLine(value: unknown): number | null {
     : null;
 }
 
+function safeLineWindow(value: unknown, lineStart: number | null, lineEnd: number | null): ReviewSourceLineWindow | null {
+  if (!record(value) || lineStart === null || lineEnd === null || lineStart !== lineEnd
+    || value.offsetUnit !== 'utf16_code_units' || value.partialLine !== true) return null;
+  const startOffset = safeCount(value.startOffset);
+  const endOffsetExclusive = safeCount(value.endOffsetExclusive);
+  const originalLineLength = safeCount(value.originalLineLength);
+  if (startOffset === null || endOffsetExclusive === null || originalLineLength === null
+    || endOffsetExclusive <= startOffset || endOffsetExclusive > originalLineLength
+    || startOffset === 0 && endOffsetExclusive === originalLineLength) return null;
+  return { startOffset, endOffsetExclusive, originalLineLength, offsetUnit: 'utf16_code_units', partialLine: true };
+}
+
 const phaseSet = new Set<string>(REVIEW_LOGICAL_PHASES);
 
 /** Convert untrusted persisted JSON into bounded, allowlisted request metadata. */
@@ -102,6 +124,11 @@ export function sanitizeReviewRequestUsageContext(value: unknown): ReviewRequest
       if (start !== null && end !== null && end < start) { sourcesComplete = false; continue; }
       if ((raw.lineStart != null && start === null) || (raw.lineEnd != null && end === null)) sourcesComplete = false;
       if ((start === null) !== (end === null)) sourcesComplete = false;
+      let lineWindow: ReviewSourceLineWindow | null = null;
+      if (raw.lineWindow != null) {
+        lineWindow = safeLineWindow(raw.lineWindow, start, end);
+        if (!lineWindow) { sourcesComplete = false; continue; }
+      }
       sources.push({
         artifactId,
         artifactVersionId,
@@ -109,6 +136,7 @@ export function sanitizeReviewRequestUsageContext(value: unknown): ReviewRequest
         filePath,
         lineStart: start,
         lineEnd: end,
+        ...(lineWindow ? { lineWindow } : {}),
       });
     }
   }
@@ -140,7 +168,8 @@ export function sanitizeReviewRequestUsageContext(value: unknown): ReviewRequest
 
 function referenceKey(reference: ReviewSourcePacketReference): string {
   return [reference.artifactId, reference.artifactVersionId ?? '', reference.contentHash ?? '',
-    reference.filePath.replace(/\\/g, '/').toLowerCase(), reference.lineStart ?? '', reference.lineEnd ?? ''].join('\u0000');
+    reference.filePath.replace(/\\/g, '/').toLowerCase(), reference.lineStart ?? '', reference.lineEnd ?? '',
+    reference.lineWindow ? `${reference.lineWindow.startOffset}:${reference.lineWindow.endOffsetExclusive}:${reference.lineWindow.originalLineLength}` : 'full'].join('\u0000');
 }
 
 /** Keep ranges distinct while removing duplicate references within one request. */
@@ -159,15 +188,22 @@ export function sourcePacketReferencesFromBatch(sources: readonly {
   artifact: { id: string; versionId?: string | null; contentHash?: string | null; filePath: string };
   lineStart?: number | null;
   lineEnd?: number | null;
+  lineWindow?: ReviewSourceLineWindow;
 }[]): ReviewSourcePacketReference[] {
-  const references = sources.map(source => ({
-    artifactId: source.artifact.id,
-    artifactVersionId: source.artifact.versionId ?? null,
-    contentHash: source.artifact.contentHash ?? null,
-    filePath: source.artifact.filePath,
-    lineStart: safeLine(source.lineStart),
-    lineEnd: safeLine(source.lineEnd),
-  })).filter(reference => Boolean(reference.artifactId && reference.filePath));
+  const references = sources.map(source => {
+    const lineStart = safeLine(source.lineStart);
+    const lineEnd = safeLine(source.lineEnd);
+    const lineWindow = source.lineWindow ? safeLineWindow(source.lineWindow, lineStart, lineEnd) : null;
+    return {
+      artifactId: source.artifact.id,
+      artifactVersionId: source.artifact.versionId ?? null,
+      contentHash: source.artifact.contentHash ?? null,
+      filePath: source.artifact.filePath,
+      lineStart,
+      lineEnd,
+      ...(lineWindow ? { lineWindow } : {}),
+    };
+  }).filter(reference => Boolean(reference.artifactId && reference.filePath));
   return deduplicateSourcePacketReferences(references);
 }
 

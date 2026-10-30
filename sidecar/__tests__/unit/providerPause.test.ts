@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { providerPause, responseProviderPause } from '../../src/review/providerPause.js';
+import { providerPause, responseProviderPause, reviewProviderPause } from '../../src/review/providerPause.js';
 import { ModelProviderError, runAiRequest, runModelOperation } from '../../src/review/retry.js';
 
 const failures = [
@@ -41,6 +41,18 @@ describe('provider capacity pause', () => {
     expect(providerPause({ code: '__proto__' })).toBeNull();
     expect(providerPause({ code: 'constructor' })).toBeNull();
     expect(providerPause({ statusCode: 429 })?.code).toBe('rate_limited');
+  });
+
+  it('keeps provider_unavailable Review-only and requires the internal pause marker', () => {
+    const untagged = new ModelProviderError('provider unavailable', { code: 'provider_unavailable', retryable: false });
+    const tagged = new ModelProviderError('provider unavailable', { code: 'provider_unavailable', retryable: false, reviewPause: true });
+
+    expect(providerPause(untagged)).toBeNull();
+    expect(reviewProviderPause(untagged)).toBeNull();
+    expect(reviewProviderPause(tagged)).toEqual({
+      code: 'provider_unavailable',
+      message: expect.stringContaining('cause is unconfirmed'),
+    });
   });
 
   it.each([

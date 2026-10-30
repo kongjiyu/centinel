@@ -25,6 +25,9 @@ class MemoryStore implements SourceIndexJobStore {
     return structuredClone([...this.rows.values()].filter(row => row.projectId === projectId && row.ownerId === ownerId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null);
   }
+  async paused(projectId: string, ownerId: string) {
+    return structuredClone([...this.rows.values()].filter(row => row.projectId === projectId && row.ownerId === ownerId && row.state === 'paused'));
+  }
   async insert(job: SourceIndexJob) { if (this.rows.has(job.id)) return false; this.rows.set(job.id, structuredClone(job)); return true; }
   async compareAndSet(previous: SourceIndexJob, next: SourceIndexJob) {
     if (this.rows.get(previous.id)?.revision !== previous.revision) return false;
@@ -44,6 +47,54 @@ function setup(store = new MemoryStore()) {
 async function flush(coordinator: SourceIndexCoordinator) { await new Promise(resolve => setImmediate(resolve)); await coordinator.waitForIdle(); }
 
 describe('source-event indexing lifecycle', () => {
+  it('never treats an old cleared hold as permission after a new pause fails hold persistence', async () => {
+    const s = setup();
+    s.store.holds.set(`${project}:${owner}`, { revision: 1, code: null });
+    vi.spyOn(s.store, 'compareHold').mockResolvedValue(false);
+    s.build.mockRejectedValueOnce(Object.assign(new Error('held'), { code: 'quota_exhausted' }));
+    await expect(s.coordinator.ensure(auth, project, [artifact], undefined, 'review')).rejects.toThrow('hold_persistence_failed');
+    expect([...s.store.rows.values()][0]?.state).toBe('paused');
+    await expect(s.coordinator.ensure(auth, project, [artifact], undefined, 'review')).rejects.toThrow('quota_exhausted');
+    expect(s.build).toHaveBeenCalledOnce();
+  });
+  it('does not clear an owner hold if its paused-job snapshot cannot be read', async () => {
+    const s = setup();
+    s.store.holds.set(`${project}:${owner}`, { revision: 1, code: 'quota_exhausted' });
+    vi.spyOn(s.store, 'paused').mockRejectedValueOnce(new Error('snapshot unavailable'));
+    await expect(s.coordinator.resume(auth, project)).rejects.toThrow('snapshot unavailable');
+    expect(s.store.holds.get(`${project}:${owner}`)).toEqual({ revision: 1, code: 'quota_exhausted' });
+    expect(s.build).not.toHaveBeenCalled();
+  });
+  it('explicit resume cannot change a captured job whose revision became a live lease', async () => {
+    const s = setup();
+    s.build.mockRejectedValueOnce(Object.assign(new Error('held'), { code: 'quota_exhausted' }));
+    const saved = await s.coordinator.notify(auth, project); await flush(s.coordinator);
+    s.update();
+    const original = s.store.paused.bind(s.store);
+    vi.spyOn(s.store, 'paused').mockImplementationOnce(async (...args) => {
+      const rows = await original(...args);
+      const prior = s.store.rows.get(saved.id)!;
+      s.store.rows.set(saved.id, { ...prior, revision: prior.revision + 1, state: 'running', leaseToken: 'other-device', leaseUntil: Date.now() + 100_000 });
+      return rows;
+    });
+    await s.coordinator.resume(auth, project); await flush(s.coordinator);
+    expect(s.store.rows.get(saved.id)).toMatchObject({ state: 'running', leaseToken: 'other-device' });
+  });
+  it('explicit owner resume also releases a paused saved-source Review identity', async () => {
+    const s = setup();
+    s.build.mockRejectedValueOnce(Object.assign(new Error('held'), { code: 'quota_exhausted' }));
+    const saved = await s.coordinator.notify(auth, project); await flush(s.coordinator);
+    expect(s.store.rows.get(saved.id)?.state).toBe('paused');
+    s.update();
+    await s.coordinator.notify(auth, project);
+    await s.coordinator.resume(auth, project); await flush(s.coordinator);
+    expect(s.store.holds.get(`${project}:${owner}`)?.code).toBeNull();
+    // The Review still selects the earlier exact frozen sources, not today's
+    // full project identity resumed by the Source page.
+    await s.coordinator.ensure(auth, project, [artifact], undefined, 'saved-review');
+    expect(s.store.rows.get(saved.id)?.state).toBe('ready');
+    expect(s.build).toHaveBeenCalledTimes(3);
+  });
   it('durably queues a source event, builds without a Review, and reuses an unchanged event', async () => {
     const s = setup(); const job = await s.coordinator.notify(auth, project);
     expect(s.store.rows.get(job.id)?.state).toBe('queued'); expect(s.build).not.toHaveBeenCalled();

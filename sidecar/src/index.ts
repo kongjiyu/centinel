@@ -76,7 +76,8 @@ import { getEmbeddingSettingsCatalog } from './embeddingSettings.js';
 import { testSavedEmbeddingModel } from './embeddingConnectionTest.js';
 import { getSupabaseModelUsageSummary } from './modelUsageSummary.js';
 import { ApplicationRepositoryAuthorizationError, ApplicationRepositoryError, CentinelApplicationRepository } from './applicationRepository.js';
-import { getClientArtifact, importLocalRepositoryArtifacts, listClientArtifacts, readClientArtifactContent, uploadClientArtifact } from './applicationApi.js';
+import { getClientArtifact, readClientArtifactBytes, importLocalRepositoryArtifacts, listClientArtifacts, readClientArtifactContent, uploadClientArtifact } from './applicationApi.js';
+import { getLatestLocalImportCoverage, inspectLocalRepository, recordLocalImportCoverageBaseline } from './applicationApi.js';
 import { readFrozenReviewSource } from './review/frozenSourceContent.js';
 import { accessTokenFingerprint, createRefreshableStaticReviewRuntime, RefreshableSupabaseRuntime, type RefreshableStaticReviewRuntime } from './runtime/index.js';
 import { indexFrozenArtifacts, retrieveFrozenContext, describeRepositoryIndex, DEFAULT_REPOSITORY_INDEX_CACHE_ROOT } from './review/localRepositoryIndex.js';
@@ -84,6 +85,7 @@ import { inspectPublishedRepositoryIndex, syncPublishedRepositoryIndex } from '.
 import { handleRepositoryIndexSyncRoute } from './review/repositoryIndexSyncRoutes.js';
 import { SourceIndexCoordinator } from './review/sourceIndexJobs.js';
 import { SupabaseSourceIndexJobStore } from './review/sourceIndexJobStore.js';
+import { LocalRepositoryReconciliationCoordinator } from './integrations/localRepositoryReconciliation.js';
 import { optionalValidatedBatchCache } from './review/batchCheckpoint.js';
 import { createGroundingModelProvider } from './review/groundingProvider.js';
 import { runStaticAnalysis } from './staticEngine.js';
@@ -370,6 +372,7 @@ async function reviewRuntime(auth: AuthenticatedRequest, indexes: SourceIndexCoo
       if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
       return listClientArtifacts(new CentinelApplicationRepository(client, auth.userId), projectId, signal);
     }),
+    readArtifactBytes: (artifact, signal) => authRuntime.withClient(client => readClientArtifactBytes(client, auth.userId, artifact, signal)),
     readArtifactContent: (artifact, signal) => authRuntime.withClient(async client => {
       if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
       return readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, signal, artifact.projectId);
@@ -447,6 +450,25 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     try { await sourceIndexes.notify(context, projectId); }
     catch { console.error('[source-index] source event could not be queued; explicit indexing is required.'); }
   };
+  const localRepositoryChanges = new LocalRepositoryReconciliationCoordinator({
+    sources: (context, projectId) => new CentinelApplicationRepository(context.client, context.userId).listSources(projectId),
+    project: (context, projectId) => new CentinelApplicationRepository(context.client, context.userId).getProject(projectId),
+    artifacts: (context, projectId) => listClientArtifacts(new CentinelApplicationRepository(context.client, context.userId), projectId),
+    inspect: inspectLocalRepository,
+    coverage: (context, projectId, rootHash) => getLatestLocalImportCoverage(new CentinelApplicationRepository(context.client, context.userId), projectId, rootHash),
+    recordBaseline: (context, projectId, coverage, inventory) => recordLocalImportCoverageBaseline(
+      new CentinelApplicationRepository(context.client, context.userId), projectId, coverage, inventory),
+    importRepository: async (context, projectId, repoPath, inventory, priorCoverage, pruneArtifactIds) => {
+      const result = await importLocalRepositoryArtifacts(new CentinelApplicationRepository(context.client, context.userId), projectId, repoPath,
+        { observedInventory: inventory, priorCoverage: priorCoverage ?? undefined, pruneArtifactIds });
+      return { complete: result.complete };
+    },
+    onChanged: async (context, projectId) => {
+      readiness.notify(context, projectId, 'repository_imported');
+      await queueSourceIndex(context, projectId);
+    },
+    onError: code => console.error('[local-repository]', code),
+  });
   const sessionVault=new EnvironmentSessionVault(path.join(dataDir,'dynamic-browser-sessions'));const sessionBroker=new EnvironmentSessionBroker(sessionVault);
   const sourceWorker = new ConnectedSourceWorkerCoordinator({
     createImporter: connectedSourceImporter,
@@ -986,7 +1008,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
 
     // Projects
     if (req.method === 'GET' && url === '/projects') {
-      return json(res, 200, await applicationRepository!.listProjects());
+      const projects = await applicationRepository!.listProjects();
+      localRepositoryChanges.observe(auth!, projects);
+      return json(res, 200, projects);
     }
 
     if (req.method === 'POST' && url === '/projects') {
@@ -1025,9 +1049,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
             projectId: project.id, integrationId: null, kind: 'local_repository',
             name, remoteId: null, remoteUrl: null, syncStatus: 'idle', lastSyncedAt: null,
           });
-          await importLocalRepositoryArtifacts(applicationRepository!, project.id, workspacePath);
+          const localImport = await importLocalRepositoryArtifacts(applicationRepository!, project.id, workspacePath);
           readiness.notify(auth!, project.id, 'project_created');
-          await queueSourceIndex(auth!, project.id);
+          if (localImport.complete) await queueSourceIndex(auth!, project.id);
           return json(res, 201, project);
         }
         if (githubImporter) {
@@ -1208,7 +1232,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       try {
         const result = await importLocalRepositoryArtifacts(applicationRepository!, importMatch.projectId, repoPath);
         readiness.notify(auth!, importMatch.projectId, 'repository_imported');
-        await queueSourceIndex(auth!, importMatch.projectId);
+        if (result.complete) await queueSourceIndex(auth!, importMatch.projectId);
         return json(res, 200, result);
       } catch (e) {
         return json(res, 400, { error: String(e) });
@@ -1710,7 +1734,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     json(res, 500, { error: 'Internal server error' });
   }
   });
-  server.on('close',()=>{sourceIndexes.close();readiness.close();void sessionBroker.dispose();});return server;
+  server.on('close',()=>{sourceIndexes.close();localRepositoryChanges.close();readiness.close();void sessionBroker.dispose();});return server;
 }
 
 // Importing this module for authenticated HTTP tests must not open the fixed

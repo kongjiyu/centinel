@@ -489,7 +489,7 @@ export const api = {
       return result;
     }),
   getArtifactContent: (projectId: string, artifactId: string, versionId?: string) =>
-    request<{ versionId: string; content: string; contentHash: string; mimeType: string | null }>(`/projects/${projectId}/artifacts/${artifactId}/content${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`),
+    request<{ versionId: string; content: string; contentHash: string; mimeType: string | null; textContent?: string; textExtraction?: { policy: string; pageCount: number; limitations: string[] } }>(`/projects/${projectId}/artifacts/${artifactId}/content${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`),
   uploadArtifact: (projectId: string, data: { fileName: string; content: string; type?: string }) =>
     request<Artifact>(`/projects/${projectId}/artifacts`, {
       method: 'POST',
@@ -531,7 +531,7 @@ export const api = {
   getReviewSourceManifest: (projectId: string, sessionId: string) =>
     request<ReviewSourceManifest>(`/projects/${projectId}/static-sessions/${sessionId}/source-manifest`),
   getReviewArtifactContent: (projectId: string, sessionId: string, artifactId: string) =>
-    request<{ versionId: string; content: string; contentHash: string; mimeType: string | null }>(`/projects/${projectId}/static-sessions/${sessionId}/source-artifacts/${artifactId}/content`),
+    request<{ versionId: string; content: string; contentHash: string; mimeType: string | null; textContent?: string; textExtraction?: { policy: string; pageCount: number; limitations: string[] } }>(`/projects/${projectId}/static-sessions/${sessionId}/source-artifacts/${artifactId}/content`),
   getReviewTraceability: (projectId: string, sessionId: string) =>
     request<ReviewTraceabilitySnapshot>(`/projects/${projectId}/static-sessions/${sessionId}/traceability`),
   getReviewEvidenceSufficiency: (projectId: string, sessionId: string) =>

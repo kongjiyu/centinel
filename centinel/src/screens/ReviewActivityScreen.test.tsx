@@ -177,17 +177,23 @@ describe('ReviewActivityScreen', () => {
     expect(within(metrics).queryByText('Artifacts reviewed')).not.toBeInTheDocument();
   });
 
-  it('shows a provider pause and manual retry without approval actions', async () => {
+  it('shows a provider pause and an explicit manual resume without approval actions', async () => {
+    const user = userEvent.setup();
     const paused = { ...baseSession, status: 'blocked' as const, modelStatus: 'partial' as const,
       progressJson: JSON.stringify({ stage: 'provider_paused', completedStages: ['freezing_sources', 'indexing_context', 'deterministic_analysis'], pauseCode: 'rate_limited' }),
       failureReason: 'Paused: the Model Provider rejected the request because of a rate limit. Remaining account allowance may still be available. Check provider access, then retry manually. No automatic retry will run.' };
     setup(paused);
     render(<ReviewActivityScreen projectId={project.id} sessionId={paused.id} onNavigate={vi.fn()} />);
     expect((await screen.findAllByText('Paused', { exact: true })).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Retry review' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Resume review' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Approve review' })).not.toBeInTheDocument();
     expect(screen.getByText('Paused at', { exact: true })).toBeInTheDocument();
     expect(screen.queryByText('Completed', { exact: true })).not.toBeInTheDocument();
+    expect(api.retryStaticSession).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Resume review' }));
+    expect(await screen.findByRole('heading', { name: 'Choose Review sources' })).toBeInTheDocument();
+    expect(screen.getByText('New linked attempt')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Retry saved sources/ })).toBeChecked();
     expect(api.retryStaticSession).not.toHaveBeenCalled();
   });
 
@@ -246,7 +252,7 @@ describe('ReviewActivityScreen', () => {
       ],
     });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     expect(await screen.findByText(/I could read 1 selected file/)).toBeInTheDocument();
     expect(screen.getByText('AI request: retry attempt 5 of 5 was scheduled after a 15s wait.')).toHaveAttribute('role', 'status');
@@ -258,23 +264,36 @@ describe('ReviewActivityScreen', () => {
     expect(api.getReviewHarness).toHaveBeenCalledWith(project.id, baseSession.id);
   });
 
+  it('fills all three action slots with blockers before lower-priority risks', async () => {
+    setup(baseSession);
+    vi.mocked(api.listStaticFindings).mockResolvedValue([
+      ...[1, 2, 3].map(index => ({ ...finding, id: `blocker-${index}`, recommendation: `Fix blocker ${index}` })),
+      { ...finding, id: 'risk', severity: 'medium', recommendation: 'Address lower risk' },
+    ]);
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    const actions = await screen.findByRole('region', { name: 'Next actions' });
+    await within(actions).findByRole('button', { name: 'Fix blocker 3' });
+    expect(within(actions).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(actions).queryByText('Address lower risk')).not.toBeInTheDocument();
+  });
+
   it('presents sentence objectives and an overall result, blockers and next action', async () => {
     setup({ ...baseSession, status: 'failed', failureReason: 'The selected source cannot be read.', configJson: JSON.stringify({ instructions: 'Verify N1 in src/checkout.ts. Require approval before persistence.' }) });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     const objectives = screen.getByRole('heading', { name: 'Objective' }).closest('section')!;
     expect(within(objectives).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Verify N1 in src/checkout.ts.', 'Require approval before saving data.']);
-    const summary = screen.getByRole('region', { name: 'Summary' });
-    expect(within(summary).getByText(/couldn’t finish the review/)).toBeInTheDocument();
+    const summary = screen.getByRole('region', { name: 'Review summary' });
+    expect(within(summary).getByText('Why it stopped')).toBeInTheDocument();
     expect(within(summary).getByText('The selected source cannot be read.')).toBeInTheDocument();
-    expect(within(summary).getByText(/then retry the review/)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Next actions' })).toHaveTextContent('Evidence gap');
     expect(screen.queryByRole('button', { name: 'Approve review' })).not.toBeInTheDocument();
   });
 
   it('keeps finding explanations available when execution history is unavailable', async () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     expect(await screen.findByText(/Saved execution details could not be loaded/)).toBeInTheDocument();
     expect(screen.queryByText(finding.description)).not.toBeInTheDocument();
@@ -288,7 +307,7 @@ describe('ReviewActivityScreen', () => {
     setup(approvalSession);
     render(<ReviewActivityScreen projectId={project.id} sessionId={approvalSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     const document = new File(['support'], 'release-notes.md', { type: 'text/markdown' });
     await user.upload(screen.getByLabelText('Attach supportive documents'), document);
@@ -306,7 +325,7 @@ describe('ReviewActivityScreen', () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     const actions = screen.getByRole('region', { name: 'Review decision actions' });
     await user.click(within(actions).getByRole('button', { name: 'Approve review' }));
     expect(screen.getByRole('complementary', { name: 'Approve review' })).toBeInTheDocument();
@@ -316,7 +335,7 @@ describe('ReviewActivityScreen', () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Findings' }));
     expect(screen.getByRole('table', { name: 'Review findings' })).toBeInTheDocument();
     expect(screen.getByTestId('review-decision-approve')).toBeEnabled();
@@ -330,7 +349,7 @@ describe('ReviewActivityScreen', () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByTestId('review-decision-reject'));
     const panel = screen.getByRole('complementary', { name: 'Request changes' });
     expect(within(panel).getByRole('radio', { name: 'Reuse the frozen source manifest' })).toBeChecked();
@@ -346,7 +365,7 @@ describe('ReviewActivityScreen', () => {
     });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     await user.click(screen.getByRole('button', { name: 'Get download link for notes.md' }));
 
@@ -362,7 +381,7 @@ describe('ReviewActivityScreen', () => {
       .mockResolvedValueOnce({ id: 'attachment-1', fileName: 'notes.md', signedUrl: 'https://storage.example.test/notes.md', expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     const button = screen.getByRole('button', { name: 'Get download link for notes.md' });
     await user.click(button);
@@ -383,7 +402,7 @@ describe('ReviewActivityScreen', () => {
     setup(baseSession, decisions);
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await userEvent.setup().click(screen.getByRole('tab', { name: 'Activity' }));
     expect(screen.getByText('Decision note 4')).toBeInTheDocument();
   });
@@ -398,7 +417,7 @@ describe('ReviewActivityScreen', () => {
     vi.mocked(api.listReviewDecisions).mockResolvedValueOnce(records.slice(0, 50)).mockResolvedValueOnce(records.slice(50));
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     await user.click(screen.getByRole('button', { name: 'Load older decisions' }));
     expect(await screen.findByText('Decision note 51')).toBeInTheDocument();
@@ -416,7 +435,7 @@ describe('ReviewActivityScreen', () => {
     vi.mocked(api.listReviewDecisions).mockResolvedValueOnce(records).mockRejectedValueOnce(new Error('Temporary outage')).mockResolvedValueOnce([]);
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     const loadMore = screen.getByRole('button', { name: 'Load older decisions' });
     await user.click(loadMore);
@@ -484,14 +503,14 @@ describe('ReviewActivityScreen', () => {
     setup(completed, [approvedDecision]);
     render(<ReviewActivityScreen projectId={project.id} sessionId={completed.id} onNavigate={vi.fn()} />);
 
-    expect(await screen.findByRole('heading', { name: 'Review Overview' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Review objective' })).not.toBeInTheDocument();
     expect(screen.getByText('Reviewer')).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(4);
     expect(screen.queryByRole('tab', { name: 'Risk Assessment' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Source' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Sources used' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sources in scope' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Manage project sources' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument();
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
@@ -516,7 +535,7 @@ describe('ReviewActivityScreen', () => {
 
   it('removes model usage and its request from review Overview', async () => {
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     expect(screen.queryByRole('heading', { name: 'Model usage' })).not.toBeInTheDocument();
     expect(screen.queryByText('Input tokens')).not.toBeInTheDocument();
     expect(api.getReviewModelUsage).not.toHaveBeenCalled();
@@ -525,7 +544,7 @@ describe('ReviewActivityScreen', () => {
   it('loads Review usage only after the Activity disclosure is opened', async () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     expect(api.getReviewModelUsage).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     expect(screen.getByText('Model usage')).toBeInTheDocument();
@@ -543,7 +562,7 @@ describe('ReviewActivityScreen', () => {
       confirmedRequirementCount: 0, enabledStandardRuleCount: 1, assessedAt: baseSession.createdAt,
     });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Activity' }));
     await user.click(screen.getByRole('button', { name: 'View finding: Business requirements need confirmation' }));
     const details = await screen.findByRole('article', { name: 'Finding details' });
@@ -568,11 +587,69 @@ describe('ReviewActivityScreen', () => {
     await user.click(retry);
     expect(await screen.findByRole('heading', { name: 'Choose Review sources' })).toBeInTheDocument();
     expect(screen.getByText('Recommended', { selector: 'em' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Reuse previously validated batches/ })).not.toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Retry saved sources' }));
 
     await waitFor(() => expect(api.retryStaticSession).toHaveBeenCalledWith(project.id, failed.id, { refreshSourceManifest: false, idempotencyKey: expect.any(String) }));
     expect((vi.mocked(api.retryStaticSession).mock.calls[0][2] as { idempotencyKey: string }).idempotencyKey).not.toHaveLength(0);
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: child.id, reviewName: child.name });
+  });
+
+  it('sends explicit cache reuse only for saved sources and changes request identity when the choice changes', async () => {
+    const user = userEvent.setup();
+    const failed = { ...baseSession, status: 'failed' as const, failureReason: 'The provider request ended unexpectedly.' };
+    setup(failed);
+    vi.mocked(api.retryStaticSession)
+      .mockRejectedValueOnce(new Error('The connection closed before a response arrived.'))
+      .mockRejectedValueOnce(new Error('The connection is still unavailable.'))
+      .mockResolvedValueOnce({ ...baseSession, id: 'review-cache-retry', status: 'queued' });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={failed.id} onNavigate={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Retry review' }));
+    const cacheReuse = screen.getByRole('checkbox', { name: /Reuse previously validated batches/ });
+    await user.click(cacheReuse);
+    await user.click(screen.getByRole('button', { name: 'Retry saved sources' }));
+    await screen.findByRole('button', { name: 'Retry same request' });
+    const firstRequest = vi.mocked(api.retryStaticSession).mock.calls[0][2] as { idempotencyKey: string; reuseValidatedBatches?: boolean };
+    expect(firstRequest.reuseValidatedBatches).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Retry same request' }));
+    await waitFor(() => expect(api.retryStaticSession).toHaveBeenCalledTimes(2));
+    const repeatedRequest = vi.mocked(api.retryStaticSession).mock.calls[1][2] as { idempotencyKey: string; reuseValidatedBatches?: boolean };
+    expect(repeatedRequest.idempotencyKey).toBe(firstRequest.idempotencyKey);
+    expect(repeatedRequest.reuseValidatedBatches).toBe(true);
+
+    await user.click(screen.getByRole('checkbox', { name: /Reuse previously validated batches/ }));
+    expect(screen.queryByText(/Retrying the same choice reuses its request key/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry saved sources' }));
+    await waitFor(() => expect(api.retryStaticSession).toHaveBeenCalledTimes(3));
+    const freshRequest = vi.mocked(api.retryStaticSession).mock.calls[2][2] as { idempotencyKey: string; reuseValidatedBatches?: boolean };
+    expect(freshRequest.idempotencyKey).not.toBe(firstRequest.idempotencyKey);
+    expect(freshRequest.reuseValidatedBatches).toBeUndefined();
+  });
+
+  it('clears and hides cache reuse when the reviewer switches to updated sources', async () => {
+    const user = userEvent.setup();
+    const failed = { ...baseSession, status: 'failed' as const, failureReason: 'The provider request ended unexpectedly.' };
+    setup(failed);
+    vi.mocked(api.retryStaticSession).mockResolvedValue({ ...baseSession, id: 'review-updated-retry', status: 'queued' });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={failed.id} onNavigate={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Retry review' }));
+    const cacheReuse = screen.getByRole('checkbox', { name: /Reuse previously validated batches/ });
+    await user.click(cacheReuse);
+    expect(cacheReuse).toBeChecked();
+    await user.click(screen.getByRole('radio', { name: /Review updated sources/ }));
+    expect(screen.queryByRole('checkbox', { name: /Reuse previously validated batches/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /Retry saved sources/ }));
+    expect(screen.getByRole('checkbox', { name: /Reuse previously validated batches/ })).not.toBeChecked();
+    await user.click(screen.getByRole('radio', { name: /Review updated sources/ }));
+
+    await user.click(screen.getByRole('button', { name: 'Review updated sources' }));
+    await waitFor(() => expect(api.retryStaticSession).toHaveBeenCalledWith(project.id, failed.id, {
+      refreshSourceManifest: true, idempotencyKey: expect.any(String),
+    }));
+    expect((vi.mocked(api.retryStaticSession).mock.calls[0][2] as { reuseValidatedBatches?: boolean }).reuseValidatedBatches).toBeUndefined();
   });
 
   it.each(['findings', 'sourceManifest', 'traceability'] as const)('blocks decisions after a %s read failure and recovers with Retry evidence', async failedRead => {
@@ -632,7 +709,7 @@ describe('ReviewActivityScreen', () => {
     vi.mocked(api.listArtifacts).mockResolvedValue([{ id: 'artifact-1', projectId: project.id, fileName: 'RENAMED-CURRENT.ts', filePath: 'RENAMED-CURRENT.ts',
       contentHash: 'current', type: 'source_code', source: 'repository', originalPath: null, createdAt: baseSession.createdAt }]);
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Traceability' }));
     expect(await screen.findByText(/Implementation evidence is unavailable/)).toHaveTextContent('does not prove coverage of the reviewed source version');
     expect(screen.queryByText('RENAMED-CURRENT.ts')).not.toBeInTheDocument();
@@ -661,8 +738,9 @@ describe('ReviewActivityScreen', () => {
     await user.click(screen.getByRole('radio', { name: /Review updated sources/ }));
     await user.click(screen.getByRole('button', { name: 'Review updated sources' }));
     await waitFor(() => expect(api.retryStaticSession).toHaveBeenCalledTimes(3));
-    const thirdRequest = vi.mocked(api.retryStaticSession).mock.calls[2][2] as { refreshSourceManifest: boolean; idempotencyKey: string };
+    const thirdRequest = vi.mocked(api.retryStaticSession).mock.calls[2][2] as { refreshSourceManifest: boolean; idempotencyKey: string; reuseValidatedBatches?: boolean };
     expect(thirdRequest.refreshSourceManifest).toBe(true);
+    expect(thirdRequest.reuseValidatedBatches).toBeUndefined();
     expect(thirdRequest.idempotencyKey).not.toBe(firstKey);
   });
 
@@ -717,7 +795,7 @@ describe('ReviewActivityScreen', () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('tab', { name: 'Traceability' }));
     const table = screen.getByRole('table', { name: 'Traceability matrix' });
     expect(within(table).getByRole('columnheader', { name: 'State' })).toBeInTheDocument();
@@ -747,7 +825,7 @@ describe('ReviewActivityScreen', () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review Overview' });
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
     await user.click(screen.getByRole('button', { name: 'View incomplete and missing requirements in Traceability' }));
 
     expect(screen.getByRole('tab', { name: 'Traceability' })).toHaveAttribute('aria-selected', 'true');

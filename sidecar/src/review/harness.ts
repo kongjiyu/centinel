@@ -6,7 +6,7 @@ export const REVIEW_HARNESS = {
   version: 'centinel-harness-v1',
   reference: 'https://github.com/alibaba/open-code-review',
   stages: [
-    { id: 'freezing_sources', label: 'Freeze and validate sources', steps: ['select_sources', 'freeze_manifest', 'inspect_source', 'read_source', 'load_grounding', 'load_traceability', 'capture_traceability', 'load_dispositions', 'assess_evidence', 'save_assessment'] },
+    { id: 'freezing_sources', label: 'Freeze and validate sources', steps: ['select_sources', 'freeze_manifest', 'inspect_source', 'read_source', 'load_grounding', 'load_traceability', 'capture_traceability', 'load_dispositions', 'assess_evidence', 'check_source_support', 'plan_assessment_batches', 'save_assessment'] },
     { id: 'indexing_context', label: 'Build review context', steps: ['index_sources', 'retrieve_context'] },
     { id: 'deterministic_analysis', label: 'Run deterministic checks', steps: ['run_rules', 'check_rule'] },
     { id: 'model_analysis', label: 'Review with configured model', steps: ['map_feature_paths', 'build_request', 'resolve_provider', 'run_model', 'validate_response', 'validate_grounding', 'validate_source_evidence', 'challenge_support', 'validate_support'] },
@@ -15,6 +15,8 @@ export const REVIEW_HARNESS = {
 } as const;
 
 export class ReviewHarness {
+  private sourceBuffer = false;
+  private flushQueue: Promise<void> = Promise.resolve();
   private buffered: Array<Omit<ReviewAuditEvent, 'createdAt'>> | null = null;
   constructor(private readonly context: { reviewId: string; projectId: string }, private readonly record: (event: Omit<ReviewAuditEvent, 'createdAt'>) => Promise<void>, private readonly recordBatch?: (events: Array<Omit<ReviewAuditEvent, 'createdAt'>>) => Promise<void>) {}
 
@@ -26,13 +28,29 @@ export class ReviewHarness {
     finally {
       const events = this.buffered;
       this.buffered = null;
+      await this.flushQueue;
       if (events.length) await this.recordBatch(events);
     }
   }
 
+  /** Source inspection/read work is free and bounded by the frozen manifest.
+   * Flush all outcomes before indexing or any paid provider access. */
+  async bufferSourceEvents<T>(operation: () => Promise<T>): Promise<T> {
+    if (!this.recordBatch || this.buffered) return operation();
+    this.sourceBuffer = true;
+    try { return await this.bufferRuleEvents(operation); }
+    finally { this.sourceBuffer = false; }
+  }
+
   private async emit(event: Omit<ReviewAuditEvent, 'createdAt'>) {
-    if (this.buffered && event.stage === 'deterministic_analysis' && event.detail?.step === 'check_rule') this.buffered.push(event);
-    else await this.record(event);
+    if (this.buffered && (event.stage === 'deterministic_analysis' && event.detail?.step === 'check_rule' || this.sourceBuffer && event.stage === 'freezing_sources' && ['inspect_source', 'read_source'].includes(String(event.detail?.step)))) {
+      this.buffered.push(event);
+      if (this.sourceBuffer && this.buffered.length >= 64) {
+        const batch = this.buffered.splice(0, 64);
+        this.flushQueue = this.flushQueue.then(() => this.recordBatch!(batch));
+        await this.flushQueue;
+      }
+    } else await this.record(event);
   }
 
   async step<T>(stage: string, step: string, input: Record<string, unknown>, operation: () => Promise<T>, output?: (value: T) => Record<string, unknown>): Promise<T> {

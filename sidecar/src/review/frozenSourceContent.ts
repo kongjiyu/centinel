@@ -1,3 +1,4 @@
+import { isPdfSource, verifiedSourceText } from './sourceText.js';
 import crypto from 'node:crypto';
 import type { Artifact } from '../artifacts.js';
 import type { StaticReviewRecord } from './types.js';
@@ -14,5 +15,6 @@ export async function readFrozenReviewSource(projectId: string, review: StaticRe
   if (!version || version.id !== artifact.versionId || version.artifactId !== artifactId || hash(version.contentHash) !== hash(artifact.contentHash)) throw new Error('Frozen Review source version unavailable.');
   const content = await storage.downloadArtifactVersion(projectId, version.id);
   if (hash(artifact.contentHash) !== crypto.createHash('sha256').update(content).digest('hex')) throw new Error('Frozen Review source content could not be verified.');
-  return { versionId: version.id, artifactVersionId: version.id, content: content.toString('base64'), contentHash: version.contentHash, mimeType: version.contentType };
+  const extracted = isPdfSource(artifact) ? await verifiedSourceText(artifact, content) : undefined;
+  return { ...(extracted ? { textContent: extracted.text, textExtraction: { policy: extracted.policy, pageCount: extracted.pageCount, limitations: ['Diagrams and image-only content remain unverified.'] } } : {}), versionId: version.id, artifactVersionId: version.id, content: content.toString('base64'), contentHash: version.contentHash, mimeType: version.contentType };
 }

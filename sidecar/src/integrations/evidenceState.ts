@@ -53,16 +53,20 @@ export class SupabaseConnectedEvidenceStateResolver {
 
   async resolve(artifact: Artifact, signal?: AbortSignal): Promise<ConnectedEvidenceState | undefined> {
     if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
-    const itemResult = await (this.client as any).from('source_items').select('source_id,status,error,last_seen_at,updated_at')
-      .eq('project_id', artifact.projectId).eq('artifact_id', artifact.id).order('updated_at', { ascending: false }).limit(1).maybeSingle();
+    let itemQuery = (this.client as any).from('source_items').select('source_id,status,error,last_seen_at,updated_at')
+      .eq('project_id', artifact.projectId).eq('artifact_id', artifact.id).order('updated_at', { ascending: false }).limit(1);
+    if (signal) itemQuery = itemQuery.abortSignal(signal);
+    const itemResult = await itemQuery.maybeSingle();
     if (itemResult.error) throw new Error(`Connected-source evidence lookup failed: ${String(itemResult.error.message ?? itemResult.error)}`);
     if (!itemResult.data) return undefined;
     if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
     const item = row(itemResult.data);
     const sourceId = text(item.source_id);
     if (!sourceId) return { state: 'inaccessible', detail: 'The connected-source item has no source record.' };
-    const sourceResult = await (this.client as any).from('project_sources').select('status,sync_status,last_successful_sync_at,last_error')
-      .eq('project_id', artifact.projectId).eq('id', sourceId).maybeSingle();
+    let sourceQuery = (this.client as any).from('project_sources').select('status,sync_status,last_successful_sync_at,last_error')
+      .eq('project_id', artifact.projectId).eq('id', sourceId);
+    if (signal) sourceQuery = sourceQuery.abortSignal(signal);
+    const sourceResult = await sourceQuery.maybeSingle();
     if (sourceResult.error) throw new Error(`Connected-source state lookup failed: ${String(sourceResult.error.message ?? sourceResult.error)}`);
     if (!sourceResult.data) return { state: 'deleted', detail: 'The connected source no longer exists.' };
     const source = row(sourceResult.data);

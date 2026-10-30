@@ -46,10 +46,16 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
   const [requestError, setRequestError] = useState<string | null>(null);
   const lifecycle = useRef(0);
   const requestSequence = useRef(0);
+  const statusRequest = useRef<{ lifecycleId: number; requestId: number } | null>(null);
 
   const refreshStatus = useCallback(async () => {
     const lifecycleId = lifecycle.current;
+    // A slow GET must be allowed to finish. Starting another poll every two
+    // seconds would invalidate every response on a slower connection.
+    if (statusRequest.current?.lifecycleId === lifecycleId) return;
     const requestId = ++requestSequence.current;
+    const pending = { lifecycleId, requestId };
+    statusRequest.current = pending;
     setLoadingStatus(true);
     try {
       const nextStatus = await api.getProjectReadiness(projectId);
@@ -60,6 +66,7 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
       if (lifecycle.current !== lifecycleId || requestSequence.current !== requestId) return;
       setRequestError(userFacingError(cause, 'Readiness could not be loaded. Check your connection and retry.'));
     } finally {
+      if (statusRequest.current === pending) statusRequest.current = null;
       if (lifecycle.current === lifecycleId && requestSequence.current === requestId) setLoadingStatus(false);
     }
   }, [projectId]);

@@ -822,6 +822,7 @@ export type Screen =
   | { name: 'requirements'; projectId: string }
   | { name: 'review-playground'; projectId?: string; sessionId?: string }
   | { name: 'settings' }
+    | { name: 'help' }
   | { name: 'profile' };
 
 export type Requirement = {

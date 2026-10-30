@@ -46,6 +46,27 @@ export class SupabaseSourceIndexJobStore implements SourceIndexJobStore {
     if (job && (job.projectId !== projectId || job.ownerId !== ownerId)) throw new Error('Source index job scope mismatch.');
     return job;
   }
+  async paused(projectId: string, ownerId: string): Promise<SourceIndexJob[]> {
+    if (ownerId !== this.userId) throw new Error('Source index resume owner mismatch.');
+    const jobs: SourceIndexJob[] = [];
+    let after: string | undefined;
+    for (;;) {
+      let query = this.client.from('audit_events').select('id,payload').eq('project_id', projectId)
+        .eq('entity_type', ENTITY).eq('event_type', EVENT).eq('payload->>ownerId', ownerId)
+        .eq('payload->>state', 'paused').order('id').limit(1000);
+      if (after) query = query.gt('id', after);
+      const result = await query;
+      if (result.error) throw new Error('Paused source index progress is unavailable.');
+      for (const row of result.data ?? []) {
+        const job = decode(row.payload, row.id);
+        if (!job || job.projectId !== projectId || job.ownerId !== ownerId || job.state !== 'paused')
+          throw new Error('Source index resume scope mismatch.');
+        jobs.push(job);
+      }
+      if ((result.data?.length ?? 0) < 1000) return jobs;
+      after = result.data![result.data!.length - 1]!.id;
+    }
+  }
   async insert(job: SourceIndexJob): Promise<boolean> {
     const result = await this.client.from('audit_events').insert({ id: job.id, project_id: job.projectId, actor_id: this.userId,
       entity_type: ENTITY, entity_id: job.projectId, event_type: EVENT, idempotency_key: `source-index:${job.id}`,

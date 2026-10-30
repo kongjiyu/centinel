@@ -5,6 +5,29 @@ import type { ReviewAuditEvent, StaticFindingInput } from '../../src/review/type
 import type { Artifact } from '../../src/artifacts.js';
 
 describe('Review harness audit boundaries', () => {
+  it('flushes source progress in bounded batches while retaining every outcome', async () => {
+    const batches: any[][] = [];
+    const harness = new ReviewHarness({reviewId:'r',projectId:'p'},async()=>{},async events=>{batches.push(events);});
+    await harness.bufferSourceEvents(async()=>{
+      for(let i=0;i<70;i++) await harness.step('freezing_sources','read_source',{artifactId:String(i)},async()=> 'text');
+      expect(batches.length).toBe(2);
+      expect(batches.every(batch=>batch.length<=64)).toBe(true);
+    });
+    expect(batches.flat()).toHaveLength(140);
+    expect(batches.at(-1)).toHaveLength(12);
+  });
+  it('batches free source outcomes before paid work and propagates persistence failure', async () => {
+    const immediate: any[] = []; const batches: any[][] = [];
+    const harness = new ReviewHarness({reviewId:'r',projectId:'p'}, async event => { immediate.push(event); }, async events => { batches.push(events); });
+    await harness.bufferSourceEvents(async () => {
+      await Promise.all([harness.step('freezing_sources','read_source',{artifactId:'one'},async()=> 'text'), harness.step('freezing_sources','inspect_source',{artifactId:'two'},async()=> 'available')]);
+      expect(immediate).toHaveLength(0);
+    });
+    expect(batches.flat()).toHaveLength(4);
+    await harness.step('model_analysis','run_model',{},async()=> { expect(immediate).toHaveLength(1); expect(batches.flat()).toHaveLength(4); });
+    const broken = new ReviewHarness({reviewId:'r',projectId:'p'}, async()=>{}, async()=>{ throw Error('persistence stopped'); });
+    await expect(broken.bufferSourceEvents(()=>broken.step('freezing_sources','read_source',{},async()=> 'text'))).rejects.toThrow('persistence stopped');
+  });
   it('writes free rule events in one batch but reserves a paid step immediately', async () => {
     const immediate: Array<Omit<ReviewAuditEvent, 'createdAt'>> = [];
     const batches: Array<Array<Omit<ReviewAuditEvent, 'createdAt'>>> = [];

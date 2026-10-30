@@ -149,6 +149,7 @@ describe('deterministic evidence sufficiency', () => {
     const inaccessible = assessEvidenceSufficiency(evidenceInput({ artifacts: [{ artifact: codeArtifact, state: 'inaccessible', detail: 'Access denied.' }] }));
     expect(inaccessible.readiness).toBe('blocked');
     expect(inaccessible.gaps.map(item => item.code)).toContain('source_inaccessible');
+    expect(inaccessible.gaps.find(item => item.code === 'source_inaccessible')?.detail).toBe(`${codeArtifact.fileName}: Access denied.`);
   });
 
   it('reports contradictory claims as a blocking gap and stale evidence as a warning', () => {

@@ -14,6 +14,19 @@ function setup(body: unknown, status = 200) {
   return { send, store: new SupabaseSourceIndexJobStore(client, owner) };
 }
 describe('source index durable journal', () => {
+  it('reads explicit resume snapshots only for this owner/project and paused state', async () => {
+    const paused = { ...job, state: 'paused' as const, revision: 2 };
+    const s = setup([{ id: job.id, payload: { version: 1, ...paused } }]);
+    expect(await s.store.paused(project, owner)).toEqual([expect.objectContaining(paused)]);
+    const params = new URL(String(s.send.mock.calls[0]![0])).searchParams;
+    expect(params.get('project_id')).toBe(`eq.${project}`);
+    expect(params.get('payload->>ownerId')).toBe(`eq.${owner}`);
+    expect(params.get('payload->>state')).toBe('eq.paused');
+    expect(params.get('order')).toBe('id.asc');
+    await expect(s.store.paused(project, 'other-owner')).rejects.toThrow('owner mismatch');
+    await expect(setup({ code: '42501' }, 403).store.paused(project, owner)).rejects.toThrow('unavailable');
+    await expect(setup([{ id: job.id, payload: { version: 1, ...paused, ownerId: 'other' } }]).store.paused(project, owner)).rejects.toThrow('scope mismatch');
+  });
   it('records capacity holds separately by owner and releases only the expected revision', async () => {
     const s = setup([{ id: 'hold' }]);
     expect(await s.store.compareHold(project, owner, { revision: 2, code: 'quota_exhausted' }, { revision: 3, code: null })).toBe(true);

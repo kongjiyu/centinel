@@ -9,7 +9,7 @@ import type { StoreModelUsage } from '../store/types.js';
 import { createEmbeddingBatch, EmbeddingProviderError, embeddingFailureUsage } from './embeddingProvider.js';
 import type { ReviewSourcePacketReference } from './usageContext.js';
 import { throwIfAborted } from './abort.js';
-import { configuredVoyageLimits, embeddingAdmissionEstimate, partitionEmbeddingInputs, waitForEmbeddingBudget } from './embeddingRateLimit.js';
+import { configuredVoyageLimits, embeddingAdmissionEstimate, partitionEmbeddingInputs, waitForEmbeddingBudget, sleep } from './embeddingRateLimit.js';
 
 type Usage = Omit<StoreModelUsage, 'id' | 'createdAt'> & { id?: string };
 export type RepositoryBridgeOptions = {
@@ -27,6 +27,7 @@ export type RepositoryBridgeOptions = {
   indexFingerprint?: string;
   embed?: typeof createEmbeddingBatch;
   saveUsage?: (input: Usage) => Promise<unknown>;
+  retrySleep?: typeof sleep;
   admit?: (estimate: number) => Promise<{ reconcile: (actual: number | null) => void }>;
 };
 
@@ -100,12 +101,15 @@ export async function openRepositoryEmbeddingBridge(options: RepositoryBridgeOpt
           inputs = body.input as string[];
         } catch { send(response, 400, { error: 'Invalid embedding bridge request.' }); return; }
         const voyage = options.configuration.embeddingProvider === 'voyage';
-        const limit = voyage ? Math.min(9_000, configuredVoyageLimits().tokensPerMinute) : 64_000;
+        const limit = voyage ? Math.min(64_000, configuredVoyageLimits().tokensPerMinute) : 64_000;
         const groups = partitionEmbeddingInputs(inputs, limit);
         const embeddings: number[][] = [];
         let reportedTotal: number | null = 0;
         let responseModel = options.configuration.model;
+        let retryWaitTotal = 0;
         for (const group of groups) {
+        for (let attempt = 1; attempt <= 4; attempt++) {
+        let retryWait: number | undefined;
         const estimate = embeddingAdmissionEstimate(group);
         const waitStarted = Date.now();
         const reservation = options.admit ? await options.admit(estimate) : voyage
@@ -120,7 +124,7 @@ export async function openRepositoryEmbeddingBridge(options: RepositoryBridgeOpt
         const usageId = crypto.randomUUID();
         const usageBase = {
           id: usageId, projectId: options.projectId, reviewSessionId: options.reviewId ?? null, ownerId: options.ownerId,
-          stage: options.inputType === 'document' ? 'source_indexing' : 'context_retrieval', attempt: 1,
+          stage: options.inputType === 'document' ? 'source_indexing' : 'context_retrieval', attempt,
           provider: 'custom', model: options.configuration.model, cost: null,
           metadata: { apiFormat: 'openai-compatible', embeddingProtocol: options.configuration.embeddingProvider,
             embeddingDimensions: options.configuration.dimensions, callKind: 'review', scope: 'embedding',
@@ -147,7 +151,11 @@ export async function openRepositoryEmbeddingBridge(options: RepositoryBridgeOpt
           result = await embed(options.configuration, group, options.inputType, options.signal);
           reservation.reconcile(result.providerReportedTotalTokens ?? result.inputTokens);
         } catch (cause) {
-          failure = cause; failed = true;
+          const retryable = voyage && cause instanceof EmbeddingProviderError && cause.code === 'rate_limited'
+            && !options.signal?.aborted && attempt < 4 && (cause.retryAfterMs ?? 0) <= 600_000;
+          if (retryable) retryWait = Math.max(60_000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 1000), cause.retryAfterMs ?? 0);
+          if (retryWait !== undefined && retryWaitTotal + retryWait > 600_000) retryWait = undefined;
+          if (retryWait === undefined) { failure = cause; failed = true; }
           errorCode = cause instanceof EmbeddingProviderError ? cause.code : 'embedding_provider_unavailable';
           const observed = embeddingFailureUsage(cause);
           knownUsage = observed.safeUsage;
@@ -158,7 +166,7 @@ export async function openRepositoryEmbeddingBridge(options: RepositoryBridgeOpt
         try {
           await saveUsage({
             ...usageBase, model: result?.model ?? options.configuration.model,
-            outcome: result ? 'success' : cancelled ? 'cancelled' : 'permanent_error', inputTokens: result?.inputTokens ?? knownUsage?.inputTokens ?? null,
+            outcome: result ? 'success' : cancelled ? 'cancelled' : retryWait !== undefined ? 'transient_error' : 'permanent_error', inputTokens: result?.inputTokens ?? knownUsage?.inputTokens ?? null,
             outputTokens: result ? 0 : null, cacheReadTokens: result ? 0 : null, cacheCreationTokens: result ? 0 : null,
             durationMs: Date.now() - started, errorCode, cost: null,
             metadata: { ...usageBase.metadata,
@@ -173,10 +181,17 @@ export async function openRepositoryEmbeddingBridge(options: RepositoryBridgeOpt
           if (!failed) failure = new Error('Embedding usage could not be recorded; the repository operation stopped.');
           failed = true;
         }
+        if (!failed && retryWait !== undefined) {
+          retryWaitTotal += retryWait;
+          await (options.retrySleep ?? sleep)(retryWait, options.signal);
+          continue;
+        }
         if (failed || !result) { send(response, 400, { error: 'The embedding operation stopped. Inspect the saved provider status.' }); return; }
         responseModel = result.model;
         embeddings.push(...result.embeddings);
         reportedTotal = reportedTotal === null || result.providerReportedTotalTokens == null ? null : reportedTotal + result.providerReportedTotalTokens;
+        break;
+        }
         }
         // Do not return estimated usage when the provider left it unknown.
         send(response, 200, { model: responseModel, data: embeddings.map((embedding, index) => ({ index, embedding })),

@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from './components/LoadingSkeleton';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { userFacingError } from './utils/userFacingError';
@@ -18,10 +19,10 @@ import { EvidenceBrowser } from './screens/EvidenceBrowser';
 import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
 import { ReviewEntryScreen } from './screens/ReviewEntryScreen';
 import { ReviewPlaygroundScreen } from './screens/ReviewPlaygroundScreen';
+import { HelpScreen } from './screens/HelpScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { api } from './api/client';
-import { reconcileOneDueSlackSource, SLACK_RECONCILIATION_INTERVAL_MS } from './integrations/slackReconciliation';
-import { startGitHubReconciliation } from './integrations/githubReconciliation';
+import { startConnectedSourceReconciliation } from './integrations/connectedSourceReconciliation';
 import { startRepositoryIndexSync } from './integrations/repositoryIndexSync';
 import type { Project, AiProviderSetting, Screen } from './types';
 import { ActiveReviewProvider } from './hooks/useActiveReview';
@@ -190,38 +191,7 @@ function App() {
 
   useEffect(() => {
     if (entryMode !== 'workspace' || !accountUserId) return;
-    let active = true;
-    let inFlight = false;
-    let nextProjectIndex = 0;
-    const reconcile = async () => {
-      if (!active || inFlight) return;
-      inFlight = true;
-      try {
-        // Read the current user's RLS-scoped projects for each pass rather
-        // than relying on a list cached before an account switch.
-        const projectIds = (await api.projects()).map(project => project.id);
-        if (!active) return;
-        const result = await reconcileOneDueSlackSource(projectIds, nextProjectIndex, api, Date.now(), () => active);
-        nextProjectIndex = result.nextIndex;
-      } catch {
-        // Authentication and connection failures remain visible through the
-        // normal workspace and source status surfaces.
-      } finally {
-        inFlight = false;
-      }
-    };
-    const firstPass = window.setTimeout(() => { void reconcile(); }, 60_000);
-    const interval = window.setInterval(() => { void reconcile(); }, SLACK_RECONCILIATION_INTERVAL_MS);
-    return () => {
-      active = false;
-      window.clearTimeout(firstPass);
-      window.clearInterval(interval);
-    };
-  }, [entryMode, accountUserId]);
-
-  useEffect(() => {
-    if (entryMode !== 'workspace' || !accountUserId) return;
-    return startGitHubReconciliation(api);
+    return startConnectedSourceReconciliation(api);
   }, [entryMode, accountUserId]);
 
   useEffect(() => {
@@ -285,9 +255,10 @@ function App() {
 
   if (loading) {
     return (
-      <div className="loading-screen" role="status">
-        <p>Loading projects…</p>
-      </div>
+      <main className="loading-screen project-workspace-loading" aria-busy="true">
+        <LoadingSkeleton label="Loading project workspace" variant="panel" />
+        <LoadingSkeleton label="Loading project pages" variant="rows" rows={5} />
+      </main>
     );
   }
 
@@ -390,6 +361,7 @@ function App() {
           {settingsError && <div className="command-inline-alert" role="status"><span>{settingsError}</span><button type="button" className="btn-secondary" onClick={() => void loadData()}>Retry settings</button></div>}
           <SettingsScreen settings={aiSettings} onRefresh={loadData} />
         </>}
+        {screen.name === 'help' && <HelpScreen />}
         {screen.name === 'review-playground' && (
           <ReviewPlaygroundScreen projects={projects} initialProjectId={screen.projectId} initialSessionId={screen.sessionId} onNavigate={setScreen} />
         )}

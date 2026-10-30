@@ -93,6 +93,9 @@ importers:
       open-codebase-index:
         specifier: 0.38.1
         version: 0.38.1(typebox@1.4.3)
+      pdfjs-dist:
+        specifier: 6.4.299
+        version: 6.4.299
       pdfkit:
         specifier: ^0.20.2
         version: 0.20.2

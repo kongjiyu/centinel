@@ -115,3 +115,19 @@
   .frozen-review-preview-content { grid-column: 1; }
   .frozen-review-preview { justify-self: start; }
 }
+.frozen-review-browser > summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
+.frozen-review-search { display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; font-size: 13px; }
+.frozen-review-search input { flex: 1; min-width: 0; padding: 8px; border: 1px solid var(--workspace-border); border-radius: 6px; }
+.frozen-review-browser-body { display: grid; grid-template-columns: minmax(220px, 32%) minmax(0, 1fr); height: 420px; border: 1px solid var(--workspace-border); border-radius: 8px; overflow: hidden; }
+.frozen-review-browser-body .frozen-review-source-list { display: block; overflow: auto; padding: 12px; border-right: 1px solid var(--workspace-border); overscroll-behavior: contain; }
+.frozen-review-directory { list-style: none; padding-left: 16px; margin: 0; }
+.frozen-review-source-list summary { cursor: pointer; padding: 7px 0; white-space: nowrap; font-size: 13px; }
+.frozen-review-file-link { display: flex; align-items: center; gap: 8px; padding: 7px 0; text-align: left; white-space: nowrap; }
+.frozen-review-reader { min-width: 0; overflow: auto; padding: 14px; }
+.frozen-review-reader h3 { margin: 0 0 12px; overflow-wrap: anywhere; }
+.frozen-review-reader .frozen-review-preview-content pre { height: 265px; white-space: pre; overflow-wrap: normal; }
+.frozen-review-code-line { display: block; }
+.frozen-review-code-line > span { display: inline-block; width: 42px; color: var(--workspace-text-muted); user-select: none; }
+@media (max-width: 720px) { .frozen-review-browser-body { grid-template-columns: 1fr; height: 600px; grid-template-rows: 200px minmax(0, 1fr); } .frozen-review-browser-body .frozen-review-source-list { border-right: 0; border-bottom: 1px solid var(--workspace-border); } }
+.frozen-review-result-path { display: block; color: var(--workspace-text-muted); font-size: 11px; white-space: nowrap; margin-bottom: 8px; }
+@media (max-width: 520px) { .frozen-review-search { flex-direction: column; align-items: stretch; gap: 6px; } }

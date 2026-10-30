@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeReviewRequestUsageContext } from '../../src/review/usageContext.js';
+import { sanitizeReviewRequestUsageContext, sourcePacketReferencesFromBatch } from '../../src/review/usageContext.js';
 
 const validSource = {
   artifactId: 'artifact-a', artifactVersionId: 'version-1', contentHash: 'hash-1',
@@ -44,5 +44,32 @@ describe('Review request usage context sanitizer', () => {
     expect(sanitized).toEqual({ phase: 'semantic_support' });
     expect(sanitized).not.toHaveProperty('sources');
     expect(sanitized).not.toHaveProperty('sourcesComplete');
+  });
+
+  it('retains distinct same-line window offsets in safe request metadata', () => {
+    const lineWindow = (startOffset: number, endOffsetExclusive: number) => ({
+      startOffset, endOffsetExclusive, originalLineLength: 50_000,
+      offsetUnit: 'utf16_code_units' as const, partialLine: true as const,
+    });
+    const sources = sourcePacketReferencesFromBatch([
+      { artifact: { id: 'css', versionId: 'v1', contentHash: 'h1', filePath: 'dist/app.css' }, lineStart: 249_666, lineEnd: 249_666, lineWindow: lineWindow(0, 24_000) },
+      { artifact: { id: 'css', versionId: 'v1', contentHash: 'h1', filePath: 'dist/app.css' }, lineStart: 249_666, lineEnd: 249_666, lineWindow: lineWindow(24_000, 48_000) },
+    ]);
+    const sanitized = sanitizeReviewRequestUsageContext({ phase: 'initial_analysis', sources });
+
+    expect(sources).toHaveLength(2);
+    expect(sanitized?.sources).toEqual(sources);
+    expect(sanitized?.sourcesComplete).toBe(true);
+  });
+
+  it('keeps legacy full-line references and marks malformed window provenance incomplete', () => {
+    const malformed = sanitizeReviewRequestUsageContext({ phase: 'initial_analysis', sources: [validSource, {
+      ...validSource, lineStart: 1, lineEnd: 1,
+      lineWindow: { startOffset: 24_000, endOffsetExclusive: 48_000, originalLineLength: 40_000,
+        offsetUnit: 'utf16_code_units', partialLine: true },
+    }] });
+
+    expect(malformed?.sources).toEqual([validSource]);
+    expect(malformed?.sourcesComplete).toBe(false);
   });
 });

@@ -146,6 +146,7 @@ export function buildReviewNarrative(input: {
     let status = outcomes.includes('Failed') ? 'Failed' : outcomes.includes('Cancelled') ? 'Cancelled'
       : outcomes.includes('Interrupted') ? 'Interrupted' : outcomes.includes('In progress') ? 'In progress'
         : outcomes.length ? 'Completed' : findings.some(finding => stageOf(finding) === stage.id) ? 'Not recorded' : active ? 'Not started' : 'Not reached';
+    if (active && stage.id === 'freezing_sources' && status === 'Completed' && !related.some(event => event.event === 'harness_step_completed' && event.detail?.step === 'save_assessment')) status = 'In progress';
     if (stage.id === 'model_analysis' && incompleteModel && status === 'Completed') status = 'Incomplete';
     const completed = status === 'Completed';
     let outcome = completed ? '' : status === 'In progress' ? 'I’m working through this part now.'
@@ -158,6 +159,7 @@ export function buildReviewNarrative(input: {
       if (completed && reads.size) outcome = `I could read ${reads.size} selected file${reads.size === 1 ? '' : 's'}.`;
       if (requirementCount === 0) outcome += ' I couldn’t confirm the business requirements, so that part of the review is limited.';
     }
+    if (active && stage.id === 'freezing_sources' && status === 'Completed' && !related.some(event => event.event === 'harness_step_completed' && event.detail?.step === 'save_assessment')) status = 'In progress';
     if (stage.id === 'model_analysis' && incompleteModel) outcome = 'The behaviour review is incomplete. The earlier checks are still available, but they don’t replace this part.';
     if (stage.id === 'persisting_evidence' && completed) outcome = comparisonSummary || 'The findings are ready for you to inspect in Findings.';
     return { id: stage.id, title: stage.title, state: status, purpose: completed ? stage.past : ['In progress', 'Not started'].includes(status) ? stage.plan : '', outcome,

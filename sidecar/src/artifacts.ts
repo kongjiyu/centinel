@@ -25,6 +25,7 @@ const SUPPORTED_EXTENSIONS: Record<string, ArtifactType> = {
   '.js': 'source_code',
   '.ts': 'source_code',
   '.py': 'source_code',
+  '.sol': 'source_code',
   '.java': 'source_code',
   '.cs': 'source_code',
   '.jsx': 'source_code',

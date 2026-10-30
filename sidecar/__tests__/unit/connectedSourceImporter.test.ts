@@ -210,6 +210,14 @@ describe('ConnectedSourceImporter', () => {
   });
   it('checks the GitHub head first, skips current content, imports changed heads, and recovers failed snapshots', async () => {
     const repository = new MemoryConnectedSourceRepository();
+    // Seed a completed snapshot from before Solidity was recognized. Its
+    // ordinary unchanged-head check must stay cheap; the explicit force below
+    // re-enumerates the same revision and imports the newly supported path.
+    const oldSnapshotImporter = new ConnectedSourceImporter({
+      repository, adapters: [sourceAdapter([{ cursor: null, done: true }])],
+      tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') },
+    });
+    await oldSnapshotImporter.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: 'before-solidity-support' });
     let head = 'commit-a';
     const calls: string[] = [];
     const adapter = new GitHubConnectedSourceAdapter({ http: { async fetch(input) {
@@ -217,25 +225,36 @@ describe('ConnectedSourceImporter', () => {
       calls.push(route);
       const body = route.endsWith('/commits/main') ? { sha: head }
         : route.includes('/git/commits/') ? { tree: { sha: `tree-${head}` } }
-        : route.includes('/git/trees/') ? { tree: [{ path: 'src/check.ts', type: 'blob', sha: `blob-${head}` }] }
-        : { content: Buffer.from(`const version = '${head}';`).toString('base64'), encoding: 'base64' };
+        : route.includes('/git/trees/') ? { tree: [
+          { path: 'src/check.ts', type: 'blob', sha: `blob-${head}` },
+          { path: 'contracts/Vault.sol', type: 'blob', sha: `solidity-${head}` },
+        ] }
+        : { content: Buffer.from(route.includes('/solidity-') ? `contract Vault {} // ${head}\n` : head === 'commit-a' ? 'const ok = true;' : `const version = '${head}';`).toString('base64'), encoding: 'base64' };
       return new Response(JSON.stringify(body), { status: 200 });
     } } });
     const importer = new ConnectedSourceImporter({ repository, adapters: [adapter], tokenVault: { encrypt: value => `test:${value}`, decrypt: value => value.replace(/^test:/, '') } });
     const sync = (key: string, force = false) => importer.sync({ ownerId: 'owner-1', projectId: 'project-1', sourceId: 'source-1', idempotencyKey: key, force });
-    expect((await sync('first')).imported).toBe(1);
-    calls.length = 0;
     expect((await sync('current')).unchanged).toBe(1);
     expect(calls).toEqual(['/repos/acme/quality/commits/main']);
     expect(repository.versions.size).toBe(1);
 
+    // A full sync after adding support for a previously omitted extension
+    // must revisit the same completed head; ordinary polling intentionally
+    // remains a cheap unchanged-head check.
+    calls.length = 0;
+    const forcedSolidity = await sync('force-solidity-recheck', true);
+    expect(forcedSolidity.imported).toBe(1);
+    expect(forcedSolidity.unchanged).toBe(1);
+    expect(repository.items.find(item => item.path === 'contracts/Vault.sol')).toMatchObject({ status: 'available', revision: 'solidity-commit-a' });
+    expect(calls.some(route => route.includes('/git/blobs/solidity-commit-a'))).toBe(true);
+
     head = 'commit-many-commits-later';
     calls.length = 0;
-    expect((await sync('changed')).updated).toBe(1);
+    expect((await sync('changed')).updated).toBe(2);
     expect(calls[0]).toBe('/repos/acme/quality/commits/main');
     expect(repository.source.remoteRevision).toBe(head);
-    expect(repository.versions.size).toBe(2);
-    expect(calls).toHaveLength(4);
+    expect(repository.versions.size).toBe(4);
+    expect(calls).toHaveLength(5);
 
     // Source revision can already point at a failed import; equality alone
     // must not certify that all its content was imported.

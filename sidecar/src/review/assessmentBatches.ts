@@ -4,6 +4,7 @@ import type { ReviewAnalysisMap, ReviewAnalysisFeature } from './featurePathAnal
 import { ModelProviderError } from './retry.js';
 import type { StaticFindingInput, ReviewAuditEvent } from './types.js';
 import type { RetrievedContext } from './contextTypes.js';
+import { isReadablePlainText } from './plainTextLogic.js';
 import { addCommonJsDependencyContext } from './commonJsContext.js';
 import {
   createEvidencePacketSelector,
@@ -16,10 +17,25 @@ import {
 export const REVIEW_FEATURE_BATCH_SIZE = 8;
 export const REVIEW_SOURCE_BATCH_CHARACTERS = 64_000;
 const SOURCE_SEGMENT_CHARACTERS = 24_000;
-export const MAX_ASSESSMENT_BATCHES = 128;
+export const MAX_ASSESSMENT_BATCHES = 256;
 export const MAX_OPTIONAL_PACKET_CHARACTERS = 8_000;
 export const MAX_OPTIONAL_CALLER_UNITS = 8;
-export type AssessmentSourceSegment = EvidenceArtifact & { content: string; lineStart: number; lineEnd: number };
+export type AssessmentSourceLineWindow = {
+  /** Inclusive UTF-16 code-unit offset in the original frozen line. */
+  startOffset: number;
+  /** Exclusive UTF-16 code-unit offset in the original frozen line. */
+  endOffsetExclusive: number;
+  originalLineLength: number;
+  offsetUnit: 'utf16_code_units';
+  partialLine: true;
+};
+export type AssessmentSourceSegment = EvidenceArtifact & {
+  content: string;
+  lineStart: number;
+  lineEnd: number;
+  /** Present only when this segment is an exact partial window of one original line. */
+  lineWindow?: AssessmentSourceLineWindow;
+};
 export type AssessmentPacketDiagnostics = {
   schemaVersion: 1;
   method: EvidencePacketMethod | 'mixed';
@@ -95,36 +111,109 @@ export function findingsWithinBatch(findings: StaticFindingInput[], sources: Ass
   return findings.filter(finding => [finding, ...(finding.relatedLocations ?? [])].every(ref => {
     if (!ref.lineNumber) return false;
     const end = ref.lineNumber + ref.evidence.replace(/\r\n/g, '\n').split('\n').length - 1;
-    return sources.some(source => source.artifact.id === ref.artifactId && ref.lineNumber! >= source.lineStart && end <= source.lineEnd);
+    return sources.some(source => {
+      if (source.artifact.id !== ref.artifactId || ref.lineNumber! < source.lineStart || end > source.lineEnd) return false;
+      if (!source.lineWindow) return true;
+      const window = source.lineWindow;
+      const metadataValid = Number.isSafeInteger(window.startOffset) && window.startOffset >= 0
+        && Number.isSafeInteger(window.endOffsetExclusive) && window.endOffsetExclusive > window.startOffset
+        && Number.isSafeInteger(window.originalLineLength) && window.originalLineLength >= window.endOffsetExclusive
+        && (window.startOffset > 0 || window.endOffsetExclusive < window.originalLineLength)
+        && window.offsetUnit === 'utf16_code_units' && window.partialLine === true
+        && source.lineStart === source.lineEnd && ref.lineNumber === source.lineStart && end === source.lineEnd
+        && source.content.length === window.endOffsetExclusive - window.startOffset;
+      const excerpt = ref.evidence.replace(/\r\n/g, '\n');
+      return metadataValid && !excerpt.includes('\n') && source.content.replace(/\r\n/g, '\n').includes(excerpt);
+    });
   }));
 }
 
+const CONFIGURATION_EXTENSIONS = new Set(['.json', '.yaml', '.yml', '.html', '.css']);
+
+function configurationOrMarkup(item: EvidenceArtifact, parserExcludedConfigurationIds: ReadonlySet<string>): boolean {
+  const name = item.artifact.fileName.toLowerCase();
+  const extension = name.slice(name.lastIndexOf('.'));
+  const isConfiguration = parserExcludedConfigurationIds.has(item.artifact.id) || CONFIGURATION_EXTENSIONS.has(extension);
+  return isConfiguration && typeof item.content === 'string' && isReadablePlainText(item.content);
+}
+
+function isHighSurrogate(code: number): boolean { return code >= 0xd800 && code <= 0xdbff; }
+function isLowSurrogate(code: number): boolean { return code >= 0xdc00 && code <= 0xdfff; }
+
+/** Split a parser-excluded long line at exact UTF-16 boundaries without losing any source characters. */
+function oversizedConfigurationLine(item: EvidenceArtifact, line: string, lineNumber: number): AssessmentSourceSegment[] {
+  const result: AssessmentSourceSegment[] = [];
+  let startOffset = 0;
+  while (startOffset < line.length) {
+    let endOffsetExclusive = Math.min(startOffset + SOURCE_SEGMENT_CHARACTERS, line.length);
+    // String offsets and slices use UTF-16 code units. Keep a surrogate pair together at each boundary.
+    if (endOffsetExclusive < line.length && endOffsetExclusive > startOffset
+      && isHighSurrogate(line.charCodeAt(endOffsetExclusive - 1)) && isLowSurrogate(line.charCodeAt(endOffsetExclusive))) {
+      endOffsetExclusive--;
+    }
+    if (endOffsetExclusive <= startOffset) throw contextLimit();
+    const content = line.slice(startOffset, endOffsetExclusive);
+    const lineWindow: AssessmentSourceLineWindow = {
+      startOffset,
+      endOffsetExclusive,
+      originalLineLength: line.length,
+      offsetUnit: 'utf16_code_units',
+      partialLine: true,
+    };
+    // Recheck the declared offsets against the original frozen line before admitting the packet.
+    if (content !== line.slice(lineWindow.startOffset, lineWindow.endOffsetExclusive)
+      || content.length !== lineWindow.endOffsetExclusive - lineWindow.startOffset
+      || (lineWindow.endOffsetExclusive < line.length
+        && isHighSurrogate(line.charCodeAt(lineWindow.endOffsetExclusive - 1))
+        && isLowSurrogate(line.charCodeAt(lineWindow.endOffsetExclusive)))) throw contextLimit();
+    result.push({ ...item, content, lineStart: lineNumber, lineEnd: lineNumber, lineWindow });
+    startOffset = endOffsetExclusive;
+  }
+  if (result.map(segment => segment.content).join('') !== line) throw contextLimit();
+  return result;
+}
+
 /** Preserve the existing line-segment contract and every readable source line; never truncate. */
-function segments(item: EvidenceArtifact): AssessmentSourceSegment[] {
+function segments(item: EvidenceArtifact, allowConfigurationWindows = false): AssessmentSourceSegment[] {
   if (typeof item.content !== 'string' || item.state && item.state !== 'available') return [];
   const lines = item.content.split('\n');
   const result: AssessmentSourceSegment[] = [];
   let start = 0, size = 0;
+  const flush = (endExclusive: number) => {
+    if (endExclusive <= start) return;
+    result.push({ ...item, content: lines.slice(start, endExclusive).join('\n'), lineStart: start + 1, lineEnd: endExclusive });
+  };
   for (let index = 0; index < lines.length; index++) {
-    if (lines[index]!.length > REVIEW_SOURCE_BATCH_CHARACTERS) throw contextLimit();
+    const line = lines[index]!;
+    if (line.length > REVIEW_SOURCE_BATCH_CHARACTERS && !allowConfigurationWindows) throw contextLimit();
+    if (allowConfigurationWindows && line.length > SOURCE_SEGMENT_CHARACTERS) {
+      flush(index);
+      result.push(...oversizedConfigurationLine(item, line, index + 1));
+      start = index + 1;
+      size = 0;
+      continue;
+    }
     if (size && size + lines[index]!.length + 1 > SOURCE_SEGMENT_CHARACTERS) {
-      result.push({ ...item, content: lines.slice(start, index).join('\n'), lineStart: start + 1, lineEnd: index });
+      flush(index);
       start = index; size = 0;
     }
     size += lines[index]!.length + 1;
   }
-  result.push({ ...item, content: lines.slice(start).join('\n'), lineStart: start + 1, lineEnd: lines.length });
+  flush(lines.length);
+  if (!result.length) result.push({ ...item, content: '', lineStart: 1, lineEnd: 1 });
   return result;
 }
 function contextLimit() {
   return new ModelProviderError('The selected assessment unit exceeds the bounded source context. Reduce its scope; omitted context cannot qualify as assessed.', { code: 'context_limit', retryable: false });
 }
-const sourceKey = (source: AssessmentSourceSegment) => `${source.artifact.id}:${source.artifact.contentHash}:${source.lineStart}:${source.lineEnd}`;
+const sourceKey = (source: AssessmentSourceSegment) => `${source.artifact.id}:${source.artifact.contentHash}:${source.lineStart}:${source.lineEnd}:`
+  + (source.lineWindow ? `utf16:${source.lineWindow.startOffset}:${source.lineWindow.endOffsetExclusive}:${source.lineWindow.originalLineLength}` : 'full');
 const sourceSize = (sources: AssessmentSourceSegment[]) => sources.reduce((sum, source) => sum + source.content.length, 0);
 
 function packetSources(
   artifacts: EvidenceArtifact[],
   selections: ReturnType<typeof selectEvidencePackets>['byArtifactId'],
+  parserExcludedConfigurationIds: ReadonlySet<string>,
 ): AssessmentSourceSegment[] {
   const byId = new Map(artifacts.map(item => [item.artifact.id, item]));
   const result: AssessmentSourceSegment[] = [];
@@ -132,10 +221,20 @@ function packetSources(
     const item = byId.get(artifactId);
     if (!item || typeof item.content !== 'string' || item.state && item.state !== 'available') throw contextLimit();
     const lines = item.content.split('\n');
+    const allowConfigurationWindows = configurationOrMarkup(item, parserExcludedConfigurationIds);
     for (const range of selection.ranges) {
       if (!Number.isInteger(range.lineStart) || !Number.isInteger(range.lineEnd)
         || range.lineStart < 1 || range.lineEnd < range.lineStart || range.lineEnd > lines.length) throw contextLimit();
-      result.push({ ...item, content: lines.slice(range.lineStart - 1, range.lineEnd).join('\n'), lineStart: range.lineStart, lineEnd: range.lineEnd });
+      let start = range.lineStart - 1;
+      for (let index = start; index < range.lineEnd; index++) {
+        const line = lines[index]!;
+        if (line.length > REVIEW_SOURCE_BATCH_CHARACTERS && !allowConfigurationWindows) throw contextLimit();
+        if (!allowConfigurationWindows || line.length <= SOURCE_SEGMENT_CHARACTERS) continue;
+        if (index > start) result.push({ ...item, content: lines.slice(start, index).join('\n'), lineStart: start + 1, lineEnd: index });
+        result.push(...oversizedConfigurationLine(item, line, index + 1));
+        start = index + 1;
+      }
+      if (start < range.lineEnd) result.push({ ...item, content: lines.slice(start, range.lineEnd).join('\n'), lineStart: start + 1, lineEnd: range.lineEnd });
     }
   }
   return result;
@@ -176,7 +275,10 @@ function packetDiagnostics(
 
 /** Inventory feature checks and independent source sweeps, including files with no mapped operation. */
 export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: EvidenceArtifact[], context?: RetrievedContext | null): AssessmentBatch[] {
-  const all = artifacts.flatMap(segments);
+  const parserExcludedConfigurationIds = new Set(map.coverage.unsupportedArtifacts
+    .filter(item => item.parserExclusion === 'configuration').map(item => item.artifactId));
+  const all = artifacts.flatMap(item => segments(item, configurationOrMarkup(item, parserExcludedConfigurationIds)));
+  const textLogicIds = new Set(map.features.filter(feature => feature.analysisKind === 'plain_text_logic').flatMap(feature => feature.entryPoints.map(ref => ref.artifactId)));
   const selectPackets = createEvidencePacketSelector(artifacts);
   const batches: AssessmentBatch[] = [];
   const covered = new Set<string>();
@@ -190,7 +292,7 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
   const addFeatureGroup = (features: ReviewAnalysisFeature[]) => {
     const requiredSelection = selectPackets(features, undefined, { includeCallers: false });
     let selection = requiredSelection;
-    let sources = packetSources(artifacts, requiredSelection.byArtifactId);
+    let sources = packetSources(artifacts, requiredSelection.byArtifactId, parserExcludedConfigurationIds);
     const sourceIds = new Set(sources.map(source => source.artifact.id));
     for (const feature of features) for (const reference of [...feature.entryPoints, ...feature.paths.flatMap(path => path.evidence)]) {
       if (!sourceIds.has(reference.artifactId) || !sources.some(source => source.artifact.id === reference.artifactId
@@ -208,7 +310,7 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
     const optionalSelection = selectPackets(features, context ?? undefined, {
       includeCallers: true, maxCallerUnits: MAX_OPTIONAL_CALLER_UNITS,
     });
-    const optionalSources = packetSources(artifacts, optionalSelection.byArtifactId);
+    const optionalSources = packetSources(artifacts, optionalSelection.byArtifactId, parserExcludedConfigurationIds);
     const requiredRetained = retainedPacketCharacters(requiredSelection);
     const optionalRetained = retainedPacketCharacters(optionalSelection);
     const optionalCharacters = Math.max(0, optionalRetained - requiredRetained);
@@ -230,12 +332,37 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
     add(features, sources, packetDiagnostics(selection, omittedCallerCount, omittedRetrievedCount));
   };
   for (let index = 0; index < map.features.length; index += REVIEW_FEATURE_BATCH_SIZE) {
-    addFeatureGroup(map.features.slice(index, index + REVIEW_FEATURE_BATCH_SIZE));
+    const group = map.features.slice(index, index + REVIEW_FEATURE_BATCH_SIZE);
+    const parsedFeatures = group.filter(feature => feature.analysisKind !== 'plain_text_logic');
+    if (parsedFeatures.length) addFeatureGroup(parsedFeatures);
+    // Text-logic units have no AST boundaries. Retain the whole exact segment,
+    // rather than sending only the first/last anchor selected by syntax ranking.
+    let textFeatures: ReviewAnalysisFeature[] = [];
+    let textSources: AssessmentSourceSegment[] = [];
+    for (const feature of group.filter(item => item.analysisKind === 'plain_text_logic')) {
+      const reference = feature.entryPoints[0];
+      const range = feature.sourceRange;
+      const source = reference && artifacts.find(item => item.artifact.id === reference.artifactId
+        && item.artifact.filePath === reference.filePath && item.artifact.contentHash === reference.sourceVersion);
+      if (!source || typeof source.content !== 'string' || source.state && source.state !== 'available'
+        || !range || !Number.isInteger(range.lineStart) || !Number.isInteger(range.lineEnd)
+        || range.lineStart < 1 || range.lineEnd < range.lineStart) throw contextLimit();
+      const lines = source.content.split('\n');
+      if (range.lineEnd > lines.length) throw contextLimit();
+      const segment: AssessmentSourceSegment = { ...source, content: lines.slice(range.lineStart - 1, range.lineEnd).join('\n'),
+        lineStart: range.lineStart, lineEnd: range.lineEnd };
+      if (segment.content.length > REVIEW_SOURCE_BATCH_CHARACTERS) throw contextLimit();
+      if (textSources.length && sourceSize([...textSources, segment]) > REVIEW_SOURCE_BATCH_CHARACTERS) {
+        add(textFeatures, textSources); textFeatures = []; textSources = [];
+      }
+      textFeatures.push(feature); textSources.push(segment);
+    }
+    add(textFeatures, textSources);
   }
   // Every selected source-code segment also gets an independent semantic sweep.
   // These empty-feature batches can produce findings but never domain coverage.
   let sweep: AssessmentSourceSegment[] = [];
-  for (const source of all.filter(source => source.artifact.type === 'source_code')) {
+  for (const source of all.filter(source => source.artifact.type === 'source_code' || textLogicIds.has(source.artifact.id))) {
     if (sweep.length && sourceSize([...sweep, source]) > REVIEW_SOURCE_BATCH_CHARACTERS) { add([], sweep); sweep = []; }
     sweep.push(source);
   }
@@ -243,13 +370,13 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
   // Keep non-code documents available to an independent sweep if no feature
   // batch already included them as bounded shared context.
   sweep = [];
-  for (const source of all.filter(source => source.artifact.type !== 'source_code' && !covered.has(sourceKey(source)))) {
+  for (const source of all.filter(source => source.artifact.type !== 'source_code' && !textLogicIds.has(source.artifact.id) && !covered.has(sourceKey(source)))) {
     if (sweep.length && sourceSize([...sweep, source]) > REVIEW_SOURCE_BATCH_CHARACTERS) { add([], sweep); sweep = []; }
     sweep.push(source);
   }
   add([], sweep);
   // Add original documents as shared context when they fit; remaining documents still have their own sweep.
-  const documents = all.filter(source => source.artifact.type !== 'source_code');
+  const documents = all.filter(source => source.artifact.type !== 'source_code' && !textLogicIds.has(source.artifact.id));
   for (const batch of batches.filter(batch => batch.features.length)) {
     for (const document of documents) {
       if (batch.sources.some(source => sourceKey(source) === sourceKey(document))) continue;
@@ -258,7 +385,7 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
   }
   // Append bounded, complete one-hop CommonJS dependency modules only after
   // the original feature packets and shared documents have been finalized.
-  for (const batch of batches.filter(batch => batch.features.length)) {
+  for (const batch of batches.filter(batch => batch.features.length && batch.features.every(feature => feature.analysisKind !== 'plain_text_logic'))) {
     const context = addCommonJsDependencyContext(artifacts, batch.sources,
       REVIEW_SOURCE_BATCH_CHARACTERS - sourceSize(batch.sources));
     batch.sources = context.sources;

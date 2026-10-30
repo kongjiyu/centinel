@@ -3,13 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import { ReviewEntryScreen } from './ReviewEntryScreen';
-import type { Artifact, Project, Requirement, StaticSession } from '../types';
+import type { Artifact, ConnectedSource, Project, Requirement, StaticSession } from '../types';
 
 vi.mock('../api/client', () => ({
   api: {
     listArtifacts: vi.fn(),
     listRequirements: vi.fn(),
     listActiveStaticSessions: vi.fn(),
+    listConnectedSources: vi.fn(),
     listStaticSessions: vi.fn(),
     getReviewSourceManifest: vi.fn(),
     createStaticSession: vi.fn(),
@@ -48,6 +49,37 @@ const standardArtifact: Artifact = {
   contentHash: 'standard-hash',
   createdAt: '2026-09-10T10:00:00.000Z',
 };
+
+const attachedDocument: Artifact = {
+  ...standardArtifact,
+  id: 'artifact-design',
+  type: 'design',
+  fileName: 'checkout-design.md',
+  contentHash: 'design-hash',
+};
+
+function connectedRepository(id: string): ConnectedSource {
+  return {
+    id,
+    projectId: project.id,
+    integrationId: 'integration-github',
+    provider: 'github',
+    kind: 'github_repository',
+    remoteId: id,
+    remoteUrl: `https://github.com/example/${id}`,
+    name: 'Team repository',
+    selectedScope: {},
+    remoteRevision: null,
+    syncCursor: null,
+    status: 'active',
+    syncStatus: 'ready',
+    lastSyncedAt: null,
+    lastSuccessfulSyncAt: null,
+    lastError: null,
+    createdAt: '2026-09-10T10:00:00.000Z',
+    updatedAt: '2026-09-10T10:00:00.000Z',
+  };
+}
 
 const requirement: Requirement = {
   id: 'requirement-1',
@@ -103,14 +135,16 @@ const comparisonManifest = {
   artifactCount: 1,
 };
 
-function setup({ artifacts = [sourceArtifact, standardArtifact], requirements = [requirement], active = [] }: {
+function setup({ artifacts = [sourceArtifact, standardArtifact], requirements = [requirement], active = [], connectedSources = [] }: {
   artifacts?: Artifact[];
   requirements?: Requirement[];
   active?: StaticSession[];
+  connectedSources?: ConnectedSource[];
 } = {}) {
   vi.mocked(api.listArtifacts).mockResolvedValue(artifacts);
   vi.mocked(api.listRequirements).mockResolvedValue(requirements);
   vi.mocked(api.listActiveStaticSessions).mockResolvedValue(active);
+  vi.mocked(api.listConnectedSources).mockResolvedValue(connectedSources);
   vi.mocked(api.listStaticSessions).mockResolvedValue([]);
   vi.mocked(api.getReviewSourceManifest).mockResolvedValue({
     sessionId: 'review-missing', projectId: project.id, status: 'unavailable', sources: [], artifactCount: null,
@@ -129,8 +163,8 @@ describe('ReviewEntryScreen', () => {
     const onNavigate = vi.fn();
     render(<ReviewEntryScreen projects={[project]} onNavigate={onNavigate} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByRole('heading', { name: 'Review scope' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /checkout\.ts/i })).toBeChecked();
+    expect(await screen.findByRole('heading', { name: 'Select sources' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Repository Local imported code' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /security\.md/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
 
@@ -158,13 +192,33 @@ describe('ReviewEntryScreen', () => {
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: returnedSession.id, reviewName: returnedSession.name });
   });
 
+  it('defaults to the first source identity and all eligible supporting inputs', async () => {
+    const firstRepo: Artifact = { ...sourceArtifact, id: 'first-file', sourceId: 'source-first', fileName: 'first.ts' };
+    const secondRepo: Artifact = { ...sourceArtifact, id: 'second-file', sourceId: 'source-second', fileName: 'second.ts' };
+    setup({
+      artifacts: [firstRepo, secondRepo, attachedDocument, standardArtifact],
+      requirements: [requirement],
+      connectedSources: [connectedRepository('source-first'), connectedRepository('source-second')],
+    });
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+
+    const repositories = await screen.findAllByRole('checkbox', { name: 'Repository Team repository' });
+    expect(repositories).toHaveLength(2);
+    expect(repositories[0]).toBeChecked();
+    expect(repositories[1]).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /checkout-design\.md/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /security\.md/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: /first\.ts|second\.ts/i })).not.toBeInTheDocument();
+  });
+
   it('keeps Start review unavailable when the project has no reviewable scope', async () => {
     setup({ artifacts: [], requirements: [] });
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByText('No project scope is available')).toBeInTheDocument();
+    expect(await screen.findByText('No sources or requirements found')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent(/Add at least one artifact, requirement, or coding standard/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/Add project sources or requirements/i);
     expect(api.createStaticSession).not.toHaveBeenCalled();
   });
 
@@ -173,7 +227,7 @@ describe('ReviewEntryScreen', () => {
     setup({ active: [active] });
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review scope' });
+    await screen.findByRole('heading', { name: 'Select sources' });
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent(/A review is already active/i);
   });
@@ -183,7 +237,7 @@ describe('ReviewEntryScreen', () => {
     vi.mocked(api.createStaticSession).mockRejectedValue(new Error('HTTP 401'));
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Review scope' });
+    await screen.findByRole('heading', { name: 'Select sources' });
     await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Auth review');
     await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Check session handling.');
     await user.click(screen.getByRole('button', { name: 'Start review' }));
@@ -200,10 +254,10 @@ describe('ReviewEntryScreen', () => {
     vi.mocked(api.getReviewSourceManifest).mockResolvedValue(comparisonManifest);
     render(<ReviewEntryScreen projects={[project]} comparisonParentReviewId={comparisonReview.id} onNavigate={onNavigate} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByRole('note')).toHaveTextContent('Review updated sources against Sprint 2 review.');
+    expect(await screen.findByRole('note')).toHaveTextContent('Comparing updated sources with Sprint 2 review.');
     expect(screen.getByRole('textbox', { name: 'Review name' })).toHaveValue('Sprint 2 review');
     expect(screen.getByRole('textbox', { name: 'Review objective' })).toHaveValue('Verify changed checkout paths.');
-    expect(screen.getByRole('checkbox', { name: /checkout\.ts/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Repository Local imported code' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /security\.md/i })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
     expect(api.createStaticSession).not.toHaveBeenCalled();
@@ -223,6 +277,22 @@ describe('ReviewEntryScreen', () => {
       standardIds: [],
       requirementIds: [requirement.id],
     });
+  });
+
+  it('keeps missing saved members explicit and blocks implicit substitution', async () => {
+    const user = userEvent.setup();
+    const reviewWithMissingSource = { ...comparisonReview, scope: { ...comparisonReview.scope!, artifactIds: [sourceArtifact.id, 'removed-source-id'] } };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([reviewWithMissingSource]);
+    vi.mocked(api.getReviewSourceManifest).mockResolvedValue(comparisonManifest);
+    render(<ReviewEntryScreen projects={[project]} comparisonParentReviewId={comparisonReview.id} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+
+    expect(await screen.findByText('removed-source-id · remove from this Review')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: /source.*removed-source-id/i }));
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createStaticSession).mock.calls[0][1].artifactIds).toEqual([sourceArtifact.id]);
   });
 
   it.each([

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProjectDateTime, ProjectDetailScreen } from './ProjectDetailScreen';
 import { api } from '../api/client';
-import type { Artifact, CollaborationStatus, DynamicSession, Finding, Project, ProjectReadinessStatus, ReviewSourceManifest, Screen, StaticSession } from '../types';
+import type { Artifact, CollaborationStatus, DynamicSession, Finding, GithubCollaboratorSnapshot, Project, ProjectReadinessStatus, ReviewSourceManifest, Screen, StaticSession } from '../types';
 
 const folderPicker = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/dialog', () => ({ open: folderPicker }));
@@ -54,6 +54,16 @@ const project: Project = {
 
 const availableCollaboration: CollaborationStatus = { available: true, repository: { owner: 'acme', repo: 'website', remoteUrl: 'https://github.com/acme/website.git' } };
 const unavailableCollaboration: CollaborationStatus = { available: false, repository: null, message: 'Collaboration data is not connected' };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 const emptyReadinessStatus: ProjectReadinessStatus = {
   projectId: project.id, requestId: null, status: 'idle', trigger: null,
@@ -119,13 +129,14 @@ beforeEach(() => {
   vi.mocked(api.getProjectAssessment).mockResolvedValue({ projectId: project.id, status: 'unavailable' } as never);
   vi.mocked(api.getProjectReadiness).mockResolvedValue(emptyReadinessStatus);
   vi.mocked(api.startProjectReadiness).mockResolvedValue({ ...emptyReadinessStatus, status: 'queued', requestId: 'request-1', trigger: 'manual' });
+  vi.mocked(api.syncGithubCollaborators).mockResolvedValue({ repository: null, collaborators: [], syncedAt: null });
 });
 
 describe('ProjectDetailScreen refinement surfaces', () => {
   it('opens Source without unrelated Findings, Assessment, Review history or report requests', async () => {
     vi.mocked(api.listArtifacts).mockResolvedValue([]);
     render(<ProjectDetailScreen project={project} onNavigate={vi.fn()} initialSection="source" />);
-    expect(await screen.findByRole('heading', { name: 'Sources' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument());
     expect(api.listArtifacts).toHaveBeenCalledTimes(1);
     expect(api.listStaticSessions).not.toHaveBeenCalled();
     expect(api.listDynamicSessions).not.toHaveBeenCalled();
@@ -196,13 +207,38 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
 
     expect(screen.getByRole('heading', { name: 'Collaborators' })).toBeInTheDocument();
-    expect(screen.getByText('No collaborators synced yet')).toBeInTheDocument();
+    expect(await screen.findByText('No collaborators synced yet')).toBeInTheDocument();
     expect(screen.getByLabelText('Search collaborators')).toBeInTheDocument();
     expect(screen.getByText('Collaboration data is not connected')).toBeInTheDocument();
     expect(screen.queryByText('You · Admin')).not.toBeInTheDocument();
     expect(screen.queryByText('Assigned reviewers')).not.toBeInTheDocument();
     expect(screen.queryByText('Developers')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add collaborator' })).toBeInTheDocument();
+    expect(api.syncGithubCollaborators).not.toHaveBeenCalled();
+  });
+
+  it('shows overview skeletons instead of empty states during initial reads', async () => {
+    const dynamic = deferred<DynamicSession[]>();
+    const statics = deferred<StaticSession[]>();
+    const findings = deferred<Finding[]>();
+    const artifacts = deferred<Artifact[]>();
+    vi.mocked(api.listDynamicSessions).mockReturnValue(dynamic.promise);
+    vi.mocked(api.listStaticSessions).mockReturnValue(statics.promise);
+    vi.mocked(api.listFindings).mockReturnValue(findings.promise);
+    vi.mocked(api.listArtifacts).mockReturnValue(artifacts.promise);
+
+    renderProject();
+
+    expect(screen.getByRole('status', { name: 'Loading project overview' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status', { name: 'Loading recent activity' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('No items need attention right now.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No activity yet. Start a Review or Dynamic Testing from Action.')).not.toBeInTheDocument();
+
+    dynamic.resolve([]);
+    statics.resolve([]);
+    findings.resolve([]);
+    artifacts.resolve([]);
+    expect(await screen.findByText('No activity yet. Start a Review or Dynamic Testing from Action.')).toBeInTheDocument();
   });
 
   it('opens the native workspace picker only in edit mode and restores local drafts on Cancel', async () => {
@@ -236,8 +272,14 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(settings.queryByRole('button', { name: 'Add severity' })).not.toBeInTheDocument();
   });
 
-  it('debounces GitHub search, offers safe sync, and requires confirmation before inviting', async () => {
+  it('automatically syncs GitHub once on load and retains the explicit invite flow', async () => {
     const user = userEvent.setup();
+    const syncedSnapshot: GithubCollaboratorSnapshot = {
+      repository: availableCollaboration.repository,
+      collaborators: [{ id: 7, login: 'dev', avatarUrl: '', htmlUrl: 'https://github.com/dev', type: 'User', permission: 'pull' }],
+      syncedAt: '2026-09-26T00:00:00.000Z',
+    };
+    vi.mocked(api.syncGithubCollaborators).mockResolvedValue(syncedSnapshot);
     vi.mocked(api.searchCollaborators).mockResolvedValue({
       email: 'dev@example.com',
       repository: { owner: 'acme', repo: 'website', remoteUrl: 'https://github.com/acme/website.git' },
@@ -251,16 +293,21 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
 
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
-    await waitFor(() => expect(screen.getByText('No collaborators synced yet')).toBeInTheDocument());
+    expect(await screen.findByText('@dev')).toBeInTheDocument();
+    expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
+    expect(api.syncGithubCollaborators).toHaveBeenCalledWith(project.id);
+    expect(screen.queryByRole('button', { name: 'Sync from GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sync collaborators from GitHub' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Assessment' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
+    expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
+
     await user.click(screen.getByRole('button', { name: 'Add collaborator' }));
     const dialog = screen.getByRole('dialog', { name: 'Add collaborator' });
     expect(within(dialog).getByText('acme/website')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Repository information' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Sync collaborators from GitHub' })).toBeInTheDocument();
-    vi.mocked(api.syncGithubCollaborators).mockResolvedValue({ repository: availableCollaboration.repository, collaborators: [{ id: 7, login: 'dev', avatarUrl: '', htmlUrl: 'https://github.com/dev', type: 'User', permission: 'pull' }], syncedAt: '2026-09-26T00:00:00.000Z' });
-    await user.click(within(dialog).getByRole('button', { name: 'Sync collaborators from GitHub' }));
-    await waitFor(() => expect(api.syncGithubCollaborators).toHaveBeenCalledWith(project.id));
-    expect(await screen.findByText('@dev')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /sync/i })).not.toBeInTheDocument();
     await user.type(within(dialog).getByLabelText('GitHub account email'), 'dev@example.com');
     expect(await within(dialog).findByText('dev')).toBeInTheDocument();
     expect(api.searchCollaborators).toHaveBeenCalledWith(project.id, 'dev@example.com');
@@ -271,6 +318,29 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(api.inviteCollaborator).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole('button', { name: 'Send invitation' }));
     await waitFor(() => expect(api.inviteCollaborator).toHaveBeenCalledWith(project.id, 'dev'));
+  });
+
+  it('keeps the last collaborator snapshot visible after sync failure without retrying automatically', async () => {
+    const user = userEvent.setup();
+    const savedSnapshot: GithubCollaboratorSnapshot = {
+      repository: availableCollaboration.repository,
+      collaborators: [{ id: 8, login: 'saved', avatarUrl: '', htmlUrl: 'https://github.com/saved', type: 'User', permission: 'push' }],
+      syncedAt: '2026-09-25T00:00:00.000Z',
+    };
+    renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
+    vi.mocked(api.getProjectCollaborators).mockResolvedValue(savedSnapshot);
+    vi.mocked(api.syncGithubCollaborators).mockRejectedValue(new Error(''));
+
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
+    expect(await screen.findByText('@saved')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not be synced/i);
+    expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Assessment' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
+    expect(await screen.findByText('@saved')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not be synced/i);
+    expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
   });
 
   it('opens the durable Dynamic Testing workspace from the project action without a direct-session dialog',async()=>{

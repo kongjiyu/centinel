@@ -2,7 +2,8 @@ import { readPromptAnalysisMap } from '../fixtures/promptAnalysisMap.js';
 import crypto from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
-import { analysisMapForBatchPrompt, analysisMapFromEvents, contextForAssessmentBatch, findingsWithinBatch, planAssessmentBatches, REVIEW_FEATURE_BATCH_SIZE, REVIEW_SOURCE_BATCH_CHARACTERS } from '../../src/review/assessmentBatches.js';
+import { analysisMapForBatchPrompt, analysisMapFromEvents, contextForAssessmentBatch, findingsWithinBatch, MAX_ASSESSMENT_BATCHES, planAssessmentBatches, REVIEW_FEATURE_BATCH_SIZE, REVIEW_SOURCE_BATCH_CHARACTERS } from '../../src/review/assessmentBatches.js';
+import { assessedArtifactIds, candidateSupportId, validateCandidateSupportResponse, validateFindingEvidence } from '../../src/review/assessmentValidation.js';
 import { ModelProviderError } from '../../src/review/retry.js';
 import { deriveReviewAnalysisMap } from '../../src/review/featurePathAnalysis.js';
 import type { ReviewAnalysisFeature, ReviewAnalysisMap } from '../../src/review/featurePathAnalysis.js';
@@ -11,12 +12,18 @@ import type { RetrievedContext } from '../../src/review/contextTypes.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
 import { createStaticReviewOrchestrator } from '../../src/review/orchestrator.js';
 import { CONTRACT_COMPARISON_INSTRUCTIONS } from '../../src/review/sourcePrompt.js';
+import { detectArtifactType } from '../../src/artifacts.js';
 import type { StaticModelRequest } from '../../src/review/types.js';
 import { candidateSupportResult, isCandidateSupportRequest } from '../fixtures/semanticSupport.js';
 
 function item(id: string, content: string, type: Artifact['type'] = 'source_code') {
   return { artifact: { id, projectId: 'p', type, source: 'repository', fileName: id, filePath: id, originalPath: null,
     versionId: `version-${id}`, contentHash: crypto.createHash('sha256').update(content).digest('hex'), createdAt: '2026-10-23T00:00:00Z' } as Artifact, content };
+}
+function isSurrogateBoundary(value: string, offset: number): boolean {
+  const previous = value.charCodeAt(offset - 1);
+  const next = value.charCodeAt(offset);
+  return !(previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff);
 }
 function mappedFeature(id: string, source: ReturnType<typeof item>, lineNumber: number): ReviewAnalysisFeature {
   return { id, label: id, provisional: true, entryPoints: [{ artifactId: source.artifact.id, filePath: source.artifact.filePath,
@@ -43,6 +50,120 @@ function response(request: StaticModelRequest) {
     assessments: ['security','business','technical','personnel'].map(domain => ({domain,status:'assessed',outcome:'no_issue_identified',summary:'The bounded fixture branch was inspected.',evidence:feature.entryPoints})) })) };
 }
 describe('bounded Review assessment batches', () => {
+  it.each(['custom.lang', 'worker.kt', 'run.sh'])('gives imported %s four-domain text units without requiring a known extension', async fileName => {
+    const input = item(fileName, 'input -> validate -> output\n', detectArtifactType(fileName));
+    expect(input.artifact.type).toBe('other');
+    const requests: StaticModelRequest[] = [];
+    const repository = new InMemoryStaticReviewRepository();
+    const runner = createStaticReviewOrchestrator({ repository, readArtifactContent: async () => input.content, deterministic: async () => [],
+      modelProvider: { analyze: async request => { requests.push(request); return { result: response(request), settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' } }; } } });
+    const run = await runner.start({ projectId: 'p', reviewType: 'code_review', artifacts: [input.artifact] });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded' });
+    const map = analysisMapFromEvents(repository.audits)!;
+    expect(map.features).toContainEqual(expect.objectContaining({ analysisKind: 'plain_text_logic',
+      assessments: expect.arrayContaining([expect.objectContaining({ domain: 'security', status: 'assessed' }),
+        expect.objectContaining({ domain: 'business', status: 'assessed' }), expect.objectContaining({ domain: 'technical', status: 'assessed' }),
+        expect.objectContaining({ domain: 'personnel', status: 'assessed' })]) }));
+    expect(requests.some(request => request.prompt.includes(input.content.trim()))).toBe(true);
+    expect(repository.audits.find(event => event.event === 'review_assessment_validated')?.detail?.assessedArtifactIds).toEqual([]);
+  });
+  it('retains complete exact plain-text segments including middle lines', () => {
+    const content = Array.from({ length: 800 }, (_, index) => `# original Python line ${index + 1}: ${'x'.repeat(40)}`).join('\n');
+    const input = item('helper.py', content);
+    const map = deriveReviewAnalysisMap([input]);
+    const batches = planAssessmentBatches(map, [input]);
+    const units = batches.filter(batch => batch.features.some(feature => feature.analysisKind === 'plain_text_logic'));
+    expect(units.length).toBeGreaterThan(0);
+    for (const feature of map.features) {
+      const source = units.flatMap(batch => batch.sources).find(source => source.lineStart === feature.sourceRange?.lineStart && source.lineEnd === feature.sourceRange?.lineEnd);
+      expect(source?.content).toBe(content.split('\n').slice(feature.sourceRange!.lineStart - 1, feature.sourceRange!.lineEnd).join('\n'));
+    }
+    expect(units.flatMap(batch => batch.sources).map(source => source.content).join('\n')).toBe(content);
+    expect(batches.some(batch => !batch.features.length)).toBe(true);
+  });
+  it('keeps oversized parser-excluded markup windows exact, bounded, and distinct', () => {
+    const marker = 'ONLY_IN_A_LATER_CSS_WINDOW_7F31';
+    const targetLength = 249_666;
+    const prefix = `${'a'.repeat(23_999)}😀${'b'.repeat(150_000 - 24_001)}`;
+    const line = `${prefix}${marker}${'c'.repeat(targetLength - prefix.length - marker.length)}`;
+    const input = item('dist/app.css', line);
+    const map = deriveReviewAnalysisMap([input]);
+    const batches = planAssessmentBatches(map, [input]);
+    const windows = batches.flatMap(batch => batch.sources).filter(source => source.lineWindow)
+      .sort((left, right) => left.lineWindow!.startOffset - right.lineWindow!.startOffset);
+
+    expect(MAX_ASSESSMENT_BATCHES).toBe(256);
+    expect(map.features).toHaveLength(0);
+    expect(batches.every(batch => batch.features.length === 0)).toBe(true);
+    expect(assessedArtifactIds({ ...map, status: 'assessed' })).toEqual([]);
+    expect(windows.length).toBeGreaterThan(1);
+    expect(windows.every(source => source.content.length <= 24_000)).toBe(true);
+    expect(windows.map(source => source.content).join('')).toBe(line);
+    expect(windows.map(source => source.lineWindow!.startOffset)).toContain(0);
+    expect(windows.at(-1)?.lineWindow?.endOffsetExclusive).toBe(line.length);
+    for (const source of windows) {
+      const window = source.lineWindow!;
+      expect(window.partialLine).toBe(true);
+      expect(window.offsetUnit).toBe('utf16_code_units');
+      expect(window.originalLineLength).toBe(line.length);
+      expect(source.content).toBe(line.slice(window.startOffset, window.endOffsetExclusive));
+      if (window.startOffset > 0) {
+        expect(isSurrogateBoundary(line, window.startOffset)).toBe(true);
+      }
+      if (window.endOffsetExclusive < line.length) {
+        expect(isSurrogateBoundary(line, window.endOffsetExclusive)).toBe(true);
+      }
+    }
+    expect(new Set(batches.map(batch => batch.id)).size).toBe(batches.length);
+    expect(batches.length).toBeLessThanOrEqual(MAX_ASSESSMENT_BATCHES);
+
+    const finding = { source: 'model' as const, title: 'CSS window observation', description: 'A later window is cited.', severity: 'low' as const,
+      category: 'technical', filePath: input.artifact.filePath, lineNumber: 1, evidence: marker, recommendation: 'Inspect the declaration.',
+      confidence: 'medium' as const, artifactId: input.artifact.id, sourceVersion: input.artifact.contentHash };
+    const firstBatch = batches[0]!;
+    const markerBatch = batches.find(batch => batch.sources.some(source => source.content.includes(marker)))!;
+    expect(firstBatch.id).not.toBe(markerBatch.id);
+    expect(validateFindingEvidence([finding], firstBatch.sources).rejectedCount).toBe(1);
+    expect(validateFindingEvidence([finding], markerBatch.sources).findings).toHaveLength(1);
+    expect(findingsWithinBatch([finding], firstBatch.sources)).toHaveLength(0);
+    expect(findingsWithinBatch([finding], markerBatch.sources)).toHaveLength(1);
+
+    const candidate = { candidateId: candidateSupportId(markerBatch.id, finding), finding };
+    const supportRow = { candidateId: candidate.candidateId, claimBoundary: 'local_source', disposition: 'supported',
+      trigger: 'The cited declaration is present.', consequence: 'The declaration can affect rendered styling.',
+      references: [{ role: 'sink', artifactId: input.artifact.id, filePath: input.artifact.filePath,
+        sourceVersion: input.artifact.contentHash, lineNumber: 1, evidence: marker }], authorityReferences: [], limitation: null };
+    expect(validateCandidateSupportResponse({ candidates: [supportRow] }, [candidate], firstBatch.sources).complete).toBe(false);
+    expect(validateCandidateSupportResponse({ candidates: [supportRow] }, [candidate], markerBatch.sources).complete).toBe(true);
+  });
+  it('retains the explicit 256 batch ceiling and keeps executable long lines fail-closed', () => {
+    const input = item('src/cap.ts', 'x');
+    const features = Array.from({ length: 2_040 }, (_, index) => mappedFeature(`cap-${index}`, input, 1));
+    expect(planAssessmentBatches(mapFor(features), [input])).toHaveLength(MAX_ASSESSMENT_BATCHES);
+    expect(() => planAssessmentBatches(mapFor([...features, ...features.slice(0, 8)]), [input]))
+      .toThrow(expect.objectContaining({ code: 'context_limit' }));
+
+    const executable = item('src/oversized.ts', 'x'.repeat(REVIEW_SOURCE_BATCH_CHARACTERS + 1));
+    expect(() => planAssessmentBatches(deriveReviewAnalysisMap([executable]), [executable]))
+      .toThrow(expect.objectContaining({ code: 'context_limit' }));
+    const binaryMarkup = item('dist/opaque.css', `\u0000${'x'.repeat(REVIEW_SOURCE_BATCH_CHARACTERS)}`);
+    expect(() => planAssessmentBatches(deriveReviewAnalysisMap([binaryMarkup]), [binaryMarkup]))
+      .toThrow(expect.objectContaining({ code: 'context_limit' }));
+  });
+  it('retains a source-validated plain-text logic finding without absence proof', async () => {
+    const input = item('divide.py', 'def divide(value):\n    return 10 / value\n');
+    const repository = new InMemoryStaticReviewRepository();
+    const runner = createStaticReviewOrchestrator({ repository, readArtifactContent: async () => input.content, deterministic: async () => [],
+      modelProvider: { analyze: async request => ({ result: isCandidateSupportRequest(request) ? candidateSupportResult(request) : {
+        ...response(request), findings: [{ title: 'Zero input raises a division error', description: 'Calling divide with zero reaches division by zero.',
+          severity: 'medium', category: 'technical_issue', filePath: 'divide.py', lineNumber: 2, evidence: '    return 10 / value',
+          recommendation: 'Handle a zero divisor explicitly.', confidence: 'high' }],
+      }, settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' } }) } });
+    const run = await runner.start({ projectId: 'p', reviewType: 'code_review', artifacts: [input.artifact] });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded' });
+    expect((await repository.listReviewFindings(run.review.id)).some(finding => finding.title === 'Zero input raises a division error')).toBe(true);
+    expect(repository.audits.find(event => event.event === 'review_assessment_validated')?.detail?.assessedArtifactIds).toEqual([]);
+  });
   it('keeps ranked excerpts inside the exact supplied version and segment', () => {
     const input={...item('api.ts','visible code'),lineStart:100,lineEnd:100};
     const chunk={filePath:'api.ts',artifactVersionId:input.artifact.versionId!,ordinal:1,content:'visible code'};
@@ -160,22 +281,24 @@ describe('bounded Review assessment batches', () => {
     expect(CONTRACT_COMPARISON_INSTRUCTIONS).toContain('do not infer behavior for unselected implementations');
     // This verifies bounded packet selection and prompt policy only; a model's semantic recall still needs blinded evaluation.
   });
-  it('fails the combined feature and source-sweep batch ceiling before provider resolution', async () => {
-    const code = item('operations.ts', Array.from({ length: 980 }, (_, index) => `export function operation${index}() { return ${index}; }`).join('\n'));
-    const commentOnly = item('generated.ts', Array.from({ length: 17 }, () => `//${'x'.repeat(23_500)}`).join('\n'));
+  it('fails before provider resolution when source-sweep expansion exceeds the 256 batch ceiling', async () => {
+    const code = item('operations.ts', 'export function operation() { return 1; }');
+    const commentOnly = item('generated.ts', Array.from({ length: 513 }, () => `//${'x'.repeat(23_498)}`).join('\n'));
     const contents = new Map([[code.artifact.id, code.content], [commentOnly.artifact.id, commentOnly.content]]);
     const repository = new InMemoryStaticReviewRepository();
     const resolveProvider = vi.fn(async () => { throw new Error('provider resolution must not run before batch preflight'); });
     const analyze = vi.fn();
+    const index = vi.fn(async () => undefined);
     const runner = createStaticReviewOrchestrator({ repository,
       readArtifactContent: async artifact => contents.get(artifact.id)!, deterministic: async () => [],
-      modelProvider: { analyze }, modelProviderResolver: resolveProvider,
+      index, modelProvider: { analyze }, modelProviderResolver: resolveProvider,
     });
     const run = await runner.start({ projectId: 'p', reviewType: 'code_review', artifacts: [code.artifact, commentOnly.artifact] });
-    expect((await run.completion).status).toBe('failed');
-    expect((await run.completion).failureReason).toContain('bounded source context');
+    expect(await run.completion).toMatchObject({ status: 'blocked', modelStatus: 'not_requested' });
+    expect(repository.evidenceAssessments.get(run.review.id)?.gaps.some(gap => gap.code === 'source_analysis_context_limit')).toBe(true);
     expect(resolveProvider).not.toHaveBeenCalled();
     expect(analyze).not.toHaveBeenCalled();
+    expect(index).not.toHaveBeenCalled();
     expect(repository.attempts).toHaveLength(0);
   });
   it('executes independent batches with durable budgets, then validates full coverage once', async () => {

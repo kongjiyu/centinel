@@ -148,6 +148,24 @@ describe('inspectReadinessSources', () => {
     fixtures.sources[0].remoteRevision = 'changed-commit';
     expect((await inspectReadinessSources(auth(), projectId)).fingerprint).not.toBe(first.fingerprint);
   });
+  it('keeps evidence identity stable through an unchanged remote check, but records terminal failures', async () => {
+    fixtures.sources = [connectedSource()];
+    fixtures.sourceItems = { 'source-1': [sourceItem()] };
+    const first = await inspectReadinessSources(auth(), projectId);
+    for (const state of ['queued', 'running']) {
+      fixtures.sources[0].syncStatus = 'syncing';
+      fixtures.sources[0].latestSyncRun = { id: 'remote-check', status: state, errorCode: null, retryable: false };
+      const progress = await inspectReadinessSources(auth(), projectId);
+      expect(progress.importing).toBe(true);
+      expect(progress.fingerprint).toBe(first.fingerprint);
+    }
+    fixtures.sources[0].syncStatus = 'ready';
+    fixtures.sources[0].latestSyncRun.status = 'success';
+    expect((await inspectReadinessSources(auth(), projectId)).fingerprint).toBe(first.fingerprint);
+    fixtures.sources[0].latestSyncRun = { id: 'failure', status: 'failure', errorCode: 'http_401', retryable: false };
+    expect((await inspectReadinessSources(auth(), projectId)).fingerprint).not.toBe(first.fingerprint);
+  });
+
   it('preserves an authorization cause for a failed zero-file import without exposing provider text', async () => {
     fixtures.artifacts = [];
     fixtures.sources = [connectedSource({ syncStatus: 'error', latestSyncRun: { id: 'run-auth', status: 'failure', errorCode: 'http_401', retryable: false, errorMessage: 'private credential detail' } })];

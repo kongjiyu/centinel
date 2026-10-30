@@ -3924,3 +3924,6 @@ body {
 /* Codex actions stay within their Settings card at narrow widths. */
 .codex-provider-panel .form-actions { flex-wrap: wrap; }
 .codex-provider-panel .form-hint { overflow-wrap: anywhere; }
+
+.project-workspace-loading { padding: 32px; box-sizing: border-box; }
+.project-workspace-loading > .loading-skeleton { width: min(100%, 960px); }

@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { deriveReviewAnalysisMap, applyFeatureDomainAssessments, linkFindingToAnalysis, batchReviewAnalysisFeatures } from '../../src/review/featurePathAnalysis.js';
+import { assessedArtifactIds } from '../../src/review/assessmentValidation.js';
+import { PLAIN_TEXT_LOGIC_SEGMENT_CHARACTERS, segmentPlainTextLogic } from '../../src/review/plainTextLogic.js';
 import type { EvidenceArtifact } from '../../src/review/evidenceSufficiency.js';
 
 function source(content: string, filePath = 'src/account.ts'): EvidenceArtifact {
@@ -10,6 +12,46 @@ function source(content: string, filePath = 'src/account.ts'): EvidenceArtifact 
 }
 
 describe('bounded feature and path analysis', () => {
+  it('routes only selected readable, successfully parsed JavaScript through plain-text logic units', () => {
+    const valid = source('export function update() { return true; }', 'src/update.js');
+    const map = deriveReviewAnalysisMap([valid], { plainTextArtifactIds: new Set([valid.artifact.id]) });
+    const feature = map.features.find(item => item.analysisKind === 'plain_text_logic')!;
+    expect(feature).toMatchObject({ analysisKind: 'plain_text_logic', sourceRange: { lineStart: 1, lineEnd: 1 } });
+    expect(feature.entryPointStatus).toBeUndefined();
+    expect(feature.paths.map(item => item.kind)).toEqual(['unresolved']);
+    expect(map.coverage).toMatchObject({ parsedArtifacts: 0, plainTextLogicArtifactCount: 1, plainTextLogicUnitCount: 1 });
+    expect(map.coverage.unsupportedArtifacts).toContainEqual(expect.objectContaining({
+      artifactId: valid.artifact.id, parserExclusion: 'plain_text_logic',
+    }));
+    expect(feature.entryPoints.every(reference => reference.sourceVersion === 'frozen-version')).toBe(true);
+  });
+
+  it('retains an empty forced source as a plain-text-only artifact without inventing units', () => {
+    const empty = source('', 'src/empty.js');
+    const map = deriveReviewAnalysisMap([empty], { plainTextArtifactIds: new Set([empty.artifact.id]) });
+    expect(map.features).toHaveLength(0);
+    expect(map.coverage).toMatchObject({ plainTextLogicArtifactCount: 1, plainTextLogicUnitCount: 0, unsupportedExecutableArtifacts: 1 });
+    expect(map.coverage.unsupportedArtifacts).toContainEqual(expect.objectContaining({
+      artifactId: empty.artifact.id, parserExclusion: 'plain_text_logic', reason: expect.stringContaining('empty'),
+    }));
+  });
+
+  it('does not route parser failures or stale sources through forced plain-text logic units', () => {
+    const invalid = source('export function broken( {', 'src/broken.js');
+    const stale = { ...source('export function stale() { return false; }', 'src/stale.js'), state: 'stale' as const };
+    const map = deriveReviewAnalysisMap([invalid, stale], {
+      plainTextArtifactIds: new Set([invalid.artifact.id, stale.artifact.id]),
+    });
+    expect(map.features).toHaveLength(0);
+    expect(map.coverage.plainTextLogicUnitCount).toBe(0);
+    const invalidDiagnostic = map.coverage.unsupportedArtifacts.find(item => item.artifactId === invalid.artifact.id)!;
+    const staleDiagnostic = map.coverage.unsupportedArtifacts.find(item => item.artifactId === stale.artifact.id)!;
+    expect(invalidDiagnostic.parserExclusion).toBeUndefined();
+    expect(invalidDiagnostic.reason).toContain('parser diagnostic');
+    expect(staleDiagnostic.parserExclusion).toBeUndefined();
+    expect(staleDiagnostic.reason).toContain('unavailable for parsing');
+  });
+
   it('extracts normal, alternate, failure and recovery paths without claiming semantic assessment', () => {
     const map = deriveReviewAnalysisMap([source(`app.delete('/account', async function remove(req, res) {
       if (!req.confirmed) return res.status(409);
@@ -28,6 +70,216 @@ describe('bounded feature and path analysis', () => {
       function Screen() { return <button onClick={remove}>Delete</button>; }`, 'src/Screen.tsx')]);
     expect(map.features[0].paths.some(path => path.kind === 'failure')).toBe(true);
     expect(map.features[0].entryPoints.some(ref => ref.lineNumber === 1)).toBe(true);
+  });
+  it('keeps same-line JSX callbacks and route registrations as distinct operations', () => {
+    const map = deriveReviewAnalysisMap([source(`const first = () => { throw Error('first'); }; const second = () => { throw Error('second'); }; function Screen() { return <><button onClick={first}/><button onClick={second}/></>; } app.get('/same', () => first()); app.get('/same', () => second());`, 'src/Screen.tsx')]);
+    const callbacks = map.features.filter(feature => feature.label.startsWith('UI onClick'));
+    const routes = map.features.filter(feature => feature.label === 'Route GET /same');
+    expect(callbacks).toHaveLength(2);
+    expect(new Set(callbacks.map(feature => feature.id)).size).toBe(2);
+    expect(callbacks.every(feature => feature.entryPointStatus === 'resolved')).toBe(true);
+    expect(routes).toHaveLength(2);
+    expect(new Set(routes.map(feature => feature.id)).size).toBe(2);
+  });
+  it('recognizes nonstandard callback props and records proven caller parameters as boundaries', () => {
+    const map = deriveReviewAnalysisMap([source(`function Screen({ onFocus }: { onFocus: () => void }) { return <input onFocus={onFocus}/>; }`, 'src/Screen.tsx')]);
+    const feature = map.features.find(item => item.label.startsWith('UI onFocus'))!;
+    expect(feature.entryPointStatus).toBe('external_boundary');
+    expect(map.coverage.externalCallbackBoundaryCount).toBe(1);
+    expect(feature.unresolved.some(item => item.reason.includes('caller-provided implementation'))).toBe(true);
+
+    const assessed = applyFeatureDomainAssessments(map, { featureAssessments: [{ featureId: feature.id, assessments: feature.assessments.map(item => ({
+      domain: item.domain, status: 'assessed', outcome: 'not_applicable', summary: 'Only the local callback binding is assessed.', evidence: [feature.entryPoints[0]],
+    })) }] });
+    expect(assessed.features[0]!.assessments.every(item => item.status === 'assessed')).toBe(true);
+    expect(assessedArtifactIds(assessed)).not.toContain(feature.entryPoints[0]!.artifactId);
+  });
+  it('recognizes React useState tuple setters only through the imported hook binding', () => {
+    const valid = source(`import * as React from 'react';
+function Screen() { const [, setValue] = React.useState(''); return <input onChange={setValue}/>; }`, 'src/StateSetter.tsx');
+    const invalid = source(`function useState() { return [0, () => true]; }
+function Screen() { const [, setValue] = useState(); return <input onChange={setValue}/>; }`, 'src/ShadowedStateSetter.tsx');
+    const mutated = source(`import { useState } from 'react';
+function Screen() { const [value, setValue] = useState(''); setValue = () => {}; return <input onChange={setValue}/>; }`, 'src/MutatedStateSetter.tsx');
+    const map = deriveReviewAnalysisMap([valid, invalid, mutated]);
+    const callback = map.features.find(feature => feature.entryPoints[0]!.filePath === valid.artifact.filePath)!;
+    expect(callback.entryPointStatus).toBe('external_boundary');
+    expect(callback.unresolved.some(item => item.reason.includes('second slot of an imported React useState tuple'))).toBe(true);
+    expect(map.features.filter(feature => feature.entryPoints[0]!.filePath === invalid.artifact.filePath)[0]?.entryPointStatus).toBe('unresolved');
+    expect(map.features.filter(feature => feature.entryPoints[0]!.filePath === mutated.artifact.filePath)[0]?.entryPointStatus).toBe('unresolved');
+  });
+  it('marks imported Vitest mocks and their allowlisted chains as external boundaries only', () => {
+    const mocks = source(`import { vi as testRuntime } from 'vitest';
+const onClose = testRuntime.fn().mockResolvedValue(undefined);
+function Screen() { return <button onClick={onClose}/>; }
+function DirectMock() { return <button onClick={testRuntime.fn()}/>; }`, 'src/MockCallbacks.test.tsx');
+    const unknown = source(`const onClick = other.fn().mockResolvedValue(undefined);
+function Screen() { return <button onClick={onClick}/>; }`, 'src/UnknownMock.test.tsx');
+    const map = deriveReviewAnalysisMap([mocks, unknown]);
+    const mockFeatures = map.features.filter(feature => feature.entryPoints[0]!.filePath === mocks.artifact.filePath);
+    expect(mockFeatures).toHaveLength(2);
+    expect(mockFeatures.every(feature => feature.entryPointStatus === 'external_boundary')).toBe(true);
+    expect(mockFeatures.every(feature => feature.unresolved.some(item => item.reason.includes('Vitest mock function')))).toBe(true);
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === unknown.artifact.filePath)?.entryPointStatus).toBe('unresolved');
+  });
+  it('resolves local callback factories only when they return one inline function body', () => {
+    const local = source(`const updateDetail = (field) => (value) => { if (!field) throw Error('field'); return value; };
+function Screen() { return <input onChange={updateDetail('title')}/>; }`, 'src/CallbackFactory.tsx');
+    const ambiguous = source(`function makeCallback(flag) { if (flag) return () => true; return () => false; }
+function Screen() { return <button onClick={makeCallback(true)}/>; }`, 'src/AmbiguousCallbackFactory.tsx');
+    const imported = source(`import { makeCallback } from './factory';
+function Screen() { return <button onClick={makeCallback()}/>; }`, 'src/ImportedCallbackFactory.tsx');
+    const map = deriveReviewAnalysisMap([local, ambiguous, imported]);
+    const callback = map.features.find(feature => feature.entryPoints[0]!.filePath === local.artifact.filePath)!;
+    expect(callback.entryPointStatus).toBe('resolved');
+    expect(callback.paths.some(path => path.evidence.some(reference => reference.filePath === local.artifact.filePath && reference.lineNumber === 1))).toBe(true);
+    expect(callback.unresolved.some(item => item.reason.includes('argument values and invocation-time captures'))).toBe(true);
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === ambiguous.artifact.filePath)?.entryPointStatus).toBe('unresolved');
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === imported.artifact.filePath)?.entryPointStatus).toBe('unresolved');
+  });
+  it('keeps selected React context hook callbacks behind an explicit runtime boundary', () => {
+    const context = source(`import { createContext, useContext } from 'react';
+export const WalletContext = createContext(null);
+export function Web3Provider({ children }) {
+  const connect = () => true;
+  const value = { connect };
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+}
+export function useWallet() { const ctx = useContext(WalletContext); if (!ctx) throw Error('provider'); return ctx; }
+export function useWorkspaceContext() { const workspace = useContext(WalletContext); return workspace; }`, 'src/context/Web3Context.jsx');
+    const reexport = source(`export { useWallet } from '../context/Web3Context';`, 'src/hooks/useWallet.js');
+    const screen = source(`import { useWallet } from './hooks/useWallet';
+function Screen() { const { connect } = useWallet(); return <button onClick={connect}/>; }`, 'src/Screen.tsx');
+    const alternateScreen = source(`import { useWorkspaceContext } from './context/Web3Context';
+function Screen() { const { connect } = useWorkspaceContext(); return <button onClick={connect}/>; }`, 'src/WorkspaceScreen.tsx');
+    const missing = source(`import { useWallet } from './hooks/useWallet';
+function Screen() { const { missing } = useWallet(); return <button onClick={missing}/>; }`, 'src/MissingContextMember.tsx');
+    const arbitrary = source(`function useWallet() { return getRuntimeContext(); }
+function Screen() { const { connect } = useWallet(); return <button onClick={connect}/>; }`, 'src/ArbitraryWalletCall.tsx');
+    const ambiguousContext = source(`import { createContext, useContext } from 'react';
+const WalletContext = createContext(null);
+function useWallet() { const ctx = useContext(WalletContext); return ctx; }
+export function useWallet() { const ctx = useContext(WalletContext); return ctx; }
+function Web3Provider() { const connect = () => true; return <WalletContext.Provider value={{ connect }}/>; }`, 'src/AmbiguousWalletContext.jsx');
+    const ambiguousScreen = source(`import { useWallet } from './AmbiguousWalletContext';
+function Screen() { const { connect } = useWallet(); return <button onClick={connect}/>; }`, 'src/AmbiguousWalletScreen.tsx');
+    const map = deriveReviewAnalysisMap([context, reexport, screen, alternateScreen, missing, arbitrary, ambiguousContext, ambiguousScreen]);
+    const callback = map.features.find(feature => feature.entryPoints[0]!.filePath === screen.artifact.filePath)!;
+    expect(callback.entryPointStatus).toBe('external_boundary');
+    expect(callback.entryPoints.some(reference => reference.filePath === context.artifact.filePath)).toBe(true);
+    expect(callback.unresolved.some(item => item.reason.includes('active provider selection remains a runtime boundary'))).toBe(true);
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === alternateScreen.artifact.filePath)?.entryPointStatus).toBe('external_boundary');
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === missing.artifact.filePath)?.entryPointStatus).toBe('unresolved');
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === arbitrary.artifact.filePath)?.entryPointStatus).toBe('unresolved');
+    expect(map.features.find(feature => feature.entryPoints[0]!.filePath === ambiguousScreen.artifact.filePath)?.entryPointStatus).toBe('unresolved');
+  });
+  it('unwraps a selected local route wrapper only when its returned adapter directly invokes the parameter', () => {
+    const valid = source(`export {};
+function asyncHandler(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
+router.post('/proofs', asyncHandler(async (req, res) => { if (!req.body) throw Error('body'); res.sendStatus(201); }));`, 'server/routes/proofs.js');
+    const unknown = source(`export {};
+function register(handler) { return (req, res) => handler; }
+router.post('/unknown', register((req, res) => res.sendStatus(201)));`, 'server/routes/unknown.js');
+    const mutated = source(`export {};
+let asyncHandler = (fn) => (req) => fn(req);
+asyncHandler = getWrapper();
+router.post('/mutated', asyncHandler((req) => true));`, 'server/routes/mutated.js');
+    const map = deriveReviewAnalysisMap([valid, unknown, mutated]);
+    const route = map.features.find(feature => feature.label === 'Route POST /proofs')!;
+    expect(route.entryPointStatus).toBe('resolved');
+    expect(route.paths.some(path => path.kind === 'failure')).toBe(true);
+    expect(route.unresolved.some(item => item.reason.includes('wrapper scheduling and error propagation'))).toBe(true);
+    expect(map.features.find(feature => feature.label === 'Route POST /unknown')?.entryPointStatus).toBe('unresolved');
+    expect(map.features.find(feature => feature.label === 'Route POST /mutated')?.entryPointStatus).toBe('unresolved');
+  });
+  it('resolves lexical callback aliases and honors the nearest shadowing declaration', () => {
+    const map = deriveReviewAnalysisMap([source(`const save = () => { throw Error('outer'); };
+function Screen() {
+  const render = () => { const save = () => { return 'inner'; }; return <button onClick={save}/>; };
+  const alias = save;
+  return <><button onClick={alias}/>{render()}</>;
+}`, 'src/Screen.tsx')]);
+    const callbacks = map.features.filter(feature => feature.label.startsWith('UI onClick'));
+    expect(callbacks).toHaveLength(2);
+    expect(callbacks.every(feature => feature.entryPointStatus === 'resolved')).toBe(true);
+    const nested = callbacks.find(feature => feature.entryPoints[0]!.lineNumber === 3)!;
+    const outer = callbacks.find(feature => feature.entryPoints[0]!.lineNumber === 5)!;
+    expect(nested.paths.some(path => path.evidence.some(ref => ref.lineNumber === 3))).toBe(true);
+    expect(outer.paths.some(path => path.evidence.some(ref => ref.lineNumber === 1))).toBe(true);
+  });
+  it('fails closed on mutated callbacks and unresolved local call results', () => {
+    const map = deriveReviewAnalysisMap([source(`function Mutated() {
+  const save = () => true;
+  let handler = save;
+  handler = getDynamicHandler();
+  return <button onClick={handler}/>;
+}
+function Shadowed() {
+  const save = () => true;
+  function render() { const save = getDynamicHandler(); return <button onClick={save}/>; }
+  return render();
+}`, 'src/Screen.tsx')]);
+    const callbacks = map.features.filter(feature => feature.label.startsWith('UI onClick'));
+    expect(callbacks).toHaveLength(2);
+    expect(callbacks.map(feature => feature.entryPointStatus)).toEqual(['unresolved', 'unresolved']);
+    expect(callbacks.some(feature => feature.unresolved.some(item => item.reason.includes('reassigned or mutated')))).toBe(true);
+  });
+  it('bounds cyclic callback-object aliases and leaves their targets unresolved', () => {
+    const map = deriveReviewAnalysisMap([source(`const a = b; const b = a;
+function Screen() { return <button onClick={a.click}/>; }`, 'src/CyclicCallbacks.tsx')]);
+    const callback = map.features.find(feature => feature.label.startsWith('UI onClick'))!;
+    expect(callback.entryPointStatus).toBe('unresolved');
+    expect(callback.unresolved.some(item => item.reason.includes('cycle'))).toBe(true);
+  });
+  it('invalidates callback objects after computed writes or deletes', () => {
+    const map = deriveReviewAnalysisMap([source(`const local = () => true;
+const written = { click: local }; written['click'] = unknown;
+const deleted = { click: local }; delete deleted['click'];
+const iterated = { click: local }; for (iterated.click of values) {}
+function Written() { return <button onClick={written.click}/>; }
+function Deleted() { return <button onClick={deleted.click}/>; }
+function Iterated() { return <button onClick={iterated.click}/>; }`, 'src/MutatedCallbackObjects.tsx')]);
+    const callbacks = map.features.filter(feature => feature.label.startsWith('UI onClick'));
+    expect(callbacks).toHaveLength(3);
+    expect(callbacks.every(feature => feature.entryPointStatus === 'unresolved')).toBe(true);
+    expect(callbacks.every(feature => feature.unresolved.some(item => item.reason.includes('mutated')))).toBe(true);
+  });
+  it('does not resolve callback targets through an object spread with unknown precedence', () => {
+    const map = deriveReviewAnalysisMap([source(`const local = () => true;
+const handlers = { click: local, ...dynamic };
+function Screen() { return <button onClick={handlers.click}/>; }`, 'src/SpreadCallbackObject.tsx')]);
+    const callback = map.features.find(feature => feature.label.startsWith('UI onClick'))!;
+    expect(callback.entryPointStatus).toBe('unresolved');
+    expect(callback.unresolved.some(item => item.reason.includes('spread'))).toBe(true);
+  });
+  it('does not resolve callback targets through a potentially overwriting computed object key', () => {
+    const map = deriveReviewAnalysisMap([source(`const local = () => true;
+const handlers = { click: local, [dynamicKey]: unknown };
+function Screen() { return <button onClick={handlers.click}/>; }`, 'src/ComputedCallbackObject.tsx')]);
+    const callback = map.features.find(feature => feature.label.startsWith('UI onClick'))!;
+    expect(callback.entryPointStatus).toBe('unresolved');
+    expect(callback.unresolved.some(item => item.reason.includes('computed key'))).toBe(true);
+  });
+  it('resolves selected imported callbacks and only unwraps React useCallback imports', () => {
+    const actions = source(`export function save() { throw Error('selected'); }`, 'src/actions.ts');
+    const screen = source(`import { save as submit } from './actions';
+import { useCallback } from 'react';
+function Screen() { const memoized = useCallback(() => { throw Error('hook'); }, []); return <><button onClick={submit}/><button onClick={memoized}/></>; }`, 'src/Screen.tsx');
+    const map = deriveReviewAnalysisMap([actions, screen]);
+    const callbacks = map.features.filter(feature => feature.label.startsWith('UI onClick'));
+    expect(callbacks).toHaveLength(2);
+    expect(callbacks.every(feature => feature.entryPointStatus === 'resolved')).toBe(true);
+    expect(callbacks[0]!.entryPoints.some(ref => ref.filePath === 'src/actions.ts')).toBe(true);
+    expect(callbacks[1]!.unresolved.some(item => item.reason.includes('React hook lifecycle'))).toBe(true);
+  });
+  it('fails closed when a selected imported callback binding is mutated in its declaring module', () => {
+    const actions = source(`export let save = () => true; save = getDynamic();`, 'src/actions.ts');
+    const screen = source(`import { save } from './actions';
+function Screen() { return <button onClick={save}/>; }`, 'src/Screen.tsx');
+    const map = deriveReviewAnalysisMap([actions, screen]);
+    const callback = map.features.find(feature => feature.label.startsWith('UI onClick'))!;
+    expect(callback.entryPointStatus).toBe('unresolved');
+    expect(callback.unresolved.some(item => item.reason.includes('mutated'))).toBe(true);
   });
   it('discovers CommonJS default and named exports without promoting nested helpers', () => {
     const map = deriveReviewAnalysisMap([source(`function parseAccount() { throw Error('parse'); }
@@ -338,18 +590,112 @@ describe('bounded feature and path analysis', () => {
     const map = deriveReviewAnalysisMap([source('{"nested":{"nested":{"value":true}}}', 'package.json')]);
     expect(map.features).toEqual([]);
     expect(map.coverage.unsupportedArtifacts).toHaveLength(1);
+    expect(map.coverage.unsupportedArtifacts[0]).toMatchObject({ parserExclusion: 'configuration' });
   });
   it('maps the final route handler and discloses unexpanded middleware', () => {
     const map = deriveReviewAnalysisMap([source("function auth() { return true; } function remove() { throw Error(); } app.delete('/account', auth, remove);")]);
     expect(map.features[0].paths.some(path => path.kind === 'failure')).toBe(true);
     expect(map.features[0].unresolved.some(item => item.reason.includes('Middleware order'))).toBe(true);
   });
-  it('retains unsupported, unreadable and syntactically invalid sources as unverified coverage', () => {
-    const unavailable = source('export function f() {}', 'unreadable.ts'); delete unavailable.content;
-    const map = deriveReviewAnalysisMap([source('def f(): pass', 'file.py'), unavailable, source('export function {', 'invalid.ts')]);
+  it('does not fall back for unavailable source or invalid supported-language syntax', () => {
+    const unavailable = source('export function f() {}', 'unreadable.py'); delete unavailable.content;
+    const map = deriveReviewAnalysisMap([unavailable, source('export function {', 'invalid.ts'), source('binary\u0000payload', 'opaque.bin')]);
     expect(map.features).toEqual([]);
     expect(map.coverage.unsupportedArtifacts).toHaveLength(3);
+    expect(map.coverage.unsupportedArtifacts.every(item => item.parserExclusion !== 'plain_text_logic')).toBe(true);
     expect(map.status).toBe('unverified');
+  });
+  it('retains valid empty unsupported source as plain-text-only without inventing an assessment unit', () => {
+    const map = deriveReviewAnalysisMap([source('', 'src/empty.py')]);
+    expect(map.features).toEqual([]);
+    expect(map.coverage).toMatchObject({
+      plainTextLogicArtifactCount: 1,
+      plainTextLogicUnitCount: 0,
+      unsupportedExecutableArtifacts: 1,
+    });
+    expect(map.coverage.unsupportedArtifacts[0]).toMatchObject({
+      artifactId: 'src/empty.py', parserExclusion: 'plain_text_logic',
+    });
+  });
+  it('creates Python and Solidity plain-text logic units without parser or executable-path proof', () => {
+    const python = source('def transfer(amount):\n    if amount <= 0:\n        raise ValueError("invalid")\n    return amount', 'src/transfer.py');
+    const solidity = source('pragma solidity ^0.8.20;\ncontract Vault {\n    function withdraw(uint256 amount) external { require(amount > 0); }\n}', 'contracts/Vault.sol');
+    const map = deriveReviewAnalysisMap([python, solidity]);
+
+    expect(map.coverage).toMatchObject({
+      parsedArtifacts: 0,
+      executableArtifacts: 0,
+      unsupportedArtifactCount: 2,
+      unsupportedExecutableArtifacts: 2,
+      plainTextLogicArtifactCount: 2,
+      plainTextLogicUnitCount: 2,
+      exhaustive: false,
+    });
+    expect(map.coverage.unsupportedArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ artifactId: 'src/transfer.py', parserExclusion: 'plain_text_logic' }),
+      expect.objectContaining({ artifactId: 'contracts/Vault.sol', parserExclusion: 'plain_text_logic' }),
+    ]));
+    expect(map.features).toHaveLength(2);
+    expect(map.features.map(feature => [feature.entryPoints[0]?.filePath, feature.sourceRange])).toEqual([
+      ['src/transfer.py', { lineStart: 1, lineEnd: 4 }],
+      ['contracts/Vault.sol', { lineStart: 1, lineEnd: 4 }],
+    ]);
+    for (const feature of map.features) {
+      expect(feature).toMatchObject({ analysisKind: 'plain_text_logic', sourceRange: { lineStart: 1 } });
+      expect(feature.entryPoints.every(ref => ref.artifactId === ref.filePath && ref.sourceVersion === 'frozen-version'
+        && ref.lineNumber >= feature.sourceRange!.lineStart && ref.lineNumber <= feature.sourceRange!.lineEnd)).toBe(true);
+      expect(feature.entryPointStatus).toBeUndefined();
+      expect(feature.label).toContain('Plain-text logic review');
+      expect(feature.assessments.map(item => item.domain)).toEqual(['security', 'business', 'technical', 'personnel']);
+      expect(feature.assessments.every(item => item.status === 'unverified' && item.outcome === 'unverified')).toBe(true);
+      expect(feature.paths).toHaveLength(1);
+      expect(feature.paths[0]).toMatchObject({ kind: 'unresolved', status: 'unverified' });
+      expect(feature.unresolved[0]?.reason).toContain('No parser-backed entry point');
+    }
+  });
+  it('segments by adjacent whole original lines and preserves indivisible long lines', () => {
+    const first = 'a'.repeat(12_000);
+    const second = 'b'.repeat(12_000);
+    const third = 'c'.repeat(8_000);
+    const content = `${first}\n${second}\n${third}`;
+    const python = source(content, 'src/segmented.py');
+    const map = deriveReviewAnalysisMap([python]);
+    const ranges = map.features.map(feature => feature.sourceRange!);
+    const lines = content.split('\n');
+
+    expect(ranges).toEqual([{ lineStart: 1, lineEnd: 1 }, { lineStart: 2, lineEnd: 3 }]);
+    expect(ranges.map(range => lines.slice(range.lineStart - 1, range.lineEnd).join('\n'))).toEqual([first, `${second}\n${third}`]);
+    expect(segmentPlainTextLogic(content).every(segment => segment.characterCount <= PLAIN_TEXT_LOGIC_SEGMENT_CHARACTERS)).toBe(true);
+
+    const longLine = 'x'.repeat(30_000);
+    const longLineSegments = segmentPlainTextLogic(`def f():\n${longLine}`);
+    expect(longLineSegments).toEqual([
+      { sourceRange: { lineStart: 1, lineEnd: 1 }, characterCount: 8 },
+      { sourceRange: { lineStart: 2, lineEnd: 2 }, characterCount: 30_000 },
+    ]);
+  });
+  it('retains the full 1,211-unit staged scale beyond the former 1,000-feature cap', () => {
+    const artifacts = Array.from({ length: 1_211 }, (_, index) => source(`def f${index}(): pass`, `src/f${index}.py`));
+    const map = deriveReviewAnalysisMap(artifacts);
+    expect(map.features).toHaveLength(1_211);
+    expect(map.coverage).toMatchObject({
+      featureInventoryLimit: 2_048,
+      plainTextLogicArtifactCount: 1_211,
+      plainTextLogicUnitCount: 1_211,
+      omittedPlainTextLogicUnitCount: 0,
+      unsupportedArtifactCount: 1_211,
+      unsupportedExecutableArtifacts: 1_211,
+      omittedEntryPointCount: 0,
+      featureInventoryTruncated: false,
+    });
+    expect(map.coverage.limitations.some(item => item.includes('omitted text scope remains unverified'))).toBe(false);
+
+    const feature = map.features[0]!;
+    const assessed = applyFeatureDomainAssessments(map, { featureAssessments: [{ featureId: feature.id, assessments: feature.assessments.map(item => ({
+      domain: item.domain, status: 'assessed', outcome: 'no_issue_identified', summary: 'The supplied plain-text segment was reviewed.', evidence: [feature.entryPoints[0]],
+    })) }] });
+    expect(assessed.features[0]!.assessments.every(item => item.status === 'assessed')).toBe(true);
+    expect(assessedArtifactIds(assessed)).not.toContain(feature.entryPoints[0]!.artifactId);
   });
   it('inventories recognized operations above the per-request size and batches them deterministically', () => {
     const map = deriveReviewAnalysisMap([source(Array.from({ length: 35 }, (_, i) => `export function f${i}() { return ${i}; }`).join('\n'))]);
@@ -358,10 +704,10 @@ describe('bounded feature and path analysis', () => {
     expect(batches.map(batch => batch.length)).toEqual([8, 8, 8, 8, 3]);
     expect(batches.flat().map(feature => feature.id)).toEqual(map.features.map(feature => feature.id));
   });
-  it('caps only the full inventory at a visible high safety bound', () => {
-    const map = deriveReviewAnalysisMap([source(Array.from({ length: 1_005 }, (_, i) => `export function f${i}() { return ${i}; }`).join('\n'))]);
-    expect(map.features).toHaveLength(1_000);
-    expect(map.coverage).toMatchObject({ featureInventoryLimit: 1_000, omittedEntryPointCount: 5, featureInventoryTruncated: true });
+  it('caps only the full inventory at the explicit 2,048-unit safety bound', () => {
+    const map = deriveReviewAnalysisMap([source(Array.from({ length: 2_053 }, (_, i) => `export function f${i}() { return ${i}; }`).join('\n'))]);
+    expect(map.features).toHaveLength(2_048);
+    expect(map.coverage).toMatchObject({ featureInventoryLimit: 2_048, omittedEntryPointCount: 5, featureInventoryTruncated: true });
     expect(map.coverage.limitations.some(item => item.includes('omitted scope remains unverified'))).toBe(true);
   });
   it('preserves explicit unverified reasons while retaining only exact feature references', () => {

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { hasPlainTextSourceIntent, isReadablePlainText } from './plainTextLogic.js';
 import { detectArtifactType, type Artifact, type ArtifactType } from '../artifacts.js';
 import type { ConfirmedRequirement, RequirementCandidate, SourceLocator, StandardRule } from './grounding.js';
 import type { ReviewTraceabilityRecord } from './evidenceTypes.js';
@@ -340,7 +341,7 @@ export function assessEvidenceSufficiency(input: EvidenceSufficiencyInput): Evid
     gaps.push(gap({
       code: state === 'deleted' ? 'source_deleted' : 'source_inaccessible', severity: 'blocking',
       title: state === 'deleted' ? 'A selected source is no longer available' : 'A selected source cannot be read',
-      detail: item.detail || `${item.artifact.fileName} is marked ${state}.`,
+      detail: item.detail ? `${item.artifact.fileName}: ${item.detail}` : `${item.artifact.fileName} is marked ${state}.`,
       remediation: 'Restore access or remove the unavailable source from the Review scope.',
       affectedStages: GENERIC_STAGES, artifactId: item.artifact.id,
     }));
@@ -362,8 +363,15 @@ export function assessEvidenceSufficiency(input: EvidenceSufficiencyInput): Evid
     }));
   }
 
+  for (const item of usable.filter(source => /\.pdf$/i.test(source.artifact.fileName) && source.content?.startsWith('PDF extracted text.'))) {
+    gaps.push(gap({ code: 'pdf_visual_content_unverified', severity: 'warning', title: 'PDF visual content remains unverified',
+      detail: `${item.artifact.fileName} was assessed from extracted text. Diagrams, image-only content and layout were not assessed.`,
+      remediation: 'Provide separate diagram or image evidence for visual verification.', affectedStages: ['model_analysis'], artifactId: item.artifact.id }));
+  }
+
   for (const type of requiredKinds(input)) {
-    if (!usable.some(item => item.artifact.type === type)) {
+    if (!usable.some(item => item.artifact.type === type || type === 'source_code' && hasPlainTextSourceIntent(item.artifact)
+      && typeof item.content === 'string' && isReadablePlainText(item.content))) {
       gaps.push(gap({
         code: 'required_artifact_type_missing', severity: 'blocking', title: `Required ${type.replace(/_/g, ' ')} evidence is missing`,
         detail: `This Review requires at least one available ${type.replace(/_/g, ' ')} artifact.`,

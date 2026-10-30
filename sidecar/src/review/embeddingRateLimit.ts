@@ -10,7 +10,7 @@ export function configuredVoyageLimits(): Limits {
     return Number.isSafeInteger(number) && number > 0 ? number : fallback;
   };
   return { requestsPerMinute: positive(process.env.CENTINEL_VOYAGE_EMBEDDING_RPM, 3),
-    tokensPerMinute: positive(process.env.CENTINEL_VOYAGE_EMBEDDING_TPM, 10_000) };
+    tokensPerMinute: positive(process.env.CENTINEL_VOYAGE_EMBEDDING_TPM, 200_000) };
 }
 
 /** Admission estimate only, never provider usage or remaining account balance.
@@ -28,7 +28,7 @@ export function partitionEmbeddingInputs(inputs: string[], maxEstimate: number):
   return batches;
 }
 
-const sleep = (milliseconds: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+export const sleep = (milliseconds: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
   const abort = () => { clearTimeout(timer); reject(signal?.reason ?? new DOMException('Aborted', 'AbortError')); };
   const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, milliseconds);
   if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });

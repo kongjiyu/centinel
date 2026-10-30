@@ -32,6 +32,7 @@ const SAFE_NO_RESPONSE_OUTCOMES = new Set(['retryable_error', 'permanent_error',
 const SAFE_ERROR_CODES = new Set([
   'assessment_paused', 'provider_not_configured', 'not_configured', 'secret_unavailable', 'invalid_credentials',
   'quota_exhausted', 'rate_limited', 'credits_exhausted', 'billing_required', 'context_limit', 'context_length_exceeded',
+  'provider_unavailable',
   'malformed_response', 'timeout', 'network_error', 'attempt_budget_exhausted',
   'codex_not_connected', 'codex_unavailable', 'codex_turn_failed', 'codex_timeout', 'codex_invalid_response',
   'codex_identity_required', 'codex_model_unavailable', 'codex_vision_unsupported', 'codex_capacity',
@@ -81,9 +82,12 @@ function safeUsageAccounting(value: unknown, row: UsageRecord): TokenUsageRow['a
 function safeDiagnostics(row: UsageRecord): Pick<TokenUsageRow, 'outcome' | 'errorCode' | 'durationMs' | 'statusCode' | 'responseReceived' | 'usageObservation' | 'accountingBasis' | 'accountedTokens' | 'indexTrigger' | 'indexFingerprint'> {
   const metadata = row.metadata ?? {};
   const accountingBasis = safeUsageAccounting(metadata.usageAccounting, row);
+  const reviewProviderUnavailable = row.error_code === 'provider_unavailable';
+  const isReviewTextStage = row.stage === 'model_analysis' || row.stage.startsWith('model_analysis:');
   return {
     outcome: typeof row.outcome === 'string' && SAFE_OUTCOMES.has(row.outcome) ? row.outcome as TokenUsageRow['outcome'] : null,
-    errorCode: typeof row.error_code === 'string' && (SAFE_ERROR_CODES.has(row.error_code) || /^http_[1-5]\d{2}$/.test(row.error_code)) ? row.error_code : null,
+    errorCode: typeof row.error_code === 'string' && (!reviewProviderUnavailable || metadata.scope === 'text' && isReviewTextStage)
+      && (SAFE_ERROR_CODES.has(row.error_code) || /^http_[1-5]\d{2}$/.test(row.error_code)) ? row.error_code : null,
     durationMs: typeof row.duration_ms === 'number' && Number.isFinite(row.duration_ms) && row.duration_ms >= 0 ? row.duration_ms : null,
     statusCode: typeof metadata.statusCode === 'number' && Number.isInteger(metadata.statusCode) && metadata.statusCode >= 100 && metadata.statusCode <= 599 ? metadata.statusCode : null,
     responseReceived: typeof metadata.responseReceived === 'boolean' ? metadata.responseReceived : null,

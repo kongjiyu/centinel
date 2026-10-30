@@ -27,6 +27,7 @@ function breadcrumbHref(screen: Screen): string {
     case 'dynamic-session':
     case 'evidence-browser': return '#dynamic-testing';
     case 'settings': return '#settings';
+    case 'help': return '#help';
     case 'review-playground': return '#review-playground';
     case 'profile': return '#profile';
   }
@@ -83,6 +84,8 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
       ];
     case 'settings':
       return [{ label: 'Settings' }];
+    case 'help':
+      return [{ label: 'Settings', target: { name: 'settings' } }, { label: 'Help' }];
     case 'review-playground':
       return [{ label: 'Activities' }, { label: 'Playground' }];
     case 'profile':

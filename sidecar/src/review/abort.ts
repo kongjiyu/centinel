@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import type { Artifact } from '../artifacts.js';
-import { ReviewCancelledError } from './retry.js';
+import { ReviewCancelledError, sleepWithCancellation } from './retry.js';
 
 /** Convert every stage's cancellation check to one error shape understood by
  * the orchestrator. DOMException remains the native provider-facing shape,
@@ -62,4 +62,47 @@ export async function runAbortAware<T>(stage: (signal: AbortSignal) => Promise<T
   const value = await stage(effective);
   throwIfAborted(effective);
   return value;
+}
+
+/** Bound a read even if an adapter fails to honor cancellation. No side effects are permitted. */
+export async function boundedSourceRead<T>(operation: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal, timeoutMs = 30000): Promise<T> {
+  throwIfAborted(signal);
+  const controller = new AbortController();
+  const cancel = () => controller.abort(signal?.reason ?? new DOMException('Cancelled', 'AbortError'));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stopped = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+    timer = setTimeout(() => controller.abort(new DOMException('Source read deadline exceeded', 'TimeoutError')), timeoutMs);
+  });
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
+  try {
+    const value = await Promise.race([operation(controller.signal), stopped]);
+    // An adapter may abort the caller and resolve in the same turn. Do not let
+    // an already-resolved value win the race and publish cancelled evidence.
+    throwIfAborted(signal);
+    if (controller.signal.aborted) throw controller.signal.reason;
+    return value;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
+  }
+}
+
+/** One retry for a bounded, read-only source timeout. Callers journal each
+ * operation invocation separately; no other failure authorizes repetition. */
+export async function retryTimedOutSourceRead<T>(operation: (attempt: number) => Promise<T>, signal?: AbortSignal,
+  wait: typeof sleepWithCancellation = sleepWithCancellation): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    throwIfAborted(signal);
+    try {
+      const result = await operation(attempt);
+      throwIfAborted(signal);
+      return result;
+    } catch (error) {
+      throwIfAborted(signal);
+      if (attempt >= 2 || !(error instanceof Error) || error.name !== 'TimeoutError') throw error;
+      await wait(1000, signal);
+    }
+  }
 }

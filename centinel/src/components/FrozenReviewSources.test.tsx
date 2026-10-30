@@ -36,14 +36,15 @@ describe('FrozenReviewSources', () => {
     const user = userEvent.setup();
     renderPanel();
 
-    expect(screen.getByRole('heading', { name: 'Sources used' })).toBeInTheDocument();
-    expect(screen.getByText('1 reviewed artifact')).toBeInTheDocument();
-    expect(screen.getByText('src/checkout.ts')).toBeInTheDocument();
-    expect(screen.getByText('version-1')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sources in scope' })).toBeInTheDocument();
+    expect(screen.getByText('1 saved file')).toBeInTheDocument();
+    expect(screen.getByText('Browse saved sources').closest('details')).not.toHaveAttribute('open');
     expect(screen.queryByText('current/checkout.ts')).not.toBeInTheDocument();
     expect(api.getReviewArtifactContent).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'Preview saved version' }));
+    await user.click(screen.getByText('Browse saved sources'));
+    await user.type(screen.getByRole('searchbox'), 'checkout');
+    await user.click(screen.getByRole('button', { name: 'checkout.ts' }));
 
     expect(api.getReviewArtifactContent).toHaveBeenCalledWith('project-1', 'review-1', 'artifact-frozen');
     expect(await screen.findByText('const checkout = true;')).toBeInTheDocument();
@@ -56,7 +57,9 @@ describe('FrozenReviewSources', () => {
       artifacts: [{ ...manifest.artifacts![0], artifactVersionId: null }],
     });
 
-    expect(screen.getByText('The exact saved version is unavailable for preview.')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Browse saved sources'));
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'checkout' } });
+    expect(screen.getByRole('button', { name: 'checkout.ts · version unavailable' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /Preview saved version/ })).not.toBeInTheDocument();
     expect(api.getReviewArtifactContent).not.toHaveBeenCalled();
   });
@@ -68,7 +71,9 @@ describe('FrozenReviewSources', () => {
     });
     renderPanel();
 
-    await user.click(screen.getByRole('button', { name: 'Preview saved version' }));
+    await user.click(screen.getByText('Browse saved sources'));
+    await user.type(screen.getByRole('searchbox'), 'checkout');
+    await user.click(screen.getByRole('button', { name: 'checkout.ts' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('unavailable or could not be verified');
     expect(screen.queryByText('current project content')).not.toBeInTheDocument();
@@ -81,8 +86,10 @@ describe('FrozenReviewSources', () => {
     vi.mocked(api.getReviewArtifactContent).mockReturnValueOnce(new Promise(resolve => { resolveContent = resolve; }));
     const view = renderPanel();
 
-    await user.click(screen.getByRole('button', { name: 'Preview saved version' }));
-    expect(screen.getByRole('button', { name: 'Loading saved version…' })).toBeDisabled();
+    await user.click(screen.getByText('Browse saved sources'));
+    await user.type(screen.getByRole('searchbox'), 'checkout');
+    await user.click(screen.getByRole('button', { name: 'checkout.ts' }));
+    expect(screen.getByRole('button', { name: 'checkout.ts' })).toBeDisabled();
 
     view.rerender(<FrozenReviewSources
       projectId="project-1"
@@ -91,7 +98,8 @@ describe('FrozenReviewSources', () => {
       readState="loaded"
       onRetryEvidence={vi.fn()}
     />);
-    expect(screen.getByRole('button', { name: 'Preview saved version' })).toBeEnabled();
+    await user.type(screen.getByRole('searchbox'), 'checkout');
+    expect(screen.getByRole('button', { name: 'checkout.ts' })).toBeEnabled();
     expect(screen.queryByText('const checkout = true;')).not.toBeInTheDocument();
 
     await act(async () => resolveContent({

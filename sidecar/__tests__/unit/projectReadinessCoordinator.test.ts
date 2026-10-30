@@ -61,6 +61,7 @@ function setup(options: {
   initialJob?: ReadinessJob;
   assess?: (input: ReadinessInput, provider: Pick<StaticAnalysisModelProvider, 'analyze'>, signal?: AbortSignal) => Promise<ReadinessAssessment>;
   debounceMs?: number;
+  jobTimeoutMs?: number;
 } = {}) {
   let currentIndex = options.initialIndex ?? index();
   const jobs = new Map<string, ReadinessJob>();
@@ -80,6 +81,7 @@ function setup(options: {
     assess: options.assess,
     now: () => new Date(clock++),
     debounceMs: options.debounceMs,
+    jobTimeoutMs: options.jobTimeoutMs,
   });
   return {
     coordinator,
@@ -92,6 +94,74 @@ function setup(options: {
 }
 
 describe('ProjectReadinessCoordinator', () => {
+  it('uses the refreshed owner session for persistence after an import wait', async () => {
+    let current = index();
+    let job: ReadinessJob | null = null;
+    let expired = false;
+    const savedWith: string[] = [];
+    const coordinator = new ProjectReadinessCoordinator({
+      inspect: async () => current,
+      store: context => ({
+        latest: async () => {
+          if (expired && context.accessToken !== 'refreshed') throw new Error('Expired old store');
+          return job;
+        },
+        save: async next => {
+          if (expired && context.accessToken !== 'refreshed') throw new Error('Expired old store');
+          job = next;
+          if (next.status === 'completed') savedWith.push(context.accessToken);
+        },
+      }),
+      read: async () => 'export const ready = true;',
+      provider: () => ({ analyze: vi.fn() }),
+      assess: async input => {
+        current = index('fingerprint-1', { importing: true });
+        setTimeout(() => {
+          expired = true;
+          coordinator.adoptSession(auth('refreshed'));
+          current = index();
+        }, 20);
+        return assessment(input);
+      },
+    });
+    await coordinator.request(auth(), projectId, 'manual', true);
+    await coordinator.waitForIdle();
+    expect(savedWith).toEqual(['refreshed']);
+    coordinator.close();
+  });
+
+  it.each([false, true])('waits for an active check before saving, reassessing only changed evidence (%s)', async changed => {
+    let calls = 0;
+    const assess = vi.fn(async (input: ReadinessInput) => {
+      if (++calls === 1) {
+        test.setIndex(index('fingerprint-1', { importing: true }));
+        setTimeout(() => test.setIndex(index(changed ? 'fingerprint-2' : 'fingerprint-1')), 20);
+      }
+      return assessment(input);
+    });
+    const test = setup({ assess });
+    await test.coordinator.request(auth(), projectId, 'manual', true);
+    await test.coordinator.waitForIdle();
+    expect(test.jobs.get(projectId)?.status).toBe('completed');
+    expect(test.jobs.get(projectId)?.snapshot?.sourceFingerprint).toBe(changed ? 'fingerprint-2' : 'fingerprint-1');
+    expect(assess).toHaveBeenCalledTimes(changed ? 2 : 1);
+    test.coordinator.close();
+  });
+
+  it('keeps the deadline active while waiting for a remote check to settle', async () => {
+    const assess = vi.fn(async (input: ReadinessInput) => {
+      test.setIndex(index('fingerprint-1', { importing: true }));
+      return assessment(input);
+    });
+    const test = setup({ assess, jobTimeoutMs: 30 });
+    await test.coordinator.request(auth(), projectId, 'manual', true);
+    await test.coordinator.waitForIdle();
+    expect(test.jobs.get(projectId)?.status).toBe('failed');
+    expect(test.jobs.get(projectId)?.snapshot).toBeNull();
+    expect(assess).toHaveBeenCalledTimes(1);
+    test.coordinator.close();
+  });
+
   it('reuses the previous assessment when a queued remote check finishes without changes', async () => {
     const previous = completedJob();
     const assess = vi.fn();

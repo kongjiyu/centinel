@@ -1,6 +1,10 @@
 import type { StaticAnalysisModelProvider, StaticModelRequest, StaticModelResult, ModelAttemptOutcome, ModelAttemptRecord } from './types.js';
 import type { TokenUsageObservation } from '../aiClient.js';
-import { providerPause } from './providerPause.js';
+import {
+  providerPause,
+  REVIEW_PROVIDER_UNAVAILABLE_MESSAGE,
+  reviewProviderPause,
+} from './providerPause.js';
 import { sanitizeReviewRequestUsageContext } from './usageContext.js';
 
 export const MAX_MODEL_ATTEMPTS = 5;
@@ -48,6 +52,8 @@ export class ModelProviderError extends Error {
   readonly usage?: StaticModelResult['usage'];
   readonly responseReceived?: boolean;
   readonly usageObservation?: TokenUsageObservation;
+  /** Internal tag consumed only by Review's reviewProviderPause helper. */
+  readonly reviewPause?: boolean;
 
   constructor(message: string, options: {
     code?: string;
@@ -58,6 +64,7 @@ export class ModelProviderError extends Error {
     usage?: StaticModelResult['usage'];
     responseReceived?: boolean;
     usageObservation?: TokenUsageObservation;
+    reviewPause?: boolean;
     cause?: unknown;
   } = {}) {
     super(message, { cause: options.cause });
@@ -70,7 +77,21 @@ export class ModelProviderError extends Error {
     this.usage = options.usage;
     this.responseReceived = options.responseReceived;
     this.usageObservation = options.usageObservation;
+    this.reviewPause = options.reviewPause;
   }
+}
+
+function reviewProviderUnavailableError(metadata: {
+  statusCode?: number;
+  retryAfterMs?: number;
+  usage?: StaticModelResult['usage'];
+  responseReceived?: boolean;
+  usageObservation?: TokenUsageObservation;
+} = {}): ModelProviderError {
+  return new ModelProviderError(REVIEW_PROVIDER_UNAVAILABLE_MESSAGE, {
+    code: 'provider_unavailable', retryable: false, reviewPause: true,
+    ...metadata,
+  });
 }
 
 export class ReviewCancelledError extends Error {
@@ -477,9 +498,9 @@ export async function runModelOperation(
   const attemptOffset = Math.max(0, Math.floor(options.attemptOffset ?? 0));
   const remainingAttempts = Math.max(0, maxTotalAttempts - attemptOffset);
   if (!remainingAttempts) {
-    throw new ModelProviderError('Model provider exhausted the persisted Review attempt budget', {
-      code: 'retry_exhausted', retryable: true,
-    });
+    // Crash recovery cannot infer whether reserved requests consumed provider
+    // allowance. Preserve their budget and require an explicit linked retry.
+    throw reviewProviderUnavailableError();
   }
   const fallbackReserveAttempts = options.fallback
     ? Math.max(0, Math.min(remainingAttempts - 1, Math.floor(options.fallbackReserveAttempts ?? 1)))
@@ -492,6 +513,8 @@ export async function runModelOperation(
   const attempts: ModelAttemptRecord[] = [];
   let totalAttempts = 0;
   let lastFailureMalformed = false;
+  let lastFailureRetryable = false;
+  let lastFailureMetadata: Parameters<typeof reviewProviderUnavailableError>[0] = {};
 
   const runProvider = async (
     provider: StaticAnalysisModelProvider,
@@ -549,12 +572,15 @@ export async function runModelOperation(
       } catch (error) {
         const classification = classifyModelError(error, options.signal ?? request.signal);
         lastFailureMalformed = classification.kind === 'malformed';
+        lastFailureRetryable = classification.kind === 'retryable';
         lastClassification = classification;
         const outcome: ModelAttemptOutcome = classification.kind === 'cancelled' ? 'cancelled'
           : classification.kind === 'malformed' ? 'malformed_response'
           : classification.kind === 'retryable' ? 'retryable_error' : 'permanent_error';
         const errorCode = classification.code;
-        const errorMessageValue = providerPause(error)?.message ?? safeErrorMessage(error);
+        const codexFailure = error && typeof error === 'object' && (error as { code?: unknown }).code === 'codex_turn_failed';
+        const errorMessageValue = providerPause(error)?.message
+          ?? (codexFailure ? 'Codex turn failed; the cause is unconfirmed.' : safeErrorMessage(error));
         const statusCode = classification.statusCode;
         const retryAfterMs = classification.retryAfterMs;
         const providerError = error && typeof error === 'object'
@@ -562,6 +588,10 @@ export async function runModelOperation(
           : undefined;
         const usage = observedUsage ?? providerError?.usage;
         const responseReceived = observedResponseReceived ?? providerError?.responseReceived ?? (usage ? true : undefined);
+        lastFailureMetadata = {
+          statusCode, retryAfterMs, usage, responseReceived,
+          usageObservation: providerError?.usageObservation ?? usage?.usageObservation,
+        };
         const record = makeAttemptRecord({
           ...options,
           ...providerContext,
@@ -589,9 +619,18 @@ export async function runModelOperation(
         // and cause another paid request.
         await options.onAttempt?.(record);
         if (classification.kind === 'cancelled') throw new ReviewCancelledError(errorMessageValue);
-        if (classification.kind === 'paused') throw new ModelProviderError(providerPause(error)!.message, {
-          code: classification.code, statusCode, retryAfterMs, retryable: false,
-        });
+        if (classification.kind === 'paused') {
+          const pause = reviewProviderPause(error)!;
+          throw new ModelProviderError(pause.message, {
+            code: pause.code, statusCode, retryAfterMs, retryable: false,
+          });
+        }
+        // A generic Codex turn failure has no trustworthy subtype. It can
+        // follow an observed response while usage is still unknown, so do not
+        // replay it. Pause this Review neutrally and retain the attempt row.
+        if (classification.kind === 'permanent' && codexFailure) {
+          throw reviewProviderUnavailableError(lastFailureMetadata);
+        }
         if (classification.kind === 'permanent') throw error;
         const fallbackCanFollow = providerKind === 'primary' && !!options.fallback && fallbackReserveAttempts > 0
           && !(lastFailureMalformed && options.fallbackOnMalformed === false);
@@ -640,6 +679,7 @@ export async function runModelOperation(
   if (primaryResult) return primaryResult;
   if (!options.fallback || totalAttempts >= remainingAttempts || fallbackReserveAttempts === 0
     || lastFailureMalformed && options.fallbackOnMalformed === false) {
+    if (lastFailureRetryable) throw reviewProviderUnavailableError(lastFailureMetadata);
     throw new ModelProviderError('Model provider exhausted eligible attempts', {
       code: 'retry_exhausted',
       retryable: true,
@@ -653,6 +693,7 @@ export async function runModelOperation(
   };
   const fallbackResult = await runProvider(options.fallback, 'fallback', fallbackContext);
   if (fallbackResult) return fallbackResult;
+  if (lastFailureRetryable) throw reviewProviderUnavailableError(lastFailureMetadata);
   throw new ModelProviderError('Primary and fallback model providers exhausted eligible attempts', {
     code: 'retry_exhausted',
     retryable: true,

@@ -1,10 +1,11 @@
+import { isPdfSource, verifiedSourceText, verifiedTextForReader, PDF_TEXT_POLICY } from './sourceText.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
 import { CentinelApplicationRepository } from '../applicationRepository.js';
-import { readClientArtifactContent } from '../applicationApi.js';
+import { readClientArtifactContent, readClientArtifactBytes } from '../applicationApi.js';
 import { resolveSavedEmbeddingConfiguration } from '../modelSettings.js';
 import { SupabaseCentinelStore } from '../store/supabase.js';
 import { throwIfAborted } from './abort.js';
@@ -37,14 +38,14 @@ async function locked<T>(key: string, operation: () => Promise<T>): Promise<T> {
 }
 
 function stagePath(artifact: Artifact): string {
-  const original = artifact.filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  const original = (artifact.filePath + (isPdfSource(artifact) ? `.${PDF_TEXT_POLICY}.txt` : '')).replace(/\\/g, '/').replace(/^\.\//, '');
   const safe = original && !path.posix.isAbsolute(original) && !/[:\u0000-\u001f\u007f]/.test(original)
     && original.split('/').every(part => part && part !== '.' && part !== '..' && !/^(?:\.git|\.codebase-index)$/i.test(part)
       && !/[. ]$/.test(part) && !/^(?:con|prn|aux|nul|com\d|lpt\d)(?:\.|$)/i.test(part));
   if (safe) return original;
   if (!/^[a-z\d-]{1,128}$/i.test(artifact.id)) throw new Error('Invalid frozen artifact identity.');
   const name = artifact.fileName.replace(/[^a-zA-Z\d._-]/g, '_').slice(0, 120) || 'source.txt';
-  return `artifacts/${artifact.id}/${name}`;
+  return `artifacts/${artifact.id}/${name}${isPdfSource(artifact) ? `.${PDF_TEXT_POLICY}.txt` : ''}`;
 }
 
 async function describe(clientSource: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal, cacheRoot = CACHE_ROOT) {
@@ -91,26 +92,37 @@ async function prepare(clientSource: ClientSource, ownerId: string, projectId: s
   const sources: Source[] = [];
   for (const source of description.sources) {
     throwIfAborted(signal);
-    const content = reader ? await reader(source.artifact, signal)
+    const content = isPdfSource(source.artifact)
+      ? (verifiedTextForReader(reader, source.artifact, signal)
+        ?? await verifiedSourceText(source.artifact, await readClientArtifactBytes(description.client, ownerId, source.artifact, signal), signal)).text
+      : reader ? await reader(source.artifact, signal)
       : await readClientArtifactContent(description.client, ownerId, source.artifact.id, source.artifact.versionId, signal, projectId, source.artifact.contentHash);
-    if (hash(content) !== sourceHash(source.artifact.contentHash)) throw new Error('Frozen source hash verification failed before local indexing.');
+    if (!isPdfSource(source.artifact) && hash(content) !== sourceHash(source.artifact.contentHash)) throw new Error('Frozen source hash verification failed before local indexing.');
     sources.push({ ...source, content });
   }
   return { ...description, sources };
 }
 
-async function cachedStage(directory: string, identity: RepositoryIndexIdentity): Promise<string | null> {
+async function cachedStage(directory: string, identity: RepositoryIndexIdentity, sources: Source[], signal?: AbortSignal): Promise<string | null> {
   try {
+    throwIfAborted(signal);
     const pointer: unknown = JSON.parse(await fs.readFile(path.join(directory, 'location.json'), 'utf8'));
     if (typeof pointer !== 'string' || !/^stage-[a-f\d-]{36}$/.test(pointer)) return null;
     const root = path.join(directory, pointer);
     const receipt: Receipt = JSON.parse(await fs.readFile(`${root}.receipt.json`, 'utf8'));
     if (JSON.stringify(receipt.identity) !== JSON.stringify(identity) || !Array.isArray(receipt.files) || !receipt.files.length) return null;
+    // The fingerprint binds the frozen source manifest, but the owner-local
+    // stage is mutable. Verify its materialized sources on every cache hit so
+    // a stale workspace cannot feed line locations from an older native index.
+    if (!await verifyMaterialized(root, sources, signal)) return null;
     const names = await portableIndexFiles(path.join(root, INDEX_RELATIVE_DIRECTORY));
     if (names.length !== receipt.files.length || names.some(name => !receipt.files.some(file => file.name === name))) return null;
-    for (const file of receipt.files) if (hash(await fs.readFile(path.join(root, INDEX_RELATIVE_DIRECTORY, file.name))) !== file.sha256) return null;
+    for (const file of receipt.files) {
+      throwIfAborted(signal);
+      if (hash(await fs.readFile(path.join(root, INDEX_RELATIVE_DIRECTORY, file.name))) !== file.sha256) return null;
+    }
     return root;
-  } catch { return null; }
+  } catch { throwIfAborted(signal); return null; }
 }
 
 async function receipt(root: string, identity: RepositoryIndexIdentity): Promise<string[]> {
@@ -155,7 +167,7 @@ async function verifyMaterialized(root: string, sources: Source[], signal?: Abor
         if (stat.isDirectory()) await visit(filename, relative);
         else {
           const source = expected.get(relative);
-          if (!source || !stat.isFile() || hash(await fs.readFile(filename)) !== sourceHash(source.artifact.contentHash))
+          if (!source || !stat.isFile() || hash(await fs.readFile(filename)) !== hash(source.content))
             throw new Error('A pending index source differs from the frozen manifest.');
           expected.delete(relative);
         }
@@ -212,7 +224,7 @@ export async function indexFrozenArtifacts(client: ClientSource, ownerId: string
   if (!prepared.sources.length) return;
   await locked(prepared.directory, async () => {
     throwIfAborted(signal);
-    const existing = await cachedStage(prepared.directory, prepared.identity);
+    const existing = await cachedStage(prepared.directory, prepared.identity, prepared.sources, signal);
     if (existing) {
       const indexDirectory = path.join(existing, INDEX_RELATIVE_DIRECTORY);
       const names = await portableIndexFiles(indexDirectory);
@@ -263,7 +275,7 @@ export async function retrieveFrozenContext(client: ClientSource, ownerId: strin
   const empty: RetrievedContext = { files: [], totalSymbols: 0, estimatedTokens: 0, reason: 'Local repository search was unavailable; frozen source sweeps remain required.' };
   if (!prepared.sources.length) return empty;
   return locked(prepared.directory, async () => {
-    const root = await cachedStage(prepared.directory, prepared.identity);
+    const root = await cachedStage(prepared.directory, prepared.identity, prepared.sources, signal);
     if (!root) return { ...empty, retrievalPartialReason: 'A compatible local index is missing. Build it through an explicit Review.' };
     const opened = await session(prepared, root, client, ownerId, projectId, 'query', signal, reviewId);
     const selectedChunks: NonNullable<RetrievedContext['selectedChunks']> = [];

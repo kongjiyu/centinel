@@ -2134,18 +2134,6 @@
   line-height: 18px;
 }
 
-.collaborator-sync-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.collaborator-sync-hint {
-  color: var(--workspace-text-subtle);
-  font-size: 12px;
-  line-height: 18px;
-}
-
 .collaborator-search-form {
   display: grid;
   gap: 6px;
@@ -2383,10 +2371,6 @@
     grid-template-columns: 1fr;
   }
 
-  .collaborator-sync-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 
 /* Project detail interaction polish. These overrides stay screen-scoped so

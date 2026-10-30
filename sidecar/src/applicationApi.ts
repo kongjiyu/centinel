@@ -1,3 +1,4 @@
+import { boundedSourceRead } from './review/abort.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -9,6 +10,127 @@ import type { StoreArtifact, StoreArtifactVersion } from './store/types.js';
 const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'vendor', 'target', 'bin', 'obj', '.idea', '.vscode']);
 const MAX_IMPORT_FILES = 2_000;
 const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_LOCAL_INVENTORY_ENTRIES = 20_000;
+const MAX_LOCAL_INVENTORY_SOURCE_BYTES = 128 * 1024 * 1024;
+
+export type LocalRepositoryInventory = {
+  root: string;
+  rootHash: string;
+  inventoryFingerprint?: string;
+  contentFingerprint?: string;
+  sourceFiles?: Array<{ filePath: string; contentHash: string }>;
+  complete: boolean;
+};
+
+export type LocalImportCoverage = {
+  rootHash: string;
+  imported: number;
+  skipped: number;
+  artifactIds: string[];
+  inventoryFingerprint?: string;
+  contentFingerprint?: string;
+};
+
+type LocalRepositoryFile = { path: string; fullPath: string; size: number; mtimeMs: number; ctimeMs: number; symlink: boolean };
+
+const sha256 = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
+const LOCAL_OTHER_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.xml', '.toml', '.ini', '.mod', '.csproj', '.gradle', '.kts', '.swift', '.kt', '.scala', '.dart', '.vue', '.svelte', '.sql', '.sh', '.bash', '.lua']);
+const LOCAL_OTHER_NAMES = new Set(['.editorconfig', 'Gemfile', 'Dockerfile', 'Makefile']);
+
+function isImportableLocalFile(fileName: string): boolean {
+  return detectArtifactType(fileName) !== 'other' || LOCAL_OTHER_EXTENSIONS.has(path.extname(fileName).toLowerCase())
+    || LOCAL_OTHER_NAMES.has(fileName);
+}
+
+function localRootHash(root: string): string {
+  return sha256(root.toLowerCase());
+}
+
+export function localRepositoryContentFingerprint(sources: Array<{ filePath: string; contentHash: string }>): string {
+  const normalized = sources.map(source => ({ path: source.filePath.replaceAll('\\', '/'),
+    contentHash: source.contentHash.replace(/^sha256:/i, '').toLowerCase() })).sort((left, right) => left.path.localeCompare(right.path));
+  return sha256(JSON.stringify(normalized));
+}
+
+/** A bounded metadata-first inventory for local-repository polling. Content
+ * hashes are read only after metadata changes or when establishing a legacy
+ * baseline; sources too large to scan safely leave the inventory incomplete. */
+export async function inspectLocalRepository(repoPath: string, includeContent = false): Promise<LocalRepositoryInventory | null> {
+  if (typeof repoPath !== 'string' || !repoPath.trim()) return null;
+  const root = path.resolve(repoPath);
+  const rootStat = await fs.stat(root).catch(() => null);
+  if (!rootStat?.isDirectory()) return null;
+  const files: LocalRepositoryFile[] = [];
+  const directories = [root];
+  let visited = 0;
+  try {
+    while (directories.length) {
+      const current = directories.pop()!;
+      for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+        if (++visited > MAX_LOCAL_INVENTORY_ENTRIES) return { root, rootHash: localRootHash(root), complete: false };
+        const fullPath = path.join(current, entry.name);
+        const relativePath = path.relative(root, fullPath).replaceAll('\\', '/');
+        if (entry.isDirectory() && !entry.isSymbolicLink()) {
+          if (!SKIP_DIRS.has(entry.name)) directories.push(fullPath);
+          continue;
+        }
+        if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+        const stat = await fs.lstat(fullPath);
+        files.push({ path: relativePath, fullPath, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs,
+          symlink: entry.isSymbolicLink() });
+      }
+    }
+  } catch { return { root, rootHash: localRootHash(root), complete: false }; }
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  const inventoryFingerprint = sha256(JSON.stringify(files.map(file => [file.path, file.symlink ? 'symlink' : 'file', file.size, file.mtimeMs, file.ctimeMs])));
+  if (!includeContent) return { root, rootHash: localRootHash(root), inventoryFingerprint, complete: true };
+
+  const sources: Array<{ filePath: string; contentHash: string }> = [];
+  let sourceBytes = 0;
+  for (const file of files) {
+    if (file.symlink || !isImportableLocalFile(path.basename(file.path))) continue;
+    if (sources.length >= MAX_IMPORT_FILES || file.size > MAX_IMPORT_FILE_BYTES
+      || (sourceBytes += file.size) > MAX_LOCAL_INVENTORY_SOURCE_BYTES) {
+      return { root, rootHash: localRootHash(root), inventoryFingerprint, complete: false };
+    }
+    try {
+      const content = await fs.readFile(file.fullPath);
+      const after = await fs.lstat(file.fullPath);
+      if (after.isSymbolicLink() || after.size !== file.size || after.mtimeMs !== file.mtimeMs || after.ctimeMs !== file.ctimeMs) {
+        return { root, rootHash: localRootHash(root), inventoryFingerprint, complete: false };
+      }
+      sources.push({ filePath: file.path, contentHash: sha256(content) });
+    } catch { return { root, rootHash: localRootHash(root), inventoryFingerprint, complete: false }; }
+  }
+  return { root, rootHash: localRootHash(root), inventoryFingerprint,
+    contentFingerprint: localRepositoryContentFingerprint(sources), sourceFiles: sources, complete: true };
+}
+
+export async function getLatestLocalImportCoverage(repository: CentinelApplicationRepository, projectId: string, rootHash: string): Promise<LocalImportCoverage | null> {
+  const result = await repository.client.from('audit_events').select('payload').eq('project_id', projectId)
+    .eq('entity_type', 'project').eq('entity_id', projectId).eq('event_type', 'local_import_coverage')
+    .eq('payload->>rootHash', rootHash).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (result.error) throw new Error('Local repository import history is unavailable.');
+  const payload = result.data?.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const value = payload as Partial<LocalImportCoverage>;
+  if (value.rootHash !== rootHash || !Number.isSafeInteger(value.imported) || !Number.isSafeInteger(value.skipped)
+    || !Array.isArray(value.artifactIds) || value.artifactIds.some(id => typeof id !== 'string')) throw new Error('Local repository import history is invalid.');
+  return { rootHash, imported: value.imported!, skipped: value.skipped!, artifactIds: value.artifactIds as string[],
+    ...(typeof value.inventoryFingerprint === 'string' && /^[a-f\d]{64}$/i.test(value.inventoryFingerprint) ? { inventoryFingerprint: value.inventoryFingerprint } : {}),
+    ...(typeof value.contentFingerprint === 'string' && /^[a-f\d]{64}$/i.test(value.contentFingerprint) ? { contentFingerprint: value.contentFingerprint } : {}) };
+}
+
+export async function recordLocalImportCoverageBaseline(repository: CentinelApplicationRepository, projectId: string,
+  coverage: LocalImportCoverage, inventory: LocalRepositoryInventory): Promise<void> {
+  if (!inventory.complete || !inventory.inventoryFingerprint || !inventory.contentFingerprint || inventory.rootHash !== coverage.rootHash) {
+    throw new Error('Local repository inventory is incomplete.');
+  }
+  const result = await repository.client.from('audit_events').insert({ id: crypto.randomUUID(), project_id: projectId,
+    actor_id: repository.userId, event_type: 'local_import_coverage', entity_type: 'project', entity_id: projectId,
+    payload: { ...coverage, inventoryFingerprint: inventory.inventoryFingerprint, contentFingerprint: inventory.contentFingerprint } });
+  if (result.error) throw new Error('Local import coverage could not be recorded. Retry the import before assessing readiness.');
+}
 
 function validArtifactType(value: unknown): value is ArtifactType {
   return value === 'requirement' || value === 'design' || value === 'source_code' || value === 'coding_standard' || value === 'other';
@@ -122,12 +244,20 @@ export async function importLocalRepositoryArtifacts(
   repository: CentinelApplicationRepository,
   projectId: string,
   repoPath: string,
-): Promise<{ imported: Artifact[]; skipped: string[] }> {
+  options: { observedInventory?: LocalRepositoryInventory; priorCoverage?: LocalImportCoverage; pruneArtifactIds?: string[] } = {},
+): Promise<{ imported: Artifact[]; skipped: string[]; complete: boolean }> {
+  if (typeof repoPath !== 'string' || !repoPath.trim()) throw new Error('Path is not a valid directory');
   const root = path.resolve(repoPath);
   const stat = await fs.stat(root).catch(() => null);
   if (!stat?.isDirectory()) throw new Error('Path is not a valid directory');
+  const observedInventory = options.observedInventory ?? await inspectLocalRepository(root);
+  if (observedInventory && (observedInventory.root !== root || observedInventory.rootHash !== localRootHash(root))) {
+    throw new Error('Local repository inventory does not match the selected root.');
+  }
   const imported: Artifact[] = [];
   const skipped: string[] = [];
+  let eligibleCount = 0;
+  let completeContentInventory = true;
   const directories = [root];
   while (directories.length > 0) {
     const current = directories.pop()!;
@@ -141,10 +271,10 @@ export async function importLocalRepositoryArtifacts(
         continue;
       }
       if (!entry.isFile()) continue;
-      if (detectArtifactType(entry.name) === 'other' && !['.json', '.jsonc', '.yaml', '.yml', '.xml', '.toml', '.ini', '.mod', '.csproj', '.gradle', '.kts', '.swift', '.kt', '.scala', '.dart', '.vue', '.svelte', '.sql', '.sh', '.bash', '.lua'].includes(path.extname(entry.name).toLowerCase()) && !['.editorconfig', 'Gemfile', 'Dockerfile', 'Makefile'].includes(entry.name)) { skipped.push(relativePath); continue; }
-      if (imported.length >= MAX_IMPORT_FILES) { skipped.push(relativePath); continue; }
+      if (!isImportableLocalFile(entry.name)) { skipped.push(relativePath); continue; }
+      if (++eligibleCount > MAX_IMPORT_FILES) { skipped.push(relativePath); completeContentInventory = false; continue; }
       const fileStat = await fs.stat(fullPath);
-      if (fileStat.size > MAX_IMPORT_FILE_BYTES) { skipped.push(relativePath); continue; }
+      if (fileStat.size > MAX_IMPORT_FILE_BYTES) { skipped.push(relativePath); completeContentInventory = false; continue; }
       try {
         const content = await fs.readFile(fullPath);
         imported.push(await uploadClientArtifact(repository, {
@@ -153,19 +283,43 @@ export async function importLocalRepositoryArtifacts(
         }));
       } catch {
         skipped.push(relativePath);
+        completeContentInventory = false;
       }
     }
   }
+  const importedIds = new Set(imported.map(artifact => artifact.id));
+  if (observedInventory?.complete && completeContentInventory) {
+    for (const artifactId of new Set(options.pruneArtifactIds ?? [])) {
+      if (!importedIds.has(artifactId)) await repository.deleteArtifact(projectId, artifactId);
+    }
+  }
+  const complete = Boolean(observedInventory?.complete && observedInventory.inventoryFingerprint && completeContentInventory);
+  const contentFingerprint = complete
+    ? localRepositoryContentFingerprint(imported.map(artifact => ({ filePath: artifact.filePath, contentHash: artifact.contentHash }))) : undefined;
+  const coverageArtifactIds = complete ? imported.map(artifact => artifact.id)
+    : [...new Set([...(options.priorCoverage?.artifactIds ?? []), ...imported.map(artifact => artifact.id)])];
   // Record only coverage metadata, never paths or source bodies. A bounded or
   // partial local import must not silently become a complete readiness result.
   try {
     const coverage = await repository.client.from('audit_events').insert({ id: crypto.randomUUID(), project_id: projectId,
       actor_id: repository.userId, event_type: 'local_import_coverage', entity_type: 'project', entity_id: projectId,
-      payload: { rootHash: crypto.createHash('sha256').update(root.toLowerCase()).digest('hex'), imported: imported.length,
-        skipped: skipped.length, artifactIds: imported.map(artifact => artifact.id) } });
+      payload: { rootHash: localRootHash(root), imported: imported.length,
+        skipped: skipped.length, artifactIds: coverageArtifactIds,
+        ...(complete && observedInventory?.inventoryFingerprint ? { inventoryFingerprint: observedInventory.inventoryFingerprint } : {}),
+        ...(complete && contentFingerprint ? { contentFingerprint } : {}),
+        ...(!complete && options.priorCoverage?.inventoryFingerprint ? { inventoryFingerprint: options.priorCoverage.inventoryFingerprint } : {}),
+        ...(!complete && options.priorCoverage?.contentFingerprint ? { contentFingerprint: options.priorCoverage.contentFingerprint } : {}) } });
     if (coverage.error) throw new Error('Coverage write failed');
   } catch {
     throw new Error('Local import coverage could not be recorded. Retry the import before assessing readiness.');
   }
-  return { imported, skipped };
+  return { imported, skipped, complete };
+}
+
+/** Authenticated exact-version byte reader for binary-safe Review ingestion. */
+export async function readClientArtifactBytes(client: SupabaseClient, userId: string, artifact: Artifact, signal?: AbortSignal): Promise<Buffer> {
+  if (!artifact.versionId || !artifact.contentHash) throw new Error('An exact frozen source version is required.');
+  // Original attachments can be up to 100 MiB. Bound the complete download,
+  // allowing more time than the small connected-source metadata queries.
+  return boundedSourceRead(readSignal => new CentinelApplicationRepository(client, userId).downloadFrozenArtifactVersion({ projectId: artifact.projectId, artifactId: artifact.id, versionId: artifact.versionId!, expectedContentHash: artifact.contentHash }, readSignal), signal, 120_000);
 }

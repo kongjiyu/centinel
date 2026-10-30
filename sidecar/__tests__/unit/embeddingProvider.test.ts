@@ -5,6 +5,12 @@ import { VOYAGE_EMBEDDING_BASE_URL } from '../../src/embeddingSettings.js';
 const config = { apiKey: 'private-key', baseUrl: 'https://provider.example.test/v1', model: 'embedding-model' };
 
 describe('configured source-indexing provider', () => {
+  it('retains a numeric Retry-After without changing single-call behavior', async () => {
+    const send = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'rate_limit_exceeded' } }), { status: 429, headers: { 'retry-after': '125' } }));
+    await expect(createEmbedding(config, 'chunk', undefined, send)).rejects.toMatchObject({ code: 'rate_limited', retryAfterMs: 125000 });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it('retains parsed error-response usage when the request deadline expires during capacity parsing', async () => {
     vi.useFakeTimers();
     try {

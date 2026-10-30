@@ -170,6 +170,30 @@ describe('ProjectReadinessCard', () => {
     expect(screen.getByText('Incomplete')).toBeInTheDocument();
   });
 
+  it('accepts slow polling responses without overlapping polls or focus requests', async () => {
+    vi.useFakeTimers();
+    let resolveSlow!: (value: ProjectReadinessStatus) => void;
+    const slow = new Promise<ProjectReadinessStatus>(resolve => { resolveSlow = resolve; });
+    vi.mocked(api.getProjectReadiness)
+      .mockResolvedValueOnce(status({ status: 'queued', requestId: 'request-1' }))
+      .mockReturnValueOnce(slow)
+      .mockResolvedValueOnce(completedSnapshot);
+    render(<ProjectReadinessCard projectId="project-1" />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    fireEvent.focus(window);
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(api.getProjectReadiness).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveSlow(status({ status: 'running', requestId: 'request-1' }));
+      await slow;
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Checking updated sources.');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(api.getProjectReadiness).toHaveBeenCalledTimes(3);
+    expect(screen.getByText('Incomplete')).toBeInTheDocument();
+  });
+
   it('refreshes status when the app returns to the foreground', async () => {
     vi.mocked(api.getProjectReadiness)
       .mockResolvedValueOnce(completedSnapshot)

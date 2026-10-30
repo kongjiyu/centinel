@@ -10,6 +10,20 @@
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
+## Latest Project UX amendment (29 October 2026)
+
+The [Project UX and source-read specification](docs/PROJECT_UX_SOURCE_READ_SPEC_2026-10-29.md) records the user's later correction and supersedes conflicting source-tree and table presentation below. Project Sources uses one directory/file content surface with breadcrumbs and no left tree. Source rows place name/kind at 10/12 and relative update time at 2/12 without Name/Kind/Added columns. Project Findings shows ID, Findings, Risk, Priority with colored textual priority indicators. Collaborators syncs GitHub on load without explicit sync buttons; project pages use accessible skeleton loading.
+
+## Approved Review and Sources UX direction (29 October 2026)
+
+The user-approved workflow in [Review workflow UX specification](docs/REVIEW_WORKFLOW_UX_SPEC_2026-10-29.md) supersedes conflicting presentation requirements below. Frontend implementation and fixture-based verification are recorded in [implementation checks](docs/REVIEW_WORKFLOW_UX_IMPLEMENTATION_2026-10-29.md); packaged desktop and live-provider verification remain pending.
+
+- Review leads with up to three concrete actions ordered by confirmed blockers, remaining risks, then evidence gaps. A specific plain-language summary explains intended versus completed work, results, limitations and next steps. Recommendations use saved evidence without additional AI assessment. Verified unresolved Critical/High findings block handover; important unverified scope prevents readiness. Human approval remains separate.
+- Entry is one compact page with repository-level selection, no file inspection, and deselectable attached documents. New independent Reviews default to the first repository and all eligible attached documents; retries retain saved scope. Activity leads with understandable progress and required action; technical events are disclosed on demand.
+- Findings opens a separate full-width detail page. Keep the shared problem and action visible and show one selected occurrence at a time using a compact location selector. This supersedes the older continuous stack of all occurrences. File indicators open large fixed-size scrollable hover previews at highlighted saved-source locations, with accessible keyboard/touch equivalents and click-through to the same saved source. Preserve return context and individual decisions.
+- Project Sources keeps a persistent source/repository tree beside a stable content area through source, directory and file navigation. This supersedes the earlier restriction against that composition. Preserve selected location and per-source navigation state. Sources and readers have fixed-height internal scrolling. Put manual Sync and status on source rows; replace the bottom updates panel with minute-cadence connected-source checks, preserving provider backoff, source-worker concurrency and model/indexing holds. Review-owned source evidence stays collapsed until requested and retains frozen versions.
+- Remove routine explanatory filler around features. Retain meaningful labels, result context, errors and limitations. General workflow instructions belong on a dedicated Help page, reached through a question-mark icon and Help label under the Settings navigation category.
+
 ## Approved Review UI amendment (September 2026)
 
 ### Findings document amendment (22 October 2026)

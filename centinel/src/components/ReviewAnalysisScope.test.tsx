@@ -5,6 +5,25 @@ import { ReviewAnalysisScope } from './ReviewAnalysisScope';
 import type { ReviewAnalysisMap } from '../reviewHarness';
 
 describe('ReviewAnalysisScope', () => {
+  it('does not present diagnostic operation counts as assessed text coverage', () => {
+    const map: ReviewAnalysisMap = { schemaVersion: 1, status: 'unverified', features: [],
+      coverage: { sourceArtifacts: 301, parsedArtifacts: 0, assessmentMode: 'plain_text_context_fallback', syntaxFeatureCount: 1379,
+        exhaustive: false, unresolvedEdgeCount: 1, limitations: [], unsupportedArtifacts: [] } };
+    render(<ReviewAnalysisScope map={map} />);
+    expect(screen.getByText(/original 1379 mapped operations exceed the bounded source or request-count plan/)).toHaveTextContent('coverage remain unverified');
+    expect(screen.queryByText(/identified 0 possible features/)).not.toBeInTheDocument();
+  });
+  it('labels plain-text logic separately from mapped executable paths', () => {
+    const map: ReviewAnalysisMap = { schemaVersion: 1, status: 'assessed',
+      coverage: { sourceArtifacts: 1, parsedArtifacts: 0, plainTextLogicArtifactCount: 1, plainTextLogicUnitCount: 1,
+        exhaustive: false, unresolvedEdgeCount: 1, limitations: [], unsupportedArtifacts: [] },
+      features: [{ id: 'text', label: 'worker.py:1–3', provisional: true, analysisKind: 'plain_text_logic', sourceRange: { lineStart: 1, lineEnd: 3 },
+        entryPoints: [], paths: [{ id: 'unknown', kind: 'unresolved', label: 'Parser paths unverified', status: 'unverified', evidence: [] }], assessments: [], unresolved: [] }] };
+    render(<ReviewAnalysisScope map={map} />);
+    expect(screen.getByText('worker.py:1–3 · text logic')).toBeInTheDocument();
+    expect(screen.getByText(/1 file · 1 plain-text logic section/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 mapped path/)).not.toBeInTheDocument();
+  });
   it('keeps missing historical evidence explicit', () => {
     render(<ReviewAnalysisScope map={null} />);
     expect(screen.getByText('Feature and path coverage was not recorded for this review.')).toBeInTheDocument();

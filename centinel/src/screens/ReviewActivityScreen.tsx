@@ -1,8 +1,9 @@
+import { reviewHandover } from '../reviewHandover';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
-import { ReviewNarrativeSummary, ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
+import { ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
 import { ReviewAnalysisScope } from '../components/ReviewAnalysisScope';
 import { FrozenReviewSources } from '../components/FrozenReviewSources';
 import { ReviewUsageDetails } from '../components/ReviewUsageDetails';
@@ -41,7 +42,7 @@ type ReviewEvidenceReadState = {
   sourceManifest: EvidenceReadStatus;
   traceability: EvidenceReadStatus;
 };
-type RetryRequest = { idempotencyKey: string; sourceChoice: RetrySourceChoice };
+type RetryRequest = { idempotencyKey: string; sourceChoice: RetrySourceChoice; reuseValidatedBatches: boolean };
 type SupportiveDocument = { id: string; name: string };
 
 const REVIEW_DETAIL_TABS: Tab[] = ['Overview', 'Activity', 'Findings', 'Traceability'];
@@ -197,6 +198,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   });
   const evidenceRequestSequence = useRef(0);
   const screenRequestSequence = useRef(0);
+  const activeScreenRead = useRef<{ identity: string; requestId: number } | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [requirementMappings, setRequirementMappings] = useState<Record<string, RequirementMapping[]>>({});
@@ -232,6 +234,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const [retrying, setRetrying] = useState(false);
   const [retryPanelOpen, setRetryPanelOpen] = useState(false);
   const [retrySourceChoice, setRetrySourceChoice] = useState<RetrySourceChoice>('reuse');
+  const [reuseValidatedBatches, setReuseValidatedBatches] = useState(false);
   const [retryRequest, setRetryRequest] = useState<RetryRequest | null>(null);
   const [retrySubmissionError, setRetrySubmissionError] = useState<string | null>(null);
   const [startingIteration, setStartingIteration] = useState(false);
@@ -331,7 +334,10 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   }, [projectId, sessionId]);
 
   const load = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const identity = `${projectId}:${sessionId}`;
+    if (silent && activeScreenRead.current?.identity === identity) return;
     const loadRequestId = ++screenRequestSequence.current;
+    activeScreenRead.current = { identity, requestId: loadRequestId };
     const isCurrentLoad = () => screenRequestSequence.current === loadRequestId;
     if (!silent) setLoading(true);
     setError(null);
@@ -427,6 +433,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     } catch (cause) {
       if (isCurrentLoad()) setError(userFacingError(cause, 'Review activity could not be loaded.'));
     } finally {
+      if (activeScreenRead.current?.requestId === loadRequestId) activeScreenRead.current = null;
       if (isCurrentLoad() && !silent) setLoading(false);
     }
   }, [loadReviewEvidence, projectId, sessionId]);
@@ -534,6 +541,10 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const canCancel = Boolean(session && (session.status === 'queued' || session.status === 'running')) && !cancelling;
   const retryable = Boolean(session && (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked' || session.status === 'cancelled'));
   const canRetry = retryable && !retrying;
+  const selectedRetryUsesCache = retrySourceChoice === 'reuse' && reuseValidatedBatches;
+  const retryRequestMatchesSelection = Boolean(retryRequest
+    && retryRequest.sourceChoice === retrySourceChoice
+    && retryRequest.reuseValidatedBatches === selectedRetryUsesCache);
   const saveContradiction = async (contradictionId: string) => {
     const draft = contradictionDrafts[contradictionId];
     if (!draft || draft.rationale.trim().length < 8) {
@@ -678,6 +689,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   const openRetryPanel = () => {
     if (!session || !canRetry) return;
     setRetrySourceChoice(recommendedRetrySource(session, evidenceAssessment));
+    setReuseValidatedBatches(false);
     setRetryRequest(null);
     setRetrySubmissionError(null);
     setRetryPanelOpen(true);
@@ -686,15 +698,17 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
 
   const retryReview = async () => {
     if (!session || !canRetry || typeof api.retryStaticSession !== 'function') return;
-    const request = retryRequest?.sourceChoice === retrySourceChoice
+    const request = retryRequestMatchesSelection
       ? retryRequest
-      : { idempotencyKey: createRetryIdempotencyKey(), sourceChoice: retrySourceChoice };
+      : { idempotencyKey: createRetryIdempotencyKey(), sourceChoice: retrySourceChoice, reuseValidatedBatches: selectedRetryUsesCache };
+    if (!request) return;
     setRetryRequest(request);
     setRetrying(true);
     setRetrySubmissionError(null);
     try {
       const retried = await api.retryStaticSession(projectId, session.id, {
         refreshSourceManifest: request.sourceChoice === 'refresh',
+        ...(request.reuseValidatedBatches ? { reuseValidatedBatches: true } : {}),
         idempotencyKey: request.idempotencyKey,
       });
       if (!retried?.id) throw new Error('The service did not return the retried review.');
@@ -751,7 +765,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         title={`${session.name} ${formatEntityId(session.id)}`}
         status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-         actions={state === 'Need Approval' && !currentDecision ? headerActions : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel} disabled={!canRetry}><RotateCcw size={16} aria-hidden="true" /> Retry review</button> : undefined}
+         actions={state === 'Need Approval' && !currentDecision ? headerActions : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel} disabled={!canRetry}><RotateCcw size={16} aria-hidden="true" /> {state === 'Paused' ? 'Resume review' : 'Retry review'}</button> : undefined}
       />
 
       {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
@@ -803,9 +817,11 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           sourceChoice={retrySourceChoice}
           submitting={retrying}
           error={retrySubmissionError}
-          canRetrySameRequest={Boolean(retryRequest && retryRequest.sourceChoice === retrySourceChoice && retrySubmissionError)}
+          canRetrySameRequest={retryRequestMatchesSelection && Boolean(retrySubmissionError)}
           recommendedChoice={session ? recommendedRetrySource(session, evidenceAssessment) : 'reuse'}
-          onSourceChoiceChange={choice => { setRetrySourceChoice(choice); setRetrySubmissionError(null); }}
+          reuseValidatedBatches={reuseValidatedBatches}
+          onReuseValidatedBatchesChange={value => { setReuseValidatedBatches(value); setRetrySubmissionError(null); }}
+          onSourceChoiceChange={choice => { setRetrySourceChoice(choice); if (choice === 'refresh') setReuseValidatedBatches(false); setRetrySubmissionError(null); }}
           onSubmit={() => void retryReview()}
           onNewAttempt={() => { setRetryRequest(null); setRetrySubmissionError(null); }}
           onCancel={() => { setRetryPanelOpen(false); setRetrySubmissionError(null); setRetryRequest(null); }}
@@ -824,6 +840,11 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         <section id="review-result-panel-overview" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-overview">
           <ReviewResultOverview
             narrative={narrative!}
+            evidenceReady={currentEvidenceReads.findings === 'loaded' && currentEvidenceReads.sourceManifest === 'loaded' && currentEvidenceReads.traceability === 'loaded' && !harnessLoading && !harnessError}
+            analysisMap={harnessTrace?.analysisMap}
+            assessment={evidenceAssessment}
+            onOpenFinding={openFinding}
+            onOpenActivity={() => changeTab('Activity')}
             session={session}
             findings={findings}
             findingsError={findingsError}
@@ -849,6 +870,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         <section id="review-result-panel-activity" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-activity">
           <ReviewActivityContent
             narrative={narrative!}
+            technicalEvents={harnessTrace?.events ?? []}
             onOpenFinding={openFinding}
             harnessLoading={harnessLoading}
             harnessError={harnessError}
@@ -957,6 +979,7 @@ function ReviewTabs({
 }
 
 function ReviewActivityContent({
+  technicalEvents,
   onOpenFinding,
   narrative,
   harnessLoading,
@@ -974,6 +997,7 @@ function ReviewActivityContent({
   onLoadOlderDecisions,
   currentDecision,
 }: {
+  technicalEvents: ReviewHarnessTrace['events'];
   onOpenFinding: (id: string) => void;
   narrative: ReviewNarrative;
   harnessLoading: boolean;
@@ -997,8 +1021,10 @@ function ReviewActivityContent({
         <div className="review-activity-surface-heading">
           <h2>{state === 'Need Approval' ? 'Review activity' : 'Review activity'}</h2>
         </div>
+        <div className="review-activity-outcome"><strong>{state} · {narrative.timing.duration}</strong><p>{session.failureReason ? reviewFailureMessage(session.failureReason) : narrative.summary.outcome}</p><p>{narrative.summary.next}</p></div>
         <ReviewNarrativeTimeline narrative={narrative} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} />
         {!harnessLoading && !harnessError && <ReviewAnalysisScope map={analysisMap} findings={findings} onOpenFinding={onOpenFinding} />}
+        {technicalEvents.length > 0 && <details className="review-technical-history"><summary>Technical execution details</summary><ol>{technicalEvents.filter(event => /^harness_step_(started|completed|failed|cancelled)$/.test(event.event)).slice(-200).map((event, index) => <li key={event.id ?? index}><time>{formatReviewTimestamp(event.createdAt)}</time><span>{typeof event.detail?.step === 'string' ? event.detail.step.replace(/_/g, ' ') : 'Recorded step'}</span><strong>{event.event.replace('harness_step_', '')}</strong></li>)}</ol></details>}
         {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
@@ -1143,20 +1169,24 @@ function ReviewDecisionPanel({
 
 function RetryReviewPanel({
   sourceChoice,
+  reuseValidatedBatches,
   submitting,
   error,
   canRetrySameRequest,
   recommendedChoice,
+  onReuseValidatedBatchesChange,
   onSourceChoiceChange,
   onSubmit,
   onNewAttempt,
   onCancel,
 }: {
   sourceChoice: RetrySourceChoice;
+  reuseValidatedBatches: boolean;
   submitting: boolean;
   error: string | null;
   canRetrySameRequest: boolean;
   recommendedChoice: RetrySourceChoice;
+  onReuseValidatedBatchesChange: (value: boolean) => void;
   onSourceChoiceChange: (choice: RetrySourceChoice) => void;
   onSubmit: () => void;
   onNewAttempt: () => void;
@@ -1181,6 +1211,10 @@ function RetryReviewPanel({
           {recommendedChoice === 'refresh' && <em>Recommended</em>}
         </label>
       </fieldset>
+      {sourceChoice === 'reuse' && <label className={`review-retry-cache-choice${reuseValidatedBatches ? ' is-selected' : ''}`}>
+        <input type="checkbox" checked={reuseValidatedBatches} onChange={event => onReuseValidatedBatchesChange(event.target.checked)} disabled={submitting} />
+        <span><strong>Reuse previously validated batches</strong><small>Only exact, complete results from an earlier Review are eligible and revalidated. Other work runs normally. This requires encrypted cache support; if unavailable, no child Review is created.</small></span>
+      </label>}
       <p className="review-retry-panel-note">The saved scope is preserved. If an explicitly selected source was removed or cannot be captured, the service will report a scope failure rather than adding other sources.</p>
       {error && <div className="review-retry-error" role="alert"><p>{error}</p><p>Retrying the same choice reuses its request key. Start a separate attempt after another repair to create a new linked Review.</p></div>}
       <div className="review-decision-panel-actions">
@@ -1195,6 +1229,7 @@ function RetryReviewPanel({
 }
 
 function ReviewResultOverview({
+  analysisMap, assessment, onOpenFinding, onOpenActivity, evidenceReady,
   narrative,
   session,
   findings,
@@ -1213,6 +1248,11 @@ function ReviewResultOverview({
   onNavigate,
   onOpenTraceability,
 }: {
+  evidenceReady: boolean;
+  analysisMap: ReviewHarnessTrace['analysisMap'];
+  assessment: EvidenceSufficiencyAssessment | null;
+  onOpenFinding: (id: string) => void;
+  onOpenActivity: () => void;
   narrative: ReviewNarrative;
   session: StaticSession;
   findings: Finding[];
@@ -1243,32 +1283,58 @@ function ReviewResultOverview({
   const waitingForEvidence = state === 'In progress' || state === 'Queued';
   const metricValue = (value: number) => findingsError || waitingForEvidence ? '—' : String(value);
   const objectiveText = objective || 'Not specified';
-  const objectiveNeedsDisclosure = objectiveText.length > 280;
+  const objectiveNeedsDisclosure = objectiveText.length > 280 || narrative.objectives.length > 2;
   const manifestArtifactCount = sourceManifest?.artifacts ? sourceManifest.artifacts.length : sourceManifest?.artifactCount;
   const manifestAvailable = sourceManifest?.status === 'available' && manifestArtifactCount != null;
-  const traceabilityAvailable = traceabilitySnapshot?.status === 'available' && Boolean(traceabilitySnapshot.summary);
+  const traceabilityAvailable = traceabilitySnapshot?.status === 'available' && Boolean(traceabilitySnapshot.summary) && traceabilitySnapshot.records.length > 0;
   const traceabilitySummary = traceabilitySnapshot?.summary;
   const traceabilityDetail = traceabilityAvailable && traceabilitySummary
     ? `${traceabilitySummary.missing} Missing · ${traceabilitySummary.incomplete} Incomplete`
     : 'Not available for this review';
+  const handover = reviewHandover({ findings, findingsError, evidenceReady, state, executionStatus: session.status, modelStatus: session.modelStatus, manifest: sourceManifest, traceability: traceabilitySnapshot, assessment, map: analysisMap });
+  const completedStages = narrative.stages.filter(stage => stage.state === 'Completed');
+  const pendingStages = narrative.stages.filter(stage => stage.state !== 'Completed');
   const carryoverCount = findings.filter(finding => finding.status === 'carryover').length;
   return (
     <div className="review-overview-grid">
       <section className="review-overview-main review-overview-card">
-        <div className="review-overview-copy"><div className="review-overview-heading"><div className="review-overview-title"><h2>Review Overview</h2></div><StatusBadge label={state} tone={stateTone(state)} /></div></div>
+        <div className="review-overview-heading"><div><span className="command-eyebrow">Handover recommendation</span><h2>{handover.recommendation}</h2>{narrative.objectives[0] && <p className="review-purpose">{narrative.objectives[0]}</p>}</div><StatusBadge label={state} tone={stateTone(state)} /></div>
+        <section className="review-next-actions" aria-label="Next actions">
+          <h3>What to do next</h3>
+          {findingsError ? <p>Reload findings before deciding.</p> : <ol>
+            {[
+              ...handover.blockers.map(finding => ({ finding, label: 'Confirmed blocker' })),
+              ...handover.risks.map(finding => ({ finding, label: 'Remaining risk' })),
+              ...handover.gaps.map(finding => ({ finding, label: 'Evidence gap' })),
+            ].slice(0, 3).map(({ finding, label }) => <li key={finding.id}><strong>{label}</strong><button className="btn-link" onClick={() => onOpenFinding(finding.id)}>{finding.recommendation || finding.title}</button></li>)}
+            {handover.blockers.length + handover.risks.length + handover.gaps.length < 3 && handover.reasons.length > 0 && <li><strong>Evidence gap</strong><button className="btn-link" onClick={onOpenActivity}>{handover.reasons[0]} View coverage and activity →</button></li>}
+          </ol>}
+          {!findingsError && !handover.blockers.length && !handover.risks.length && !handover.gaps.length && !handover.reasons.length && <p>No outstanding actions in the recorded scope.</p>}
+        </section>
+        <section className="review-overview-summary" aria-label="Review summary">
+          <h3>What this review established</h3>
+          <dl className="review-narrative-summary">
+            <div><dt>Completed work</dt><dd>{completedStages.length ? completedStages.map(stage => stage.title).join(' · ') : 'No completed assessment stages are recorded.'}</dd></div>
+            <div><dt>Assessment coverage</dt><dd>{analysisMap ? `${analysisMap.features.filter(feature => feature.assessments.length === 4 && feature.assessments.every(row => row.status === 'assessed')).length} of ${analysisMap.features.length} mapped features assessed across all four domains. Assessed features may still contain findings.` : 'Feature assessment coverage was not recorded.'} <button type="button" className="btn-link" onClick={onOpenActivity}>View coverage</button></dd></div>
+            <div><dt>Results</dt><dd>{findingsError ? 'Findings unavailable.' : `${findings.length} reported findings: ${handover.blockers.length} confirmed blockers, ${handover.risks.length} remaining risks and ${handover.gaps.length} needing evidence verification.`}</dd></div>
+            {pendingStages.length > 0 && <div><dt>Not completed</dt><dd>{pendingStages.map(stage => `${stage.title} (${stage.state.toLowerCase()})`).join(' · ')}</dd></div>}
+            {session.failureReason && <div><dt>Why it stopped</dt><dd>{reviewFailureMessage(session.failureReason)}</dd></div>}
+          </dl>
+          {handover.reasons.length > 0 && <details><summary>Coverage limits · {handover.reasons.length}</summary><ul>{handover.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul></details>}
+        </section>
         <div className="review-severity-grid review-session-metrics" aria-label="Review metrics"><button type="button" className="review-metric-link review-traceability-metric" onClick={onOpenTraceability} aria-label="View incomplete and missing requirements in Traceability"><strong>{waitingForEvidence ? '—' : traceabilityAvailable && traceabilitySummary ? String(traceabilitySummary.attention) : '—'}</strong><span>Traceability attention</span>{!waitingForEvidence && traceabilityAvailable && traceabilitySummary && <small>{traceabilityDetail}</small>}<span className="review-metric-link-action">View incomplete and missing requirements →</span></button><div><strong>{waitingForEvidence ? '—' : manifestAvailable && manifestArtifactCount != null ? String(manifestArtifactCount) : '—'}</strong><span>Sources in scope</span></div><div className="review-severity-total"><strong>{metricValue(findings.length)}</strong><span>Reported findings</span>{!waitingForEvidence && !findingsError && carryoverCount > 0 && <small>{carryoverCount} carried over · {findings.length - carryoverCount} new</small>}</div></div>
         <section className="review-overview-objective" aria-labelledby="review-overview-objective-heading">
           <div className="review-overview-subheading">
             <h3 id="review-overview-objective-heading">Objective</h3>
             {objectiveNeedsDisclosure && <button type="button" className="command-icon-button" aria-label="Expand review objective" title="Expand review objective" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(true)}><Expand size={16} aria-hidden="true" /></button>}
           </div>
-          <ReviewObjectiveList points={narrative.objectives} />
+          <ReviewObjectiveList points={narrative.objectives.slice(0, 2)} />
           {supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}
         </section>
-         <section className="review-overview-copy review-overview-summary" aria-labelledby="review-overview-summary-heading"><h3 id="review-overview-summary-heading">Summary</h3><ReviewNarrativeSummary summary={narrative.summary} /></section>
+
          {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
       </section>
-      <aside className="review-overview-rail review-decision-card"><h2>Decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : state === 'Need Approval' ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>{executionTimeLabel}</dt><dd>{waitingForEvidence ? 'Not yet' : endedAt ? formatReviewTimestamp(endedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
+      <aside className="review-overview-rail review-decision-card"><h2>Human decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : state === 'Need Approval' ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>{executionTimeLabel}</dt><dd>{waitingForEvidence ? 'Not yet' : endedAt ? formatReviewTimestamp(endedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
       <section className="review-overview-sources" aria-label="Review sources"><FrozenReviewSources projectId={projectId} reviewId={session.id} manifest={sourceManifest} readState={sourceManifestRead} onRetryEvidence={onRetryEvidence} onManageSources={() => onNavigate({ name: 'project-detail', projectId, initialSection: 'source' })} /></section>
       <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
         <div className="review-objective-dialog-content"><ReviewObjectiveList points={objectivePoints(objective)} />{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>

@@ -18,7 +18,7 @@ function FindingLinks({ findings, onOpenFinding }: { findings: FindingLink[]; on
 }
 export function ReviewNarrativeTimeline({ narrative, loading, error, onOpenFinding }: { narrative: ReviewNarrative; loading: boolean; error: string | null; onOpenFinding: (id: string) => void }) {
   return <div className="review-narrative">
-    <div className="review-activity-intro"><p>Here’s the review so far. Open a finding to see the evidence and suggested fix.</p><p>Review time: <strong>{narrative.timing.duration}</strong></p></div>
+    <div className="review-activity-intro"><p>Review time: <strong>{narrative.timing.duration}</strong></p></div>
     <hr className="review-reasoning-divider" />
     {loading && <p role="status">Loading the saved activity…</p>}
     {error && <p role="status">{error}</p>}
@@ -26,7 +26,7 @@ export function ReviewNarrativeTimeline({ narrative, loading, error, onOpenFindi
     {!loading && !narrative.detailedHistoryAvailable && <p>The detailed activity wasn’t saved for this review. You can still inspect its findings below.</p>}
     {narrative.stages.length > 0 && <ol className="review-activity-timeline" aria-label="Review stages">{narrative.stages.map(stage => <li key={stage.id} className="review-narrative-stage">
       <div className="review-stage-heading"><h3>{stage.title}</h3><span>{stage.state} · {stage.duration}</span></div>
-      {stage.purpose && <p>{stage.purpose}</p>}{stage.outcome && <p>{stage.outcome}</p>}
+      {stage.outcome && <p>{stage.outcome}</p>}
       <FindingLinks findings={stage.findings} onOpenFinding={onOpenFinding} />
     </li>)}</ol>}
     {narrative.unassignedFindings.length > 0 && <section aria-labelledby="review-unassigned-findings"><h3 id="review-unassigned-findings">Other saved findings</h3><p>These findings have no saved stage information.</p><FindingLinks findings={narrative.unassignedFindings} onOpenFinding={onOpenFinding} /></section>}

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import PDFDocument from 'pdfkit';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +18,7 @@ vi.mock('../../src/review/openCodebaseIndex.js', () => ({
 import { describeRepositoryIndex, indexFrozenArtifacts, retrieveFrozenContext } from '../../src/review/localRepositoryIndex.js';
 import { syncPublishedRepositoryIndex } from '../../src/review/repositoryIndexSync.js';
 import { selectEvidencePackets } from '../../src/review/evidencePacketSelection.js';
+import { registerVerifiedSourceTexts, verifiedSourceText } from '../../src/review/sourceText.js';
 
 const owner = '11111111-1111-4111-8111-111111111111';
 const secondOwner = '22222222-2222-4222-8222-222222222222';
@@ -79,6 +81,27 @@ beforeEach(() => {
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
 
 describe('frozen local repository index integration', () => {
+  it('stages an issued frozen PDF extraction without downloading the original again', async () => {
+    const bytes = await new Promise<Buffer>(resolve => {
+      const pdf = new PDFDocument(); const chunks: Buffer[] = [];
+      pdf.on('data', chunk => chunks.push(chunk)); pdf.on('end', () => resolve(Buffer.concat(chunks)));
+      pdf.text('Verified PDF handoff'); pdf.end();
+    });
+    const pdf: Artifact = { ...artifact, id: 'pdf', fileName: 'report.pdf', filePath: 'report.pdf',
+      contentHash: crypto.createHash('sha256').update(bytes).digest('hex'), type: 'requirement' };
+    const result = await verifiedSourceText(pdf, bytes);
+    const reader = vi.fn(async () => result.text);
+    registerVerifiedSourceTexts(reader, [{ artifact: pdf, result }]);
+    const storage = client(); const cache = await temp();
+    // The mocked repository deliberately has no byte-download method. A
+    // duplicate original read would fail rather than make this test pass.
+    await indexFrozenArtifacts(storage.client, owner, project, [pdf], undefined, 'pdf-review', reader, cache);
+    expect(mocks.index).toHaveBeenCalledOnce();
+    const root = mocks.open.mock.calls[0]![0].projectRoot;
+    const staged = (await fs.readdir(root, { recursive: true })).find(name => name.endsWith('.pdfjs-6.4.299-text-v1.txt'));
+    expect(staged).toBeDefined();
+    expect(await fs.readFile(path.join(root, staged!), 'utf8')).toBe(result.text);
+  });
   it('does not publish a completed build when its source-event guard is superseded', async () => {
     const storage = client(); const cache = await temp(); let calls = 0;
     const guard = async () => { if (++calls >= 2) throw new Error('source superseded'); };
@@ -169,6 +192,26 @@ describe('frozen local repository index integration', () => {
     expect(context.retrievalPartialReason).toBeTruthy();
     expect(JSON.stringify(context)).not.toContain('UNTRUSTED_SHARED_TEXT');
     expect(mocks.member).toHaveBeenCalledTimes(5);
+  });
+
+  it('rejects a warm local index when its staged source no longer matches the frozen hash', async () => {
+    const storage = client(); const cache = await temp(); const reader = vi.fn(async () => content);
+    await indexFrozenArtifacts(storage.client, owner, project, [artifact], undefined, 'first-review', reader, cache);
+    const original = mocks.open.mock.calls[0]![0].projectRoot as string;
+    await fs.writeFile(path.join(original, 'src/pay.ts'), 'export function pay() { return false; }\n');
+
+    const stale = await retrieveFrozenContext(storage.client, owner, project, [artifact], 1000, undefined, 'review', 'payment', reader, cache);
+    expect(stale.selectedChunks).toBeUndefined();
+    expect(stale.retrievalPartialReason).toContain('compatible local index is missing');
+    expect(mocks.open).toHaveBeenCalledOnce();
+
+    // Rebuild flow may recover the immutable exact-identity shared snapshot,
+    // but it must materialize the frozen source into a new local stage first.
+    await indexFrozenArtifacts(storage.client, owner, project, [artifact], undefined, 'repair-review', reader, cache);
+    expect(mocks.open).toHaveBeenCalledTimes(2);
+    expect(mocks.open.mock.calls[1]![0].projectRoot).not.toBe(original);
+    expect(await fs.readFile(path.join(mocks.open.mock.calls[1]![0].projectRoot, 'src/pay.ts'), 'utf8')).toBe(content);
+    expect(mocks.index).toHaveBeenCalledOnce();
   });
 
   it('pulls a compatible shared snapshot into a fresh member cache without another index build', async () => {

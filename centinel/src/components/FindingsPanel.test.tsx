@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FindingsPanel, findingPresentationStatus } from './FindingsPanel';
@@ -8,6 +8,7 @@ import type { Finding } from '../types';
 vi.mock('../api/client', () => ({
   api: {
     listFindings: vi.fn(),
+    listStaticFindings: vi.fn(),
     getReviewArtifactContent: vi.fn(),
     updateFinding: vi.fn().mockResolvedValue({ ok: true }),
   },
@@ -35,7 +36,8 @@ const baseFinding: Finding = {
 };
 
 describe('FindingsPanel', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); vi.spyOn(window, 'scrollTo').mockImplementation(() => {}); });
+  afterEach(() => vi.restoreAllMocks());
 
   it('shows the latest occurrence once and sends actions to the original project finding ID', async () => {
     const latest: Finding = { ...baseFinding, id: 'original-issue', sessionId: 'latest-review', description: 'Latest review evidence',
@@ -68,6 +70,15 @@ describe('FindingsPanel', () => {
     vi.mocked(api.listFindings).mockReturnValue(new Promise(() => { /* never resolves */ }));
     render(<FindingsPanel projectId="p-1" />);
     expect(screen.getByText(/loading findings/i)).toBeInTheDocument();
+  });
+
+  it('shows an accessible skeleton during the initial Project Findings read', () => {
+    vi.mocked(api.listFindings).mockReturnValue(new Promise(() => { /* never resolves */ }));
+    render(<FindingsPanel projectId="p-1" presentation="project" />);
+    const loading = screen.getByRole('status', { name: 'Loading findings' });
+    expect(loading).toHaveAttribute('aria-busy', 'true');
+    expect(loading.querySelectorAll('.loading-skeleton-row')).toHaveLength(5);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
   it('renders the empty state when there are no findings', async () => {
@@ -170,9 +181,10 @@ describe('FindingsPanel', () => {
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" onOpenReview={onOpenReview} />);
     const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
-    expect(within(row).getByText('Resolved')).toBeInTheDocument();
+    expect(within(row).queryByText('Resolved')).not.toBeInTheDocument();
     await user.click(row);
     const details = screen.getByRole('article', { name: 'Finding details' });
+    expect(details).toHaveTextContent('Resolved');
     expect(within(details).getByText(/Not reproduced in the comparable re-review/)).toBeInTheDocument();
     expect(within(details).getByText('sha256:old')).toBeInTheDocument();
     expect(within(details).getByText('sha256:new')).toBeInTheDocument();
@@ -196,34 +208,63 @@ describe('FindingsPanel', () => {
     expect(screen.getByText('Paged finding 6')).toBeInTheDocument();
   });
 
-  it('uses the Project Detail master-detail table and supports keyboard row selection', async () => {
+  it('uses the Project Findings columns and supports keyboard row selection', async () => {
     vi.mocked(api.listFindings).mockResolvedValue([{ ...baseFinding, priority: 'high', title: 'Keyboard-selectable finding' }]);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
-    expect(await screen.findByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Priority' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Severity' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Risk' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Finding' })).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: 'Project findings' });
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Findings', 'Risk', 'Priority']);
     expect(screen.getByText('#f-1')).toBeInTheDocument();
+    const row = within(table).getByRole('row', { name: /Keyboard-selectable finding/i });
+    expect(within(row).getByText('Critical')).toHaveClass('project-finding-risk', 'project-risk-level-critical');
+    expect(within(row).getByText('high')).toHaveClass('project-finding-priority', 'project-priority-level-high');
     expect(screen.queryByRole('article', { name: 'Finding details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Source' })).not.toBeInTheDocument();
-    const row = screen.getByRole('row', { name: /Keyboard-selectable finding/i });
+    await user.click(screen.getByRole('button', { name: /^Filters/ }));
+    expect(screen.getByRole('combobox', { name: 'Severity' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Status' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Priority' })).toBeInTheDocument();
     row.focus();
     await user.keyboard('{Enter}');
     const details = screen.getByRole('article', { name: 'Finding details' });
     expect(within(details).queryByText('Review')).not.toBeInTheDocument();
     expect(within(details).getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
-    expect(within(details).getByText(/#f-1/)).toBeInTheDocument();
     expect(within(details).getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
+    expect(details.querySelector('.finding-provenance-details')).not.toHaveAttribute('open');
+    await user.click(within(details).getByText('Technical provenance'));
+    expect(within(details).getByText(/#f-1/)).toBeInTheDocument();
+    expect(within(details).getByText('Recorded confidence')).toBeInTheDocument();
     const text = details.textContent || '';
     expect(text).not.toContain('Source type');
     expect(text).toContain('Review');
-    expect(text).toContain('Priority: high');
+    expect(text).toContain('Priority high');
     expect(text).not.toContain('Severity');
     expect(text).not.toContain('Risk Category');
-    expect(text).toContain('Overall recommendation');
-    expect(text).not.toMatch(/Confidence/i);
+    expect(text).toContain('What to do');
+  });
+
+  it('keeps the Review-scoped table columns unchanged', async () => {
+    vi.mocked(api.listStaticFindings).mockResolvedValue([baseFinding]);
+    render(<FindingsPanel projectId="p-1" sessionId="s-1" presentation="project" />);
+    const table = await screen.findByRole('table', { name: 'Review findings' });
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Status', 'Priority', 'Severity', 'Risk', 'Domain', 'Finding']);
+  });
+
+  it('keeps existing findings visible while the project list refreshes', async () => {
+    let finishRefresh!: (findings: Finding[]) => void;
+    vi.mocked(api.listFindings)
+      .mockResolvedValueOnce([baseFinding])
+      .mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
+    const { rerender } = render(<FindingsPanel projectId="p-1" presentation="project" refreshKey="initial" />);
+    expect(await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i })).toBeInTheDocument();
+
+    rerender(<FindingsPanel projectId="p-1" presentation="project" refreshKey="refresh" />);
+    expect(await screen.findByText('Refreshing findings…')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /Null pointer risk in auth.ts/i })).toBeInTheDocument();
+
+    finishRefresh([{ ...baseFinding, id: 'f-new', title: 'Updated finding title' }]);
+    expect(await screen.findByRole('row', { name: /Updated finding title/i })).toBeInTheDocument();
+    expect(screen.queryByText('Refreshing findings…')).not.toBeInTheDocument();
   });
 
   it('calculates a display risk when a finding has severity but no recorded risk or priority', async () => {
@@ -241,18 +282,32 @@ describe('FindingsPanel', () => {
     render(<FindingsPanel projectId="p-1" presentation="project" />);
     const row = await screen.findByRole('row', { name: /Code Deep Nesting Issue/ });
     expect(screen.getAllByRole('row')).toHaveLength(2);
-    expect(within(row).getByText('Unresolved')).toBeInTheDocument();
+    expect(within(row).queryByText('Unresolved')).not.toBeInTheDocument();
     expect(within(row).getByText('2 affected occurrences')).toBeInTheDocument();
     await user.click(row);
     const details = screen.getByRole('article', { name: 'Finding details' });
-    await user.click(within(details).getByRole('button', { name: /src\/two.ts:24/ }));
-    expect(within(details).getAllByRole('region', { name: /Flagged item/ })).toHaveLength(2);
+    await user.selectOptions(within(details).getByRole('combobox', { name: 'Location' }), 'f-2');
+    expect(within(details).getAllByRole('region', { name: /Selected occurrence/ })).toHaveLength(1);
+    expect(within(details).getByRole('heading', { name: 'src/two.ts:24' })).toBeInTheDocument();
     await user.click(within(details).getByRole('button', { name: 'Mark as resolved' }));
     await waitFor(() => expect(api.updateFinding).toHaveBeenCalledWith('p-1', 'f-2', 'fixed'));
     expect(api.updateFinding).not.toHaveBeenCalledWith('p-1', 'f-1', 'fixed');
   });
 
-  it('opens a finding ID inside its group on the correct page and lazily previews saved code', async () => {
+  it('restores the findings scroll position and row focus after closing the full-width detail', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listFindings).mockResolvedValue([baseFinding]);
+    const { container } = render(<div className="main-content"><FindingsPanel projectId="p-1" presentation="project" /></div>);
+    const mainContent = container.querySelector<HTMLElement>('.main-content')!;
+    mainContent.scrollTop = 238;
+    const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
+    await user.click(row);
+    await user.click(screen.getByRole('button', { name: 'Back to findings' }));
+    expect(await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i })).toHaveFocus();
+    expect(mainContent.scrollTop).toBe(238);
+  });
+
+  it('opens a finding ID inside its group and returns from its saved-source reader to the same occurrence', async () => {
     const user = userEvent.setup();
     vi.mocked(api.getReviewArtifactContent).mockResolvedValue({ versionId: 'v1', content: btoa('export function pay() {}'), contentHash: 'hash', mimeType: 'text/typescript' });
     vi.mocked(api.listFindings).mockResolvedValue([
@@ -265,8 +320,12 @@ describe('FindingsPanel', () => {
     expect(await within(details).findByRole('heading', { name: 'Code Deep Nesting Issue' })).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(api.getReviewArtifactContent).not.toHaveBeenCalled();
-    await user.click(within(details).getByRole('button', { name: 'View reviewed source' }));
+    await user.click(within(details).getByRole('button', { name: 'Preview reviewed source src/two.ts:42' }));
     expect(api.getReviewArtifactContent).toHaveBeenCalledWith('p-1', 's-1', 'artifact-2');
-    expect(await within(details).findByLabelText('Reviewed source src/two.ts')).toHaveTextContent('export function pay() {}');
+    expect(await screen.findByRole('region', { name: 'Reviewed source preview src/two.ts' })).toHaveTextContent('export function pay() {}');
+    await user.click(screen.getByRole('button', { name: 'Open full reviewed source' }));
+    expect(screen.getByRole('article', { name: 'Reviewed source reader' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Back to finding' }));
+    expect(await screen.findByRole('heading', { name: 'src/two.ts:42' })).toBeInTheDocument();
   });
 });

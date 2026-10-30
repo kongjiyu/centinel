@@ -25,6 +25,7 @@ describe('PageBreadcrumbs', () => {
       [{ name: 'evidence-browser', projectId: project.id }, ['Product', 'Dynamic Testing', 'Evidence']],
       [{ name: 'requirements', projectId: project.id }, ['Product', 'Review', 'Requirements']],
       [{ name: 'settings' }, ['Settings']],
+      [{ name: 'help' }, ['Settings', 'Help']],
     ];
 
     for (const [screenState, labels] of cases) {

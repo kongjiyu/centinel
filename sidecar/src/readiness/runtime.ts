@@ -62,13 +62,18 @@ export async function inspectReadinessSources(auth: AuthenticatedRequest, projec
   const sourceRepository = new SupabaseConnectedSourceRepository(auth.client);
   for (const source of sources) {
     const items = await sourceRepository.listSourceItems(source.id);
-    sourceStates.push({ id: source.id, status: source.status, revision: source.remoteRevision, sync: source.syncStatus,
-      outcome: source.latestSyncRun?.status, errorCode: source.latestSyncRun?.errorCode,
-      retryable: source.latestSyncRun?.retryable, items: items.map(item => [item.id, item.status, item.artifactVersionId]).sort() });
+    const run = source.latestSyncRun;
+    const terminalIssue = source.status === 'inaccessible' || source.syncStatus === 'error'
+      || run && ['failure', 'cancelled'].includes(run.status)
+      || run?.status === 'partial' && (run.errorCode || run.retryable);
+    // Progress-only remote checks do not change the evidence being assessed.
+    // Keep terminal availability changes and every version/item identity.
+    sourceStates.push({ id: source.id, status: source.status, revision: source.remoteRevision,
+      issue: terminalIssue ? sourceSyncIssue(run?.errorCode, run?.status === 'partial') : null,
+      items: items.map(item => [item.id, item.status, item.artifactVersionId]).sort() });
     const removed = source.status === 'removed' || source.status === 'disconnected';
     for (const item of items) if ((removed || item.status !== 'available') && item.artifactId) excluded.add(item.artifactId);
     if (removed) continue;
-    const run = source.latestSyncRun;
     if (source.syncStatus === 'syncing' || run && ['queued', 'running'].includes(run.status)
       || run?.status === 'partial' && !run.errorCode && !run.retryable) importing = true;
     if (source.status === 'inaccessible' || source.syncStatus === 'error'

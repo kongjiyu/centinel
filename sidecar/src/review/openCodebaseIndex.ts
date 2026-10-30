@@ -345,7 +345,7 @@ export async function openCodebaseIndex(options: OpenCodebaseIndexOptions): Prom
   const call = async (name: string, args?: Record<string, unknown>): Promise<McpResult> => {
     throwIfAborted(options.signal);
     if (closed || !client) throw new Error('The repository index session is closed.');
-    const result = await client.callTool({ name, arguments: args ?? {} }, undefined, { signal: options.signal, timeout: name === 'index_codebase' ? 60 * 60_000 : 300_000, resetTimeoutOnProgress: true });
+    const result = await client.callTool({ name, arguments: args ?? {} }, undefined, { signal: options.signal, timeout: name === 'index_codebase' ? 60 * 60_000 : name === 'codebase_context' ? 15 * 60_000 : 300_000, resetTimeoutOnProgress: true });
     throwIfAborted(options.signal);
     return result as McpResult;
   };

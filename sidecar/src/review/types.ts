@@ -59,7 +59,7 @@ export type CaptureReviewTraceabilityInput = {
 
 export type ReviewProgressState = {
   stage: string;
-  pauseCode?: import('./providerPause.js').ProviderPauseCode;
+  pauseCode?: import('./providerPause.js').ReviewProviderPauseCode;
   completedStages: string[];
   message?: string;
   updatedAt: string;

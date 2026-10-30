@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Artifact } from '../artifacts.js';
 import type { AuthenticatedRequest } from '../auth/gateway.js';
 import type { StaticAnalysisModelProvider } from '../review/types.js';
@@ -210,7 +211,15 @@ export class ProjectReadinessCoordinator {
         const snapshot: ReadinessAssessment = await (this.deps.assess ?? assessProjectReadiness)(input, provider, controller.signal);
         throwIfAborted(controller.signal);
         auth = this.context(original); store = this.deps.store(auth);
-        const current = await this.inspectSources(auth, projectId);
+        let current = await this.inspectSources(auth, projectId);
+        // Retain the validated result while an unchanged head check settles.
+        // A real evidence change still fails the fingerprint comparison below.
+        while (current.importing && current.fingerprint === job.sourceFingerprint) {
+          await delay(1000, undefined, { signal: controller.signal });
+          current = await this.inspectSources(this.context(original), projectId);
+          throwIfAborted(controller.signal);
+        }
+        auth = this.context(original); store = this.deps.store(auth);
         const latest = await this.latest(store, projectId);
         throwIfAborted(controller.signal);
         if (latest?.requestId !== job.requestId) continue;

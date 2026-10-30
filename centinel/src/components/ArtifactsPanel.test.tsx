@@ -51,6 +51,81 @@ const connectedSource: ConnectedSource = {
 };
 
 describe('ArtifactsPanel', () => {
+  it('exposes an accessible busy skeleton during the initial source read', async () => {
+    let resolveArtifacts!: (items: Artifact[]) => void;
+    vi.mocked(api.listArtifacts).mockReturnValue(new Promise(resolve => { resolveArtifacts = resolve; }));
+    render(<ArtifactsPanel projectId="p-1" />);
+
+    const loadingRegion = screen.getByRole('region', { name: 'Project sources' });
+    expect(loadingRegion).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading project sources');
+    expect(screen.getByRole('button', { name: 'Add source' })).toBeDisabled();
+
+    await act(async () => { resolveArtifacts([]); });
+    expect(await screen.findByRole('heading', { name: 'Add your project materials' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Project sources' })).not.toBeInTheDocument();
+  });
+
+  it('uses source rows without column headers and never presents added time as updated time', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-29T12:00:00.000Z'));
+    const user = userEvent.setup();
+    const recentlyUpdated = { ...connectedSource, lastSyncedAt: '2026-10-29T11:55:00.000Z' };
+    vi.mocked(api.listArtifacts).mockResolvedValue([documentArtifact, ...repositoryArtifacts]);
+    vi.mocked(api.listConnectedSources).mockResolvedValue([recentlyUpdated]);
+    render(<ArtifactsPanel projectId="p-1" />);
+
+    const sources = await screen.findByRole('list', { name: 'Project sources' });
+    expect(within(sources).queryByRole('columnheader')).not.toBeInTheDocument();
+    expect(within(sources).getByText('Updated 5 minutes ago')).toBeInTheDocument();
+    expect(within(sources).getAllByText('Updated time unavailable').length).toBeGreaterThan(0);
+    expect(within(sources).queryByText(/Added/)).not.toBeInTheDocument();
+    expect(within(sources).getByRole('button', { name: 'Sync Connected repository' })).toBeVisible();
+    expect(within(sources).getByRole('button', { name: 'History for Connected repository' })).toBeVisible();
+    expect(within(sources).getByText('Completed')).toBeVisible();
+
+    await user.click(within(sources).getByRole('button', { name: 'View repo' }));
+    const directory = screen.getByRole('list', { name: 'Repository files' });
+    expect(within(directory).queryByRole('columnheader')).not.toBeInTheDocument();
+    expect(within(directory).getByRole('button', { name: 'src 2 files' })).toBeInTheDocument();
+    clock.mockRestore();
+  });
+
+  it('restores the selected repository file and reader scroll after viewing another source', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listArtifacts).mockResolvedValue([...repositoryArtifacts, documentArtifact]);
+    render(<ArtifactsPanel projectId="p-1" />);
+    await user.click(await screen.findByRole('button', { name: 'View repo' }));
+    await user.click(screen.getByRole('button', { name: /src 2 files/ }));
+    await user.click(screen.getByRole('button', { name: 'auth.ts' }));
+    await screen.findByText('Preview content');
+    screen.getByLabelText('Scrollable file content').scrollTop = 230;
+    await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
+    await screen.findByRole('button', { name: 'View requirements.md' });
+    await user.click(screen.getByRole('button', { name: 'View repo' }));
+    await screen.findByRole('heading', { name: 'auth.ts' });
+    await waitFor(() => expect(screen.getByLabelText('Scrollable file content').scrollTop).toBe(230));
+    expect(within(screen.getByRole('navigation', { name: 'Source location' })).getByText('auth.ts')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('ignores an older response when the same file is opened again', async () => {
+    const user = userEvent.setup();
+    let resolveOld!: (value: Awaited<ReturnType<typeof api.getArtifactContent>>) => void;
+    vi.mocked(api.listArtifacts).mockResolvedValue([documentArtifact]);
+    vi.mocked(api.getArtifactContent).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ versionId: 'v2', content: btoa('new response'), contentHash: 'new', mimeType: 'text/plain' });
+    render(<ArtifactsPanel projectId="p-1" />);
+    await user.click(await screen.findByRole('button', { name: 'View requirements.md' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
+    await user.click(screen.getByRole('button', { name: 'View requirements.md' }));
+    await screen.findByText('new response');
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    screen.getByRole('main', { name: 'Source content' }).scrollTop = 170;
+    await act(async () => resolveOld({ versionId: 'v1', content: btoa('old response'), contentHash: 'old', mimeType: 'text/plain' }));
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    expect(screen.getByRole('main', { name: 'Source content' }).scrollTop).toBe(170);
+    expect(screen.queryByText('old response')).not.toBeInTheDocument();
+    expect(screen.getByText('new response')).toBeInTheDocument();
+  });
   it('keeps connected repositories with the same name separate and uses original repository paths', async () => {
     const user = userEvent.setup();
     const remoteFile = (id: string, sourceId: string, fileName: string, originalPath: string): Artifact => ({
@@ -63,20 +138,20 @@ describe('ArtifactsPanel', () => {
     ]);
     vi.mocked(api.listConnectedSources).mockResolvedValue(['source-a', 'source-b'].map(id => ({ ...connectedSource, id, name: 'Same repository' })));
     render(<ArtifactsPanel projectId="p-1" />);
-    const table = await screen.findByRole('table', { name: 'Project sources' });
-    const names = within(table).getAllByRole('button', { name: 'View Same repository' });
+    const list = await screen.findByRole('list', { name: 'Project sources' });
+    const names = within(list).getAllByRole('button', { name: 'View Same repository' });
     expect(names).toHaveLength(2);
     expect(new Set(names.map(button => button.id)).size).toBe(2);
-    expect(within(table).getByRole('button', { name: 'View repo' })).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: 'View repo' })).toBeInTheDocument();
     await user.click(names[0]);
-    const files = screen.getByRole('table', { name: 'Repository files' });
+    const files = screen.getByRole('list', { name: 'Repository files' });
     await user.click(within(files).getByRole('button', { name: /^src 1 file$/ }));
     expect(screen.getByRole('button', { name: 'first.ts' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'second.ts' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main', { name: 'Source content' })).queryByRole('button', { name: 'second.ts' })).not.toBeInTheDocument();
     expect(api.getArtifactContent).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'All sources' }));
-    await user.click(within(screen.getByRole('table', { name: 'Project sources' })).getAllByRole('button', { name: 'View Same repository' })[1]);
-    expect(screen.getByRole('button', { name: 'second.ts' })).toBeInTheDocument();
+    await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
+    await user.click(within(screen.getByRole('list', { name: 'Project sources' })).getAllByRole('button', { name: 'View Same repository' })[1]);
+    expect(within(screen.getByRole('main', { name: 'Source content' })).getByRole('button', { name: 'second.ts' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'first.ts' })).not.toBeInTheDocument();
   });
 
@@ -107,17 +182,18 @@ describe('ArtifactsPanel', () => {
     let view: ReturnType<typeof render> | undefined;
     try {
       await act(async () => { view = render(<ArtifactsPanel projectId="p-1" />); });
-      expect(screen.getByText(/1 file/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/1 file/i).length).toBeGreaterThan(0);
       vi.mocked(api.listConnectedSources).mockResolvedValue([{ ...source, lastSyncedAt: '2026-10-20T12:05:00Z', lastSuccessfulSyncAt: '2026-10-20T12:05:00Z' }]);
       vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-      expect(screen.getByText(/2 files/i)).toBeInTheDocument();
-      expect(screen.getByText(`GitHub · Synced ${new Date('2026-10-20T12:05:00Z').toLocaleString()}`)).toBeInTheDocument();
+      expect(screen.getAllByText(/2 files/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(new Date('2026-10-20T12:05:00Z').toLocaleString()).length).toBeGreaterThan(0);
       expect(api.syncConnectedSource).not.toHaveBeenCalled();
       vi.mocked(api.listConnectedSources).mockRejectedValue(new Error('temporarily offline'));
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       expect(screen.getByRole('status')).toHaveTextContent('Showing the last saved progress');
-      expect(screen.getByText(/2 files/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/2 files/i).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'Sync automatic-repository' })).toBeEnabled();
       vi.mocked(api.listConnectedSources).mockResolvedValue([source]);
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       expect(screen.queryByText(/Source status could not be refreshed/)).not.toBeInTheDocument();
@@ -147,7 +223,8 @@ describe('ArtifactsPanel', () => {
     const user = userEvent.setup();
     const openSettings = vi.fn();
     render(<ArtifactsPanel projectId="p-1" onOpenSettings={openSettings} />);
-    await user.click(await screen.findByRole('button', { name: /^Add source$/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add source' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Add source' }));
     const dialog = screen.getByRole('dialog', { name: 'Add source' });
     expect(within(dialog).getByRole('button', { name: /Upload files/ })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: /Import local folder/ })).toBeEnabled();
@@ -170,7 +247,8 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.importConnectedSource).mockResolvedValue({ source: {} as never, syncResult: null });
 
     render(<ArtifactsPanel projectId="p-1" onOpenSettings={vi.fn()} />);
-    await user.click(await screen.findByRole('button', { name: /^Add source$/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add source' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Add source' }));
     await user.click(within(screen.getByRole('dialog', { name: 'Add source' })).getByRole('button', { name: /GitHub/ }));
     const browser = await screen.findByRole('dialog', { name: 'Import from GitHub' });
     await user.click(within(browser).getByRole('button', { name: /octo\/centinel/ }));
@@ -193,7 +271,7 @@ describe('ArtifactsPanel', () => {
     render(<ArtifactsPanel projectId="p-1" />);
 
     await user.click(await screen.findByRole('button', { name: /^View / }));
-    expect(screen.getByRole('button', { name: /Back to sources/i })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Source location' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'requirements.md' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Requirements' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
@@ -209,10 +287,10 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'version-1', content: btoa('export const button = true;'), contentHash: 'hash', mimeType: 'text/typescript' });
     render(<ArtifactsPanel projectId="p-1" />);
 
-    expect(await screen.findByText('repo')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'View repo' })).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: /^View / }));
-    expect(screen.getByRole('heading', { name: 'repo' })).toBeInTheDocument();
-    expect(screen.getByRole('table', { name: 'Repository files' })).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'repo' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Repository files' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /src 2 files/ }));
     await user.click(screen.getByRole('button', { name: /components/ }));
     await user.click(screen.getByRole('button', { name: /Button\.tsx/ }));
@@ -227,7 +305,7 @@ describe('ArtifactsPanel', () => {
     })));
     render(<ArtifactsPanel projectId="p-1" />);
 
-    expect(await screen.findByText('Imported repository')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'View Imported repository' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^View / }));
     await user.click(screen.getByText('Source details'));
     expect(screen.getByText('Repository location unavailable')).toBeInTheDocument();
@@ -245,6 +323,28 @@ describe('ArtifactsPanel', () => {
     expect(screen.getByText(/Preview not available/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Preview' })).toBeInTheDocument();
   });
+  it.each(['DeliveryEscrow.sol', 'callback.custom'])('previews imported textual source %s', async fileName => {
+    const user = userEvent.setup();
+    vi.mocked(api.listArtifacts).mockResolvedValue([{ ...repositoryArtifacts[0], type: fileName.endsWith('.sol') ? 'source_code' : 'other',
+      fileName, filePath: `C:/repo/${fileName}`, originalPath: `C:/repo/${fileName}` }]);
+    vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'v1', content: btoa('contract DeliveryEscrow {}'), contentHash: 'hash', mimeType: 'text/plain' });
+    render(<ArtifactsPanel projectId="p-1" />);
+    await user.click(await screen.findByRole('button', { name: 'View repo' }));
+    await user.click(screen.getByRole('button', { name: fileName }));
+    expect(await screen.findByText('contract DeliveryEscrow {}')).toBeInTheDocument();
+    expect(screen.queryByText(/Preview not available/)).not.toBeInTheDocument();
+  });
+  it.each([btoa('binary\u0000data'), btoa(String.fromCharCode(0xff, 0xfe, 0xff))])('rejects unreadable bytes in repository text previews', async content => {
+    const user = userEvent.setup();
+    vi.mocked(api.listArtifacts).mockResolvedValue([{ ...repositoryArtifacts[0], type: 'other', fileName: 'callback.custom',
+      filePath: 'C:/repo/callback.custom', originalPath: 'C:/repo/callback.custom' }]);
+    vi.mocked(api.getArtifactContent).mockResolvedValue({ versionId: 'v1', content, contentHash: 'hash', mimeType: 'text/plain' });
+    render(<ArtifactsPanel projectId="p-1" />);
+    await user.click(await screen.findByRole('button', { name: 'View repo' }));
+    await user.click(screen.getByRole('button', { name: 'callback.custom' }));
+    expect(await screen.findByText(/This file could not be previewed/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Scrollable file content').querySelector('pre')).toBeNull();
+  });
 
   it('keeps a real load failure visible instead of implying an empty project', async () => {
     vi.mocked(api.listArtifacts).mockRejectedValue(new Error('sidecar unavailable'));
@@ -254,15 +354,15 @@ describe('ArtifactsPanel', () => {
     expect(screen.getByRole('button', { name: 'Retry loading sources' })).toBeEnabled();
   });
 
-  it('separates material browsing from collapsed connection controls', async () => {
+  it('keeps sync on the persistent source row without a bottom updates panel', async () => {
     vi.mocked(api.listArtifacts).mockResolvedValue([documentArtifact]);
     vi.mocked(api.listConnectedSources).mockResolvedValue([connectedSource]);
     render(<ArtifactsPanel projectId="p-1" />);
-    const list = await screen.findByRole('table', { name: 'Project sources' });
-    expect(within(list).getAllByRole('row')).toHaveLength(2);
-    expect(within(list).queryByText('Connected repository')).not.toBeInTheDocument();
-    expect(screen.getByText('Source updates').closest('details')).not.toHaveAttribute('open');
-    expect(screen.getByRole('button', { name: 'Sync' })).not.toBeVisible();
+    const list = await screen.findByRole('list', { name: 'Project sources' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(list).getByRole('button', { name: 'View Connected repository' })).toBeInTheDocument();
+    expect(screen.queryByText('Source updates')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sync Connected repository' })).toBeVisible();
     expect(within(list).queryByText(documentArtifact.filePath)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Remove/ })).not.toBeInTheDocument();
   });
@@ -276,7 +376,7 @@ describe('ArtifactsPanel', () => {
     await user.click(screen.getByRole('button', { name: 'View requirements.md' }));
     expect(screen.getByRole('heading', { name: 'requirements.md' })).toHaveFocus();
     expect(screen.getByText('Source details').closest('details')).not.toHaveAttribute('open');
-    await user.click(screen.getByRole('button', { name: 'Back to sources' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
     expect(screen.getByRole('searchbox', { name: 'Find a source' })).toHaveValue('requirements');
     await waitFor(() => expect(screen.getByRole('button', { name: 'View requirements.md' })).toHaveFocus());
     await user.type(screen.getByRole('searchbox', { name: 'Find a source' }), ' unmatched');
@@ -314,7 +414,7 @@ describe('ArtifactsPanel', () => {
     expect(screen.getByRole('status')).toHaveTextContent('No files match');
     await user.click(screen.getByRole('button', { name: 'Clear file search' }));
     expect(screen.getByRole('button', { name: /components 1 file/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'src' })).toHaveAttribute('aria-current', 'location');
+    expect(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'src' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('reveals failed connection recovery automatically and retries sync', async () => {
@@ -322,10 +422,10 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.listConnectedSources).mockResolvedValue([{ ...connectedSource, syncStatus: 'error', lastError: 'The saved source could not be updated.' }]);
     vi.mocked(api.syncConnectedSource).mockResolvedValue({} as never);
     render(<ArtifactsPanel projectId="p-1" />);
-    await user.click(await screen.findByRole('button', { name: 'Retry sync' }));
-    expect(screen.getByText('Source updates').closest('details')).toHaveAttribute('open');
-    expect(screen.getByText('The saved source could not be updated.')).toBeVisible();
-    expect(api.syncConnectedSource).toHaveBeenCalledWith('p-1', 'connection', expect.objectContaining({ idempotencyKey: expect.any(String) }));
+    await user.click(await screen.findByRole('button', { name: 'Sync Connected repository' }));
+    expect(screen.queryByText('Source updates')).not.toBeInTheDocument();
+    expect(screen.getByText('The saved source could not be updated.')).toBeInTheDocument();
+    expect(api.syncConnectedSource).toHaveBeenCalledWith('p-1', 'connection', expect.objectContaining({ force: true, idempotencyKey: expect.any(String) }));
   });
 
   it('offers reconnect for disconnected sources without submitting a sync', async () => {
@@ -343,8 +443,7 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.listConnectedSources).mockResolvedValue([connectedSource]);
     vi.mocked(api.getConnectedSourceSyncHistory).mockRejectedValueOnce(new Error('History unavailable')).mockResolvedValueOnce([]);
     render(<ArtifactsPanel projectId="p-1" />);
-    await user.click(await screen.findByText('Source updates'));
-    await user.click(screen.getByRole('button', { name: 'History' }));
+    await user.click(await screen.findByRole('button', { name: 'History for Connected repository' }));
     const dialog = screen.getByRole('dialog', { name: 'Connected repository sync history' });
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('History unavailable');
     expect(within(dialog).queryByText('No synchronization runs have been recorded.')).not.toBeInTheDocument();
@@ -393,7 +492,8 @@ describe('ArtifactsPanel', () => {
   it('supports browser upload and keeps native folder picker errors in the import dialog', async () => {
     const user = userEvent.setup();
     render(<ArtifactsPanel projectId="p-1" />);
-    await user.click(await screen.findByRole('button', { name: 'Add source' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add source' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Add source' }));
     const dialog = screen.getByRole('dialog', { name: 'Add source' });
     filePicker.mockRejectedValueOnce(new Error('Folder picker unavailable'));
     await user.click(within(dialog).getByRole('button', { name: /Import local folder/ }));
@@ -413,7 +513,8 @@ describe('ArtifactsPanel', () => {
     filePicker.mockResolvedValueOnce('C:/repo');
     vi.mocked(api.importRepoArtifacts).mockResolvedValue({} as never);
     render(<ArtifactsPanel projectId="p-1" />);
-    await user.click(await screen.findByRole('button', { name: 'Add source' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add source' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Add source' }));
     await user.click(screen.getByRole('button', { name: /Import local folder/ }));
     await waitFor(() => expect(api.importRepoArtifacts).toHaveBeenCalledWith('p-1', 'C:/repo'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -428,7 +529,8 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.browseConnectedSources).mockResolvedValue({ items: [entry], nextCursor: null });
     vi.mocked(api.importConnectedSource).mockResolvedValue({} as never);
     render(<ArtifactsPanel projectId="p-1" />);
-    await user.click(await screen.findByRole('button', { name: 'Add source' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add source' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Add source' }));
     await user.click(screen.getByRole('button', { name: new RegExp(label) }));
     const dialog = await screen.findByRole('dialog', { name: `Import from ${label}` });
     await user.click(await within(dialog).findByRole('button', { name: new RegExp(entry.name) }));
@@ -450,25 +552,25 @@ describe('ArtifactsPanel', () => {
     const image = { ...documentArtifact, id: 'image', fileName: 'diagram.png', type: 'design' as const };
     vi.mocked(api.listArtifacts).mockResolvedValue([...repositoryArtifacts, documentArtifact, image]);
     render(<ArtifactsPanel projectId="p-1" initialView="repository" />);
-    expect(await screen.findByRole('table', { name: 'Project sources' })).toBeInTheDocument();
+    expect(await screen.findByRole('list', { name: 'Project sources' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Images' }));
     expect(screen.getByRole('button', { name: 'View diagram.png' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View repo' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Documents' }));
     expect(screen.queryByRole('button', { name: 'View diagram.png' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'View requirements.md' }));
-    await user.click(screen.getByRole('button', { name: 'Back to sources' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
     expect(screen.getByRole('button', { name: 'Documents' })).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByRole('button', { name: 'Repositories' }));
     expect(screen.getByRole('button', { name: 'View repo' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View requirements.md' })).not.toBeInTheDocument();
   });
 
-  it('opens a single repository directly as a table and does not prefetch file bodies', async () => {
+  it('opens a single repository directly as a directory list and does not prefetch file bodies', async () => {
     const user = userEvent.setup();
     vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
     render(<ArtifactsPanel projectId="p-1" initialView="repository" />);
-    expect(await screen.findByRole('table', { name: 'Repository files' })).toBeInTheDocument();
+    expect(await screen.findByRole('list', { name: 'Repository files' })).toBeInTheDocument();
     expect(screen.queryByText('Select a file to preview it.')).not.toBeInTheDocument();
     expect(api.getArtifactContent).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /src 2 files/ }));
@@ -476,35 +578,35 @@ describe('ArtifactsPanel', () => {
     await user.click(screen.getByRole('button', { name: 'auth.ts' }));
     expect(await screen.findByText('Preview content')).toBeInTheDocument();
     expect(api.getArtifactContent).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('complementary', { name: 'Files navigation' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Hide files' }));
-    expect(screen.queryByRole('complementary', { name: 'Files navigation' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Show files' }));
-    expect(screen.getByRole('complementary', { name: 'Files navigation' })).toBeInTheDocument();
-    await user.click(within(screen.getByRole('navigation', { name: 'Repository directory' })).getByRole('button', { name: 'src' }));
-    expect(screen.getByRole('table', { name: 'Repository files' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Source location' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Project source navigation' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Hide files' })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'src' }));
+    expect(screen.getByRole('list', { name: 'Repository files' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'File viewer' })).not.toBeInTheDocument();
   });
 
-  it('expands file-navigation folders and switches files without losing source context', async () => {
+  it('uses breadcrumbs to switch files without losing source context', async () => {
     const user = userEvent.setup();
     vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
     render(<ArtifactsPanel projectId="p-1" initialView="repository" />);
     await user.click(await screen.findByRole('button', { name: /src 2 files/ }));
     await user.click(screen.getByRole('button', { name: 'auth.ts' }));
-    const sidebar = screen.getByRole('complementary', { name: 'Files navigation' });
-    expect(within(sidebar).getByRole('button', { name: 'src' })).toHaveAttribute('aria-expanded', 'true');
+    const location = screen.getByRole('navigation', { name: 'Source location' });
+    expect(location).toHaveTextContent('repo');
+    expect(location).toHaveTextContent('src');
+    expect(location).toHaveTextContent('auth.ts');
     await screen.findByText('Preview content');
     const reader = screen.getByLabelText('Scrollable file content');
     reader.scrollTop = 350;
     reader.scrollLeft = 100;
-    await user.click(within(sidebar).getByRole('button', { name: 'components' }));
-    await user.click(within(sidebar).getByRole('button', { name: 'Button.tsx' }));
+    await user.click(within(location).getByRole('button', { name: 'src' }));
+    await user.click(screen.getByRole('button', { name: /components 1 file/ }));
+    await user.click(screen.getByRole('button', { name: 'Button.tsx' }));
     expect(api.getArtifactContent).toHaveBeenLastCalledWith('p-1', 'a-2', undefined);
-    expect(within(sidebar).getByRole('button', { name: 'Button.tsx' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('heading', { name: 'Button.tsx' })).toBeInTheDocument();
-    await waitFor(() => expect(reader.scrollTop).toBe(0));
-    expect(reader.scrollLeft).toBe(0);
+    await waitFor(() => expect(screen.getByLabelText('Scrollable file content').scrollTop).toBe(0));
+    expect(screen.getByLabelText('Scrollable file content').scrollLeft).toBe(0);
   });
 
   it('navigates compact directory chains using their complete path', async () => {

@@ -5,7 +5,7 @@ import { applyFeatureDomainAssessments, type ReviewAnalysisMap, type ReviewDomai
 import type { StaticFindingInput } from './types.js';
 import { specializeAssessmentSchema } from './assessmentResponseSchema.js';
 
-export const ASSESSMENT_VALIDATION_VERSION = 'static-assessment-2026-10-25-retrieval-packets.2';
+export const ASSESSMENT_VALIDATION_VERSION = 'static-assessment-2026-10-30-bounded-line-windows.3';
 export const MAX_SUPPORT_CANDIDATES = 32;
 export const MAX_SUPPORT_CANDIDATE_TEXT = 2_000;
 export const MAX_SUPPORT_AUTHORITIES = 128;
@@ -279,43 +279,38 @@ export function validateCandidateSupportResponse(
       }
       const lineNumber = reference.lineNumber as number;
       const anchorMatches = identityMatches.filter(({ source }) => lineNumber >= source.lineStart && lineNumber <= source.lineEnd);
-      if (anchorMatches.length > 1) {
-        referenceInvalid = true;
-        referenceIssue = { referenceIndex, referenceFailure: 'path_not_unique' };
-        break;
-      }
       if (!anchorMatches.length) {
         referenceOutsideBatch = true;
         referenceIssue = { referenceIndex, referenceFailure: 'line_out_of_range' };
         break;
       }
-      const { source: matchedSource, sourceIndex } = anchorMatches[0]!;
-      if (typeof matchedSource.content !== 'string' || matchedSource.state && matchedSource.state !== 'available' || !matchedSource.artifact.contentHash) {
+      const referenceLines = String(reference.evidence).replace(/\r\n/g, '\n').split('\n').length;
+      const completeMatches = anchorMatches.filter(({ source }) => lineNumber + referenceLines - 1
+        <= Math.min(source.lineEnd, source.lineStart + (typeof source.content === 'string' ? source.content.split('\n').length : 0) - 1));
+      if (!completeMatches.length) {
+        referenceOutsideBatch = true;
+        referenceIssue = { referenceIndex, sourceIndex: anchorMatches[0]!.sourceIndex, lineNumber, referenceFailure: 'line_out_of_range' };
+        break;
+      }
+      if (completeMatches.some(({ source }) => typeof source.content !== 'string' || source.state && source.state !== 'available' || !source.artifact.contentHash)) {
         referenceInvalid = true;
         referenceIssue = { referenceIndex, referenceFailure: 'source_unavailable' };
         break;
       }
-      const availableLineEnd = Math.min(matchedSource.lineEnd,
-        matchedSource.lineStart + matchedSource.content.split('\n').length - 1);
-      const hasAnchorLine = lineNumber >= matchedSource.lineStart && lineNumber <= availableLineEnd;
-      const referenceLines = String(reference.evidence).replace(/\r\n/g, '\n').split('\n').length;
-      if (!hasAnchorLine || lineNumber + referenceLines - 1 > availableLineEnd) {
-        referenceOutsideBatch = true;
-        referenceIssue = {
-          referenceIndex,
-          referenceFailure: 'line_out_of_range',
-          ...(hasAnchorLine ? { sourceIndex, lineNumber } : {}),
-        };
-        break;
-      }
-      const localLineNumber = (reference.lineNumber as number) - matchedSource.lineStart + 1;
-      const validated = validateFindingEvidence([{
-        source: 'model', title: 'Support reference', description: 'Support reference', severity: 'info', priority: null,
-        category: 'semantic_support', filePath: reference.filePath, lineNumber: localLineNumber,
-        artifactId: reference.artifactId, sourceVersion: reference.sourceVersion, evidence: reference.evidence,
-        recommendation: '', confidence: 'medium', riskLevel: 'low',
-      }], [matchedSource]);
-      if (validated.rejectedCount || validated.findings.length !== 1) {
+      const validatedMatches = completeMatches.map(({ source, sourceIndex }) => ({
+        source,
+        sourceIndex,
+        result: validateFindingEvidence([{
+          source: 'model', title: 'Support reference', description: 'Support reference', severity: 'info', priority: null,
+          category: 'semantic_support', filePath: reference.filePath as string, lineNumber: reference.lineNumber as number,
+          artifactId: reference.artifactId as string, sourceVersion: reference.sourceVersion as string, evidence: reference.evidence as string,
+          recommendation: '', confidence: 'medium', riskLevel: 'low',
+        }], [source]),
+      }));
+      const acceptedMatch = validatedMatches.find(match => !match.result.rejectedCount && match.result.findings.length === 1);
+      if (!acceptedMatch) {
+        const failedMatch = validatedMatches[0]!;
+        const { source, sourceIndex, result: validated } = failedMatch;
         referenceInvalid = true;
         const validationCode = validated.feedback[0]?.code;
         referenceIssue = {
@@ -329,7 +324,8 @@ export function validateCandidateSupportResponse(
         };
         break;
       }
-      const checked = validated.findings[0];
+      const { source: matchedSource, sourceIndex } = acceptedMatch;
+      const checked = acceptedMatch.result.findings[0]!;
       const checkedOriginal = { ...checked, lineNumber: reference.lineNumber as number };
       if (!findingsWithinBatch([checkedOriginal], [...sources]).length) {
         referenceOutsideBatch = true;
@@ -542,21 +538,56 @@ export function validateFindingEvidence(findings: StaticFindingInput[], sources:
   let rejectedCount = 0;
   for (const [index, finding] of findings.entries()) {
     const matches = sources.filter(source => [source.artifact.filePath, source.artifact.originalPath].some(value => value && path(value) === path(finding.filePath)));
-    const source = matches.length === 1 ? matches[0] : undefined;
-    const lines = source?.content == null ? [] : newline(source.content).split('\n');
     const quote = newline(finding.evidence);
-    const start = finding.lineNumber == null ? -1 : finding.lineNumber - 1;
     const quoteLines = quote.split('\n').length;
-    const range = lines.slice(start, start + quoteLines).join('\n');
-    const failure: Omit<AssessmentRepairIssue, 'findingIndex'> | undefined = !source ? {field:'filePath',code:'path_not_unique'}
-      : typeof source.content !== 'string' || source.state && source.state !== 'available' || !source.artifact.contentHash ? {field:'evidence',code:'source_unavailable'}
-      : finding.artifactId && finding.artifactId !== source.artifact.id ? {field:'artifactId',code:'artifact_mismatch'}
-      : finding.sourceVersion && finding.sourceVersion !== source.artifact.contentHash && finding.sourceVersion !== source.artifact.versionId ? {field:'sourceVersion',code:'version_mismatch'}
-      : start < 0 || start >= lines.length ? {field:'lineNumber',code:'line_out_of_range'}
-      : !quote.trim() || !range.includes(quote) ? {field:'evidence',code:'excerpt_mismatch'} : undefined;
-    if (failure || !source) {
+    const identityKeys = new Set(matches.map(source => `${source.artifact.id}\u0000${source.artifact.versionId ?? ''}\u0000${source.artifact.contentHash ?? ''}`));
+    type PacketSource = EvidenceArtifact & Partial<Pick<AssessmentSourceSegment, 'lineStart' | 'lineEnd' | 'lineWindow'>>;
+    const uniqueIdentitySources = identityKeys.size === 1 ? matches as PacketSource[] : [];
+    const representative = uniqueIdentitySources[0];
+    const failure: Omit<AssessmentRepairIssue, 'findingIndex'> | undefined = !matches.length || identityKeys.size !== 1
+      ? { field: 'filePath', code: 'path_not_unique' }
+      : uniqueIdentitySources.every(source => typeof source.content !== 'string' || source.state && source.state !== 'available') || !representative?.artifact.contentHash
+        ? { field: 'evidence', code: 'source_unavailable' }
+        : finding.artifactId && finding.artifactId !== representative.artifact.id
+          ? { field: 'artifactId', code: 'artifact_mismatch' }
+          : finding.sourceVersion && finding.sourceVersion !== representative.artifact.contentHash && finding.sourceVersion !== representative.artifact.versionId
+            ? { field: 'sourceVersion', code: 'version_mismatch' }
+            : !Number.isSafeInteger(finding.lineNumber) || finding.lineNumber! < 1 || !quote.trim()
+              ? { field: !quote.trim() ? 'evidence' : 'lineNumber', code: !quote.trim() ? 'excerpt_mismatch' : 'line_out_of_range' }
+              : undefined;
+    let source: PacketSource | undefined;
+    let sourceFailure: Omit<AssessmentRepairIssue, 'findingIndex'> | undefined;
+    if (!failure && representative) {
+      const candidates = uniqueIdentitySources.flatMap(candidate => {
+        if (typeof candidate.content !== 'string' || candidate.state && candidate.state !== 'available') return [];
+        const window = candidate.lineWindow;
+        const windowValid = !window || (Number.isSafeInteger(window.startOffset) && window.startOffset >= 0
+          && Number.isSafeInteger(window.endOffsetExclusive) && window.endOffsetExclusive > window.startOffset
+          && Number.isSafeInteger(window.originalLineLength) && window.originalLineLength >= window.endOffsetExclusive
+          && (window.startOffset > 0 || window.endOffsetExclusive < window.originalLineLength)
+          && window.offsetUnit === 'utf16_code_units' && window.partialLine === true
+          && candidate.lineStart === candidate.lineEnd && quoteLines === 1
+          && candidate.content.length === window.endOffsetExclusive - window.startOffset);
+        if (!windowValid) return [];
+        const lines = newline(candidate.content).split('\n');
+        const segmentStart = Number.isSafeInteger(candidate.lineStart) ? candidate.lineStart! : 1;
+        const segmentEnd = Number.isSafeInteger(candidate.lineEnd) ? candidate.lineEnd! : segmentStart + lines.length - 1;
+        const start = finding.lineNumber! - segmentStart;
+        if (start < 0 || start >= lines.length || finding.lineNumber! < segmentStart
+          || finding.lineNumber! + quoteLines - 1 > segmentEnd
+          || finding.lineNumber! + quoteLines - 1 > segmentStart + lines.length - 1) return [];
+        const range = lines.slice(start, start + quoteLines).join('\n');
+        return [{ source: candidate, exact: range.includes(quote) }];
+      });
+      source = candidates.find(candidate => candidate.exact)?.source;
+      if (!source) sourceFailure = candidates.length
+        ? { field: 'evidence', code: 'excerpt_mismatch' }
+        : { field: 'lineNumber', code: 'line_out_of_range' };
+    }
+    const invalid = failure ?? sourceFailure;
+    if (invalid || !source) {
       rejectedCount++;
-      if (feedback.length < 16) feedback.push({findingIndex:index+1,...(failure ?? {field:'filePath' as const,code:'path_not_unique' as const})});
+      if (feedback.length < 16) feedback.push({ findingIndex: index + 1, ...(invalid ?? { field: 'filePath', code: 'path_not_unique' }) });
       continue;
     }
     const relatedLocations: NonNullable<StaticFindingInput['relatedLocations']> = [];
@@ -579,9 +610,17 @@ export function assessedArtifactIds(map: ReviewAnalysisMap): string[] {
     || map.coverage.limitations.some(item => item.includes('omitted because'))) return [];
   const unsupported = new Set([
     ...map.coverage.unsupportedArtifacts,
+    // The diagnostic unsupported-file listing is bounded. Text-logic units
+    // remain ineligible even when their artifact is beyond that listing.
+    ...map.features.filter(feature => feature.analysisKind === 'plain_text_logic').flatMap(feature => feature.entryPoints),
     ...(map.coverage.declarationArtifacts ?? []),
     ...(map.coverage.nonExecutableArtifacts ?? []),
   ].map(item => item.artifactId));
+  // A positively identified external callback boundary is a real mapped
+  // surface, but it still cannot support absence-based resolution proof.
+  for (const feature of map.features) if (feature.entryPointStatus === 'external_boundary') {
+    for (const reference of feature.entryPoints) unsupported.add(reference.artifactId);
+  }
   const ids = new Set(map.features.flatMap(feature => feature.entryPoints.map(ref => ref.artifactId)));
   return [...ids].filter(id => !unsupported.has(id) && map.features.filter(feature => feature.entryPoints.some(ref => ref.artifactId === id))
     .every(feature => feature.assessments.every(item => item.status === 'assessed' && item.outcome !== 'potential_gap')

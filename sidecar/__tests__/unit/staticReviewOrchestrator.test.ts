@@ -1,3 +1,6 @@
+import crypto from 'node:crypto';
+import PDFDocument from 'pdfkit';
+import { verifiedTextForReader } from '../../src/review/sourceText.js';
 import { readPromptAnalysisMap } from '../fixtures/promptAnalysisMap.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
@@ -75,6 +78,185 @@ function baseDependencies(repository: InMemoryStaticReviewRepository) {
 }
 
 describe('Provider capacity lifecycle', () => {
+  it('pauses after transient model retries and permits an explicit saved-source linked retry', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const analyze = vi.fn<StaticAnalysisModelProvider['analyze']>(async () => {
+      throw new ModelProviderError('temporary upstream failure', { statusCode: 503, responseReceived: false });
+    });
+    const sleep = vi.fn();
+    const correlate = vi.spyOn(repository, 'saveFindingCorrelations');
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), modelProvider: { analyze },
+      allowDeterministicOnly: true, retry: { sleep } });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'transient-provider-pause' });
+    const paused = await started.completion;
+    expect(paused).toMatchObject({ status: 'blocked', modelStatus: 'partial', progress: { stage: 'provider_paused', pauseCode: 'provider_unavailable' } });
+    expect(analyze).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(repository.findings).toHaveLength(1);
+    expect(correlate).not.toHaveBeenCalled();
+    expect(paused.progress?.completedStages).not.toContain('model_analysis');
+    expect(paused.failureReason).not.toMatch(/exhausted.*quota/i);
+    analyze.mockImplementation(successfulModel().analyze);
+    const resumed = await orchestrator.retry({ reviewId: paused.id, artifacts: [artifact], idempotencyKey: 'manual-after-access-restored' });
+    expect((await resumed.completion).status).toBe('pending_approval');
+    expect(resumed.review.lineage.parentReviewId).toBe(paused.id);
+    expect(resumed.review.lineage.reusedSourceManifest).toBe(true);
+    expect((await repository.getReview(paused.id))?.status).toBe('blocked');
+  });
+  it('pauses an unknown Codex turn failure without replaying its potentially consumed request', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const analyze = vi.fn<StaticAnalysisModelProvider['analyze']>(async () => {
+      throw new ModelProviderError('Codex could not complete this operation.', { code: 'codex_turn_failed', retryable: false, responseReceived: true });
+    });
+    const sleep = vi.fn();
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), modelProvider: { analyze }, allowDeterministicOnly: true, retry: { sleep } });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'unknown-codex-pause' });
+    expect(await started.completion).toMatchObject({ status: 'blocked', progress: { stage: 'provider_paused', pauseCode: 'provider_unavailable' } });
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+  it('rejects a truncated operation inventory before indexing or provider work', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const index = vi.fn();
+    const deterministic = vi.fn();
+    const analyze = vi.fn();
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index, deterministic,
+      modelProvider: { analyze }, readArtifactContent: async () => Array.from({ length: 2049 },
+        (_, i) => `export function operation${i}() { return ${i}; }`).join('\n') });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'inventory-preflight' });
+    expect((await started.completion).status).toBe('blocked');
+    expect(index).not.toHaveBeenCalled();
+    expect(deterministic).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+    const assessment = await repository.getEvidenceSufficiency(started.review.id);
+    expect(assessment?.gaps).toContainEqual(expect.objectContaining({
+      code: 'source_analysis_inventory_incomplete', severity: 'blocking',
+      detail: expect.stringContaining('1 operation or text units were omitted'),
+    }));
+  });
+  it('rejects oversized executable source packets before paid indexing', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const index = vi.fn();
+    const analyze = vi.fn();
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index,
+      modelProvider: { analyze }, readArtifactContent: async () => `export function operation() { return '${'x'.repeat(65000)}'; }` });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'context-preflight' });
+    expect((await started.completion).status).toBe('blocked');
+    expect(index).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+    expect((await repository.getEvidenceSufficiency(started.review.id))?.gaps).toContainEqual(expect.objectContaining({ code: 'source_analysis_context_limit' }));
+  });
+  it('renders exact partial-line provenance in independent configuration sweeps', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const requests: StaticModelRequest[] = [];
+    const css = { ...artifact, fileName: 'styles.css', filePath: 'src/styles.css' };
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), deterministic: async () => ({ findings: [], persisted: false }),
+      readArtifactContent: async () => '.a{color:red}'.repeat(7000), modelProvider: { analyze: async request => {
+        requests.push(request);
+        return { result: { featureAssessments: [], findings: [] }, settings: { provider: 'fixture', apiFormat: 'openai-compatible', model: 'offline' } };
+      } } });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [css], idempotencyKey: 'configuration-window-render' });
+    expect((await started.completion).status).toBe('pending_approval');
+    expect(requests.length).toBeGreaterThan(1);
+    expect(requests.every(request => request.prompt.includes('lineWindow={') && request.prompt.includes('[partial line; UTF-16 code-unit offsets'))).toBe(true);
+    const plan = repository.audits.find(event => event.event === 'review_batches_planned');
+    expect(JSON.stringify(plan?.detail)).toContain('"offsetUnit":"utf16_code_units"');
+  });
+  it('rejects an unresolved local callback before paid indexing', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const index = vi.fn();
+    const analyze = vi.fn();
+    const jsx = { ...artifact, fileName: 'Screen.tsx', filePath: 'src/Screen.tsx' };
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index,
+      modelProvider: { analyze }, readArtifactContent: async () => 'export function Screen() { return <button onClick={missingLocalHandler}>Save</button>; }' });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [jsx], idempotencyKey: 'unresolved-callback-preflight' });
+    expect((await started.completion).status).toBe('blocked');
+    expect(index).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+    expect((await repository.getEvidenceSufficiency(started.review.id))?.gaps).toContainEqual(expect.objectContaining({ code: 'source_analysis_unresolved',
+      references: [expect.objectContaining({ artifactId: artifact.id, filePath: jsx.filePath, lineNumber: 1, sourceVersion: artifact.contentHash, relation: 'code' })] }));
+  });
+  it('prepares bounded text assessment when an intact syntax inventory exceeds the request budget', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const index = vi.fn(async () => { throw new ModelProviderError('offline fixture stop', { code: 'credits_exhausted' }); });
+    const analyze = vi.fn();
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index,
+      modelProvider: { analyze }, readArtifactContent: async () => Array.from({ length: 2048 },
+        (_, i) => `export function operation${i}() { return ${i}; }`).join('\n') });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'batch-budget-preflight' });
+    expect((await started.completion).status).toBe('blocked');
+    expect(index).toHaveBeenCalledOnce();
+    expect(analyze).not.toHaveBeenCalled();
+    const assessment = await repository.getEvidenceSufficiency(started.review.id);
+    expect(assessment?.gaps.some(gap => gap.code === 'source_analysis_context_limit')).toBe(false);
+    expect(assessment?.gaps.some(gap => gap.code === 'source_analysis_inventory_incomplete')).toBe(false);
+    expect(repository.audits.some(event => event.event === 'review_analysis_map_saved' && event.stage === 'freezing_sources')).toBe(true);
+    expect(repository.audits.find(event => event.event === 'review_syntax_map_saved')?.detail?.analysisMap).toMatchObject({ features: expect.any(Array), coverage: { featureInventoryTruncated: false } });
+    const active = repository.audits.filter(event => event.event === 'review_analysis_map_saved').at(-1)?.detail?.analysisMap;
+    expect(active).toMatchObject({ coverage: { assessmentMode: 'plain_text_context_fallback', syntaxFeatureCount: 2048 } });
+  });
+  it('does not mislabel readable stale evidence as an unsupported language', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const index = vi.fn(async () => { throw new Error('fixture stop'); });
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index,
+      evidenceSourceState: async () => ({ state: 'stale' as const, detail: 'Remote revision needs checking.' }) });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'readable-stale-preflight' });
+    await started.completion;
+    expect(index).toHaveBeenCalledOnce();
+    const assessment = await repository.getEvidenceSufficiency(started.review.id);
+    expect(assessment?.gaps.some(gap => gap.code === 'source_stale')).toBe(true);
+    expect(assessment?.gaps.some(gap => gap.code.startsWith('source_analysis_'))).toBe(false);
+  });
+  it.each(['assets.py', 'contract.sol'])('assesses unsupported %s as plain text without executable absence proof', async fileName => {
+    const repository = new InMemoryStaticReviewRepository();
+    const pythonText = fileName.endsWith('.sol')
+      ? 'pragma solidity ^0.8.0;\ncontract Cargo { uint public value; function set(uint next) public { value = next; } }\n'
+      : 'def asset_name(value):\n    return str(value).strip()\n';
+    const python: Artifact = { ...artifact, id: 'python', fileName, filePath: `tools/${fileName}`, versionId: 'v-python',
+      contentHash: crypto.createHash('sha256').update(pythonText).digest('hex') };
+    const index = vi.fn(async () => undefined); const deterministic = vi.fn(async () => []);
+    const analyze = vi.fn(async (request: StaticModelRequest) => ({ result: { findings: [], featureAssessments: completeFeatureAssessments(request) },
+      settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' } }));
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index, deterministic,
+      readArtifactContent: async () => pythonText, modelProvider: { analyze } });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [python], idempotencyKey: 'unsupported-python-preflight' });
+    const finished = await started.completion;
+    expect(finished).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded' });
+    expect(finished.summary).toContain('plain-text logic');
+    expect(index).toHaveBeenCalledOnce(); expect(deterministic).toHaveBeenCalledOnce(); expect(analyze).toHaveBeenCalled();
+    expect(analyze.mock.calls.some(([request]) => pythonText.trim().split('\n').every(line => request.prompt.includes(line)) && request.systemPrompt.includes('plain_text_logic'))).toBe(true);
+    const assessment = await repository.getEvidenceSufficiency(started.review.id);
+    expect(assessment?.gaps.some(gap => gap.code === 'source_analysis_unsupported')).toBe(false);
+    expect(repository.audits.find(event => event.event === 'review_assessment_validated')?.detail?.assessedArtifactIds).toEqual([]);
+  });
+  it('verifies binary PDF originals before extraction and reaches indexing with exact text', async () => {
+    const bytes = await new Promise<Buffer>(resolve => { const doc = new PDFDocument(); const chunks: Buffer[] = []; doc.on('data', chunk => chunks.push(chunk)); doc.on('end', () => resolve(Buffer.concat(chunks))); doc.text('CargoChain business requirement'); doc.end(); });
+    const source = Buffer.from('export function auth() { return true; }');
+    const code = { ...artifact, versionId: 'v-code', contentHash: crypto.createHash('sha256').update(source).digest('hex') };
+    const pdf: Artifact = { ...artifact, id: 'pdf', fileName: 'requirements.pdf', filePath: 'requirements.pdf', type: 'requirement', versionId: 'v-pdf', contentHash: crypto.createHash('sha256').update(bytes).digest('hex') };
+    const repository = new InMemoryStaticReviewRepository();
+    const index = vi.fn(async (_project, _artifacts, _signal, _review, reader) => {
+      expect(await reader(pdf)).toContain('CargoChain business requirement');
+      expect(verifiedTextForReader(reader, pdf)?.text).toContain('CargoChain business requirement');
+      throw new ModelProviderError('Stop fixture before paid work', { code: 'credits_exhausted' });
+    });
+    let pdfReads = 0;
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), readArtifactBytes: async item => {
+      if (item.id !== 'pdf') return source;
+      if (++pdfReads === 1) throw new DOMException('Source read deadline exceeded', 'TimeoutError');
+      return bytes;
+    }, index });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [code, pdf], idempotencyKey: 'pdf-original-byte-hash' });
+    expect(await started.completion).toMatchObject({ status: 'blocked', progress: { stage: 'provider_paused' } });
+    expect(index).toHaveBeenCalledOnce();
+    const pdfReadAttempts = repository.audits.filter(event => event.event === 'harness_step_started'
+      && event.detail?.step === 'read_source' && (event.detail.input as { artifactId?: string })?.artifactId === pdf.id);
+    expect(pdfReadAttempts.map(event => (event.detail?.input as { attempt: number }).attempt)).toEqual([1, 2]);
+    const assessment = await repository.getEvidenceSufficiency(started.review.id);
+    expect(assessment?.gaps.some(gap => gap.code === 'pdf_visual_content_unverified')).toBe(true);
+    expect(assessment?.gaps.some(gap => gap.code === 'source_inaccessible')).toBe(false);
+  });
+
   it('also stops at source indexing before deterministic checks or model analysis', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const deterministic = vi.fn();
@@ -420,7 +602,7 @@ describe('StaticReviewOrchestrator', () => {
     expect(finished.modelStatus).toBe('partial');
     expect(prompts).toHaveLength(2);
     expect(prompts.every(request => request.prompt.length <= 200_000)).toBe(true);
-    expect(prompts[0].systemPrompt).toContain('remove it before returning evidence');
+    expect(prompts[0].systemPrompt).toContain('remove them before returning evidence');
     expect(prompts[0].prompt).toContain('1 | export function auth() {\r\n2 |   return true;\r\n3 | }');
     expect(prompts[1].repair).not.toBe(true);
     expect(prompts[1].prompt).toContain('1 | export function auth() {');
@@ -450,7 +632,7 @@ describe('StaticReviewOrchestrator', () => {
     expect(deterministicCalls).toBe(1);
   });
 
-  it('retains deterministic findings when the Model Provider is exhausted', async () => {
+  it('retains deterministic findings in a pause when the Model Provider retries are exhausted', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const modelProvider: StaticAnalysisModelProvider = {
       analyze: async () => { throw new ModelProviderError('temporarily unavailable', { code: 'server_busy', retryable: true }); },
@@ -461,7 +643,8 @@ describe('StaticReviewOrchestrator', () => {
     });
     const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'partial' });
     const finished = await started.completion;
-    expect(finished.status).toBe('pending_approval');
+    expect(finished.status).toBe('blocked');
+    expect(finished.progress).toMatchObject({ stage: 'provider_paused', pauseCode: 'provider_unavailable' });
     expect(finished.modelStatus).toBe('partial');
     expect(finished.deterministicFindingCount).toBe(1);
     expect(repository.attempts).toHaveLength(3);

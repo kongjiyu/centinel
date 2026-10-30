@@ -7,14 +7,29 @@ type GitHubRepo = { id: number; full_name: string; name: string; html_url: strin
 type GitHubBranch = { name: string; commit: { sha: string } };
 type GitHubTreeEntry = { path: string; type: string; mode: string; sha: string; size?: number; url: string };
 
-const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.xml', '.html', '.css', '.js', '.jsx', '.ts', '.tsx', '.py', '.go', '.rs', '.java', '.cs', '.rb', '.php', '.sh', '.sql', '.toml', '.ini', '.csv', '.svg', '.c', '.h', '.cpp', '.properties']);
+function isStrictUtf8Text(bytes: Uint8Array): boolean {
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    // UTF-8 validity alone also admits many control-heavy binary payloads.
+    // Preserve ordinary text whitespace while rejecting NUL and other control
+    // bytes that are not useful source/document characters.
+    return !/[\u0000-\u0008\u000b\u000e-\u001f\u007f]/u.test(text);
+  } catch {
+    return false;
+  }
+}
 
-function textCandidate(path: string): boolean {
-  const name = path.split('/').pop() ?? '';
-  const dot = name.lastIndexOf('.');
-  // Includes README/LICENSE, extensionless test fixtures, and dotfiles such
-  // as .hidden/.eslintrc; dots in a parent directory are irrelevant.
-  return dot <= 0 || TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
+function hasUnsupportedBinarySignature(bytes: Uint8Array): boolean {
+  const prefix = Buffer.from(bytes.subarray(0, 8)).toString('latin1');
+  return prefix.startsWith('%PDF-') || prefix.startsWith('PK\u0003\u0004')
+    || prefix.startsWith('PK\u0005\u0006') || prefix.startsWith('PK\u0007\u0008');
+}
+
+function decodeBase64(value: string): Uint8Array | null {
+  const normalized = value.replace(/\s/g, '');
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(normalized)) return null;
+  const bytes = Buffer.from(normalized, 'base64');
+  return bytes.toString('base64') === normalized ? new Uint8Array(bytes) : null;
 }
 
 function repoPath(remoteId: string): string {
@@ -147,24 +162,37 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
       this.treeCache.set(cacheKey, entries);
       while (this.treeCache.size > 4) this.treeCache.delete(this.treeCache.keys().next().value!);
     }
-    const files = entries.filter(item => item.type === 'blob' && textCandidate(item.path));
+    // The extension is only a hint: unsupported-but-textual languages must
+    // reach the same bounded UTF-8 check as known source extensions. Keep all
+    // blobs in the inventory so binary/oversize files remain explicit
+    // exclusions instead of disappearing from a completed snapshot.
+    const files = entries.filter(item => item.type === 'blob');
     const page = files.slice(offset, offset + this.pageSize);
     const items = await Promise.all(page.map(async file => {
+      const unsupported = (error: string, size: number | null): RemoteContent => ({
+        remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path,
+        mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported', error,
+        metadata: { repository: source.remoteId, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size },
+      });
       if ((file.size ?? 0) > this.maxFileBytes) {
-        return { remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path, mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported' as const, error: `File exceeds the ${this.maxFileBytes} byte import limit.`, metadata: { repository: source.remoteId, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size: file.size ?? null } } satisfies RemoteContent;
+        return unsupported(`File exceeds the ${this.maxFileBytes} byte import limit.`, file.size ?? null);
       }
       const blob = await requestJson<{ content?: string; encoding?: string; size?: number }>(this.http, `https://api.github.com/repos/${remote}/git/blobs/${encodeURIComponent(file.sha)}`, { headers: this.headers(credentials.accessToken) }, 'GitHub file content');
-      const bytes = blob.encoding === 'base64' ? Buffer.from((blob.content ?? '').replace(/\s/g, ''), 'base64') : Buffer.from(blob.content ?? '', 'utf8');
-      if (bytes.byteLength > this.maxFileBytes) {
-        return { remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path, mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported', error: `File exceeds the ${this.maxFileBytes} byte import limit.`, metadata: { repository: source.remoteId, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size: bytes.byteLength } } satisfies RemoteContent;
+      let bytes: Uint8Array;
+      if (blob.encoding === 'base64') {
+        const decoded = decodeBase64(blob.content ?? '');
+        if (!decoded) return unsupported('GitHub returned an invalid blob encoding.', blob.size ?? file.size ?? null);
+        bytes = decoded;
+      } else if (blob.encoding === 'utf8' || blob.encoding === 'utf-8') {
+        bytes = Buffer.from(blob.content ?? '', 'utf8');
+      } else {
+        return unsupported('GitHub did not return a supported blob encoding.', blob.size ?? file.size ?? null);
       }
-      let validText = !bytes.includes(0);
-      try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { validText = false; }
-      if (!validText || bytes.subarray(0, 5).toString() === '%PDF-' || bytes.subarray(0, 4).toString() === 'PK\u0003\u0004') {
-        return { remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path,
-          mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported',
-          error: 'This file is not supported UTF-8 text. Supply an extracted text version to include it in assessment.',
-          metadata: { repository: source.remoteId, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size: bytes.byteLength } } satisfies RemoteContent;
+      if (bytes.byteLength > this.maxFileBytes) {
+        return unsupported(`File exceeds the ${this.maxFileBytes} byte import limit.`, bytes.byteLength);
+      }
+      if (!isStrictUtf8Text(bytes) || hasUnsupportedBinarySignature(bytes)) {
+        return unsupported('This file is not supported UTF-8 text. Supply an extracted text version to include it in assessment.', bytes.byteLength);
       }
       const mimeType = file.path.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain';
       return {

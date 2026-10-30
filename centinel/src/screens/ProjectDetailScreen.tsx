@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, RotateCw, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
+import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { api, type ProjectReportDownloadLinks, type ProjectReportExportResult, type ProjectReportHistoryEntry } from '../api/client';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ProjectReadinessCard } from '../components/ProjectReadinessCard';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
@@ -80,8 +81,15 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [currentProject, setCurrentProject] = useState(project);
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
+  const [dynamicSessionsLoadingProjectId, setDynamicSessionsLoadingProjectId] = useState<string | null>(null);
+  const [dynamicSessionsLoadedProjectId, setDynamicSessionsLoadedProjectId] = useState<string | null>(null);
+  const [dynamicSessionsError, setDynamicSessionsError] = useState<string | null>(null);
+  const [staticSessionsLoadingProjectId, setStaticSessionsLoadingProjectId] = useState<string | null>(null);
+  const [staticSessionsLoadedProjectId, setStaticSessionsLoadedProjectId] = useState<string | null>(null);
+  const [staticSessionsError, setStaticSessionsError] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [artifactsLoaded, setArtifactsLoaded] = useState(false);
+  const [artifactsLoadedProjectId, setArtifactsLoadedProjectId] = useState<string | null>(null);
   const [reviewSourceManifestLoad, setReviewSourceManifestLoad] = useState<ReviewSourceManifestLoad | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -102,7 +110,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [activityPage, setActivityPage] = useState(0);
   const [projectFindings, setProjectFindings] = useState<Finding[]>([]);
   const [assessmentData, setAssessmentData] = useState<ProjectAssessment | null>(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentLoadedProjectId, setAssessmentLoadedProjectId] = useState<string | null>(null);
   const [findingsLoading, setFindingsLoading] = useState(false);
+  const [findingsLoadedProjectId, setFindingsLoadedProjectId] = useState<string | null>(null);
   const [findingsError, setFindingsError] = useState<string | null>(null);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
   const [readinessStatus, setReadinessStatus] = useState<ProjectReadinessStatus | null>(null);
@@ -122,10 +133,11 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<CollaborationStatus | null>(null);
   const [collaborationStatusLoading, setCollaborationStatusLoading] = useState(false);
+  const [collaborationStatusError, setCollaborationStatusError] = useState<string | null>(null);
   const [collaborationQuery, setCollaborationQuery] = useState('');
   const [githubCollaborators, setGithubCollaborators] = useState<GithubCollaboratorSnapshot | null>(null);
   const [githubCollaboratorsLoading, setGithubCollaboratorsLoading] = useState(false);
-  const [githubCollaboratorsSyncing, setGithubCollaboratorsSyncing] = useState(false);
+  const [githubCollaboratorsLoadedProjectId, setGithubCollaboratorsLoadedProjectId] = useState<string | null>(null);
   const [githubCollaboratorsError, setGithubCollaboratorsError] = useState<string | null>(null);
   const [showCollaboratorDialog, setShowCollaboratorDialog] = useState(false);
   const [collaboratorEmail, setCollaboratorEmail] = useState('');
@@ -137,6 +149,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [collaboratorNotice, setCollaboratorNotice] = useState<string | null>(null);
   const [repositoryInfoOpen, setRepositoryInfoOpen] = useState(false);
   const collaboratorSearchRequest = useRef(0);
+  const collaboratorSyncAttempts = useRef(new Set<string>());
+  const collaboratorLoads = useRef(new Map<string, Promise<void>>());
+  const currentProjectId = useRef(project.id);
+  currentProjectId.current = project.id;
   const [attentionDetailItem, setAttentionDetailItem] = useState<AttentionItem | null>(null);
   const [findingsFilter, setFindingsFilter] = useState<{ riskLevel?: 'critical_or_high'; status?: 'unresolved'; category?: string; search?: string } | null>(null);
 
@@ -155,11 +171,29 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [initialAction, project.id]);
 
   const loadDynamicSessions = useCallback(async () => {
-    try { setDynamicSessions(await api.listDynamicSessions(project.id)); } catch {}
+    setDynamicSessionsLoadingProjectId(project.id);
+    try {
+      setDynamicSessions(await api.listDynamicSessions(project.id));
+      setDynamicSessionsError(null);
+    } catch (cause) {
+      setDynamicSessionsError(userFacingError(cause, 'Dynamic Testing activity could not be loaded.'));
+    } finally {
+      setDynamicSessionsLoadedProjectId(project.id);
+      setDynamicSessionsLoadingProjectId(current => current === project.id ? null : current);
+    }
   }, [project.id]);
 
   const loadStaticSessions = useCallback(async () => {
-    try { setStaticSessions(await api.listStaticSessions(project.id)); } catch {}
+    setStaticSessionsLoadingProjectId(project.id);
+    try {
+      setStaticSessions(await api.listStaticSessions(project.id));
+      setStaticSessionsError(null);
+    } catch (cause) {
+      setStaticSessionsError(userFacingError(cause, 'Review activity could not be loaded.'));
+    } finally {
+      setStaticSessionsLoadedProjectId(project.id);
+      setStaticSessionsLoadingProjectId(current => current === project.id ? null : current);
+    }
   }, [project.id]);
 
   const loadArtifacts = useCallback(async () => {
@@ -172,6 +206,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setArtifactsError(userFacingError(cause, 'Sources could not be loaded.'));
     } finally {
       setArtifactsLoaded(true);
+      setArtifactsLoadedProjectId(project.id);
     }
   }, [project.id]);
 
@@ -185,6 +220,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       setFindingsError(userFacingError(cause, 'Findings could not be loaded.'));
     } finally {
       setFindingsLoading(false);
+      setFindingsLoadedProjectId(project.id);
     }
   }, [project.id]);
 
@@ -205,6 +241,20 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
 
+  useEffect(() => {
+    setDynamicSessionsError(null);
+    setStaticSessionsError(null);
+    setFindingsError(null);
+    setArtifactsError(null);
+    setCollaborationStatus(null);
+    setCollaborationStatusError(null);
+    setGithubCollaborators(null);
+    setGithubCollaboratorsError(null);
+    setGithubCollaboratorsLoadedProjectId(null);
+    setAssessmentData(null);
+    setAssessmentLoadedProjectId(null);
+  }, [project.id]);
+
   // Opening Source/Settings/Collaborators must not run the entire project
   // evidence pipeline. Those sections own their own data requests.
   useEffect(() => {
@@ -222,12 +272,20 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     if (activeSection !== 'project-assessment') return;
     if (typeof api.getProjectAssessment !== 'function') {
       setAssessmentData(null);
+      setAssessmentLoading(false);
+      setAssessmentLoadedProjectId(project.id);
       return;
     }
     let cancelled = false;
+    setAssessmentLoading(true);
     api.getProjectAssessment(project.id)
       .then(data => { if (!cancelled) setAssessmentData(data.status === 'available' ? data : null); })
-      .catch(() => { if (!cancelled) setAssessmentData(null); });
+      .catch(() => { if (!cancelled) setAssessmentData(null); })
+      .finally(() => {
+        if (cancelled) return;
+        setAssessmentLoading(false);
+        setAssessmentLoadedProjectId(project.id);
+      });
     return () => { cancelled = true; };
   }, [activeSection, project.id, activeReviewRevision]);
 
@@ -324,6 +382,18 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
 
   const activityPageCount = Math.max(1, Math.ceil(projectActivities.length / 5));
   const visibleProjectActivities = projectActivities.slice(activityPage * 5, activityPage * 5 + 5);
+  const activityInitialReadLoading = dynamicSessionsLoadedProjectId !== project.id || staticSessionsLoadedProjectId !== project.id;
+  const activityRefreshing = !activityInitialReadLoading && (
+    dynamicSessionsLoadingProjectId === project.id || staticSessionsLoadingProjectId === project.id
+  );
+  const activityLoadError = dynamicSessionsError ?? staticSessionsError;
+  const overviewInitialReadLoading = activityInitialReadLoading || findingsLoadedProjectId !== project.id || artifactsLoadedProjectId !== project.id;
+  const overviewRefreshing = !overviewInitialReadLoading && (
+    dynamicSessionsLoadingProjectId === project.id || staticSessionsLoadingProjectId === project.id ||
+    (findingsLoading && findingsLoadedProjectId === project.id) || (!artifactsLoaded && artifactsLoadedProjectId === project.id)
+  );
+  const overviewReadError = findingsError ?? dynamicSessionsError ?? staticSessionsError ?? artifactsError;
+  const assessmentInitialReadLoading = assessmentLoadedProjectId !== project.id;
 
   useEffect(() => {
     setActivityPage(page => Math.min(page, activityPageCount - 1));
@@ -683,38 +753,79 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setSettingsSaved(false);
   };
 
-  const loadCollaborationStatus = useCallback(async () => {
+  const loadCollaborationStatus = useCallback(async (): Promise<CollaborationStatus> => {
     setCollaborationStatusLoading(true);
+    setCollaborationStatusError(null);
     try {
-      setCollaborationStatus(await api.getCollaborationStatus(project.id));
+      const status = await api.getCollaborationStatus(project.id);
+      if (currentProjectId.current === project.id) setCollaborationStatus(status);
+      return status;
     } catch (cause) {
-      setCollaborationStatus({
+      const message = userFacingError(cause, 'GitHub collaboration status is unavailable. Check your connection and try again.');
+      const unavailable: CollaborationStatus = {
         available: false,
         repository: null,
-        message: userFacingError(cause, 'GitHub collaboration status is unavailable. Check your connection and try again.'),
-      });
+        message,
+      };
+      if (currentProjectId.current === project.id) {
+        setCollaborationStatus(unavailable);
+        setCollaborationStatusError(message);
+      }
+      return unavailable;
     } finally {
-      setCollaborationStatusLoading(false);
+      if (currentProjectId.current === project.id) setCollaborationStatusLoading(false);
     }
   }, [project.id]);
 
-  const loadGithubCollaborators = useCallback(async () => {
+  const loadCollaboratorData = useCallback(() => {
+    const projectId = project.id;
+    const existingLoad = collaboratorLoads.current.get(projectId);
+    if (existingLoad) return existingLoad;
+
     setGithubCollaboratorsLoading(true);
-    setGithubCollaboratorsError(null);
-    try {
-      setGithubCollaborators(await api.getProjectCollaborators(project.id));
-    } catch (cause) {
-      setGithubCollaboratorsError(userFacingError(cause, 'Saved collaborators could not be loaded.'));
-    } finally {
-      setGithubCollaboratorsLoading(false);
-    }
-  }, [project.id]);
+    if (!collaboratorSyncAttempts.current.has(projectId)) setGithubCollaboratorsError(null);
+    const load = Promise.resolve().then(async () => {
+      const [statusResult, savedResult] = await Promise.allSettled([
+        loadCollaborationStatus(),
+        api.getProjectCollaborators(projectId),
+      ]);
+      if (currentProjectId.current !== projectId) return;
+
+      const status = statusResult.status === 'fulfilled' ? statusResult.value : null;
+      if (savedResult.status === 'fulfilled') {
+        setGithubCollaborators(savedResult.value);
+      } else {
+        setGithubCollaboratorsError(userFacingError(savedResult.reason, 'Saved collaborators could not be loaded.'));
+      }
+
+      if (status?.available && !collaboratorSyncAttempts.current.has(projectId)) {
+        collaboratorSyncAttempts.current.add(projectId);
+        try {
+          const snapshot = await api.syncGithubCollaborators(projectId);
+          if (currentProjectId.current === projectId) {
+            setGithubCollaborators(snapshot);
+            setGithubCollaboratorsError(null);
+          }
+        } catch (cause) {
+          if (currentProjectId.current === projectId) {
+            setGithubCollaboratorsError(userFacingError(cause, 'GitHub collaborators could not be synced. Check repository access.'));
+          }
+        }
+      }
+
+      if (currentProjectId.current === projectId) setGithubCollaboratorsLoadedProjectId(projectId);
+    }).finally(() => {
+      if (currentProjectId.current === projectId) setGithubCollaboratorsLoading(false);
+      if (collaboratorLoads.current.get(projectId) === load) collaboratorLoads.current.delete(projectId);
+    });
+    collaboratorLoads.current.set(projectId, load);
+    return load;
+  }, [loadCollaborationStatus, project.id]);
 
   useEffect(() => {
     if (activeSection !== 'project-collaborations') return;
-    void loadCollaborationStatus();
-    void loadGithubCollaborators();
-  }, [activeSection, loadCollaborationStatus, loadGithubCollaborators]);
+    void loadCollaboratorData();
+  }, [activeSection, loadCollaboratorData]);
 
   const openCollaboratorDialog = () => {
     setCollaboratorEmail('');
@@ -723,9 +834,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCollaboratorError(null);
     setCollaboratorNotice(null);
     setRepositoryInfoOpen(false);
-    setCollaborationStatus(null);
     setShowCollaboratorDialog(true);
-    void loadCollaborationStatus();
+    if (!collaborationStatus && !collaborationStatusLoading && !collaboratorLoads.current.has(project.id)) void loadCollaborationStatus();
   };
 
   const searchForCollaborator = useCallback(async (email = collaboratorEmail.trim()) => {
@@ -772,27 +882,11 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     return () => window.clearTimeout(timer);
   }, [collaboratorEmail, collaborationStatus?.repository, searchForCollaborator, showCollaboratorDialog]);
 
-  const handleSyncFromGithub = async () => {
-    setCollaboratorError(null);
-    setGithubCollaboratorsError(null);
-    setCollaboratorNotice(null);
-    setGithubCollaboratorsSyncing(true);
-    try {
-      const snapshot = await api.syncGithubCollaborators(project.id);
-      setGithubCollaborators(snapshot);
-      setCollaboratorNotice(`Synced ${snapshot.collaborators.length} collaborator${snapshot.collaborators.length === 1 ? '' : 's'} from GitHub.`);
-    } catch (cause) {
-      const message = userFacingError(cause, 'GitHub collaborators could not be synced. Check repository access and try again.');
-      setGithubCollaboratorsError(message);
-      setCollaboratorError(message);
-    } finally {
-      setGithubCollaboratorsSyncing(false);
-    }
-  };
-
   const visibleGithubCollaborators = (githubCollaborators?.collaborators ?? []).filter(collaborator =>
     collaborator.login.toLowerCase().includes(collaborationQuery.trim().toLowerCase()),
   );
+  const collaboratorsInitialReadLoading = githubCollaboratorsLoadedProjectId !== project.id;
+  const collaboratorsRefreshing = !collaboratorsInitialReadLoading && githubCollaboratorsLoading;
 
   const inviteSelectedCollaborator = async () => {
     if (!selectedCollaborator) return;
@@ -935,34 +1029,40 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                 <div>
                   <h2 id="project-attention-heading"><AlertCircle size={19} /> Need attention</h2>
                 </div>
-                {attentionItems.length > 0 && <span className="panel-count">{attentionItems.length} item{attentionItems.length === 1 ? '' : 's'}</span>}
+                {!overviewInitialReadLoading && attentionItems.length > 0 && <span className="panel-count">{attentionItems.length} item{attentionItems.length === 1 ? '' : 's'}</span>}
               </div>
-              {visibleAttentionItems.length > 0 ? (
-                <div className="project-attention-list">
-                   {visibleAttentionItems.map(item => {
-                     const needsDisclosure = attentionNeedsDisclosure(item.detail);
-                     return (
-                       <div key={item.id} className="project-attention-row">
-                         <div className="project-attention-copy">
-                           <strong>{item.title}</strong>
-                           <p>
-                             <span>{attentionPreview(item.detail)}</span>
-                             {needsDisclosure && <button
-                               type="button"
-                               className="project-attention-see-more"
-                               onClick={() => openAttentionDetail(item)}
-                             >… See More</button>}
-                           </p>
+              {overviewInitialReadLoading ? <LoadingSkeleton variant="rows" rows={3} label="Loading project overview" /> : <>
+                {overviewRefreshing && <p className="project-collaboration-status" role="status">Updating project overview…</p>}
+                {overviewReadError && <p className="project-collaboration-status" role="status">Some project information could not be loaded. Open this section again to retry.</p>}
+                {visibleAttentionItems.length > 0 ? (
+                  <div className="project-attention-list">
+                     {visibleAttentionItems.map(item => {
+                       const needsDisclosure = attentionNeedsDisclosure(item.detail);
+                       return (
+                         <div key={item.id} className="project-attention-row">
+                           <div className="project-attention-copy">
+                             <strong>{item.title}</strong>
+                             <p>
+                               <span>{attentionPreview(item.detail)}</span>
+                               {needsDisclosure && <button
+                                 type="button"
+                                 className="project-attention-see-more"
+                                 onClick={() => openAttentionDetail(item)}
+                               >… See More</button>}
+                             </p>
+                           </div>
+                           <button type="button" className="btn-secondary" onClick={() => handleAttentionAction(item)}>{item.actionLabel}</button>
                          </div>
-                         <button type="button" className="btn-secondary" onClick={() => handleAttentionAction(item)}>{item.actionLabel}</button>
-                       </div>
-                     );
-                   })}
-                </div>
-              ) : (
-                <div className="project-overview-empty"><ShieldAlert size={22} aria-hidden="true" /><p>No items need attention right now.</p></div>
-              )}
-              {attentionItems.length > 3 && (
+                       );
+                     })}
+                  </div>
+                ) : overviewReadError ? (
+                  <div className="project-overview-empty"><ShieldAlert size={22} aria-hidden="true" /><p>Attention status is incomplete while project information is unavailable.</p></div>
+                ) : (
+                  <div className="project-overview-empty"><ShieldAlert size={22} aria-hidden="true" /><p>No items need attention right now.</p></div>
+                )}
+              </>}
+              {!overviewInitialReadLoading && attentionItems.length > 3 && (
                  <div className="project-pagination-footer">
                  <div className="project-pagination" aria-label="Need attention pages">
                    <span className="project-pagination-slot project-pagination-slot-start"><button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.max(0, page - 1))} disabled={attentionPage === 0}>Previous</button></span>
@@ -983,25 +1083,29 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                  <button type="button" className={activityType === 'review' ? 'active' : ''} aria-pressed={activityType === 'review'} onClick={() => setActivityType('review')}><FileCheck2 size={16} aria-hidden="true" /><span>Review</span></button>
                  <button type="button" className={activityType === 'dynamic' ? 'active' : ''} aria-pressed={activityType === 'dynamic'} onClick={() => setActivityType('dynamic')}><MonitorPlay size={16} aria-hidden="true" /><span>Dynamic Testing</span></button>
                </div></div>
-               <span className="panel-count">{Math.min(5, projectActivities.length)} of {projectActivities.length}</span>
+                <span className="panel-count">{activityInitialReadLoading ? 'Loading…' : activityLoadError && projectActivities.length === 0 ? 'Unavailable' : `${Math.min(5, projectActivities.length)} of ${projectActivities.length}`}</span>
              </div>
              <div className="project-activity-filters" aria-label="Filter recent activity">
                <label className="project-activity-search"><span className="visually-hidden">Search activity</span><input type="search" aria-label="Search activity" value={activityQuery} onChange={event => setActivityQuery(event.target.value)} placeholder="Activity name or state" /></label>
                <label htmlFor="project-activity-datetime">Datetime<input id="project-activity-datetime" type="datetime-local" value={activityDateTime} onChange={event => setActivityDateTime(event.target.value)} /></label>
                <label htmlFor="project-activity-state">State<Select id="project-activity-state" value={activityState} onChange={value => setActivityState(value as ActivityState)} options={[{ value: 'all', label: 'All states' }, { value: 'queued', label: 'Queued' }, { value: 'running', label: 'In progress' }, { value: 'needs_approval', label: 'Need Approval' }, { value: 'success', label: 'Completed' }, { value: 'needs_attention', label: 'Failed' }, { value: 'cancelled', label: 'Cancelled' }]} /></label>
              </div>
-            {visibleProjectActivities.map(activity => (
-              <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: activity.id })}>
-                <span className="project-activity-main"><strong>{activity.name} <span className="project-activity-id">{formatEntityId(activity.id)}</span> <time dateTime={activity.createdAt}>done at {formatProjectDateTime(activity.createdAt)}</time></strong><small>{activity.kind}</small></span>
-                <StatusBadge label={activity.status} />
-                <ChevronRight size={15} aria-hidden="true" />
-              </button>
-            ))}
-            {projectActivities.length === 0 && <p className="card-empty">{staticSessions.length + dynamicSessions.length === 0 ? 'No activity yet. Start a Review or Dynamic Testing from Action.' : 'No activity matches these filters.'}</p>}
-            {projectActivities.length > 5 && <nav className="project-pagination project-activity-pagination" aria-label="Recent activity pages">
-              <span className="project-pagination-range">{activityPage * 5 + 1}–{Math.min((activityPage + 1) * 5, projectActivities.length)} of {projectActivities.length}</span>
-              <span className="project-pagination-controls"><button type="button" className="btn-secondary" onClick={() => setActivityPage(page => Math.max(0, page - 1))} disabled={activityPage === 0} aria-label="Previous activity page"><ChevronLeft size={16} aria-hidden="true" /></button><span className="project-pagination-label">Page {activityPage + 1} of {activityPageCount}</span><button type="button" className="btn-secondary" onClick={() => setActivityPage(page => Math.min(activityPageCount - 1, page + 1))} disabled={activityPage >= activityPageCount - 1} aria-label="Next activity page"><ChevronRight size={16} aria-hidden="true" /></button></span>
-            </nav>}
+             {activityInitialReadLoading ? <LoadingSkeleton variant="rows" rows={4} label="Loading recent activity" /> : <>
+               {activityRefreshing && <p className="project-collaboration-status" role="status">Updating recent activity…</p>}
+               {activityLoadError && <p className="project-collaboration-status" role="status">Some recent activity could not be loaded.</p>}
+               {visibleProjectActivities.map(activity => (
+                 <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: activity.id })}>
+                   <span className="project-activity-main"><strong>{activity.name} <span className="project-activity-id">{formatEntityId(activity.id)}</span> <time dateTime={activity.createdAt}>done at {formatProjectDateTime(activity.createdAt)}</time></strong><small>{activity.kind}</small></span>
+                   <StatusBadge label={activity.status} />
+                   <ChevronRight size={15} aria-hidden="true" />
+                 </button>
+               ))}
+               {projectActivities.length === 0 && <p className="card-empty">{activityLoadError ? 'Recent activity could not be loaded.' : staticSessions.length + dynamicSessions.length === 0 ? 'No activity yet. Start a Review or Dynamic Testing from Action.' : 'No activity matches these filters.'}</p>}
+               {projectActivities.length > 5 && <nav className="project-pagination project-activity-pagination" aria-label="Recent activity pages">
+                 <span className="project-pagination-range">{activityPage * 5 + 1}–{Math.min((activityPage + 1) * 5, projectActivities.length)} of {projectActivities.length}</span>
+                 <span className="project-pagination-controls"><button type="button" className="btn-secondary" onClick={() => setActivityPage(page => Math.max(0, page - 1))} disabled={activityPage === 0} aria-label="Previous activity page"><ChevronLeft size={16} aria-hidden="true" /></button><span className="project-pagination-label">Page {activityPage + 1} of {activityPageCount}</span><button type="button" className="btn-secondary" onClick={() => setActivityPage(page => Math.min(activityPageCount - 1, page + 1))} disabled={activityPage >= activityPageCount - 1} aria-label="Next activity page"><ChevronRight size={16} aria-hidden="true" /></button></span>
+               </nav>}
+             </>}
           </section>
         </>}
 
@@ -1010,8 +1114,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             <div>
               <h2 id="project-risk-heading"><ShieldAlert size={19} /> Assessment <button type="button" className="command-icon-button assessment-info-button" aria-label="Assessment information" title="How Assessment risk is measured" onClick={() => setAssessmentInfoPage('severity')}><Info size={16} aria-hidden="true" /></button></h2>
             </div>
-              <span className="panel-count">{findingsError ? 'Unavailable' : findingsLoading ? 'Loading…' : assessmentData?.status === 'available' && assessmentData.summary ? `${assessmentData.summary.classified} classified${assessmentData.summary.unclassified > 0 ? ` · ${assessmentData.summary.unclassified} unavailable` : ''}` : `${riskLevelFindings.length} classified${currentFindings.length > riskLevelFindings.length ? ` · ${currentFindings.length - riskLevelFindings.length} unavailable` : ''}`}</span>
+              <span className="panel-count">{assessmentInitialReadLoading || findingsLoading ? 'Loading…' : findingsError ? 'Unavailable' : assessmentData?.status === 'available' && assessmentData.summary ? `${assessmentData.summary.classified} classified${assessmentData.summary.unclassified > 0 ? ` · ${assessmentData.summary.unclassified} unavailable` : ''}` : `${riskLevelFindings.length} classified${currentFindings.length > riskLevelFindings.length ? ` · ${currentFindings.length - riskLevelFindings.length} unavailable` : ''}`}</span>
           </div>
+          {assessmentInitialReadLoading ? <LoadingSkeleton variant="panel" label="Loading assessment" /> : <>
+          {assessmentLoading && <p className="project-collaboration-status" role="status">Updating assessment…</p>}
           <section className="project-risk-summary-section" aria-labelledby="risk-summary-heading">
             <div className="project-risk-section-heading"><div><h3 id="risk-summary-heading">Risk Summary</h3></div></div>
             <div className="project-risk-overview-grid">
@@ -1026,6 +1132,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             {displayedRiskFindings.length > 0 ? <div className="project-risk-table-wrap"><table className="project-risk-table" aria-label="Current risk items"><thead><tr><th scope="col">Risk</th><th scope="col">Severity</th><th scope="col">Priority</th><th scope="col">Finding</th><th scope="col">Category</th><th scope="col">Status</th></tr></thead><tbody>{displayedRiskFindings.slice(0, 4).map(finding => <tr key={finding.id}><td><span className={`project-risk-level project-risk-level-${finding.riskLevel}`}>{finding.riskLevel}</span></td><td>{finding.severity}</td><td>{finding.priority || 'Not set'}</td><td><strong>{finding.title}</strong></td><td>{finding.category || '—'}</td><td>{finding.status === 'fixed' ? 'Resolved' : finding.status === 'dismissed' ? 'Dismissed' : 'Unresolved'}</td></tr>)}</tbody></table></div> : <p className="card-empty">{findingsError ? 'Risk items could not be loaded.' : findingsLoading ? 'Loading risk items…' : riskLevelFindings.length === 0 ? 'No classified unresolved risk items.' : 'No current risk items.'}</p>}
             <button type="button" className="btn-link project-see-more-findings" onClick={() => { setFindingsFilter({ riskLevel: 'critical_or_high', status: 'unresolved' }); moveToSection('project-findings'); }}>See More Findings <span aria-hidden="true">→</span></button>
           </section>
+          </>}
           <AssessmentInfoDialog page={assessmentInfoPage} onPageChange={setAssessmentInfoPage} onClose={() => setAssessmentInfoPage(null)} />
         </section>}
 
@@ -1053,28 +1160,29 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           <div className="panel-header project-collaboration-header">
             <div><h2><Users size={19} /> Collaborators</h2></div>
             <div className="project-collaboration-actions">
-              <button type="button" className="btn-secondary" onClick={() => void handleSyncFromGithub()} disabled={githubCollaboratorsSyncing || collaborationStatusLoading || !collaborationStatus?.available}><RotateCw size={16} aria-hidden="true" /> {githubCollaboratorsSyncing ? 'Syncing…' : 'Sync from GitHub'}</button>
               <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>
             </div>
           </div>
           <div className="project-collaboration-search-row">
             <label className="project-collaboration-search" htmlFor="project-collaboration-search"><span className="visually-hidden">Search collaborators</span><span className="project-collaboration-search-control"><Search size={15} aria-hidden="true" /><input id="project-collaboration-search" type="search" value={collaborationQuery} onChange={event => setCollaborationQuery(event.target.value)} placeholder="GitHub username" /></span></label>
           </div>
-          {collaborationStatusLoading && <p className="project-collaboration-status" role="status">Checking GitHub collaboration…</p>}
-          {githubCollaboratorsLoading && <p className="project-collaboration-status" role="status">Loading collaborators…</p>}
+          {collaborationStatusError && <p className="command-inline-alert" role="alert">{collaborationStatusError}</p>}
           {githubCollaboratorsError && <p className="command-inline-alert" role="alert">{githubCollaboratorsError}</p>}
           {collaboratorNotice && <p className="collaborator-dialog-notice" role="status">{collaboratorNotice}</p>}
-          {!collaborationStatusLoading && !githubCollaboratorsLoading && visibleGithubCollaborators.length > 0 && <div className="project-collaborator-list" role="list" aria-label="GitHub collaborators">
+          {collaboratorsInitialReadLoading && <LoadingSkeleton variant="rows" rows={4} label="Loading collaborators" />}
+          {collaboratorsRefreshing && <p className="project-collaboration-status" role="status">Refreshing saved collaborator information…</p>}
+          {!collaboratorsInitialReadLoading && !collaborationStatus?.available && !collaborationStatusError && collaborationStatus?.message && visibleGithubCollaborators.length > 0 && <p className="project-collaboration-status" role="status">{collaborationStatus.message}</p>}
+          {!collaboratorsInitialReadLoading && (!githubCollaboratorsLoading || githubCollaboratorsLoadedProjectId === project.id) && visibleGithubCollaborators.length > 0 && <div className="project-collaborator-list" role="list" aria-label="GitHub collaborators">
             {visibleGithubCollaborators.map(collaborator => <div className="project-collaborator-row" role="listitem" key={collaborator.id}>
               {collaborator.avatarUrl ? <img src={collaborator.avatarUrl} alt="" /> : <span className="collaborator-avatar" aria-hidden="true"><Users size={16} /></span>}
               <span><strong>@{collaborator.login}</strong><small>{collaborator.permission} access</small></span>
             </div>)}
           </div>}
-          {!collaborationStatusLoading && !githubCollaboratorsLoading && !githubCollaboratorsError && visibleGithubCollaborators.length === 0 && (
+          {!collaboratorsInitialReadLoading && !githubCollaboratorsLoading && !githubCollaboratorsError && !collaborationStatusError && visibleGithubCollaborators.length === 0 && (
             <div className="project-collaboration-empty" role="status">
               <Users size={24} aria-hidden="true" />
               <strong>{collaborationQuery.trim() ? 'Collaborator not found' : githubCollaborators?.syncedAt ? 'No repository collaborators' : 'No collaborators synced yet'}</strong>
-              <p>{collaborationQuery.trim() ? `No collaborator matches “${collaborationQuery.trim()}”.` : !collaborationStatus?.available ? collaborationStatus?.message ?? 'Connect a GitHub repository and account to sync collaborators.' : githubCollaborators?.syncedAt ? 'The latest GitHub sync found no collaborators with repository access.' : 'Sync from GitHub to see people with repository access.'}</p>
+              <p>{collaborationQuery.trim() ? `No collaborator matches “${collaborationQuery.trim()}”.` : !collaborationStatus?.available ? collaborationStatus?.message ?? 'Connect a GitHub repository and account to view repository collaborators.' : githubCollaborators?.syncedAt ? 'The latest GitHub check found no collaborators with repository access.' : 'Centinel checks GitHub automatically when this section opens.'}</p>
             </div>
           )}
         </section>}
@@ -1151,10 +1259,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             <label htmlFor="collaborator-email">GitHub account email</label>
             <span className="collaborator-email-control"><input id="collaborator-email" type="email" value={collaboratorEmail} onChange={event => setCollaboratorEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" disabled={collaborationStatusLoading || !collaborationStatus?.repository} aria-describedby="collaborator-email-status" /><Search size={16} aria-hidden="true" /></span>
           </form>
-          <div className="collaborator-sync-row">
-            <button type="button" className="btn-secondary" onClick={() => void handleSyncFromGithub()} disabled={githubCollaboratorsSyncing || !collaborationStatus?.available}><RotateCw size={15} aria-hidden="true" /> {githubCollaboratorsSyncing ? 'Syncing…' : 'Sync collaborators from GitHub'}</button>
-            <span className="collaborator-sync-hint">Refreshes the saved list from GitHub.</span>
-          </div>
           <div id="collaborator-email-status" aria-live="polite">
             {collaboratorSearchLoading && <p className="collaborator-dialog-status" role="status">Searching GitHub…</p>}
             {!collaboratorSearchLoading && collaboratorEmail.trim() && !collaboratorError && collaborationStatus?.repository && collaboratorMatches.length === 0 && <p className="collaborator-dialog-status" role="status">Collaborator not found. Try another email address.</p>}

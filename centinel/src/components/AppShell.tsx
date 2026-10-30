@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CircleUserRound, FileCheck2, FlaskConical, FolderOpen, GitBranch, House, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Repeat2, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleHelp, CircleUserRound, FileCheck2, FlaskConical, FolderOpen, GitBranch, House, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Repeat2, Settings } from 'lucide-react';
 import type { Project, Screen } from '../types';
 import { Modal } from './Modal';
 import { Select } from './Select';
@@ -245,6 +245,15 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               >
                 <Settings size={18} aria-hidden="true" />
                 <span>Settings</span>
+              </button>
+              <button
+                className={`nav-item ${isActive(['help']) ? 'active' : ''}`}
+                onClick={() => nav('help')}
+                aria-label="Help"
+                title="Help"
+              >
+                <CircleHelp size={18} aria-hidden="true" />
+                <span>Help</span>
               </button>
             </div>
 
