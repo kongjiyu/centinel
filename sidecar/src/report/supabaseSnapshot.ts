@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact, ArtifactSource, ArtifactType } from '../artifacts.js';
 import type { DynamicEvidence, DynamicSession } from '../dynamicSessions.js';
 import type { Project } from '../projects.js';
+import type { DynamicRun } from '../dynamic/types.js';
 import type { Requirement, RequirementMapping } from '../staticDomainTypes.js';
 import type { ReviewDecisionRecord } from '../staticDomainTypes.js';
 import type { ReviewSourceManifest, ReviewTraceabilitySnapshot } from '../review/evidenceTypes.js';
@@ -320,8 +321,25 @@ function standardRuleFromRow(row: Row): ReportStandardRule {
   };
 }
 
+/** Present a shared Run in the report's Dynamic session shape, following its independent verdict. */
+function runReportSession(run: DynamicRun): DynamicSession {
+  const status: DynamicSession['status'] = run.state === 'queued' ? 'queued' : run.state === 'running' ? 'running'
+    : run.state === 'cancelled' ? 'cancelled'
+      : run.state === 'completed' ? (run.verdict === 'passed' ? 'success' : run.verdict === 'failed' ? 'failure' : 'blocked') : 'blocked';
+  const passed = run.checks.filter(check => check.verdict === 'passed').length;
+  return {
+    id: run.id, projectId: run.projectId, type: 'dynamic', name: run.revision.name, status,
+    targetUrl: run.environment?.targetUrl ?? run.revision.targetUrl, goal: run.revision.goal,
+    missionType: 'user_journey', browserMode: 'headed', maxSteps: run.revision.maxSteps,
+    finalSummary: `Revision ${run.revision.revision}: ${passed} of ${run.revision.checks.length} checks passed; verdict ${run.verdict.replace('_', ' ')}.`,
+    failureReason: run.reason ?? '', createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt,
+  };
+}
+
 export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
   constructor(readonly client: SupabaseClient, readonly userId: string) {}
+  /** Shared Runs read during this snapshot, by ID, so evidence/action reads stay consistent. */
+  private readonly runs = new Map<string, DynamicRun>();
 
   async getProject(projectId: string): Promise<Project | null> {
     await assertMember(this.client, this.userId, projectId);
@@ -336,19 +354,34 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
     return rows.map(staticSessionFromRow);
   }
 
+  /**
+   * Shared Mission/Run records are authoritative; device-local legacy sessions
+   * remain only when no shared Run already mirrors them.
+   */
   async listDynamicSessions(projectId: string): Promise<DynamicSession[]> {
     await assertMember(this.client, this.userId, projectId);
-    const rows = await requirePagedRows(this.client, 'dynamic_sessions', query => query.select('*').eq('project_id', projectId)
-      .order('created_at', { ascending: false }).order('id'));
-    return rows.map(row => ({
-      id: text(row.id), projectId: text(row.project_id), type: 'dynamic', name: text(row.name), status: text(row.status) as DynamicSession['status'],
+    const [rows, runRows] = await Promise.all([
+      requirePagedRows(this.client, 'dynamic_sessions', query => query.select('*').eq('project_id', projectId)
+        .order('created_at', { ascending: false }).order('id')),
+      requirePagedRows(this.client, 'dynamic_runs', query => query.select('id,payload').eq('project_id', projectId)
+        .order('created_at', { ascending: false }).order('id')),
+    ]);
+    const runs = runRows.map(row => row.payload as DynamicRun).filter(run => run && typeof run === 'object' && typeof run.id === 'string');
+    this.runs.clear();
+    for (const run of runs) this.runs.set(run.id, run);
+    const mirrored = new Set(runs.map(run => run.legacySessionId).filter((id): id is string => Boolean(id)));
+    return [...runs.map(runReportSession), ...rows.filter(row => !mirrored.has(text(row.id))).map(row => ({
+      id: text(row.id), projectId: text(row.project_id), type: 'dynamic' as const, name: text(row.name), status: text(row.status) as DynamicSession['status'],
       targetUrl: text(row.target_url), goal: text(row.goal), missionType: text(row.mission_type) as DynamicSession['missionType'], browserMode: text(row.browser_mode, 'headed') as 'headed',
       maxSteps: Number(row.max_steps ?? 20), finalSummary: text(row.final_summary), failureReason: text(row.failure_reason), createdAt: text(row.created_at), updatedAt: text(row.updated_at),
-    }));
+    }))];
   }
 
   async listDynamicEvidence(projectId: string, sessionId: string): Promise<DynamicEvidence[]> {
     await assertMember(this.client, this.userId, projectId);
+    // Run evidence stays on the executing device until explicitly shared; the
+    // report lists check outcomes instead of claiming retained files.
+    if (this.runs.has(sessionId)) return [];
     const rows = await requirePagedRows(this.client, 'dynamic_evidence', query => query.select('id,type,summary,storage_path,created_at')
       .eq('project_id', projectId).eq('dynamic_session_id', sessionId).order('created_at').order('id'));
     return rows.map(row => ({
@@ -359,6 +392,15 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
 
   async listDynamicActions(projectId: string, sessionId: string): Promise<ReportActionTrace[]> {
     await assertMember(this.client, this.userId, projectId);
+    const run = this.runs.get(sessionId);
+    if (run) {
+      const definitions = new Map(run.revision.checks.map(check => [check.id, check]));
+      return run.checks.map((result, index) => ({
+        step: index + 1, action: 'check',
+        target: definitions.get(result.checkId)?.description ?? result.checkId,
+        result: `${result.verdict}${result.reason ? `: ${result.reason}` : ''}`,
+      }));
+    }
     const rows = await requirePagedRows(this.client, 'dynamic_actions', query => query.select('id,step,action,target,result')
       .eq('project_id', projectId).eq('dynamic_session_id', sessionId).order('step').order('id'));
     return rows.map(row => ({

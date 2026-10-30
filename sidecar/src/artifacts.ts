@@ -17,6 +17,18 @@ export type Artifact = {
   originalPath: string | null;
   contentHash: string;
   createdAt: string;
+  /** Latest recorded content/metadata change, when the store provides one. */
+  updatedAt?: string;
+  /** Source currency governance (DESIGN.md: 90-day confirmation; deprecated sources leave new Reviews). */
+  currency?: SourceCurrency;
+};
+
+export type SourceCurrency = {
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+  deprecated: boolean;
+  deprecatedAt: string | null;
+  deprecatedBy: string | null;
 };
 
 const SUPPORTED_EXTENSIONS: Record<string, ArtifactType> = {

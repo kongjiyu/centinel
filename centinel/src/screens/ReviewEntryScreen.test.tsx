@@ -14,6 +14,8 @@ vi.mock('../api/client', () => ({
     listStaticSessions: vi.fn(),
     getReviewSourceManifest: vi.fn(),
     createStaticSession: vi.fn(),
+    aiSettings: vi.fn(),
+    codexStatus: vi.fn(),
   },
 }));
 
@@ -150,11 +152,14 @@ function setup({ artifacts = [sourceArtifact, standardArtifact], requirements = 
     sessionId: 'review-missing', projectId: project.id, status: 'unavailable', sources: [], artifactCount: null,
   });
   vi.mocked(api.createStaticSession).mockResolvedValue(returnedSession);
+  vi.mocked(api.codexStatus).mockResolvedValue({ available: true, connected: true, accountLabel: null, message: '' });
+  vi.mocked(api.aiSettings).mockResolvedValue([{ id: 'text', label: 'Review', provider: 'codex', apiFormat: 'openai', hasApiKey: false, apiKeyPreview: '', baseUrl: '', model: 'gpt-test' }] as never);
 }
 
 describe('ReviewEntryScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     setup();
   });
 
@@ -190,6 +195,24 @@ describe('ReviewEntryScreen', () => {
     expect(payload.idempotencyKey).toEqual(expect.any(String));
     expect(payload).not.toHaveProperty('comparisonParentReviewId');
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: returnedSession.id, reviewName: returnedSession.name });
+  });
+
+  it('blocks Start review and links to Settings when Review has no Model Provider', async () => {
+    vi.mocked(api.aiSettings).mockResolvedValue([{ id: 'text', label: 'Review', provider: 'openai', apiFormat: 'openai', hasApiKey: false, apiKeyPreview: '', baseUrl: '', model: '' }] as never);
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    render(<ReviewEntryScreen projects={[project]} onNavigate={onNavigate} onCreateProject={vi.fn()} />);
+    expect(await screen.findByText(/Model Provider for Review is not ready/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Open Settings' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'settings' });
+  });
+
+  it('treats a saved Codex model as not ready until Codex is connected', async () => {
+    vi.mocked(api.codexStatus).mockResolvedValue({ available: true, connected: false, accountLabel: null, message: 'Sign in' });
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+    expect(await screen.findByText(/Model Provider for Review is not ready/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
   });
 
   it('defaults to the first source identity and all eligible supporting inputs', async () => {

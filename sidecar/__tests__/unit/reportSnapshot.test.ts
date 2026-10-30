@@ -350,6 +350,16 @@ describe('immutable project report from a persistence-neutral source', () => {
     expect(rendered.markdown).toContain('legacy report snapshot has no reconciled current inventory');
   });
 
+  it('focuses a Review report on the requested finished Review and names the exporting account', async () => {
+    const older = staticAttempt('review-old', { completedAt: '2026-10-01T00:30:00.000Z' });
+    const newer = staticAttempt('review-new', { createdAt: '2026-10-20T00:00:00.000Z', completedAt: '2026-10-20T00:30:00.000Z' });
+    const source = { ...fixtureSource(false), listStaticSessions: async () => [older, newer] };
+    const snapshot = await buildProjectReportSnapshot(project.id, { source, reviewId: 'review-old', actorEmail: 'qa@example.com' });
+    expect(snapshot.latestReview?.session.id).toBe('review-old');
+    expect(snapshot.metadata).toMatchObject({ reviewId: 'review-old', actorEmail: 'qa@example.com' });
+    await expect(buildProjectReportSnapshot(project.id, { source, reviewId: 'missing' })).rejects.toThrow(/finished Review/);
+  });
+
   it('orders Static attempts by execution time and ignores later activity', async () => {
     const oldApproved = staticAttempt('review-old', {
       createdAt: '2026-10-01T00:00:00.000Z', completedAt: '2026-10-01T00:30:00.000Z',

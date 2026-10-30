@@ -194,6 +194,39 @@ export async function signInWithPassword(email: string, password: string): Promi
   return data.session;
 }
 
+function authRedirectUrl(): string | undefined {
+  return readEnv('VITE_SUPABASE_AUTH_REDIRECT_URL') || (typeof window !== 'undefined' ? window.location.origin : undefined);
+}
+
+/**
+ * Create an e-mail/password account. When the Supabase project requires e-mail
+ * confirmation no session is returned until the person follows the link.
+ */
+export async function signUpWithPassword(email: string, password: string): Promise<{ session: Session | null }> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error('Account sign-up is not available in this installation.');
+  const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: authRedirectUrl() } });
+  if (error) throw error;
+  if (data.session) cacheSession(data.session);
+  return { session: data.session };
+}
+
+/** Send a password-reset link. The response never reveals whether the account exists. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error('Password reset is not available in this installation.');
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: authRedirectUrl() });
+  if (error) throw error;
+}
+
+/** Change the signed-in account's password. */
+export async function updatePassword(password: string): Promise<void> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) throw new Error('Password changes are not available in this installation.');
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw error;
+}
+
 async function startSocialSignIn(provider: 'google' | 'github'): Promise<void> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) throw new Error('Supabase Auth is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');

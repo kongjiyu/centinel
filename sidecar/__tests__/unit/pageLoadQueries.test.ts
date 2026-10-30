@@ -51,11 +51,13 @@ describe('page loading query budgets', () => {
       review_type: 'code_review', progress_stage: 'provider_paused', failure_reason: 'Manual resume required',
       config: { instructions: 'private source instructions' }, scope: { artifactIds: ['file'] },
       progress: { events: Array(2000).fill('large history') }, summary: 'large saved summary',
-      created_at: '2026-10-21', updated_at: '2026-10-22' }]);
+      created_at: '2026-10-21', updated_at: '2026-10-22', lineage_parent: 'failed-parent' }]);
     const summaries = await new SupabaseStaticReviewRepository(fixture.client).listReviewSummaries('project');
     expect(summaries[0]).toMatchObject({ id: 'review', status: 'blocked', progress: { stage: 'provider_paused' }, config: {}, scope: {}, summary: '' });
     expect(fixture.calls.every(call => call.table === 'review_sessions')).toBe(true);
-    expect(fixture.calls[0].columns).toBe('id,project_id,name,review_type,status,failure_reason,created_at,updated_at,progress_stage:progress->>stage');
+    // Lineage stays in the lightweight projection so directories can let a retry supersede its failed parent.
+    expect(fixture.calls[0].columns).toBe('id,project_id,name,review_type,status,failure_reason,created_at,updated_at,model_status,parent_review_id,lineage_parent:lineage->>parentReviewId,progress_stage:progress->>stage');
+    expect(summaries[0].lineage.parentReviewId).toBe('failed-parent');
     expect(fixture.calls[0].filters).toEqual({ project_id: 'project' });
     expect(JSON.stringify(summaries)).not.toContain('large history');
     expect(JSON.stringify(summaries)).not.toContain('private source instructions');

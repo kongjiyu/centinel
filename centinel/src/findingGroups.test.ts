@@ -13,6 +13,15 @@ describe('finding type grouping', () => {
   it('does not collapse unrelated rules or differently titled issues', () => {
     expect(groupFindings([finding('a'), finding('b', { title: '[cq-long-function] too long' }), finding('c', { category: 'security' }), finding('d', { verifier: 'model' }), finding('e', { verifier: 'model', title: 'Ownership check missing' })])).toHaveLength(3);
   });
+  it('folds a rule issue into the model issue that reports the same lines, keeping every occurrence', () => {
+    const rule = (id: string, line: number) => finding(id, { title: '[sec-innerhtml] innerHTML assignment', category: 'security', severity: 'info', filePath: 'todo-app.html', lineNumber: line, location: { ruleId: 'sec-innerhtml' } });
+    const model = finding('model', { verifier: 'model', title: 'Todo HTML Injection', category: 'security', severity: 'medium', filePath: 'todo-app.html', lineNumber: 131 });
+    const groups = groupFindings([model, rule('r1', 131), rule('r2', 132)]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe('Todo HTML Injection');
+    expect(groups[0].members.map(item => item.id)).toEqual(['model', 'r1', 'r2']);
+    expect(groupFindings([model, rule('r1', 131), rule('far', 300)])).toHaveLength(2);
+  });
   it('preserves every structured readiness reference and does not invent a code location', () => {
     const value = finding('a', { filePath: '', artifactId: null, relatedSources: [{ filePath: 'a.md', relation: 'requirement', excerpt: 'vague text' }, { filePath: 'b.md', relation: 'document' }] });
     expect(findingSourceReferences(value)).toEqual(value.relatedSources);

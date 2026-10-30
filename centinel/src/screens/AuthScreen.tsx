@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { WindowHeader } from '../components/WindowHeader';
-import { isSupabaseAuthConfigured, signInWithPassword, startGithubSignIn, startGoogleSignIn } from '../auth/supabaseAuth';
+import { isSupabaseAuthConfigured, requestPasswordReset, signInWithPassword, signUpWithPassword, startGithubSignIn, startGoogleSignIn } from '../auth/supabaseAuth';
 import './AuthScreen.css';
 
 type Props = {
@@ -39,26 +39,46 @@ export function AuthScreen({ onSignIn, onBackToWorkspace }: Props) {
   const [authBusy, setAuthBusy] = useState(false);
   const [activeProvider, setActiveProvider] = useState<'google' | 'github' | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'sign-in' | 'sign-up' | 'reset'>('sign-in');
+  const [notice, setNotice] = useState<string | null>(null);
+  const switchMode = (next: typeof mode) => { setMode(next); setAuthError(null); setNotice(null); setPassword(''); };
   const nativeWindowChrome = isTauriRuntime();
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setAuthError(null);
+    setNotice(null);
     const trimmedEmail = email.trim();
     if (!isSupabaseAuthConfigured()) {
       await onSignIn(trimmedEmail || null);
       return;
     }
-    if (!trimmedEmail || !password) {
-      setAuthError('Enter your email address and password to continue.');
+    if (!trimmedEmail || (mode !== 'reset' && !password)) {
+      setAuthError(mode === 'reset' ? 'Enter the email address of your account.' : 'Enter your email address and password to continue.');
+      return;
+    }
+    if (mode === 'sign-up' && password.length < 8) {
+      setAuthError('Use a password with at least 8 characters.');
       return;
     }
     setAuthBusy(true);
     try {
+      if (mode === 'reset') {
+        await requestPasswordReset(trimmedEmail);
+        setNotice('If an account uses this address, a reset link is on its way. Open it, then choose a new password in Profile.');
+        return;
+      }
+      if (mode === 'sign-up') {
+        const { session } = await signUpWithPassword(trimmedEmail, password);
+        if (session) await onSignIn(session.user.email ?? trimmedEmail, session.access_token, session.user.id);
+        else { setNotice('Account created. Confirm it from the email we sent, then sign in.'); setMode('sign-in'); setPassword(''); }
+        return;
+      }
       const session = await signInWithPassword(trimmedEmail, password);
       await onSignIn(session.user.email ?? trimmedEmail, session.access_token, session.user.id);
     } catch (cause) {
-      setAuthError(cause instanceof Error ? cause.message : 'Sign-in failed. Check your Supabase credentials.');
+      const fallback = mode === 'sign-up' ? 'The account could not be created. Try again.' : mode === 'reset' ? 'The reset link could not be sent. Try again.' : 'Sign-in failed. Check your email address and password.';
+      setAuthError(cause instanceof Error && cause.message ? cause.message : fallback);
     } finally {
       setAuthBusy(false);
     }
@@ -91,9 +111,9 @@ export function AuthScreen({ onSignIn, onBackToWorkspace }: Props) {
             <div className="auth-product"><img src="/assets/centinel-shield.svg" alt="" aria-hidden="true" /><span>Centinel</span></div>
             {onBackToWorkspace && <button type="button" className="auth-back-button" onClick={onBackToWorkspace}>Back to workspace</button>}
           </div>
-          <header className="auth-panel-heading"><h1 id="auth-title">Sign in to Centinel</h1><p>Access your review and testing workspace.</p></header>
+          <header className="auth-panel-heading"><h1 id="auth-title">{mode === 'sign-up' ? 'Create your Centinel account' : mode === 'reset' ? 'Reset your password' : 'Sign in to Centinel'}</h1><p>{mode === 'reset' ? 'We will email you a link to choose a new password.' : 'Access your review and testing workspace.'}</p></header>
 
-          <div className="auth-providers" role="group" aria-label="Social sign-in options">
+          {mode !== 'reset' && <><div className="auth-providers" role="group" aria-label="Social sign-in options">
             <button type="button" className="auth-provider" onClick={() => void handleSocialSignIn('google')} disabled={authBusy}>
               <GoogleMark />
               <span>{activeProvider === 'google' ? 'Opening Google…' : 'Continue with Google'}</span>
@@ -104,14 +124,19 @@ export function AuthScreen({ onSignIn, onBackToWorkspace }: Props) {
             </button>
           </div>
 
-          <div className="auth-divider"><span>or continue with email</span></div>
+          <div className="auth-divider"><span>or continue with email</span></div></>}
 
           {authError && <p className="form-error" role="alert">{authError}</p>}
+          {notice && <p className="auth-notice" role="status">{notice}</p>}
           <form onSubmit={event => { void submit(event); }} noValidate>
             <label htmlFor="auth-email"><span>Email address</span><input id="auth-email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="name@organisation.com" /></label>
-            <label htmlFor="auth-password"><span>Password</span><span className="auth-password-control"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
-            <button type="submit" className="btn-primary auth-submit" disabled={authBusy}>{authBusy ? 'Signing in…' : 'Sign in'}</button>
+            {mode !== 'reset' && <label htmlFor="auth-password"><span>Password</span><span className="auth-password-control"><input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>}
+            <button type="submit" className="btn-primary auth-submit" disabled={authBusy}>{authBusy ? 'Working…' : mode === 'sign-up' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in'}</button>
           </form>
+          <div className="auth-mode-links">
+            {mode === 'sign-in' && <><button type="button" className="btn-link" onClick={() => switchMode('reset')}>Forgot password?</button><button type="button" className="btn-link" onClick={() => switchMode('sign-up')}>Create an account</button></>}
+            {mode !== 'sign-in' && <button type="button" className="btn-link" onClick={() => switchMode('sign-in')}>Back to sign in</button>}
+          </div>
         </section>
         <footer className="auth-footer">Centinel Desktop</footer>
       </main>

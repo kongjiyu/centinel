@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ExternalLink, GitBranch, Mail, UserRound } from 'lucide-react';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { openExternalUrl } from '../utils/openExternalUrl';
+import { updatePassword } from '../auth/supabaseAuth';
 
 type AuthProvider = 'email' | 'google' | 'github' | null;
 
@@ -93,6 +94,40 @@ export function ProfileScreen({ accountEmail = null, authProvider = null }: Prop
         )}
         {message && <p className="profile-provider-error" role="alert">{message}</p>}
       </section>
+
+      {authProvider === 'email' && <PasswordSection />}
     </div>
+  );
+}
+
+/** Change the password of an e-mail account, including after a reset link. */
+function PasswordSection() {
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (password.length < 8) { setResult({ tone: 'error', text: 'Use a password with at least 8 characters.' }); return; }
+    if (password !== confirmation) { setResult({ tone: 'error', text: 'The two passwords do not match.' }); return; }
+    setBusy(true); setResult(null);
+    try {
+      await updatePassword(password);
+      setPassword(''); setConfirmation('');
+      setResult({ tone: 'success', text: 'Your password has been changed.' });
+    } catch (cause) {
+      setResult({ tone: 'error', text: cause instanceof Error && cause.message ? cause.message : 'The password could not be changed. Try again.' });
+    } finally { setBusy(false); }
+  };
+  return (
+    <section className="profile-provider-section" aria-labelledby="profile-password-title">
+      <div className="profile-section-heading"><div><h2 id="profile-password-title">Password</h2><p>Choose a new password for signing in with your e-mail address.</p></div></div>
+      <form className="profile-password-form" onSubmit={event => void submit(event)}>
+        <div className="form-field"><label htmlFor="profile-new-password">New password</label><input id="profile-new-password" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></div>
+        <div className="form-field"><label htmlFor="profile-confirm-password">Confirm new password</label><input id="profile-confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={event => setConfirmation(event.target.value)} /></div>
+        <button type="submit" className="btn-primary" disabled={busy || !password}>{busy ? 'Saving…' : 'Change password'}</button>
+      </form>
+      {result && <p className={result.tone === 'error' ? 'profile-provider-error' : 'profile-password-success'} role={result.tone === 'error' ? 'alert' : 'status'}>{result.text}</p>}
+    </section>
   );
 }

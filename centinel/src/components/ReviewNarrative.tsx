@@ -23,7 +23,7 @@ export function ReviewNarrativeTimeline({ narrative, loading, error, onOpenFindi
     {loading && <p role="status">Loading the saved activity…</p>}
     {error && <p role="status">{error}</p>}
     {!loading && !error && narrative.retryUpdate && <p role="status">{narrative.retryUpdate}</p>}
-    {!loading && !narrative.detailedHistoryAvailable && <p>The detailed activity wasn’t saved for this review. You can still inspect its findings below.</p>}
+    {!loading && !narrative.detailedHistoryAvailable && <p>{narrative.active ? 'This review is waiting to start. Its activity will appear here step by step.' : 'The detailed activity wasn’t saved for this review. You can still inspect its findings below.'}</p>}
     {narrative.stages.length > 0 && <ol className="review-activity-timeline" aria-label="Review stages">{narrative.stages.map(stage => <li key={stage.id} className="review-narrative-stage">
       <div className="review-stage-heading"><h3>{stage.title}</h3><span>{stage.state} · {stage.duration}</span></div>
       {stage.outcome && <p>{stage.outcome}</p>}

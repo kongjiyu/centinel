@@ -1,4 +1,5 @@
 import { LoadingSkeleton } from './components/LoadingSkeleton';
+import { hashToScreen, isRouteHash, screenToHash } from './navigation/screenHash';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { userFacingError } from './utils/userFacingError';
@@ -58,8 +59,21 @@ function App() {
   const [githubPromptedForUserId, setGithubPromptedForUserId] = useState<string | null>(null);
   const [githubConnectionPromptOpen, setGithubConnectionPromptOpen] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
-  const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
+  const [screen, setScreen] = useState<Screen>(() => (typeof window !== 'undefined' && hashToScreen(window.location.hash)) || { name: 'dashboard' });
   const navigate = (next: Screen) => setScreen(next.name === 'project-detail' && next.initialAction === 'dynamic' ? { name: 'dynamic-testing', projectId: next.projectId } : next);
+  // Keep the page in the URL hash so Back/Forward, reload and shared links work.
+  useEffect(() => {
+    const hash = screenToHash(screen);
+    if (window.location.hash !== hash && (!window.location.hash || isRouteHash(window.location.hash))) window.location.hash = hash;
+  }, [screen]);
+  useEffect(() => {
+    const follow = () => {
+      const next = hashToScreen(window.location.hash);
+      if (next) setScreen(current => screenToHash(current) === window.location.hash ? current : next);
+    };
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
+  }, []);
   const [projects, setProjects] = useState<Project[]>([]);
   const indexSyncProjectIds = useRef<string[]>([]);
   indexSyncProjectIds.current = projects.map(project => project.id);
@@ -320,7 +334,7 @@ function App() {
             onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}
           />
         )}
-        {screen.name === 'dynamic-testing' && <DynamicWorkspaceScreen projects={projects} initialProjectId={screen.projectId} initialRunId={screen.runId} onNavigate={navigate} />}
+        {screen.name === 'dynamic-testing' && <DynamicWorkspaceScreen projects={projects} initialProjectId={screen.projectId} initialRunId={screen.runId} initialDraft={screen.draft} onNavigate={navigate} />}
         {screen.name === 'dynamic-session' && (
           <DynamicSessionScreen
             projectId={screen.projectId}

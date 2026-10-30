@@ -60,4 +60,27 @@ describe('progressive project summaries', () => {
     expect(result.current.summaries[0].action).toBeNull();
     expect(getProjectState(result.current.summaries[0]).label).toBe('Activity unavailable');
   });
+  it('shows an approved summary Review as Completed and lets its retry supersede the failed parent', async () => {
+    const base = { projectId: 'fast', reviewType: 'code_review', progressJson: '{}', configJson: '{}' };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([
+      { ...base, id: 'failed-parent', status: 'failed', name: 'Demo review', parentSessionId: '', failureReason: 'Model Provider unavailable', updatedAt: '2026-10-30T10:00:00Z', createdAt: '2026-10-30T10:00:00Z' },
+      { ...base, id: 'approved-retry', status: 'approved', name: 'Demo review (Retry)', parentSessionId: 'failed-parent', updatedAt: '2026-10-30T11:00:00Z', createdAt: '2026-10-30T10:30:00Z' },
+    ] as StaticSession[]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
+    const selected = [projects[0]];
+    const { result } = renderHook(() => useProjectSummaries(selected));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.summaries[0].action).toBeNull();
+    expect(getProjectState(result.current.summaries[0])).toMatchObject({ label: 'Completed', tone: 'success' });
+  });
+
+  it('asks for a decision on a summary Review awaiting approval', async () => {
+    vi.mocked(api.listStaticSessions).mockResolvedValue([{ id: 'awaiting', projectId: 'fast', status: 'pending_approval', reviewType: 'code_review', name: 'Awaiting review',
+      progressJson: '{}', parentSessionId: '', updatedAt: '2026-10-30', createdAt: '2026-10-30' } as StaticSession]);
+    const selected = [projects[0]];
+    const { result } = renderHook(() => useProjectSummaries(selected));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.summaries[0].action?.id).toBe('review-decision:awaiting');
+    expect(getProjectState(result.current.summaries[0]).label).toBe('Need Approval');
+  });
 });

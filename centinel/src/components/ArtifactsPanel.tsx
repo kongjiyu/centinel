@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { sourceCurrencyState } from '../sourceCurrency';
 import { open as pickPath } from '@tauri-apps/api/dialog';
 import { readBinaryFile } from '@tauri-apps/api/fs';
 import { open as openLocation } from '@tauri-apps/api/shell';
@@ -378,6 +379,8 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
   const [repoSearch, setRepoSearch] = useState('');
   const [selectedRepoArtifact, setSelectedRepoArtifact] = useState<Artifact | null>(null);
   const [selectedArtifactNotice, setSelectedArtifactNotice] = useState<string | null>(null);
+  const [currencyBusy, setCurrencyBusy] = useState(false);
+  const [currencyError, setCurrencyError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [markdownMode, setMarkdownMode] = useState<MarkdownMode>('preview');
   const [connectorProvider, setConnectorProvider] = useState<IntegrationProvider | null>(null);
@@ -945,9 +948,9 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
       <div className="source-row-grid">
         <div className="source-row-main">
           <button id={`source-open-${artifact.id}`} type="button" className="source-name-link" aria-label={`View ${artifact.fileName}`} onClick={event => openDocument(artifact, event)}>{artifact.fileName}</button>
-          <small className="source-row-kind">{SOURCE_LABELS[artifact.source]} · {artifactKind(artifact.fileName) === 'image' ? 'Image' : CATEGORY_LABELS[artifact.type]}</small>
+          <small className="source-row-kind">{SOURCE_LABELS[artifact.source]} · {artifactKind(artifact.fileName) === 'image' ? 'Image' : CATEGORY_LABELS[artifact.type]}{artifact.currency?.deprecated ? ' · Deprecated' : sourceCurrencyState(artifact).kind === 'due' ? ' · Currency check due' : ''}</small>
         </div>
-        {renderUpdated(artifactUpdatedAt(artifact))}
+        {renderUpdated(artifactUpdatedAt(artifact) ?? artifact.createdAt)}
       </div>
     </li>
   );
@@ -1105,6 +1108,33 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
     </div>;
   };
 
+  const changeCurrency = async (artifact: Artifact, action: 'confirm' | 'deprecate' | 'restore') => {
+    setCurrencyBusy(true); setCurrencyError(null);
+    try {
+      const currency = await api.setArtifactCurrency(projectId, artifact.id, action);
+      setArtifacts(previous => previous.map(item => item.id === artifact.id ? { ...item, currency } : item));
+    } catch (cause) {
+      setCurrencyError(userFacingError(cause, 'The source currency could not be saved.'));
+    } finally {
+      setCurrencyBusy(false);
+    }
+  };
+
+  // Currency confirmation is not version approval; a deprecated source leaves new Reviews.
+  const renderCurrency = (artifact: Artifact) => {
+    const state = sourceCurrencyState(artifact);
+    return <div className={`source-currency is-${state.kind}`} role="group" aria-label="Source currency">
+      <span className="source-currency-label">{state.label}</span>
+      <span className="source-currency-actions">
+        {state.kind !== 'deprecated' && <button type="button" className="btn-secondary" disabled={currencyBusy} onClick={() => void changeCurrency(artifact, 'confirm')}>Confirm still current</button>}
+        {state.kind !== 'deprecated'
+          ? <button type="button" className="btn-secondary" disabled={currencyBusy} onClick={() => void changeCurrency(artifact, 'deprecate')}>Mark deprecated</button>
+          : <button type="button" className="btn-secondary" disabled={currencyBusy} onClick={() => void changeCurrency(artifact, 'restore')}>Restore to active</button>}
+      </span>
+      {currencyError && <p className="source-currency-error" role="alert">{currencyError}</p>}
+    </div>;
+  };
+
   const renderDocumentDetail = (artifact: Artifact) => (
     <div className="source-detail-view source-document-detail">
       <nav className="source-path" aria-label="Source location"><button type="button" onClick={goBackToSources}>Sources</button><span><span aria-hidden="true">/</span><strong aria-current="page">{artifact.fileName}</strong></span></nav>
@@ -1114,6 +1144,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
           {validLocation(artifact) && <button type="button" className="btn-secondary" onClick={() => void handleOpenWith(artifact)}><ExternalLink size={15} aria-hidden="true" /> Open original</button>}
         </div>
       </header>
+      {renderCurrency(artifact)}
       {selectedArtifactNotice && <p role="status" className="source-file-change-notice">{selectedArtifactNotice}</p>}
       <section ref={fileReaderRef} className="source-preview-panel source-document-preview source-file-reader" tabIndex={0} aria-labelledby="source-preview-heading">
         <div className="visually-hidden"><h4 id="source-preview-heading">Preview</h4></div>

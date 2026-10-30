@@ -109,3 +109,8 @@
   .workspace-mode:not(.dashboard-mode) .profile-provider-row { grid-template-columns: 32px minmax(0, 1fr); }
   .workspace-mode:not(.dashboard-mode) .profile-provider-action { grid-column: 2; justify-self: start; }
 }
+
+.profile-password-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 12px; }
+.profile-password-form .form-field { margin: 0; }
+.profile-password-success { margin: 10px 0 0; color: var(--workspace-success); font-size: 13px; }
+@media (max-width: 860px) { .profile-password-form { grid-template-columns: 1fr; } }

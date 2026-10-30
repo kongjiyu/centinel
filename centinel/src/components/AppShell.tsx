@@ -229,10 +229,11 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 <MonitorPlay size={18} aria-hidden="true" />
                 <span>Dynamic Testing</span>
               </button>
-              <button className={`nav-item ${isActive(['review-playground']) ? 'active' : ''}`} onClick={() => onNavigate({ name: 'review-playground', ...('projectId' in screen ? { projectId: screen.projectId } : {}) })} aria-label="Playground" title="Playground">
+              {/* Developer harness: hidden from the product navigation outside development builds (DESIGN.md navigation). */}
+              {import.meta.env.DEV && <button className={`nav-item ${isActive(['review-playground']) ? 'active' : ''}`} onClick={() => onNavigate({ name: 'review-playground', ...('projectId' in screen ? { projectId: screen.projectId } : {}) })} aria-label="Playground" title="Playground">
                 <FlaskConical size={18} aria-hidden="true" />
                 <span>Playground</span>
-              </button>
+              </button>}
             </div>
 
             <div className="sidebar-nav-group">

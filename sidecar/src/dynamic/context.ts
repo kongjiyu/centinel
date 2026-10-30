@@ -9,7 +9,8 @@ const unique=(values:string[],label:string)=>{if(new Set(values).size!==values.l
 export function validateIncomingContext(value:unknown,projectId:string):StaticContextFixture|null {
  if(value==null)return null;
  const input=object(value);
- if(input.schemaVersion!==1||input.provenance!=='mock-static'||input.projectId!==projectId)fail('Invalid or cross-project incoming context.');
+ if(input.schemaVersion!==1||!['mock-static','review-snapshot'].includes(input.provenance)||input.projectId!==projectId)fail('Invalid or cross-project incoming context.');
+ const reviewSnapshot=input.provenance==='review-snapshot';
  if(!['approved','pending'].includes(input.approvalState))fail('Invalid incoming context approval metadata.');
  const sources=list(input.sources,50).map(raw=>{const source=object(raw);if(!['current','stale','unknown'].includes(source.currency))fail('Invalid source currency.');return {id:text(source.id),version:text(source.version),currency:source.currency,uri:text(source.uri,4000)};});
  unique(sources.map(source=>source.id),'source');const sourceIds=new Set(sources.map(source=>source.id));
@@ -18,9 +19,13 @@ export function validateIncomingContext(value:unknown,projectId:string):StaticCo
  if(criteria.length>500)fail('Incoming context has too many supplied criteria.');unique(criteria.map(item=>item.id),'criterion');
  const risks=list(input.risks,100).map(raw=>{const risk=object(raw);if(!requirementIds.has(risk.requirementId)||!['high','medium'].includes(risk.priority))fail('Invalid or dangling synthetic risk reference.');return {id:text(risk.id),requirementId:text(risk.requirementId),priority:risk.priority,rationale:text(risk.rationale,4000)};});unique(risks.map(risk=>risk.id),'risk');
  const conflicts=list(input.conflicts,100).map(raw=>{const conflict=object(raw);if(!requirementIds.has(conflict.requirementId))fail('Incoming context contains dangling conflict references.');return {requirementId:text(conflict.requirementId),description:text(conflict.description,4000)};});
- const target=object(input.target);const repository=text(target.repository,4000);let parsed:URL;try{parsed=new URL(repository);if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)throw Error();}catch{return fail('Invalid incoming repository reference.');}
- if(typeof target.commit!=='string'||!/^[a-f0-9]{40}$/i.test(target.commit)||target.deploymentVersion!==null)fail('Invalid target version metadata; the mock deployment remains unknown.');
- return structuredClone({schemaVersion:1,provenance:'mock-static',projectId,reviewId:text(input.reviewId),snapshotId:text(input.snapshotId),approvalState:input.approvalState,sources,requirements,risks,conflicts,target:{repository,commit:target.commit,deploymentVersion:null},limitations:list(input.limitations,100).map(value=>text(value,4000))});
+ const target=object(input.target);
+ // A Review snapshot records an unknown repository/commit as null; mock input always names both.
+ const repository=reviewSnapshot&&target.repository===null?null:text(target.repository,4000);
+ if(repository!==null){try{const parsed=new URL(repository);if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)throw Error();}catch{return fail('Invalid incoming repository reference.');}}
+ const commit=reviewSnapshot&&target.commit===null?null:target.commit;
+ if((commit!==null&&(typeof commit!=='string'||!/^[a-f0-9]{40}$/i.test(commit)))||target.deploymentVersion!==null)fail('Invalid target version metadata; the deployment version remains unknown.');
+ return structuredClone({schemaVersion:1,provenance:input.provenance,projectId,reviewId:text(input.reviewId),snapshotId:text(input.snapshotId),approvalState:input.approvalState,sources,requirements,risks,conflicts,target:{repository,commit,deploymentVersion:null},limitations:list(input.limitations,100).map(value=>text(value,4000))});
 }
 export function contextNeedsAcknowledgment(context:StaticContextFixture|null):boolean {
  return Boolean(context&&(context.approvalState!=='approved'||context.sources.some(source=>source.currency!=='current')||context.conflicts.length||context.requirements.some(requirement=>!requirement.criteria.length)));

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { displayPath } from '../utils/displayPath';
 import { AlertCircle, ChevronDown, FileSearch, Filter, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import { mergeReviewFindings } from '../reviewEvidenceFindings';
@@ -31,6 +32,8 @@ type Props = {
   focusFindingId?: string | null;
   /** Opens a Review that supplied validated lineage or resolution evidence. */
   onOpenReview?: (reviewId: string) => void;
+  /** Offer a Dynamic Testing draft that checks whether a Review finding is fixed at runtime. */
+  onVerifyWithDynamic?: (finding: Finding) => void;
   /** Optional navigation context supplied by Assessment/Overview links. */
   initialFilter?: {
     riskLevel?: 'all' | 'critical' | 'high' | 'medium' | 'low' | 'critical_or_high';
@@ -98,7 +101,7 @@ function updatedTime(finding: Finding) {
 function locationLabel(finding: Finding): string {
   if (finding.evidenceGap && finding.verifier !== 'readiness') return 'Review documents';
   if (!finding.filePath) return 'Not supplied';
-  return `${finding.filePath}${finding.lineNumber != null ? `:${finding.lineNumber}` : ''}`;
+  return `${displayPath(finding.filePath)}${finding.lineNumber != null ? `:${finding.lineNumber}` : ''}`;
 }
 
 function FindingActions({
@@ -125,7 +128,7 @@ function FindingActions({
   );
 }
 
-export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange, onOpenReview }: Props) {
+export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange, onOpenReview, onVerifyWithDynamic }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -336,7 +339,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   if (presentation === 'project') {
     const selectedGroup = grouped.find(group => group.members.some(finding => finding.id === selectedId));
     const selectedFinding = selectedGroup?.members.find(finding => finding.id === selectedId) ?? null;
-    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
+    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} onVerifyWithDynamic={onVerifyWithDynamic} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
     return (
       <div className={`project-findings-layout findings-table-only${isProjectFindings ? ' project-findings-project-only' : ''}`}>
         <section className="card detail-card findings-card findings-panel findings-panel-project" aria-labelledby="project-findings-heading">

@@ -75,6 +75,7 @@ export async function generateProjectReport(
   projectId: string,
   actorId: string | null,
   accessToken?: string | null,
+  options: { reviewId?: string; actorEmail?: string | null } = {},
 ): Promise<ProjectReportExportResult> {
   const client = createSupabaseClient(accessToken);
   if (!client) throw new Error('Supabase is required for private report export.');
@@ -83,6 +84,7 @@ export async function generateProjectReport(
   if (!authenticatedUserId) throw new Error('An authenticated Supabase user is required for private report export.');
   const snapshot = await buildProjectReportSnapshot(projectId, {
     ...reportContext(authenticatedUserId),
+    ...options,
     source: createSupabaseReportSnapshotSource(client, authenticatedUserId),
   });
   const rendered = await renderProjectReportFiles(snapshot);

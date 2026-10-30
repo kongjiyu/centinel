@@ -303,7 +303,9 @@ describe('FindingsPanel', () => {
     const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
     await user.click(row);
     await user.click(screen.getByRole('button', { name: 'Back to findings' }));
-    expect(await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i })).toHaveFocus();
+    // Focus is restored on the next animation frame after the list re-renders.
+    const restored = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
+    await waitFor(() => expect(restored).toHaveFocus());
     expect(mainContent.scrollTop).toBe(238);
   });
 

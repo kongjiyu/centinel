@@ -110,12 +110,33 @@ export function parseReviewProgress(value: string | ReviewProgress | null | unde
   }
 }
 
+/** Execution statuses for a Review whose analysis finished and produced a result. */
+const EXECUTED_REVIEW_STATUSES = new Set(['success', 'pending_approval', 'completed', 'approved', 'changes_requested']);
+
+export function isExecutedReviewStatus(status: string): boolean {
+  return EXECUTED_REVIEW_STATUSES.has(status);
+}
+
+/**
+ * The effective human decision for a Review. Summary list responses carry the
+ * decision only in `status` (approved / changes_requested), while detail
+ * responses also embed `currentDecision`; both must yield the same answer.
+ */
+export function effectiveReviewDecision(
+  session: { status: string; currentDecision?: ReviewDecisionRecord | null },
+  currentDecision: ReviewDecisionRecord | null = session.currentDecision ?? null,
+): 'approved' | 'changes_requested' | null {
+  if (currentDecision?.decision === 'approved' || currentDecision?.decision === 'changes_requested') return currentDecision.decision;
+  if (session.status === 'approved' || session.status === 'changes_requested') return session.status;
+  return null;
+}
+
 export function reviewLifecycleState(
   session: StaticSession,
   currentDecision: ReviewDecisionRecord | null = session.currentDecision ?? null,
 ): ReviewLifecycleState {
-  if (currentDecision?.decision === 'approved') return 'Completed';
-  if (session.status === 'queued') return 'Queued';
+  if (effectiveReviewDecision(session, currentDecision) === 'approved') return 'Completed';
+  if (session.status === 'queued' || session.status === 'prepared') return 'Queued';
   if (session.status === 'running') return 'In progress';
   if (session.status === 'blocked' && parseReviewProgress(session.progressJson)?.stage === 'provider_paused') return 'Paused';
   if (session.status === 'blocked') return 'Blocked';
@@ -138,9 +159,9 @@ export function projectActivityLifecycle(
 ): ProjectActivityLifecycle {
   const isReview = kind === 'review' || (kind === undefined && 'reviewType' in session);
   if (isReview) {
-    if (session.currentDecision?.decision === 'approved') return 'Completed';
+    if (effectiveReviewDecision(session) === 'approved') return 'Completed';
     if (session.status === 'blocked' && parseReviewProgress(session.progressJson)?.stage === 'provider_paused') return 'Paused';
-    if (session.status === 'queued') return 'Queued';
+    if (session.status === 'queued' || session.status === 'prepared') return 'Queued';
     if (session.status === 'running') return 'In progress';
     if (session.status === 'cancelled') return 'Cancelled';
     if (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked') return 'Failed';

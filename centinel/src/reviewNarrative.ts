@@ -12,6 +12,8 @@ export type ReviewNarrative = {
   timing: { duration: string; endedAt: string | null };
   detailedHistoryAvailable: boolean;
   retryUpdate: string | null;
+  /** Queued or running: missing history means not started yet, not lost. */
+  active?: boolean;
 };
 
 const STAGES = [
@@ -198,7 +200,7 @@ export function buildReviewNarrative(input: {
   const legacyEnd = active ? now : timestamp(progress?.updatedAt);
   const durationMs = timing.ms ?? (legacyStart != null && legacyEnd != null && legacyEnd >= legacyStart ? legacyEnd - legacyStart : null);
   return {
-    objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable, retryUpdate,
+    objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable, retryUpdate, active,
     unassignedFindings: findings.filter(finding => !detailedHistoryAvailable || !stageOf(finding)).map(findingLink),
     timing: { duration: formatReviewDuration(durationMs), endedAt: active ? null : timing.end ?? (legacyStart != null ? progress?.updatedAt ?? null : null) },
     summary: { outcome: comparisonSummary ? `${outcome} ${comparisonSummary}` : outcome, blockers: unique(blockers), next },

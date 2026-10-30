@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { api } from '../api/client';
+import { isWorkflowProviderConfigured } from '../providerReadiness';
 import {
   AlertCircle,
   ChevronLeft,
@@ -74,8 +76,18 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
 
   const recentProjects = useMemo(() => summaries.slice(0, 4), [summaries]);
 
-  const hasTextSetting = aiSettings.some(setting => setting.id === 'text' && setting.hasApiKey);
-  const hasVisionSetting = aiSettings.some(setting => setting.id === 'vision' && setting.hasApiKey);
+  const usesCodex = aiSettings.some(setting => (setting.id === 'text' || setting.id === 'vision') && setting.provider === 'codex');
+  const [codexConnected, setCodexConnected] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!usesCodex || typeof api.codexStatus !== 'function') return;
+    let current = true;
+    api.codexStatus().then(status => { if (current) setCodexConnected(status.connected); }).catch(() => { if (current) setCodexConnected(null); });
+    return () => { current = false; };
+  }, [usesCodex]);
+  // An unknown Codex status is not reported as a setup problem.
+  const codexUsable = (role: 'text' | 'vision') => aiSettings.find(setting => setting.id === role)?.provider !== 'codex' || codexConnected !== false;
+  const hasTextSetting = isWorkflowProviderConfigured(aiSettings, 'text') && codexUsable('text');
+  const hasVisionSetting = isWorkflowProviderConfigured(aiSettings, 'vision') && codexUsable('vision');
   const needsInitialSetup = !hasTextSetting || !hasVisionSetting;
 
   const openProjectFlow = (initialAction: 'static' | 'dynamic') => {

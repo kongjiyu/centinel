@@ -29,6 +29,15 @@ export function DynamicFindingsPanel({ projectId, run, runs,onOpenRun }: {
         setFindings(rows.filter(row => row.missionId === run.missionId)); }).catch(e => { if (generation.current === ticket)
         setError(userFacingError(e, 'Finding records could not be loaded.')); }).finally(() => { if (generation.current === ticket)
         setBusy(false); }); return () => { generation.current++; }; }, [projectId, run.missionId]);
+    // A completed Run with failed checks records its candidates automatically so a
+    // failure never looks finding-free. Recording is idempotent per Run and check,
+    // and candidates still need a person to confirm or reject them.
+    const autoCollected = useRef(new Set<string>());
+    useEffect(() => {
+        if (busy || run.state !== 'completed' || !run.checks.some(check => check.verdict === 'failed') || autoCollected.current.has(run.id)) return;
+        autoCollected.current.add(run.id);
+        void collect();
+    }, [busy, run.id, run.state, run.checks]);
     async function select(id: string) { const ticket = ++generation.current; setBusy(true); setDetail(null); setError(''); try {
         const next = await api.dynamicFinding(projectId, id);
         if (ticket !== generation.current)

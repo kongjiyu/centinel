@@ -41,7 +41,33 @@ export function groupFindings(findings: Finding[]): FindingGroup[] {
     if (existing) existing.members.push(finding);
     else groups.set(key, { key, title, representative: finding, members: [finding] });
   }
-  return [...groups.values()];
+  return foldRuleGroupsIntoModelIssues([...groups.values()]);
+}
+
+const isRuleFinding = (finding: Finding) => Boolean(finding.location?.ruleId) && finding.verifier !== 'model';
+const samePlace = (left: Finding, right: Finding) => Boolean(left.filePath) && left.filePath.replace(/\\/g, '/') === right.filePath.replace(/\\/g, '/')
+  && left.lineNumber != null && right.lineNumber != null && Math.abs(left.lineNumber - right.lineNumber) <= 2;
+
+/**
+ * A rule-engine issue type whose every occurrence sits where a model-reported
+ * issue of the same domain already points describes the same problem twice.
+ * Fold it into that issue for presentation; stored occurrences, severities and
+ * risk inputs are unchanged and every occurrence stays individually visible.
+ */
+function foldRuleGroupsIntoModelIssues(groups: FindingGroup[]): FindingGroup[] {
+  const folded = new Set<FindingGroup>();
+  for (const ruleGroup of groups) {
+    if (ruleGroup.representative.source !== 'static' || !ruleGroup.members.every(isRuleFinding)) continue;
+    const target = groups.find(candidate => candidate !== ruleGroup && !folded.has(candidate)
+      && candidate.representative.source === 'static' && candidate.representative.verifier !== 'readiness'
+      && candidate.members.some(member => !isRuleFinding(member))
+      && findingDomain(candidate.representative) === findingDomain(ruleGroup.representative)
+      && ruleGroup.members.every(rule => candidate.members.some(member => !isRuleFinding(member) && samePlace(member, rule))));
+    if (!target) continue;
+    target.members.push(...ruleGroup.members);
+    folded.add(ruleGroup);
+  }
+  return groups.filter(group => !folded.has(group));
 }
 
 export function findingGroupDomains(group: FindingGroup): string {

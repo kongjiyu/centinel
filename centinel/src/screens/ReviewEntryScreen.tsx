@@ -1,3 +1,5 @@
+import type React from 'react';
+import { RecentReviews } from '../components/RecentReviews';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, ChevronDown, FileCheck2, GitBranch, Plus, RotateCcw } from 'lucide-react';
 import { api, type CreateStaticSessionPayload } from '../api/client';
@@ -5,6 +7,7 @@ import { CommandPageHeader } from '../components/CommandUI';
 import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
+import { isWorkflowProviderConfigured } from '../providerReadiness';
 import type { Artifact, ConnectedSource, Project, Requirement, ReviewScopeSelection, ReviewSourceManifest, Screen, StaticSession } from '../types';
 import './ReviewEntryScreen.css';
 
@@ -45,7 +48,7 @@ const MAX_OBJECTIVE_LENGTH = 2000;
 
 function isDeprecated(artifact: Artifact): boolean {
   const record = artifact as Artifact & { status?: string; deprecated?: boolean };
-  return record.deprecated === true || record.status?.toLowerCase() === 'deprecated';
+  return artifact.currency?.deprecated === true || record.deprecated === true || record.status?.toLowerCase() === 'deprecated';
 }
 
 function normalizePath(path: string): string {
@@ -200,8 +203,17 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   const [activeSession, setActiveSession] = useState<StaticSession | null>(null);
   const [loadingScope, setLoadingScope] = useState(false);
   const [scopeError, setScopeError] = useState<string | null>(null);
-  const [reviewName, setReviewName] = useState('');
-  const [objective, setObjective] = useState('');
+  // The unsent name and objective survive a detour to add sources or requirements.
+  const draftKey = 'centinel:review-entry-draft';
+  const savedDraft = (() => { try { return JSON.parse(window.sessionStorage.getItem(draftKey) ?? 'null') as { name?: string; objective?: string } | null; } catch { return null; } })();
+  const [reviewName, setReviewName] = useState(comparisonParentReviewId ? '' : savedDraft?.name ?? '');
+  const [objective, setObjective] = useState(comparisonParentReviewId ? '' : savedDraft?.objective ?? '');
+  useEffect(() => {
+    try {
+      if (reviewName || objective) window.sessionStorage.setItem(draftKey, JSON.stringify({ name: reviewName, objective }));
+      else window.sessionStorage.removeItem(draftKey);
+    } catch { /* storage is optional */ }
+  }, [reviewName, objective]);
   const [baseRef, setBaseRef] = useState('');
   const [headRef, setHeadRef] = useState('');
   const [pullRequest, setPullRequest] = useState('');
@@ -209,6 +221,22 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // null while unknown: a failed settings read must not block a Review that
+  // the service can still validate itself.
+  const [providerReady, setProviderReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.aiSettings()
+      .then(async settings => {
+        const configured = isWorkflowProviderConfigured(settings, 'text');
+        // A saved Codex model still needs a signed-in Codex account on this device.
+        const usesCodex = settings.find(item => item.id === 'text')?.provider === 'codex';
+        const ready = configured && usesCodex && typeof api.codexStatus === 'function' ? (await api.codexStatus()).connected : configured;
+        if (!cancelled) setProviderReady(ready);
+      })
+      .catch(() => { if (!cancelled) setProviderReady(null); });
+    return () => { cancelled = true; };
+  }, []);
   const errorRef = useRef<HTMLDivElement>(null);
   const idempotencyKey = useRef<string>(makeIdempotencyKey());
   const scopeRequestId = useRef(0);
@@ -486,10 +514,10 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
     setSelectedStandardIds(current => update(current, repository.artifactIds.filter(id => standardIds.has(id))));
   };
 
-  const renderScopeItems = (items: ScopeItem[], groupLabel: string, emptyLabel: string) => (
+  const renderScopeItems = (items: ScopeItem[], groupLabel: string, emptyLabel: string, emptyAction?: React.ReactNode) => (
     <fieldset className="review-scope-group">
       <legend>{groupLabel}</legend>
-      {items.length === 0 ? <p className="review-scope-empty">{emptyLabel}</p> : <div className="review-scope-list">
+      {items.length === 0 ? <p className="review-scope-empty">{emptyLabel}{emptyAction && <> {emptyAction}</>}</p> : <div className="review-scope-list">
         {items.map(item => {
           const selected = item.kind === 'artifact'
             ? selectedArtifactIds.has(item.id)
@@ -576,6 +604,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
     setSubmitting(true);
     try {
       const session = await api.createStaticSession(selectedProject.id, payload);
+      try { window.sessionStorage.removeItem(draftKey); } catch { /* storage is optional */ }
       onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id, reviewName: session.name });
     } catch (cause) {
       const errorMessage = userFacingError(cause, 'The review could not be started. Check the project sources and try again.');
@@ -595,6 +624,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   return (
     <div className="screen command-review-entry review-entry-screen">
       <CommandPageHeader eyebrow="Review" title="Start a Review" onBack={() => onNavigate({ name: 'dashboard' })} />
+      {selectedProject && !comparisonParentReviewId && <RecentReviews projectId={selectedProject.id} onNavigate={onNavigate} />}
 
       <form className="review-entry-form" aria-label="Start review" onSubmit={event => { void handleCreateReview(event); }}>
         <section className="review-form-section review-entry-basics" aria-labelledby="review-entry-details-heading">
@@ -634,7 +664,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
           {!loadingScope && !scopeError && hasScope && <div className="review-scope-groups">
             {renderRepositories()}
             {renderScopeItems(groups.documents, 'Attached documents', 'No active documents are available.')}
-            {renderScopeItems(requirementsScope, 'Requirements', 'No project requirements are available.')}
+            {renderScopeItems(requirementsScope, 'Requirements', 'No confirmed requirements yet, so traceability will be limited.', selectedProject ? <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'requirements', projectId: selectedProject.id })}>Add or confirm requirements</button> : undefined)}
             {renderScopeItems(groups.standards, 'Coding standards', 'No coding standards are available.')}
             {unavailableMembers.length > 0 && <fieldset className="review-scope-group review-unavailable-group"><legend>Unavailable saved inputs</legend><p>These exact inputs were saved with the comparison Review but are not available in this project now.</p><div className="review-scope-list">{unavailableMembers.map(member => <label key={`${member.kind}-${member.id}`} className="review-scope-item is-selected"><input type="checkbox" checked onChange={() => removeUnavailableMember(member)} /><span className="review-scope-check" aria-hidden="true"><Check size={13} strokeWidth={2.2} /></span><span className="review-scope-item-copy"><strong>{member.kind}</strong><small>{member.id} · remove from this Review</small></span></label>)}</div></fieldset>}
           </div>}
@@ -652,9 +682,10 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
           </div>}
         </section>
 
+        {providerReady === false && <div className="review-entry-error review-entry-provider" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>The Model Provider for Review is not ready. Connect Codex or save an API provider and model in Settings, then come back to start this review.</span><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'settings' })}>Open Settings</button></div>}
         {formError && <div ref={errorRef} className="review-entry-error" role="alert" tabIndex={-1}><AlertCircle size={16} aria-hidden="true" /> <span>{formError}</span></div>}
         {blockingReason && <p className="review-entry-submit-hint" role="status">{blockingReason}</p>}
-        <div className="review-entry-actions"><button type="submit" className="btn-primary review-entry-submit" disabled={submitting || sourceBlocked}>{submitting ? 'Starting review…' : 'Start review'}</button><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dashboard' })} disabled={submitting}>Cancel</button></div>
+        <div className="review-entry-actions"><button type="submit" className="btn-primary review-entry-submit" disabled={submitting || sourceBlocked || providerReady === false}>{submitting ? 'Starting review…' : 'Start review'}</button><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dashboard' })} disabled={submitting}>Cancel</button></div>
       </form>
 
       <ProjectCreateModal isOpen={showProjectModal} onClose={() => setShowProjectModal(false)} onCreate={onCreateProject} onCreated={handleProjectCreated} />

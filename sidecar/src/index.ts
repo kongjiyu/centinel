@@ -28,8 +28,11 @@ import {UploadVault} from './dynamic/environment/uploadVault.js';
 import {handleUploadRoute} from './dynamic/environment/uploadRoutes.js';
 import { EnvironmentVault } from './dynamic/environment/vault.js';
 import { handleEnvironmentRoute } from './dynamic/environment/routes.js';
+import { discoverControls, discoveryTargetUrl } from './dynamic/environment/controlDiscovery.js';
 import { checkEnvironment, environmentReady } from './dynamic/environment/preflight.js';
 import { handleDynamicRoute } from './dynamic/routes.js';
+import { buildReviewDynamicContext } from './review/dynamicContextExport.js';
+import type { StaticContextFixture } from './dynamic/testing/staticContextStub.js';
 import { DynamicService } from './dynamic/service.js';
 import { DynamicContractError } from './dynamic/types.js';
 import { SupabaseDynamicRepository } from './dynamic/supabaseRepository.js';
@@ -76,7 +79,7 @@ import { getEmbeddingSettingsCatalog } from './embeddingSettings.js';
 import { testSavedEmbeddingModel } from './embeddingConnectionTest.js';
 import { getSupabaseModelUsageSummary } from './modelUsageSummary.js';
 import { ApplicationRepositoryAuthorizationError, ApplicationRepositoryError, CentinelApplicationRepository } from './applicationRepository.js';
-import { getClientArtifact, readClientArtifactBytes, importLocalRepositoryArtifacts, listClientArtifacts, readClientArtifactContent, uploadClientArtifact } from './applicationApi.js';
+import { getClientArtifact, readClientArtifactBytes, importLocalRepositoryArtifacts, listClientArtifacts, readClientArtifactContent, sourceCurrency, uploadClientArtifact } from './applicationApi.js';
 import { getLatestLocalImportCoverage, inspectLocalRepository, recordLocalImportCoverageBaseline } from './applicationApi.js';
 import { readFrozenReviewSource } from './review/frozenSourceContent.js';
 import { accessTokenFingerprint, createRefreshableStaticReviewRuntime, RefreshableSupabaseRuntime, type RefreshableStaticReviewRuntime } from './runtime/index.js';
@@ -407,6 +410,57 @@ function connectedSourceImporter(auth: AuthenticatedRequest): ConnectedSourceImp
   return new ConnectedSourceImporter({ repository: new SupabaseConnectedSourceRepository(auth.client) });
 }
 
+/**
+ * Load the frozen Static-to-Dynamic context for one Review. Only the Review's
+ * saved traceability and source manifest define its requirements and versions;
+ * current artifacts are read solely to report source currency.
+ */
+async function loadReviewDynamicContext(auth: AuthenticatedRequest, projectId: string, reviewId: string): Promise<StaticContextFixture> {
+  const review = await reviewRepository(auth.client).getReview(reviewId);
+  if (!review || review.projectId !== projectId) throw new DynamicContractError(404, 'Review not found in this project.');
+  if (!['pending_approval', 'completed', 'approved', 'changes_requested'].includes(review.status)) {
+    throw new DynamicContractError(409, 'Only a Review that finished its analysis can supply test requirements.');
+  }
+  const [traceability, manifest, decisions, artifacts] = await Promise.all([
+    auth.client.from('review_traceability_snapshots').select('*').eq('project_id', projectId).eq('review_session_id', reviewId).maybeSingle(),
+    review.sourceManifestId
+      ? auth.client.from('review_source_snapshots').select('*').eq('project_id', projectId).eq('id', review.sourceManifestId).maybeSingle()
+      : auth.client.from('review_source_snapshots').select('*').eq('project_id', projectId).eq('review_session_id', reviewId).maybeSingle(),
+    new SupabaseCentinelStore(auth.client).listDecisions(reviewId),
+    listClientArtifacts(new CentinelApplicationRepository(auth.client, auth.userId), projectId),
+  ]);
+  if (traceability.error) throw new Error(`Supabase traceability query failed: ${traceability.error.message}`);
+  if (manifest.error) throw new Error(`Supabase source manifest query failed: ${manifest.error.message}`);
+  const records = traceability.data && Array.isArray(traceability.data.records) ? traceability.data.records as Array<Record<string, unknown>> : [];
+  const snapshot = manifest.data?.snapshot && typeof manifest.data.snapshot === 'object' ? manifest.data.snapshot as Record<string, unknown> : {};
+  const manifestArtifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')) : [];
+  const latestDecision = decisions.filter(item => item.decision !== 'commented').at(-1);
+  return buildReviewDynamicContext({
+    projectId,
+    reviewId,
+    reviewName: review.name,
+    approved: review.status === 'approved' || latestDecision?.decision === 'approved',
+    snapshotCapturedAt: typeof traceability.data?.created_at === 'string' ? traceability.data.created_at : typeof snapshot.capturedAt === 'string' ? snapshot.capturedAt : null,
+    traceabilityAvailable: Boolean(traceability.data),
+    traceability: records.map(record => ({
+      requirementId: String(record.requirementId ?? ''), title: String(record.title ?? ''),
+      description: String(record.description ?? ''), state: String(record.state ?? ''),
+    })),
+    manifestAvailable: Boolean(manifest.data),
+    manifest: manifestArtifacts.map(item => ({
+      id: String(item.id ?? ''), name: String(item.name ?? ''), path: String(item.path ?? ''),
+      versionId: typeof item.version_id === 'string' ? item.version_id : null,
+      contentHash: typeof (item.metadata as Record<string, unknown> | undefined)?.contentHash === 'string' ? String((item.metadata as Record<string, unknown>).contentHash) : '',
+    })),
+    currentHashes: new Map(artifacts.filter(item => item.contentHash).map(item => [item.id, item.contentHash])),
+  });
+}
+
+function matchReviewDynamicContext(url: string): { projectId: string; sessionId: string } | null {
+  const m = url.match(/^\/projects\/([^/]+)\/static-sessions\/([^/]+)\/dynamic-context$/);
+  return m ? { projectId: m[1], sessionId: m[2] } : null;
+}
+
 function toClientStaticSession(review: StaticReviewRecord) {
   const config = review.config ?? {};
   const scope = review.scope ?? {};
@@ -578,6 +632,18 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         ownerId,registry:workspaceRegistry,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),requireEnvironment:(projectId,id)=>environments.get(projectId,id),secretValues:async(projectId,id)=>privateValues(projectId,await environments.get(projectId,id)),
       });
       if(workspaceResponse)return json(res,workspaceResponse.status,workspaceResponse.body);
+      // Read-only control discovery: proposes unique selectors for a tester to approve.
+      const discoveryMatch = url.match(/^\/projects\/([a-f0-9-]+)\/dynamic\/control-discovery$/);
+      if (discoveryMatch && req.method === 'POST') {
+        await authGateway.requireProjectMember(auth, discoveryMatch[1]);
+        try {
+          const body = await parseJsonBody(req, 10000);
+          return json(res, 200, { controls: await discoverControls(discoveryTargetUrl(body.targetUrl)) });
+        } catch (error) {
+          if (error instanceof DynamicContractError) return json(res, error.status, { error: error.message });
+          throw error;
+        }
+      }
       const environmentResponse = await handleEnvironmentRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req)}, {
         ownerId,repository:environments,vault,privateValues,sessionStatus,uploadsReady,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),
         providerReady:async projectId=>{try {
@@ -600,6 +666,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           if(containsLocalValue(body,secrets))throw new DynamicContractError(400,'Keep local variable values out of shared test fields.');
         },
         service,
+        reviewContext: (projectId, reviewId) => loadReviewDynamicContext(auth, projectId, reviewId),
         requireProjectMember: projectId => authGateway.requireProjectMember(auth, projectId),
         cancelExecution: run => { if (['cancelled', 'interrupted'].includes(run.state) && run.legacySessionId) cancelSession(run.legacySessionId); },
         prepareExecution: async (projectId, revisionId, environmentId) => {
@@ -1280,6 +1347,29 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     }
 
     // Delete artifact
+    // Source currency governance: confirming currency is not version approval,
+    // and a deprecated source is excluded from new Reviews (DESIGN.md).
+    const currencyMatch = url.match(/^\/projects\/([a-f0-9-]+)\/artifacts\/([a-f0-9-]+)\/currency$/);
+    if (currencyMatch && req.method === 'POST') {
+      const [, projectId, artifactId] = currencyMatch;
+      await authGateway.requireProjectMember(auth!, projectId);
+      const body = await parseJsonBody(req);
+      if (!['confirm', 'deprecate', 'restore'].includes(String(body.action))) return json(res, 400, { error: 'Choose confirm, deprecate or restore.' });
+      const { data: row, error: readError } = await auth!.client.from('artifacts').select('id,metadata').eq('project_id', projectId).eq('id', artifactId).maybeSingle();
+      if (readError) throw new Error(`Artifact lookup failed: ${readError.message}`);
+      if (!row) return json(res, 404, { error: 'Artifact not found' });
+      const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
+      const now = new Date().toISOString();
+      const previous = sourceCurrency(metadata.currency);
+      const currency = body.action === 'confirm' ? { ...previous, confirmedAt: now, confirmedBy: auth!.userId }
+        : body.action === 'deprecate' ? { ...previous, deprecated: true, deprecatedAt: now, deprecatedBy: auth!.userId }
+          : { ...previous, deprecated: false, deprecatedAt: null, deprecatedBy: null };
+      const { error: writeError } = await auth!.client.from('artifacts').update({ metadata: { ...metadata, currency } }).eq('project_id', projectId).eq('id', artifactId);
+      if (writeError) throw new Error(`Artifact currency update failed: ${writeError.message}`);
+      if (body.action !== 'confirm') readiness.notify(auth!, projectId, 'source_changed');
+      return json(res, 200, currency);
+    }
+
     const artIdMatch = matchArtifact(url);
     if (artIdMatch && req.method === 'DELETE') {
       const deleted = await applicationRepository!.deleteArtifact(artIdMatch.projectId, artIdMatch.artifactId);
@@ -1466,6 +1556,46 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         artifactCount: artifacts.length,
       });
     }
+    // === Project members (owner-managed, by Centinel account e-mail) ===
+    const membersMatch = url.match(/^\/projects\/([a-f0-9-]+)\/members(?:\/([a-f0-9-]+))?$/);
+    if (membersMatch) {
+      const [, projectId, memberId] = membersMatch;
+      await authGateway.requireProjectMember(auth!, projectId);
+      const memberError = (error: { code?: string; message?: string }) => json(res, error.code === '42501' ? 403 : 400, { error: error.message || 'The member change could not be saved.' });
+      if (req.method === 'GET' && !memberId) {
+        const { data, error } = await auth!.client.rpc('list_project_members', { p_project_id: projectId });
+        if (error) return memberError(error);
+        return json(res, 200, { viewerUserId: auth!.userId, members: (data ?? []).map((row: Record<string, unknown>) => ({ userId: String(row.user_id), email: String(row.email ?? ''), role: String(row.role), addedAt: String(row.created_at ?? '') })) });
+      }
+      if (req.method === 'POST' && !memberId) {
+        const body = await parseJsonBody(req);
+        const email = typeof body.email === 'string' ? body.email.trim() : '';
+        const role = body.role === 'viewer' ? 'viewer' : 'member';
+        if (!email) return json(res, 400, { error: 'Enter the e-mail address of a Centinel account.' });
+        const { data, error } = await auth!.client.rpc('add_project_member_by_email', { p_project_id: projectId, p_email: email, p_role: role });
+        if (error) return memberError(error);
+        const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | undefined;
+        return json(res, 201, row ? { userId: String(row.user_id), email: String(row.email ?? ''), role: String(row.role), addedAt: String(row.created_at ?? '') } : null);
+      }
+      if (req.method === 'DELETE' && memberId) {
+        const { error } = await auth!.client.rpc('remove_project_member', { p_project_id: projectId, p_user_id: memberId });
+        if (error) return memberError(error);
+        return json(res, 200, { removed: true });
+      }
+      return json(res, 405, { error: 'Unsupported member operation.' });
+    }
+
+    const rdcMatch = matchReviewDynamicContext(url);
+    if (rdcMatch && req.method === 'GET') {
+      await authGateway.requireProjectMember(auth!, rdcMatch.projectId);
+      try {
+        return json(res, 200, await loadReviewDynamicContext(auth!, rdcMatch.projectId, rdcMatch.sessionId));
+      } catch (error) {
+        if (error instanceof DynamicContractError) return json(res, error.status, { error: error.message });
+        throw error;
+      }
+    }
+
     const rtsMatch = matchReviewTraceability(url);
     if (rtsMatch && req.method === 'GET') {
       await authGateway.requireProjectMember(auth!, rtsMatch.projectId);
@@ -1551,7 +1681,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (rMatch && req.method === 'POST') {
       await authGateway.requireProjectMember(auth!, rMatch.projectId);
       try {
-        const result = await generateProjectReport(rMatch.projectId, ownerId, accessToken);
+        const body = await parseJsonBody(req).catch(() => ({} as Record<string, unknown>));
+        const reviewId = typeof body.reviewId === 'string' && body.reviewId.trim() ? body.reviewId.trim() : undefined;
+        const result = await generateProjectReport(rMatch.projectId, ownerId, accessToken, { reviewId, actorEmail: auth!.user.email ?? null });
         return json(res, 200, result);
       } catch (e) {
         return json(res, 400, { error: String(e) });

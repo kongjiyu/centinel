@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { displayPath } from '../utils/displayPath';
 import type { Finding, FindingSourceReference } from '../types';
 import { findingDomain, findingGroupDomains, groupStatus, type FindingGroup } from '../findingGroups';
 import { effectiveFindingStatus } from '../findingStatus';
@@ -6,7 +7,7 @@ import { FindingEvidence, SourceCode } from './FindingEvidence';
 import { formatEntityId } from '../utils/entityId';
 
 function locationLabel(finding: Finding): string {
-  const source = finding.filePath || (finding.requirementId ? `Requirement ${finding.requirementId}` : 'Location unavailable');
+  const source = (finding.filePath && displayPath(finding.filePath)) || (finding.requirementId ? `Requirement ${finding.requirementId}` : 'Location unavailable');
   return `${source}${finding.lineNumber ? `:${finding.lineNumber}` : ''}`;
 }
 
@@ -14,9 +15,9 @@ function occurrenceLabel(finding: Finding): string {
   return `${locationLabel(finding)} · ${finding.severity} · ${effectiveFindingStatus(finding)}`;
 }
 
-export function FindingDocument({ group, selectedId, onSelect, onBack, actions, onOpenReview }: {
+export function FindingDocument({ group, selectedId, onSelect, onBack, actions, onOpenReview, onVerifyWithDynamic }: {
   group: FindingGroup; selectedId: string; onSelect: (id: string) => void; onBack: () => void;
-  actions: (finding: Finding) => ReactNode; onOpenReview?: (id: string) => void;
+  actions: (finding: Finding) => ReactNode; onOpenReview?: (id: string) => void; onVerifyWithDynamic?: (finding: Finding) => void;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const sourceReaderFocus = useRef<HTMLButtonElement>(null);
@@ -64,7 +65,7 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
     <button ref={sourceReaderFocus} type="button" className="btn-secondary finding-source-reader-back" onClick={returnToFinding}>Back to finding</button>
     <header className="finding-source-reader-heading">
       <p>Source from the saved Review</p>
-      <h2>{sourceReader.ref.filePath || 'Reviewed file'}</h2>
+      <h2>{sourceReader.ref.filePath ? displayPath(sourceReader.ref.filePath) : 'Reviewed file'}</h2>
       <p>{sourceReader.ref.lineNumber ? `Recorded location: line ${sourceReader.ref.lineNumber}` : 'No source line was recorded.'}</p>
       {sourceReader.uncertain && <p className="finding-source-reader-uncertain">This is a candidate source location and needs verification.</p>}
       <p>{sourceReader.ref.sourceVersion ? <>Saved version <code>{sourceReader.ref.sourceVersion}</code></> : 'Version identifier unavailable. Content is read from the selected Review.'}</p>
@@ -144,6 +145,7 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
       <section className="finding-document-section finding-verification" aria-label="How to verify resolution">
         <h4>How to verify resolution</h4>
         <p>No verification steps or completion criteria were recorded for this occurrence.</p>
+        {onVerifyWithDynamic && origin === 'Review' && <p><button type="button" className="btn-secondary" onClick={() => onVerifyWithDynamic(selected)}>Verify with Dynamic Testing</button> <span className="finding-verification-hint">Drafts a browser test from this finding. You review it before anything runs.</span></p>}
       </section>
 
       {(selected.resolutionEvidence || selected.lineageHistory?.length) && <details className="finding-history-details">

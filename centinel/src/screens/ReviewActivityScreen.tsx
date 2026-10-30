@@ -1,7 +1,8 @@
 import { reviewHandover } from '../reviewHandover';
+import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Expand, FileCheck2, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
-import { api } from '../api/client';
+import { AlertCircle, CheckCircle2, Download, Expand, FileCheck2, FlaskConical, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
+import { api, type ProjectReportExportResult } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
 import { ReviewAnalysisScope } from '../components/ReviewAnalysisScope';
@@ -15,6 +16,7 @@ import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import {
   createReviewActivityViewModel,
+  isExecutedReviewStatus,
   formatReviewTimestamp,
   parseReviewConfig,
   truncateReviewSourceName,
@@ -604,6 +606,10 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     setError(null);
   };
 
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportResult, setReportResult] = useState<ProjectReportExportResult | null>(null);
+
   const submitDecision = async () => {
     if (!session || !decisionIntent || !canDecide) return;
     if (decisionIntent === 'changes_requested' && !decisionFeedback.trim()) {
@@ -758,6 +764,18 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     </section>
   );
 
+  const executed = isExecutedReviewStatus(session.status);
+  const exportReviewReport = async () => {
+    setReportBusy(true); setReportError(null); setReportResult(null);
+    try { setReportResult(await api.exportProjectReport(projectId, { reviewId: session.id })); }
+    catch (cause) { setReportError(userFacingError(cause, 'The Review report could not be generated.')); }
+    finally { setReportBusy(false); }
+  };
+  const followUpActions = executed && <>
+    <button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dynamic-testing', projectId, draft: { name: `${session.name}: runtime check`, goal: `Check in the running application that the requirements reviewed in ${session.name} behave as specified.`, reviewId: session.id } })}><FlaskConical size={15} aria-hidden="true" /> Test in Dynamic Testing</button>
+    <button type="button" className="btn-secondary" onClick={() => void exportReviewReport()} disabled={reportBusy}><Download size={15} aria-hidden="true" /> {reportBusy ? 'Exporting…' : 'Export report'}</button>
+  </>;
+
   return (
     <div className="screen command-review-activity review-activity-screen">
       <CommandPageHeader
@@ -765,10 +783,20 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         title={`${session.name} ${formatEntityId(session.id)}`}
         status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-         actions={state === 'Need Approval' && !currentDecision ? headerActions : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel} disabled={!canRetry}><RotateCcw size={16} aria-hidden="true" /> {state === 'Paused' ? 'Resume review' : 'Retry review'}</button> : undefined}
+         actions={state === 'Need Approval' && !currentDecision ? <>{followUpActions}{headerActions}</> : followUpActions ? <section className="review-activity-actions" aria-label="Review follow-up actions">{followUpActions}</section> : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel} disabled={!canRetry}><RotateCcw size={16} aria-hidden="true" /> {state === 'Paused' ? 'Resume review' : 'Retry review'}</button> : undefined}
       />
 
       {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
+      {reportError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {reportError}</div>}
+      {reportResult && <section className="export-result success review-report-result" aria-label="Review report">
+        <p role="status"><strong>Review report generated.</strong> One immutable snapshot with this Review's scope, versions, findings, traceability and decisions.</p>
+        <nav className="report-export-downloads" aria-label="Review report downloads">
+          {reportResult.downloads.pdf && <a className="btn-secondary" href={reportResult.downloads.pdf} target="_blank" rel="noreferrer" download>Download PDF</a>}
+          {reportResult.downloads.markdown && <a className="btn-secondary" href={reportResult.downloads.markdown} target="_blank" rel="noreferrer" download>Download Markdown</a>}
+          {reportResult.downloads.json && <a className="btn-secondary" href={reportResult.downloads.json} target="_blank" rel="noreferrer" download>Download JSON</a>}
+          {!reportResult.downloads.pdf && !reportResult.downloads.markdown && !reportResult.downloads.json && <span>Download links are unavailable. Export again to request fresh links.</span>}
+        </nav>
+      </section>}
       {state === 'Need Approval' && !currentDecision && decisionEvidenceIssue && !decisionIntent && (
         <section className={`review-evidence-decision-gate${evidenceReadFailed ? ' is-failed' : ''}`} role={evidenceReadFailed || sourceManifest?.status === 'incomplete' ? 'alert' : 'status'} aria-label="Decision evidence status">
           <div><strong>{evidenceReadFailed ? 'Decision evidence needs attention' : 'Decision evidence is unavailable'}</strong><p>{decisionEvidenceIssue}</p></div>
@@ -869,6 +897,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       ) : tab === 'Activity' ? (
         <section id="review-result-panel-activity" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-activity">
           <ReviewActivityContent
+            onOpenSettings={() => onNavigate({ name: 'settings' })}
             narrative={narrative!}
             technicalEvents={harnessTrace?.events ?? []}
             onOpenFinding={openFinding}
@@ -892,7 +921,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         <section id="review-result-panel-findings" className="review-detail-panel review-result-panel command-project-detail" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-findings">
           {(state === 'In progress' || state === 'Queued') && findings.length === 0
             ? <ReviewWaitingPanel title="Findings" />
-            : <FindingsPanel readOnly={state === 'In progress' || state === 'Queued'} projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} focusFindingId={focusFindingId} supplementalFindings={evidenceFindings} onLoadStateChange={handleFindingsLoadState} />}
+            : <FindingsPanel readOnly={state === 'In progress' || state === 'Queued'} projectId={session.projectId} sessionId={session.id} presentation="project" pageSize={5} refreshKey={session.updatedAt} focusFindingId={focusFindingId} supplementalFindings={evidenceFindings} onLoadStateChange={handleFindingsLoadState} onVerifyWithDynamic={finding => onNavigate({ name: 'dynamic-testing', projectId: session.projectId, draft: findingToDynamicDraft(finding) })} />}
         </section>
       ) : (
         <section id="review-result-panel-traceability" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-traceability">
@@ -935,6 +964,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           onRetryEvidence={() => void loadReviewEvidence()}
           onFeedbackChange={setDecisionFeedback}
           onSourceChoiceChange={setIterationSourceChoice}
+          blockerCount={reviewHandover({ findings, findingsError, state, manifest: sourceManifest, traceability: traceabilitySnapshot, assessment: evidenceAssessment }).blockers.length}
           onSubmit={() => void submitDecision()}
           onCancel={() => { setDecisionIntent(null); setDecisionFeedback(''); }}
         />
@@ -996,7 +1026,9 @@ function ReviewActivityContent({
   olderDecisionsError,
   onLoadOlderDecisions,
   currentDecision,
+  onOpenSettings,
 }: {
+  onOpenSettings: () => void;
   technicalEvents: ReviewHarnessTrace['events'];
   onOpenFinding: (id: string) => void;
   narrative: ReviewNarrative;
@@ -1026,7 +1058,7 @@ function ReviewActivityContent({
         {!harnessLoading && !harnessError && <ReviewAnalysisScope map={analysisMap} findings={findings} onOpenFinding={onOpenFinding} />}
         {technicalEvents.length > 0 && <details className="review-technical-history"><summary>Technical execution details</summary><ol>{technicalEvents.filter(event => /^harness_step_(started|completed|failed|cancelled)$/.test(event.event)).slice(-200).map((event, index) => <li key={event.id ?? index}><time>{formatReviewTimestamp(event.createdAt)}</time><span>{typeof event.detail?.step === 'string' ? event.detail.step.replace(/_/g, ' ') : 'Recorded step'}</span><strong>{event.event.replace('harness_step_', '')}</strong></li>)}</ol></details>}
         {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
-        {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
+        {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p>{/model provider|provider unavailable|no model/i.test(session.failureReason ?? '') && <button type="button" className="btn-secondary" onClick={onOpenSettings}>Open Settings</button>}</div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
         {currentDecision && (
           <div className="review-decision-recorded" role="status">
@@ -1106,7 +1138,10 @@ function ReviewDecisionPanel({
   onRetryEvidence,
   onSubmit,
   onCancel,
+  blockerCount = 0,
 }: {
+  /** Verified unresolved Critical/High findings; approving over them needs an explicit, recorded reason. */
+  blockerCount?: number;
   intent: DecisionIntent;
   reviewName: string;
   targetLabel: string;
@@ -1123,6 +1158,8 @@ function ReviewDecisionPanel({
   onCancel: () => void;
 }) {
   const isReject = intent === 'changes_requested';
+  const overridesBlockers = !isReject && blockerCount > 0;
+  const [acceptedBlockers, setAcceptedBlockers] = useState(false);
   return (
     <aside className="review-decision-panel" aria-labelledby="review-decision-panel-heading">
       <div className="review-decision-panel-inner">
@@ -1135,13 +1172,17 @@ function ReviewDecisionPanel({
           <button className="command-icon-button" type="button" onClick={onCancel} aria-label="Close decision panel"><X size={16} aria-hidden="true" /></button>
         </div>
         <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
-          <label htmlFor="review-decision-feedback">{isReject ? 'Feedback' : 'Decision rationale'} <span className="field-optional">{isReject ? '*' : 'Optional'}</span></label>
+          {overridesBlockers && <div className="review-decision-blocker-warning" role="alert">
+            <strong>{blockerCount} confirmed {blockerCount === 1 ? 'blocker is' : 'blockers are'} still open.</strong>
+            <p>This Review recommends changes. Approving records your decision to hand over anyway; it does not resolve the findings.</p>
+          </div>}
+          <label htmlFor="review-decision-feedback">{isReject ? 'Feedback' : 'Decision rationale'} <span className="field-optional">{isReject || overridesBlockers ? '*' : 'Optional'}</span></label>
           <textarea
             id="review-decision-feedback"
             value={feedback}
             onChange={event => onFeedbackChange(event.target.value)}
             placeholder={isReject ? 'Explain what needs refinement before this review can be approved.' : 'Record why this review is approved, if useful for the audit trail.'}
-            required={isReject}
+            required={isReject || overridesBlockers}
             rows={4}
             autoFocus
           />
@@ -1154,10 +1195,11 @@ function ReviewDecisionPanel({
             <label><input type="radio" name="iteration-source-choice" value="reuse" checked={sourceChoice === 'reuse'} onChange={() => onSourceChoiceChange('reuse')} /> Reuse the frozen source manifest</label>
             <label><input type="radio" name="iteration-source-choice" value="refresh" checked={sourceChoice === 'refresh'} onChange={() => onSourceChoiceChange('refresh')} /> Refresh project sources before review</label>
           </fieldset>}
+          {overridesBlockers && <label className="review-decision-blocker-accept"><input type="checkbox" checked={acceptedBlockers} onChange={event => setAcceptedBlockers(event.target.checked)} /> I accept the open blockers and have explained why above.</label>}
           <p className="review-decision-panel-note">{isReject ? 'This prepares an immutable child review. It will not call a model until you explicitly start it.' : 'This records an activity-level decision. It does not resolve or dismiss individual findings.'}</p>
           <div className="review-decision-panel-actions">
             <button className="btn-secondary" type="button" onClick={onCancel} disabled={submitting}>Cancel</button>
-            <button className={isReject ? 'btn-danger' : 'btn-primary'} type="submit" disabled={submitting || !canSubmit}>
+            <button className={isReject ? 'btn-danger' : 'btn-primary'} type="submit" disabled={submitting || !canSubmit || (overridesBlockers && (!acceptedBlockers || !feedback.trim()))}>
               {submitting ? (isReject ? 'Requesting…' : 'Approving…') : (isReject ? 'Request changes' : 'Approve review')}
             </button>
           </div>

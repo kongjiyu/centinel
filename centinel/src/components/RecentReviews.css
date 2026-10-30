@@ -1,0 +1,8 @@
+.recent-reviews { margin: 0 0 18px; padding: 14px 16px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control, 8px); }
+.recent-reviews h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; }
+.recent-reviews ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.recent-reviews li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.recent-reviews-link { display: flex; flex: 1; align-items: baseline; gap: 10px; min-width: 0; padding: 6px 0; border: 0; background: none; color: var(--workspace-text); text-align: left; cursor: pointer; }
+.recent-reviews-link:hover .recent-reviews-name, .recent-reviews-link:focus-visible .recent-reviews-name { color: var(--workspace-primary); text-decoration: underline; }
+.recent-reviews-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.recent-reviews-link small { flex: none; color: var(--workspace-text-muted); font-size: 12px; }

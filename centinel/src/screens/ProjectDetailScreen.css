@@ -3076,3 +3076,11 @@
     width: 100%;
   }
 }
+
+.project-requirements-entry { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control, 8px); }
+.project-requirements-entry > div { display: grid; gap: 2px; min-width: 0; }
+.project-requirements-entry strong { font-size: 14px; }
+.project-requirements-entry span { color: var(--workspace-text-muted); font-size: 13px; line-height: 19px; }
+.project-requirements-entry > .btn-secondary { flex: none; }
+@media (max-width: 720px) { .project-requirements-entry { flex-direction: column; align-items: stretch; } }
+.project-assessment-scope-note { margin: 0 0 14px; color: var(--workspace-text-muted); font-size: 13px; line-height: 19px; }

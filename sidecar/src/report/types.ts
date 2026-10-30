@@ -42,6 +42,10 @@ export type ReportMetadata = {
   actorId: string | null;
   generatorVersion: string;
   riskPolicyVersion: string;
+  /** Set when this export focuses on one Review instead of the latest one. */
+  reviewId?: string;
+  /** Display identity of the exporting account; actorId remains the stable reference. */
+  actorEmail?: string | null;
   outputFiles: {
     json: string;
     markdown: string;
@@ -269,6 +273,9 @@ export type SnapshotContext = {
   actorId?: string | null;
   generatedAt?: string;
   outputFiles?: ReportMetadata['outputFiles'];
+  /** Report this Review rather than the latest terminal Review. */
+  reviewId?: string;
+  actorEmail?: string | null;
   /** The caller must explicitly supply a bearer-scoped or test snapshot source. */
   source: import('./snapshot.js').ReportSnapshotSource;
 };

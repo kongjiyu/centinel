@@ -236,7 +236,11 @@ export async function buildProjectReportSnapshot(
       reason: 'This report source did not provide a reconciled current finding projection.',
       items: [],
     };
-  const staticReviewSelection = latestTerminalStatic(staticSessions);
+  const focused = context.reviewId ? staticSessions.find(item => item.id === context.reviewId) : null;
+  if (context.reviewId && (!focused || !REPORT_TERMINAL_STATUSES.has(focused.status))) {
+    throw new Error('Only a finished Review in this project can be exported as a Review report.');
+  }
+  const staticReviewSelection = focused ? { session: focused, timestamp: resolveExecutionTimestamp(focused) } : latestTerminalStatic(staticSessions);
   const review = staticReviewSelection?.session ?? null;
   let latestReview: ProjectReportSnapshot['latestReview'] = null;
 
@@ -334,6 +338,8 @@ export async function buildProjectReportSnapshot(
       actorId: context.actorId ?? null,
       generatorVersion: REPORT_GENERATOR_VERSION,
       riskPolicyVersion: assessment.policyVersion,
+      ...(context.reviewId ? { reviewId: context.reviewId } : {}),
+      ...(context.actorEmail ? { actorEmail: context.actorEmail } : {}),
       outputFiles: context.outputFiles ?? emptyOutputFiles(),
     },
     project,

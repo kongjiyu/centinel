@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { displayPath } from '../utils/displayPath';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Finding, FindingSourceReference } from '../types';
 import { findingSourceReferences, groupStatus, type FindingGroup } from '../findingGroups';
@@ -139,7 +140,7 @@ export function FindingOccurrences({ group, selectedId, onSelect }: { group: Fin
   return <section className="finding-occurrences" aria-label="Affected occurrences">
     <h5>{group.members.length} affected occurrences</h5><p>{groupStatus(group)} · Select a location to inspect its evidence and update that occurrence.</p>
     <ul>{group.members.map(item => <li key={item.id}><button type="button" aria-pressed={item.id === selectedId} onClick={() => onSelect(item.id)}>
-      <strong>{item.filePath ? `${item.filePath}${item.lineNumber ? `:${item.lineNumber}` : ''}` : item.requirementId ? `Requirement ${item.requirementId}` : item.title}</strong>
+      <strong>{item.filePath ? `${displayPath(item.filePath)}${item.lineNumber ? `:${item.lineNumber}` : ''}` : item.requirementId ? `Requirement ${item.requirementId}` : item.title}</strong>
       <span>{item.severity} · {effectiveFindingStatus(item)} · {item.title}</span>
     </button></li>)}</ul>
   </section>;

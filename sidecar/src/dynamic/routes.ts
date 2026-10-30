@@ -1,11 +1,13 @@
 import type { EnvironmentSnapshot } from './environment/types.js';
-import { createStaticContextStub, type IncomingContextSource,type StubScenario } from './testing/staticContextStub.js';
+import { createStaticContextStub, type IncomingContextSource,type StaticContextFixture,type StubScenario } from './testing/staticContextStub.js';
 import { DynamicService } from './service.js';
 import { DynamicContractError, type DynamicRun } from './types.js';
 
 export type DynamicRouteDependencies = {
   validateAuthoring?(projectId: string, body: Record<string, unknown>): Promise<void>;
   incomingContextSource?(scenario:StubScenario):IncomingContextSource;
+  /** Rebuild Review-snapshot context from the frozen Review; the client copy is never trusted. */
+  reviewContext?(projectId:string,reviewId:string):Promise<StaticContextFixture>;
   actorId: string;
   service: DynamicService;
   requireProjectMember(projectId: string): Promise<void>;
@@ -34,6 +36,12 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
         if (!scenarios.includes(body.contextScenario as StubScenario)) throw new DynamicContractError(400, 'Unknown mock scenario.');
         // Explicit authoring input, not a fallback for missing/failed real context.
         body.context = await (deps.incomingContextSource??createStaticContextStub)(body.contextScenario as StubScenario).load(projectId);
+      }
+      const supplied=body.context&&typeof body.context==='object'&&!Array.isArray(body.context)?body.context as Record<string,unknown>:null;
+      if(supplied?.provenance==='review-snapshot'){
+        if(typeof supplied.reviewId!=='string'||!supplied.reviewId)throw new DynamicContractError(400,'Choose a valid source Review.');
+        if(!deps.reviewContext)throw new DynamicContractError(503,'Review requirements are unavailable in this runtime.');
+        body.context=await deps.reviewContext(projectId,supplied.reviewId);
       }
       await deps.validateAuthoring?.(projectId,body);
       return { status: 201, body: await service.saveMission(projectId, deps.actorId, body, id) };

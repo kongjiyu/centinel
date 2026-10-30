@@ -1473,3 +1473,7 @@
   .review-activity-screen .review-overview-heading h2 { font-size: 19px; }
   .review-activity-screen .review-evidence-banner { padding: 12px; }
 }
+
+.review-decision-blocker-warning { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--workspace-danger); border-radius: var(--workspace-radius-control, 8px); background: var(--workspace-danger-subtle); font-size: 13px; line-height: 19px; }
+.review-decision-blocker-warning p { margin: 4px 0 0; color: var(--workspace-text-muted); }
+.review-decision-blocker-accept { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; font-size: 13px; line-height: 19px; }

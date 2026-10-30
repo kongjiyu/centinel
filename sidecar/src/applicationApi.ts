@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CentinelApplicationRepository } from './applicationRepository.js';
-import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType } from './artifacts.js';
+import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType, type SourceCurrency } from './artifacts.js';
 import type { StoreArtifact, StoreArtifactVersion } from './store/types.js';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'vendor', 'target', 'bin', 'obj', '.idea', '.vscode']);
@@ -166,7 +166,18 @@ function clientArtifact(artifact: StoreArtifact, latest?: StoreArtifactVersion):
       : artifact.sourceId && typeof artifact.metadata.sourcePath === 'string' ? artifact.metadata.sourcePath : null,
     contentHash: latest?.contentHash ?? '',
     createdAt: artifact.createdAt,
+    ...(artifact.updatedAt ? { updatedAt: latest?.createdAt && latest.createdAt > artifact.updatedAt ? latest.createdAt : artifact.updatedAt } : {}),
+    currency: sourceCurrency(artifact.metadata.currency),
   };
+}
+
+/** Read stored currency governance; absent or malformed values mean never confirmed and active. */
+export function sourceCurrency(value: unknown): SourceCurrency {
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const time = (key: string) => typeof record[key] === 'string' && Number.isFinite(Date.parse(record[key] as string)) ? record[key] as string : null;
+  const actor = (key: string) => typeof record[key] === 'string' && record[key] ? record[key] as string : null;
+  return { confirmedAt: time('confirmedAt'), confirmedBy: actor('confirmedBy'), deprecated: record.deprecated === true,
+    deprecatedAt: time('deprecatedAt'), deprecatedBy: actor('deprecatedBy') };
 }
 
 export async function listClientArtifacts(repository: CentinelApplicationRepository, projectId: string, signal?: AbortSignal): Promise<Artifact[]> {

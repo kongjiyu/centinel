@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { ProjectMembersPanel } from '../components/ProjectMembersPanel';
+import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { api, type ProjectReportDownloadLinks, type ProjectReportExportResult, type ProjectReportHistoryEntry } from '../api/client';
@@ -10,7 +12,7 @@ import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
-import { projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
+import { effectiveReviewDecision, projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
 import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
 import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
@@ -490,7 +492,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   useEffect(() => {
     if (activeSection !== 'project-assessment') return;
     const completedReview = [...staticSessions]
-      .filter(review => review.status === 'success' && review.currentDecision?.decision === 'approved')
+      .filter(review => effectiveReviewDecision(review) === 'approved')
       .sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))[0] ?? null;
     if (assessmentData?.status === 'available') {
       const assessedReview = assessmentData.traceability.reviewId
@@ -517,7 +519,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [activeSection, assessmentData, project.id, staticSessions]);
 
   const recurringPatterns = useMemo(() => {
-    const approvedSessionIds = new Set(staticSessions.filter(review => review.status === 'success' && review.currentDecision?.decision === 'approved').map(review => review.id));
+    const approvedSessionIds = new Set(staticSessions.filter(review => effectiveReviewDecision(review) === 'approved').map(review => review.id));
     const groups = new Map<string, { label: string; sessions: Set<string>; filter: { category?: string; search?: string } }>();
     projectFindings.forEach(finding => {
       if (finding.source !== 'static') return;
@@ -951,7 +953,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         <button className={activeSection === 'project-assessment' ? 'active' : ''} aria-current={activeSection === 'project-assessment' ? 'page' : undefined} onClick={() => moveToSection('project-assessment')}>Assessment</button>
         <button className={activeSection === 'project-findings' ? 'active' : ''} aria-current={activeSection === 'project-findings' ? 'page' : undefined} onClick={() => moveToSection('project-findings')}>Findings</button>
         <button className={activeSection === 'project-source' ? 'active' : ''} aria-current={activeSection === 'project-source' ? 'page' : undefined} onClick={() => moveToSection('project-source')}>Source</button>
-        <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborators</button>
+        <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Members</button>
         <button className={activeSection === 'project-settings' ? 'active' : ''} aria-current={activeSection === 'project-settings' ? 'page' : undefined} onClick={() => moveToSection('project-settings')}>Settings</button>
       </nav>
 
@@ -988,6 +990,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       <div className="detail-grid" id="project-overview">
         {/* Artifacts */}
         {activeSection === 'project-source' && <section className="card detail-card sources-card" id="project-source">
+          <div className="project-requirements-entry">
+            <div><strong>Requirements and coding standards</strong><span>Confirm the requirements a Review should trace, and enable the coding-standard rules it should check.</span></div>
+            <button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'requirements', projectId: project.id })}>Manage requirements</button>
+          </div>
           <ArtifactsPanel projectId={project.id} initialView="repository" onOpenSettings={() => onNavigate({ name: 'settings' })} />
         </section>}
 
@@ -1119,6 +1125,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             </div>
               <span className="panel-count">{assessmentInitialReadLoading || findingsLoading ? 'Loading…' : findingsError ? 'Unavailable' : assessmentData?.status === 'available' && assessmentData.summary ? `${assessmentData.summary.classified} classified${assessmentData.summary.unclassified > 0 ? ` · ${assessmentData.summary.unclassified} unavailable` : ''}` : `${riskLevelFindings.length} classified${currentFindings.length > riskLevelFindings.length ? ` · ${currentFindings.length - riskLevelFindings.length} unavailable` : ''}`}</span>
           </div>
+          <p className="project-assessment-scope-note">Risk here comes from Review findings. Dynamic Testing results stay in Dynamic Testing and are not added to this score.</p>
           {assessmentInitialReadLoading ? <LoadingSkeleton variant="panel" label="Loading assessment" /> : <>
           {assessmentLoading && <p className="project-collaboration-status" role="status">Updating assessment…</p>}
           <section className="project-risk-summary-section" aria-labelledby="risk-summary-heading">
@@ -1145,6 +1152,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              supplementalFindings={supplementalProjectFindings}
              supplementalUnavailableMessage={[readinessStatus?.stale && readinessStatus.snapshot ? 'Readiness findings describe previous sources and are hidden until a current assessment is available.' : null, currentReviewGaps?.message].filter(Boolean).join(' ') || null}
              presentation="project"
+             onVerifyWithDynamic={finding => onNavigate({ name: 'dynamic-testing', projectId: project.id, draft: findingToDynamicDraft(finding) })}
              onOpenReview={reviewId => {
                const review = staticSessions.find(session => session.id === reviewId);
                onNavigate({ name: 'review-activity', projectId: project.id, sessionId: reviewId, reviewName: review?.name });
@@ -1160,8 +1168,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         </div>}
 
         {activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
+          <ProjectMembersPanel projectId={project.id} />
           <div className="panel-header project-collaboration-header">
-            <div><h2><Users size={19} /> Collaborators</h2></div>
+            <div><h2><Users size={19} /> GitHub collaborators</h2></div>
             <div className="project-collaboration-actions">
               <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>
             </div>

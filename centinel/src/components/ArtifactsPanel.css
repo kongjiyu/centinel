@@ -383,3 +383,10 @@
 @media (prefers-reduced-motion: reduce) {
   .source-workspace *, .source-workspace *::before, .source-workspace *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.source-currency { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control, 8px); font-size: 13px; }
+.source-currency.is-due, .source-currency.is-unconfirmed { border-color: var(--workspace-warning); background: var(--workspace-warning-subtle); }
+.source-currency.is-deprecated { background: var(--workspace-surface-subtle); color: var(--workspace-text-muted); }
+.source-currency-label { font-weight: 600; }
+.source-currency-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.source-currency-error { flex-basis: 100%; margin: 0; color: var(--workspace-danger); }

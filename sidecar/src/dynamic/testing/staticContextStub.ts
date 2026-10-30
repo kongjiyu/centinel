@@ -4,7 +4,8 @@ export type StubScenario = typeof STUB_SCENARIOS[number];
 
 export interface StaticContextFixture {
   schemaVersion: 1;
-  provenance: 'mock-static';
+  /** mock-static: synthetic development input; review-snapshot: exported from a frozen Static Review. */
+  provenance: 'mock-static' | 'review-snapshot';
   projectId: string;
   reviewId: string;
   snapshotId: string;
@@ -15,7 +16,8 @@ export interface StaticContextFixture {
     currency: 'current' | 'stale' | 'unknown';
     uri: string;
   }>;
-  target: { repository: string; commit: string; deploymentVersion: null };
+  /** A Review snapshot may not know its repository or commit; unknown stays null. */
+  target: { repository: string | null; commit: string | null; deploymentVersion: null };
   requirements: Array<{
     id: string;
     revision: number;

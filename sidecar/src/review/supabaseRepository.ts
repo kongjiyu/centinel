@@ -551,11 +551,14 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
    * saved summaries, or the potentially large progress history for every Review. */
   async listReviewSummaries(projectId: string): Promise<StaticReviewRecord[]> {
     const rows = await this.allRows('review_sessions', 'review summary list', query => query
-      .select('id,project_id,name,review_type,status,failure_reason,created_at,updated_at,progress_stage:progress->>stage')
+      .select('id,project_id,name,review_type,status,failure_reason,created_at,updated_at,model_status,parent_review_id,lineage_parent:lineage->>parentReviewId,progress_stage:progress->>stage')
       .eq('project_id', projectId).order('created_at', { ascending: false }).order('id'));
+    // Lineage lets directories treat a failed Review as superseded by its retry.
     return rows.map(row => mapReview({
       id: row.id, project_id: row.project_id, name: row.name, review_type: row.review_type,
       status: row.status, failure_reason: row.failure_reason, created_at: row.created_at, updated_at: row.updated_at,
+      model_status: row.model_status, parent_review_id: row.parent_review_id,
+      lineage: row.lineage_parent ? { parentReviewId: row.lineage_parent } : {},
       progress: row.progress_stage ? { stage: row.progress_stage } : null,
     }));
   }

@@ -205,6 +205,9 @@
 .review-advanced-grid label svg { color: var(--workspace-primary); }
 
 .review-entry-error { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; border: 1px solid var(--workspace-danger); border-radius: var(--workspace-radius-control, 8px); background: var(--workspace-danger-subtle); color: var(--workspace-danger); font-size: 13px; line-height: 20px; }
+.review-entry-provider { align-items: center; border-color: var(--workspace-warning); background: var(--workspace-warning-subtle); color: var(--workspace-text); }
+.review-entry-provider > span { flex: 1; }
+.review-entry-provider > .btn-secondary { flex: none; }
 .review-entry-error:focus { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
 .review-entry-submit-hint { margin: 0; padding: 11px 13px; border-left: 3px solid var(--workspace-warning); background: var(--workspace-warning-subtle); color: var(--workspace-text-muted); font-size: 12px; line-height: 19px; }
 .review-entry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

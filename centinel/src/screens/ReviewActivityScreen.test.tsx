@@ -331,6 +331,21 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByRole('complementary', { name: 'Approve review' })).toBeInTheDocument();
   });
 
+  it('requires a recorded reason before approving over an open high-severity blocker', async () => {
+    const user = userEvent.setup();
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
+    await screen.findByRole('heading', { name: /Insufficient evidence|Changes needed|Ready within scope/ });
+    await user.click(within(screen.getByRole('region', { name: 'Review decision actions' })).getByRole('button', { name: 'Approve review' }));
+    const panel = screen.getByRole('complementary', { name: 'Approve review' });
+    expect(within(panel).getByRole('alert')).toHaveTextContent('1 confirmed blocker is still open');
+    const submit = within(panel).getByRole('button', { name: 'Approve review' });
+    expect(submit).toBeDisabled();
+    await user.type(within(panel).getByRole('textbox'), 'Accepted for the demo build; fix tracked separately.');
+    expect(submit).toBeDisabled();
+    await user.click(within(panel).getByRole('checkbox', { name: /I accept the open blockers/ }));
+    expect(submit).toBeEnabled();
+  });
+
   it('keeps decision actions available while the reviewer inspects evidence tabs', async () => {
     const user = userEvent.setup();
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);

@@ -78,3 +78,6 @@
   .auth-preview-actions { margin-top: 12px; padding-top: 8px; }
   .auth-preview-actions p, .auth-footer { display: none; }
 }
+
+.auth-notice { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--workspace-radius-control, 8px); background: var(--workspace-surface-subtle); color: var(--workspace-text); font-size: 13px; line-height: 19px; }
+.auth-mode-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 14px; font-size: 13px; }

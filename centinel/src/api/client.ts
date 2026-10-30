@@ -532,6 +532,20 @@ export const api = {
     request<ReviewSourceManifest>(`/projects/${projectId}/static-sessions/${sessionId}/source-manifest`),
   getReviewArtifactContent: (projectId: string, sessionId: string, artifactId: string) =>
     request<{ versionId: string; content: string; contentHash: string; mimeType: string | null; textContent?: string; textExtraction?: { policy: string; pageCount: number; limitations: string[] } }>(`/projects/${projectId}/static-sessions/${sessionId}/source-artifacts/${artifactId}/content`),
+  /** Record source currency confirmation or deprecation; this is not version approval. */
+  setArtifactCurrency: (projectId: string, artifactId: string, action: 'confirm' | 'deprecate' | 'restore') =>
+    request<import('../types').SourceCurrency>(`/projects/${projectId}/artifacts/${artifactId}/currency`, { method: 'POST', body: JSON.stringify({ action }) }),
+  /** Read-only page scan proposing unique control selectors; nothing is clicked or approved. */
+  discoverDynamicControls: (projectId: string, targetUrl: string) =>
+    request<{ controls: import('../../../sidecar/src/dynamic/environment/controlDiscovery').DiscoveredControl[] }>(`/projects/${projectId}/dynamic/control-discovery`, { method: 'POST', body: JSON.stringify({ targetUrl }) }),
+  listProjectMembers: (projectId: string) => request<import('../types').ProjectMemberList>(`/projects/${projectId}/members`),
+  addProjectMember: (projectId: string, email: string, role: 'member' | 'viewer') =>
+    request<import('../types').ProjectMember>(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) }),
+  removeProjectMember: (projectId: string, userId: string) =>
+    request<{ removed: boolean }>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' }),
+  /** Frozen Review requirements, versions and approval state for a Dynamic test. */
+  getReviewDynamicContext: (projectId: string, sessionId: string) =>
+    request<import('../../../sidecar/src/dynamic/testing/staticContextStub').StaticContextFixture>(`/projects/${projectId}/static-sessions/${sessionId}/dynamic-context`),
   getReviewTraceability: (projectId: string, sessionId: string) =>
     request<ReviewTraceabilitySnapshot>(`/projects/${projectId}/static-sessions/${sessionId}/traceability`),
   getReviewEvidenceSufficiency: (projectId: string, sessionId: string) =>
@@ -586,9 +600,11 @@ export const api = {
     }),
 
   // Reports
-  exportProjectReport: (projectId: string) =>
+  /** reviewId focuses the export on one finished Review instead of the latest one. */
+  exportProjectReport: (projectId: string, options: { reviewId?: string } = {}) =>
     request<ProjectReportExportResult>(`/projects/${projectId}/reports/export`, {
       method: 'POST',
+      body: JSON.stringify(options),
     }),
   listProjectReportHistory: (projectId: string) =>
     request<ProjectReportHistoryEntry[]>(`/projects/${projectId}/reports`),

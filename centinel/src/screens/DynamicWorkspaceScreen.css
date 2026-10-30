@@ -143,3 +143,15 @@
 
 .dynamic-workspace-screen .dw-unit table { min-width: 650px; table-layout: fixed; }
 .dynamic-workspace-screen .dw-unit .dw-table-scroll:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
+
+.dw-discovery { display: grid; gap: 10px; margin: 8px 0 14px; padding: 12px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control, 8px); background: var(--workspace-surface-subtle); }
+.dw-discovery-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dw-discovery-heading p { margin: 4px 0 0; }
+.dw-discovery-heading .btn-secondary { flex: none; }
+.dw-discovery-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dw-discovery-list label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; }
+.dw-discovery-label { font-weight: 600; }
+.dw-discovery-list small { color: var(--workspace-text-muted); }
+.dw-discovery > .btn-primary { justify-self: start; }
+.dynamic-workspace-screen .dw-result-verdict.dw-running { color: var(--workspace-primary); }
+.dynamic-workspace-screen .dw-result-verdict.dw-running small { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; }

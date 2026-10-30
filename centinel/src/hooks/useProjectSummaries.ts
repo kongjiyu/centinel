@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { projectActivityLifecycle, reviewLifecycleState, type ProjectActivityLifecycle } from '../reviewViewModel';
+import { effectiveReviewDecision, isExecutedReviewStatus, projectActivityLifecycle, reviewLifecycleState, type ProjectActivityLifecycle } from '../reviewViewModel';
 import type { DynamicSession, Project, StaticSession } from '../types';
 import { latestPerSavedTest, loadDynamicActivity } from '../dynamic/runActivity';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
@@ -71,7 +71,11 @@ export function statusLabel(status: string): string {
     case 'queued': return 'Queued';
     case 'running': return 'In progress';
     case 'success': return 'Completed';
-    case 'failure': return 'Failed';
+    case 'approved': return 'Completed';
+    case 'pending_approval': case 'completed': return 'Need Approval';
+    case 'changes_requested': return 'Changes requested';
+    case 'prepared': return 'Queued';
+    case 'failure': case 'failed': return 'Failed';
     case 'blocked': return 'Blocked';
     case 'cancelled': return 'Cancelled';
     default: return status ? status.replace(/[_-]+/g, ' ') : 'Unknown';
@@ -96,7 +100,11 @@ function actionPriority(item: ProjectAction): number {
 function getStaticAction(project: Project, sessions: StaticSession[], hasSources: boolean, unavailable: boolean): ProjectAction | null {
   const candidates: ProjectAction[] = [];
 
-  sortedSessions(sessions).forEach(session => {
+  // A Review that has a later retry or iteration child is superseded by it;
+  // only the newest attempt in each chain can still require action.
+  const superseded = new Set(sessions.map(session => session.parentSessionId).filter(Boolean));
+
+  sortedSessions(sessions).filter(session => !superseded.has(session.id)).forEach(session => {
     if (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked') {
       const paused = reviewLifecycleState(session) === 'Paused';
       candidates.push({
@@ -114,9 +122,10 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
       return;
     }
 
-    if (session.status !== 'success') return;
+    if (!isExecutedReviewStatus(session.status)) return;
+    const decision = effectiveReviewDecision(session);
 
-    if (session.currentDecision?.decision === 'changes_requested') {
+    if (decision === 'changes_requested') {
       candidates.push({
         id: `review-changes:${session.id}`,
         project,
@@ -124,7 +133,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
         state: 'Changes required',
         action: 'Resolve',
         tone: 'warning',
-        reason: session.currentDecision.comment || `${session.name} has requested changes that still need a response.`,
+        reason: session.currentDecision?.comment || `${session.name} has requested changes that still need a response.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
         sessionName: session.name,
@@ -132,7 +141,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
       return;
     }
 
-    if (!session.currentDecision) {
+    if (!decision) {
       candidates.push({
         id: `review-decision:${session.id}`,
         project,

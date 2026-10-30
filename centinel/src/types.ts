@@ -7,6 +7,10 @@ export type Project = {
   updatedAt: string;
 };
 
+/** A Centinel account with access to a project. Owners manage membership. */
+export type ProjectMember = { userId: string; email: string; role: 'owner' | 'member' | 'viewer'; addedAt: string };
+export type ProjectMemberList = { viewerUserId: string; members: ProjectMember[] };
+
 export type CollaborationStatus = {
   available: boolean;
   repository: { owner: string; repo: string; remoteUrl: string } | null;
@@ -224,7 +228,22 @@ export type Artifact = {
   originalPath: string | null;
   contentHash: string;
   createdAt: string;
+  /** Latest recorded content/metadata change, when the store provides one. */
+  updatedAt?: string;
+  /** Source currency governance (DESIGN.md: 90-day confirmation; deprecated sources leave new Reviews). */
+  currency?: SourceCurrency;
 };
+
+export type SourceCurrency = {
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+  deprecated: boolean;
+  deprecatedAt: string | null;
+  deprecatedBy: string | null;
+};
+
+/** Pre-filled fields for a new Dynamic test; reviewId selects that Review's frozen requirements. */
+export type DynamicTestDraft = { name: string; goal: string; reviewId?: string };
 
 export type StaticSessionStatus = 'prepared' | 'queued' | 'running' | 'success' | 'failure' | 'failed' | 'blocked' | 'cancelled' | 'pending_approval' | 'completed' | 'approved' | 'changes_requested';
 
@@ -819,7 +838,8 @@ export type Screen =
     }
   | { name: 'review-entry'; projectId?: string; comparisonParentReviewId?: string; returnToPlayground?: boolean }
   | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
-  | { name: 'dynamic-testing'; projectId?: string; runId?: string }
+  /** draft pre-fills a new test, e.g. from a Review finding; it never starts a Run. */
+  | { name: 'dynamic-testing'; projectId?: string; runId?: string; draft?: DynamicTestDraft }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
