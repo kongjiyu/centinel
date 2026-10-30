@@ -210,7 +210,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     const user = userEvent.setup();
     renderProject();
 
-    await user.click(screen.getByRole('button', { name: 'Members' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
 
     expect(screen.getByRole('heading', { name: 'GitHub collaborators' })).toBeInTheDocument();
     expect(await screen.findByText('No collaborators synced yet')).toBeInTheDocument();
@@ -298,7 +298,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     });
     renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
 
-    await user.click(screen.getByRole('button', { name: 'Members' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
     expect(await screen.findByText('@dev')).toBeInTheDocument();
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
     expect(api.syncGithubCollaborators).toHaveBeenCalledWith(project.id);
@@ -306,7 +306,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.queryByRole('button', { name: 'Sync collaborators from GitHub' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
-    await user.click(screen.getByRole('button', { name: 'Members' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Add collaborator' }));
@@ -337,13 +337,13 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     vi.mocked(api.getProjectCollaborators).mockResolvedValue(savedSnapshot);
     vi.mocked(api.syncGithubCollaborators).mockRejectedValue(new Error(''));
 
-    await user.click(screen.getByRole('button', { name: 'Members' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
     expect(await screen.findByText('@saved')).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not be synced/i);
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
-    await user.click(screen.getByRole('button', { name: 'Members' }));
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
     expect(await screen.findByText('@saved')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent(/could not be synced/i);
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatActivityTime } from '../hooks/useProjectSummaries';
 import { api } from '../api/client';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
@@ -141,7 +142,7 @@ export function DynamicFindingsPanel({ projectId, run, runs,onOpenRun }: {
         <p>{label(detail.finding.verification)} · {label(detail.finding.remediation)} · Severity {detail.finding.severity ?? 'Unclassified'} · Priority {detail.finding.priority ?? 'Unclassified'} · Confidence {detail.finding.confidence ?? 'Unclassified'}</p>
  <p className="dw-muted">{detail.finding.confidenceBasis}</p>
  {detail.observations.map(observation => <details className="dw-advanced" key={observation.id}>
-            <summary>Failed observation · {new Date(observation.createdAt).toLocaleString()}</summary>
+            <summary>Failed observation · {formatActivityTime(observation.createdAt)}</summary>
             <dl>
             <dt>Run</dt>
             <dd>{observation.runId}</dd>
@@ -185,7 +186,7 @@ export function DynamicFindingsPanel({ projectId, run, runs,onOpenRun }: {
         <Select id="dw-finding-remediation" value={status || 'unselected'} onChange={value => setStatus(value === 'unselected' ? '' : value)} options={[{ value: 'unselected', label: 'Choose status' }, { value: 'open', label: 'Open' }, { value: 'in_progress', label: 'In progress' }, { value: 'resolved', label: 'Resolved after regression' }]}/>
         </div>{status === 'resolved' && <div className="dw-field">
             <label htmlFor="dw-finding-regression">Passed pinned regression</label>
-            <Select id="dw-finding-regression" value={regressionId || 'unselected'} onChange={value => setRegressionId(value === 'unselected' ? '' : value)} options={[{ value: 'unselected', label: 'Choose a regression' }, ...regressionRuns.map(item => ({ value: item.id, label: item.revision.name + ' · ' + new Date(item.createdAt).toLocaleString() }))]}/>
+            <Select id="dw-finding-regression" value={regressionId || 'unselected'} onChange={value => setRegressionId(value === 'unselected' ? '' : value)} options={[{ value: 'unselected', label: 'Choose a regression' }, ...regressionRuns.map(item => ({ value: item.id, label: item.revision.name + ' · ' + formatActivityTime(item.createdAt) }))]}/>
             <p className="dw-muted">Confirmation and matching independent check or usability-rule evidence are required. Recorded configuration differences remain in the resolution history.</p>
             </div>}<div className="dw-field">
         <label htmlFor="dw-finding-remediation-note">Remediation reason</label>
@@ -196,7 +197,7 @@ export function DynamicFindingsPanel({ projectId, run, runs,onOpenRun }: {
  <details className="dw-advanced">
         <summary>Decision history · {detail.events.length}</summary>{detail.events.length ? detail.events.map(event => <article key={event.id}>
             <p>
-            <strong>{label(event.decision ?? event.remediation ?? event.kind)}</strong> · {new Date(event.createdAt).toLocaleString()} · {event.actorId}</p>
+            <strong>{label(event.decision ?? event.remediation ?? event.kind)}</strong> · {formatActivityTime(event.createdAt)} · {event.actorId}</p>
             <p>{event.note}</p>{event.regressionRunId && <p>Regression {event.regressionRunId}</p>}{event.conditionChanges?.map(change => <p key={change}>{change}</p>)}</article>) : <p>No human decision recorded.</p>}</details>
  </div>}
  </section>;

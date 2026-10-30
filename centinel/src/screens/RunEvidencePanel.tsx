@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatActivityTime } from '../hooks/useProjectSummaries';
 import { api } from '../api/client';
 import { saveDownloadedCopy } from '../dynamic/saveDownloadedCopy';
 import { userFacingError } from '../utils/userFacingError';
@@ -197,7 +198,7 @@ export function RunEvidencePanel({ projectId, run }: {
  {!copies.length && <p className="dw-muted">No shared copies recorded. Files on another device are unavailable until synced.</p>}
  {copies.length > 0 && <ul className="dw-evidence-copies">{copies.map(copy => <li key={copy.id}>
             <strong>{copyLabel(copy.kind)}</strong>
-            <p>{copy.availability[0].toUpperCase() + copy.availability.slice(1)} · {copy.bytes} bytes · Expires {new Date(copy.expiresAt).toLocaleString()}</p>
+            <p>{copy.availability[0].toUpperCase() + copy.availability.slice(1)} · {copy.bytes} bytes · Expires {formatActivityTime(copy.expiresAt)}</p>
             {copy.criterionProof === false && <p className="dw-muted">Diagnostic or captured output; does not independently verify a criterion.</p>}
             {copy.availability === 'available' && copy.kind !== 'screenshot' && <button type="button" className="btn-secondary" disabled={busy} onClick={() => void inspect(copy)}>{copy.kind === 'download' ? 'Save captured file' : 'Inspect recorded JSON'}</button>}
             <details className="dw-advanced">

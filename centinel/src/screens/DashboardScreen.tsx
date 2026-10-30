@@ -176,6 +176,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
 
   return (
     <div className="screen dashboard-home">
+      <h1 className="visually-hidden">Home</h1>
       <div className="home-background-art" aria-hidden="true"><ReviewIllustration /></div>
 
       <div className="home-top-grid">

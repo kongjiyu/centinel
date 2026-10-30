@@ -155,3 +155,9 @@
 .dw-discovery > .btn-primary { justify-self: start; }
 .dynamic-workspace-screen .dw-result-verdict.dw-running { color: var(--workspace-primary); }
 .dynamic-workspace-screen .dw-result-verdict.dw-running small { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; }
+.dynamic-workspace-screen .dw-technical-record > .dw-advanced { margin-left: 0; }
+.dynamic-workspace-screen .dw-check-expectation { display: block; margin-top: 2px; color: var(--workspace-text-muted); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .dynamic-workspace-screen .dw-actions .btn-primary,
+  .dynamic-workspace-screen .dw-actions .btn-secondary { max-width: 100%; white-space: normal; text-align: center; }
+}

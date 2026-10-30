@@ -72,7 +72,7 @@
 
 | # | 操作 | 要讲的点 |
 |---|---|---|
-| 1 | 项目 → **Members** → 输入队友的 Centinel 账号邮箱 → **Add member** | 成员可以查看 sources、Review、测试和共享证据；只有 owner 能添加或移除成员。 |
+| 1 | 项目 → **Collaborators** → 输入队友的 Centinel 账号邮箱 → **Add member** | 成员可以查看 sources、Review、测试和共享证据；只有 owner 能添加或移除成员。 |
 | 2 | 点该成员的 **Remove** | 移除后立即失去访问权（数据库层 RLS 生效，不只是隐藏按钮）。 |
 | 3 | 项目页 **Action → Export report** | 项目报告同时包含 Review 和最新的 Dynamic Run 结果。 |
 

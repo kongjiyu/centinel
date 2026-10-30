@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { formatActivityTime } from '../hooks/useProjectSummaries';
 import {
   X,
   Image,
@@ -88,7 +89,7 @@ function EvidenceGroup({
             <div key={item.id} className="evidence-item">
               <div className="evidence-header">
                 <span className="evidence-type">{group.label}</span>
-                <span className="evidence-time">{new Date(item.createdAt).toLocaleString()}</span>
+                <span className="evidence-time">{formatActivityTime(item.createdAt)}</span>
               </div>
               <div className="evidence-summary">{item.summary}</div>
               <code className="evidence-path">{item.filePath}</code>
@@ -202,7 +203,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         description={session.goal}
         status={{ label: session.status }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-        meta={<><span>{session.missionType === 'smoke' ? 'Smoke test' : 'User journey'}</span><span>{new Date(session.createdAt).toLocaleString()}</span></>}
+        meta={<><span>{session.missionType === 'smoke' ? 'Smoke test' : 'User journey'}</span><span>{formatActivityTime(session.createdAt)}</span></>}
         actions={(
           <>
           {isActive && (
@@ -244,7 +245,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
         </div>
         <div className="dynamic-context-item">
           <Clock size={16} aria-hidden="true" />
-          <span><small>Last updated</small><strong>{new Date(session.updatedAt).toLocaleString()}</strong></span>
+          <span><small>Last updated</small><strong>{formatActivityTime(session.updatedAt)}</strong></span>
         </div>
       </section>
 

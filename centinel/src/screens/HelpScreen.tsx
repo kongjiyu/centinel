@@ -74,7 +74,7 @@ export function HelpScreen() {
         <section className="help-section" aria-labelledby="help-project-heading">
           <h2 id="help-project-heading">Share a project</h2>
           <ol>
-            <li>Open the project's Members tab. The owner can add a person by the e-mail of their Centinel account and remove them again.</li>
+            <li>Open the project's Collaborators tab. The owner can add a person by the e-mail of their Centinel account and remove them again.</li>
             <li>Members can open sources, Reviews, tests and shared evidence; removing a member stops their access immediately.</li>
             <li>Export a project or Review report from the project Action menu or the Review page. Reports keep their versions and limitations.</li>
           </ol>

@@ -1037,3 +1037,18 @@
     clip: rect(0 0 0 0);
   }
 }
+
+/* Narrow right rail (about 1200 px): let the carousel controls wrap below the
+   title instead of being clipped by the card's overflow. */
+.recommendation-heading {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.recommendation-heading > div:first-child {
+  min-width: 0;
+}
+
+.recommendation-controls {
+  margin-left: auto;
+}
