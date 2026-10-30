@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProjectDateTime, ProjectDetailScreen } from './ProjectDetailScreen';
 import { api } from '../api/client';
+import type { DynamicRun, MissionRevision } from '../dynamic/types';
 import type { Artifact, CollaborationStatus, DynamicSession, Finding, GithubCollaboratorSnapshot, Project, ProjectReadinessStatus, ReviewSourceManifest, Screen, StaticSession } from '../types';
 
 const folderPicker = vi.hoisted(() => vi.fn());
@@ -10,6 +11,7 @@ vi.mock('@tauri-apps/api/dialog', () => ({ open: folderPicker }));
 vi.mock('../api/client', () => ({
   api: {
     listDynamicSessions: vi.fn(),
+    dynamicRuns: vi.fn(),
     listStaticSessions: vi.fn(),
     listArtifacts: vi.fn(),
     getReviewSourceManifest: vi.fn(),
@@ -126,6 +128,7 @@ beforeEach(() => {
     sessionId: reviewId, projectId, status: 'unavailable', sources: [], artifactCount: null,
   }));
   vi.mocked(api.listProjectReportHistory).mockResolvedValue([]);
+  vi.mocked(api.dynamicRuns).mockResolvedValue([]);
   vi.mocked(api.getProjectAssessment).mockResolvedValue({ projectId: project.id, status: 'unavailable' } as never);
   vi.mocked(api.getProjectReadiness).mockResolvedValue(emptyReadinessStatus);
   vi.mocked(api.startProjectReadiness).mockResolvedValue({ ...emptyReadinessStatus, status: 'queued', requestId: 'request-1', trigger: 'manual' });
@@ -810,5 +813,32 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     await waitFor(() => expect(api.deleteProject).toHaveBeenCalledWith(project.id));
     expect(onNavigate).toHaveBeenCalledWith({ name: 'projects' });
+  });
+});
+
+describe('ProjectDetailScreen shared Dynamic Runs', () => {
+  it('lists shared Runs by saved test name with their verified state and opens the Run result', async () => {
+    const revision = { id: 'revision-1', missionId: 'mission-1', revision: 1, name: 'Demo todo add', goal: 'Add a todo', targetUrl: 'http://localhost:37702/', maxSteps: 15, checks: [] } as unknown as MissionRevision;
+    const run = (id: string, patch: Partial<DynamicRun>): DynamicRun => ({
+      id, projectId: project.id, missionId: 'mission-1', revision, idempotencyKey: id, createdBy: 'actor',
+      createdAt: '2026-10-29T04:14:12.000Z', updatedAt: '2026-10-29T04:14:48.000Z', state: 'completed', verdict: 'passed',
+      reason: null, checks: [], evidence: [], legacySessionId: null, ...patch,
+    });
+    vi.mocked(api.dynamicRuns).mockResolvedValue([
+      run('run-passed', {}),
+      run('run-blocked', { state: 'blocked', verdict: 'not_tested', reason: 'No interactions are approved.', createdAt: '2026-10-29T04:11:05.000Z', updatedAt: '2026-10-29T04:11:40.000Z' }),
+    ]);
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    renderProject(onNavigate);
+
+    const passedRow = (await screen.findAllByRole('button', { name: /Demo todo add/ })).find(row => row.textContent?.includes('Completed'));
+    expect(passedRow).toBeDefined();
+    expect(screen.getAllByRole('button', { name: /Demo todo add/ }).some(row => row.textContent?.includes('Needs attention'))).toBe(true);
+    // The later passing Run supersedes the earlier blocked one in Need attention.
+    expect(screen.queryByText('Demo todo add needs attention')).not.toBeInTheDocument();
+
+    await user.click(passedRow!);
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-testing', projectId: project.id, runId: 'run-passed' });
   });
 });

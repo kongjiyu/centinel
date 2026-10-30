@@ -18,6 +18,7 @@ import { projectReadinessFindings } from '../readinessFindings';
 import { reviewEvidenceFindings } from '../reviewEvidenceFindings';
 import { assessReviewSourceCurrency, latestSuccessfulReview } from '../reviewCurrency';
 import { effectiveFindingStatus } from '../findingStatus';
+import { dynamicActivityScreen, latestPerSavedTest, loadDynamicActivity } from '../dynamic/runActivity';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot, ReviewSourceManifest } from '../types';
 import type { ProjectReadinessStatus } from '../types';
 import './ProjectDetailScreen.css';
@@ -173,8 +174,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const loadDynamicSessions = useCallback(async () => {
     setDynamicSessionsLoadingProjectId(project.id);
     try {
-      setDynamicSessions(await api.listDynamicSessions(project.id));
-      setDynamicSessionsError(null);
+      const result = await loadDynamicActivity(project.id);
+      setDynamicSessions(result.sessions);
+      setDynamicSessionsError(result.unavailable ? 'Some Dynamic Testing activity could not be loaded.' : null);
     } catch (cause) {
       setDynamicSessionsError(userFacingError(cause, 'Dynamic Testing activity could not be loaded.'));
     } finally {
@@ -355,6 +357,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     createdAt: session.updatedAt || session.createdAt,
   })), ...dynamicSessions.map(session => ({
     id: session.id,
+    runId: session.runId,
     name: session.name,
     kind: 'Dynamic Testing' as const,
     rawStatus: session.status,
@@ -364,7 +367,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     .filter(activity => activityType === 'all' || (activityType === 'review' ? activity.kind === 'Review' : activity.kind === 'Dynamic Testing'))
     .filter(activity => {
       if (activityState === 'all') return true;
-      if (activityState === 'needs_attention') return activity.status === 'Failed';
+      if (activityState === 'needs_attention') return activity.status === 'Failed' || activity.status === 'Needs attention';
       if (activityState === 'needs_approval') return activity.status === 'Need Approval';
       if (activityState === 'queued') return activity.rawStatus === 'queued';
       if (activityState === 'running') return activity.rawStatus === 'running';
@@ -541,7 +544,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       });
     }
 
-    [...staticSessions, ...dynamicSessions]
+    [...staticSessions, ...latestPerSavedTest(dynamicSessions)]
       .filter(session => session.status === 'blocked' || session.status === 'failure')
       .sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))
       .forEach(session => items.push({
@@ -1088,13 +1091,13 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              <div className="project-activity-filters" aria-label="Filter recent activity">
                <label className="project-activity-search"><span className="visually-hidden">Search activity</span><input type="search" aria-label="Search activity" value={activityQuery} onChange={event => setActivityQuery(event.target.value)} placeholder="Activity name or state" /></label>
                <label htmlFor="project-activity-datetime">Datetime<input id="project-activity-datetime" type="datetime-local" value={activityDateTime} onChange={event => setActivityDateTime(event.target.value)} /></label>
-               <label htmlFor="project-activity-state">State<Select id="project-activity-state" value={activityState} onChange={value => setActivityState(value as ActivityState)} options={[{ value: 'all', label: 'All states' }, { value: 'queued', label: 'Queued' }, { value: 'running', label: 'In progress' }, { value: 'needs_approval', label: 'Need Approval' }, { value: 'success', label: 'Completed' }, { value: 'needs_attention', label: 'Failed' }, { value: 'cancelled', label: 'Cancelled' }]} /></label>
+               <label htmlFor="project-activity-state">State<Select id="project-activity-state" value={activityState} onChange={value => setActivityState(value as ActivityState)} options={[{ value: 'all', label: 'All states' }, { value: 'queued', label: 'Queued' }, { value: 'running', label: 'In progress' }, { value: 'needs_approval', label: 'Need Approval' }, { value: 'success', label: 'Completed' }, { value: 'needs_attention', label: 'Needs attention' }, { value: 'cancelled', label: 'Cancelled' }]} /></label>
              </div>
              {activityInitialReadLoading ? <LoadingSkeleton variant="rows" rows={4} label="Loading recent activity" /> : <>
                {activityRefreshing && <p className="project-collaboration-status" role="status">Updating recent activity…</p>}
                {activityLoadError && <p className="project-collaboration-status" role="status">Some recent activity could not be loaded.</p>}
                {visibleProjectActivities.map(activity => (
-                 <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate({ name: 'dynamic-session', projectId: project.id, sessionId: activity.id })}>
+                 <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate(dynamicActivityScreen(project.id, activity))}>
                    <span className="project-activity-main"><strong>{activity.name} <span className="project-activity-id">{formatEntityId(activity.id)}</span> <time dateTime={activity.createdAt}>done at {formatProjectDateTime(activity.createdAt)}</time></strong><small>{activity.kind}</small></span>
                    <StatusBadge label={activity.status} />
                    <ChevronRight size={15} aria-hidden="true" />

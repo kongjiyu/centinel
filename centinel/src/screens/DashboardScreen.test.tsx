@@ -4,11 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { DashboardScreen } from './DashboardScreen';
 import { api } from '../api/client';
 import type { AiProviderSetting, DynamicSession, Project, StaticSession } from '../types';
+import type { DynamicRun, MissionRevision } from '../dynamic/types';
 
 vi.mock('../api/client', () => ({
   api: {
     listStaticSessions: vi.fn(),
     listDynamicSessions: vi.fn(),
+    dynamicRuns: vi.fn(),
     listArtifacts: vi.fn(), getSourcePresence: vi.fn(),
   },
 }));
@@ -98,6 +100,7 @@ describe('DashboardScreen', () => {
     vi.clearAllMocks();
     vi.mocked(api.listStaticSessions).mockResolvedValue([staticSession]);
     vi.mocked(api.listDynamicSessions).mockResolvedValue([dynamicSession]);
+    vi.mocked(api.dynamicRuns).mockResolvedValue([]);
     vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
   });
 
@@ -254,7 +257,7 @@ describe('DashboardScreen', () => {
     const table = await screen.findByRole('table', { name: 'Recent projects' });
     expect(within(table).getByText('Completed')).toBeInTheDocument();
     expect(within(table).getByText('In progress')).toBeInTheDocument();
-    expect(within(table).getByText('Blocked')).toBeInTheDocument();
+    expect(within(table).getByText('Needs attention')).toBeInTheDocument();
     expect(within(table).getByText('No activity')).toBeInTheDocument();
     expect(within(table).getAllByRole('row')).toHaveLength(5);
 
@@ -282,6 +285,46 @@ describe('DashboardScreen', () => {
       projectId: project.id,
       sessionId: staticSession.id,
       reviewName: staticSession.name,
+    });
+  });
+
+  describe('shared Dynamic Runs', () => {
+    const revision = { id: 'revision-2', missionId: 'mission-1', revision: 2, name: 'Demo todo add', goal: "First log in with username 'demo' and password 'demo'.", targetUrl: 'http://localhost:37702/', maxSteps: 15, checks: [] } as unknown as MissionRevision;
+    const sharedRun = (patch: Partial<DynamicRun>): DynamicRun => ({
+      id: 'run-passed', projectId: project.id, missionId: 'mission-1', revision, idempotencyKey: 'key', createdBy: 'actor',
+      createdAt: '2026-10-29T04:14:12.000Z', updatedAt: '2026-10-29T04:14:48.000Z', state: 'completed', verdict: 'passed',
+      reason: null, checks: [], evidence: [], legacySessionId: 'local-passed', ...patch,
+    });
+    const blockedRun = sharedRun({ id: 'run-blocked', state: 'blocked', verdict: 'not_tested', reason: 'No interactions are approved.', legacySessionId: 'local-blocked', createdAt: '2026-10-29T04:11:05.000Z', updatedAt: '2026-10-29T04:11:40.000Z' });
+    const localMirror = (id: string): DynamicSession => ({ ...dynamicSession, id, name: "Journey: First log in with username 'demo' and password 'de", status: 'blocked', updatedAt: '2026-10-29T04:14:48.000Z' });
+
+    beforeEach(() => {
+      vi.mocked(api.listStaticSessions).mockResolvedValue([]);
+      vi.mocked(api.listDynamicSessions).mockResolvedValue([localMirror('local-passed'), localMirror('local-blocked')]);
+    });
+
+    it('shows the latest shared Run with its verified state instead of its local mirror', async () => {
+      vi.mocked(api.dynamicRuns).mockResolvedValue([blockedRun, sharedRun({})]);
+      render(<DashboardScreen projects={[project]} aiSettings={settings} onNavigate={vi.fn()} />);
+
+      const table = await screen.findByRole('table', { name: 'Recent projects' });
+      await waitFor(() => expect(table).toHaveTextContent('Demo todo add'));
+      expect(table).toHaveTextContent('Completed');
+      expect(table).not.toHaveTextContent('Journey:');
+      expect(table).not.toHaveTextContent('Needs attention');
+      expect(screen.getByText('Nothing needs your attention.')).toBeInTheDocument();
+    });
+
+    it('shows Runs recorded on another device and opens the Run result', async () => {
+      vi.mocked(api.listDynamicSessions).mockResolvedValue([]);
+      vi.mocked(api.dynamicRuns).mockResolvedValue([sharedRun({ state: 'blocked', verdict: 'not_tested', reason: 'No interactions are approved.' })]);
+      const onNavigate = vi.fn();
+      const user = userEvent.setup();
+      render(<DashboardScreen projects={[project]} aiSettings={settings} onNavigate={onNavigate} />);
+
+      expect(await screen.findByRole('heading', { name: 'Needs attention' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /inspect/i }));
+      expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-testing', projectId: project.id, runId: 'run-passed' });
     });
   });
 });

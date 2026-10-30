@@ -156,7 +156,7 @@ describe('Project directory', () => {
 
     const table = await screen.findByRole('table', { name: 'Projects' });
     expect(table).toHaveTextContent('Checkout regression');
-    expect(table).toHaveTextContent('Blocked');
+    expect(table).toHaveTextContent('Needs attention');
     expect(table).not.toHaveTextContent('Release review');
     expect(screen.getByRole('combobox', { name: 'Current state' })).toHaveTextContent('Needs attention');
     expect(screen.queryByRole('combobox', { name: 'Activity type' })).not.toBeInTheDocument();
