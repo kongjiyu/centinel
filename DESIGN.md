@@ -12,11 +12,11 @@ This document defines the product-wide UI and UX contract. It supersedes the pre
 
 ## Latest Project UX amendment (29 October 2026)
 
-The [Project UX and source-read specification](docs/PROJECT_UX_SOURCE_READ_SPEC_2026-10-29.md) records the user's later correction and supersedes conflicting source-tree and table presentation below. Project Sources uses one directory/file content surface with breadcrumbs and no left tree. Source rows place name/kind at 10/12 and relative update time at 2/12 without Name/Kind/Added columns. Project Findings shows ID, Findings, Risk, Priority with colored textual priority indicators. Collaborators syncs GitHub on load without explicit sync buttons; project pages use accessible skeleton loading.
+The [Project UX and source-read specification](docs/project/PROJECT_UX_SOURCE_READ_SPEC_2026-10-29.md) records the user's later correction and supersedes conflicting source-tree and table presentation below. Project Sources uses one directory/file content surface with breadcrumbs and no left tree. Source rows place name/kind at 10/12 and relative update time at 2/12 without Name/Kind/Added columns. Project Findings shows ID, Findings, Risk, Priority with colored textual priority indicators. Collaborators syncs GitHub on load without explicit sync buttons; project pages use accessible skeleton loading.
 
 ## Approved Review and Sources UX direction (29 October 2026)
 
-The user-approved workflow in [Review workflow UX specification](docs/REVIEW_WORKFLOW_UX_SPEC_2026-10-29.md) supersedes conflicting presentation requirements below. Frontend implementation and fixture-based verification are recorded in [implementation checks](docs/REVIEW_WORKFLOW_UX_IMPLEMENTATION_2026-10-29.md); packaged desktop and live-provider verification remain pending.
+The user-approved workflow in [Review workflow UX specification](docs/review/REVIEW_WORKFLOW_UX_SPEC_2026-10-29.md) supersedes conflicting presentation requirements below. Frontend implementation and fixture-based verification are recorded in [implementation checks](docs/review/REVIEW_WORKFLOW_UX_IMPLEMENTATION_2026-10-29.md); packaged desktop and live-provider verification remain pending.
 
 - Review leads with up to three concrete actions ordered by confirmed blockers, remaining risks, then evidence gaps. A specific plain-language summary explains intended versus completed work, results, limitations and next steps. Recommendations use saved evidence without additional AI assessment. Verified unresolved Critical/High findings block handover; important unverified scope prevents readiness. Human approval remains separate.
 - Entry is one compact page with repository-level selection, no file inspection, and deselectable attached documents. New independent Reviews default to the first repository and all eligible attached documents; retries retain saved scope. Activity leads with understandable progress and required action; technical events are disclosed on demand.
@@ -48,7 +48,7 @@ The latest user-approved requirements supersede conflicting terminology and navi
 
 ### Evidence-led approval workflow amendment (10 September 2026)
 
-The following later decisions supersede conflicting Review navigation, lifecycle, and presentation rules above. The complete product and implementation contract is recorded in [docs/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md](docs/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md).
+The following later decisions supersede conflicting Review navigation, lifecycle, and presentation rules above. The complete product and implementation contract is recorded in [docs/review/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md](docs/review/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md).
 
 - A technically successful review that has not been approved is **Need Approval**, not Completed. **Completed** is reserved for an approved review. Failed and blocked work remains visibly **Needs attention** even though it is outside the happy-path state list.
 - The Need Approval workspace exposes **Activity**, **Findings**, and **Traceability** before the reviewer can approve or request changes. Approval is blocked when the findings request fails or the effective scope is not trustworthy.

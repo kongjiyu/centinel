@@ -363,11 +363,11 @@ These details remain to be specified; none is a reason to invent an implementati
 ### Repository contracts
 
 - [Design system](../DESIGN.md).
-- [Authentication and identity linking](AUTHENTICATION_IDENTITY_LINKING_SPEC_2026-09-14.md).
-- [Static Review Phase 1](STATIC_REVIEW_PHASE_1_SPEC_2026-09-21.md), [Phase 2](STATIC_REVIEW_PHASE_2_SPEC_2026-09-21.md), and [Phase 3](STATIC_REVIEW_PHASE_3_SPEC_2026-09-22.md).
-- [Review approval and evidence](REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md).
-- [Project Assessment and Review Overview](PROJECT_ASSESSMENT_REVIEW_OVERVIEW_SPEC_2026-09-12.md).
-- [Phase 2 acceptance audit](STATIC_REVIEW_PHASE_2_ACCEPTANCE_AUDIT_2026-09-22.md) and [Phase 3 acceptance audit](STATIC_REVIEW_PHASE_3_ACCEPTANCE_AUDIT_2026-09-23.md): evidence and outstanding acceptance gaps, not blanket completion claims.
+- [Authentication and identity linking](project/AUTHENTICATION_IDENTITY_LINKING_SPEC_2026-09-14.md).
+- [Static Review Phase 1](review/STATIC_REVIEW_PHASE_1_SPEC_2026-09-21.md), [Phase 2](review/STATIC_REVIEW_PHASE_2_SPEC_2026-09-21.md), and [Phase 3](review/STATIC_REVIEW_PHASE_3_SPEC_2026-09-22.md).
+- [Review approval and evidence](review/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md).
+- [Project Assessment and Review Overview](project/PROJECT_ASSESSMENT_REVIEW_OVERVIEW_SPEC_2026-09-12.md).
+- [Phase 2 acceptance audit](review/STATIC_REVIEW_PHASE_2_ACCEPTANCE_AUDIT_2026-09-22.md) and [Phase 3 acceptance audit](review/STATIC_REVIEW_PHASE_3_ACCEPTANCE_AUDIT_2026-09-23.md): evidence and outstanding acceptance gaps, not blanket completion claims.
 - [Supabase setup](SUPABASE_SETUP.md).
 
 ### External implementation references

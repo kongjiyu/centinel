@@ -20,8 +20,8 @@ Dynamic release acceptance against a frozen application/data baseline.
 The user narrowed this plan on 7 October 2026. The whole-product PRD remains
 unchanged: Static is still a separate product area, but its implementation,
 provider runs and release gates are not dependencies for this Dynamic workstream.
-Use [the incoming-context stub](DYNAMIC_CONTEXT_STUB.md) and
-[Cypress Real World App](DYNAMIC_TEST_TARGET.md) as the initial development inputs.
+Use [the incoming-context stub](dynamic/DYNAMIC_CONTEXT_STUB.md) and
+[Cypress Real World App](dynamic/DYNAMIC_TEST_TARGET.md) as the initial development inputs.
 A future real Static export adapter is a separate integration task, not a gate here.
 
 A functioning browser agent is the starting point. The next product milestone
@@ -29,7 +29,7 @@ is a test whose inputs, checks, verdict, evidence and rerun history can be trust
 Native desktop testing stays outside the required release until all core gates
 pass and the team explicitly schedules it.
 
-[PROJECT_PLAN.md](../PROJECT_PLAN.md) is historical. Its fixed MiniMax/Gemini
+[PROJECT_PLAN.md](archive/PROJECT_PLAN.md) is historical. Its fixed MiniMax/Gemini
 choices, SQLite-first authority and optional collaboration are superseded by the
 PRD. This plan preserves API-provider choice, bearer-scoped Supabase authority,
 local execution and required member access to results/evidence.
@@ -45,7 +45,7 @@ complete. Future commits and outward-facing actions still require authorization.
 
 | Area | Current evidence | Remaining gate |
 | --- | --- | --- |
-| Codex provider | Settings connection/model selection, text/image transport, isolated local account credentials, cancellation and HTTP tests exist. Real CLI initialization/account-read succeeded. | Real ChatGPT login, text/image generation and complete Dynamic executions. See [integration record](CODEX_PROVIDER.md). |
+| Codex provider | Settings connection/model selection, text/image transport, isolated local account credentials, cancellation and HTTP tests exist. Real CLI initialization/account-read succeeded. | Real ChatGPT login, text/image generation and complete Dynamic executions. See [integration record](project/CODEX_PROVIDER.md). |
 | Shared model foundation | Configured API/Codex adapters, authenticated settings and usage ledger wiring exist. | Live provider/account limits, unsuccessful/retried-call accounting, refreshed/expired bearer behavior and packaged launch acceptance. |
 | Dynamic prototype | URL/goal input, smoke/journey mode, Playwright loop, screenshots, traces, cancellation and local summaries exist. | Mission revisions, independent checks, policy enforcement, environment/data lifecycle and durable reconciliation. |
 | Honest failures | Provider/runtime errors become blocked; cancellation aborts active work; duplicate finding creation was removed. | `finish_success` still finalizes success in the runner; failed-goal findings still use fixed severity/confidence and lack independent verification. |
@@ -116,7 +116,7 @@ the complete report workflow lands in P5.
   bearer identity and the separate local Codex connection.
 - P0.4 Agree versioned Mission/Run/check/finding/evidence/report contracts and
   role permissions for Dynamic. Use the pinned Cypress Real World App baseline
-  from [the target record](DYNAMIC_TEST_TARGET.md), and create normal,
+  from [the target record](dynamic/DYNAMIC_TEST_TARGET.md), and create normal,
   seeded-defect and blocked cases. Build consumer fixtures without waiting for Static.
 - P0.5 Record packaged-launch CLI discovery requirements; a CLI launched from a
   developer terminal does not establish Tauri installation readiness.
@@ -200,7 +200,7 @@ rewrite the functional check result, but blocks unsafe reuse until resolved.
 - P3.1 Consume the proposed versioned `IncomingContextSource` boundary through
   `createStaticContextStub`. It supplies project, synthetic Review/snapshot IDs,
   approval/currency state, source versions, requirements, criteria and risk hints.
-  See [stub contract and usage](DYNAMIC_CONTEXT_STUB.md). No Static scan or export
+  See [stub contract and usage](dynamic/DYNAMIC_CONTEXT_STUB.md). No Static scan or export
   implementation is part of this phase.
 - P3.2 Select criteria and edit a generated mission before execution. Preserve
   the exact input snapshot and its `mock-static` provenance in mission revisions,
@@ -348,11 +348,11 @@ choice for OS, target applications, permissions and time budget.
 
 Static analysis, document ingestion, source-code review, requirement extraction,
 Static reports and Static release acceptance have no tasks in this plan.
-Dynamic uses the [development stub](DYNAMIC_CONTEXT_STUB.md) to simulate received
+Dynamic uses the [development stub](dynamic/DYNAMIC_CONTEXT_STUB.md) to simulate received
 requirements/criteria/risk hints. Shared auth, membership, provider, findings
 vocabulary and storage remain necessary Dynamic dependencies.
 
-The selected external application is [Cypress Real World App](DYNAMIC_TEST_TARGET.md).
+The selected external application is [Cypress Real World App](dynamic/DYNAMIC_TEST_TARGET.md).
 Its source commit, local prerequisites, data reset constraints, scenario matrix
 and unit-test entrypoint are recorded separately. Pin the baseline before
 measurement; retain defect patches and ground truth independently of model input.
@@ -440,11 +440,11 @@ contract design, fixture preparation and the reviewable next slice above.
 
 ## 10. Foundation progress — 13 October 2026
 
-[Local target baseline](DYNAMIC_TEST_TARGET.md) is verified: fixed checkout,
+[Local target baseline](dynamic/DYNAMIC_TEST_TARGET.md) is verified: fixed checkout,
 Node 22.20.0, running frontend/backend, 44 passing upstream unit tests and 10
 skipped tests, inspected login/payment/logout paths and retained evidence.
 
-[Mission/Run/Checker foundation](DYNAMIC_MISSION_RUN_FOUNDATION.md) is implemented:
+[Mission/Run/Checker foundation](dynamic/DYNAMIC_MISSION_RUN_FOUNDATION.md) is implemented:
 immutable revision snapshots, explicit mock-context authoring, separate Run state
 and verdict, atomic idempotency/active-run SQL, cancellation-safe transitions,
 three independent check kinds, local hashed evidence, authenticated backend
@@ -500,7 +500,7 @@ policy remain separate gates. This does not mark P1 complete.
 
 ## 11. Environment progress — 13 October 2026
 
-[Environment profile/preflight slice](DYNAMIC_ENVIRONMENT_PROFILES.md) implements
+[Environment profile/preflight slice](dynamic/DYNAMIC_ENVIRONMENT_PROFILES.md) implements
 shared versioned profiles, encrypted account-scoped local variables, bounded
 read-only preflight and immutable Run conditions. Its additive migration was
 locally verified and applied under the user's ongoing milestone authorization.
@@ -513,7 +513,7 @@ this slice does not mark P2 complete. PR/merge status is tracked in
 
 ## 12. Manual data lifecycle progress — 13 October 2026
 
-[Manual preparation/cleanup](DYNAMIC_DATA_LIFECYCLE.md) records the baseline,
+[Manual preparation/cleanup](dynamic/DYNAMIC_DATA_LIFECYCLE.md) records the baseline,
 actor, exact profile version and cleanup separately from functional verdicts.
 Environment-backed execution acquires an atomic dirty-data lock; stopped work
 requires explicit cleanup, failed cleanup stays locked, and profile edits invalidate

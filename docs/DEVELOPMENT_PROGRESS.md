@@ -58,9 +58,9 @@ not counted as a passed live gate and does not block this agreed release scope.
 
 PR #38 merged as `8e2f849`: private cross-process workspace exclusion and live
 recovery/security acceptance; 582 sidecar tests and TypeScript passed.
-[DYNAMIC_RELEASE_CHECKLIST.md](DYNAMIC_RELEASE_CHECKLIST.md) maps the required
+[DYNAMIC_RELEASE_CHECKLIST.md](dynamic/DYNAMIC_RELEASE_CHECKLIST.md) maps the required
 PRD scenarios to retained evidence and open gates.
-[DYNAMIC_DEMO_GUIDE.md](DYNAMIC_DEMO_GUIDE.md) records setup/demo/recovery.
+[DYNAMIC_DEMO_GUIDE.md](dynamic/DYNAMIC_DEMO_GUIDE.md) records setup/demo/recovery.
 The final closure in DYNAMIC_RELEASE_EVALUATION.md records genuine-token-expiry and native UI/save acceptance, including the two startup interventions and successful process relaunch.
 
 ## Final agreed-scope status — 15 October 2026
