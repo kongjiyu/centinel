@@ -12,7 +12,7 @@
 .codex-provider-panel .codex-model-choice h5 {
   margin: 0;
   color: var(--shell-text, var(--text));
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   font-weight: 650;
   line-height: 21px;
 }
@@ -55,7 +55,7 @@
 
 .codex-provider-panel .codex-saved-assignments dt {
   color: var(--shell-text-muted, var(--text-muted));
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 600;
   line-height: 19px;
 }
@@ -64,7 +64,7 @@
   min-width: 0;
   margin: 0;
   color: var(--shell-text, var(--text));
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 19px;
   overflow-wrap: anywhere;
 }
@@ -79,7 +79,7 @@
   overflow-wrap: anywhere;
   color: var(--shell-text, var(--text));
   font-family: var(--font-technical, 'Cascadia Mono', monospace);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 .codex-provider-panel .codex-model-choice .form-field {
@@ -91,7 +91,7 @@
 .codex-provider-panel .codex-catalog-status {
   margin: 7px 0 0;
   color: var(--shell-text-muted, var(--text-muted));
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 20px;
   overflow-wrap: anywhere;
 }

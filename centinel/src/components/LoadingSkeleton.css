@@ -2,7 +2,7 @@
   display: grid;
   gap: 12px;
   min-width: 0;
-  color: var(--workspace-text-muted, #505651);
+  color: var(--workspace-text-muted, var(--color-text-muted));
 }
 
 .loading-skeleton-label {
@@ -28,14 +28,14 @@
   display: block;
   height: 12px;
   border-radius: 999px;
-  background: var(--workspace-border, #d9ddda);
+  background: var(--workspace-border, var(--color-border));
   animation: loading-skeleton-pulse 1.4s ease-in-out infinite;
 }
 
 .loading-skeleton-rows .loading-skeleton-visual {
   gap: 0;
   overflow: hidden;
-  border: 1px solid var(--workspace-border, #d9ddda);
+  border: 1px solid var(--workspace-border, var(--color-border));
   border-radius: var(--workspace-radius-control, 8px);
   background: var(--workspace-surface, #fff);
 }
@@ -47,7 +47,7 @@
   gap: 16px;
   min-height: 54px;
   padding: 0 14px;
-  border-bottom: 1px solid var(--workspace-border, #d9ddda);
+  border-bottom: 1px solid var(--workspace-border, var(--color-border));
 }
 
 .loading-skeleton-row:last-child {
@@ -63,7 +63,7 @@
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--workspace-border, #d9ddda);
+  border: 1px solid var(--workspace-border, var(--color-border));
   border-radius: var(--workspace-radius-control, 8px);
   background: var(--workspace-surface, #fff);
 }
