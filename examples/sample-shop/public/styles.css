@@ -1,0 +1,18 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; color: #1c1917; background: #fafaf9; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; background: #fff; border-bottom: 1px solid #e7e5e4; }
+.topbar h1 { margin: 0; font-size: 22px; }
+.topbar p { margin: 0; color: #57534e; }
+.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 24px; max-width: 1100px; margin: 32px auto; padding: 0 24px; }
+.side { display: grid; gap: 24px; align-content: start; }
+.panel { padding: 20px; background: #fff; border: 1px solid #e7e5e4; border-radius: 12px; }
+.panel h2 { margin: 0 0 12px; font-size: 18px; }
+.products, .cart { margin: 0; padding: 0; list-style: none; }
+.products li { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid #f5f5f4; }
+.price { font-variant-numeric: tabular-nums; }
+label { display: grid; gap: 4px; margin-bottom: 12px; font-size: 14px; color: #57534e; }
+input { padding: 8px 10px; border: 1px solid #d6d3d1; border-radius: 8px; font: inherit; }
+button { padding: 8px 14px; border: 0; border-radius: 8px; background: #166534; color: #fff; font: inherit; cursor: pointer; }
+.error { color: #b91c1c; min-height: 1em; }
+.total { margin: 12px 0; }
+@media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }

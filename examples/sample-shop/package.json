@@ -1,0 +1,12 @@
+{
+  "name": "centinel-sample-shop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A tiny shop with planted bugs for trying Centinel.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
