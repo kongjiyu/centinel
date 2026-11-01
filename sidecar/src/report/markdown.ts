@@ -161,7 +161,7 @@ function summaryLines(snapshot: ProjectReportSnapshot): string[] {
   lines.push('- **Code review — ' + summary.codeReview.label + '.** ' + (snapshot.latestReview ? '"' + plainText(snapshot.latestReview.session.name) + '". ' : '') + plainText(summary.codeReview.detail));
   lines.push('- **Browser test — ' + summary.browserTest.label + '.** ' + (snapshot.latestDynamicTest ? '"' + plainText(snapshot.latestDynamicTest.session.name) + '". ' : '') + plainText(summary.browserTest.detail));
   if (summary.requirements) {
-    lines.push('- **Requirements.** ' + summary.requirements.complete + ' implemented, ' + summary.requirements.incomplete + ' partly implemented, ' + summary.requirements.missing + ' missing.');
+    lines.push('- **Requirements.** ' + summary.requirements.complete + ' implemented, ' + summary.requirements.incomplete + ' partly implemented, ' + summary.requirements.missing + ' not linked to code yet.');
   } else {
     lines.push('- **Requirements.** No requirements were linked to the latest code review.');
   }

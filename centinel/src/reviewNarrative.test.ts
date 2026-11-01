@@ -36,6 +36,10 @@ describe('review narrative', () => {
     const legacy = buildReviewNarrative({ session, findings: [], trace: trace([event('correlate_findings', 'completed', '2026-10-18T00:01:00Z', {}, 'persisting_evidence')]) });
     expect(legacy.summary.outcome).not.toContain('I compared the findings');
   });
+  it('does not report zero findings while the findings are still loading', () => {
+    expect(buildReviewNarrative({ session, findings: [], findingsLoading: true }).summary.outcome).toContain('The findings are still loading.');
+    expect(buildReviewNarrative({ session, findings: [finding] }).summary.outcome).toContain('There is 1 finding for this review');
+  });
   it('preserves original sentence references and offers a simpler presentation', () => {
     expect(objectivePoints('Verify src/observer.test.ts at version 1.2. Reject invalid input.\n- Require N1 approval.')).toEqual(['Verify src/observer.test.ts at version 1.2.', 'Reject invalid input.', 'Require N1 approval.']);
     expect(objectivePoints(null)).toEqual([]);

@@ -63,6 +63,22 @@ function riskRank(level: RiskLevel | null): number {
   return level ? RISK_ORDER.indexOf(level) : RISK_ORDER.length;
 }
 
+/** Pattern-rule findings ("[rule-id] ...") are prompts to verify, so explained issues come first at the same risk. */
+function isRuleCheck(finding: ProjectReportFinding): boolean {
+  return /^\[[\w.-]+\]/.test(finding.title);
+}
+
+/** The same issue can be open from more than one Review; show it once in the summary. */
+function distinctIssues<T extends ProjectReportFinding>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter(item => {
+    const key = [item.title.trim().toLowerCase(), item.filePath, item.lineNumber ?? ''].join('\u0000');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function origin(finding: ProjectReportFinding): SummaryIssue['origin'] {
   return finding.source === 'dynamic' ? 'Browser test' : 'Code review';
 }
@@ -82,8 +98,14 @@ function codeReviewStatus(snapshot: ProjectReportSnapshot): ReportSummary['codeR
   const decision = review.decision?.decision;
   if (decision === 'approved') return { label: 'Approved', tone: 'good', detail: checked + ' and a reviewer approved the result.' };
   if (decision === 'changes_requested') return { label: 'Changes requested', tone: 'warning', detail: checked + '. A reviewer asked for changes.' };
-  switch (review.session.status) {
-    case 'success': return { label: 'Finished', tone: 'good', detail: checked + '. It is waiting for someone to approve it.' };
+  // Supabase rows carry the full Review lifecycle (pending_approval, approved, ...), wider than the legacy type.
+  switch (String(review.session.status)) {
+    case 'success':
+    case 'pending_approval': return { label: 'Needs approval', tone: 'neutral', detail: checked + '. It is waiting for someone to approve it.' };
+    case 'completed':
+    case 'approved': return { label: 'Approved', tone: 'good', detail: checked + ' and a reviewer approved the result.' };
+    case 'changes_requested': return { label: 'Changes requested', tone: 'warning', detail: checked + '. A reviewer asked for changes.' };
+    case 'failed':
     case 'failure': return { label: 'Failed', tone: 'critical', detail: 'The review could not finish' + (review.session.failureReason ? ': ' + clip(review.session.failureReason, 140) : '.') };
     case 'blocked': return { label: 'Paused', tone: 'warning', detail: 'The review stopped before finishing and needs attention.' };
     case 'cancelled': return { label: 'Cancelled', tone: 'neutral', detail: 'The latest review was cancelled before it finished.' };
@@ -118,7 +140,8 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     ? { complete: traceability.summary.complete, incomplete: traceability.summary.incomplete, missing: traceability.summary.missing }
     : null;
 
-  const sorted = [...open].sort((a, b) => riskRank(a.riskLevel) - riskRank(b.riskLevel) || a.title.localeCompare(b.title));
+  const sorted = distinctIssues([...open].sort((a, b) => riskRank(a.riskLevel) - riskRank(b.riskLevel)
+    || Number(isRuleCheck(a)) - Number(isRuleCheck(b)) || a.title.localeCompare(b.title)));
   const topIssues: SummaryIssue[] = sorted.slice(0, 5).map(item => ({
     id: item.id,
     title: item.title,
@@ -167,8 +190,8 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
   if (codeReview.tone === 'critical') nextSteps.push('Run the code review again after checking why it failed.');
   if (!snapshot.latestReview) nextSteps.push('Run a code review so Centinel can check your source files.');
   if (!snapshot.latestDynamicTest) nextSteps.push('Run a browser test so Centinel can check your website in a real browser.');
-  if (snapshot.latestReview?.session.status === 'success' && !snapshot.latestReview.decision) nextSteps.push('Open the latest code review and approve it or request changes.');
-  if (requirements && requirements.missing > 0) nextSteps.push('Add or link code for ' + plural(requirements.missing, 'requirement') + ' with no matching implementation.');
+  if (['success', 'pending_approval'].includes(snapshot.latestReview?.session.status ?? '') && !snapshot.latestReview?.decision) nextSteps.push('Open the latest code review and approve it or request changes.');
+  if (requirements && requirements.missing > 0) nextSteps.push('Link ' + plural(requirements.missing, 'requirement') + ' to the code that implements ' + (requirements.missing === 1 ? 'it' : 'them') + ', so Centinel can check coverage.');
   if (nextSteps.length < 3 && open.length > seriousIssues) nextSteps.push('Work through the ' + plural(open.length - seriousIssues, 'remaining medium or low issue') + ' listed below.');
   if (!nextSteps.length) nextSteps.push('Run a new review and browser test after your next change to keep this result up to date.');
 
@@ -181,7 +204,7 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     browserTest,
     requirements,
     topIssues,
-    remainingIssues: Math.max(0, open.length - topIssues.length),
+    remainingIssues: Math.max(0, sorted.length - topIssues.length),
     nextSteps: nextSteps.slice(0, 3),
   };
 }

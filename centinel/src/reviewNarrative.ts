@@ -91,7 +91,7 @@ function findingLink(finding: Finding): FindingLink {
 }
 export function buildReviewNarrative(input: {
   session: StaticSession; trace?: ReviewHarnessTrace | null; findings: Finding[];
-  findingsError?: string | null; assessment?: EvidenceSufficiencyAssessment | null;
+  findingsError?: string | null; findingsLoading?: boolean; assessment?: EvidenceSufficiencyAssessment | null;
   traceability?: ReviewTraceabilitySnapshot | null; decision?: ReviewDecisionRecord | null; now?: number;
 }): ReviewNarrative {
   const { session, findings, findingsError, assessment, traceability } = input;
@@ -182,7 +182,7 @@ export function buildReviewNarrative(input: {
   if (requirementCount === 0) blockers.push(findings.some(finding => finding.evidenceGap) ? 'The business requirements need confirmation. This is listed in Findings.' : 'The business requirements need confirmation before their behaviour can be checked.');
   if (!detailedHistoryAvailable) blockers.push('The detailed activity history is unavailable, so I can’t confirm every check that ran.');
   const open = findings.filter(finding => !['dismissed', 'fixed'].includes(finding.status)).length;
-  const totals = findingsError ? 'The finding count is unavailable.' : `There ${findings.length === 1 ? 'is' : 'are'} ${findings.length} finding${findings.length === 1 ? '' : 's'} for this review; ${open} still need${open === 1 ? 's' : ''} attention.`;
+  const totals = findingsError ? 'The finding count is unavailable.' : input.findingsLoading ? 'The findings are still loading.' : `There ${findings.length === 1 ? 'is' : 'are'} ${findings.length} finding${findings.length === 1 ? '' : 's'} for this review; ${open} still need${open === 1 ? 's' : ''} attention.`;
   const outcome = active ? 'I’m still reviewing the files. The results may change as the remaining checks finish.'
     : state === 'Paused' ? `I paused the review because the Model Provider blocked the request. ${totals}`
     : state === 'Failed' ? `I couldn’t finish the review. ${totals}` : state === 'Blocked' ? `I need better supporting information before this review can continue. ${totals}`

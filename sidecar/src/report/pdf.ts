@@ -324,7 +324,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
           const parts: Array<[number, string, string]> = [
             [complete, TONES.good.fg, plural(complete, 'requirement') + ' implemented'],
             [incomplete, TONES.warning.fg, incomplete + ' partly implemented'],
-            [missing, TONES.critical.fg, missing + ' missing'],
+            [missing, '#a8a29e', missing + ' not linked to code yet'],
           ];
           doc.save().roundedRect(barX, top + 3, barW, 12, 6).clip();
           doc.rect(barX, top + 3, barW, 12).fill(C.track);
