@@ -3,12 +3,20 @@
     windows_subsystem = "windows"
 )]
 
+use std::net::{SocketAddr, TcpStream};
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::Manager;
 
 const AUTH_CALLBACK_EVENT: &str = "centinel://auth-callback";
+const SIDECAR_PORT: u16 = 37701;
 
 struct PendingAuthCallback(Mutex<Option<String>>);
+
+/// The local service (sidecar) started by this app, if any.
+struct SidecarProcess(Mutex<Option<Child>>);
 
 #[tauri::command]
 fn app_data_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
@@ -28,13 +36,96 @@ fn take_auth_callback(state: tauri::State<'_, PendingAuthCallback>) -> Result<Op
         .map(|mut callback| callback.take())
 }
 
+/// True when something already listens on the sidecar port, e.g. `pnpm dev`.
+fn sidecar_already_running() -> bool {
+    ["127.0.0.1", "[::1]"].iter().any(|host| {
+        format!("{host}:{SIDECAR_PORT}")
+            .parse::<SocketAddr>()
+            .map(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok())
+            .unwrap_or(false)
+    })
+}
+
+/// Apps opened from Finder get a minimal PATH. Add the usual install
+/// locations so the sidecar can find the Codex CLI and other tools.
+fn tool_path() -> String {
+    let mut parts: Vec<String> = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .filter(|part| !part.is_empty())
+        .map(String::from)
+        .collect();
+    let mut extra = vec!["/opt/homebrew/bin".to_string(), "/usr/local/bin".to_string()];
+    if let Ok(home) = std::env::var("HOME") {
+        extra.push(format!("{home}/.local/bin"));
+        extra.push(format!("{home}/.npm-global/bin"));
+    }
+    for dir in extra.into_iter().rev() {
+        if !parts.contains(&dir) {
+            parts.insert(0, dir);
+        }
+    }
+    parts.join(":")
+}
+
+/// Start the bundled sidecar in packaged builds. Development builds and
+/// machines that already run a sidecar keep using the existing one.
+fn start_sidecar(app: &tauri::App) -> Result<Option<Child>, String> {
+    if cfg!(debug_assertions) || sidecar_already_running() {
+        return Ok(None);
+    }
+    let resolver = app.path_resolver();
+    let script = match resolver.resolve_resource("resources/sidecar/dist/index.mjs") {
+        Some(path) if path.exists() => path,
+        _ => return Ok(None),
+    };
+    let sidecar_dir: PathBuf = script
+        .parent()
+        .and_then(|dist| dist.parent())
+        .ok_or("Could not resolve the sidecar directory.")?
+        .to_path_buf();
+    let node_name = if cfg!(windows) { "centinel-node.exe" } else { "centinel-node" };
+    let node = std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .parent()
+        .ok_or("Could not resolve the app directory.")?
+        .join(node_name);
+    let home = resolver.app_data_dir().ok_or("Could not resolve the app data directory.")?;
+    std::fs::create_dir_all(home.join("logs")).map_err(|error| error.to_string())?;
+    let log = std::fs::File::create(home.join("logs/sidecar.log")).map_err(|error| error.to_string())?;
+    let errors = log.try_clone().map_err(|error| error.to_string())?;
+
+    let child = Command::new(node)
+        .arg(&script)
+        .current_dir(&sidecar_dir)
+        .env("CENTINEL_PACKAGED", "1")
+        .env("CENTINEL_HOME", &home)
+        .env("CENTINEL_RUNTIME_ENV", sidecar_dir.join("runtime.env"))
+        .env("PATH", tool_path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(errors))
+        .spawn()
+        .map_err(|error| format!("Could not start the local service: {error}"))?;
+    Ok(Some(child))
+}
+
 fn main() {
     // On Windows, a second process is launched for centinel:// URLs. Prepare
     // forwards that URL to this primary process before it exits.
     tauri_plugin_deep_link::prepare("com.centinel.app");
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(PendingAuthCallback(Mutex::new(None)))
+        .manage(SidecarProcess(Mutex::new(None)))
         .setup(|app| {
+            match start_sidecar(app) {
+                Ok(child) => {
+                    if let Ok(mut slot) = app.state::<SidecarProcess>().0.lock() {
+                        *slot = child;
+                    }
+                }
+                Err(error) => eprintln!("[centinel] {error}"),
+            }
             let app_handle = app.handle();
             tauri_plugin_deep_link::register("centinel", move |url| {
                 if url.starts_with(AUTH_CALLBACK_EVENT) {
@@ -51,6 +142,17 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![app_data_dir, take_auth_callback])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Ok(mut slot) = app_handle.state::<SidecarProcess>().0.lock() {
+                if let Some(mut child) = slot.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+    });
 }

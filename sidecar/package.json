@@ -1,6 +1,6 @@
 {
   "name": "@centinel/sidecar",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
@@ -13,6 +13,7 @@
     "migrate:legacy": "tsx src/migration/legacy.ts"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^17.0.0",
