@@ -522,7 +522,6 @@
 .workspace-mode:not(.dashboard-mode) .provider-form,
 .workspace-mode:not(.dashboard-mode) .session-info,
 .workspace-mode:not(.dashboard-mode) .summary-box,
-.workspace-mode:not(.dashboard-mode) .report-preview,
 .workspace-mode:not(.dashboard-mode) .evidence-sidebar,
 .workspace-mode:not(.dashboard-mode) .evidence-content,
 .workspace-mode:not(.dashboard-mode) .review-artifact-card {
@@ -1555,21 +1554,18 @@
   padding: 16px 0 4px;
 }
 
-.workspace-mode:not(.dashboard-mode) .usage-table,
-.workspace-mode:not(.dashboard-mode) .report-content table {
+.workspace-mode:not(.dashboard-mode) .usage-table {
   display: block;
   max-width: 100%;
   overflow-x: auto;
 }
 
-.workspace-mode:not(.dashboard-mode) .usage-table th,
-.workspace-mode:not(.dashboard-mode) .report-content th {
+.workspace-mode:not(.dashboard-mode) .usage-table th {
   background: var(--workspace-surface-subtle);
   color: var(--workspace-text-muted);
 }
 
-.workspace-mode:not(.dashboard-mode) .usage-table td,
-.workspace-mode:not(.dashboard-mode) .report-content td {
+.workspace-mode:not(.dashboard-mode) .usage-table td {
   color: var(--workspace-text);
   border-color: var(--workspace-border);
 }
@@ -4824,7 +4820,6 @@ div.app-shell.has-window-chrome .sidebar {
   height: 18px;
   place-items: center;
 }
-
 
 .app-shell.has-window-chrome .settings-provider-group + .settings-provider-group,
 .app-shell.has-window-chrome .provider-form-header,

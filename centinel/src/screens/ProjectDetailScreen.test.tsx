@@ -380,12 +380,12 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(items[2]).toHaveTextContent('Export report');
     await user.click(items[2]);
     await waitFor(() => expect(api.exportProjectReport).toHaveBeenCalledWith(project.id));
-    expect(await screen.findByRole('heading', { name: 'Project report generated' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Project report ready' })).toBeInTheDocument();
     const downloads = screen.getByRole('navigation', { name: 'Report downloads' });
     expect(within(downloads).getByRole('link', { name: 'Download JSON' })).toHaveAttribute('href', 'https://reports.example.test/snapshot?token=json');
     expect(within(downloads).getByRole('link', { name: 'Download Markdown' })).toHaveAttribute('href', 'https://reports.example.test/markdown?token=md');
     expect(within(downloads).getByRole('link', { name: 'Download PDF' })).toHaveAttribute('href', 'https://reports.example.test/pdf?token=pdf');
-    await user.click(screen.getByText('Integrity checksums'));
+    await user.click(screen.getByText('Technical details'));
     expect(screen.getByText('d'.repeat(64))).toBeInTheDocument();
   });
 
