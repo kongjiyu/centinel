@@ -254,8 +254,8 @@
   font-size: var(--font-size-support);
   font-weight: 650;
   line-height: 19px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .action-required-context time {
@@ -456,6 +456,8 @@
 .recommendation-heading {
   position: relative;
   z-index: 1;
+  flex-wrap: wrap;
+  row-gap: 4px;
   margin-bottom: 12px;
 }
 
@@ -490,9 +492,9 @@
 
 .recommendation-summary h3 {
   color: var(--color-text);
-  font-size: var(--font-size-page);
+  font-size: var(--font-size-section);
   font-weight: 650;
-  line-height: 30px;
+  line-height: 26px;
   text-wrap: balance;
 }
 
@@ -907,8 +909,10 @@
   outline-offset: 3px;
 }
 
+/* A minimum, not a fixed height: longer copy or a narrow rail must grow the
+   card instead of clipping its action. */
 .recommendation-visual {
-  height: 240px;
+  min-height: 240px;
   box-sizing: border-box;
 }
 
@@ -916,8 +920,30 @@
   margin-block: auto;
 }
 
+/* The right rail is only ~300px wide between 960 and 1200px. Stack by its
+   own width so the icon and secondary actions stop squeezing the copy. */
+.home-right-rail {
+  container: home-rail / inline-size;
+}
+
+@container home-rail (max-width: 300px) {
+  .recommendation-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .recommendation-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .quick-action-secondary {
+    grid-column: 1 / -1;
+  }
+}
+
 .recommendation-action {
-  margin-top: 0;
+  margin-top: 16px;
 }
 
 .recommendation-watermark {

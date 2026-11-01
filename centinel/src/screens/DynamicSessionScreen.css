@@ -115,7 +115,7 @@
 .dynamic-context-item > span { display: grid; min-width: 0; gap: 3px; }
 .dynamic-context-item small { color: var(--workspace-text-subtle); font-size: var(--font-size-meta); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .dynamic-context-item strong,
-.dynamic-context-item code { overflow: hidden; color: var(--workspace-text); font-size: var(--font-size-meta); line-height: 18px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.dynamic-context-item code { overflow: hidden; color: var(--workspace-text); font-size: var(--font-size-meta); line-height: 18px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 
 .dynamic-live-layout {
   display: grid;
@@ -300,7 +300,7 @@
 }
 
 .command-dynamic-session .screenshot-item img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--workspace-surface-subtle); }
-.command-dynamic-session .screenshot-item .screenshot-label { display: block; padding: 9px 10px; overflow: hidden; color: var(--workspace-text-muted); font-size: var(--font-size-meta); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.command-dynamic-session .screenshot-item .screenshot-label { display: block; padding: 9px 10px; overflow: hidden; color: var(--workspace-text-muted); font-size: var(--font-size-meta); text-align: left; white-space: normal; overflow-wrap: anywhere; }
 
 .command-dynamic-session .evidence-list { display: grid; gap: 7px; }
 .command-dynamic-session .evidence-item { padding: 12px 14px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface); }
@@ -308,7 +308,7 @@
 .command-dynamic-session .evidence-type { color: var(--workspace-info); font-size: var(--font-size-meta); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .command-dynamic-session .evidence-time { color: var(--workspace-text-subtle); font-size: var(--font-size-meta); }
 .command-dynamic-session .evidence-summary { margin-top: 5px; color: var(--workspace-text); font-size: var(--font-size-support); line-height: 19px; }
-.command-dynamic-session .evidence-path { display: block; margin-top: 5px; overflow: hidden; color: var(--workspace-text-subtle); font-size: var(--font-size-meta); text-overflow: ellipsis; white-space: nowrap; }
+.command-dynamic-session .evidence-path { display: block; margin-top: 5px; overflow: hidden; color: var(--workspace-text-subtle); font-size: var(--font-size-meta); white-space: normal; overflow-wrap: anywhere; }
 
 .command-dynamic-session .technical-evidence {
   margin-top: 24px;

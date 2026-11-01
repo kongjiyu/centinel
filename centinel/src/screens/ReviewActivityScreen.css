@@ -1167,8 +1167,8 @@
 .review-model-usage-groups li span {
   overflow: hidden;
   color: var(--workspace-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .review-model-usage-groups li small {

@@ -2972,8 +2972,8 @@ div.app-shell.has-window-chrome .nav-item.active,
   color: var(--shell-text-subtle);
   font-size: var(--font-size-meta);
   line-height: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .app-shell.has-window-chrome .sidebar-profile-button.active .sidebar-profile-username {
@@ -3210,8 +3210,8 @@ div.app-shell.has-window-chrome .nav-item.active,
 .app-shell.has-window-chrome .sidebar-pin-item span {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .app-shell.has-window-chrome .sidebar-pins-empty {
@@ -4005,8 +4005,8 @@ div.app-shell.has-window-chrome .page-content-container > .main-content {
   color: var(--shell-text-muted);
   font-size: var(--font-size-meta);
   line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .app-shell.has-window-chrome .usage-metric dd {
@@ -5126,8 +5126,8 @@ div.app-shell.has-window-chrome .sidebar {
   overflow: hidden;
   color: var(--workspace-text);
   font-size: var(--font-size-support);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .workspace-mode:not(.dashboard-mode) .grounding-row-main small {
