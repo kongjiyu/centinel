@@ -1,3 +1,9 @@
+/* Layout follows the table's own width, not the viewport: the sidebar takes
+   ~220px, so a 760px window leaves too little room for the column layout. */
+.project-summary-container {
+  container: project-table / inline-size;
+}
+
 .project-summary-table-shell {
   width: 100%;
   min-width: 0;
@@ -25,7 +31,7 @@
 }
 
 .project-summary-col-action {
-  width: 154px;
+  width: 120px;
 }
 
 .project-summary-table th {
@@ -86,8 +92,8 @@
   font-size: var(--font-size-body);
   font-weight: 600;
   line-height: 22px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .project-summary-identity span {
@@ -107,8 +113,8 @@
   font-family: var(--font-technical);
   font-size: var(--font-size-meta);
   line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .project-activity-stack {
@@ -132,6 +138,7 @@
   display: flex;
   max-width: 100%;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 5px;
   color: var(--activity-accent);
@@ -148,8 +155,8 @@
   font-size: var(--font-size-dense);
   font-weight: 650;
   line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .project-activity-meta time {
@@ -157,9 +164,9 @@
   color: var(--color-text-subtle);
   font-size: var(--font-size-meta);
   font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .project-activity-separator {
@@ -324,7 +331,7 @@
   outline-offset: 3px;
 }
 
-@media (max-width: 960px) {
+@container project-table (max-width: 760px) {
   .project-summary-col-project {
     width: 25%;
   }
@@ -338,7 +345,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@container project-table (max-width: 620px) {
   .project-summary-table-shell {
     overflow: visible;
   }
@@ -376,6 +383,7 @@
 
   .project-summary-table td.project-summary-pin-cell + td {
     grid-column: 1 / -1;
+    grid-row: 1;
     padding-left: 42px;
   }
 
@@ -412,6 +420,7 @@
 
   .project-summary-table td.project-summary-pin-cell + td {
     grid-column: 1 / -1;
+    grid-row: 1;
     padding-left: 42px;
   }
 
@@ -455,7 +464,7 @@
 }
 }
 
-@media (max-width: 480px) {
+@container project-table (max-width: 400px) {
   .project-summary-table tr {
     grid-template-columns: 1fr;
   }

@@ -43,10 +43,11 @@
 .dynamic-workspace-screen .dw-saved-list button:hover, .dynamic-workspace-screen .dw-run-list button:hover { background: var(--workspace-surface-hover); }
 .dynamic-workspace-screen button.selected { background: var(--workspace-surface-hover); border-color: var(--workspace-border-strong); }
 .dynamic-workspace-screen .dw-run-outcome { display: flex; gap: 8px; justify-content: space-between; font-size: var(--font-size-meta); align-items: center; }
-.dynamic-workspace-screen .dw-verdict { display: inline-flex; align-items: center; border-radius: 5px; padding: 3px 7px; font-size: var(--font-size-meta); font-weight: 600; color: var(--workspace-text-muted); background: var(--workspace-surface-subtle); }
-.dynamic-workspace-screen .dw-passed { color: var(--workspace-success); }
-.dynamic-workspace-screen .dw-failed { color: var(--workspace-danger); }
-.dynamic-workspace-screen .dw-uncertain { color: var(--workspace-warning); }
+/* Verdict badges share the tinted state-tag treatment used on Home and Projects. */
+.dynamic-workspace-screen .dw-verdict { display: inline-flex; min-height: 24px; align-items: center; padding: 2px 8px; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-surface-hover); color: var(--color-text-muted); font-size: var(--font-size-meta); font-weight: 650; line-height: 18px; white-space: nowrap; }
+.dynamic-workspace-screen .dw-passed { border-color: color-mix(in srgb, var(--color-success) 24%, transparent); background: var(--color-success-subtle); color: var(--color-success); }
+.dynamic-workspace-screen .dw-failed { border-color: color-mix(in srgb, var(--color-danger) 25%, transparent); background: var(--color-danger-subtle); color: var(--color-danger); }
+.dynamic-workspace-screen .dw-uncertain { border-color: color-mix(in srgb, var(--color-warning) 28%, transparent); background: var(--color-warning-subtle); color: var(--color-warning); }
 .dynamic-workspace-screen .dw-result { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--workspace-border-strong); }
 .dynamic-workspace-screen .dw-result-verdict { font-size: var(--font-size-section); font-weight: 650; margin: 18px 0 12px; }
 .dynamic-workspace-screen .dw-table-scroll { overflow-x: auto; margin-top: 20px; }

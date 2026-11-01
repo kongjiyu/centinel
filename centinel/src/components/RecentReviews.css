@@ -4,5 +4,5 @@
 .recent-reviews li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .recent-reviews-link { display: flex; flex: 1; align-items: baseline; gap: 10px; min-width: 0; padding: 6px 0; border: 0; background: none; color: var(--workspace-text); text-align: left; cursor: pointer; }
 .recent-reviews-link:hover .recent-reviews-name, .recent-reviews-link:focus-visible .recent-reviews-name { color: var(--workspace-primary); text-decoration: underline; }
-.recent-reviews-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-support); font-weight: 600; }
+.recent-reviews-name { overflow: hidden; white-space: normal; font-size: var(--font-size-support); font-weight: 600; overflow-wrap: anywhere; }
 .recent-reviews-link small { flex: none; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
