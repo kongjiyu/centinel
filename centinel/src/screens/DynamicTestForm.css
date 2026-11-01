@@ -30,13 +30,13 @@
 
 .dynamic-automation-note strong {
   color: var(--workspace-text);
-  font-size: 13px;
+  font-size: var(--font-size-support);
 }
 
 .dynamic-automation-note p {
   margin: 3px 0 0;
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
 }
 
@@ -49,7 +49,7 @@
   align-items: center;
   gap: 7px;
   color: var(--workspace-text);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 650;
 }
 
@@ -92,7 +92,7 @@
 .dynamic-test-form .field-help {
   margin: 6px 0 0;
   color: var(--workspace-text-subtle);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
 }
 
@@ -105,7 +105,7 @@
 .dynamic-test-type legend {
   margin-bottom: 9px;
   color: var(--workspace-text);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 650;
 }
 
@@ -151,12 +151,12 @@
 
 .dynamic-type-option strong {
   color: var(--workspace-text);
-  font-size: 13px;
+  font-size: var(--font-size-support);
 }
 
 .dynamic-type-option small {
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 17px;
 }
 
@@ -171,7 +171,7 @@
   min-height: 42px;
   padding: 10px 12px;
   color: var(--workspace-text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 650;
 }
 
@@ -190,7 +190,7 @@
   border-radius: var(--workspace-radius-control);
   background: var(--workspace-danger-subtle);
   color: var(--workspace-danger);
-  font-size: 13px;
+  font-size: var(--font-size-support);
 }
 
 .dynamic-form-actions {

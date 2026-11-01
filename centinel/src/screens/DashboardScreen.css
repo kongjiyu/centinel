@@ -1,36 +1,11 @@
 :root {
-  --color-canvas: #f2f3f3;
-  --color-surface: #ffffff;
-  --color-surface-subtle: #f5f6f5;
-  --color-surface-hover: #f8fbf7;
-  --color-surface-selected: #edf4ee;
-  --color-primary-subtle: #deeee0;
-  --color-border: #d9ddda;
-  --color-border-strong: #bcc3bf;
-  --color-text: #171a18;
-  --color-text-muted: #505651;
-  --color-text-subtle: #6b716d;
-  --color-primary: #28623c;
-  --color-primary-hover: #1f4f30;
-  --color-success: #047857;
-  --color-success-subtle: #ecfdf5;
-  --color-warning: #9a5b00;
-  --color-warning-subtle: #fff7e6;
-  --color-danger: #b42318;
-  --color-danger-hover: #991b1b;
-  --color-danger-subtle: #fff1f0;
-  --color-info: #0f766e;
-  --color-info-subtle: #e8f6f3;
-  --color-focus: #2f6f44;
-  --font-ui: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
-  --font-technical: 'JetBrains Mono', 'Cascadia Mono', monospace;
   --duration-home-fast: 100ms;
   --duration-home-standard: 150ms;
   --ease-home-standard: cubic-bezier(0.2, 0, 0, 1);
   --shadow-home-panel:
-    0 0 0 1px rgba(28, 41, 32, 0.055),
-    0 1px 2px -1px rgba(28, 41, 32, 0.08),
-    0 12px 28px -20px rgba(28, 41, 32, 0.3);
+    0 0 0 1px rgba(28, 25, 23, 0.055),
+    0 1px 2px -1px rgba(28, 25, 23, 0.08),
+    0 12px 28px -20px rgba(28, 25, 23, 0.3);
 }
 
 .app-shell.dashboard-mode {
@@ -59,7 +34,7 @@
   border-radius: 8px;
   color: var(--color-text-muted);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   transition-property: background-color, color, border-color;
   transition-duration: var(--duration-home-standard);
   transition-timing-function: var(--ease-home-standard);
@@ -195,7 +170,7 @@
 .home-section-heading h2,
 .recent-projects-header h2 {
   color: var(--color-text);
-  font-size: 22px;
+  font-size: var(--font-size-page);
   font-weight: 650;
   line-height: 30px;
   letter-spacing: -0.01em;
@@ -205,7 +180,7 @@
 .home-section-description {
   margin-top: 3px !important;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   text-wrap: pretty;
 }
@@ -269,14 +244,14 @@
   align-items: baseline;
   gap: 0 7px;
   color: var(--color-text-subtle);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
 }
 
 .action-required-context strong {
   overflow: hidden;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 650;
   line-height: 19px;
   text-overflow: ellipsis;
@@ -297,7 +272,7 @@
 .action-required-body h3 {
   margin-top: 0 !important;
   color: var(--action-color);
-  font-size: 17px;
+  font-size: var(--font-size-section);
   font-weight: 650;
   line-height: 24px;
 }
@@ -306,7 +281,7 @@
   min-width: 0;
   margin-top: 8px !important;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 19px;
   text-wrap: pretty;
 }
@@ -327,7 +302,7 @@
   gap: 7px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 650;
   line-height: 20px;
   white-space: nowrap;
@@ -376,7 +351,7 @@
   padding-top: 12px;
   border-top: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
 }
 
@@ -391,7 +366,7 @@
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
   line-height: 18px;
 }
@@ -412,7 +387,7 @@
 .recommendation-position {
   margin-right: 3px;
   color: var(--color-text-subtle);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 17px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -486,7 +461,7 @@
 
 .recommendation-heading h2 {
   color: var(--color-text);
-  font-size: 22px;
+  font-size: var(--font-size-page);
   font-weight: 650;
   line-height: 30px;
   letter-spacing: -0.01em;
@@ -515,7 +490,7 @@
 
 .recommendation-summary h3 {
   color: var(--color-text);
-  font-size: 22px;
+  font-size: var(--font-size-page);
   font-weight: 650;
   line-height: 30px;
   text-wrap: balance;
@@ -524,7 +499,7 @@
 .recommendation-summary p {
   margin-top: 3px !important;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   text-wrap: pretty;
 }
@@ -557,7 +532,7 @@
   justify-content: center;
   gap: 8px;
   color: var(--color-text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   line-height: 20px;
   text-align: center;
 }
@@ -598,7 +573,7 @@
   display: grid;
   gap: 4px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   line-height: 17px;
 }
@@ -618,9 +593,9 @@
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(28, 41, 32, 0.06);
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.06);
 }
 
 .recent-projects-controls .select-trigger:hover {
@@ -643,7 +618,7 @@
 .view-more-projects:hover {
   border-color: var(--color-border-strong);
   color: var(--color-primary-hover);
-  box-shadow: 0 2px 6px rgba(28, 41, 32, 0.08);
+  box-shadow: 0 2px 6px rgba(28, 25, 23, 0.08);
 }
 
 .recent-projects-panel .project-summary-table td {
@@ -893,7 +868,7 @@
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
-  font: 650 13px/20px inherit;
+  font: 650 var(--font-size-support)/20px inherit;
   text-align: left;
   transition-property: background-color, border-color, color, transform;
   transition-duration: var(--duration-home-standard), var(--duration-home-standard), var(--duration-home-standard), var(--duration-home-fast);
@@ -976,7 +951,7 @@
 }
 
 .project-summary-table-dashboard .project-summary-identity strong {
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   font-weight: 400;
   line-height: 20px;
 }

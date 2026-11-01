@@ -10,6 +10,12 @@
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
+## Typography and color amendment (1 November 2026)
+
+The user selected IBM Plex Sans with warm Stone neutrals and a Forest green primary (IBM Carbon-like) to replace Plus Jakarta Sans and the sage-tinted neutrals. Tokens in §7 and `centinel/src/tokens.css` are authoritative; screen layers alias them instead of defining hex values. JetBrains Mono remains the technical face. Layout and behavior are unchanged.
+
+Font sizes use only the seven `--font-size-*` tokens in `tokens.css` (24, 18, 15, 15, 14, 13 and 12 px); nothing renders below 12 px. Finding risk, priority and severity levels use a dedicated ordered scale — Critical red `#b91c1c`, High orange `#c2410c`, Medium yellow `#a16207`, Low neutral `#57534e` — so green keeps its meaning of action, selection and success. Finding summaries use the UI face; the technical face stays limited to code, paths, refs, URLs and IDs.
+
 ## Latest Project UX amendment (29 October 2026)
 
 The [Project UX and source-read specification](docs/project/PROJECT_UX_SOURCE_READ_SPEC_2026-10-29.md) records the user's later correction and supersedes conflicting source-tree and table presentation below. Project Sources uses one directory/file content surface with breadcrumbs and no left tree. Source rows place name/kind at 10/12 and relative update time at 2/12 without Name/Kind/Added columns. Project Findings shows ID, Findings, Risk, Priority with colored textual priority indicators. Collaborators syncs GitHub on load without explicit sync buttons; project pages use accessible skeleton loading.
@@ -288,7 +294,7 @@ Donald Norman’s interaction principles and Shneiderman’s eight golden rules 
 The design language is **approachable enterprise minimalism**:
 
 - light-first for office environments;
-- muted sage surfaces and clear hierarchy;
+- warm Stone neutral surfaces and clear hierarchy;
 - accessible forest green for primary interaction;
 - restrained semantic color for state;
 - evidence-oriented tables and lists rather than decorative dashboards;
@@ -322,37 +328,39 @@ The default theme is light. A dark theme may be added only after all semantic to
 
 ```css
 :root {
-  --color-canvas: #f2f3f3;
+  --color-canvas: #f5f5f4;
   --color-surface: #ffffff;
-  --color-surface-subtle: #f5f6f5;
-  --color-surface-hover: #f8fbf7;
-  --color-surface-selected: #edf4ee;
+  --color-surface-subtle: #fafaf9;
+  --color-surface-hover: #f5f5f4;
+  --color-surface-selected: #f0fdf4;
 
-  --color-border: #d9ddda;
-  --color-border-strong: #bcc3bf;
+  --color-border: #e7e5e4;
+  --color-border-strong: #d6d3d1;
 
-  --color-text: #171a18;
-  --color-text-muted: #505651;
-  --color-text-subtle: #6b716d;
+  --color-text: #1c1917;
+  --color-text-muted: #57534e;
+  --color-text-subtle: #78716c;
 
-  --color-primary: #28623c;
-  --color-primary-hover: #1f4f30;
-  --color-primary-subtle: #deeee0;
+  --color-primary: #166534;
+  --color-primary-hover: #14532d;
+  --color-primary-subtle: #dcfce7;
 
-  --color-success: #047857;
-  --color-success-subtle: #ecfdf5;
-  --color-warning: #9a5b00;
-  --color-warning-subtle: #fff7e6;
-  --color-danger: #b42318;
+  --color-success: #15803d;
+  --color-success-subtle: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-subtle: #fffbeb;
+  --color-danger: #b91c1c;
   --color-danger-hover: #991b1b;
-  --color-danger-subtle: #fff1f0;
+  --color-danger-subtle: #fef2f2;
   --color-info: #0f766e;
-  --color-info-subtle: #e8f6f3;
+  --color-info-subtle: #f0fdfa;
 
-  --color-focus: #2f6f44;
-  --focus-ring: 0 0 0 3px rgba(47, 111, 68, 0.24);
+  --color-focus: #166534;
+  --focus-ring: 0 0 0 3px rgba(22, 101, 52, 0.24);
 }
 ```
+
+The token layer lives in `centinel/src/tokens.css`. Screen layers alias these values; they must not redefine hex values.
 
 Color rules:
 
@@ -367,11 +375,11 @@ Color rules:
 ### Typography
 
 ```css
---font-ui: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
---font-technical: 'JetBrains Mono', 'Cascadia Mono', monospace;
+--font-ui: 'IBM Plex Sans Variable', 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+--font-technical: 'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
 ```
 
-Use Plus Jakarta Sans for the interface. Package or self-host it so the desktop app does not depend on a network request. Use the technical face only for code, file paths, refs, URLs, IDs, and log content.
+Use IBM Plex Sans for the interface. Package or self-host it so the desktop app does not depend on a network request. Use the technical face only for code, file paths, refs, URLs, IDs, and log content.
 
 | Role | Size / line height | Weight |
 |---|---:|---:|

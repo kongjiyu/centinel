@@ -30,7 +30,7 @@
   gap: 8px;
   margin: 0;
   color: var(--workspace-text);
-  font-size: 17px;
+  font-size: var(--font-size-section);
   font-weight: 650;
   line-height: 24px;
 }
@@ -63,7 +63,7 @@
 }
 
 .command-project-detail .project-readiness-previous strong {
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -71,7 +71,7 @@
 .command-project-detail .project-readiness-previous span,
 .command-project-detail .project-readiness-job-state {
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -109,7 +109,7 @@
 .command-project-detail .project-readiness-categories strong {
   min-width: 0;
   color: var(--workspace-text);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 550;
   line-height: 19px;
   overflow-wrap: anywhere;
@@ -122,7 +122,7 @@
   justify-content: flex-end;
   gap: 6px;
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
   line-height: 18px;
   white-space: nowrap;
@@ -135,7 +135,7 @@
 .command-project-detail .project-readiness-error {
   margin: 10px 0 0;
   color: var(--workspace-danger);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -146,6 +146,6 @@
 
 @media (max-width: 720px) {
   .command-project-detail .project-readiness-card-header { gap: 8px; }
-  .command-project-detail .project-readiness-card-header h2 { font-size: 16px; }
+  .command-project-detail .project-readiness-card-header h2 { font-size: var(--font-size-body); }
   .command-project-detail .project-readiness-categories li { min-height: 46px; }
 }

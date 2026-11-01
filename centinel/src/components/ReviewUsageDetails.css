@@ -22,7 +22,7 @@
   padding: 12px 20px;
   color: var(--workspace-text);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   font-weight: 650;
   list-style-position: inside;
 }
@@ -38,7 +38,7 @@
 
 .review-usage-summary-hint {
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 450;
   text-align: right;
 }
@@ -63,7 +63,7 @@
   margin: 0;
   color: var(--workspace-text);
 }
-.review-usage-content-heading h2 { font-size: 16px; line-height: 24px; }
+.review-usage-content-heading h2 { font-size: var(--font-size-body); line-height: 24px; }
 .review-usage-content-heading p,
 .review-usage-section-heading p,
 .review-usage-muted,
@@ -72,12 +72,12 @@
 .review-usage-source-count {
   margin: 4px 0 0;
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 19px;
   overflow-wrap: anywhere;
 }
 .review-usage-section-heading { align-items: baseline; margin-bottom: 10px; }
-.review-usage-section-heading h3 { font-size: 14px; line-height: 22px; }
+.review-usage-section-heading h3 { font-size: var(--font-size-dense); line-height: 22px; }
 .review-usage-section-heading p { text-align: right; }
 
 .review-usage-refresh {
@@ -89,7 +89,7 @@
   background: var(--workspace-surface);
   color: var(--workspace-text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   cursor: pointer;
 }
 .review-usage-refresh:hover:not(:disabled) { background: var(--workspace-surface-subtle); }
@@ -100,7 +100,7 @@
   margin: 12px 0;
   padding: 10px 12px;
   border-radius: var(--workspace-radius-control);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 20px;
 }
 .review-usage-loading { background: var(--workspace-surface-subtle); color: var(--workspace-text-muted); }
@@ -124,14 +124,14 @@
 .review-usage-stage-metrics dt,
 .review-usage-file-metadata dt {
   color: var(--workspace-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 16px;
 }
 .review-usage-metrics dd,
 .review-usage-stage-metrics dd {
   margin: 4px 0 0;
   color: var(--workspace-text);
-  font-size: 15px;
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
   line-height: 21px;
   overflow-wrap: anywhere;
@@ -141,7 +141,7 @@
 .review-usage-table th small {
   display: block;
   color: var(--workspace-text-subtle);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 450;
   line-height: 16px;
 }
@@ -152,7 +152,7 @@
   flex-wrap: wrap;
   gap: 8px 16px;
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 19px;
 }
 .review-usage-status {
@@ -185,7 +185,7 @@
   min-height: 40px;
   padding: 8px 0;
   color: var(--workspace-text);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   list-style-position: outside;
 }
@@ -213,7 +213,7 @@
   width: 100%;
   border-collapse: collapse;
   color: var(--workspace-text);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   font-variant-numeric: tabular-nums;
   text-align: left;
@@ -229,14 +229,14 @@
 .review-usage-table thead th {
   background: var(--workspace-surface-subtle);
   color: var(--workspace-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
 }
 .review-usage-table tbody th { font-weight: 550; }
 .review-usage-table tbody tr:last-child th,
 .review-usage-table tbody tr:last-child td { border-bottom: 0; }
 .review-usage-table td code,
-.review-usage-table th code { font-size: 11px; }
+.review-usage-table th code { font-size: var(--font-size-meta); }
 .review-usage-table td:last-child,
 .review-usage-table th:last-child { text-align: right; }
 .review-usage-table:not(.review-usage-group-table) { min-width: 620px; }
@@ -252,23 +252,23 @@
   margin: 0 0 10px;
 }
 .review-usage-stage-metrics > div { min-width: 0; padding: 8px; background: var(--workspace-surface-subtle); border-radius: var(--workspace-radius-control); }
-.review-usage-stage-metrics dd { font-size: 13px; }
-.review-usage-stage-metrics dd small { display: block; color: var(--workspace-text-subtle); font-size: 11px; }
+.review-usage-stage-metrics dd { font-size: var(--font-size-support); }
+.review-usage-stage-metrics dd small { display: block; color: var(--workspace-text-subtle); font-size: var(--font-size-meta); }
 .review-usage-phase-breakdown { margin: 8px 0; padding: 0 10px; border-block: 1px solid var(--workspace-border); }
 .review-usage-phase-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-bottom: 10px; }
 .review-usage-phase-card { min-width: 0; padding: 10px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle); }
 .review-usage-phase-card > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.review-usage-phase-card h4 { margin: 0; color: var(--workspace-text); font-size: 12px; line-height: 18px; }
-.review-usage-phase-card > header > span { color: var(--workspace-text-muted); font-size: 11px; text-align: right; }
+.review-usage-phase-card h4 { margin: 0; color: var(--workspace-text); font-size: var(--font-size-meta); line-height: 18px; }
+.review-usage-phase-card > header > span { color: var(--workspace-text-muted); font-size: var(--font-size-meta); text-align: right; }
 .review-usage-phase-card dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .review-usage-phase-card dl > div { min-width: 0; }
-.review-usage-phase-card dt { color: var(--workspace-text-muted); font-size: 10px; line-height: 15px; }
-.review-usage-phase-card dd { margin: 2px 0 0; color: var(--workspace-text); font-size: 12px; font-variant-numeric: tabular-nums; line-height: 18px; overflow-wrap: anywhere; }
-.review-usage-phase-card dd small { display: block; color: var(--workspace-text-subtle); font-size: 10px; line-height: 14px; }
+.review-usage-phase-card dt { color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 15px; }
+.review-usage-phase-card dd { margin: 2px 0 0; color: var(--workspace-text); font-size: var(--font-size-meta); font-variant-numeric: tabular-nums; line-height: 18px; overflow-wrap: anywhere; }
+.review-usage-phase-card dd small { display: block; color: var(--workspace-text-subtle); font-size: var(--font-size-meta); line-height: 14px; }
 .review-usage-estimate { margin: 8px 0; }
 .review-usage-operations { border-top: 1px solid var(--workspace-border); }
 .review-usage-operations ul { display: grid; gap: 4px; margin: 0 0 10px; padding-left: 20px; }
-.review-usage-operations li { overflow-wrap: anywhere; color: var(--workspace-text-muted); font-size: 11px; }
+.review-usage-operations li { overflow-wrap: anywhere; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
 
 .review-usage-source-count { margin: 0 0 8px; }
 .review-usage-file-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
@@ -276,7 +276,7 @@
 .review-usage-file-path {
   display: block;
   color: var(--workspace-text);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   line-height: 19px;
   overflow-wrap: anywhere;
@@ -289,7 +289,7 @@
   margin: 8px 0 0;
 }
 .review-usage-file-metadata > div { min-width: 0; }
-.review-usage-file-metadata dd { margin: 2px 0 0; color: var(--workspace-text-muted); font-size: 11px; line-height: 17px; overflow-wrap: anywhere; }
+.review-usage-file-metadata dd { margin: 2px 0 0; color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 17px; overflow-wrap: anywhere; }
 .review-usage-file-metadata code { overflow-wrap: anywhere; }
 .review-usage-physical { padding-top: 8px; border-top: 1px solid var(--workspace-border); }
 .review-usage-physical > p { margin: 0 0 6px; }

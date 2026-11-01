@@ -1,0 +1,59 @@
+/*
+ * Centinel design tokens — the single source of reusable visual values.
+ * Values mirror DESIGN.md §7: IBM Plex Sans, warm Stone neutrals and a
+ * Forest green primary. Screen layers alias these instead of redefining hex.
+ */
+
+:root {
+  --color-canvas: #f5f5f4;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #fafaf9;
+  --color-surface-hover: #f5f5f4;
+  --color-surface-selected: #f0fdf4;
+
+  --color-border: #e7e5e4;
+  --color-border-strong: #d6d3d1;
+
+  --color-text: #1c1917;
+  --color-text-muted: #57534e;
+  --color-text-subtle: #78716c;
+
+  --color-primary: #166534;
+  --color-primary-hover: #14532d;
+  --color-primary-subtle: #dcfce7;
+
+  --color-success: #15803d;
+  --color-success-subtle: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-subtle: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-hover: #991b1b;
+  --color-danger-subtle: #fef2f2;
+  --color-info: #0f766e;
+  --color-info-subtle: #f0fdfa;
+
+  --color-focus: #166534;
+  --focus-ring: 0 0 0 3px rgba(22, 101, 52, 0.24);
+
+  /* Finding risk/priority levels: ordered red → orange → yellow → neutral. */
+  --color-level-critical: #b91c1c;
+  --color-level-critical-subtle: #fef2f2;
+  --color-level-high: #c2410c;
+  --color-level-high-subtle: #fff7ed;
+  --color-level-medium: #a16207;
+  --color-level-medium-subtle: #fefce8;
+  --color-level-low: #57534e;
+  --color-level-low-subtle: #fafaf9;
+
+  /* Type scale (DESIGN.md §7 Typography) — the only font sizes in use. */
+  --font-size-page: 24px;
+  --font-size-section: 18px;
+  --font-size-title: 15px;
+  --font-size-body: 15px;
+  --font-size-dense: 14px;
+  --font-size-support: 13px;
+  --font-size-meta: 12px;
+
+  --font-ui: 'IBM Plex Sans Variable', 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-technical: 'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
+}

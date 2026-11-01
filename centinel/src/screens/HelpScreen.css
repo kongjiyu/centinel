@@ -22,7 +22,7 @@
 .help-section h2 {
   margin: 0 0 10px;
   color: var(--workspace-text);
-  font-size: 15px;
+  font-size: var(--font-size-body);
   line-height: 22px;
   font-weight: 650;
   text-wrap: balance;
@@ -34,13 +34,13 @@
   margin: 0;
   padding-left: 21px;
   color: var(--workspace-text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 20px;
 }
 
 .help-section li { padding-left: 2px; }
 .help-section li::marker { color: var(--workspace-primary); font-weight: 650; }
-.help-section p { margin: 10px 0 0; color: var(--workspace-text-muted); font-size: 12px; line-height: 18px; }
+.help-section p { margin: 10px 0 0; color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 18px; }
 
 .help-note {
   display: flex;
@@ -48,7 +48,7 @@
   gap: 8px;
   margin: 12px 0 0;
   color: var(--workspace-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 19px;
 }
 

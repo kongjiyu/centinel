@@ -1,10 +1,10 @@
 :root {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-dense);
   line-height: 1.5;
   font-weight: 400;
-  color: #1a1a1a;
-  background-color: #06131c;
+  color: var(--color-text);
+  background-color: var(--color-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -18,7 +18,7 @@
 
 body {
   overflow: hidden;
-  background: #06131c;
+  background: var(--color-canvas);
 }
 
 html,
@@ -29,15 +29,15 @@ body,
 }
 
 code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-technical);
   font-size: 0.9em;
-  background: #e8e8e8;
+  background: var(--color-surface-hover);
   padding: 1px 4px;
   border-radius: 3px;
 }
 
 a {
-  color: #2563eb;
+  color: var(--color-primary);
   text-decoration: none;
 }
 

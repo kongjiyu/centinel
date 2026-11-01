@@ -6,7 +6,7 @@
   max-width: 72ch;
   margin: -4px 0 20px;
   color: var(--shell-text-muted, var(--text-muted));
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 20px;
   text-wrap: pretty;
 }
@@ -24,7 +24,7 @@
   display: block;
   margin: 6px 0 0;
   color: var(--shell-text-muted, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -52,7 +52,7 @@
   padding-block: 10px;
   color: var(--shell-text, var(--text));
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-support);
   font-weight: 600;
   line-height: 20px;
 }
@@ -82,7 +82,7 @@
 .embedding-usage-heading h5 {
   margin: 0;
   color: var(--shell-text, var(--text));
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   font-weight: 650;
   line-height: 21px;
 }
@@ -108,14 +108,14 @@
 
 .embedding-usage-grid dt {
   color: var(--shell-text-muted, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
 }
 
 .embedding-usage-grid dd {
   margin: 2px 0 0;
   color: var(--shell-text, var(--text));
-  font-size: 14px;
+  font-size: var(--font-size-dense);
   font-variant-numeric: tabular-nums;
   line-height: 21px;
   overflow-wrap: anywhere;
@@ -130,7 +130,7 @@
   padding-top: 12px;
   border-top: 1px solid var(--shell-border, var(--panel-border));
   color: var(--shell-text, var(--text));
-  font-size: 13px;
+  font-size: var(--font-size-support);
   line-height: 20px;
 }
 
@@ -145,7 +145,7 @@
   grid-column: 1 / -1;
   margin: 0;
   color: var(--shell-text-muted, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 18px;
 }
 
