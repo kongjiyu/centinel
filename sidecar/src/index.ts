@@ -638,7 +638,14 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         await authGateway.requireProjectMember(auth, discoveryMatch[1]);
         try {
           const body = await parseJsonBody(req, 10000);
-          return json(res, 200, { controls: await discoverControls(discoveryTargetUrl(body.targetUrl)) });
+          const paths = Array.isArray(body.paths) ? body.paths.filter((item): item is string => typeof item === 'string' && item.trim().length > 0 && item.length <= 500).map(item => item.trim()) : [];
+          // A saved environment may lend its device-local signed-in session for read-only scanning.
+          let storageState: import('./dynamic/environment/sessionVault.js').BrowserSessionState | undefined;
+          if (typeof body.environmentId === 'string' && body.environmentId) {
+            const profile = await environments.get(discoveryMatch[1], body.environmentId);
+            if (profile?.sessionReference) storageState = sessionVault.read(ownerId, discoveryMatch[1], profile.id, profile.sessionReference, profile.allowedOrigins)?.state;
+          }
+          return json(res, 200, await discoverControls(discoveryTargetUrl(body.targetUrl), { paths, storageState }));
         } catch (error) {
           if (error instanceof DynamicContractError) return json(res, error.status, { error: error.message });
           throw error;

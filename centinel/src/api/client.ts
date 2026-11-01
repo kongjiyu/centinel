@@ -536,8 +536,8 @@ export const api = {
   setArtifactCurrency: (projectId: string, artifactId: string, action: 'confirm' | 'deprecate' | 'restore') =>
     request<import('../types').SourceCurrency>(`/projects/${projectId}/artifacts/${artifactId}/currency`, { method: 'POST', body: JSON.stringify({ action }) }),
   /** Read-only page scan proposing unique control selectors; nothing is clicked or approved. */
-  discoverDynamicControls: (projectId: string, targetUrl: string) =>
-    request<{ controls: import('../../../sidecar/src/dynamic/environment/controlDiscovery').DiscoveredControl[] }>(`/projects/${projectId}/dynamic/control-discovery`, { method: 'POST', body: JSON.stringify({ targetUrl }) }),
+  discoverDynamicControls: (projectId: string, targetUrl: string, paths: string[] = [], environmentId?: string) =>
+    request<import('../../../sidecar/src/dynamic/environment/controlDiscovery').DiscoveryResult>(`/projects/${projectId}/dynamic/control-discovery`, { method: 'POST', body: JSON.stringify({ targetUrl, paths, ...(environmentId ? { environmentId } : {}) }) }),
   listProjectMembers: (projectId: string) => request<import('../types').ProjectMemberList>(`/projects/${projectId}/members`),
   addProjectMember: (projectId: string, email: string, role: 'member' | 'viewer') =>
     request<import('../types').ProjectMember>(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) }),

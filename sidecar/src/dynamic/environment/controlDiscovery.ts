@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { DynamicContractError } from '../types.js';
 import type { InteractionAction } from '../browser/actionPolicy.js';
+import type { BrowserSessionState } from './sessionVault.js';
 
 /**
  * Read-only control discovery for environment permission authoring. It loads
@@ -8,7 +9,7 @@ import type { InteractionAction } from '../browser/actionPolicy.js';
  * values. It only proposes unique CSS selectors that a tester then approves;
  * the recorded action policy remains the enforcement boundary.
  */
-export type DiscoveredControl = { selector: string; label: string; actions: InteractionAction[]; kind: string };
+export type DiscoveredControl = { selector: string; label: string; actions: InteractionAction[]; kind: string; page?: string };
 
 const MAX_CONTROLS = 20;
 
@@ -38,7 +39,7 @@ const COLLECT_CONTROLS = String.raw`(limit) => {
     if (element.closest('a[download]')) continue;
     const options = [
       element.id ? '#' + CSS.escape(element.id) : '',
-      element.getAttribute('data-testid') ? '[data-testid="' + quote(element.getAttribute('data-testid')) + '"]' : '',
+      ...['data-testid', 'data-test', 'data-cy', 'data-qa'].map(attribute => element.getAttribute(attribute) ? '[' + attribute + '="' + quote(element.getAttribute(attribute)) + '"]' : ''),
       element.getAttribute('name') ? tag + '[name="' + quote(element.getAttribute('name')) + '"]' : '',
       element.getAttribute('aria-label') ? tag + '[aria-label="' + quote(element.getAttribute('aria-label')) + '"]' : '',
     ].filter(Boolean);
@@ -61,23 +62,50 @@ const COLLECT_CONTROLS = String.raw`(limit) => {
   return results;
 }`;
 
-export async function discoverControls(target: URL, options: { timeoutMs?: number } = {}): Promise<DiscoveredControl[]> {
+export type DiscoveryPage = { url: string; finalUrl: string; controls: number; redirected: boolean };
+export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryPage[] };
+
+/**
+ * Scan the target and optional same-origin pages. A saved signed-in browser
+ * session for the environment may be supplied so pages behind sign-in can be
+ * read; it is used only inside this short-lived, read-only browser context.
+ */
+export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState } = {}): Promise<DiscoveryResult> {
+  const pageUrls = [target, ...(options.paths ?? []).map(path => new URL(path, target))]
+    .filter((url, index, all) => all.findIndex(other => other.href === url.href) === index);
+  if (pageUrls.some(url => url.origin !== target.origin)) throw new DynamicContractError(400, 'Additional pages must be on the same website as the test address.');
+  if (pageUrls.length > 6) throw new DynamicContractError(400, 'Scan at most five additional pages at a time.');
   const browser = await chromium.launch({ headless: true });
   try {
-    const context = await browser.newContext({ acceptDownloads: false });
+    const context = await browser.newContext({ acceptDownloads: false, ...(options.storageState ? { storageState: options.storageState } : {}) });
     const page = await context.newPage();
     // Stay on the requested origin; the discovery never follows redirects elsewhere.
     await page.route('**/*', route => {
       const url = new URL(route.request().url());
       return url.origin === target.origin || route.request().resourceType() !== 'document' ? route.continue() : route.abort();
     });
-    try {
-      await page.goto(target.toString(), { waitUntil: 'domcontentloaded', timeout: options.timeoutMs ?? 15_000 });
-    } catch {
-      throw new DynamicContractError(409, 'The website could not be opened. Check that it is running and reachable, then try again.');
+    const controls: DiscoveredControl[] = [];
+    const pages: DiscoveryPage[] = [];
+    for (const url of pageUrls) {
+      try {
+        await page.goto(url.toString(), { waitUntil: 'networkidle', timeout: options.timeoutMs ?? 15_000 });
+      } catch {
+        if (url === pageUrls[0]) throw new DynamicContractError(409, 'The website could not be opened. Check that it is running and reachable, then try again.');
+        pages.push({ url: url.toString(), finalUrl: page.url(), controls: 0, redirected: true });
+        continue;
+      }
+      const found = await page.evaluate(`(${COLLECT_CONTROLS})(${MAX_CONTROLS})`) as Array<{ selector: string; label: string; actions: string[]; kind: string }>;
+      const finalUrl = page.url();
+      const redirected = new URL(finalUrl).pathname !== url.pathname;
+      let added = 0;
+      for (const item of found) {
+        if (controls.length >= MAX_CONTROLS || controls.some(existing => existing.selector === item.selector)) continue;
+        controls.push({ ...item, actions: item.actions as InteractionAction[], page: new URL(finalUrl).pathname });
+        added++;
+      }
+      pages.push({ url: url.toString(), finalUrl, controls: added, redirected });
     }
-    const controls = await page.evaluate(`(${COLLECT_CONTROLS})(${MAX_CONTROLS})`) as Array<{ selector: string; label: string; actions: string[]; kind: string }>;
-    return controls.map(item => ({ ...item, actions: item.actions as InteractionAction[] }));
+    return { controls, pages };
   } finally {
     await browser.close().catch(() => {});
   }
