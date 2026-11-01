@@ -1,5 +1,5 @@
 // Sample Shop: a tiny web shop used to demonstrate Centinel.
-// It intentionally contains a few bugs for Centinel to find (see README.md).
+// It intentionally contains a few bugs for Centinel to find.
 // No dependencies: run with `node server.js` and open http://localhost:4100.
 
 const http = require('node:http');

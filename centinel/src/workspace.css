@@ -3071,6 +3071,17 @@ div.app-shell.has-window-chrome .nav-item.active,
   padding: 20px;
 }
 
+/* Keep a dialog's actions reachable when its content scrolls in a short window. */
+.app-shell.has-window-chrome .modal-body > form > .form-actions:last-child {
+  position: sticky;
+  bottom: -20px;
+  z-index: 1;
+  margin: 8px -20px -20px;
+  padding: 14px 20px 20px;
+  border-top: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+}
+
 .app-shell.has-window-chrome .sidebar-account-menu-heading {
   display: flex;
   min-width: 0;

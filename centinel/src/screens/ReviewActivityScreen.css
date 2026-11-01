@@ -556,6 +556,9 @@
 .review-evidence-readiness li { display: grid; gap: 2px; color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 18px; }
 .review-evidence-readiness li strong { color: var(--workspace-text); }
 .review-evidence-remediation { font-weight: 650; }
+.review-evidence-readiness ul.review-evidence-gap-items { gap: 2px; margin: 2px 0 0; padding-left: 18px; list-style: disc; }
+.review-evidence-readiness ul.review-evidence-gap-items li { display: list-item; }
+.review-evidence-gap-more summary { width: fit-content; margin-top: 2px; color: var(--workspace-text); font-weight: 600; cursor: pointer; }
 .review-contradictions { display: grid; gap: 16px; margin-top: 16px; color: var(--workspace-text); }
 .review-contradiction { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--workspace-border); }
 .review-contradiction h3 { margin: 0; font-size: var(--font-size-dense); line-height: 20px; }
@@ -958,6 +961,10 @@
 }
 
 .command-review-activity .command-title-row { gap: 14px; }
+/* Up to four actions sit beside the title; move them below it rather than squeezing a long Review name. */
+.command-review-activity .command-page-header { flex-wrap: wrap; row-gap: 16px; }
+.command-review-activity .command-page-heading { flex: 1 1 440px; min-width: 0; }
+.command-review-activity .command-page-actions { flex-wrap: wrap; }
 .command-review-activity .command-title-row .command-status { flex: 0 0 auto; align-self: center; margin-top: 1px; }
 
 .review-result-surface .project-findings-layout,

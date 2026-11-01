@@ -79,30 +79,57 @@ Then open **Settings → Model Provider**, click **Connect Codex**, sign in with
 3. Under **Local repository**, click **Choose repository** and select the `examples/sample-shop` folder.
 4. Click **Create project**. Centinel imports the files, including the requirements document.
 
-### 4. Run a code Review
+<p align="center"><img src="docs/screenshots/create-project.jpg" alt="The Create project dialog with the name Sample Shop and the examples/sample-shop folder selected as a local repository" width="640"></p>
+
+### 4. Confirm the requirements
+
+Centinel checks code against requirements you have confirmed, so it never treats a guess as a rule.
+
+1. Open the project, go to **Source**, and click **Manage requirements**.
+2. Choose `requirements.md` and click **Extract candidates**.
+3. Read each candidate and click **Confirm** for the ones that are right. The Sample Shop has 16.
+
+<p align="center"><img src="docs/screenshots/requirements.jpg" alt="Requirement candidates extracted from requirements.md, each marked confirmed with its source line and confidence" width="640"></p>
+
+### 5. Run a code Review
 
 1. Click **Review** in the sidebar.
 2. Name it `Pre-release review`, pick the **Sample Shop** project, and under **What should this Review verify?** write:
    > Check that sign-in, checkout and order viewing follow docs/requirements.md, especially privacy and server-side validation.
-3. Click **Start review**. A small project like this takes a few minutes.
+3. Click **Start review**. A project this size takes about four minutes.
 
-When it finishes, open the **Findings** tab. Centinel should flag the three planted problems:
+<p align="center"><img src="docs/screenshots/start-review.jpg" alt="The Start a Review form with the review name, the Sample Shop project and the review goal filled in" width="640"></p>
 
-| Requirement | What Centinel should find |
+When the Review finishes it waits for your decision:
+
+<p align="center"><img src="docs/screenshots/review-overview.jpg" alt="A finished Review marked Need Approval, with buttons to test in Dynamic Testing, export a report, request changes or approve" width="640"></p>
+
+The yellow box lists evidence gaps. Here it says the 16 requirements are not yet linked to the code that implements them. That limits what Centinel can prove about coverage, but it does not mean the code is wrong.
+
+Open **Findings** to see the problems. In our run Centinel found all three planted bugs, plus a discount-code check that accepts more than it should:
+
+<p align="center"><img src="docs/screenshots/findings.jpg" alt="The project's Findings list: Order Ownership Check Missing, a possible hardcoded credential, Credential Enumeration and Server-Side Quantity Validation Missing, each with a risk and priority" width="640"></p>
+
+| Requirement | What Centinel found |
 | --- | --- |
-| REQ-1 Sign-in | The error message reveals which emails have accounts. |
-| REQ-3 Checkout | The server accepts negative quantities, so totals can go negative. |
-| REQ-4 Order privacy | Any signed-in user can open someone else's order and address. |
+| REQ-1 Sign-in | *Credential Enumeration*: the error message reveals which emails have accounts. |
+| REQ-3 Checkout | *Server-Side Quantity Validation Missing*: the server accepts any quantity, so totals can go negative. |
+| REQ-4 Order privacy | *Order Ownership Check Missing*: any signed-in user can open someone else's order and address. |
 
-Each finding shows the file and line, why it matters, and a suggested fix. Approve the Review or request changes once you have looked at the evidence.
+Click a finding to see where it is, why it matters, the evidence and what to do:
 
-### 5. Run a Dynamic Test in a real browser
+<p align="center"><img src="docs/screenshots/finding-detail.jpg" alt="Finding detail for Order Ownership Check Missing at server.js line 76, with a What to do section" width="640"></p>
+
+AI results vary between runs, so your titles and counts may differ slightly. The full answer key is in [`examples/sample-shop-answers.md`](examples/sample-shop-answers.md). Approve the Review or request changes once you have looked at the evidence.
+
+### 6. Run a Dynamic Test in a real browser
 
 1. Click **Dynamic Testing** and pick the **Sample Shop** project.
 2. Fill in **New test**:
    - **Test name:** `Sign-in page shows the login form`
    - **Website address:** `http://localhost:4100`
    - **Test goal:** `Open the shop and confirm that the sign-in form and the product list are shown. Do not sign in.`
+   - **Criteria source:** Write my own criteria
    - **Acceptance check:** Visible text → `Sign in` (required)
 3. Click **Save test**, then **Run saved test**.
 
@@ -114,7 +141,7 @@ Open **Evidence · screenshots and action trace** to see every step the browser 
 
 > Tip: to test signed-in flows, add the demo account (`demo@example.com` / `demo-password-123`) under **Manage environments and local values**. Centinel keeps these values on your Mac and never sends them to the AI as text.
 
-### 6. Export the report
+### 7. Export the report
 
 Open the project, click **Action → Export report**, then **Download PDF**.
 
@@ -133,7 +160,7 @@ Every report has two parts.
 
 **Part 2 · Technical details** keeps the complete record for developers and auditors: IDs, versions, timestamps, every finding with evidence, the files that were reviewed, requirement coverage, browser-test steps and AI usage.
 
-*The pages above are an illustrative example built from the Sample Shop's planted problems. Download the full [example report (PDF)](docs/screenshots/example-report.pdf).*
+*These pages come from the real Sample Shop run above, exported from the app. Download the full [report (PDF)](docs/screenshots/example-report.pdf).*
 
 Risk levels mean:
 
@@ -189,7 +216,8 @@ centinel/
 ├── centinel/            Desktop app: React + TypeScript (src/) and Tauri shell (src-tauri/)
 ├── sidecar/             Local service: Review, Dynamic Testing (Playwright), reports, integrations
 ├── examples/
-│   └── sample-shop/     Practice app with planted bugs for trying Centinel
+│   ├── sample-shop/     Practice app with planted bugs for trying Centinel
+│   └── sample-shop-answers.md   Answer key, kept outside the app so Reviews don't read it
 ├── scripts/             Development launcher and packaging scripts
 └── docs/                Product requirements, setup guides and module specifications
 ```

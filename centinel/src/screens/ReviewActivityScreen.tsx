@@ -186,6 +186,21 @@ function recommendedRetrySource(session: StaticSession, assessment: EvidenceSuff
   return 'reuse';
 }
 
+const EVIDENCE_GAP_PREVIEW = 3;
+type EvidenceGap = EvidenceSufficiencyAssessment['gaps'][number];
+
+/** Show gaps that share a title and next step once, so repeated per-requirement gaps stay readable. */
+function groupEvidenceGaps(gaps: EvidenceGap[]): Array<{ title: string; remediation: string; gaps: EvidenceGap[] }> {
+  const groups = new Map<string, { title: string; remediation: string; gaps: EvidenceGap[] }>();
+  for (const gap of gaps) {
+    const key = `${gap.title}\u0000${gap.remediation}`;
+    const group = groups.get(key);
+    if (group) group.gaps.push(gap);
+    else groups.set(key, { title: gap.title, remediation: gap.remediation, gaps: [gap] });
+  }
+  return [...groups.values()];
+}
+
 function createRetryIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `retry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -518,9 +533,9 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     : null;
   const state = viewModel?.state ?? 'In progress';
   const narrative = useMemo(() => session ? buildReviewNarrative({
-    session, trace: harnessTrace, findings, findingsError, assessment: evidenceAssessment,
-    traceability: traceabilitySnapshot, decision: currentDecision,
-  }) : null, [session, harnessTrace, findings, findingsError, evidenceAssessment, traceabilitySnapshot, currentDecision]);
+    session, trace: harnessTrace, findings, findingsError, findingsLoading: currentEvidenceReads.findings === 'not-requested' || currentEvidenceReads.findings === 'loading',
+    assessment: evidenceAssessment, traceability: traceabilitySnapshot, decision: currentDecision,
+  }) : null, [session, harnessTrace, findings, findingsError, currentEvidenceReads.findings, evidenceAssessment, traceabilitySnapshot, currentDecision]);
   const config = session ? parseReviewConfig(session) : {};
   const isCurrentSession = Boolean(session && session.id === sessionId && session.projectId === projectId);
   const explicitScope = session ? hasExplicitReviewScope(session) : { artifacts: false, requirements: false };
@@ -809,7 +824,14 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           <div>
             <h2 id="review-evidence-readiness-heading">{evidenceAssessment.readiness === 'blocked' ? 'Evidence blocks this review' : 'Evidence needs attention'}</h2>
             <p>{evidenceAssessment.availableArtifactCount} of {evidenceAssessment.artifactCount} artifacts are currently available.</p>
-            <ul>{evidenceAssessment.gaps.map(gap => <li key={gap.id}><strong>{gap.title}</strong><span>{gap.detail}</span><span className="review-evidence-remediation">Next: {gap.remediation}</span></li>)}</ul>
+            <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => <li key={group.gaps[0].id}>
+              <strong>{group.title}{group.gaps.length > 1 ? ` (${group.gaps.length})` : ''}</strong>
+              {group.gaps.length === 1 ? <span>{group.gaps[0].detail}</span> : <>
+                <ul className="review-evidence-gap-items">{group.gaps.slice(0, EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul>
+                {group.gaps.length > EVIDENCE_GAP_PREVIEW && <details className="review-evidence-gap-more"><summary>Show {group.gaps.length - EVIDENCE_GAP_PREVIEW} more</summary>
+                  <ul className="review-evidence-gap-items">{group.gaps.slice(EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul></details>}
+              </>}
+              <span className="review-evidence-remediation">Next: {group.remediation}</span></li>)}</ul>
             {evidenceAssessment.contradictions.length > 0 && <div className="review-contradictions" aria-label="Conflicting evidence">
               <p>{evidenceAssessment.contradictions.length} possible evidence conflict{evidenceAssessment.contradictions.length === 1 ? '' : 's'} require a reviewer decision.</p>
               {evidenceAssessment.contradictions.map((conflict, index) => {

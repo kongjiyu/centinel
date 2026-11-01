@@ -91,7 +91,21 @@ describe('plain-language report summary', () => {
     expect(summary.browserTest.detail).toBe('The pay button did nothing. Recorded 2 steps, 1 failed.');
     expect(summary.codeReview.label).toBe('Approved');
     expect(summary.requirements).toEqual({ complete: 3, incomplete: 1, missing: 2 });
-    expect(summary.nextSteps).toContain('Add or link code for 2 requirements with no matching implementation.');
+    expect(summary.nextSteps).toContain('Link 2 requirements to the code that implements them, so Centinel can check coverage.');
+  });
+
+  it('reads the Supabase Review lifecycle and shows a repeated issue once, explained issues first', () => {
+    const pending = review();
+    (pending as { session: { status: string } }).session.status = 'pending_approval';
+    const rule = finding('rule', 'critical', { title: '[secrets-api-key] Possible hardcoded credential', filePath: 'src/users.js', lineNumber: 3 });
+    const summary = summarizeReport(snapshot({
+      latestReview: pending,
+      currentFindings: { status: 'available', reason: null, items: [current(rule), current({ ...rule, id: 'rule-again' }), current(finding('idor', 'critical', { title: 'Order Ownership Check Missing' }))] },
+    }));
+    expect(summary.codeReview.label).toBe('Needs approval');
+    expect(summary.topIssues.map(issue => issue.id)).toEqual(['idor', 'rule']);
+    expect(summary.remainingIssues).toBe(0);
+    expect(summarizeReport(snapshot({ latestReview: pending })).nextSteps).toContain('Open the latest code review and approve it or request changes.');
   });
 
   it('reports "Looking good" only when checks ran and nothing is open', () => {
