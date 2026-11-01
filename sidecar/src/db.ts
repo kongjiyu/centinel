@@ -2,11 +2,12 @@ import initSqlJs, { Database } from 'sql.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { centinelHome } from './paths.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let dbInstance: Database | null = null;
-let dbPath = path.resolve(__dirname, '../../data/centinel.sqlite');
+let dbPath = path.join(centinelHome(), 'data/centinel.sqlite');
 let isTestMode = false;
 
 export function getDbPath(): string {

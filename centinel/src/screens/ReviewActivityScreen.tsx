@@ -3,6 +3,7 @@ import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Download, Expand, FileCheck2, FlaskConical, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
 import { api, type ProjectReportExportResult } from '../api/client';
+import { ReportExportCard } from '../components/ReportExportCard';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
 import { ReviewAnalysisScope } from '../components/ReviewAnalysisScope';
@@ -788,15 +789,14 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
 
       {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
       {reportError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {reportError}</div>}
-      {reportResult && <section className="export-result success review-report-result" aria-label="Review report">
-        <p role="status"><strong>Review report generated.</strong> One immutable snapshot with this Review's scope, versions, findings, traceability and decisions.</p>
-        <nav className="report-export-downloads" aria-label="Review report downloads">
-          {reportResult.downloads.pdf && <a className="btn-secondary" href={reportResult.downloads.pdf} target="_blank" rel="noreferrer" download>Download PDF</a>}
-          {reportResult.downloads.markdown && <a className="btn-secondary" href={reportResult.downloads.markdown} target="_blank" rel="noreferrer" download>Download Markdown</a>}
-          {reportResult.downloads.json && <a className="btn-secondary" href={reportResult.downloads.json} target="_blank" rel="noreferrer" download>Download JSON</a>}
-          {!reportResult.downloads.pdf && !reportResult.downloads.markdown && !reportResult.downloads.json && <span>Download links are unavailable. Export again to request fresh links.</span>}
-        </nav>
-      </section>}
+      {reportResult && <ReportExportCard
+        result={reportResult}
+        title="Review report ready"
+        subject={`Summary and technical details for ${session.name}`}
+        formatDate={value => formatReviewTimestamp(value) ?? value}
+        headingId="review-report-export-heading"
+        downloadsLabel="Review report downloads"
+      />}
       {state === 'Need Approval' && !currentDecision && decisionEvidenceIssue && !decisionIntent && (
         <section className={`review-evidence-decision-gate${evidenceReadFailed ? ' is-failed' : ''}`} role={evidenceReadFailed || sourceManifest?.status === 'incomplete' ? 'alert' : 'status'} aria-label="Decision evidence status">
           <div><strong>{evidenceReadFailed ? 'Decision evidence needs attention' : 'Decision evidence is unavailable'}</strong><p>{decisionEvidenceIssue}</p></div>

@@ -4,6 +4,7 @@ import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';
 import { api, type ProjectReportDownloadLinks, type ProjectReportExportResult, type ProjectReportHistoryEntry } from '../api/client';
+import { ReportExportCard } from '../components/ReportExportCard';
 import { ArtifactsPanel } from '../components/ArtifactsPanel';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -958,35 +959,14 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       </nav>
 
       {error && <p className="form-error command-inline-alert"><AlertCircle size={14} /> {error}</p>}
-      {exportResult && <section className="export-result success" aria-labelledby="report-export-heading">
-        <h2 className="export-result-message" id="report-export-heading">Project report generated</h2>
-        <p className="report-export-summary" role="status" aria-live="polite">One immutable snapshot was rendered as JSON, Markdown, and PDF.</p>
-        <div className="report-export-meta">
-          <span>Stored privately in Supabase</span>
-          <span>Generated {formatProjectDateTime(exportResult.generatedAt)}</span>
-          {exportResult.reportId && <span>Export ID <code>{exportResult.reportId}</code></span>}
-          {exportResult.expiresAt && <span>Download links expire {formatProjectDateTime(exportResult.expiresAt)}</span>}
-        </div>
-        <nav className="report-export-downloads" aria-label="Report downloads">
-            {exportResult.downloads.json && <a className="btn-secondary" href={exportResult.downloads.json} target="_blank" rel="noreferrer" download>Download JSON</a>}
-            {exportResult.downloads.markdown && <a className="btn-secondary" href={exportResult.downloads.markdown} target="_blank" rel="noreferrer" download>Download Markdown</a>}
-            {exportResult.downloads.pdf && <a className="btn-secondary" href={exportResult.downloads.pdf} target="_blank" rel="noreferrer" download>Download PDF</a>}
-            {!exportResult.downloads.json && !exportResult.downloads.markdown && !exportResult.downloads.pdf && <span>Download links are unavailable. The report record was retained; try exporting again to request fresh links.</span>}
-        </nav>
-        <details className="report-integrity">
-          <summary>Integrity checksums</summary>
-          <dl>
-            <div><dt>Snapshot JSON</dt><dd><code>{exportResult.checksums.snapshot}</code></dd></div>
-            <div><dt>Markdown</dt><dd><code>{exportResult.checksums.markdown}</code></dd></div>
-            <div><dt>PDF</dt><dd><code>{exportResult.checksums.pdf}</code></dd></div>
-            <div><dt>Package</dt><dd><code>{exportResult.checksums.package}</code></dd></div>
-          </dl>
-        </details>
-        <details className="report-preview">
-          <summary>Preview Markdown contents</summary>
-          <pre className="report-content">{exportResult.markdown}</pre>
-        </details>
-      </section>}
+      {exportResult && <ReportExportCard
+        result={exportResult}
+        title="Project report ready"
+        subject={`Summary and technical details for ${project.name}`}
+        formatDate={formatProjectDateTime}
+        headingId="report-export-heading"
+        showMarkdownPreview
+      />}
       <div className="detail-grid" id="project-overview">
         {/* Artifacts */}
         {activeSection === 'project-source' && <section className="card detail-card sources-card" id="project-source">

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { centinelHome } from './paths.js';
+import { preparePackagedRuntime } from './packagedRuntime.js';
 import { analysisMapFromEvents } from './review/assessmentBatches.js';
 import {UnitRepository} from './dynamic/unit/repository.js';
 import {handleUnitRoute} from './dynamic/unit/routes.js';
@@ -113,11 +115,12 @@ import type { ProjectReadinessCoordinator } from './readiness/service.js';
 import { loadCurrentProjectFindings } from './review/currentProjectFindings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-readEnv({ path: path.resolve(__dirname, '../../.env') });
+readEnv({ path: path.join(centinelHome(), '.env') });
+preparePackagedRuntime();
 logRuntimeConfigStatus();
 
-const evidenceDir = path.resolve(__dirname, '../../evidence/phase-0');
-const dataDir = path.resolve(__dirname, '../../data');
+const evidenceDir = path.join(centinelHome(), 'evidence/phase-0');
+const dataDir = path.join(centinelHome(), 'data');
 const FUTURE_JWT_MESSAGE = 'Supabase rejected the signed session as not yet valid. Verify that the device date and time are correct, then retry. If the device time is correct, this may be a temporary Supabase Auth/PostgREST time-validation issue.';
 
 function sendConnectionStatusUnavailable(res: http.ServerResponse, cause: unknown): void {
@@ -553,7 +556,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
   try {
     // Health
     if (req.method === 'GET' && url === '/health') {
-      return json(res, 200, { status: 'ok', service: 'centinel-sidecar', workspace: path.resolve(__dirname, '../..') });
+      return json(res, 200, { status: 'ok', service: 'centinel-sidecar', workspace: centinelHome() });
     }
 
     // Provider callbacks are authenticated by their short-lived OAuth state.

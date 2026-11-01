@@ -1,3 +1,4 @@
+import { RISK_LABELS, RISK_MEANINGS, RISK_ORDER, friendlyDate, summarizeReport } from './summary.js';
 import type { ProjectReportFinding, ProjectReportSnapshot, ReportCurrentFinding } from './types.js';
 
 function plainText(value: unknown): string {
@@ -122,9 +123,73 @@ function appendUsage(lines: string[], usage: ProjectReportSnapshot['modelUsage']
   }
 }
 
+const VERDICT_MARK = { critical: '🔴', warning: '🟠', good: '🟢', neutral: '⚪' } as const;
+
+/** Part 1: a plain-language summary for anyone, derived from the same snapshot. */
+function summaryLines(snapshot: ProjectReportSnapshot): string[] {
+  const summary = summarizeReport(snapshot);
+  const lines: string[] = [
+    '# ' + plainText(snapshot.project.name) + ' — ' + (snapshot.metadata.reviewId ? 'Review report' : 'Quality report'),
+    '',
+    'Generated ' + friendlyDate(snapshot.metadata.generatedAt) + ' · Prepared for ' + plainText(snapshot.metadata.actorEmail ?? 'your team'),
+    '',
+    '## Part 1: Summary',
+    '',
+    '> ' + VERDICT_MARK[summary.tone] + ' **' + summary.headline + '**  ',
+    '> ' + plainText(summary.explanation),
+    '',
+    '| Open issues | Serious issues | Code review | Browser test |',
+    '| :---: | :---: | :---: | :---: |',
+    '| ' + summary.openIssues + ' | ' + summary.seriousIssues + ' | ' + tableCell(summary.codeReview.label) + ' | ' + tableCell(summary.browserTest.label) + ' |',
+    '',
+    '### Open issues by risk level',
+    '',
+  ];
+  if (!summary.openIssues) {
+    lines.push(snapshot.latestReview || snapshot.latestDynamicTest ? 'No open issues were found in the latest checks.' : 'Nothing to chart yet. Run a code review or browser test first.', '');
+  } else {
+    const max = Math.max(1, ...RISK_ORDER.map(level => summary.riskCounts[level]));
+    lines.push('```text');
+    RISK_ORDER.filter(level => level !== 'unclassified' || summary.riskCounts.unclassified > 0).forEach(level => {
+      const count = summary.riskCounts[level];
+      const bar = count ? '█'.repeat(Math.max(1, Math.round((count / max) * 24))) : '·';
+      lines.push(RISK_LABELS[level].padEnd(10) + bar + ' ' + count);
+    });
+    lines.push('```', '');
+  }
+  lines.push('### What Centinel checked', '');
+  lines.push('- **Code review — ' + summary.codeReview.label + '.** ' + (snapshot.latestReview ? '"' + plainText(snapshot.latestReview.session.name) + '". ' : '') + plainText(summary.codeReview.detail));
+  lines.push('- **Browser test — ' + summary.browserTest.label + '.** ' + (snapshot.latestDynamicTest ? '"' + plainText(snapshot.latestDynamicTest.session.name) + '". ' : '') + plainText(summary.browserTest.detail));
+  if (summary.requirements) {
+    lines.push('- **Requirements.** ' + summary.requirements.complete + ' implemented, ' + summary.requirements.incomplete + ' partly implemented, ' + summary.requirements.missing + ' missing.');
+  } else {
+    lines.push('- **Requirements.** No requirements were linked to the latest code review.');
+  }
+  lines.push('', '### What to do next', '');
+  summary.nextSteps.forEach((step, index) => lines.push(String(index + 1) + '. ' + plainText(step)));
+  lines.push('', '### Top issues explained', '');
+  if (!summary.topIssues.length) {
+    lines.push(snapshot.latestReview || snapshot.latestDynamicTest ? 'There are no open issues. Nothing needs fixing from the latest checks.' : 'No checks have finished yet, so there are no issues to explain.', '');
+  }
+  summary.topIssues.forEach(issue => {
+    lines.push('#### ' + plainText(issue.title), '');
+    lines.push('**' + RISK_LABELS[issue.riskLevel ?? 'unclassified'] + ' risk** · ' + issue.origin, '');
+    if (issue.whatIsWrong) lines.push('- **What is wrong:** ' + plainText(issue.whatIsWrong));
+    if (issue.howToFix) lines.push('- **How to fix it:** ' + plainText(issue.howToFix));
+    if (issue.location) lines.push('- **Where:** ' + inlineCode(issue.location));
+    lines.push('');
+  });
+  if (summary.remainingIssues) lines.push('+ ' + summary.remainingIssues + ' more open issue' + (summary.remainingIssues === 1 ? '' : 's') + ', listed in Part 2.', '');
+  lines.push('### What the risk levels mean', '');
+  (['critical', 'high', 'medium', 'low'] as const).forEach(level => lines.push('- **' + RISK_LABELS[level] + ':** ' + RISK_MEANINGS[level]));
+  lines.push('', '---', '', '## Part 2: Technical details', '', '*For developers and auditors: exact IDs, versions and timestamps, the full finding history, evidence and model usage.*', '');
+  return lines;
+}
+
 export function renderProjectReportMarkdown(snapshot: ProjectReportSnapshot): string {
   const lines: string[] = [
-    snapshot.metadata.reviewId ? '# Review report' : '# Project report',
+    ...summaryLines(snapshot),
+    '### About this report',
     '',
     '**Project:** ' + plainText(snapshot.project.name),
     '**Project ID:** ' + inlineCode(snapshot.project.id),

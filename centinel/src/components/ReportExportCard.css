@@ -1,0 +1,154 @@
+.report-export-card {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+
+.report-export-card-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-export-card-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+}
+
+.report-export-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.report-export-card-copy h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.report-export-card-copy p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.report-export-card-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-export-card-downloads a {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.report-export-card-downloads > span,
+.report-export-card-note {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-meta);
+  line-height: 18px;
+}
+
+.report-export-card-details {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.report-export-card-details summary {
+  width: fit-content;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-support);
+  font-weight: 600;
+}
+
+.report-export-card-details summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.report-export-card-details dl {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.report-export-card-details dl > div {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.report-export-card-details dt {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+}
+
+.report-export-card-details dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-meta);
+  overflow-wrap: anywhere;
+}
+
+.report-export-card-details code {
+  font-family: var(--font-technical);
+  font-size: var(--font-size-meta);
+}
+
+.report-export-card-details h3 {
+  margin: 16px 0 8px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+}
+
+.report-export-card-preview {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-subtle);
+  font-family: var(--font-technical);
+  font-size: var(--font-size-meta);
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .report-export-card-details dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .report-export-card-downloads a {
+    min-height: 44px;
+  }
+}

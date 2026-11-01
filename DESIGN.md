@@ -10,6 +10,10 @@
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
+## Project report amendment (1 November 2026)
+
+At the user's request, exported project and Review reports (PDF and Markdown) have two parts. **Part 1: Summary** is written for non-technical readers: a verdict (Fix before release, Needs attention, Looking good or Not checked yet), the key counts, an open-issue chart by risk level, what was checked, up to three next steps, the top issues explained and a risk-level glossary. **Part 2: Technical details** keeps the complete record of IDs, versions, timestamps, history, evidence and usage. Every summary value comes from `sidecar/src/report/summary.ts` and the report snapshot; nothing is estimated. The PDF embeds IBM Plex Sans and uses the §7 tokens and level colours. In the app, report exports show one shared `ReportExportCard`: a primary Download PDF, with Markdown and JSON as secondary links and storage/checksum facts under Technical details.
+
 ## Typography and color amendment (1 November 2026)
 
 The user selected IBM Plex Sans with warm Stone neutrals and a Forest green primary (IBM Carbon-like) to replace Plus Jakarta Sans and the sage-tinted neutrals. Tokens in §7 and `centinel/src/tokens.css` are authoritative; screen layers alias them instead of defining hex values. JetBrains Mono remains the technical face. Layout and behavior are unchanged.

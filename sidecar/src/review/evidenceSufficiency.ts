@@ -354,7 +354,8 @@ export function assessEvidenceSufficiency(input: EvidenceSufficiencyInput): Evid
       affectedStages: ['source_freeze', 'model_analysis'], artifactId: item.artifact.id,
     }));
   }
-  for (const item of artifacts.filter(source => !source.content && !source.state)) {
+  // An empty file is valid, verifiable content; only missing content is unverified.
+  for (const item of artifacts.filter(source => typeof source.content !== 'string' && !source.state)) {
     gaps.push(gap({
       code: 'source_content_unverified', severity: 'warning', title: 'Artifact content could not be verified',
       detail: item.detail || `${item.artifact.fileName} is in the manifest, but its content was not available to the readiness checker.`,

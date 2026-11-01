@@ -126,6 +126,13 @@ describe('Prose evidence boundaries', () => {
     expect(assessEvidenceSufficiency(evidenceInput({ artifacts: [source] })).contradictions).toHaveLength(1);
   });
 
+  it('treats an empty file as verified content but flags genuinely missing content', () => {
+    const empty = { artifact: { ...codeArtifact, id: 'empty-file', fileName: 'placeholder.txt', filePath: 'src/placeholder.txt' }, content: '' };
+    const missing = { artifact: { ...codeArtifact, id: 'missing-file', fileName: 'gone.ts', filePath: 'src/gone.ts' } };
+    const unverified = assessEvidenceSufficiency(evidenceInput({ artifacts: [empty, missing] })).gaps.filter(gap => gap.code === 'source_content_unverified');
+    expect(unverified.map(gap => gap.artifactId)).toEqual(['missing-file']);
+  });
+
   it('ignores indented examples and configuration strings without discarding explicit claims', () => {
     expect(extractEvidenceClaims([{ artifact: requirementArtifact, content: '    The server must include the response header.\n\tThe server must not include the response header.' }])).toEqual([]);
     const result = assessEvidenceSufficiency(evidenceInput({

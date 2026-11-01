@@ -7,11 +7,13 @@
     "dev:check": "node scripts/dev.mjs --check",
     "test:dev": "node --test scripts/dev.test.mjs",
     "smoke": "pnpm --filter @centinel/sidecar smoke",
-    "build": "cd centinel && pnpm tauri build",
-    "install:all": "pnpm install"
+    "build": "node scripts/bundle-sidecar.mjs && cd centinel && pnpm tauri build",
+    "install:all": "pnpm install",
+    "bundle:sidecar": "node scripts/bundle-sidecar.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "esbuild": "0.28.0"
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }
