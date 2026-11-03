@@ -70,6 +70,27 @@ function pruneForPlatform(dir) {
   console.log(`[bundle-sidecar] Pruned ${(removed / 1024 / 1024).toFixed(0)} MB`);
 }
 
+/**
+ * Tauri signs the app and its Node runtime but not Mach-O files inside
+ * resources. Notarization rejects any unsigned binary, so sign the bundled
+ * native modules with the same Developer ID and the hardened runtime.
+ */
+function signNativeModules(dir, identity) {
+  const signed = [];
+  const walk = current => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!/\.(node|dylib)$/.test(entry.name)) continue;
+      run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, full], { stdio: 'pipe' });
+      signed.push(path.relative(dir, full));
+    }
+  };
+  walk(dir);
+  console.log(`[bundle-sidecar] Signed ${signed.length} native module(s): ${signed.join(', ') || 'none'}`);
+}
+
 console.log('[bundle-sidecar] Cleaning previous output');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(binaries, { recursive: true });
@@ -82,6 +103,9 @@ for (const entry of ['src', '__tests__', 'fixtures', 'tsconfig.json', 'vitest.co
 
 console.log('[bundle-sidecar] Removing files other platforms need');
 pruneForPlatform(path.join(out, 'node_modules'));
+
+const signingIdentity = process.platform === 'darwin' ? process.env.APPLE_SIGNING_IDENTITY?.trim() : '';
+if (signingIdentity) signNativeModules(path.join(out, 'node_modules'), signingIdentity);
 
 console.log('[bundle-sidecar] Compiling the sidecar');
 const esbuild = require('esbuild');
