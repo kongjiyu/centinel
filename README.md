@@ -34,7 +34,7 @@ Both feed one **quality report** (PDF, Markdown or JSON). The first part is writ
 
 1. Download `Centinel_0.1.0_aarch64.dmg` from the [Releases page](https://github.com/kongjiyu/centinel/releases).
 2. Open the DMG and drag **Centinel** into **Applications**.
-3. The app is not signed by Apple yet, so the first time you open it, **right-click Centinel → Open → Open**. After that it opens normally.
+3. Open Centinel from Applications. The app is signed with a Developer ID and notarized by Apple, so macOS opens it without a security warning.
 
 On first launch Centinel starts its local service in the background and downloads the Chromium browser it uses for Dynamic Testing (a few hundred MB, once). Your local files stay in `~/Library/Application Support/com.centinel.app`.
 
@@ -204,8 +204,11 @@ Set up Supabase (Auth redirects, migrations and Storage) with [`docs/SUPABASE_SE
 | `pnpm --filter @centinel/sidecar test` | Local service tests. |
 | `pnpm --filter centinel build` | Type-checks and builds the frontend. |
 | `pnpm build` | Bundles the local service and Node.js runtime, then builds the desktop app. |
+| `pnpm release:mac` | Builds a signed, notarized macOS disk image in `dist/release/`. |
 
 `pnpm build` runs [`scripts/bundle-sidecar.mjs`](scripts/bundle-sidecar.mjs), which compiles the local service, installs its production dependencies and copies the Node.js runtime into the app. Only the public Supabase URL and publishable key are bundled; each installation creates its own encryption key on first launch.
+
+`pnpm release:mac` ([`scripts/release-macos.mjs`](scripts/release-macos.mjs)) needs a *Developer ID Application* certificate in your keychain and notarization credentials stored once with `xcrun notarytool store-credentials centinel-notary --apple-id <email> --team-id <TEAMID>`. It signs the app, the bundled Node.js runtime and native modules with the hardened runtime ([`entitlements.plist`](centinel/src-tauri/entitlements.plist)), notarizes and staples the disk image, and checks it with Gatekeeper.
 
 ---
 

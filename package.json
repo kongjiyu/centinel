@@ -9,7 +9,8 @@
     "smoke": "pnpm --filter @centinel/sidecar smoke",
     "build": "node scripts/bundle-sidecar.mjs && cd centinel && pnpm tauri build",
     "install:all": "pnpm install",
-    "bundle:sidecar": "node scripts/bundle-sidecar.mjs"
+    "bundle:sidecar": "node scripts/bundle-sidecar.mjs",
+    "release:mac": "node scripts/release-macos.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
