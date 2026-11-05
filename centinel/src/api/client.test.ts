@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './client';
+import { refreshSupabaseSession } from '../auth/supabaseAuth';
+
+vi.mock('../auth/supabaseAuth', () => ({ refreshSupabaseSession: vi.fn().mockResolvedValue(null) }));
+
+const unauthenticated = () => new Response(JSON.stringify({
+  error: 'Your session is missing or expired. Sign in again.',
+  code: 'unauthenticated',
+}), { status: 401, headers: { 'Content-Type': 'application/json' } });
 
 describe('sidecar authentication response handling', () => {
   afterEach(() => {
@@ -28,6 +36,37 @@ describe('sidecar authentication response handling', () => {
       error: 'Your session is missing or expired. Sign in again.',
       code: 'unauthenticated',
     }), { status: 401, headers: { 'Content-Type': 'application/json' } })));
+
+    await expect(api.projects()).rejects.toMatchObject({ status: 401, code: 'unauthenticated' });
+    expect(onExpired).toHaveBeenCalledTimes(1);
+    window.removeEventListener('centinel:auth-expired', onExpired);
+  });
+
+  it('renews an expired session once and retries instead of signing out', async () => {
+    const onExpired = vi.fn();
+    window.addEventListener('centinel:auth-expired', onExpired);
+    sessionStorage.setItem('centinel:supabase-access-token', 'expired-token');
+    vi.mocked(refreshSupabaseSession).mockImplementationOnce(async () => {
+      sessionStorage.setItem('centinel:supabase-access-token', 'fresh-token');
+      return {} as Awaited<ReturnType<typeof refreshSupabaseSession>>;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(unauthenticated())
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.projects()).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer fresh-token');
+    expect(onExpired).not.toHaveBeenCalled();
+    window.removeEventListener('centinel:auth-expired', onExpired);
+  });
+
+  it('ends the session when the retried request is still unauthenticated', async () => {
+    const onExpired = vi.fn();
+    window.addEventListener('centinel:auth-expired', onExpired);
+    vi.mocked(refreshSupabaseSession).mockResolvedValueOnce({} as Awaited<ReturnType<typeof refreshSupabaseSession>>);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(unauthenticated()).mockResolvedValueOnce(unauthenticated()));
 
     await expect(api.projects()).rejects.toMatchObject({ status: 401, code: 'unauthenticated' });
     expect(onExpired).toHaveBeenCalledTimes(1);

@@ -4,6 +4,7 @@ import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInp
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
 import { SIDECAR_BASE_URL } from './transport';
+import { refreshSupabaseSession } from '../auth/supabaseAuth';
 import type { EmbeddingSettingsCatalog } from '../types';
 const BASE = SIDECAR_BASE_URL;
 const GET_REQUEST_TIMEOUT_MS = 30_000;
@@ -41,7 +42,33 @@ function request<T>(path: string, init?: RequestInit): Promise<T> {
   return pending;
 }
 
+/**
+ * An access token can expire while the Mac sleeps (the refresh timer pauses).
+ * On the first "unauthenticated" answer, renew the session once and retry;
+ * only a failed renewal ends the session.
+ */
 async function sendRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await sendOnce<T>(path, init);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401 || error.code !== 'unauthenticated') throw error;
+    const renewed = await refreshSupabaseSession();
+    if (!renewed) {
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('centinel:auth-expired'));
+      throw error;
+    }
+    try {
+      return await sendOnce<T>(path, init);
+    } catch (retryError) {
+      if (retryError instanceof ApiError && retryError.status === 401 && retryError.code === 'unauthenticated' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('centinel:auth-expired'));
+      }
+      throw retryError;
+    }
+  }
+}
+
+async function sendOnce<T>(path: string, init?: RequestInit): Promise<T> {
   const accessToken = typeof sessionStorage !== 'undefined'
     ? sessionStorage.getItem('centinel:supabase-access-token')
     : null;
@@ -112,9 +139,6 @@ async function readResponse<T>(res: Response, signal?: AbortSignal): Promise<T> 
     const payload = json && typeof json === 'object' ? json as { error?: unknown; code?: unknown } : {};
     const message = typeof payload.error === 'string' ? payload.error : `HTTP ${res.status}`;
     const code = typeof payload.code === 'string' ? payload.code : null;
-    if (res.status === 401 && code === 'unauthenticated' && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('centinel:auth-expired'));
-    }
     throw new ApiError(message, res.status, code);
   }
   return json as T;

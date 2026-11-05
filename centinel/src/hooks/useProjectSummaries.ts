@@ -302,6 +302,23 @@ export function matchesProjectSearch(summary: ProjectSummary, query: string): bo
   ].some(value => value?.toLocaleLowerCase().includes(normalized));
 }
 
+// Order from the last completed load, by latest activity. Rows keep this order
+// while activity refreshes so they never move under the pointer; the new
+// activity order is used the next time the directory opens.
+let rememberedOrder: string[] = [];
+
+/** Initial order: the remembered activity order, then any new projects by date. */
+export function initialProjectOrder(summaries: ProjectSummary[], remembered: string[]): ProjectSummary[] {
+  const rank = new Map(remembered.map((id, index) => [id, index]));
+  const known = summaries.filter(item => rank.has(item.project.id)).sort((a, b) => rank.get(a.project.id)! - rank.get(b.project.id)!);
+  const fresh = sortProjectSummaries(summaries.filter(item => !rank.has(item.project.id)));
+  return [...fresh, ...known];
+}
+
+export function resetRememberedProjectOrder(): void {
+  rememberedOrder = [];
+}
+
 export function useProjectSummaries(projects: Project[]) {
   const [summaries, setSummaries] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -322,9 +339,9 @@ export function useProjectSummaries(projects: Project[]) {
 
     setLoading(true);
     setUnavailable(false);
-    setSummaries(sortProjectSummaries(projects.map(project => ({
+    setSummaries(initialProjectOrder(projects.map(project => ({
       ...buildSummary(project, [], [], false, true), unavailable: false, loading: true, action: null,
-    }))));
+    })), rememberedOrder));
     const loadProject = async (project: Project) => {
       const [staticResult, dynamicResult, presenceResult] = await Promise.allSettled([
         api.listStaticSessions(project.id, { summary: true }),
@@ -341,7 +358,7 @@ export function useProjectSummaries(projects: Project[]) {
         projectUnavailable,
       );
       if (cancelled) return;
-      setSummaries(previous => sortProjectSummaries(previous.map(item => item.project.id === project.id ? summary : item)));
+      setSummaries(previous => previous.map(item => item.project.id === project.id ? summary : item));
       if (projectUnavailable) setUnavailable(true);
     };
     // Keep the directory usable while a bounded number of projects enrich in
@@ -356,6 +373,10 @@ export function useProjectSummaries(projects: Project[]) {
     void Promise.all(Array.from({ length: Math.min(4, projects.length) }, worker)).then(() => {
       if (cancelled) return;
       setLoading(false);
+      setSummaries(current => {
+        rememberedOrder = sortProjectSummaries(current).map(item => item.project.id);
+        return current;
+      });
     });
 
     return () => { cancelled = true; };

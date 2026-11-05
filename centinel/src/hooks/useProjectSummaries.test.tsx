@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
-import { getProjectState, useProjectSummaries } from './useProjectSummaries';
+import { getProjectState, resetRememberedProjectOrder, useProjectSummaries } from './useProjectSummaries';
 import type { Project, StaticSession } from '../types';
 
 vi.mock('../api/client', () => ({ api: { listStaticSessions: vi.fn(), listDynamicSessions: vi.fn(), listArtifacts: vi.fn(), getSourcePresence: vi.fn() } }));
@@ -29,6 +29,28 @@ describe('progressive project summaries', () => {
     await act(async () => { finishSlow([]); });
     await waitFor(() => expect(result.current.loading).toBe(false));
   });
+  it('keeps rows in place while activity loads and uses the activity order on the next visit', async () => {
+    resetRememberedProjectOrder();
+    const dated = [
+      { ...projects[0], id: 'older', name: 'older', updatedAt: '2026-10-01' },
+      { ...projects[1], id: 'newer', name: 'newer', updatedAt: '2026-10-20' },
+    ];
+    // The older project has the most recent activity, so it moves to the top on the next visit.
+    vi.mocked(api.listStaticSessions).mockImplementation(id => Promise.resolve(id === 'older'
+      ? [{ id: 'r', projectId: 'older', status: 'pending_approval', reviewType: 'code_review', name: 'Recent', configJson: '{}', progressJson: '{}', remarks: '', failureReason: '', createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z' } as StaticSession]
+      : []));
+    const first = renderHook(() => useProjectSummaries(dated));
+    expect(first.result.current.summaries.map(item => item.project.id)).toEqual(['newer', 'older']);
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+    expect(first.result.current.summaries.map(item => item.project.id)).toEqual(['newer', 'older']);
+    first.unmount();
+
+    const second = renderHook(() => useProjectSummaries(dated));
+    expect(second.result.current.summaries.map(item => item.project.id)).toEqual(['older', 'newer']);
+    await waitFor(() => expect(second.result.current.loading).toBe(false));
+    resetRememberedProjectOrder();
+  });
+
   it('never presents failed activity queries as a known No activity state', async () => {
     vi.mocked(api.listStaticSessions).mockRejectedValue(new Error('network unavailable'));
     const oneProject = [projects[0]];

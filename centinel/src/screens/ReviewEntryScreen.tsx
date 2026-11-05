@@ -8,6 +8,7 @@ import { ProjectCreateModal, type ProjectCreateSource } from '../components/Proj
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import { isWorkflowProviderConfigured } from '../providerReadiness';
+import { buildReviewEstimate, describeReviewEstimate, latestFinishedReview } from '../reviewEstimate';
 import type { Artifact, ConnectedSource, Project, Requirement, ReviewScopeSelection, ReviewSourceManifest, Screen, StaticSession } from '../types';
 import './ReviewEntryScreen.css';
 
@@ -189,6 +190,20 @@ function comparisonFailure(session: StaticSession, projectId: string, manifest: 
 
 export function ReviewEntryScreen({ projects, initialProjectId, comparisonParentReviewId: initialComparisonParentReviewId, onNavigate, onCreateProject }: Props) {
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId || projects[0]?.id || '');
+  const [estimateText, setEstimateText] = useState<string | null>(null);
+
+  // A plain "about as long as last time" estimate from this project's last finished Review.
+  useEffect(() => {
+    let active = true;
+    setEstimateText(null);
+    if (!selectedProjectId) return () => { active = false; };
+    void (async () => {
+      const latest = latestFinishedReview(await api.listStaticSessions(selectedProjectId, { summary: true }));
+      const usage = latest ? await api.getReviewModelUsage(selectedProjectId, latest.id).catch(() => null) : null;
+      if (active) setEstimateText(describeReviewEstimate(buildReviewEstimate(latest, usage)));
+    })().catch(() => { if (active) setEstimateText(null); });
+    return () => { active = false; };
+  }, [selectedProjectId]);
   const [comparisonParentReviewId, setComparisonParentReviewId] = useState<string | null>(initialComparisonParentReviewId || null);
   const [comparisonParentReview, setComparisonParentReview] = useState<StaticSession | null>(null);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
@@ -685,6 +700,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
         {providerReady === false && <div className="review-entry-error review-entry-provider" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>The Model Provider for Review is not ready. Connect Codex or save an API provider and model in Settings, then come back to start this review.</span><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'settings' })}>Open Settings</button></div>}
         {formError && <div ref={errorRef} className="review-entry-error" role="alert" tabIndex={-1}><AlertCircle size={16} aria-hidden="true" /> <span>{formError}</span></div>}
         {blockingReason && <p className="review-entry-submit-hint" role="status">{blockingReason}</p>}
+        {estimateText && <p className="review-entry-estimate">{estimateText}</p>}
         <div className="review-entry-actions"><button type="submit" className="btn-primary review-entry-submit" disabled={submitting || sourceBlocked || providerReady === false}>{submitting ? 'Starting review…' : 'Start review'}</button><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dashboard' })} disabled={submitting}>Cancel</button></div>
       </form>
 

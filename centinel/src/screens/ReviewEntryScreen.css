@@ -209,6 +209,7 @@
 .review-entry-provider > span { flex: 1; }
 .review-entry-provider > .btn-secondary { flex: none; }
 .review-entry-error:focus { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
+.review-entry-estimate { margin: 0; color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 19px; }
 .review-entry-submit-hint { margin: 0; padding: 11px 13px; border-left: 3px solid var(--workspace-warning); background: var(--workspace-warning-subtle); color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 19px; }
 .review-entry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .review-entry-submit { min-width: 132px; }
