@@ -42,6 +42,11 @@ function writeOnboarding(accountId: string, record: OnboardingRecord) {
   try { localStorage.setItem(storageKey(accountId), JSON.stringify(record)); } catch { /* Private mode: keep in memory only. */ }
 }
 
+/** Reopen the guide from Help. An existing Sample Shop project is reused, not duplicated. */
+export function restartOnboarding(accountId: string): void {
+  writeOnboarding(accountId, { status: 'active' });
+}
+
 /** Show the wizard for a new account (no projects yet), or while one is in progress. */
 export function shouldShowOnboarding(accountId: string, projects: Project[]): boolean {
   const record = readOnboarding(accountId);

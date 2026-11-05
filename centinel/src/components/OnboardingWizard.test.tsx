@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { OnboardingWizard, SAMPLE_REVIEW_GOAL, readOnboarding, shouldShowOnboarding } from './OnboardingWizard';
+import { OnboardingWizard, SAMPLE_REVIEW_GOAL, readOnboarding, restartOnboarding, shouldShowOnboarding } from './OnboardingWizard';
 import { api } from '../api/client';
 import type { AiProviderSetting, Project } from '../types';
 
@@ -47,6 +47,13 @@ describe('first-run visibility', () => {
     expect(readOnboarding('user-a')?.status).toBe('dismissed');
     expect(shouldShowOnboarding('user-a', [])).toBe(false);
     expect(shouldShowOnboarding('user-c', [])).toBe(true);
+  });
+
+  it('reopens from Help for an account that already has projects or dismissed it', () => {
+    expect(shouldShowOnboarding('user-b', [sampleProject])).toBe(false);
+    restartOnboarding('user-b');
+    expect(shouldShowOnboarding('user-b', [sampleProject])).toBe(true);
+    expect(readOnboarding('user-b')).toEqual({ status: 'active' });
   });
 });
 

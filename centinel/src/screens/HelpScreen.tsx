@@ -9,7 +9,12 @@ export const PRIVACY_STATEMENT_URL = 'https://github.com/kongjiyu/centinel/blob/
 
 type ExportState = { kind: 'idle' } | { kind: 'busy' } | { kind: 'done'; message: string } | { kind: 'error'; message: string };
 
-export function HelpScreen() {
+type Props = {
+  /** Reopens the first-run setup guide on Home. Omitted when no account is signed in. */
+  onOpenSetupGuide?: () => void;
+};
+
+export function HelpScreen({ onOpenSetupGuide }: Props = {}) {
   const [exportState, setExportState] = useState<ExportState>({ kind: 'idle' });
   const exportDiagnostics = async () => {
     setExportState({ kind: 'busy' });
@@ -28,6 +33,13 @@ export function HelpScreen() {
     <div className="screen command-help-screen">
       <CommandPageHeader eyebrow="Support" title="Help" />
       <div className="help-sections">
+        {onOpenSetupGuide && <section className="help-section" aria-labelledby="help-guide-heading">
+          <h2 id="help-guide-heading">Setup guide</h2>
+          <p>Walk through connecting ChatGPT, creating the Sample Shop, running a Review and a browser test, and opening the report. An existing Sample Shop project is reused.</p>
+          <div className="help-actions">
+            <button type="button" className="btn-primary" onClick={onOpenSetupGuide}>Open the setup guide</button>
+          </div>
+        </section>}
         <section className="help-section" aria-labelledby="help-start-heading">
           <h2 id="help-start-heading">Start a Review</h2>
           <ol>

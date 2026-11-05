@@ -21,6 +21,7 @@ import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
 import { ReviewEntryScreen } from './screens/ReviewEntryScreen';
 import { ReviewPlaygroundScreen } from './screens/ReviewPlaygroundScreen';
 import { HelpScreen } from './screens/HelpScreen';
+import { restartOnboarding } from './components/OnboardingWizard';
 import { AuthScreen } from './screens/AuthScreen';
 import { api } from './api/client';
 import { startConnectedSourceReconciliation } from './integrations/connectedSourceReconciliation';
@@ -378,7 +379,7 @@ function App() {
           {settingsError && <div className="command-inline-alert" role="status"><span>{settingsError}</span><button type="button" className="btn-secondary" onClick={() => void loadData()}>Retry settings</button></div>}
           <SettingsScreen settings={aiSettings} onRefresh={loadData} />
         </>}
-        {screen.name === 'help' && <HelpScreen />}
+        {screen.name === 'help' && <HelpScreen onOpenSetupGuide={accountUserId ? () => { restartOnboarding(accountUserId); setScreen({ name: 'dashboard' }); } : undefined} />}
         {screen.name === 'review-playground' && (
           <ReviewPlaygroundScreen projects={projects} initialProjectId={screen.projectId} initialSessionId={screen.sessionId} onNavigate={setScreen} />
         )}
