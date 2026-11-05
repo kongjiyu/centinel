@@ -30,13 +30,13 @@ Both feed one **quality report** (PDF, Markdown or JSON). The first part is writ
 
 ## Download and install
 
-> Centinel 0.2.0 is an early release for **macOS on Apple Silicon** (M1 or newer).
+> Centinel 0.2.1 is an early release for **macOS** (macOS 11 or newer, Apple silicon or Intel).
 
-1. Download `Centinel_0.2.0_aarch64.dmg` from the [Releases page](https://github.com/kongjiyu/centinel/releases).
+1. Download the disk image for your Mac from the [Releases page](https://github.com/kongjiyu/centinel/releases): `Centinel_0.2.1_aarch64.dmg` for Apple silicon (M1 or newer), `Centinel_0.2.1_x64.dmg` for Intel. To check which you have, open the Apple menu → **About This Mac**: *Chip: Apple M…* means Apple silicon.
 2. Open the DMG and drag **Centinel** into **Applications**.
 3. Open Centinel from Applications. The app is signed with a Developer ID and notarized by Apple, so macOS opens it without a security warning.
 
-On first launch Centinel starts its local service in the background and downloads the Chromium browser it uses for Dynamic Testing (a few hundred MB, once). Your local files stay in `~/Library/Application Support/com.centinel.app`.
+On first launch Centinel starts its local service in the background and downloads the Chromium browser it uses for Dynamic Testing (a few hundred MB, once). Your local files stay in `~/Library/Application Support/com.centinel.app`. [PRIVACY.md](PRIVACY.md) explains what is stored where, what is sent to the AI provider and how to delete it.
 
 **Updates install themselves.** When a new version is published, Centinel shows **Update available** in the corner of the window. Click **Restart** and it downloads the signed update, replaces itself and reopens. You can also check under **Settings → App Version**. Updates are signed, and Centinel refuses any download whose signature doesn't match.
 
@@ -189,9 +189,9 @@ Risk levels mean:
 
 ## Requirements and limits
 
-- **Platform:** the 0.2.0 installer is macOS on Apple Silicon only. Other platforms can run from source.
+- **Platform:** installers are for macOS (Apple silicon and Intel). A Windows installer can be built with the *Windows build* GitHub Actions workflow; it is unsigned and not yet tested on a real Windows PC, so Windows SmartScreen warns before it opens.
 - **AI model:** Review and Dynamic Testing need a configured model. Centinel stops instead of guessing when the provider is out of quota.
-- **Honest results:** if Centinel cannot verify part of the code, it says so rather than reporting a clean result. Very large repositories can take a long time and may end as *Failed* when some sections cannot be verified; the checks that did finish are still shown. Start with a focused project.
+- **Honest results:** if Centinel cannot verify part of the code, it says so rather than reporting a clean result. When some sections cannot be verified, the Review ends as *Completed with gaps* and lists those sections; it ends as *Failed* only when nothing could be verified. Very large repositories can take a long time, so start with a focused project.
 - **What Review does not prove:** it reads code; it does not run every path. Pair it with Dynamic Testing for behaviour that matters.
 - **Integrations:** GitHub repository import, Google Drive and Slack need OAuth apps configured by whoever builds Centinel; they are optional.
 
@@ -232,7 +232,9 @@ Set up Supabase (Auth redirects, migrations and Storage) with [`docs/SUPABASE_SE
 export TAURI_PRIVATE_KEY=~/.tauri/centinel.key TAURI_KEY_PASSWORD='<password, empty if none>'
 ```
 
-The script signs the app, the bundled Node.js runtime, the Codex CLI and native modules with the hardened runtime ([`entitlements.plist`](centinel/src-tauri/entitlements.plist)). It then notarizes and staples the disk image and the app, and checks them with Gatekeeper. Finally it writes `Centinel.app.tar.gz`, its `.sig` and `latest.json` to `dist/release/`. Upload all four files to the GitHub release `v<version>`; installed apps read `releases/latest/download/latest.json`.
+The script signs the app, the bundled Node.js runtime, the Codex CLI and native modules with the hardened runtime ([`entitlements.plist`](centinel/src-tauri/entitlements.plist)). It then notarizes and staples the disk image and the app, and checks them with Gatekeeper. Finally it writes `Centinel_<arch>.app.tar.gz`, its `.sig` and `latest.json` to `dist/release/`. For the Intel build, run it again with `--target x86_64-apple-darwin` (an Apple silicon Mac can build both); `latest.json` then lists both architectures. Upload the DMGs, archives, signatures and `latest.json` to the GitHub release `v<version>`; installed apps read `releases/latest/download/latest.json`.
+
+The Windows installer is built by the **Windows build** workflow (Actions → Windows build → Run workflow). Set the repository variables `CENTINEL_SUPABASE_URL` and `CENTINEL_SUPABASE_PUBLISHABLE_KEY` first; add the updater key as the `TAURI_PRIVATE_KEY` and `TAURI_KEY_PASSWORD` secrets if the installer should update itself.
 
 ---
 
