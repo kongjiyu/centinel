@@ -23,7 +23,12 @@ function foundLabel(finding: Finding): string {
 }
 
 /** Re-check offered by the host: a hint describing what will happen and the action itself. */
-export type FindingRecheck = { hint: string; run: () => Promise<void> };
+export type FindingRecheck = {
+  hint: string;
+  run: () => Promise<void>;
+  /** What the newest comparison Review said about this finding, in plain language. */
+  latestResult?: string | null;
+};
 
 function FixPromptAction({ finding, title }: { finding: Finding; title: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -72,6 +77,7 @@ function RecheckAction({ recheck, findingId }: { recheck: FindingRecheck; findin
     finally { setStarting(false); }
   };
   return <>
+    {recheck.latestResult && <p className="finding-recheck-result" role="status">{recheck.latestResult}</p>}
     <p><button type="button" className="btn-secondary finding-recheck" onClick={() => void run()} disabled={starting} aria-describedby="finding-recheck-hint">{starting ? 'Starting re-check…' : 'Re-check'}</button> <span id="finding-recheck-hint" className="finding-verification-hint">{recheck.hint}</span></p>
     {error && <p className="finding-recheck-error" role="alert">{error}</p>}
   </>;

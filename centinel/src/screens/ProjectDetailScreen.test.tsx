@@ -19,6 +19,7 @@ vi.mock('../api/client', () => ({
     listArtifacts: vi.fn(),
     getReviewSourceManifest: vi.fn(),
     getReviewEvidenceSufficiency: vi.fn().mockResolvedValue(null),
+    getReviewCorrelations: vi.fn().mockResolvedValue({ parentReviewId: '', childReviewId: '', correlations: [], ambiguities: [], counts: {}, createdAt: '' }),
     listFindings: vi.fn(),
     listStaticFindings: vi.fn(),
     retryStaticSession: vi.fn(),
@@ -564,6 +565,24 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.selectOptions(within(screen.getByRole('article', { name: 'Finding details' })).getByRole('combobox', { name: 'Location' }), 'f-1');
     await user.click(within(screen.getByRole('article', { name: 'Finding details' })).getByRole('button', { name: 'Re-check' }));
     expect(onNavigate).toHaveBeenLastCalledWith({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: 'review-1' });
+  });
+
+  it('tells the user when a newer comparison Review did not find the issue again', async () => {
+    const user = userEvent.setup();
+    const finding: Finding = {
+      id: 'f-1', projectId: project.id, sessionId: 'review-1', source: 'static', verifier: 'model', severity: 'high', priority: 'High', title: 'Missing Order Ownership Check',
+      description: 'Any user can read any order.', recommendation: 'Check the order owner.', status: 'new', createdAt: '2026-10-02T10:00:00.000Z',
+      artifactId: 'artifact-orders', category: 'security', evidenceText: 'res.json(order);', confidence: 'high', fromRemarks: false, filePath: 'server.js', lineNumber: 76,
+    };
+    const comparison = { ...sourceCurrencyReview('review-2', 'pending_approval', '2026-11-05T15:16:55.000Z'), name: 'Pre-release review', parentSessionId: 'review-1' };
+    vi.mocked(api.getReviewCorrelations).mockResolvedValue({ parentReviewId: 'review-1', childReviewId: 'review-2', ambiguities: [], counts: {} as never, createdAt: '',
+      correlations: [{ id: 'c', parentFindingId: 'f-1', childFindingId: null, classification: 'carried_over', method: 'unmatched', score: 0, stableFingerprint: 'x' }] });
+    renderProject(vi.fn(), [], undefined, [sourceCurrencyReview(), comparison], [], [finding]);
+
+    await user.click(await screen.findByRole('button', { name: 'Findings' }));
+    await user.click(await screen.findByRole('row', { name: /Missing Order Ownership Check/ }));
+    expect(await screen.findByText(/Not found in “Pre-release review” \(.+\)\. Centinel couldn't prove it is fixed, so it stays open\./)).toBeInTheDocument();
+    expect(api.getReviewCorrelations).toHaveBeenCalledWith(project.id, 'review-2');
   });
 
   it('loads only the latest saved Review document findings when Findings opens', async () => {
