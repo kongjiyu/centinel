@@ -185,6 +185,27 @@ export async function restoreSupabaseSession(): Promise<Session | null> {
   return data.session;
 }
 
+let refreshInFlight: Promise<Session | null> | null = null;
+
+/**
+ * Refresh an expired access token with the stored refresh token. Concurrent
+ * callers share one refresh so a burst of 401s cannot rotate the token twice.
+ * Resolves null when the session cannot be renewed (the user must sign in).
+ */
+export function refreshSupabaseSession(): Promise<Session | null> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return Promise.resolve(null);
+  refreshInFlight ??= supabase.auth.refreshSession()
+    .then(({ data, error }) => {
+      if (error || !data.session) return null;
+      cacheSession(data.session);
+      return data.session;
+    })
+    .catch(() => null)
+    .finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<Session> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) throw new Error('Supabase Auth is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
