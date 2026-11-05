@@ -62,7 +62,9 @@ The first time you sign in, Home shows **Get started with the Sample Shop**. It 
 2. **Create the Sample Shop project.** Centinel copies the shop to `~/Library/Application Support/com.centinel.app/samples/sample-shop`, runs it at <http://localhost:4100> and imports its code and requirements.
 3. **Confirm its requirements.** Centinel extracts candidates from `docs/requirements.md`. Untick any you disagree with, then confirm the rest.
 4. **Start a Review and a browser test.** The Review goal is filled in for you, and so is a browser test, *Sign-in page shows the login form*. It opens <http://localhost:4100> and checks that "Sign in" is visible.
-5. **Open the report.** When the Review finishes (about four minutes), create the report and download the PDF.
+5. **Open the report.** When the Review finishes (about eleven minutes in our run), create the report and download the PDF.
+
+<p align="center"><img src="docs/screenshots/setup-guide.jpg" alt="The Get started with the Sample Shop guide on Home: Connect ChatGPT, Create the Sample Shop project, Confirm its requirements and Start a Review are done; step 5, Open the report, offers Create report" width="640"></p>
 
 Click **Skip** if you'd rather start with your own project. Centinel remembers that choice for your account. The steps below do the same thing by hand and explain each screen.
 
@@ -110,7 +112,7 @@ Centinel checks code against requirements you have confirmed, so it never treats
 1. Click **Review** in the sidebar.
 2. Name it `Pre-release review`, pick the **Sample Shop** project, and under **What should this Review verify?** write:
    > Check that sign-in, checkout and order viewing follow docs/requirements.md, especially privacy and server-side validation.
-3. Click **Start review**. A project this size takes about four minutes.
+3. Click **Start review**. A project this size took about eleven minutes in our run.
 
 <p align="center"><img src="docs/screenshots/start-review.jpg" alt="The Start a Review form with the review name, the Sample Shop project and the review goal filled in" width="640"></p>
 
@@ -120,19 +122,19 @@ When the Review finishes it waits for your decision:
 
 The yellow box lists evidence gaps. Here it says the 16 requirements are not yet linked to the code that implements them. That limits what Centinel can prove about coverage, but it does not mean the code is wrong.
 
-Open **Findings** to see the problems. In our run Centinel found all three planted bugs, plus a discount-code check that accepts more than it should:
+Open **Findings** to see the problems. In our 0.2 run Centinel found all three planted bugs, plus a possible hardcoded credential and an order-number collision:
 
-<p align="center"><img src="docs/screenshots/findings.jpg" alt="The project's Findings list: Order Ownership Check Missing, a possible hardcoded credential, Credential Enumeration and Server-Side Quantity Validation Missing, each with a risk and priority" width="640"></p>
+<p align="center"><img src="docs/screenshots/findings.jpg" alt="The project's Findings list with the summary 8 issue types, 8 flagged items, 11 occurrences, 21 evidence gaps and 6 readiness notes, showing a possible hardcoded credential, Missing Order Ownership Check, Missing Quantity Validation and Order Identifier Collision with their risk and priority" width="640"></p>
 
 | Requirement | What Centinel found |
 | --- | --- |
-| REQ-1 Sign-in | *Credential Enumeration*: the error message reveals which emails have accounts. |
-| REQ-3 Checkout | *Server-Side Quantity Validation Missing*: the server accepts any quantity, so totals can go negative. |
-| REQ-4 Order privacy | *Order Ownership Check Missing*: any signed-in user can open someone else's order and address. |
+| REQ-1 Sign-in | *Account Enumeration*: the error message reveals which emails have accounts. |
+| REQ-3 Checkout | *Missing Quantity Validation*: the server accepts any quantity, so totals can go negative. |
+| REQ-4 Order privacy | *Missing Order Ownership Check*: any signed-in user can open someone else's order and address. |
 
-Click a finding to see where it is, why it matters, the evidence and what to do:
+Click a finding to see what to do, where it is, why it matters and the evidence. **Copy fix prompt** copies a ready-made prompt for Cursor, Claude Code or Codex. After you fix it, **Re-check** runs a Review of your updated code against the earlier one; if the issue is no longer found, the finding says so and offers **I fixed it — mark as resolved**:
 
-<p align="center"><img src="docs/screenshots/finding-detail.jpg" alt="Finding detail for Order Ownership Check Missing at server.js line 76, with a What to do section" width="640"></p>
+<p align="center"><img src="docs/screenshots/finding-detail.jpg" alt="Finding detail for Missing Order Ownership Check at server.js line 76, with What to do, What is wrong and a Copy fix prompt button" width="640"></p>
 
 AI results vary between runs, so your titles and counts may differ slightly. The full answer key is in [`examples/sample-shop-answers.md`](examples/sample-shop-answers.md). Approve the Review or request changes once you have looked at the evidence.
 
