@@ -1,0 +1,111 @@
+name: Windows build
+
+# Builds an unsigned Windows installer on a GitHub-hosted Windows runner, so no
+# Windows computer is needed. Run it from Actions → Windows build → Run workflow.
+#
+# Repository variables (Settings → Secrets and variables → Actions → Variables):
+#   CENTINEL_SUPABASE_URL              public Supabase project URL
+#   CENTINEL_SUPABASE_PUBLISHABLE_KEY  public publishable (anon) key — never a service-role key
+# Optional repository secrets, for installers that update themselves:
+#   TAURI_PRIVATE_KEY, TAURI_KEY_PASSWORD  the same updater key used for macOS releases
+# Without the updater key the installer is built with in-app updates turned off.
+
+# Pull requests that touch packaging also build it, with placeholder Supabase
+# values when the variables are not set (that installer cannot sign in).
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/windows.yml
+      - scripts/bundle-sidecar.mjs
+      - centinel/src-tauri/**
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      VITE_SUPABASE_AUTH_REDIRECT_URL: centinel://auth/callback
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check public configuration
+        env:
+          URL: ${{ vars.CENTINEL_SUPABASE_URL }}
+          KEY: ${{ vars.CENTINEL_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            if [ "${{ github.event_name }}" != "pull_request" ]; then
+              echo "::error::Set the CENTINEL_SUPABASE_URL and CENTINEL_SUPABASE_PUBLISHABLE_KEY repository variables."
+              exit 1
+            fi
+            echo "::warning::Supabase variables are not set; building a check-only installer that cannot sign in."
+            URL=https://placeholder.supabase.co
+            KEY=placeholder-publishable-key
+          fi
+          { echo "SUPABASE_URL=$URL"; echo "SUPABASE_ANON_KEY=$KEY"; echo "VITE_SUPABASE_URL=$URL"; echo "VITE_SUPABASE_ANON_KEY=$KEY"; } >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: centinel/src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle the local service, Node.js and Codex CLI
+        run: node scripts/bundle-sidecar.mjs --target x86_64-pc-windows-msvc
+
+      - name: Smoke-test the bundled service
+        run: |
+          set -e
+          node_exe=centinel/src-tauri/binaries/centinel-node-x86_64-pc-windows-msvc.exe
+          codex_exe=centinel/src-tauri/binaries/codex-x86_64-pc-windows-msvc.exe
+          "$codex_exe" --version
+          home="$RUNNER_TEMP/centinel-home"
+          mkdir -p "$home"
+          (cd centinel/src-tauri/resources/sidecar && CENTINEL_HOME="$home" CENTINEL_BUNDLED_CODEX_BIN="$GITHUB_WORKSPACE/$codex_exe" "$GITHUB_WORKSPACE/$node_exe" dist/index.mjs > "$home/sidecar.log" 2>&1 &)
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:37701/health; then echo; ok=1; break; fi
+            sleep 2
+          done
+          cat "$home/sidecar.log" | grep -v -i "key\|secret\|token" || true
+          [ "${ok:-}" = 1 ] || { echo "::error::The bundled local service did not start."; exit 1; }
+
+      - name: Build the installer
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: |
+          cd centinel
+          if [ -n "$TAURI_PRIVATE_KEY" ]; then
+            pnpm tauri build
+          else
+            echo "::warning::No updater key; building with in-app updates turned off."
+            pnpm tauri build --config '{"tauri":{"updater":{"active":false}}}'
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: centinel-windows-x64
+          if-no-files-found: error
+          path: |
+            centinel/src-tauri/target/release/bundle/msi/*.msi
+            centinel/src-tauri/target/release/bundle/nsis/*.exe
+            centinel/src-tauri/target/release/bundle/msi/*.zip*
+            centinel/src-tauri/target/release/bundle/nsis/*.zip*

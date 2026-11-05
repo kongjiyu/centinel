@@ -229,6 +229,14 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
     }
   };
 
+  // A newer Review not finding the issue again is not proof it is fixed, so the
+  // person who fixed it closes it with the same status action as the menu.
+  const recheckWithResolve = useMemo(() => recheckFor && ((finding: Finding) => {
+    const recheck = recheckFor(finding);
+    if (!recheck?.latestResult || ['fixed', 'dismissed'].includes(finding.status)) return recheck;
+    return { ...recheck, markResolved: () => handleUpdateStatus(finding.id, 'fixed') };
+  }), [recheckFor, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sorted = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const compareFindings = (a: Finding, b: Finding) => {
@@ -341,7 +349,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   if (presentation === 'project') {
     const selectedGroup = grouped.find(group => group.members.some(finding => finding.id === selectedId));
     const selectedFinding = selectedGroup?.members.find(finding => finding.id === selectedId) ?? null;
-    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} onVerifyWithDynamic={onVerifyWithDynamic} recheckFor={readOnly ? undefined : recheckFor} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
+    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} onVerifyWithDynamic={onVerifyWithDynamic} recheckFor={readOnly ? undefined : recheckWithResolve} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
     return (
       <div className={`project-findings-layout findings-table-only${isProjectFindings ? ' project-findings-project-only' : ''}`}>
         <section className="card detail-card findings-card findings-panel findings-panel-project" aria-labelledby="project-findings-heading">

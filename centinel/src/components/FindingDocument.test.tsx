@@ -146,6 +146,16 @@ describe('finding detail', () => {
     expect(recheckFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }));
   });
 
+  it('lets the person close a finding a newer Review did not find again', async () => {
+    const user = userEvent.setup();
+    const markResolved = vi.fn().mockResolvedValue(undefined);
+    const recheckFor = () => ({ hint: 'Prepares a comparison Review.', run: vi.fn(), latestResult: 'Not found in “Re-check” (6 Nov).', markResolved });
+    render(<FindingDocument group={groupFindings([make('a', 'x')])[0]} selectedId="a" onSelect={vi.fn()} onBack={vi.fn()} actions={() => null} recheckFor={recheckFor} />);
+    expect(screen.getByText('Not found in “Re-check” (6 Nov).')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'I fixed it — mark as resolved' }));
+    expect(markResolved).toHaveBeenCalledTimes(1);
+  });
+
   it('hides re-check when the host offers none', () => {
     render(<FindingDocument group={groupFindings([make('a', 'x')])[0]} selectedId="a" onSelect={vi.fn()} onBack={vi.fn()} actions={() => null} recheckFor={() => null} />);
     expect(screen.queryByRole('button', { name: 'Re-check' })).not.toBeInTheDocument();

@@ -11,6 +11,13 @@
 // Only the public Supabase URL and publishable key are copied into the
 // bundle. Secrets (OAuth client secrets, token-encryption keys, service-role
 // keys) are never bundled; each installation creates its own encryption key.
+//
+// Cross-building for Intel Macs on Apple silicon (or the reverse):
+//   node scripts/bundle-sidecar.mjs --target x86_64-apple-darwin
+// The Node runtime comes from nodejs.org (checked against its SHASUMS256.txt)
+// and platform-specific npm packages from the registry, checked against the
+// integrity in pnpm-lock.yaml (or the registry's, for a version pnpm deploy
+// resolved outside the lockfile).
 
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -29,14 +36,27 @@ const binaries = path.join(tauriDir, 'binaries');
 const require = createRequire(path.join(root, 'package.json'));
 
 function run(command, args, options = {}) {
-  execFileSync(command, args, { stdio: 'inherit', cwd: root, ...options });
+  // pnpm is a .cmd shim on Windows, which only runs through a shell.
+  execFileSync(command, args, { stdio: 'inherit', cwd: root, shell: process.platform === 'win32' && command === 'pnpm', ...options });
 }
 
-function targetTriple() {
+function hostTriple() {
   const output = execFileSync('rustc', ['-vV'], { encoding: 'utf8' });
   const host = output.split('\n').find(line => line.startsWith('host:'));
   if (!host) throw new Error('Could not determine the Rust target triple.');
   return host.slice('host:'.length).trim();
+}
+
+const TRIPLE_TARGETS = {
+  'x86_64-pc-windows-msvc': { platform: 'win32', arch: 'x64' },
+  'aarch64-apple-darwin': { platform: 'darwin', arch: 'arm64' },
+  'x86_64-apple-darwin': { platform: 'darwin', arch: 'x64' },
+};
+
+function requestedTriple() {
+  const index = process.argv.indexOf('--target');
+  const value = index >= 0 ? process.argv[index + 1] : process.env.CENTINEL_TARGET;
+  return value?.trim() || hostTriple();
 }
 
 function readPublicRuntimeEnv() {
@@ -58,8 +78,8 @@ function readPublicRuntimeEnv() {
 }
 
 /** Drop prebuilt native binaries for other platforms and all source maps. */
-function pruneForPlatform(dir) {
-  const platformTag = `${process.platform}-${process.arch}`;
+function pruneForPlatform(dir, target) {
+  const platformTag = `${target.platform}-${target.arch}`;
   let removed = 0;
   const walk = current => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
@@ -108,6 +128,8 @@ const CODEX_RELEASE = `https://github.com/openai/codex/releases/download/rust-v$
 const CODEX_ASSETS = {
   'aarch64-apple-darwin': { name: 'codex-aarch64-apple-darwin.tar.gz', sha256: 'c48824462fc57681eafb0925d97b11b589010475613904f570b42fea53e240d5' },
   'x86_64-apple-darwin': { name: 'codex-x86_64-apple-darwin.tar.gz', sha256: 'db0c38713c36199b12e7c8d1629386c35a4ce8f99e1c9ce72f1725a74df67b57' },
+  // Windows releases also publish the bare executable; no archive to unpack.
+  'x86_64-pc-windows-msvc': { name: 'codex-x86_64-pc-windows-msvc.exe', sha256: '9d563ee4e0441ff9d59d612013e0460ddf8e5709735c2d9f6b98b7ef8ca4eb42', raw: true },
 };
 const CODEX_LICENSE_FILES = {
   LICENSE: 'd17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc',
@@ -146,10 +168,10 @@ async function bundleCodex(triple) {
   const archive = await fetchPinned(`${CODEX_RELEASE}/${asset.name}`, path.join(cache, asset.name), asset.sha256);
   const extracted = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-codex-'));
   try {
-    run('tar', ['-xzf', archive, '-C', extracted]);
-    const binary = path.join(extracted, asset.name.replace(/\.tar\.gz$/, ''));
+    if (!asset.raw) run('tar', ['-xzf', archive, '-C', extracted]);
+    const binary = asset.raw ? archive : path.join(extracted, asset.name.replace(/\.tar\.gz$/, ''));
     if (!fs.existsSync(binary)) throw new Error(`The Codex archive did not contain ${path.basename(binary)}.`);
-    const target = path.join(binaries, `codex-${triple}`);
+    const target = path.join(binaries, `codex-${triple}${triple.includes('windows') ? '.exe' : ''}`);
     fs.copyFileSync(binary, target);
     fs.chmodSync(target, 0o755);
     console.log(`[bundle-sidecar] Bundled Codex CLI ${CODEX_VERSION} as ${path.relative(root, target)}`);
@@ -166,6 +188,77 @@ async function bundleCodex(triple) {
   fs.writeFileSync(path.join(licenseDir, 'README.txt'), `Centinel bundles the unmodified OpenAI Codex CLI ${CODEX_VERSION}\nfrom ${CODEX_RELEASE}/${asset.name}\nunder the Apache License 2.0 (LICENSE, NOTICE).\n`);
 }
 
+/** Integrity of a lockfile-pinned package, e.g. '@napi-rs/canvas-darwin-x64@1.0.13'. */
+function lockfileIntegrity(name, version) {
+  const lock = fs.readFileSync(path.join(root, 'pnpm-lock.yaml'), 'utf8');
+  const escaped = `${name}@${version}`.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const match = lock.match(new RegExp(`\\n  '?${escaped}'?:\\n    resolution: \\{integrity: (sha512-[A-Za-z0-9+/=]+)\\}`));
+  return match?.[1] ?? null;
+}
+
+/**
+ * pnpm installs only the host's platform packages (such as
+ * @napi-rs/canvas-darwin-arm64). For a cross build, swap each one for the
+ * target's package at the same lockfile-pinned version and integrity.
+ */
+async function swapPlatformPackages(nodeModules, host, target) {
+  const hostTag = `${host.platform}-${host.arch}`;
+  const targetTag = `${target.platform}-${target.arch}`;
+  const dirs = [];
+  for (const entry of fs.readdirSync(nodeModules, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith('@')) {
+      for (const child of fs.readdirSync(path.join(nodeModules, entry.name), { withFileTypes: true })) {
+        if (child.isDirectory()) dirs.push(`${entry.name}/${child.name}`);
+      }
+    } else dirs.push(entry.name);
+  }
+  for (const name of dirs.filter(dir => dir.endsWith(`-${hostTag}`))) {
+    const { version } = JSON.parse(fs.readFileSync(path.join(nodeModules, name, 'package.json'), 'utf8'));
+    const targetName = name.slice(0, -hostTag.length) + targetTag;
+    // `pnpm deploy` may resolve a newer patch than the lockfile; then use the
+    // registry's published integrity for that exact version, as pnpm itself does.
+    let integrity = lockfileIntegrity(targetName, version);
+    if (!integrity) {
+      const metadata = await fetch(`https://registry.npmjs.org/${targetName}/${version}`).then(response => response.ok ? response.json() : null);
+      integrity = typeof metadata?.dist?.integrity === 'string' && metadata.dist.integrity.startsWith('sha512-') ? metadata.dist.integrity : null;
+    }
+    if (!integrity) throw new Error(`No published integrity for ${targetName}@${version}; it is needed for ${target.platform}-${target.arch}.`);
+    const url = `https://registry.npmjs.org/${targetName}/-/${targetName.split('/').pop()}-${version}.tgz`;
+    console.log(`[bundle-sidecar] Replacing ${name} with ${targetName}@${version}`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Download failed (${response.status}): ${url}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const actual = `sha512-${crypto.createHash('sha512').update(bytes).digest('base64')}`;
+    if (actual !== integrity) throw new Error(`Integrity mismatch for ${url}. Refusing to bundle it.`);
+    const archive = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-pkg-')), 'package.tgz');
+    fs.writeFileSync(archive, bytes);
+    const destination = path.join(nodeModules, targetName);
+    fs.rmSync(path.join(nodeModules, name), { recursive: true, force: true });
+    fs.mkdirSync(destination, { recursive: true });
+    run('tar', ['-xzf', archive, '-C', destination, '--strip-components', '1']);
+    fs.rmSync(path.dirname(archive), { recursive: true, force: true });
+  }
+}
+
+/** The target's Node.js runtime: this Node for the host, otherwise the same version from nodejs.org. */
+async function nodeRuntimeFor(host, target) {
+  if (host.platform === target.platform && host.arch === target.arch) return process.execPath;
+  const version = process.version;
+  const base = `https://nodejs.org/dist/${version}`;
+  const name = `node-${version}-${target.platform}-${target.arch}.tar.gz`;
+  const sums = await fetch(`${base}/SHASUMS256.txt`).then(response => {
+    if (!response.ok) throw new Error(`Could not read ${base}/SHASUMS256.txt (${response.status}).`);
+    return response.text();
+  });
+  const expected = sums.split('\n').map(line => line.trim().split(/\s+/)).find(([, file]) => file === name)?.[0];
+  if (!expected) throw new Error(`${base}/SHASUMS256.txt does not list ${name}.`);
+  const archive = await fetchPinned(`${base}/${name}`, path.join(binaries, '.node-cache', name), expected);
+  const extracted = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-node-'));
+  run('tar', ['-xzf', archive, '-C', extracted, `${name.replace(/\.tar\.gz$/, '')}/bin/node`]);
+  return path.join(extracted, name.replace(/\.tar\.gz$/, ''), 'bin/node');
+}
+
 console.log('[bundle-sidecar] Cleaning previous output');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(binaries, { recursive: true });
@@ -176,8 +269,15 @@ for (const entry of ['src', '__tests__', 'fixtures', 'tsconfig.json', 'vitest.co
   fs.rmSync(path.join(out, entry), { recursive: true, force: true });
 }
 
+const triple = requestedTriple();
+const target = TRIPLE_TARGETS[triple] ?? { platform: process.platform, arch: process.arch };
+const host = { platform: process.platform, arch: process.arch };
+if (target.platform !== host.platform) throw new Error(`Cross-building from ${host.platform} to ${triple} is not supported.`);
+console.log(`[bundle-sidecar] Target ${triple}`);
+if (target.arch !== host.arch) await swapPlatformPackages(path.join(out, 'node_modules'), host, target);
+
 console.log('[bundle-sidecar] Removing files other platforms need');
-pruneForPlatform(path.join(out, 'node_modules'));
+pruneForPlatform(path.join(out, 'node_modules'), target);
 
 const signingIdentity = process.platform === 'darwin' ? process.env.APPLE_SIGNING_IDENTITY?.trim() : '';
 if (signingIdentity) signNativeModules(path.join(out, 'node_modules'), signingIdentity);
@@ -202,8 +302,6 @@ await esbuild.build({
 fs.writeFileSync(path.join(out, 'dist/package.json'), JSON.stringify({ type: 'module', private: true }, null, 2) + '\n');
 fs.writeFileSync(path.join(out, 'runtime.env'), readPublicRuntimeEnv(), { mode: 0o644 });
 
-const triple = targetTriple();
-
 console.log('[bundle-sidecar] Copying the Sample Shop');
 const sampleOut = path.join(tauriDir, 'resources/sample-shop');
 fs.rmSync(sampleOut, { recursive: true, force: true });
@@ -216,8 +314,8 @@ fs.cpSync(path.join(root, 'examples/sample-shop'), sampleOut, {
 await bundleCodex(triple);
 
 const nodeTarget = path.join(binaries, `centinel-node-${triple}${process.platform === 'win32' ? '.exe' : ''}`);
-console.log(`[bundle-sidecar] Copying Node.js ${process.version} runtime to ${path.relative(root, nodeTarget)}`);
-fs.copyFileSync(process.execPath, nodeTarget);
+console.log(`[bundle-sidecar] Copying Node.js ${process.version} (${target.arch}) runtime to ${path.relative(root, nodeTarget)}`);
+fs.copyFileSync(await nodeRuntimeFor(host, target), nodeTarget);
 fs.chmodSync(nodeTarget, 0o755);
 
 console.log('[bundle-sidecar] Done');

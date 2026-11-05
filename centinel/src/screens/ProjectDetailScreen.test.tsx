@@ -17,6 +17,7 @@ vi.mock('../api/client', () => ({
     dynamicRuns: vi.fn(),
     listStaticSessions: vi.fn(),
     listArtifacts: vi.fn(),
+    listRequirements: vi.fn(),
     getReviewSourceManifest: vi.fn(),
     getReviewEvidenceSufficiency: vi.fn().mockResolvedValue(null),
     getReviewCorrelations: vi.fn().mockResolvedValue({ parentReviewId: '', childReviewId: '', correlations: [], ambiguities: [], counts: {}, createdAt: '' }),
@@ -436,7 +437,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
       { id: 'a-1', projectId: project.id, type: 'requirement', source: 'documents', fileName: 'requirements.md', filePath: 'requirements.md', originalPath: null, contentHash: 'a', createdAt: project.updatedAt },
     ];
     vi.mocked(api.listFindings).mockResolvedValue([]);
-    renderProject(vi.fn(), projectArtifacts);
+    vi.mocked(api.listRequirements).mockResolvedValueOnce([]);
+    const onNavigate = vi.fn();
+    renderProject(onNavigate, projectArtifacts);
 
     expect(await screen.findByRole('heading', { name: 'Need attention' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Readiness' })).toBeInTheDocument();
@@ -447,6 +450,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(within(readinessCard as HTMLElement).getByRole('button', { name: 'Start' })).toBeEnabled();
     expect(within(readinessCard as HTMLElement).queryByText(/source[s]? available/i)).not.toBeInTheDocument();
     expect(screen.getByText('Start the first Review')).toBeInTheDocument();
+    expect(await screen.findByText('Confirm what the project should do')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add requirements' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'requirements', projectId: project.id });
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByRole('heading', { name: 'Assessment' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Risk Summary' })).toBeInTheDocument();
@@ -583,6 +589,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.click(await screen.findByRole('row', { name: /Missing Order Ownership Check/ }));
     expect(await screen.findByText(/Not found in “Pre-release review” \(.+\)\. Centinel couldn't prove it is fixed, so it stays open\./)).toBeInTheDocument();
     expect(api.getReviewCorrelations).toHaveBeenCalledWith(project.id, 'review-2');
+    vi.mocked(api.updateFinding).mockResolvedValue(undefined as never);
+    await user.click(screen.getByRole('button', { name: 'I fixed it — mark as resolved' }));
+    await waitFor(() => expect(api.updateFinding).toHaveBeenCalledWith(project.id, 'f-1', 'fixed'));
   });
 
   it('loads only the latest saved Review document findings when Findings opens', async () => {
