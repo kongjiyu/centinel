@@ -46,4 +46,13 @@ describe('HelpScreen', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+  it('offers the setup guide only when a handler is given', async () => {
+    const { unmount } = render(<HelpScreen />);
+    expect(screen.queryByRole('button', { name: 'Open the setup guide' })).toBeNull();
+    unmount();
+    const onOpenSetupGuide = vi.fn();
+    render(<HelpScreen onOpenSetupGuide={onOpenSetupGuide} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open the setup guide' }));
+    expect(onOpenSetupGuide).toHaveBeenCalledTimes(1);
+  });
 });
