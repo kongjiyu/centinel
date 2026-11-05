@@ -12,6 +12,7 @@ import type {
   TraceabilityEvidenceStatus,
 } from './evidenceTypes.js';
 import { summarizeTraceability } from './traceabilitySummary.js';
+import { isConfirmedMappingStatus, SUGGESTED_MAPPING_STATUS, type RequirementLinkSuggestion } from './requirementLinkSuggestions.js';
 import { mergeEvidenceSufficiencyAssessments, type EvidenceSufficiencyAssessment, type EvidenceContradictionDisposition } from './evidenceSufficiency.js';
 import type { FindingCorrelation, FindingCorrelationSnapshot, CorrelationAmbiguity, FindingResolutionEligibility } from './correlation.js';
 import type {
@@ -725,6 +726,8 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
         query.select('*').eq('requirement_id', requirement.id).order('id'), signal);
       const mappings: ReviewTraceabilityMapping[] = [];
       for (const row of rows) {
+        // Suggested or rejected links are not traceability evidence.
+        if (!isConfirmedMappingStatus(text(row, 'coverage_status', 'unknown'))) continue;
         const artifactId = nullableText(row, 'artifact_id');
         const fileId = nullableText(row, 'file_id');
         const targetArtifactId = artifactId ?? fileId;
@@ -873,10 +876,39 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     for (const requirement of requirements) {
       const rows = await this.allRows('requirement_mappings', 'traceability readiness mappings lookup', query =>
         query.select('coverage_status').eq('requirement_id', text(requirement, 'id')).order('id'), signal);
-      const complete = rows.length > 0 && rows.every(item => /^(complete|covered|verified|full|pass|passed|fully[_ -]?covered)$/.test(text(asRow(item), 'coverage_status').trim().toLowerCase()));
-      output.push({ requirementId: text(requirement, 'id'), state: rows.length === 0 ? 'missing' : complete ? 'complete' : 'incomplete' });
+      const confirmed = rows.filter(item => isConfirmedMappingStatus(text(asRow(item), 'coverage_status', 'unknown')));
+      const complete = confirmed.length > 0 && confirmed.every(item => /^(complete|covered|verified|full|pass|passed|fully[_ -]?covered)$/.test(text(asRow(item), 'coverage_status').trim().toLowerCase()));
+      output.push({ requirementId: text(requirement, 'id'), state: confirmed.length === 0 ? 'missing' : complete ? 'complete' : 'incomplete' });
     }
     return output;
+  }
+
+  async saveRequirementLinkSuggestions(projectId: string, suggestions: RequirementLinkSuggestion[], signal?: AbortSignal): Promise<number> {
+    let saved = 0;
+    const byRequirement = new Map<string, RequirementLinkSuggestion[]>();
+    for (const item of suggestions) byRequirement.set(item.requirementId, [...(byRequirement.get(item.requirementId) ?? []), item]);
+    for (const [requirementId, items] of byRequirement) {
+      signal?.throwIfAborted();
+      // Any existing row (confirmed, suggested or rejected) for the same
+      // target suppresses a repeat suggestion.
+      const existing = await this.allRows('requirement_mappings', 'requirement link suggestion lookup', query =>
+        query.select('id,artifact_id,file_id,symbol_id').eq('project_id', projectId).eq('requirement_id', requirementId).order('id'), signal);
+      const taken = new Set(existing.map(row => [nullableText(row, 'artifact_id') ?? nullableText(row, 'file_id') ?? '', nullableText(row, 'symbol_id') ?? ''].join('\u0000')));
+      const takenFiles = new Set(existing.map(row => nullableText(row, 'artifact_id') ?? nullableText(row, 'file_id') ?? ''));
+      const fresh = items.filter(item => !taken.has([item.artifactId, item.symbolId ?? ''].join('\u0000'))
+        && !(item.symbolId === null && takenFiles.has(item.artifactId)));
+      if (!fresh.length) continue;
+      const result = await this.externalRequest('requirement link suggestion save', requestSignal => {
+        const query = this.from('requirement_mappings').insert(fresh.map(item => ({
+          project_id: projectId, requirement_id: requirementId, artifact_id: item.artifactId, file_id: item.artifactId,
+          symbol_id: item.symbolId, coverage_status: SUGGESTED_MAPPING_STATUS, confidence: item.confidence,
+        })));
+        return requestSignal ? query.abortSignal(requestSignal) : query;
+      }, signal);
+      if (result.error) throw errorFor('requirement link suggestion save', result.error);
+      saved += fresh.length;
+    }
+    return saved;
   }
 
   async saveReviewIteration(childReviewId: string, projectId: string, iteration: StaticReviewIteration): Promise<void> {

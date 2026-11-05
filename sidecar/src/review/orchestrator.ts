@@ -12,6 +12,8 @@ import { ASSESSMENT_VALIDATION_VERSION, CANDIDATE_SUPPORT_SCHEMA, MAX_SUPPORT_CA
 import { specializeSupportSchema } from './assessmentResponseSchema.js';
 import { SUPPORT_REFERENCE_FAILURE_CODES } from './assessmentValidation.js';
 import { needsCitationVerification, withCitationEvidence } from './evidenceCandidates.js';
+import { suggestRequirementLinks } from './requirementLinkSuggestions.js';
+import { coverageProgress, unverifiedPartForBatch, type ReviewCoverageProgress, type ReviewUnverifiedPart } from './coverageGaps.js';
 import { assertReviewPromptWithinContext, buildCandidateSupportPrompt, buildCandidateSupportRepairPrompt, buildCitationRepairPrompt, buildDomainCoverageRepairPrompt, renderNumberedSource, SOURCE_CITATION_INSTRUCTIONS, LOCAL_DOMAIN_INSTRUCTIONS, CONTRACT_COMPARISON_INSTRUCTIONS } from './sourcePrompt.js';
 import type { Artifact } from '../artifacts.js';
 import type { RetrievedContext } from './contextTypes.js';
@@ -626,6 +628,9 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
     let deferredEvidenceBatches = 0;
     let firstDeferredEvidenceError: InvalidModelAssessmentError | undefined;
     let uncertainCitationCount = 0;
+    let validatedBatchCount = 0;
+    const unverifiedParts: ReviewUnverifiedPart[] = [];
+    let coverageGaps: ReviewCoverageProgress | null = null;
     const semanticSupportDecisions = new Map<string, {
       candidateId: string; disposition: 'supported' | 'contradicted' | 'insufficient'; claimBoundary: 'local_source' | 'selected_call_path' | 'runtime_dependent';
       finding: StaticFindingInput; support: import('./assessmentValidation.js').CandidateSupportRecord;
@@ -983,6 +988,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           } catch { throw new BatchCachePersistenceError(); }
         }
         for (const batch of batches) {
+          const uncertainBeforeBatch = uncertainCitationCount;
           try {
           checkCancelled(signal);
           const operation = batches.length === 1 ? 'model_analysis' : `model_analysis:${batch.id}`;
@@ -1534,10 +1540,13 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
               }
             }
           }
+          validatedBatchCount++;
+          if (uncertainCitationCount > uncertainBeforeBatch) unverifiedParts.push(unverifiedPartForBatch(batch, 'uncertain_citation', uncertainCitationCount - uncertainBeforeBatch));
           } catch (error) {
             if (isAbortLike(error) || signal.aborted || reviewProviderPause(error) || !(error instanceof InvalidModelAssessmentError)) throw error;
             deferredEvidenceBatches++;
             firstDeferredEvidenceError ??= error;
+            unverifiedParts.push(unverifiedPartForBatch(batch, error.reason, uncertainCitationCount - uncertainBeforeBatch));
             await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_batch_needs_verification', stage: 'model_analysis',
               detail: { batchId: batch.id, reason: error.reason, policyVersion: STATIC_REVIEW_MODEL_POLICY_VERSION } });
             // Other independent packets and full-source sweeps must still run.
@@ -1545,13 +1554,37 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
         }
         await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_source_batches_finished', stage: 'model_analysis',
           detail: { plannedBatches: batches.length, batchesNeedingVerification: deferredEvidenceBatches, uncertainCitations: uncertainCitationCount } });
-        if (firstDeferredEvidenceError) throw firstDeferredEvidenceError;
-        if (uncertainCitationCount) throw new InvalidModelAssessmentError('semantic_support', uncertainCitationCount);
+        const partlyVerified = Boolean(firstDeferredEvidenceError || uncertainCitationCount);
+        // Completed with gaps (user-approved, 5 November 2026): when at least
+        // one independent batch or finding was validated, unverified batches
+        // stay recorded as gaps instead of failing the whole Review. Inputs
+        // that were never verifiable (unreadable sources, truncated
+        // inventories, unsupported executable code) still fail below.
+        const hasVerifiedResult = model.some(finding => !needsCitationVerification(finding))
+          || analysisMap.features.some(feature => feature.assessments.some(item => item.status === 'assessed'));
+        if (partlyVerified && !hasVerifiedResult) {
+          if (firstDeferredEvidenceError) throw firstDeferredEvidenceError;
+          throw new InvalidModelAssessmentError('semantic_support', uncertainCitationCount);
+        }
         if (evidenceArtifacts.some(item => typeof item.content !== 'string' || item.state && item.state !== 'available')) throw new InvalidModelAssessmentError('source_evidence');
-        if ((analysisMap.coverage.executableArtifacts ?? analysisMap.coverage.parsedArtifacts) > 0 && analysisMap.status !== 'assessed'
+        if ((analysisMap.coverage.executableArtifacts ?? analysisMap.coverage.parsedArtifacts) > 0 && analysisMap.status !== 'assessed' && !partlyVerified
           || analysisMap.coverage.featureInventoryTruncated || analysisMap.coverage.selectedModuleGraphTruncated
           || (analysisMap.coverage.exportExpansionTruncatedCount ?? 0) > 0
           || unsupportedExecutable > 0) throw new InvalidModelAssessmentError('domain_coverage');
+        if (partlyVerified) {
+          // Only the terminal label changes. Partial coverage never yields
+          // clean completion proof or absence-based resolution.
+          if (analysisMap.status === 'assessed') analysisMap.status = 'partial';
+          coverageGaps = coverageProgress(unverifiedParts);
+          validatedArtifactIds = [];
+          inspectedReferences = [];
+          modelStatus = 'partial';
+          await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_completed_with_gaps', stage: 'model_analysis',
+            detail: { validatedBatches: validatedBatchCount, batchesNeedingVerification: deferredEvidenceBatches, uncertainCitations: uncertainCitationCount,
+              unverifiedParts: coverageGaps.unverifiedParts.map(part => ({ reason: part.reason, fileCount: part.files.length, featureCount: part.features.length })),
+              unverifiedPartCount: coverageGaps.unverifiedPartCount, validationVersion: ASSESSMENT_VALIDATION_VERSION } });
+          await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_analysis_map_saved', stage: 'model_analysis', detail: { phase: 'assessed', analysisMap: reviewAnalysisMapForAudit(analysisMap) } });
+        } else {
         await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_assessment_validated', stage: 'model_analysis',
           detail: { validationVersion: ASSESSMENT_VALIDATION_VERSION, assessedArtifactIds: validatedArtifactIds, coverageStatus: analysisMap.status } });
         modelStatus = 'succeeded';
@@ -1560,6 +1593,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           reviewId: review.id, projectId: review.projectId, event: 'model_analysis_succeeded', stage: 'model_analysis',
           detail: { batches: batches.length, findingCount: model.length },
         });
+        }
       } catch (error) {
         if (isAbortLike(error) || signal.aborted) throw new ReviewCancelledError();
         if (error instanceof BatchCachePersistenceError) throw error;
@@ -1585,6 +1619,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       const reconciliation = await harness.step('persisting_evidence', 'correlate_findings', { parentReviewId: review.lineage.parentReviewId },
         () => this.correlateIterationFindings(review, evidenceArtifacts, modelStatus, sourceManifestId, validatedArtifactIds, inspectedReferences),
         value => ({ checkedProjectHistory: true, counts: value?.counts ?? null, ambiguousCount: value?.ambiguities.length ?? 0 }));
+      await this.suggestRequirementLinks(review, harness, confirmedRequirements, evidenceArtifacts, normalized.all, analysisMap, signal);
       completedStages.push('persisting_evidence');
       checkCancelled(signal);
       await this.checkpoint(lease, 'complete', completedStages);
@@ -1593,7 +1628,9 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       if (!latest || latest.status === 'cancelled') return latest ?? review;
       const baseSummary = modelStatus === 'failed'
         ? `Deterministic analysis retained ${normalized.all.length} finding${normalized.all.length === 1 ? '' : 's'}; Model Provider analysis was unavailable.`
-        : `Static review completed with ${normalized.all.length} finding${normalized.all.length === 1 ? '' : 's'} (${normalized.deterministic.length} deterministic, ${normalized.model.length} model).`;
+        : coverageGaps
+          ? `Static review completed with gaps: ${normalized.all.length} finding${normalized.all.length === 1 ? '' : 's'} (${normalized.deterministic.length} deterministic, ${normalized.model.length} model); ${coverageGaps.unverifiedPartCount} part${coverageGaps.unverifiedPartCount === 1 ? '' : 's'} of the code could not be verified. Unverified parts establish no clean result and cannot resolve earlier findings.`
+          : `Static review completed with ${normalized.all.length} finding${normalized.all.length === 1 ? '' : 's'} (${normalized.deterministic.length} deterministic, ${normalized.model.length} model).`;
       const textLogicCount = preparedAnalysisMap?.coverage.plainTextLogicArtifactCount ?? 0;
       const textLogicSummary = textLogicCount ? ` ${textLogicCount} source file${textLogicCount === 1 ? ' was' : 's were'} assessed as plain-text logic; parser paths and runtime behavior remain unverified for those files.${preparedAnalysisMap?.coverage.assessmentMode === 'plain_text_context_fallback' ? ' The original operation map is diagnostic only because its dependency context exceeded the bounded assessment plan.' : ''}` : '';
       const summary = baseSummary + textLogicSummary + (reconciliation ? ` Existing findings: ${reconciliation.counts.recurring} recurring, ${reconciliation.counts.regressed} regressed, ${reconciliation.counts.resolved} resolved, ${reconciliation.counts.carried_over} still require verification; ${reconciliation.ambiguities.length} uncertain matches.` : '');
@@ -1604,7 +1641,9 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
         modelStatus: modelStatus === 'failed' ? 'partial' : modelStatus,
         summary,
         failureReason: modelStatus === 'failed' ? 'Model Provider unavailable; deterministic results retained.' : '',
-        progress: stageProgress('complete', completedStages, this.now, summary),
+        progress: coverageGaps
+          ? { ...stageProgress('complete', completedStages, this.now, summary), ...coverageGaps }
+          : stageProgress('complete', completedStages, this.now, summary),
         updatedAt: this.now().toISOString(),
       });
       return terminal ?? ((await this.deps.repository.getReview(review.id)) ?? review);
@@ -1831,6 +1870,36 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
       };
     });
     return { findings: sanitized, rejectedRequirementReferences, rejectedStandardReferences };
+  }
+
+  /**
+   * Best-effort, unconfirmed requirement-link suggestions from validated
+   * evidence. They never count for traceability until a person confirms them,
+   * so a failure here is audited and does not change the Review result.
+   */
+  private async suggestRequirementLinks(
+    review: StaticReviewRecord,
+    harness: ReviewHarness,
+    requirements: ConfirmedRequirement[],
+    evidenceArtifacts: EvidenceArtifact[],
+    findings: StaticFindingInput[],
+    analysisMap: ReviewAnalysisMap,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const repository = this.deps.repository;
+    if (!repository.saveRequirementLinkSuggestions || !requirements.length) return;
+    const suggestions = suggestRequirementLinks({ requirements, artifacts: evidenceArtifacts.map(item => item.artifact), findings, analysisMap });
+    if (!suggestions.length) return;
+    try {
+      await harness.step('persisting_evidence', 'suggest_requirement_links', { candidateCount: suggestions.length },
+        () => repository.saveRequirementLinkSuggestions!(review.projectId, suggestions, signal), saved => ({ saved }));
+      await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'requirement_links_suggested', stage: 'persisting_evidence',
+        detail: { suggestions: suggestions.map(item => ({ requirementId: item.requirementId, artifactId: item.artifactId, basis: item.basis, confidence: item.confidence })) } });
+    } catch (error) {
+      if (isAbortLike(error) || signal.aborted) throw error;
+      await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'requirement_links_suggestion_failed', stage: 'persisting_evidence',
+        detail: { candidateCount: suggestions.length } });
+    }
   }
 
   private async correlateIterationFindings(

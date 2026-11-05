@@ -1,5 +1,6 @@
 import type { RiskLevel } from '../riskPolicy.js';
 import type { ProjectReportFinding, ProjectReportSnapshot, ReportCurrentFinding } from './types.js';
+import { COMPLETED_WITH_GAPS_LABEL, describeUnverifiedPart } from '../review/coverageGaps.js';
 
 /**
  * Plain-language reading of a report snapshot for non-technical readers.
@@ -27,6 +28,8 @@ export type ReportSummary = {
   seriousIssues: number;
   riskCounts: Record<RiskLevel | 'unclassified', number>;
   codeReview: { label: string; tone: SummaryTone; detail: string };
+  /** Plain-language unverified parts when the latest code review completed with gaps. */
+  unverifiedParts: string[];
   browserTest: { label: string; tone: SummaryTone; detail: string };
   requirements: null | { complete: number; incomplete: number; missing: number };
   topIssues: SummaryIssue[];
@@ -96,14 +99,19 @@ function codeReviewStatus(snapshot: ProjectReportSnapshot): ReportSummary['codeR
   const files = review.sourceManifest.artifactCount;
   const checked = files === null ? 'Checked your project sources' : 'Checked ' + plural(files, 'file');
   const decision = review.decision?.decision;
-  if (decision === 'approved') return { label: 'Approved', tone: 'good', detail: checked + ' and a reviewer approved the result.' };
-  if (decision === 'changes_requested') return { label: 'Changes requested', tone: 'warning', detail: checked + '. A reviewer asked for changes.' };
+  const gaps = review.session.coverage?.coverage === 'partial'
+    ? ' ' + plural(review.session.coverage.unverifiedPartCount, 'part') + ' of the code could not be verified, so ' + (review.session.coverage.unverifiedPartCount === 1 ? 'it has' : 'they have') + ' no clean result.'
+    : '';
+  if (decision === 'approved') return { label: 'Approved', tone: gaps ? 'warning' : 'good', detail: checked + ' and a reviewer approved the result.' + gaps };
+  if (decision === 'changes_requested') return { label: 'Changes requested', tone: 'warning', detail: checked + '. A reviewer asked for changes.' + gaps };
   // Supabase rows carry the full Review lifecycle (pending_approval, approved, ...), wider than the legacy type.
   switch (String(review.session.status)) {
     case 'success':
-    case 'pending_approval': return { label: 'Needs approval', tone: 'neutral', detail: checked + '. It is waiting for someone to approve it.' };
+    case 'pending_approval': return gaps
+      ? { label: COMPLETED_WITH_GAPS_LABEL, tone: 'warning', detail: checked + '.' + gaps + ' It is waiting for someone to approve it.' }
+      : { label: 'Needs approval', tone: 'neutral', detail: checked + '. It is waiting for someone to approve it.' };
     case 'completed':
-    case 'approved': return { label: 'Approved', tone: 'good', detail: checked + ' and a reviewer approved the result.' };
+    case 'approved': return { label: 'Approved', tone: gaps ? 'warning' : 'good', detail: checked + ' and a reviewer approved the result.' + gaps };
     case 'changes_requested': return { label: 'Changes requested', tone: 'warning', detail: checked + '. A reviewer asked for changes.' };
     case 'failed':
     case 'failure': return { label: 'Failed', tone: 'critical', detail: 'The review could not finish' + (review.session.failureReason ? ': ' + clip(review.session.failureReason, 140) : '.') };
@@ -172,6 +180,7 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     if (browserTest.tone === 'critical') reasons.push('The latest browser test failed.');
     else if (browserTest.tone === 'warning') reasons.push('The latest browser test could not finish.');
     if (codeReview.tone === 'critical') reasons.push('The latest code review failed.');
+    else if (codeReview.label === COMPLETED_WITH_GAPS_LABEL) reasons.push('The latest code review completed with gaps.');
     else if (codeReview.tone === 'warning') reasons.push('The latest code review needs follow-up.');
     explanation = 'No serious issues are open. ' + reasons.join(' ');
   } else {
@@ -201,6 +210,7 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     seriousIssues,
     riskCounts,
     codeReview,
+    unverifiedParts: (snapshot.latestReview?.session.coverage?.unverifiedParts ?? []).map(describeUnverifiedPart),
     browserTest,
     requirements,
     topIssues,

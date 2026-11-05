@@ -441,6 +441,24 @@ describe('Phase 3A Supabase authority seams', () => {
     expect(await repository.deleteRequirementById('requirement-1')).toBe(true);
   });
 
+  it('confirms or rejects only rows that are still Centinel suggestions', async () => {
+    const fake = fakeClient({
+      projects: [{ id: 'project-1' }],
+      requirements: [{ id: 'requirement-1', project_id: 'project-1', title: 'Pay once', description: '', category: '', priority: 'medium', created_at: 'created', updated_at: 'created' }],
+      requirement_mappings: [
+        { id: 'suggested-1', project_id: 'project-1', requirement_id: 'requirement-1', artifact_id: 'a', file_id: 'a', symbol_id: null, coverage_status: 'suggested', confidence: 0.8, created_at: 'c' },
+        { id: 'suggested-2', project_id: 'project-1', requirement_id: 'requirement-1', artifact_id: 'b', file_id: 'b', symbol_id: null, coverage_status: 'suggested', confidence: 0.7, created_at: 'c' },
+        { id: 'manual-1', project_id: 'project-1', requirement_id: 'requirement-1', artifact_id: 'c', file_id: 'c', symbol_id: null, coverage_status: 'implemented', confidence: 1, created_at: 'c' },
+      ],
+    });
+    const repository = new CentinelApplicationRepository({ client: fake.client, userId: 'user-1' });
+    expect(await repository.decideRequirementMappingSuggestion('project-1', 'requirement-1', 'suggested-1', 'confirm')).toMatchObject({ id: 'suggested-1', coverageStatus: 'unknown' });
+    expect(await repository.decideRequirementMappingSuggestion('project-1', 'requirement-1', 'suggested-2', 'reject')).toMatchObject({ id: 'suggested-2', coverageStatus: 'suggestion_rejected' });
+    await expect(repository.decideRequirementMappingSuggestion('project-1', 'requirement-1', 'manual-1', 'reject')).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.decideRequirementMappingSuggestion('project-1', 'requirement-1', 'suggested-1', 'reject')).rejects.toMatchObject({ statusCode: 404 });
+    expect(fake.tables.requirement_mappings.find((row: Record<string, unknown>) => row.id === 'manual-1')).toMatchObject({ coverage_status: 'implemented' });
+  });
+
   it('builds project assessment from durable findings and verifies assessment review ownership', async () => {
     const fake = fakeClient({
       projects: [{ id: 'project-1' }],

@@ -284,6 +284,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
             status: summary.codeReview,
             lines: [
               snapshot.latestReview ? '"' + snapshot.latestReview.session.name + '". ' + summary.codeReview.detail : summary.codeReview.detail,
+              ...(summary.unverifiedParts.length ? ['Could not be verified:', ...summary.unverifiedParts.map(part => '• ' + part)] : []),
             ],
           },
           {

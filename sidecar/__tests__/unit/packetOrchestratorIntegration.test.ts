@@ -40,7 +40,7 @@ describe('exact source packets in the production orchestrator', () => {
       expect(requests).toHaveLength(1);
       expect(repository.audits.some(event => event.event === 'review_source_batches_finished')).toBe(false);
     } else {
-      expect(finished).toMatchObject({ status: 'failed', modelStatus: 'partial' });
+      expect(finished).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
       expect(new Set(requests.flatMap(request => request.usageContext?.sources?.map(source => source.artifactId) ?? [])).size).toBe(52);
       for (let index = 0; index < 52; index++) expect(requests.some(request => request.prompt.includes(`privateMarker${index} =`))).toBe(true);
       const planned = repository.audits.find(event => event.event === 'review_batches_planned')?.detail?.batches as unknown[];
@@ -89,7 +89,7 @@ describe('exact source packets in the production orchestrator', () => {
       } },
     });
     const run = await runner.start({ projectId: 'p', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial' });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
     expect(requests[0].prompt).not.toContain('function unrelatedPrivateHelper');
     expect(requests.some(request => request.prompt.includes('function unrelatedPrivateHelper'))).toBe(true);
     expect(requests.every(request => !request.repair)).toBe(true);

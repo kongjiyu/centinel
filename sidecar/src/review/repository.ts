@@ -163,6 +163,15 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
     return assessment ? clone(assessment) : null;
   }
 
+  readonly requirementLinkSuggestions: Array<import('./requirementLinkSuggestions.js').RequirementLinkSuggestion & { projectId: string }> = [];
+
+  async saveRequirementLinkSuggestions(projectId: string, suggestions: import('./requirementLinkSuggestions.js').RequirementLinkSuggestion[]): Promise<number> {
+    const fresh = suggestions.filter(item => !this.requirementLinkSuggestions.some(existing => existing.projectId === projectId
+      && existing.requirementId === item.requirementId && existing.artifactId === item.artifactId && existing.symbolId === item.symbolId));
+    this.requirementLinkSuggestions.push(...fresh.map(item => ({ ...clone(item), projectId })));
+    return fresh.length;
+  }
+
   async saveFindingCorrelations(snapshot: FindingCorrelationSnapshot): Promise<void> {
     if (!this.findingCorrelations.has(snapshot.childReviewId)) this.findingCorrelations.set(snapshot.childReviewId, clone(snapshot));
   }

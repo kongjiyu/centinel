@@ -63,6 +63,10 @@ export type ReviewProgressState = {
   completedStages: string[];
   message?: string;
   updatedAt: string;
+  /** Completed with gaps: some independent parts could not be verified. */
+  coverage?: 'partial';
+  unverifiedParts?: import('./coverageGaps.js').ReviewUnverifiedPart[];
+  unverifiedPartCount?: number;
 };
 
 export type ReviewLineage = {
@@ -308,6 +312,8 @@ export type StaticReviewRepository = {
   getFindingCorrelationSnapshot?(childReviewId: string): Promise<FindingCorrelationSnapshot | null>;
   listReviewFindings(reviewId: string): Promise<PersistedReviewFinding[]>;
   getBatchCacheBasis?(reviewId: string): Promise<import('./batchCacheValidation.js').BatchCacheBasis | null>;
+  /** Store unconfirmed requirement-link suggestions; returns how many new rows were added. */
+  saveRequirementLinkSuggestions?(projectId: string, suggestions: import('./requirementLinkSuggestions.js').RequirementLinkSuggestion[], signal?: AbortSignal): Promise<number>;
 
   /** Finding, progress, usage, and audit persistence must fail closed. */
   saveFinding(finding: PersistedReviewFinding): Promise<void>;

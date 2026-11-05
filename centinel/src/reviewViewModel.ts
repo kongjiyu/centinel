@@ -17,6 +17,7 @@ export type ReviewLifecycleState =
   | 'Queued'
   | 'In progress'
   | 'Need Approval'
+  | 'Completed with gaps'
   | 'Completed'
   | 'Blocked'
   | 'Paused'
@@ -142,9 +143,17 @@ export function reviewLifecycleState(
   if (session.status === 'blocked') return 'Blocked';
   if (session.status === 'failure' || session.status === 'failed') return 'Failed';
   if (session.status === 'cancelled') return 'Cancelled';
+  // Completed with gaps: some independent parts could not be verified. It is
+  // still awaiting the same human decision as Need Approval.
+  if (parseReviewProgress(session.progressJson)?.coverage === 'partial') return 'Completed with gaps';
   // A rejected/commented activity is still the same activity and must not be
   // described as automatically reprocessing. It remains available for review.
   return 'Need Approval';
+}
+
+/** Lifecycle states that still wait for a human approve/request-changes decision. */
+export function awaitsReviewDecision(state: ReviewLifecycleState): boolean {
+  return state === 'Need Approval' || state === 'Completed with gaps';
 }
 
 /**

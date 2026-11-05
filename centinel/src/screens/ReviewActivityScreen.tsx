@@ -15,7 +15,10 @@ import type { ReviewHarnessTrace } from '../reviewHarness';
 import { FindingsPanel } from '../components/FindingsPanel';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
+import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason } from '../reviewCoverage';
+import { confirmedMappingsByRequirement, suggestedLinkCount } from '../requirementLinks';
 import {
+  awaitsReviewDecision,
   createReviewActivityViewModel,
   isExecutedReviewStatus,
   formatReviewTimestamp,
@@ -134,7 +137,7 @@ function traceabilityRecords(
 function stateTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
   if (state === 'Completed') return 'success';
   if (state === 'In progress' || state === 'Queued') return 'running';
-  if (state === 'Need Approval' || state === 'Blocked' || state === 'Paused') return 'warning';
+  if (awaitsReviewDecision(state) || state === 'Completed with gaps' || state === 'Blocked' || state === 'Paused') return 'warning';
   if (state === 'Failed') return 'danger';
   return 'neutral';
 }
@@ -555,7 +558,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
             : currentEvidenceReads.traceability === 'unavailable' && explicitScope.requirements
               ? 'This legacy Review has an explicit requirement selection but no saved traceability evidence, so its scope cannot be verified for a decision.'
               : null;
-  const canDecide = isCurrentSession && state === 'Need Approval' && !currentDecision && !submitting && !findingsError && !decisionEvidenceIssue;
+  const canDecide = isCurrentSession && awaitsReviewDecision(state) && !currentDecision && !submitting && !findingsError && !decisionEvidenceIssue;
   const canCancel = Boolean(session && (session.status === 'queued' || session.status === 'running')) && !cancelling;
   const retryable = Boolean(session && (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked' || session.status === 'cancelled'));
   const canRetry = retryable && !retrying;
@@ -586,6 +589,9 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
       setSavingContradiction(null);
     }
   };
+  const coverageGaps = session ? reviewCoverageGaps(session) : null;
+  const confirmedRequirementMappings = useMemo(() => confirmedMappingsByRequirement(requirementMappings), [requirementMappings]);
+  const suggestedLinks = suggestedLinkCount(requirementMappings);
   const objective = viewModel?.objective ?? null;
   const objectiveDocuments = supportiveDocuments(config);
   const reviewer = currentDecision?.reviewer || (typeof config.reviewer === 'string' && config.reviewer.trim() ? config.reviewer.trim() : null);
@@ -767,7 +773,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
 
   const headerActions = (
     <section className="review-activity-actions" aria-label="Review decision actions">
-      {state === 'Need Approval' && !currentDecision && (
+      {awaitsReviewDecision(state) && !currentDecision && (
         <>
           <button data-testid="review-decision-reject" className="btn-secondary review-reject-button" type="button" onClick={() => openDecisionPanel('changes_requested')} disabled={!canDecide}>
             <MessageSquare size={15} aria-hidden="true" /> Request changes
@@ -799,7 +805,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         title={`${session.name} ${formatEntityId(session.id)}`}
         status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
-         actions={state === 'Need Approval' && !currentDecision ? <>{followUpActions}{headerActions}</> : followUpActions ? <section className="review-activity-actions" aria-label="Review follow-up actions">{followUpActions}</section> : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel} disabled={!canRetry}><RotateCcw size={16} aria-hidden="true" /> {state === 'Paused' ? 'Resume review' : 'Retry review'}</button> : undefined}
+         actions={awaitsReviewDecision(state) && !currentDecision ? <>{followUpActions}{headerActions}</> : followUpActions ? <section className="review-activity-actions" aria-label="Review follow-up actions">{followUpActions}</section> : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel} disabled={!canRetry}><RotateCcw size={16} aria-hidden="true" /> {state === 'Paused' ? 'Resume review' : 'Retry review'}</button> : undefined}
       />
 
       {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
@@ -812,7 +818,22 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         headingId="review-report-export-heading"
         downloadsLabel="Review report downloads"
       />}
-      {state === 'Need Approval' && !currentDecision && decisionEvidenceIssue && !decisionIntent && (
+      {coverageGaps && (
+        <section className="review-evidence-readiness is-ready_with_warnings review-coverage-gaps" aria-labelledby="review-coverage-gaps-heading" role="status">
+          <ShieldAlert size={18} aria-hidden="true" />
+          <div>
+            <h2 id="review-coverage-gaps-heading">Completed with gaps</h2>
+            <p>The verified checks and findings are ready to inspect. {coverageGaps.total} part{coverageGaps.total === 1 ? '' : 's'} of the code could not be verified, so {coverageGaps.total === 1 ? 'it has' : 'they have'} no clean result and cannot close earlier findings.</p>
+            {coverageGaps.parts.length > 0 && <ul aria-label="Parts that could not be verified">{coverageGaps.parts.map((part, index) => <li key={`${part.reason}-${index}`}>
+              <strong>{unverifiedPartLocation(part)}</strong>
+              <span>{unverifiedPartReason(part)}</span>
+            </li>)}</ul>}
+            {coverageGaps.total > coverageGaps.parts.length && <p>{coverageGaps.total - coverageGaps.parts.length} more part{coverageGaps.total - coverageGaps.parts.length === 1 ? ' is' : 's are'} listed in Activity.</p>}
+            <span className="review-evidence-remediation">Next: check the listed parts yourself, or request changes to run a revised review.</span>
+          </div>
+        </section>
+      )}
+      {awaitsReviewDecision(state) && !currentDecision && decisionEvidenceIssue && !decisionIntent && (
         <section className={`review-evidence-decision-gate${evidenceReadFailed ? ' is-failed' : ''}`} role={evidenceReadFailed || sourceManifest?.status === 'incomplete' ? 'alert' : 'status'} aria-label="Decision evidence status">
           <div><strong>{evidenceReadFailed ? 'Decision evidence needs attention' : 'Decision evidence is unavailable'}</strong><p>{decisionEvidenceIssue}</p></div>
           {evidenceReadFailed && <button type="button" className="btn-secondary" onClick={() => void loadReviewEvidence()} disabled={evidenceReadPending}>{evidenceReadPending ? 'Retrying evidence…' : 'Retry evidence'}</button>}
@@ -824,7 +845,13 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
           <div>
             <h2 id="review-evidence-readiness-heading">{evidenceAssessment.readiness === 'blocked' ? 'Evidence blocks this review' : 'Evidence needs attention'}</h2>
             <p>{evidenceAssessment.availableArtifactCount} of {evidenceAssessment.artifactCount} artifacts are currently available.</p>
-            <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => <li key={group.gaps[0].id}>
+            <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => group.gaps[0].code === 'traceability_mappings_incomplete' ? <li key={group.gaps[0].id} className="review-requirement-links-gap">
+              <strong>{group.title}</strong>
+              <span>{suggestedLinks > 0
+                ? `Centinel suggested ${suggestedLinks} link${suggestedLinks === 1 ? '' : 's'} from this review's evidence — confirm them so requirement coverage can be checked.`
+                : `${group.gaps.length} requirement${group.gaps.length === 1 ? ' is' : 's are'} not linked to code yet.`}</span>
+              <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'requirements', projectId })}>{suggestedLinks > 0 ? 'Confirm suggested links' : 'Link requirements to code'}</button>
+            </li> : <li key={group.gaps[0].id}>
               <strong>{group.title}{group.gaps.length > 1 ? ` (${group.gaps.length})` : ''}</strong>
               {group.gaps.length === 1 ? <span>{group.gaps[0].detail}</span> : <>
                 <ul className="review-evidence-gap-items">{group.gaps.slice(0, EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul>
@@ -947,7 +974,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         </section>
       ) : (
         <section id="review-result-panel-traceability" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-traceability">
-          {state === 'In progress' || state === 'Queued' ? <ReviewWaitingPanel title="Traceability" /> : <Traceability requirements={requirements} mappings={requirementMappings} artifacts={artifacts} findings={findings} snapshot={traceabilitySnapshot} filter={traceabilityFilter} onFilterChange={setTraceabilityFilter} onOpenFinding={openFinding} />}
+          {state === 'In progress' || state === 'Queued' ? <ReviewWaitingPanel title="Traceability" /> : <Traceability requirements={requirements} mappings={confirmedRequirementMappings} artifacts={artifacts} findings={findings} snapshot={traceabilitySnapshot} filter={traceabilityFilter} onFilterChange={setTraceabilityFilter} onOpenFinding={openFinding} />}
         </section>
       )}
 
@@ -959,7 +986,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         </div>
       )}
 
-      {state === 'Need Approval' && tab === 'Activity' && (
+      {awaitsReviewDecision(state) && tab === 'Activity' && (
         <FeedbackComposer
           value={composerFeedback}
           files={composerFiles}
@@ -972,7 +999,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         />
       )}
 
-      {decisionIntent && state === 'Need Approval' && !currentDecision && (
+      {decisionIntent && awaitsReviewDecision(state) && !currentDecision && (
         <ReviewDecisionPanel
           intent={decisionIntent}
           reviewName={session.name}
@@ -1073,7 +1100,7 @@ function ReviewActivityContent({
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
         <div className="review-activity-surface-heading">
-          <h2>{state === 'Need Approval' ? 'Review activity' : 'Review activity'}</h2>
+          <h2>Review activity</h2>
         </div>
         <div className="review-activity-outcome"><strong>{state} · {narrative.timing.duration}</strong><p>{session.failureReason ? reviewFailureMessage(session.failureReason) : narrative.summary.outcome}</p><p>{narrative.summary.next}</p></div>
         <ReviewNarrativeTimeline narrative={narrative} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} />
@@ -1398,7 +1425,7 @@ function ReviewResultOverview({
 
          {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
       </section>
-      <aside className="review-overview-rail review-decision-card"><h2>Human decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : state === 'Need Approval' ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>{executionTimeLabel}</dt><dd>{waitingForEvidence ? 'Not yet' : endedAt ? formatReviewTimestamp(endedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
+      <aside className="review-overview-rail review-decision-card"><h2>Human decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : awaitsReviewDecision(state) ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>{executionTimeLabel}</dt><dd>{waitingForEvidence ? 'Not yet' : endedAt ? formatReviewTimestamp(endedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
       <section className="review-overview-sources" aria-label="Review sources"><FrozenReviewSources projectId={projectId} reviewId={session.id} manifest={sourceManifest} readState={sourceManifestRead} onRetryEvidence={onRetryEvidence} onManageSources={() => onNavigate({ name: 'project-detail', projectId, initialSection: 'source' })} /></section>
       <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
         <div className="review-objective-dialog-content"><ReviewObjectiveList points={objectivePoints(objective)} />{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>

@@ -315,6 +315,8 @@ export interface CentinelStore {
   saveStandard(input: Omit<StoreStandard, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoreStandard>;
   listRequirementMappings(requirementId: string): Promise<StoreRequirementMapping[]>;
   saveRequirementMapping(input: Omit<StoreRequirementMapping, 'id' | 'createdAt'>): Promise<StoreRequirementMapping>;
+  /** Confirm or reject a Centinel-suggested link; null when no suggested row matches. */
+  decideRequirementMappingSuggestion?(requirementId: string, mappingId: string, decision: 'confirm' | 'reject'): Promise<StoreRequirementMapping | null>;
 
   listFindings(projectId: string, reviewSessionId?: string): Promise<StoreFinding[]>;
   saveFinding(input: Omit<StoreFinding, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoreFinding>;
