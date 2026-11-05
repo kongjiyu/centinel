@@ -84,18 +84,30 @@ fn start_sidecar(app: &tauri::App) -> Result<Option<Child>, String> {
         .and_then(|dist| dist.parent())
         .ok_or("Could not resolve the sidecar directory.")?
         .to_path_buf();
-    let node_name = if cfg!(windows) { "centinel-node.exe" } else { "centinel-node" };
-    let node = std::env::current_exe()
+    let exe_dir = std::env::current_exe()
         .map_err(|error| error.to_string())?
         .parent()
         .ok_or("Could not resolve the app directory.")?
-        .join(node_name);
+        .to_path_buf();
+    let node = exe_dir.join(if cfg!(windows) { "centinel-node.exe" } else { "centinel-node" });
+    // The official Codex CLI ships next to the app executable (externalBin).
+    let codex = exe_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+    let sample_shop = resolver
+        .resolve_resource("resources/sample-shop")
+        .filter(|path| path.join("server.js").exists());
     let home = resolver.app_data_dir().ok_or("Could not resolve the app data directory.")?;
     std::fs::create_dir_all(home.join("logs")).map_err(|error| error.to_string())?;
     let log = std::fs::File::create(home.join("logs/sidecar.log")).map_err(|error| error.to_string())?;
     let errors = log.try_clone().map_err(|error| error.to_string())?;
 
-    let child = Command::new(node)
+    let mut command = Command::new(node);
+    if codex.exists() {
+        command.env("CENTINEL_BUNDLED_CODEX_BIN", &codex);
+    }
+    if let Some(sample_shop) = sample_shop {
+        command.env("CENTINEL_SAMPLE_SHOP_DIR", sample_shop);
+    }
+    let child = command
         .arg(&script)
         .current_dir(&sidecar_dir)
         .env("CENTINEL_PACKAGED", "1")

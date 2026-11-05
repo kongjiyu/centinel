@@ -1,0 +1,4 @@
+# Generated bundle inputs (scripts/bundle-sidecar.mjs). The bundled Sample Shop has its own
+# package.json, which Tauri would otherwise mistake for the frontend app directory.
+src-tauri/resources/
+src-tauri/binaries/

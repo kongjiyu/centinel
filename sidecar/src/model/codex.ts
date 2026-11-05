@@ -2,13 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { TokenUsage, TokenUsageObservation, UsageCounter } from '../aiClient.js';
 import { localCodexTokenSource } from './localCodexAuth.js';
 import { securePrivateDirectory } from './privateDirectory.js';
 import { ModelProviderError } from '../review/retry.js';
 import { providerPause } from '../review/providerPause.js';
 import { AccountModelCatalogError, readAccountModelCatalog } from './accountModelCatalog.js';
+import { centinelHome } from '../paths.js';
 
 type ObjectValue = Record<string, any>;
 export type ExternalChatgptTokens = { accessToken: string; chatgptAccountId: string; chatgptPlanType?: string | null };
@@ -24,6 +24,20 @@ export interface CodexBackend {
   models(refresh?: boolean): Promise<CodexModel[]>;
   generate(request: CodexRequest): Promise<CodexGeneration>;
   close(): void;
+}
+
+/**
+ * Which Codex CLI to start, in order: the official binary bundled with the
+ * desktop app (path set by the Tauri shell), an explicit CENTINEL_CODEX_BIN
+ * override, then `codex` on PATH. A bundled path that no longer exists is
+ * skipped so a damaged install still falls back to a user-installed CLI.
+ */
+export function resolveCodexBinary(env: NodeJS.ProcessEnv = process.env, exists: (file: string) => boolean = fs.existsSync): string {
+  const bundled = env.CENTINEL_BUNDLED_CODEX_BIN?.trim();
+  if (bundled && exists(bundled)) return bundled;
+  const configured = env.CENTINEL_CODEX_BIN?.trim();
+  if (configured) return configured;
+  return 'codex';
 }
 
 export const CODEX_ARGS = ['app-server', '--listen', 'stdio://', '--disable', 'shell_tool', '--disable', 'unified_exec', '-c', 'web_search="disabled"', '-c', 'tools.view_image=false', '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"'];
@@ -169,7 +183,7 @@ export class CodexAppServer implements CodexBackend {
     for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TMP', 'TEMP']) {
       if (process.env[key]) env[key] = process.env[key];
     }
-    const child = this.launch(process.env.CENTINEL_CODEX_BIN || 'codex', CODEX_ARGS, { cwd: this.workspace, env, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
+    const child = this.launch(resolveCodexBinary(), CODEX_ARGS, { cwd: this.workspace, env, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
     this.child = child;
     this.buffer = '';
     child.stdout.setEncoding('utf8');
@@ -186,7 +200,7 @@ export class CodexAppServer implements CodexBackend {
     // Drain diagnostic output without persisting potentially sensitive content.
     child.stderr.on('data', () => {});
     child.stdin.on('error', () => { if (this.child === child) this.close(); });
-    child.on('error', () => { if (this.child === child) this.close(failure('Codex CLI could not start. Install Codex CLI or configure CENTINEL_CODEX_BIN.', 'codex_not_installed')); });
+    child.on('error', () => { if (this.child === child) this.close(failure('ChatGPT sign-in is unavailable because the Codex CLI could not start. Reinstall Centinel, or install the Codex CLI and restart Centinel.', 'codex_not_installed')); });
     child.on('exit', () => { if (this.child === child) this.close(); });
     await this.rpc('initialize', { clientInfo: { name: 'centinel', title: 'Centinel', version: '0.1.0' }, ...(this.externalTokens ? { capabilities: { experimentalApi: true } } : {}) });
     this.send({ method: 'initialized', params: {} });
@@ -452,14 +466,16 @@ export class CodexAppServer implements CodexBackend {
 }
 
 const clients = new Map<string, CodexBackend>();
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/codex');
+// Keep sign-in state in the writable Centinel home. Packaged builds run from
+// app resources, which an update replaces.
+const root = () => path.join(centinelHome(), 'data/codex');
 export function getCodexBackend(ownerId: string): CodexBackend {
   if (!ownerId.trim()) throw failure('A verified Centinel user is required.', 'codex_identity_required');
   let client = clients.get(ownerId);
   if (!client) {
     if (clients.size >= 32) throw failure('Too many local Codex accounts are open. Restart Centinel.', 'codex_capacity');
     // Hashing prevents path traversal; authorization still comes from AuthGateway.
-    client = new CodexAppServer(path.join(root, createHash('sha256').update(ownerId).digest('hex')), spawn, 120_000, localCodexTokenSource(ownerId), fetch, codexGenerationTimeoutMs());
+    client = new CodexAppServer(path.join(root(), createHash('sha256').update(ownerId).digest('hex')), spawn, 120_000, localCodexTokenSource(ownerId), fetch, codexGenerationTimeoutMs());
     clients.set(ownerId, client);
   }
   return client;

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { spawn } from 'node:child_process';
-import { CodexAppServer, codexGenerationTimeoutMs, type ExternalChatgptTokens } from '../../src/model/codex.js';
+import { CodexAppServer, codexGenerationTimeoutMs, resolveCodexBinary, type ExternalChatgptTokens } from '../../src/model/codex.js';
 import { localCodexTokenSource } from '../../src/model/localCodexAuth.js';
 import { testCodexProvider } from '../../src/model/codexTest.js';
 import { ConfiguredTextModelProvider } from '../../src/review/modelProvider.js';
@@ -123,6 +123,19 @@ function fixture(options: { generationTimeoutMs?: number; hold?: boolean; usageB
   return { client, launch, calls, children, home, catalogFetch };
 }
 const input = { model: 'model-1', prompt: 'Return JSON', systemPrompt: 'Analyze supplied content.' };
+
+describe('Codex CLI resolution', () => {
+  const exists = (file: string) => file === '/Applications/Centinel.app/Contents/MacOS/codex';
+  it('prefers the bundled binary, then CENTINEL_CODEX_BIN, then PATH', () => {
+    expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/Applications/Centinel.app/Contents/MacOS/codex', CENTINEL_CODEX_BIN: '/opt/codex' }, exists)).toBe('/Applications/Centinel.app/Contents/MacOS/codex');
+    expect(resolveCodexBinary({ CENTINEL_CODEX_BIN: ' /opt/codex ' }, exists)).toBe('/opt/codex');
+    expect(resolveCodexBinary({}, exists)).toBe('codex');
+  });
+  it('skips a bundled path that is missing', () => {
+    expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/missing/codex', CENTINEL_CODEX_BIN: '/opt/codex' }, exists)).toBe('/opt/codex');
+    expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/missing/codex' }, exists)).toBe('codex');
+  });
+});
 
 describe('isolated Codex app-server transport', () => {
   it('keeps a bounded generation deadline separate from the RPC deadline', async () => {

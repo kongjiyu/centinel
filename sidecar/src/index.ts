@@ -50,6 +50,7 @@ import { getProject, ensureDynamicWorkspace } from './projects';
 import { CollaborationError } from './githubTypes.js';
 import { SupabaseGithubCollaborationService } from './githubCollaboration.js';
 import { getCodexBackend, closeCodexBackends, type CodexBackend } from './model/codex.js';
+import { startSampleShop, stopSampleShop } from './sampleShop.js';
 import { testCodexProvider } from './model/codexTest.js';
 import { ModelProviderError } from './review/retry.js';
 import { ModelConfigurationError, resolveModelProviderChain, SupabaseModelConfigurationRepository } from './review/modelProviderResolver.js';
@@ -890,6 +891,12 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const provider = normalizeProvider(integrationMatch.provider);
       if (!provider) return json(res, 404, { error: 'Unsupported integration provider' });
       if (req.method === 'GET') return json(res, 200, await getIntegration(provider, ownerId, accessToken));
+    }
+
+    // First-run practice project: copy the bundled Sample Shop into CENTINEL_HOME and run it on port 4100.
+    if (url === '/samples/sample-shop' && req.method === 'POST') {
+      try { return json(res, 200, await startSampleShop()); }
+      catch (error) { return json(res, 500, { error: error instanceof Error ? error.message : 'The Sample Shop could not be prepared.' }); }
     }
 
     // Local Codex credentials are selected only by verified Centinel identity.
@@ -1896,5 +1903,6 @@ if (launchedDirectly) {
   server.listen(Number(PORT), HOST, () => {
     console.error(`[server] Centinel sidecar listening on ${HOST}:${PORT}`);
   });
-  process.on('SIGTERM', () => { closeCodexBackends(); server.close(); process.exit(0); });
+  process.on('SIGTERM', () => { closeCodexBackends(); stopSampleShop(); server.close(); process.exit(0); });
+  process.on('exit', stopSampleShop);
 }

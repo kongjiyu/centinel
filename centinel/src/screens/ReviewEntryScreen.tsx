@@ -682,7 +682,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
           </div>}
         </section>
 
-        {providerReady === false && <div className="review-entry-error review-entry-provider" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>The Model Provider for Review is not ready. Connect Codex or save an API provider and model in Settings, then come back to start this review.</span><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'settings' })}>Open Settings</button></div>}
+        {providerReady === false && <div className="review-entry-error review-entry-provider" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>The Model Provider for Review is not ready. Connect ChatGPT or save an API provider and model in Settings, then come back to start this review.</span><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'settings' })}>Open Settings</button></div>}
         {formError && <div ref={errorRef} className="review-entry-error" role="alert" tabIndex={-1}><AlertCircle size={16} aria-hidden="true" /> <span>{formError}</span></div>}
         {blockingReason && <p className="review-entry-submit-hint" role="status">{blockingReason}</p>}
         <div className="review-entry-actions"><button type="submit" className="btn-primary review-entry-submit" disabled={submitting || sourceBlocked || providerReady === false}>{submitting ? 'Starting review…' : 'Start review'}</button><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dashboard' })} disabled={submitting}>Cancel</button></div>

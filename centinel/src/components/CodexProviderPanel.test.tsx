@@ -186,7 +186,7 @@ describe('Codex provider settings', () => {
   it('opens browser sign-in, allows explicit cancellation, and refreshes connection', async () => {
     vi.mocked(api.codexStatus).mockResolvedValue(disconnected);
     const user = userEvent.setup(); render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    await user.click(await screen.findByRole('button', { name: 'Connect Codex' }));
+    await user.click(await screen.findByRole('button', { name: 'Connect ChatGPT' }));
     expect(openExternalUrl).toHaveBeenCalledWith('https://auth.openai.com/oauth/authorize?state=test');
     await user.click(await screen.findByRole('button', { name: 'Cancel sign-in' }));
     expect(api.codexCancelLogin).toHaveBeenCalledWith('login-1');
@@ -200,10 +200,10 @@ describe('Codex provider settings', () => {
     render(<CodexProviderPanel settings={[setting('text', 'codex', 'model-1')]} onRefresh={refresh} />);
     await screen.findByRole('combobox', { name: 'Review model' });
     vi.mocked(api.codexStatus).mockResolvedValue(disconnected);
-    await user.click(screen.getByRole('button', { name: 'Disconnect Codex' }));
+    await user.click(screen.getByRole('button', { name: 'Disconnect ChatGPT' }));
     expect(api.codexLogout).toHaveBeenCalledOnce();
     expect(api.updateAiSetting).not.toHaveBeenCalled();
-    expect(await screen.findByRole('button', { name: 'Connect Codex' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Connect ChatGPT' })).toBeEnabled();
     expect(screen.queryByRole('combobox', { name: 'Review model' })).not.toBeInTheDocument();
     expect(screen.getByText('Codex · model-1')).toBeInTheDocument();
   });
@@ -212,7 +212,7 @@ describe('Codex provider settings', () => {
     vi.mocked(api.codexStatus).mockResolvedValue({ ...disconnected, available: false, message: 'Install Codex CLI or configure CENTINEL_CODEX_BIN.' });
     render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
     expect(await screen.findByText(/Install Codex CLI/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect Codex' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Refresh connection' })).toBeEnabled();
   });
 });

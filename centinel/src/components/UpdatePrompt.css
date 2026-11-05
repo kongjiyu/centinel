@@ -1,0 +1,63 @@
+/* Bottom-left so it never covers the Review progress toast (bottom-right). */
+.update-prompt {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 9998;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 32px;
+  gap: 12px;
+  width: min(360px, calc(100vw - 40px));
+  padding: 14px 12px 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  box-shadow: 0 8px 24px rgba(23, 32, 51, 0.12);
+}
+
+.update-prompt-icon { padding-top: 2px; color: var(--color-primary); }
+.update-prompt-copy { display: grid; gap: 6px; min-width: 0; }
+
+.update-prompt h2 {
+  margin: 0;
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.update-prompt p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+}
+
+.update-prompt .update-prompt-error { color: var(--color-danger); }
+.update-prompt-actions { display: flex; gap: 8px; margin-top: 4px; }
+.update-prompt-actions button { min-height: 36px; }
+
+.update-prompt-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: 120ms;
+}
+
+.update-prompt-close:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.update-prompt-close:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+@media (max-width: 720px) {
+  .update-prompt { right: 16px; bottom: 16px; left: 16px; width: auto; }
+  .update-prompt-actions button { min-height: 44px; }
+  .update-prompt-close { width: 44px; height: 44px; }
+}

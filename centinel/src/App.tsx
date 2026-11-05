@@ -28,6 +28,7 @@ import { startRepositoryIndexSync } from './integrations/repositoryIndexSync';
 import type { Project, AiProviderSetting, Screen } from './types';
 import { ActiveReviewProvider } from './hooks/useActiveReview';
 import { ReviewToast } from './components/ReviewToast';
+import { UpdatePrompt } from './components/UpdatePrompt';
 import { GithubConnectionPrompt } from './components/GithubConnectionPrompt';
 import { isSupabaseAuthConfigured, restoreSupabaseSession, signOutSupabase, subscribeToDeepLinkAuth, subscribeToSupabaseAuth } from './auth/supabaseAuth';
 import type { Session } from '@supabase/supabase-js';
@@ -311,6 +312,8 @@ function App() {
             projects={projects}
             aiSettings={aiSettings}
             onNavigate={navigate}
+            accountId={accountUserId}
+            onDataChanged={loadData}
           />
         )}
         {screen.name === 'projects' && (
@@ -382,6 +385,7 @@ function App() {
         {screen.name === 'profile' && <ProfileScreen accountEmail={accountEmail} authProvider={authProvider} />}
       </AppShell>
       <ReviewToast />
+      <UpdatePrompt />
       <GithubConnectionPrompt isOpen={githubConnectionPromptOpen} onClose={() => setGithubConnectionPromptOpen(false)} />
     </ActiveReviewProvider>
   );

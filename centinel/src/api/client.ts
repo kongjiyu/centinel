@@ -286,6 +286,8 @@ export const api = {
     request<ConnectedSource>(`/projects/${projectId}/sources/${sourceId}`, { method: 'DELETE' }),
 
   // AI Settings
+  /** Copies the bundled Sample Shop into the Centinel home folder and runs it on port 4100. */
+  prepareSampleShop: () => request<{ path: string; url: string; server: 'started' | 'running' | 'port_in_use' }>('/samples/sample-shop', { method: 'POST', body: '{}' }),
   codexStatus: () => request<{ available: boolean; connected: boolean; accountLabel: string | null; message: string }>('/settings/codex'),
   codexLogin: () => request<{ loginId: string; authUrl: string }>('/settings/codex/login', { method: 'POST' }),
   codexCancelLogin: (loginId: string) => request<{ ok: boolean }>('/settings/codex/login/cancel', { method: 'POST', body: JSON.stringify({ loginId }) }),
