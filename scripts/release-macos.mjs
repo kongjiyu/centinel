@@ -77,8 +77,27 @@ function updaterKeyEnv() {
   if (!value) throw new Error('TAURI_PRIVATE_KEY is not set. Export the updater private key (or its path, e.g. ~/.tauri/centinel.key) before releasing.');
   if (process.env.TAURI_KEY_PASSWORD === undefined) throw new Error('TAURI_KEY_PASSWORD is not set. Export it (empty if the key has no password).');
   const expanded = value.replace(/^~(?=\/)/, os.homedir());
-  const key = fs.existsSync(expanded) ? fs.readFileSync(expanded, 'utf8').trim() : value;
-  return { TAURI_PRIVATE_KEY: key, TAURI_KEY_PASSWORD: process.env.TAURI_KEY_PASSWORD };
+  return { keyPath: fs.existsSync(expanded) ? expanded : null, keyText: fs.existsSync(expanded) ? null : value, password: process.env.TAURI_KEY_PASSWORD };
+}
+
+/**
+ * The Tauri 1 signer accepts the key only as an argument. Pass a key file path
+ * (writing key text to a private temporary file when needed) so the key itself
+ * never appears in a process listing. The password is passed with -p.
+ */
+function signUpdaterArchive(file, key) {
+  let temp = null;
+  let keyPath = key.keyPath;
+  if (!keyPath) {
+    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-updater-key-'));
+    keyPath = path.join(temp, 'updater.key');
+    fs.writeFileSync(keyPath, key.keyText, { mode: 0o600 });
+  }
+  try {
+    run('pnpm', ['tauri', 'signer', 'sign', '-f', keyPath, '-p', key.password, file], { cwd: path.join(root, 'centinel'), stdio: ['ignore', 'ignore', 'inherit'] });
+  } finally {
+    if (temp) fs.rmSync(temp, { recursive: true, force: true });
+  }
 }
 
 function requireUpdaterPublicKey() {
@@ -101,10 +120,14 @@ function requireReleaseSignature(file, label) {
 }
 
 if (process.platform !== 'darwin') throw new Error('release:mac must run on macOS.');
+// --updater-only re-creates the update archive, signature and latest.json from
+// an app that this script already built, notarized and stapled.
+const updaterOnly = process.argv.includes('--updater-only');
 const updaterEnv = updaterKeyEnv();
 requireUpdaterPublicKey();
 
 const identity = signingIdentity();
+if (!updaterOnly) {
 step(`Signing as ${identity}`);
 step(`Checking the notarization profile "${profile}"`);
 capture('xcrun', ['notarytool', 'history', '--keychain-profile', profile]);
@@ -165,12 +188,16 @@ step('Stapling the app for in-app updates');
 run('xcrun', ['stapler', 'staple', app]);
 run('spctl', ['--assess', '--type', 'execute', '--verbose=2', app]);
 
+} else {
+  step('Reusing the notarized app');
+  run('xcrun', ['stapler', 'validate', app]);
+}
+
 step('Creating the signed update archive');
 fs.rmSync(updaterArchive, { force: true });
 fs.rmSync(`${updaterArchive}.sig`, { force: true });
 run('tar', ['-czf', updaterArchive, '-C', path.dirname(app), path.basename(app)], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
-// The key reaches the Tauri signer through its environment only, never argv.
-run('pnpm', ['tauri', 'signer', 'sign', updaterArchive], { cwd: path.join(root, 'centinel'), env: { ...process.env, ...updaterEnv }, stdio: ['ignore', 'ignore', 'inherit'] });
+signUpdaterArchive(updaterArchive, updaterEnv);
 if (!fs.existsSync(`${updaterArchive}.sig`)) throw new Error('The Tauri signer did not write Centinel.app.tar.gz.sig.');
 
 step('Writing latest.json');
@@ -188,5 +215,5 @@ const manifest = {
 fs.writeFileSync(updaterManifest, `${JSON.stringify(manifest, null, 2)}\n`);
 
 console.log(`\n[release-macos] Ready in ${path.relative(root, outDir)}:`);
-for (const file of [dmg, updaterArchive, `${updaterArchive}.sig`, updaterManifest]) console.log(`  ${path.basename(file)}`);
-console.log(`Upload all four to the GitHub release v${version}. Installed apps update when latest.json is published as the latest release.`);
+for (const file of [...(updaterOnly ? [] : [dmg]), updaterArchive, `${updaterArchive}.sig`, updaterManifest]) console.log(`  ${path.basename(file)}`);
+console.log(`Upload ${updaterOnly ? "these (and the DMG)" : "all four"} to the GitHub release v${version}. Installed apps update when latest.json is published as the latest release.`);
