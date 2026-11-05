@@ -1,8 +1,29 @@
-import { CircleHelp } from 'lucide-react';
+import { useState } from 'react';
+import { CircleHelp, Download, ExternalLink } from 'lucide-react';
 import { CommandPageHeader } from '../components/CommandUI';
+import { exportAndSaveDiagnostics } from '../utils/saveDiagnostics';
+import { openExternalUrl } from '../utils/openExternalUrl';
 import './HelpScreen.css';
 
+export const PRIVACY_STATEMENT_URL = 'https://github.com/kongjiyu/centinel/blob/main/PRIVACY.md';
+
+type ExportState = { kind: 'idle' } | { kind: 'busy' } | { kind: 'done'; message: string } | { kind: 'error'; message: string };
+
 export function HelpScreen() {
+  const [exportState, setExportState] = useState<ExportState>({ kind: 'idle' });
+  const exportDiagnostics = async () => {
+    setExportState({ kind: 'busy' });
+    try {
+      const result = await exportAndSaveDiagnostics();
+      setExportState(result.outcome === 'saved'
+        ? { kind: 'done', message: `Saved diagnostics to ${result.path}.` }
+        : result.outcome === 'downloaded'
+          ? { kind: 'done', message: `Downloaded ${result.filename}.` }
+          : { kind: 'idle' });
+    } catch (error) {
+      setExportState({ kind: 'error', message: error instanceof Error && error.message ? error.message : 'Diagnostics could not be exported.' });
+    }
+  };
   return (
     <div className="screen command-help-screen">
       <CommandPageHeader eyebrow="Support" title="Help" />
@@ -87,6 +108,26 @@ export function HelpScreen() {
             <li>Embedding settings are optional and only speed up retrieval for large repositories.</li>
             <li>Review and Dynamic Testing will not start until their model is set up; Centinel tells you where to fix it.</li>
           </ol>
+        </section>
+
+        <section className="help-section" aria-labelledby="help-privacy-heading">
+          <h2 id="help-privacy-heading">Privacy and diagnostics</h2>
+          <ol>
+            <li>Projects, saved sources, findings and reports are stored in your Centinel account. Selected source excerpts and requirements are sent to the model provider you set up, only while a Review or test runs.</li>
+            <li>Centinel has no telemetry and sends no crash reports.</li>
+            <li>To get help with a problem, export diagnostics and share the file yourself. It holds recent service log lines with tokens, keys, e-mail addresses and .env values removed, plus app, macOS and processor details and recent error codes. It never holds prompts, source code or provider secrets.</li>
+          </ol>
+          <div className="help-actions">
+            <button type="button" className="btn-secondary" onClick={() => void exportDiagnostics()} disabled={exportState.kind === 'busy'}>
+              <Download size={15} aria-hidden="true" />
+              {exportState.kind === 'busy' ? 'Exporting diagnostics…' : 'Export diagnostics'}
+            </button>
+            <a className="help-link" href={PRIVACY_STATEMENT_URL} target="_blank" rel="noreferrer" onClick={event => { event.preventDefault(); void openExternalUrl(PRIVACY_STATEMENT_URL); }}>
+              Read the privacy statement <ExternalLink size={13} aria-hidden="true" />
+            </a>
+          </div>
+          {exportState.kind === 'done' && <p role="status">{exportState.message}</p>}
+          {exportState.kind === 'error' && <p role="alert" className="help-error">{exportState.message}</p>}
         </section>
       </div>
       <p className="help-note"><CircleHelp size={15} aria-hidden="true" /> Review results describe saved evidence and its limits; they do not certify all runtime behavior.</p>

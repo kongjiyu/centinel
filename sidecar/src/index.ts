@@ -11,6 +11,8 @@ import {handleDynamicReportRoute} from './dynamic/reports/routes.js';
 import {SharedEvidenceRepository} from './dynamic/sharedEvidence/repository.js';
 import {handleEvidenceCopyRoute} from './dynamic/sharedEvidence/routes.js';
 import {evidenceStorageClient} from './dynamic/sharedEvidence/client.js';
+import { buildDiagnosticsArchive } from './diagnostics/export.js';
+import { recordDiagnosticError } from './diagnostics/errorLog.js';
 import {handleFindingRoute} from './dynamic/findings/routes.js';
 import {SupabaseFindingRepository} from './dynamic/findings/repository.js';
 import {DownloadVault} from './dynamic/environment/downloadVault.js';
@@ -148,6 +150,10 @@ function parseJsonBody(req: http.IncomingMessage, maximumBytes?:number): Promise
 }
 
 function json(res: http.ServerResponse, status: number, data: unknown) {
+  if (status >= 400) {
+    const code = data && typeof data === 'object' && typeof (data as { code?: unknown }).code === 'string' ? (data as { code: string }).code : null;
+    recordDiagnosticError({ status, code, method: res.req?.method, pathname: res.req?.url ? new URL(res.req.url, 'http://local').pathname : undefined });
+  }
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
@@ -573,6 +579,13 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (auth) sourceIndexes.adoptSession(auth);
     const accessToken = auth?.accessToken ?? null;
     const ownerId = auth?.userId ?? '';
+    if (auth && req.method === 'POST' && url === '/diagnostics/export') {
+      const body = await parseJsonBody(req, 10_000).catch(() => ({})) as { appVersion?: unknown } | null;
+      const { fileName, archive } = buildDiagnosticsArchive({ appVersion: body?.appVersion, accessToken: auth.accessToken });
+      res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': archive.length, 'Content-Disposition': `attachment; filename="${fileName}"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Expose-Headers': 'Content-Disposition' });
+      res.end(archive);
+      return;
+    }
     const applicationRepository = auth ? new CentinelApplicationRepository(auth.client, auth.userId) : null;
     const sourceIndexBuildMatch = url.match(/^\/projects\/([^/]+)\/repository-index\/build$/);
     if (auth && sourceIndexBuildMatch && ['GET', 'POST'].includes(req.method ?? '')) {
@@ -662,7 +675,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         }catch{return false;}},
       });
       if(environmentResponse)return json(res,environmentResponse.status,environmentResponse.body);
-      const evidenceResponse=await handleEvidenceCopyRoute({method:req.method??'GET',pathname:url},{ownerId,downloadVault:downloadedFiles,privateValues:async projectId=>(await environments.list(projectId)).flatMap(profile=>privateValues(projectId,profile)),repository:new SharedEvidenceRepository(auth.client,evidenceStorageClient(auth.accessToken)),service,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),workspace:async projectId=>{const project=await getProject(projectId);if(!project)throw new DynamicContractError(409,'This device has no local execution workspace for the project.');return project.workspacePath;}});
+      const evidenceResponse=await handleEvidenceCopyRoute({method:req.method??'GET',pathname:url},{ownerId,downloadVault:downloadedFiles,privateValues:async projectId=>(await environments.list(projectId)).flatMap(profile=>privateValues(projectId,profile)),repository:new SharedEvidenceRepository(auth.client,()=>evidenceStorageClient(auth.accessToken)),service,requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),workspace:async projectId=>{const project=await getProject(projectId);if(!project)throw new DynamicContractError(409,'This device has no local execution workspace for the project.');return project.workspacePath;}});
       if(evidenceResponse){if('mimeType' in evidenceResponse&&Buffer.isBuffer(evidenceResponse.body)){res.writeHead(200,{'Content-Type':evidenceResponse.mimeType,'Content-Length':evidenceResponse.body.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...('attachment' in evidenceResponse&&evidenceResponse.attachment?{'Content-Disposition':'attachment; filename="captured-test-file.bin"'}:{})});res.end(evidenceResponse.body);return;}return json(res,evidenceResponse.status,evidenceResponse.body);}
       const reportResponse=await handleDynamicReportRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,10000)},{repository:new SupabaseDynamicReportRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId)});
       if(reportResponse){if('mimeType' in reportResponse&&Buffer.isBuffer(reportResponse.body)){res.writeHead(200,{'Content-Type':reportResponse.mimeType,'Content-Length':reportResponse.body.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename="${reportResponse.filename}"`,'X-Centinel-SHA256':reportResponse.sha256,'Access-Control-Expose-Headers':'X-Centinel-SHA256, Content-Disposition'});res.end(reportResponse.body);return;}return json(res,reportResponse.status,reportResponse.body);}

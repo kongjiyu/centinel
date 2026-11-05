@@ -207,7 +207,28 @@ async function downloadReport(endpoint:string,id:string,format:'json'|'markdown'
     const token=sessionStorage.getItem('centinel:supabase-access-token');const response=await fetch(`${BASE}${endpoint}`,{cache:'no-store',signal:AbortSignal.timeout(30000),headers:token?{Authorization:`Bearer ${token}`}:{}});if(!response.ok)throw new ApiError('Report export is unavailable for this account.',response.status);
     const bound=8*1024*1024;const reader=response.body?.getReader();if(!reader)throw Error('Report body unavailable.');const chunks:Uint8Array[]=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>bound)throw Error('Report export exceeds the download bound.');chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return {bytes,sha256:response.headers.get('X-Centinel-SHA256')??'',filename:`centinel-dynamic-${id}.${format==='markdown'?'md':format}`,mimeType:response.headers.get('Content-Type')??'application/octet-stream'};
 }
+/** Fetches the user-initiated local diagnostics ZIP. It is saved by the app; the sidecar uploads nothing. */
+async function exportDiagnostics(appVersion: string | null): Promise<{ bytes: Uint8Array; filename: string }> {
+  const token = sessionStorage.getItem('centinel:supabase-access-token');
+  const unavailable = 'Diagnostics could not be exported. Check that Centinel is running, then try again.';
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/diagnostics/export`, {
+      method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(30000),
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ appVersion }),
+    });
+  } catch {
+    throw new ApiError(unavailable, 503, 'sidecar_unavailable');
+  }
+  if (!response.ok) throw new ApiError(response.status === 401 ? 'Sign in again to export diagnostics.' : unavailable, response.status);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length > 16 * 1024 * 1024) throw Error('Diagnostics export exceeds its size bound.');
+  const named = /filename="(centinel-diagnostics-\d{8}-\d{6}\.zip)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1];
+  return { bytes, filename: named ?? 'centinel-diagnostics.zip' };
+}
 export const api = {
+  exportDiagnostics,
   getReviewHarness: (projectId: string, sessionId: string) =>
     request<import('../reviewHarness').ReviewHarnessTrace>(`/projects/${encodeURIComponent(projectId)}/static-sessions/${encodeURIComponent(sessionId)}/harness`),
   health: () => request<{ status: string }>('/health'),
