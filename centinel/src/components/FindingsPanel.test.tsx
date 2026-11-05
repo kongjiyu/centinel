@@ -283,7 +283,7 @@ describe('FindingsPanel', () => {
     const row = await screen.findByRole('row', { name: /Code Deep Nesting Issue/ });
     expect(screen.getAllByRole('row')).toHaveLength(2);
     expect(within(row).queryByText('Unresolved')).not.toBeInTheDocument();
-    expect(within(row).getByText('2 affected occurrences')).toBeInTheDocument();
+    expect(within(row).getByText('2 affected locations')).toBeInTheDocument();
     await user.click(row);
     const details = screen.getByRole('article', { name: 'Finding details' });
     await user.selectOptions(within(details).getByRole('combobox', { name: 'Location' }), 'f-2');

@@ -21,6 +21,8 @@ import { projectReadinessFindings } from '../readinessFindings';
 import { reviewEvidenceFindings } from '../reviewEvidenceFindings';
 import { assessReviewSourceCurrency, latestSuccessfulReview } from '../reviewCurrency';
 import { effectiveFindingStatus } from '../findingStatus';
+import { distinctFindingIssues } from '../findingGroups';
+import { createRecheckIdempotencyKey, findingRecheckPlan } from '../findingRecheck';
 import { dynamicActivityScreen, latestPerSavedTest, loadDynamicActivity } from '../dynamic/runActivity';
 import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot, ReviewSourceManifest } from '../types';
 import type { ProjectReadinessStatus } from '../types';
@@ -606,10 +608,12 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       });
     }
 
-    unresolvedFindings.forEach(finding => items.push({
+    // One item per distinct issue: repeated detections of the same issue
+    // across Reviews are counted once. Stored rows and risk inputs are unchanged.
+    distinctFindingIssues(unresolvedFindings).forEach(({ representative: finding, occurrences }) => items.push({
       id: `finding-${finding.id}`,
       title: finding.title,
-      detail: `${finding.severity} finding from ${finding.source === 'static' ? 'Review' : 'Dynamic Testing'}.`,
+      detail: `${finding.severity} finding from ${finding.source === 'static' ? 'Review' : 'Dynamic Testing'}.${occurrences.length > 1 ? ` Found ${occurrences.length} times.` : ''}`,
       action: 'findings',
       actionLabel: 'Review',
     }));
@@ -654,6 +658,34 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [activeSection, project.id, latestSavedReview?.id, latestSavedReview?.updatedAt]);
   const currentReviewGaps = reviewGapState?.projectId === project.id && reviewGapState.reviewId === latestSavedReview?.id ? reviewGapState : null;
   const supplementalProjectFindings = useMemo(() => [...readinessFindings, ...(currentReviewGaps?.findings ?? [])], [readinessFindings, currentReviewGaps?.findings]);
+
+  const recheckFor = useCallback((finding: Finding) => {
+    const plan = findingRecheckPlan(finding, staticSessions);
+    if (!plan) return null;
+    const { review } = plan;
+    if (plan.kind === 'open') return {
+      hint: `“${review.name}” is still running. Open it to follow its progress.`,
+      run: async () => onNavigate({ name: 'review-activity', projectId: project.id, sessionId: review.id, reviewName: review.name }),
+    };
+    if (plan.kind === 'compare') return {
+      hint: `Starts a Review of the updated sources compared with “${review.name}”. This finding updates when it completes.`,
+      run: async () => onNavigate({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: review.id }),
+    };
+    return {
+      hint: `Creates a linked attempt of “${review.name}” with the current sources. This finding updates when it completes.`,
+      run: async () => {
+        if (typeof api.retryStaticSession !== 'function') throw new Error('Re-check is unavailable in this version.');
+        let retried: StaticSession;
+        try {
+          retried = await api.retryStaticSession(project.id, review.id, { refreshSourceManifest: true, idempotencyKey: createRecheckIdempotencyKey(review.id) });
+        } catch (cause) {
+          throw new Error(userFacingError(cause, 'The re-check could not be started. The original Review remains available.'));
+        }
+        if (!retried?.id) throw new Error('The service did not return the new Review.');
+        onNavigate({ name: 'review-activity', projectId: project.id, sessionId: retried.id, reviewName: retried.name });
+      },
+    };
+  }, [onNavigate, project.id, staticSessions]);
 
   const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
   const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);
@@ -1133,6 +1165,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              supplementalUnavailableMessage={[readinessStatus?.stale && readinessStatus.snapshot ? 'Readiness findings describe previous sources and are hidden until a current assessment is available.' : null, currentReviewGaps?.message].filter(Boolean).join(' ') || null}
              presentation="project"
              onVerifyWithDynamic={finding => onNavigate({ name: 'dynamic-testing', projectId: project.id, draft: findingToDynamicDraft(finding) })}
+             recheckFor={recheckFor}
              onOpenReview={reviewId => {
                const review = staticSessions.find(session => session.id === reviewId);
                onNavigate({ name: 'review-activity', projectId: project.id, sessionId: reviewId, reviewName: review?.name });

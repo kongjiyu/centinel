@@ -9,9 +9,9 @@ import { entityIdTitle, formatEntityId } from '../utils/entityId';
 import { userFacingError } from '../utils/userFacingError';
 import { deriveRiskLevelWithFallback, priorityRank, riskLevelRank } from '../riskPolicy';
 import { Select } from './Select';
-import { findingDomain, findingGroupDomains, findingSourceReferences, groupFindings, groupStatus } from '../findingGroups';
+import { findingCountSummary, findingDomain, findingGroupDomains, findingSourceReferences, groupFindings, groupOccurrenceSummary, groupStatus } from '../findingGroups';
 import { FindingEvidence, FindingOccurrences } from './FindingEvidence';
-import { FindingDocument } from './FindingDocument';
+import { FindingDocument, type FindingRecheck } from './FindingDocument';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import './FindingsPanel.css';
 
@@ -34,6 +34,8 @@ type Props = {
   onOpenReview?: (reviewId: string) => void;
   /** Offer a Dynamic Testing draft that checks whether a Review finding is fixed at runtime. */
   onVerifyWithDynamic?: (finding: Finding) => void;
+  /** Optional re-check of the Review that produced a finding, against updated sources. */
+  recheckFor?: (finding: Finding) => FindingRecheck | null;
   /** Optional navigation context supplied by Assessment/Overview links. */
   initialFilter?: {
     riskLevel?: 'all' | 'critical' | 'high' | 'medium' | 'low' | 'critical_or_high';
@@ -128,7 +130,7 @@ function FindingActions({
   );
 }
 
-export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange, onOpenReview, onVerifyWithDynamic }: Props) {
+export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, refreshKey, presentation = 'default', pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, initialFilter = null, onLoadStateChange, onOpenReview, onVerifyWithDynamic, recheckFor }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -339,11 +341,11 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   if (presentation === 'project') {
     const selectedGroup = grouped.find(group => group.members.some(finding => finding.id === selectedId));
     const selectedFinding = selectedGroup?.members.find(finding => finding.id === selectedId) ?? null;
-    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} onVerifyWithDynamic={onVerifyWithDynamic} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
+    if (selectedGroup && selectedFinding) return <><div>{actionError && <p role="alert">{actionError}</p>}</div><FindingDocument group={selectedGroup} selectedId={selectedFinding.id} onSelect={setSelectedId} onBack={() => returnToFindings(selectedGroup.representative.id)} onOpenReview={onOpenReview} onVerifyWithDynamic={onVerifyWithDynamic} recheckFor={readOnly ? undefined : recheckFor} actions={finding => <FindingActions readOnly={readOnly} finding={finding} updatingId={updatingId} onUpdate={(id,status) => void handleUpdateStatus(id,status)} />} /></>;
     return (
       <div className={`project-findings-layout findings-table-only${isProjectFindings ? ' project-findings-project-only' : ''}`}>
         <section className="card detail-card findings-card findings-panel findings-panel-project" aria-labelledby="project-findings-heading">
-          <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Findings</h3><strong className="findings-project-total">{groupFindings(findings).length} issue types · {findings.length} flagged items</strong></div>
+          <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Findings</h3><strong className="findings-project-total">{findingCountSummary(findings)}</strong></div>
           {loading && loadedFindingsRef.current.loaded && <p className="findings-panel-refreshing" role="status">Refreshing findings…</p>}
           {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void loadFindings()}>Retry</button></div>}
           {supplementalUnavailableMessage && <p className="findings-supplemental-context" role="status">{supplementalUnavailableMessage}</p>}
@@ -360,8 +362,8 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
                 {pagedFindings.map(finding => { const group = grouped.find(item => item.representative.id === finding.id)!; return <tr id={`finding-row-${finding.id}`} key={finding.id} tabIndex={0} aria-selected={group.members.some(item => item.id === selectedId)} className={group.members.some(item => item.id === selectedId) ? 'selected' : undefined} onClick={event => openFinding(finding.id, event.currentTarget)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFinding(finding.id, event.currentTarget); } }}>
                   <td><span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span></td>
                   {isProjectFindings
-                    ? <><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{group.members.length > 1 ? `${group.members.length} affected occurrences` : finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); const row = event.currentTarget.closest<HTMLElement>('tr'); if (row) openFinding(finding.id, row); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td><td><RiskBadge finding={finding} /></td><td><PriorityBadge priority={finding.priority} /></td></>
-                    : <><td><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td>{findingGroupDomains(group)}</td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{group.members.length > 1 ? `${group.members.length} affected occurrences` : finding.filePath || finding.description || 'No location supplied'}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); const row = event.currentTarget.closest<HTMLElement>('tr'); if (row) openFinding(finding.id, row); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td></>}
+                    ? <><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{groupOccurrenceSummary(group) ?? (finding.filePath || finding.description || 'No location supplied')}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); const row = event.currentTarget.closest<HTMLElement>('tr'); if (row) openFinding(finding.id, row); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td><td><RiskBadge finding={finding} /></td><td><PriorityBadge priority={finding.priority} /></td></>
+                    : <><td><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span></td><td aria-label={finding.priority || 'Not set'}><span className="project-finding-priority">{finding.priority || '—'}</span></td><td><SeverityBadge severity={finding.severity} /></td><td><RiskBadge finding={finding} /></td><td>{findingGroupDomains(group)}</td><td><span className="project-finding-description"><strong>{finding.title}</strong><small>{groupOccurrenceSummary(group) ?? (finding.filePath || finding.description || 'No location supplied')}</small><button type="button" className="finding-see-more" onClick={event => { event.stopPropagation(); const row = event.currentTarget.closest<HTMLElement>('tr'); if (row) openFinding(finding.id, row); }} aria-label={`See more about ${finding.title}`}>… See more</button></span></td></>}
                 </tr>; })}
               </tbody></table>
               {pageCount > 1 && <div className="findings-pagination" aria-label="Finding pages"><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.max(0, current - 1))} disabled={page === 0}>Previous</button><span>Page {page + 1} of {pageCount}</span><button type="button" className="btn-secondary" onClick={() => setPage(current => Math.min(pageCount - 1, current + 1))} disabled={page >= pageCount - 1}>Next</button></div>}
@@ -376,7 +378,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
 
   return (
     <div className="findings-panel">
-      <div className="panel-header"><div><h3>Findings</h3><p className="panel-description">Triage issues from Review and Dynamic Testing in one list.</p></div><span className="findings-total-count">{groupFindings(findings).length} issue types · {findings.length} flagged items</span></div>
+      <div className="panel-header"><div><h3>Findings</h3><p className="panel-description">Triage issues from Review and Dynamic Testing in one list.</p></div><span className="findings-total-count">{findingCountSummary(findings)}</span></div>
       {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void loadFindings()}>Retry</button></div>}
       {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
       {findings.length > 0 && filterToolbar(true)}
@@ -389,7 +391,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
             const detailId = `finding-detail-${finding.id}`;
             return <div key={row.id} className={`finding-row finding-${displayedFindingStatus(finding)}`}>
               <button type="button" className="finding-header" onClick={() => setExpandedId(expanded ? null : row.id)} aria-expanded={expanded} aria-controls={detailId}>
-                <span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span><SeverityBadge severity={finding.severity} /><span className="finding-title">{group.title}{group.members.length > 1 && <small className="finding-group-count">{group.members.length} affected occurrences</small>}</span><span className={`badge badge-source-${finding.source}`}>{originLabel(finding)}</span><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span><time dateTime={updatedTime(finding)} title={`Updated ${new Date(updatedTime(finding)).toLocaleString()}`}>{new Date(updatedTime(finding)).toLocaleDateString()}</time><ChevronDown className="finding-disclosure" size={16} aria-hidden="true" />
+                <span className="finding-id-label" title={entityIdTitle('Finding ID:', finding.id)}>{formatEntityId(finding.id)}</span><SeverityBadge severity={finding.severity} /><span className="finding-title">{group.title}{groupOccurrenceSummary(group) && <small className="finding-group-count">{groupOccurrenceSummary(group)}</small>}</span><span className={`badge badge-source-${finding.source}`}>{originLabel(finding)}</span><span className={`finding-status finding-status-${groupStatus(group).toLowerCase()}`}>{groupStatus(group)}</span><time dateTime={updatedTime(finding)} title={`Updated ${new Date(updatedTime(finding)).toLocaleString()}`}>{new Date(updatedTime(finding)).toLocaleDateString()}</time><ChevronDown className="finding-disclosure" size={16} aria-hidden="true" />
               </button>
               {expanded && <div className="finding-detail" id={detailId} role="region" aria-label={`${group.title} details`}>
                 <div className="finding-detail-content">

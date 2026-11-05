@@ -134,3 +134,12 @@
   .workspace-mode .findings-table-only .project-finding-description .finding-see-more { min-height: 44px; font-size: var(--font-size-meta); }
   .workspace-mode .findings-table-only .findings-project-header { flex-wrap: wrap; gap: 10px; }
 }
+.finding-fix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.finding-copy-fix { min-width: 160px; }
+.finding-verification-hint { color: var(--workspace-text-muted); font-size: var(--font-size-support); }
+.finding-fix-fallback { display: grid; gap: 8px; margin-top: 12px; }
+.finding-fix-fallback p { color: var(--workspace-danger); }
+.finding-fix-fallback textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--workspace-border-strong); border-radius: var(--workspace-radius-control); background: var(--workspace-surface); color: var(--workspace-text); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--font-size-meta); resize: vertical; }
+.finding-recheck { min-width: 168px; }
+.finding-recheck-error { color: var(--workspace-danger) !important; }
+.finding-repeat-count { margin: 4px 0 0; color: var(--workspace-text-muted); font-size: var(--font-size-support) !important; }

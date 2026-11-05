@@ -20,6 +20,9 @@ vi.mock('../api/client', () => ({
     getReviewSourceManifest: vi.fn(),
     getReviewEvidenceSufficiency: vi.fn().mockResolvedValue(null),
     listFindings: vi.fn(),
+    listStaticFindings: vi.fn(),
+    retryStaticSession: vi.fn(),
+    updateFinding: vi.fn(),
     getProjectAssessment: vi.fn(),
     deleteProject: vi.fn(),
     updateProject: vi.fn(),
@@ -532,6 +535,35 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(await screen.findByText('Sources changed')).toBeInTheDocument();
     expect(api.getReviewSourceManifest).toHaveBeenCalledTimes(1);
     expect(api.getReviewSourceManifest).toHaveBeenCalledWith(project.id, successfulReview.id);
+  });
+
+  it('lists a finding repeated across Reviews once in Need attention and re-checks it from Findings', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const stopped = sourceCurrencyReview('review-2', 'blocked', '2026-10-02T10:00:00.000Z');
+    const repeated = (id: string, sessionId: string, lineNumber: number): Finding => ({
+      id, projectId: project.id, sessionId, source: 'static', verifier: 'model', severity: 'high', priority: 'High', title: 'Order Ownership Check Missing',
+      description: 'Any user can read any order.', recommendation: 'Check the order owner.', status: 'new', createdAt: '2026-10-02T10:00:00.000Z',
+      artifactId: 'artifact-orders', category: 'security', evidenceText: 'res.json(order);', confidence: 'high', fromRemarks: false, filePath: 'server/orders.js', lineNumber,
+    });
+    vi.mocked(api.retryStaticSession).mockResolvedValue({ ...stopped, id: 'review-3', name: 'Latest review (Retry)', status: 'queued' });
+    renderProject(onNavigate, [], undefined, [sourceCurrencyReview(), stopped], [], [repeated('f-1', 'review-1', 40), repeated('f-2', 'review-2', 42)]);
+
+    expect(await screen.findByText(/Found 2 times\./)).toBeInTheDocument();
+    expect(screen.getAllByText('Order Ownership Check Missing')).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    expect(await screen.findByText('1 issue type · 1 flagged item · 2 occurrences')).toBeInTheDocument();
+    await user.click(screen.getByRole('row', { name: /Order Ownership Check Missing/ }));
+    const details = screen.getByRole('article', { name: 'Finding details' });
+    await user.selectOptions(within(details).getByRole('combobox', { name: 'Location' }), 'f-2');
+    await user.click(within(details).getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(api.retryStaticSession).toHaveBeenCalledWith(project.id, 'review-2', expect.objectContaining({ refreshSourceManifest: true, idempotencyKey: expect.any(String) })));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: project.id, sessionId: 'review-3', reviewName: 'Latest review (Retry)' });
+
+    await user.selectOptions(within(screen.getByRole('article', { name: 'Finding details' })).getByRole('combobox', { name: 'Location' }), 'f-1');
+    await user.click(within(screen.getByRole('article', { name: 'Finding details' })).getByRole('button', { name: 'Re-check' }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: 'review-1' });
   });
 
   it('loads only the latest saved Review document findings when Findings opens', async () => {

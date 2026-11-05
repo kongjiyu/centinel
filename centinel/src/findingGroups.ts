@@ -14,7 +14,72 @@ const GAP_TITLES: Record<string, string> = {
   confirmed_requirements_missing: 'Missing Confirmed Requirements', unconfirmed_requirements: 'Unconfirmed Business Requirements',
   requirement_candidates_pending: 'Unconfirmed Requirements',
 };
-export type FindingGroup = { key: string; title: string; representative: Finding; members: Finding[] };
+/**
+ * One distinct issue: every stored occurrence of the same issue type at the
+ * same place, typically re-detected by successive Reviews. Presentation only;
+ * each occurrence keeps its own row, status, risk input and history.
+ */
+export type FindingIssue = { key: string; representative: Finding; occurrences: Finding[] };
+export type FindingGroup = { key: string; title: string; representative: Finding; members: Finding[]; issues: FindingIssue[] };
+
+/** Lines may move a little between source versions while the issue stays the same. */
+export const DUPLICATE_LINE_WINDOW = 5;
+
+export function normalizeIssueTitle(title: string): string {
+  return title.trim().replace(/^\[[^\]]+\]\s*/, '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+const normalizedPath = (finding: Finding) => (finding.filePath || '').replace(/\\/g, '/').replace(/^\.\//, '');
+
+function sameIssueLocation(left: Finding, right: Finding): boolean {
+  const leftPath = normalizedPath(left);
+  const rightPath = normalizedPath(right);
+  if (leftPath || rightPath) {
+    if (leftPath !== rightPath) return false;
+    if (left.lineNumber == null || right.lineNumber == null) return left.lineNumber == null && right.lineNumber == null;
+    return Math.abs(left.lineNumber - right.lineNumber) <= DUPLICATE_LINE_WINDOW;
+  }
+  return (left.requirementId ?? '') === (right.requirementId ?? '') && normalizeIssueTitle(left.title) === normalizeIssueTitle(right.title);
+}
+
+function clusterIssues(members: Finding[]): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const finding of members) {
+    const existing = issues.find(issue => issue.occurrences.some(item => sameIssueLocation(item, finding)));
+    if (existing) existing.occurrences.push(finding);
+    else issues.push({ key: finding.id, representative: finding, occurrences: [finding] });
+  }
+  return issues;
+}
+
+export function findingIssueFor(group: FindingGroup, findingId: string): FindingIssue | undefined {
+  return group.issues.find(issue => issue.occurrences.some(item => item.id === findingId));
+}
+
+/**
+ * Distinct issues across all groups, ordered by where each issue's first
+ * occurrence appears in the input (callers sort by risk first).
+ */
+export function distinctFindingIssues(findings: Finding[]): Array<FindingIssue & { title: string }> {
+  const order = new Map(findings.map((finding, index) => [finding.id, index]));
+  return groupFindings(findings)
+    .flatMap(group => group.issues.map(issue => ({ ...issue, title: group.title })))
+    .sort((a, b) => (order.get(a.representative.id) ?? 0) - (order.get(b.representative.id) ?? 0));
+}
+
+export function findingCountSummary(findings: Finding[]): string {
+  const groups = groupFindings(findings);
+  const distinct = groups.reduce((total, group) => total + group.issues.length, 0);
+  const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+  return `${plural(groups.length, 'issue type', 'issue types')} · ${plural(distinct, 'flagged item', 'flagged items')}${findings.length > distinct ? ` · ${findings.length} occurrences` : ''}`;
+}
+
+/** Short row/table summary of how many places and repeated detections a group covers. */
+export function groupOccurrenceSummary(group: FindingGroup): string | null {
+  if (group.issues.length > 1) return `${group.issues.length} affected locations${group.members.length > group.issues.length ? ` · ${group.members.length} occurrences` : ''}`;
+  if (group.members.length > 1) return `${group.members.length} occurrences`;
+  return null;
+}
 
 export function findingDomain(finding: Finding): string {
   if (finding.verifier === 'readiness') return 'Document quality';
@@ -34,14 +99,17 @@ export function groupFindings(findings: Finding[]): FindingGroup[] {
     const code = finding.evidenceGap?.code;
     const type = finding.location?.issueType || (/\brace conditions?\b/i.test(finding.title) ? 'race_condition' : null);
     const canonicalType = type === 'deep_nesting' ? 'cq-deep-nesting' : type === 'long_function' ? 'cq-long-function' : type || rule;
-    const identity = canonicalType ? `type:${canonicalType}` : code ? `gap:${code}` : `title:${findingDomain(finding)}:${finding.title.trim().toLocaleLowerCase()}`;
+    // Normalized titles let re-detections across Reviews ("Order ownership check
+    // missing." / "Order Ownership Check Missing") share one issue type even when
+    // successive Reviews attribute them to different domains.
+    const identity = canonicalType ? `type:${canonicalType}` : code ? `gap:${code}` : `title:${normalizeIssueTitle(finding.title)}`;
     const key = JSON.stringify([finding.projectId, finding.source, finding.verifier === 'readiness' ? 'readiness' : 'review', identity]);
     const title = type === 'race_condition' ? 'Race Condition Risk' : (canonicalType && RULE_TITLES[canonicalType]) || (code && GAP_TITLES[code]) || finding.title;
     const existing = groups.get(key);
     if (existing) existing.members.push(finding);
-    else groups.set(key, { key, title, representative: finding, members: [finding] });
+    else groups.set(key, { key, title, representative: finding, members: [finding], issues: [] });
   }
-  return foldRuleGroupsIntoModelIssues([...groups.values()]);
+  return foldRuleGroupsIntoModelIssues([...groups.values()]).map(group => ({ ...group, issues: clusterIssues(group.members) }));
 }
 
 const isRuleFinding = (finding: Finding) => Boolean(finding.location?.ruleId) && finding.verifier !== 'model';
