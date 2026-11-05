@@ -2036,7 +2036,37 @@ function calleeName(call: ts.CallExpression): string | undefined {
   return undefined;
 }
 
-type RouteHandlerResolution = { handler?: FunctionEntry; runtimeBoundaryReason?: string };
+type RouteHandlerResolution = { handler?: FunctionEntry; runtimeBoundaryReason?: string; externalBoundaryReason?: string };
+
+/** The bare npm package an imported identifier comes from, or undefined for local or relative imports. */
+function externalPackageOfImport(identifier: ts.Identifier, context: CallbackResolverContext): string | undefined {
+  const symbol = context.checker.getSymbolAtLocation(identifier);
+  if (!symbol || !isImportSymbol(symbol) || context.mutatedSymbols.has(symbol)) return undefined;
+  const declarations = symbol.declarations ?? [];
+  if (declarations.length !== 1) return undefined;
+  let node: ts.Node | undefined = declarations[0];
+  while (node && !ts.isImportDeclaration(node)) node = node.parent;
+  if (!node || !ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) return undefined;
+  const specifier = node.moduleSpecifier.text;
+  // Relative, absolute and URL imports may name selected sources; only bare package names are external.
+  if (!/^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/i.test(specifier) || specifier.startsWith('.')) return undefined;
+  return specifier;
+}
+
+/**
+ * A route handler built by calling a factory imported from a third-party
+ * package (for example `router.get('/', playground({ ... }))`). Its body is
+ * outside the selected sources: an explicit external boundary, never a
+ * resolved body and never absence-resolution proof.
+ */
+function externalPackageHandler(expression: ts.Expression, context: CallbackResolverContext): RouteHandlerResolution {
+  let callee: ts.Expression = expression;
+  if (ts.isCallExpression(callee)) callee = callee.expression;
+  while (ts.isPropertyAccessExpression(callee)) callee = callee.expression;
+  if (!ts.isIdentifier(callee)) return {};
+  const specifier = externalPackageOfImport(callee, context);
+  return specifier ? { externalBoundaryReason: `The route handler is created by the third-party package "${specifier.slice(0, 120)}"; its implementation is outside the selected sources.` } : {};
+}
 
 function selectedLocalWrapperCallback(
   wrapperCall: ts.CallExpression,
@@ -2086,9 +2116,11 @@ function directHandler(call: ts.CallExpression, parsed: ParsedArtifact, context:
     const resolved = resolveCallbackExpression(expression, parsed, context);
     return resolved.status === 'resolved' && resolved.handlers.length === 1
       ? { handler: resolved.handlers[0], ...(resolved.runtimeBoundaryReason ? { runtimeBoundaryReason: resolved.runtimeBoundaryReason } : {}) }
-      : {};
+      : externalPackageHandler(expression, context);
   }
-  return ts.isCallExpression(expression) ? selectedLocalWrapperCallback(expression, parsed, context) : {};
+  if (!ts.isCallExpression(expression)) return {};
+  const wrapped = selectedLocalWrapperCallback(expression, parsed, context);
+  return wrapped.handler ? wrapped : externalPackageHandler(expression, context);
 }
 
 function safeSummary(value: unknown): string {
@@ -2286,7 +2318,9 @@ export function deriveReviewAnalysisMap(
           addDraft(`Route ${routeLabel}`, handler, refs,
             routeKey, undefined, undefined, undefined,
             handler && routeHandler.runtimeBoundaryReason
-              ? { handlers: [handler], callbackRuntimeBoundaryReason: routeHandler.runtimeBoundaryReason } : undefined);
+              ? { handlers: [handler], callbackRuntimeBoundaryReason: routeHandler.runtimeBoundaryReason }
+              : !handler && routeHandler.externalBoundaryReason
+                ? { externalCallbackBoundaryReason: routeHandler.externalBoundaryReason } : undefined);
           const routeDraft = drafts.find(item => item.key === routeKey);
           if (routeDraft && node.arguments.length > 2) routeDraft.middleware = true;
           if (!staticRoute) {
@@ -2380,7 +2414,9 @@ export function deriveReviewAnalysisMap(
     }
     if (externalCallbackBoundary) {
       const evidence = draft.refs.slice(0, 1);
-      addPath(feature, 'unresolved', 'The callback is supplied by a caller; its implementation is outside the selected frozen source set.', evidence);
+      addPath(feature, 'unresolved', draft.externalCallbackBoundaryReason!.startsWith('The route handler is created by the third-party package')
+        ? draft.externalCallbackBoundaryReason!
+        : 'The callback is supplied by a caller; its implementation is outside the selected frozen source set.', evidence);
       feature.unresolved.push({ reason: draft.externalCallbackBoundaryReason!, evidence });
     }
     if (handlers.length) {

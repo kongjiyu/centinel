@@ -12,6 +12,29 @@ function source(content: string, filePath = 'src/account.ts'): EvidenceArtifact 
 }
 
 describe('bounded feature and path analysis', () => {
+  it('maps a route handler built by a third-party package factory as an explicit external boundary', () => {
+    const map = deriveReviewAnalysisMap([source(`import express from "express";
+import expressPlayground from "graphql-playground-middleware-express";
+const router = express.Router();
+router.get("/", expressPlayground({ endpoint: "/graphql" }));
+export default router;`, 'backend/gql-playground-routes.ts')]);
+    const route = map.features.find(feature => feature.label === 'Route GET /')!;
+    expect(route.entryPointStatus).toBe('external_boundary');
+    expect(route.unresolved.map(item => item.reason)).toContainEqual(expect.stringContaining('third-party package "graphql-playground-middleware-express"'));
+    expect(route.paths).toContainEqual(expect.objectContaining({ kind: 'unresolved', label: expect.stringContaining('outside the selected sources') }));
+  });
+
+  it('keeps a route handler factory from a relative or unknown import unresolved', () => {
+    const local = deriveReviewAnalysisMap([source(`import express from "express";
+import makeHandler from "./missing-factory";
+const router = express.Router();
+router.get("/", makeHandler({}));
+const unknown = (globalThis as any).factory;
+router.post("/x", unknown({}));`, 'backend/local-routes.ts')]);
+    expect(local.features.find(feature => feature.label === 'Route GET /')?.entryPointStatus).toBe('unresolved');
+    expect(local.features.find(feature => feature.label === 'Route POST /x')?.entryPointStatus).toBe('unresolved');
+  });
+
   it('routes only selected readable, successfully parsed JavaScript through plain-text logic units', () => {
     const valid = source('export function update() { return true; }', 'src/update.js');
     const map = deriveReviewAnalysisMap([valid], { plainTextArtifactIds: new Set([valid.artifact.id]) });
