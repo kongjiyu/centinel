@@ -30,9 +30,9 @@ Both feed one **quality report** (PDF, Markdown or JSON). The first part is writ
 
 ## Download and install
 
-> Centinel 0.1.1 is an early release for **macOS on Apple Silicon** (M1 or newer).
+> Centinel 0.2.0 is an early release for **macOS on Apple Silicon** (M1 or newer).
 
-1. Download `Centinel_0.1.1_aarch64.dmg` from the [Releases page](https://github.com/kongjiyu/centinel/releases).
+1. Download `Centinel_0.2.0_aarch64.dmg` from the [Releases page](https://github.com/kongjiyu/centinel/releases).
 2. Open the DMG and drag **Centinel** into **Applications**.
 3. Open Centinel from Applications. The app is signed with a Developer ID and notarized by Apple, so macOS opens it without a security warning.
 
@@ -189,7 +189,7 @@ Risk levels mean:
 
 ## Requirements and limits
 
-- **Platform:** the 0.1.1 installer is macOS on Apple Silicon only. Other platforms can run from source.
+- **Platform:** the 0.2.0 installer is macOS on Apple Silicon only. Other platforms can run from source.
 - **AI model:** Review and Dynamic Testing need a configured model. Centinel stops instead of guessing when the provider is out of quota.
 - **Honest results:** if Centinel cannot verify part of the code, it says so rather than reporting a clean result. Very large repositories can take a long time and may end as *Failed* when some sections cannot be verified; the checks that did finish are still shown. Start with a focused project.
 - **What Review does not prove:** it reads code; it does not run every path. Pair it with Dynamic Testing for behaviour that matters.
