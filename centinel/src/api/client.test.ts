@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from './client';
+import { api, waitForSidecar } from './client';
 import { refreshSupabaseSession } from '../auth/supabaseAuth';
 
 vi.mock('../auth/supabaseAuth', () => ({ refreshSupabaseSession: vi.fn().mockResolvedValue(null) }));
@@ -40,6 +40,23 @@ describe('sidecar authentication response handling', () => {
     await expect(api.projects()).rejects.toMatchObject({ status: 401, code: 'unauthenticated' });
     expect(onExpired).toHaveBeenCalledTimes(1);
     window.removeEventListener('centinel:auth-expired', onExpired);
+  });
+
+  it('waits for the local service to start instead of failing the first load', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Load failed'))
+      .mockRejectedValueOnce(new TypeError('Load failed'))
+      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(waitForSidecar(10_000, sleep)).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls.map(call => call[0])).toEqual([250, 500]);
+  });
+
+  it('gives up after the timeout so the error screen can offer Retry', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Load failed')));
+    await expect(waitForSidecar(0, vi.fn().mockResolvedValue(undefined))).resolves.toBe(false);
   });
 
   it('renews an expired session once and retries instead of signing out', async () => {

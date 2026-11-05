@@ -115,8 +115,13 @@
 }
 
 .onboarding-step-content code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-hover);
+  color: var(--color-text);
   font-family: var(--font-technical);
   font-size: var(--font-size-meta);
+  white-space: nowrap;
 }
 
 .onboarding-step-content .onboarding-step-summary {
@@ -142,6 +147,8 @@
 }
 
 .onboarding-step-content .onboarding-status-warning { color: var(--color-warning); }
+
+.onboarding-step-content .onboarding-signin-link { color: var(--color-text-muted); font-size: var(--font-size-support); }
 
 .onboarding-spinner { animation: onboarding-spin 1s linear infinite; }
 @keyframes onboarding-spin { to { transform: rotate(360deg); } }
@@ -211,6 +218,91 @@
 }
 
 .onboarding-step-content .form-field { max-width: 720px; }
+
+/*
+ * Home runs in dashboard-mode, where the workspace layer's control styles do
+ * not apply. The guide carries the same DESIGN.md controls itself, so its
+ * buttons, fields and messages match every other screen.
+ */
+.onboarding-panel .btn-primary,
+.onboarding-panel .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: var(--radius-control, 8px);
+  font: inherit;
+  font-size: var(--font-size-dense);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition-property: background-color, border-color, color;
+  transition-duration: 120ms;
+}
+
+.onboarding-panel .btn-primary {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.onboarding-panel .btn-primary:hover:not(:disabled) { border-color: var(--color-primary-hover); background: var(--color-primary-hover); }
+
+.onboarding-panel .btn-secondary {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.onboarding-panel .btn-secondary:hover:not(:disabled) { border-color: var(--color-primary); background: var(--color-surface-hover); }
+
+.onboarding-panel .btn-primary:disabled,
+.onboarding-panel .btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.onboarding-panel .btn-primary:focus-visible,
+.onboarding-panel .btn-secondary:focus-visible,
+.onboarding-panel .btn-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.onboarding-panel .btn-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: var(--font-size-dense);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.onboarding-panel .btn-link:hover { color: var(--color-primary-hover); text-decoration: underline; }
+
+.onboarding-panel textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control, 8px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-dense);
+  line-height: 1.5;
+}
+
+.onboarding-panel textarea:focus { outline: none; border-color: var(--color-focus); box-shadow: var(--focus-ring); }
+
+.onboarding-panel .form-success,
+.onboarding-panel .form-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-control, 8px);
+  font-size: var(--font-size-dense);
+  line-height: 20px;
+}
+
+.onboarding-panel .form-success { border: 1px solid rgba(21, 128, 61, 0.24); background: var(--color-success-subtle); color: var(--color-success); }
+.onboarding-panel .form-error { border: 1px solid rgba(185, 28, 28, 0.24); background: var(--color-danger-subtle); color: var(--color-danger); }
 
 @media (max-width: 720px) {
   .onboarding-header { flex-direction: column; }

@@ -62,6 +62,8 @@ type Props = {
   /** Reload projects and Model Provider settings after the wizard changes them. */
   onDataChanged: () => Promise<void> | void;
   onClose: () => void;
+  /** Lets Home refresh its own ChatGPT status once the guide connects. */
+  onChatgptConnected?: () => void;
 };
 
 type StepId = 'model' | 'project' | 'requirements' | 'review' | 'report';
@@ -77,7 +79,7 @@ type CodexModel = Awaited<ReturnType<typeof api.codexModels>>[number];
 const screenshotCapable = (model: CodexModel) => model.supportsImages && model.imageSupportKnown !== false;
 const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, onDataChanged, onClose }: Props) {
+export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, onDataChanged, onClose, onChatgptConnected }: Props) {
   const [record, setRecord] = useState<OnboardingRecord>(() => readOnboarding(accountId) ?? { status: 'active' });
   const update = useCallback((patch: Partial<OnboardingRecord>) => {
     setRecord(current => {
@@ -107,6 +109,8 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
   const usesCodex = aiSettings.some(setting => (setting.id === 'text' || setting.id === 'vision') && setting.provider === 'codex');
   const [codex, setCodex] = useState<Awaited<ReturnType<typeof api.codexStatus>> | null>(null);
   const [loginId, setLoginId] = useState<string | null>(null);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const loginStarted = useRef(0);
   const refreshCodex = useCallback(async () => {
     const next = await api.codexStatus();
@@ -114,8 +118,10 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
     return next;
   }, []);
   useEffect(() => { void refreshCodex().catch(() => {}); }, [refreshCodex]);
+  // Until the ChatGPT status arrives, a saved Codex setting does not prove a live connection.
+  const codexChecking = usesCodex && codex === null;
   const codexDisconnected = usesCodex && codex !== null && !codex.connected;
-  const modelDone = textReady && !codexDisconnected;
+  const modelDone = textReady && !codexChecking && !codexDisconnected;
 
   const chooseModels = useCallback(async () => {
     const models = await api.codexModels();
@@ -148,6 +154,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
       void refreshCodex().then(status => {
         if (!status.connected || !mounted.current) return;
         setLoginId(null);
+        onChatgptConnected?.();
         void act('models', chooseModels);
       }).catch(() => { /* Keep waiting; sign-in may still finish. */ });
     }, 2000);
@@ -156,11 +163,13 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
 
   const connectChatgpt = () => act('connect', async () => {
     const status = await refreshCodex();
-    if (status.connected) { await chooseModels(); return; }
+    if (status.connected) { onChatgptConnected?.(); await chooseModels(); return; }
     if (!status.available) throw new Error(status.message || 'ChatGPT sign-in is unavailable on this device.');
     const login = await api.codexLogin();
     loginStarted.current = Date.now();
     setLoginId(login.loginId);
+    setAuthUrl(login.authUrl);
+    setLinkCopied(false);
     if (!await openExternalUrl(login.authUrl)) {
       await api.codexCancelLogin(login.loginId).catch(() => {});
       setLoginId(null);
@@ -197,7 +206,8 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
   }, []);
   useEffect(() => {
     if (!record.projectId) return;
-    void loadRequirements(record.projectId).catch(() => {});
+    // A failed read falls back to the extract action rather than an endless spinner.
+    void loadRequirements(record.projectId).catch(() => { if (mounted.current) setConfirmedCount(current => current ?? 0); });
   }, [record.projectId, loadRequirements]);
   const requirementsDone = (confirmedCount ?? 0) > 0;
 
@@ -294,7 +304,8 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
   const done: Record<StepId, boolean> = {
     model: modelDone,
     project: Boolean(project),
-    requirements: Boolean(project) && requirementsDone,
+    // A started Review already used confirmed requirements; don't offer extraction again.
+    requirements: Boolean(project) && (requirementsDone || Boolean(record.reviewId)),
     review: Boolean(record.reviewId),
     report: Boolean(report),
   };
@@ -316,7 +327,14 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
               : <button type="button" className="btn-primary" disabled={working} onClick={() => void connectChatgpt()}>{busy === 'connect' || busy === 'models' ? 'Connecting…' : 'Connect ChatGPT'}</button>}
             <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'settings' })}>Use an API key instead</button>
           </div>
+          {codexChecking && !loginId && <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> Checking your ChatGPT connection…</p>}
           {loginId && <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> Waiting for ChatGPT sign-in…</p>}
+          {loginId && authUrl && <p className="onboarding-signin-link">
+            Browser didn't open, or you closed the page?{' '}
+            <button type="button" className="btn-link" onClick={() => { void openExternalUrl(authUrl); }}>Open the sign-in page again</button>
+            {' · '}
+            <button type="button" className="btn-link" onClick={() => { void navigator.clipboard?.writeText(authUrl).then(() => { if (mounted.current) setLinkCopied(true); }).catch(() => {}); }}>{linkCopied ? 'Link copied' : 'Copy link'}</button>
+          </p>}
         </>;
       case 'project':
         return <>
@@ -326,6 +344,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
           </div>
         </>;
       case 'requirements':
+        if (confirmedCount === null) return <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> Checking requirements…</p>;
         return <>
           <p>Centinel checks code only against requirements you confirm. Extract the candidates from <code>docs/requirements.md</code>, read them, and confirm the ones that are right.</p>
           {candidates.length > 0 ? <>
@@ -350,7 +369,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
           </> : <div className="onboarding-actions">
             <button type="button" className="btn-primary" disabled={working} onClick={() => void extract()}>{busy === 'extract' ? 'Extracting requirements…' : 'Extract requirements'}</button>
           </div>}
-          {busy === 'extract' && <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> Reading requirements.md with AI. This usually takes under a minute.</p>}
+          {busy === 'extract' && <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> Reading requirements.md with AI. This usually takes one to three minutes.</p>}
         </>;
       case 'review':
         return <>
@@ -399,7 +418,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
     switch (step) {
       case 'model': return codex?.accountLabel ? `Connected as ${codex.accountLabel}` : 'Model Provider is ready';
       case 'project': return project ? `${project.name} is ready` : '';
-      case 'requirements': return `${confirmedCount ?? 0} confirmed ${confirmedCount === 1 ? 'requirement' : 'requirements'}`;
+      case 'requirements': return confirmedCount === null ? 'Requirements confirmed' : `${confirmedCount} confirmed ${confirmedCount === 1 ? 'requirement' : 'requirements'}`;
       case 'review': return record.runId ? 'Review and browser test started' : 'Review started';
       case 'report': return 'Report created';
     }

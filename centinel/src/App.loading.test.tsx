@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api } from './api/client';
 
-vi.mock('./api/client', () => ({ api: { projects: vi.fn(), aiSettings: vi.fn(), githubStatus: vi.fn() } }));
+vi.mock('./api/client', () => ({ api: { projects: vi.fn(), aiSettings: vi.fn(), githubStatus: vi.fn() }, waitForSidecar: vi.fn().mockResolvedValue(true) }));
 vi.mock('./auth/supabaseAuth', () => ({ isSupabaseAuthConfigured: () => false, signOutSupabase: vi.fn().mockResolvedValue(undefined), restoreSupabaseSession: vi.fn(), subscribeToDeepLinkAuth: vi.fn(), subscribeToSupabaseAuth: vi.fn() }));
 vi.mock('./screens/AuthScreen', () => ({ AuthScreen: ({ onSignIn }: any) => <button onClick={() => onSignIn('person@example.test')}>Sign in</button> }));
 vi.mock('./components/AppShell', () => ({ AppShell: ({ children }: any) => <main>{children}</main> }));
