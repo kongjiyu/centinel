@@ -21,6 +21,9 @@ function finishedAt(session: StaticSession): string | null {
   try {
     const progress = JSON.parse(session.progressJson || '{}') as { stage?: unknown; updatedAt?: unknown };
     if (progress.stage === 'complete' && typeof progress.updatedAt === 'string') return progress.updatedAt;
+    // Summary lists carry only the stage; the row's last update is when it finished
+    // (or a later decision, which can only lengthen the estimate).
+    if (progress.stage === 'complete' && session.updatedAt) return session.updatedAt;
   } catch { /* An unreadable progress record has no finish time. */ }
   return null;
 }

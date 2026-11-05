@@ -668,7 +668,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       run: async () => onNavigate({ name: 'review-activity', projectId: project.id, sessionId: review.id, reviewName: review.name }),
     };
     if (plan.kind === 'compare') return {
-      hint: `Starts a Review of the updated sources compared with “${review.name}”. This finding updates when it completes.`,
+      hint: `Prepares a Review of your updated code compared with “${review.name}”; start it to check whether this is fixed. This finding updates when it completes.`,
       run: async () => onNavigate({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: review.id }),
     };
     return {

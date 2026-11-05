@@ -235,6 +235,7 @@
   font: inherit;
   font-size: var(--font-size-dense);
   font-weight: 600;
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
   transition-property: background-color, border-color, color;

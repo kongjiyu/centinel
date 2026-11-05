@@ -197,6 +197,12 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
         </div>
       </header>
 
+      {/* The main next step for most users: hand the fix to their AI coding tool. */}
+      <section className="finding-document-section finding-fix" aria-label="Fix this issue">
+        <h4>Fix this issue</h4>
+        <FixPromptAction finding={selected} title={group.title} />
+      </section>
+
       {!commonRecommendation && <section className="finding-document-section finding-occurrence-action" aria-label="Recommended action">
         <h4>What to do</h4>
         <p>{selected.recommendation.trim() || 'No recommendation was recorded for this occurrence.'}</p>
@@ -218,11 +224,6 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
       {!commonDescription && selected.evidenceText && !selected.filePath && <section className="finding-document-section finding-occurrence-evidence-text" aria-label="Recorded evidence">
         <h4>Recorded evidence</h4><pre>{selected.evidenceText}</pre>
       </section>}
-
-      <section className="finding-document-section finding-fix" aria-label="Fix this issue">
-        <h4>Fix this issue</h4>
-        <FixPromptAction finding={selected} title={group.title} />
-      </section>
 
       <section className="finding-document-section finding-verification" aria-label="How to verify resolution">
         <h4>How to verify resolution</h4>

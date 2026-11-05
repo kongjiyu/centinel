@@ -17,7 +17,9 @@ export function projectReadinessFindings(status: ProjectReadinessStatus | null):
 
 function mapReadinessGap(assessmentId: string, assessedAt: string, projectId: string, gap: ReadinessGap): Finding {
   const firstReference = gap.references[0] ?? null;
-  const evidenceText = gap.references.map(reference => `Source: ${reference.path}${reference.sourceVersion ? `\nVersion: ${reference.sourceVersion}` : ''}\n${reference.excerpt}`).join('\n\n');
+  // Readiness cites confirmed requirements by ID; show people a name, not a UUID path.
+  const label = (path: string) => /^requirement\/[0-9a-f-]{8,}$/i.test(path) ? 'Confirmed requirement' : path;
+  const evidenceText = gap.references.map(reference => `Source: ${label(reference.path)}${reference.sourceVersion ? `\nVersion: ${reference.sourceVersion}` : ''}\n${reference.excerpt}`).join('\n\n');
   const blocking = gap.severity === 'blocking';
 
   return {
@@ -38,11 +40,11 @@ function mapReadinessGap(assessmentId: string, assessedAt: string, projectId: st
     createdAt: assessedAt,
     updatedAt: assessedAt,
     artifactId: firstReference?.artifactId ?? null,
-    relatedSources: gap.references.map(reference => ({ artifactId: reference.artifactId, filePath: reference.path, sourceVersion: reference.sourceVersion,
+    relatedSources: gap.references.map(reference => ({ artifactId: reference.artifactId, filePath: label(reference.path), sourceVersion: reference.sourceVersion,
       excerpt: reference.excerpt, relation: gap.category === 'repository' ? 'code' : gap.category === 'requirements' ? 'requirement' : 'document' })),
     category: `Readiness · ${CATEGORY_LABELS[gap.category]}`,
     fromRemarks: false,
-    filePath: firstReference?.path ?? '',
+    filePath: firstReference ? label(firstReference.path) : '',
     lineNumber: null,
   };
 }

@@ -65,6 +65,15 @@ describe('finding type grouping', () => {
     const gap = (id: string, requirementId: string) => finding(id, { filePath: '', lineNumber: null, evidenceGap: { assessmentId: 'a', code: 'traceability_mappings_incomplete' }, requirementId, title: 'Mapping missing' });
     expect(groupFindings([gap('g1', 'R1'), gap('g2', 'R1'), gap('g3', 'R2')])[0].issues.map(issue => issue.occurrences.length)).toEqual([2, 1]);
   });
+  it('counts requirement gaps and readiness notes apart from flagged code items', () => {
+    const gap = (id: string, requirementId: string) => finding(id, { filePath: '', lineNumber: null, evidenceGap: { assessmentId: 'a', code: 'traceability_mappings_incomplete' }, requirementId, title: 'Incomplete Requirement Coverage' });
+    const rows = [
+      finding('c1', { verifier: 'model', title: 'Missing Order Ownership Check', filePath: 'server.js', lineNumber: 76 }),
+      ...Array.from({ length: 21 }, (_, index) => gap(`g${index}`, `R${index}`)),
+      finding('ready', { verifier: 'readiness', evidenceGap: { assessmentId: 'r', code: 'scope' }, title: 'Project scope coverage is incomplete', filePath: 'README.md', lineNumber: null }),
+    ];
+    expect(findingCountSummary(rows)).toBe('1 issue type · 1 flagged item · 21 evidence gaps · 1 readiness note');
+  });
   it('merges differently worded or typed re-detections at one place, as seen in the Sample Shop runs', () => {
     const model = (id: string, sessionId: string, title: string, filePath: string, lineNumber: number, issueType?: string) => finding(id, { sessionId, verifier: 'model', category: 'security', title, filePath, lineNumber, location: issueType ? { issueType } : {} });
     const rows = [
