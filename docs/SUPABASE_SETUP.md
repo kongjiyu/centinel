@@ -16,6 +16,23 @@ authenticated durable store and private report/evidence storage.
    Review's frozen artifact versions. The final migration adds a private
    cleanup manifest for project and artifact deletion; apply it before using
    those actions in the updated desktop app.
+
+   Two migrations require Storage's operation-aware policy helper
+   `storage.allow_any_operation`, and stop with an error if it is missing.
+   Hosted Supabase projects have it. A local stack started with Supabase
+   CLI 2.84 or 3.0 pins storage-api v1.44.11, which does not; pin a newer image
+   before `supabase start` (checked with v1.89.13, which applies all migrations):
+
+   ```bash
+   echo v1.89.13 > supabase/.temp/storage-version
+   ```
+
+   `202610130006_source_sync_worker_leases.sql` was previously numbered
+   `202610130001`, the same version as the Dynamic mission migration, which
+   broke `supabase db reset` and `db push`. A database that already ran it
+   under the old number sees 202610130006 as pending; it only adds columns,
+   constraints, an index and functions if they are missing or unchanged, so
+   applying it again (`supabase db push --include-all`) is safe.
 3. Copy `.env.example` to `.env` at the repository root and fill in
    `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `VITE_SUPABASE_URL`, and
    `VITE_SUPABASE_ANON_KEY`. Use your project's publishable key for the public

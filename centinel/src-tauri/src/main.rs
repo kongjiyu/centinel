@@ -49,9 +49,14 @@ fn sidecar_already_running() -> bool {
 /// Apps opened from Finder get a minimal PATH. Add the usual install
 /// locations so the sidecar can find the Codex CLI and other tools.
 fn tool_path() -> String {
-    let mut parts: Vec<String> = std::env::var("PATH")
-        .unwrap_or_default()
-        .split(':')
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    let path = std::env::var("PATH").unwrap_or_default();
+    if cfg!(windows) {
+        // Windows apps inherit the full user PATH; the Unix locations below do not apply.
+        return path;
+    }
+    let mut parts: Vec<String> = path
+        .split(separator)
         .filter(|part| !part.is_empty())
         .map(String::from)
         .collect();

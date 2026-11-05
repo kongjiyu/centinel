@@ -136,7 +136,8 @@
 }
 .finding-fix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .finding-copy-fix { min-width: 160px; }
-.finding-recheck-result { margin: 0 0 8px; padding: 10px 12px; border-left: 3px solid var(--workspace-success); background: var(--workspace-success-subtle); color: var(--workspace-text); font-size: var(--font-size-dense); line-height: 20px; }
+.finding-recheck-result { display: grid; justify-items: start; gap: 8px; margin: 0 0 8px; padding: 10px 12px; border-left: 3px solid var(--workspace-success); background: var(--workspace-success-subtle); color: var(--workspace-text); font-size: var(--font-size-dense); line-height: 20px; }
+.finding-recheck-result p { margin: 0; }
 .finding-verification-hint { color: var(--workspace-text-muted); font-size: var(--font-size-support); }
 .finding-fix-fallback { display: grid; gap: 8px; margin-top: 12px; }
 .finding-fix-fallback p { color: var(--workspace-danger); }

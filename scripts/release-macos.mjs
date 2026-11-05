@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Builds a signed and notarized macOS disk image for distribution.
 //
-//   pnpm release:mac
+//   pnpm release:mac                                  # this Mac's architecture
+//   pnpm release:mac --target x86_64-apple-darwin     # Intel build on Apple silicon
+//   pnpm release:mac --target aarch64-apple-darwin
+//
+// Build each architecture in turn; latest.json keeps the entries for both.
 //
 // Requirements (one-time, on the release machine):
 //   - A "Developer ID Application" certificate in the login keychain.
@@ -22,10 +26,11 @@
 //   NOTARY_PROFILE          notarytool keychain profile (default: centinel-notary)
 //   RELEASE_NOTES           Text for latest.json "notes" (default: a link to the release page)
 //
-// Outputs in dist/release/: the notarized DMG, Centinel.app.tar.gz (the
-// stapled app for in-app updates), its .sig, and latest.json. Upload all four
-// to the GitHub release tagged v<version>; the app reads
-// releases/latest/download/latest.json.
+// Outputs in dist/release/, per architecture: the notarized DMG,
+// Centinel_<arch>.app.tar.gz (the stapled app for in-app updates) and its
+// .sig, plus one latest.json covering every architecture built for this
+// version. Upload them all to the GitHub release tagged v<version>; the app
+// reads releases/latest/download/latest.json.
 //
 // notarytool reads its credentials from the keychain; this script never prints
 // or stores any key or password.
@@ -39,16 +44,21 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tauriDir = path.join(root, 'centinel/src-tauri');
 const version = JSON.parse(fs.readFileSync(path.join(tauriDir, 'tauri.conf.json'), 'utf8')).package.version;
-const app = path.join(tauriDir, 'target/release/bundle/macos/Centinel.app');
+const hostTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+const targetIndex = process.argv.indexOf('--target');
+const triple = targetIndex >= 0 ? process.argv[targetIndex + 1] : hostTriple;
+if (!['aarch64-apple-darwin', 'x86_64-apple-darwin'].includes(triple)) throw new Error(`Unsupported target ${triple}. Use aarch64-apple-darwin or x86_64-apple-darwin.`);
+const crossBuild = targetIndex >= 0;
+const archLabel = triple.startsWith('aarch64') ? 'aarch64' : 'x64';
+const app = path.join(tauriDir, crossBuild ? `target/${triple}/release/bundle/macos/Centinel.app` : 'target/release/bundle/macos/Centinel.app');
 const outDir = path.join(root, 'dist/release');
-const dmg = path.join(outDir, `Centinel_${version}_${process.arch === 'arm64' ? 'aarch64' : 'x64'}.dmg`);
+const dmg = path.join(outDir, `Centinel_${version}_${archLabel}.dmg`);
 const profile = process.env.NOTARY_PROFILE?.trim() || 'centinel-notary';
-const updaterArchive = path.join(outDir, 'Centinel.app.tar.gz');
+const updaterArchive = path.join(outDir, `Centinel_${archLabel}.app.tar.gz`);
 const updaterManifest = path.join(outDir, 'latest.json');
 const releaseUrl = `https://github.com/kongjiyu/centinel/releases/download/v${version}`;
 const codex = path.join(app, 'Contents/MacOS/codex');
-const triple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
-const updaterPlatform = process.arch === 'arm64' ? 'darwin-aarch64' : 'darwin-x86_64';
+const updaterPlatform = archLabel === 'aarch64' ? 'darwin-aarch64' : 'darwin-x86_64';
 
 function run(command, args, options = {}) {
   return execFileSync(command, args, { stdio: 'inherit', cwd: root, ...options });
@@ -138,7 +148,7 @@ const env = { ...process.env, APPLE_SIGNING_IDENTITY: identity };
 delete env.TAURI_PRIVATE_KEY;
 delete env.TAURI_KEY_PASSWORD;
 step('Building the sidecar');
-run('node', ['scripts/bundle-sidecar.mjs'], { env });
+run('node', ['scripts/bundle-sidecar.mjs', '--target', triple], { env });
 
 step('Signing the bundled Codex CLI with the hardened runtime');
 const bundledCodex = path.join(tauriDir, `binaries/codex-${triple}`);
@@ -147,7 +157,7 @@ run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', ide
 requireReleaseSignature(bundledCodex, 'The bundled Codex CLI');
 
 step('Building the signed app');
-run('pnpm', ['tauri', 'build', '--bundles', 'app'], { cwd: path.join(root, 'centinel'), env });
+run('pnpm', ['tauri', 'build', '--bundles', 'app', ...(crossBuild ? ['--target', triple] : [])], { cwd: path.join(root, 'centinel'), env });
 
 step('Verifying the app signature');
 run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
@@ -201,11 +211,15 @@ signUpdaterArchive(updaterArchive, updaterEnv);
 if (!fs.existsSync(`${updaterArchive}.sig`)) throw new Error('The Tauri signer did not write Centinel.app.tar.gz.sig.');
 
 step('Writing latest.json');
+// Keep the other architecture's entry when it was built for the same version.
+let previous = null;
+try { previous = JSON.parse(fs.readFileSync(updaterManifest, 'utf8')); } catch { previous = null; }
 const manifest = {
   version,
   notes: process.env.RELEASE_NOTES?.trim() || `See https://github.com/kongjiyu/centinel/releases/tag/v${version}`,
   pub_date: new Date().toISOString(),
   platforms: {
+    ...(previous?.version === version ? previous.platforms : {}),
     [updaterPlatform]: {
       signature: fs.readFileSync(`${updaterArchive}.sig`, 'utf8').trim(),
       url: `${releaseUrl}/${path.basename(updaterArchive)}`,

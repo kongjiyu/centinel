@@ -28,6 +28,8 @@ export type FindingRecheck = {
   run: () => Promise<void>;
   /** What the newest comparison Review said about this finding, in plain language. */
   latestResult?: string | null;
+  /** Closes the finding after the person confirms they fixed it; offered with latestResult. */
+  markResolved?: () => Promise<void>;
 };
 
 function FixPromptAction({ finding, title }: { finding: Finding; title: string }) {
@@ -67,7 +69,13 @@ function FixPromptAction({ finding, title }: { finding: Finding; title: string }
 function RecheckAction({ recheck, findingId }: { recheck: FindingRecheck; findingId: string }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setError(null); }, [findingId]);
+  const [resolving, setResolving] = useState(false);
+  useEffect(() => { setError(null); setResolving(false); }, [findingId]);
+  const resolve = async () => {
+    if (resolving || !recheck.markResolved) return;
+    setResolving(true);
+    try { await recheck.markResolved(); } finally { setResolving(false); }
+  };
   const run = async () => {
     if (starting) return;
     setStarting(true);
@@ -77,7 +85,10 @@ function RecheckAction({ recheck, findingId }: { recheck: FindingRecheck; findin
     finally { setStarting(false); }
   };
   return <>
-    {recheck.latestResult && <p className="finding-recheck-result" role="status">{recheck.latestResult}</p>}
+    {recheck.latestResult && <div className="finding-recheck-result" role="status">
+      <p>{recheck.latestResult}</p>
+      {recheck.markResolved && <button type="button" className="btn-secondary finding-recheck-resolve" disabled={resolving} onClick={() => void resolve()}>{resolving ? 'Marking as resolved…' : 'I fixed it — mark as resolved'}</button>}
+    </div>}
     <p><button type="button" className="btn-secondary finding-recheck" onClick={() => void run()} disabled={starting} aria-describedby="finding-recheck-hint">{starting ? 'Starting re-check…' : 'Re-check'}</button> <span id="finding-recheck-hint" className="finding-verification-hint">{recheck.hint}</span></p>
     {error && <p className="finding-recheck-error" role="alert">{error}</p>}
   </>;

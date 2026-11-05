@@ -43,7 +43,7 @@ type AttentionItem = {
   id: string;
   title: string;
   detail: string;
-  action: 'source' | 'findings' | 'activity' | 'actions' | 'review';
+  action: 'source' | 'findings' | 'activity' | 'actions' | 'review' | 'requirements';
   actionLabel: string;
   comparisonParentReviewId?: string;
   filter?: { category?: string; search?: string };
@@ -537,6 +537,19 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     return Array.from(groups.values()).sort((a, b) => b.sessions.size - a.sessions.size || a.label.localeCompare(b.label)).slice(0, 3);
   }, [projectFindings, staticSessions]);
 
+  // Before the first Review, point people at requirements: without confirmed ones
+  // the Review can only check code quality, not whether the code does what it should.
+  const needsFirstReview = staticSessions.length === 0 && dynamicSessions.length === 0 && artifacts.length > 0;
+  const [confirmedRequirementCount, setConfirmedRequirementCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!needsFirstReview || typeof api.listRequirements !== 'function') return;
+    let disposed = false;
+    void Promise.resolve(api.listRequirements(project.id))
+      .then(requirements => { if (!disposed) setConfirmedRequirementCount(Array.isArray(requirements) ? requirements.length : null); })
+      .catch(() => { if (!disposed) setConfirmedRequirementCount(null); });
+    return () => { disposed = true; };
+  }, [needsFirstReview, project.id]);
+
   const attentionItems = useMemo<AttentionItem[]>(() => {
     const items: AttentionItem[] = [];
     if (artifactsError) {
@@ -628,7 +641,17 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       });
     }
 
-    if (staticSessions.length === 0 && dynamicSessions.length === 0 && artifacts.length > 0) {
+    if (needsFirstReview && confirmedRequirementCount === 0) {
+      items.push({
+        id: 'requirements-missing',
+        title: 'Confirm what the project should do',
+        detail: 'Upload a requirements document, then extract and confirm its requirements so the Review checks the code against them. Without them, the Review checks code quality only.',
+        action: 'requirements',
+        actionLabel: 'Add requirements',
+      });
+    }
+
+    if (needsFirstReview) {
       items.push({
         id: 'first-review',
         title: 'Start the first Review',
@@ -639,7 +662,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     }
 
     return items;
-  }, [artifacts.length, artifactsError, dynamicSessions, lastSuccessfulReview, recurringPatterns, reviewSourceCurrency, staticSessions, unresolvedFindings]);
+  }, [artifactsError, artifacts.length, confirmedRequirementCount, dynamicSessions, lastSuccessfulReview, needsFirstReview, recurringPatterns, reviewSourceCurrency, staticSessions, unresolvedFindings]);
 
   const readinessFindings = useMemo(() => projectReadinessFindings(readinessStatus), [readinessStatus]);
   const latestSavedReview = useMemo(() => [...staticSessions].filter(review => !['queued', 'prepared', 'running'].includes(review.status)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id))[0], [staticSessions]);
@@ -747,6 +770,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     }
     if (item.action === 'review') {
       onNavigate({ name: 'review-entry', projectId: project.id, ...(item.comparisonParentReviewId ? { comparisonParentReviewId: item.comparisonParentReviewId } : {}) });
+      return;
+    }
+    if (item.action === 'requirements') {
+      onNavigate({ name: 'requirements', projectId: project.id });
       return;
     }
     if (item.action === 'activity') {
