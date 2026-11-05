@@ -38,23 +38,37 @@ Both feed one **quality report** (PDF, Markdown or JSON). The first part is writ
 
 On first launch Centinel starts its local service in the background and downloads the Chromium browser it uses for Dynamic Testing (a few hundred MB, once). Your local files stay in `~/Library/Application Support/com.centinel.app`.
 
+**Updates install themselves.** When a new version is published, Centinel shows **Update available** in the corner of the window. Click **Restart** and it downloads the signed update, replaces itself and reopens. You can also check under **Settings → App Version**. Updates are signed, and Centinel refuses any download whose signature doesn't match.
+
 ### What you also need
 
 - **A Centinel account.** Sign up inside the app with email, Google or GitHub.
-- **An AI model.** The easiest option is **Codex with ChatGPT**: install the [Codex CLI](https://github.com/openai/codex) (`brew install --cask codex` or `npm install -g @openai/codex`), then in Centinel go to **Settings → Model Provider → Connect Codex** and sign in with your ChatGPT account. No API key needed. You can also use any OpenAI-compatible API key instead.
+- **A ChatGPT account.** Centinel uses your ChatGPT plan for its AI. Click **Connect ChatGPT** (in the first-run guide, or under **Settings → Model Provider**) and sign in through your browser. You don't need an API key or any other install, because Centinel includes the official [Codex CLI](https://github.com/openai/codex) (Apache-2.0) for this connection. Usage counts toward your plan's limits. You can also use any OpenAI-compatible API key instead.
 - **An internet connection** for sign-in, saving projects and the AI model.
 
 ---
 
 ## Try it in 10 minutes with the Sample Shop
 
-This repository includes [`examples/sample-shop`](examples/sample-shop), a tiny web shop with sign-in, products and checkout, plus a [requirements document](examples/sample-shop/docs/requirements.md). It has **three bugs planted on purpose**, so you can see what Centinel finds.
+Centinel includes the Sample Shop ([`examples/sample-shop`](examples/sample-shop)), a tiny web shop with sign-in, products and checkout, plus a [requirements document](examples/sample-shop/docs/requirements.md). It has **three bugs planted on purpose**, so you can see what Centinel finds.
 
 <p align="center"><img src="docs/screenshots/sample-shop.jpg" alt="The Sample Shop: a product list with Add to cart buttons, a sign-in form and a cart" width="640"></p>
 
+### The first-run guide
+
+The first time you sign in, Home shows **Get started with the Sample Shop**. It walks you through five steps, one button each:
+
+1. **Connect ChatGPT.** Sign in through your browser. Centinel picks your plan's default model for Review and Dynamic Testing; you can change it later in Settings.
+2. **Create the Sample Shop project.** Centinel copies the shop to `~/Library/Application Support/com.centinel.app/samples/sample-shop`, runs it at <http://localhost:4100> and imports its code and requirements.
+3. **Confirm its requirements.** Centinel extracts candidates from `docs/requirements.md`. Untick any you disagree with, then confirm the rest.
+4. **Start a Review and a browser test.** The Review goal is filled in for you, and so is a browser test, *Sign-in page shows the login form*. It opens <http://localhost:4100> and checks that "Sign in" is visible.
+5. **Open the report.** When the Review finishes (about four minutes), create the report and download the PDF.
+
+Click **Skip** if you'd rather start with your own project. Centinel remembers that choice for your account. The steps below do the same thing by hand and explain each screen.
+
 ### 1. Start the Sample Shop
 
-You need [Node.js](https://nodejs.org/) 18 or newer. There is nothing to install:
+The first-run guide starts the shop for you. To run it yourself from a clone of this repository, you need [Node.js](https://nodejs.org/) 18 or newer and nothing else:
 
 ```bash
 git clone https://github.com/kongjiyu/centinel.git
@@ -70,7 +84,7 @@ Open Centinel and create an account, or sign in with Google or GitHub.
 
 <p align="center"><img src="docs/screenshots/sign-in.jpg" alt="Centinel sign-in screen with Google, GitHub and email options" width="640"></p>
 
-Then open **Settings → Model Provider**, click **Connect Codex**, sign in with ChatGPT and choose a model under **Review model** and **Dynamic testing model** (for example `GPT-5.6-Sol`).
+Then open **Settings → Model Provider**, click **Connect ChatGPT**, sign in and choose a model under **Review model** and **Dynamic testing model** (for example `GPT-5.6-Sol`).
 
 ### 3. Create a project
 
@@ -206,9 +220,19 @@ Set up Supabase (Auth redirects, migrations and Storage) with [`docs/SUPABASE_SE
 | `pnpm build` | Bundles the local service and Node.js runtime, then builds the desktop app. |
 | `pnpm release:mac` | Builds a signed, notarized macOS disk image in `dist/release/`. |
 
-`pnpm build` runs [`scripts/bundle-sidecar.mjs`](scripts/bundle-sidecar.mjs), which compiles the local service, installs its production dependencies and copies the Node.js runtime into the app. Only the public Supabase URL and publishable key are bundled; each installation creates its own encryption key on first launch.
+`pnpm build` runs [`scripts/bundle-sidecar.mjs`](scripts/bundle-sidecar.mjs), which compiles the local service, installs its production dependencies, copies the Node.js runtime and the Sample Shop into the app, and downloads the pinned official Codex CLI release. The build stops if the download's SHA-256 doesn't match the value pinned in the script. Only the public Supabase URL and publishable key are bundled; each installation creates its own encryption key on first launch.
 
-`pnpm release:mac` ([`scripts/release-macos.mjs`](scripts/release-macos.mjs)) needs a *Developer ID Application* certificate in your keychain and notarization credentials stored once with `xcrun notarytool store-credentials centinel-notary --apple-id <email> --team-id <TEAMID>`. It signs the app, the bundled Node.js runtime and native modules with the hardened runtime ([`entitlements.plist`](centinel/src-tauri/entitlements.plist)), notarizes and staples the disk image, and checks it with Gatekeeper.
+`pnpm release:mac` ([`scripts/release-macos.mjs`](scripts/release-macos.mjs)) needs:
+
+- a *Developer ID Application* certificate in your keychain;
+- notarization credentials, stored once with `xcrun notarytool store-credentials centinel-notary --apple-id <email> --team-id <TEAMID>`;
+- an updater key pair, generated once with `cd centinel && pnpm tauri signer generate -w ~/.tauri/centinel.key`. The public key goes in `updater.pubkey` in [`tauri.conf.json`](centinel/src-tauri/tauri.conf.json). Keep the private key out of the repository and export it before releasing:
+
+```bash
+export TAURI_PRIVATE_KEY=~/.tauri/centinel.key TAURI_KEY_PASSWORD='<password, empty if none>'
+```
+
+The script signs the app, the bundled Node.js runtime, the Codex CLI and native modules with the hardened runtime ([`entitlements.plist`](centinel/src-tauri/entitlements.plist)). It then notarizes and staples the disk image and the app, and checks them with Gatekeeper. Finally it writes `Centinel.app.tar.gz`, its `.sig` and `latest.json` to `dist/release/`. Upload all four files to the GitHub release `v<version>`; installed apps read `releases/latest/download/latest.json`.
 
 ---
 

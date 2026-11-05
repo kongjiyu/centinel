@@ -10,6 +10,12 @@
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
+## First-run guide and in-app update amendment (5 November 2026)
+
+At the user's request, Home shows a **Get started with the Sample Shop** panel above Action required for a new account, until the account skips or finishes it (remembered per account on this device). It is one panel with an ordered list of five steps — Connect ChatGPT, Create the Sample Shop project, Confirm its requirements, Start a Review and a browser test, Open the report — where only the current step expands with one primary action; finished steps show a one-line result. It uses the existing project, requirement-candidate, Review, Dynamic Testing and report APIs and real persisted data only. The Model Provider copy now says **Connect ChatGPT** and explains that it uses the user's ChatGPT plan through the bundled Codex CLI.
+
+The Tauri updater is active and signed. A non-blocking **Update available** prompt (bottom-left, so it never covers the Review progress toast) offers **Restart** and **Later**; nothing downloads until Restart. Settings → App Version shows **Restart to update** when a signed update is available and keeps **Open update** as the fallback. This supersedes the earlier statement that the updater is inactive.
+
 ## Project report amendment (1 November 2026)
 
 At the user's request, exported project and Review reports (PDF and Markdown) have two parts. **Part 1: Summary** is written for non-technical readers: a verdict (Fix before release, Needs attention, Looking good or Not checked yet), the key counts, an open-issue chart by risk level, what was checked, up to three next steps, the top issues explained and a risk-level glossary. **Part 2: Technical details** keeps the complete record of IDs, versions, timestamps, history, evidence and usage. Every summary value comes from `sidecar/src/report/summary.ts` and the report snapshot; nothing is estimated. The PDF embeds IBM Plex Sans and uses the §7 tokens and level colours. In the app, report exports show one shared `ReportExportCard`: a primary Download PDF, with Markdown and JSON as secondary links and storage/checksum facts under Technical details.

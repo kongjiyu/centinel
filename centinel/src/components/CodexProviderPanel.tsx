@@ -115,7 +115,7 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
         setModelError('');
       }
     } catch (cause) {
-      if (mounted.current) setStatusError(userFacingError(cause, 'Codex connection status could not be loaded.'));
+      if (mounted.current) setStatusError(userFacingError(cause, 'ChatGPT connection status could not be loaded.'));
     } finally {
       refreshing.current = false;
       if (mounted.current && showLoading) setStatusLoading(false);
@@ -157,7 +157,7 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
       await api.codexCancelLogin(login.loginId); setLoginId(null);
       throw new Error('The browser could not open. Check your default browser and try again.');
     }
-    setMessage('Finish ChatGPT sign-in in your browser. This page will update automatically.');
+    setMessage('Finish signing in to ChatGPT in your browser. This page updates by itself.');
   }
 
   async function selectFor(role: Role, selectedModel: string) {
@@ -176,10 +176,10 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
 
   return <section className="provider-form codex-provider-panel" aria-labelledby="codex-provider-heading">
     <div className="provider-form-header">
-      <h4 id="codex-provider-heading">Codex with ChatGPT</h4>
+      <h4 id="codex-provider-heading">ChatGPT</h4>
       <StatusBadge label={statusLoading ? 'Checking' : !status ? 'Unavailable' : status.connected ? 'Connected' : status.available ? 'Not connected' : 'Unavailable'} tone={status?.connected ? 'success' : 'warning'} />
     </div>
-    <p className="form-hint">Use your ChatGPT account for Review and Dynamic testing. Sign-in is saved for your Centinel account on this device. No API key is needed.</p>
+    <p className="form-hint">Sign in with ChatGPT to use your ChatGPT plan for Review and Dynamic testing. Requests count toward your plan’s usage limits, and no API key is needed. Centinel connects through the official Codex CLI included with the app. Sign-in is saved for your Centinel account on this device.</p>
     <dl className="codex-saved-assignments" aria-label="Saved model assignments">
       <div><dt>Review</dt><dd><code>{describeSavedModel(settings, 'text')}</code></dd></div>
       <div><dt>Dynamic testing</dt><dd><code>{describeSavedModel(settings, 'vision')}</code></dd></div>
@@ -188,9 +188,9 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
       ? <p className="form-hint">Connected as {status.accountLabel}</p>
       : status?.message && <p className="form-hint">{status.message}</p>}
     <div className="form-actions">
-      {!status?.connected && !loginId && <button className="btn-primary" type="button" disabled={disabled || statusLoading || !status?.available} onClick={() => void act('connect', connect)}>Connect Codex</button>}
+      {!status?.connected && !loginId && <button className="btn-primary" type="button" disabled={disabled || statusLoading || !status?.available} onClick={() => void act('connect', connect)}>Connect ChatGPT</button>}
       {loginId && <button className="btn-secondary" type="button" disabled={disabled} onClick={() => void act('cancel', async () => { await api.codexCancelLogin(loginId); setLoginId(null); setMessage('Sign-in cancelled.'); })}>Cancel sign-in</button>}
-      {status?.connected && <button className="btn-secondary" type="button" disabled={disabled} onClick={() => void act('disconnect', async () => { await api.codexLogout(); await refresh(true); setMessage('Codex disconnected on this device. Saved model selections need a new connection.'); })}>Disconnect Codex</button>}
+      {status?.connected && <button className="btn-secondary" type="button" disabled={disabled} onClick={() => void act('disconnect', async () => { await api.codexLogout(); await refresh(true); setMessage('ChatGPT disconnected on this device. Saved model selections need a new connection.'); })}>Disconnect ChatGPT</button>}
       <button className="btn-secondary" type="button" disabled={disabled || statusLoading} onClick={() => void act('refresh', () => refresh(true))}>Refresh connection</button>
     </div>
     {statusError && <p role="alert" className="form-error">{statusError}</p>}
@@ -198,7 +198,7 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
       <div className="codex-model-catalog-heading">
         <div>
           <h5>Available models</h5>
-          <p className="form-hint">Models come from the connected Codex account. The selected model is saved separately for each workflow.</p>
+          <p className="form-hint">Models come from the connected ChatGPT plan. The selected model is saved separately for each workflow.</p>
         </div>
         <button className="btn-secondary" type="button" disabled={disabled || modelCatalogState === 'loading'} onClick={() => void act('models', loadModels)}>
           {modelCatalogState === 'loading' ? 'Refreshing…' : 'Refresh models'}

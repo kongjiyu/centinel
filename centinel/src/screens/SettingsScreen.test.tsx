@@ -91,7 +91,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByText('Import and review shared documents and requirements.')).toBeInTheDocument();
     expect(screen.getByText('Connect repositories and pull request context to reviews.')).toBeInTheDocument();
     expect(screen.getByText('Share review updates and collaborate with your team.')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Connect Codex' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeEnabled());
     expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
     expect(screen.getByText('Current version')).toBeInTheDocument();
     expect(screen.getByText('Latest version')).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     });
 
     render(<SettingsScreen settings={[codexSetting]} onRefresh={onRefresh} />);
-    await screen.findByRole('button', { name: 'Connect Codex' });
+    await screen.findByRole('button', { name: 'Connect ChatGPT' });
     await screen.findByText('Tokens processed');
     const apiProvider = screen.getByRole('heading', { name: 'API provider' }).closest('.provider-form') as HTMLElement;
     expect(within(apiProvider).getByText(/Review uses Codex/)).toBeInTheDocument();

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { ReviewIllustration } from '../components/HomeIllustrations';
 import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
+import { OnboardingWizard, shouldShowOnboarding } from '../components/OnboardingWizard';
 import {
   formatActivityTime,
   timestamp,
@@ -32,6 +33,10 @@ type Props = {
   projects: Project[];
   aiSettings: AiProviderSetting[];
   onNavigate: (screen: Screen) => void;
+  /** Signed-in account; the first-run wizard remembers dismissal per account. */
+  accountId?: string | null;
+  /** Reloads projects and Model Provider settings after the wizard changes them. */
+  onDataChanged?: () => Promise<void> | void;
 };
 
 type Recommendation = {
@@ -59,7 +64,11 @@ function actionIconFor(action: ProjectAction): typeof Code2 {
   return FileWarning;
 }
 
-export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
+export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, onDataChanged }: Props) {
+  const onboardingAccount = accountId ?? 'local';
+  const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(onboardingAccount, projects));
+  // The account is known only after the session restores; re-evaluate for that account.
+  useEffect(() => { setShowOnboarding(shouldShowOnboarding(onboardingAccount, projects)); }, [onboardingAccount]); // eslint-disable-line react-hooks/exhaustive-deps
   const { summaries, loading, unavailable, reload } = useProjectSummaries(projects);
   const [recommendationIndex, setRecommendationIndex] = useState(0);
 
@@ -178,6 +187,17 @@ export function DashboardScreen({ projects, aiSettings, onNavigate }: Props) {
     <div className="screen dashboard-home">
       <h1 className="visually-hidden">Home</h1>
       <div className="home-background-art" aria-hidden="true"><ReviewIllustration /></div>
+
+      {showOnboarding && (
+        <OnboardingWizard
+          accountId={onboardingAccount}
+          projects={projects}
+          aiSettings={aiSettings}
+          onNavigate={onNavigate}
+          onDataChanged={onDataChanged ?? (() => {})}
+          onClose={() => setShowOnboarding(false)}
+        />
+      )}
 
       <div className="home-top-grid">
         <section className="home-panel highlights-panel" aria-labelledby="action-required-title">

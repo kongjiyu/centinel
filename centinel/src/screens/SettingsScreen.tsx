@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
+import { checkForAppUpdate, installUpdateAndRestart } from '../utils/appUpdate';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
 import { ApiError, api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
@@ -107,6 +108,8 @@ function AppVersionSection() {
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'current' | 'error'>('idle');
   const [latestRelease, setLatestRelease] = useState<LatestRelease | null>(null);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [installable, setInstallable] = useState(false);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -127,11 +130,14 @@ function AppVersionSection() {
     setLatestRelease(null);
     setUpdateMessage(null);
     try {
-      const release = await fetchLatestRelease();
+      const [release, signedUpdate] = await Promise.all([fetchLatestRelease(), checkForAppUpdate()]);
       setLatestRelease(release);
+      setInstallable(Boolean(signedUpdate));
       if (isNewerVersion(release.version, version)) {
         setUpdateState('available');
-        setUpdateMessage(`Version ${release.version} is available on GitHub.`);
+        setUpdateMessage(signedUpdate
+          ? `Version ${release.version} is available. Restart to download and install it.`
+          : `Version ${release.version} is available on GitHub.`);
       } else {
         setUpdateState('current');
         setUpdateMessage('Centinel is up to date.');
@@ -167,7 +173,19 @@ function AppVersionSection() {
             <RefreshCw size={14} aria-hidden="true" />
             {updateState === 'checking' ? 'Checking…' : 'Check for updates'}
           </button>
-          {updateState === 'available' && latestRelease && (
+          {updateState === 'available' && installable && (
+            <button type="button" className="btn-primary" disabled={installing} onClick={() => {
+              setInstalling(true);
+              void installUpdateAndRestart().catch(cause => {
+                setInstalling(false);
+                setUpdateState('error');
+                setUpdateMessage(userFacingError(cause, 'The update could not be installed. Download it from GitHub instead.'));
+              });
+            }}>
+              <RefreshCw size={14} aria-hidden="true" /> {installing ? 'Updating…' : 'Restart to update'}
+            </button>
+          )}
+          {updateState === 'available' && !installable && latestRelease && (
             <button type="button" className="btn-primary" onClick={() => { void openReleasePage(latestRelease.url); }}>
               <ExternalLink size={14} aria-hidden="true" /> Open update
             </button>

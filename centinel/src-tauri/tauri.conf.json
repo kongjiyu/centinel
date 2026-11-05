@@ -20,7 +20,9 @@
       },
       "fs": {
         "all": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       },
       "shell": {
         "all": false,
@@ -33,6 +35,10 @@
         "minimize": true,
         "close": true,
         "startDragging": true
+      },
+      "process": {
+        "all": false,
+        "relaunch": true
       }
     },
     "bundle": {
@@ -42,7 +48,10 @@
       "deb": {
         "depends": []
       },
-      "externalBin": ["binaries/centinel-node"],
+      "externalBin": [
+        "binaries/centinel-node",
+        "binaries/codex"
+      ],
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
@@ -59,7 +68,11 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": ["resources/sidecar/**/*"],
+      "resources": [
+        "resources/sidecar/**/*",
+        "resources/codex/**/*",
+        "resources/sample-shop/**/*"
+      ],
       "shortDescription": "",
       "targets": "all",
       "windows": {
@@ -72,7 +85,12 @@
       "csp": null
     },
     "updater": {
-      "active": false
+      "active": true,
+      "dialog": false,
+      "endpoints": [
+        "https://github.com/kongjiyu/centinel/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE0MzgxNUI3QTk0QkUzNDEKUldSQjQwdXB0eFU0cERjeFJEeThZazJac1NUQzFkOFZiaG9qK3JPVFpMNTkvWFZRNyt1Y2hCWVoK"
     },
     "windows": [
       {
