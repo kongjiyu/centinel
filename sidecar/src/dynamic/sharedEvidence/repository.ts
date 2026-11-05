@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import { DynamicContractError } from '../types.js';
 import { SHARED_EVIDENCE_BUCKET, MAX_SHARED_EVIDENCE_BYTES, type EvidenceCopy, type EvidenceTransfer } from './types.js';
 export class SharedEvidenceRepository {
-    constructor(private readonly client: SupabaseClient, private readonly storageClient: SupabaseClient = client) { }
+    /** A storage factory is resolved only when bytes move, so membership checks run before any storage configuration is required. */
+    constructor(private readonly client: SupabaseClient, private readonly storageSource: SupabaseClient | (() => SupabaseClient) = client) { }
+    private resolvedStorage: SupabaseClient | undefined;
+    private get storageClient(): SupabaseClient { return this.resolvedStorage ??= typeof this.storageSource === 'function' ? this.storageSource() : this.storageSource; }
     private async rpc(name: string, args: Record<string, unknown>) {
         const { data, error } = await this.client.rpc(name, args).abortSignal(AbortSignal.timeout(15000));
         if (error)

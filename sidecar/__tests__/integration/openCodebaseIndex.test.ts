@@ -33,7 +33,9 @@ describe('open-codebase-index public MCP adapter', () => {
   it('recovers saved failures only during an explicit second index call', async () => {
     const projectRoot = await makeTempDirectory('centinel-native-resume-');
     await fs.mkdir(path.join(projectRoot, 'src'));
-    for (let index = 0; index < 100; index++) await fs.writeFile(path.join(projectRoot, 'src', `calculation${index}.ts`),
+    // Upstream embeds 32 chunks per request: 40 one-function files give exactly two requests, so the
+    // injected second-request failure leaves a partial index without paying for cold parsing of 100 files.
+    for (let index = 0; index < 40; index++) await fs.writeFile(path.join(projectRoot, 'src', `calculation${index}.ts`),
       `export function calculate${index}(value: number) { return value + ${index}; }`);
     const initialSucceeded = new Set<string>(); const recoveredInputs: string[] = [];
     let calls = 0;

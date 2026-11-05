@@ -40,12 +40,21 @@ describe('separate bounded Vitest adapter', () => {
         try {
             const marker=path.join(f.root,'active.marker');
             const variables={CENTINEL_UNIT_CASE:'slow',CENTINEL_UNIT_MARKER:marker};
-            const timed=await runVitestWorkspace({...f.input,timeoutMs:2000,variables});
-            expect(timed.outcome).toBe('timeout');expect(timed.assessment).toBeNull();expect(fs.existsSync(marker)).toBe(true);fs.unlinkSync(marker);
+            // A timeout that fires while Vitest is still starting proves nothing about active work, and
+            // startup time depends on machine load. Each attempt must time out without an assessment; the
+            // budget doubles only until the timeout lands inside the running test body (marker written).
+            let budget=2000;
+            for(;;){
+                const timed=await runVitestWorkspace({...f.input,timeoutMs:budget,variables});
+                expect(timed.outcome).toBe('timeout');expect(timed.assessment).toBeNull();
+                if(fs.existsSync(marker))break;
+                expect(budget,'Vitest never reached the test body before the timeout').toBeLessThan(16000);budget*=2;
+            }
+            fs.unlinkSync(marker);
             const controller=new AbortController();const timer=setInterval(()=>{if(fs.existsSync(marker))controller.abort();},20);
             try{const cancelled=await runVitestWorkspace({...f.input,signal:controller.signal,variables});expect(fs.existsSync(marker)).toBe(true);expect(cancelled.outcome).toBe('cancelled');expect(cancelled.assessment).toBeNull();}finally{clearInterval(timer);}
         }finally{f.clean();}
-    },15000);
+    },60000);
     it('rejects missing dependencies, changed authorization, shell wrappers and escaping metadata', async () => { const f = fixture(); try {
         fs.unlinkSync(path.join(f.directory, 'node_modules'));
         expect((await runVitestWorkspace(f.input)).outcome).toBe('missing_dependencies');

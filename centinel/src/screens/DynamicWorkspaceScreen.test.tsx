@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { enterText } from '../testing/enterText';
 import { DynamicWorkspaceScreen } from './DynamicWorkspaceScreen';
 import { api } from '../api/client';
 import {createStaticContextFixture} from '../../../sidecar/src/dynamic/testing/staticContextStub';
@@ -21,16 +22,16 @@ const renderScreen = (runId?: string) => render(<DynamicWorkspaceScreen projects
 
 async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save test' })).toBeEnabled());
-  await user.type(screen.getByLabelText('Test name'), 'Sign-in smoke');
-  await user.type(screen.getByLabelText('Website address'), 'http://localhost:3000');
-  await user.type(screen.getByLabelText('Test goal'), 'Inspect sign-in form');
-  await user.type(screen.getByLabelText('Expected visible text'), 'Sign in');
+  await enterText(user,screen.getByLabelText('Test name'), 'Sign-in smoke');
+  await enterText(user,screen.getByLabelText('Website address'), 'http://localhost:3000');
+  await enterText(user,screen.getByLabelText('Test goal'), 'Inspect sign-in form');
+  await enterText(user,screen.getByLabelText('Expected visible text'), 'Sign in');
 }
 
 describe('Dynamic saved tests and run history', () => {
   it('saves explicit bounded exploration mode rather than changing historical execution implicitly',async()=>{const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Testing mode'}));await user.click(screen.getByRole('option',{name:'Bounded exploration'}));await user.click(screen.getByRole('button',{name:'Save test'}));await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({mode:'exploratory'}),undefined));});
   it('saves an explicit unchecked expectation with its CSS target',async()=>{
-    const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Verify'}));await user.click(screen.getByRole('option',{name:'Checked state'}));const selector=screen.getByLabelText('CSS selector');await user.clear(selector);await user.type(selector,'#agree');await user.click(screen.getByRole('combobox',{name:'Expected form state'}));await user.click(screen.getByRole('option',{name:'Not checked'}));await user.click(screen.getByRole('button',{name:'Save test'}));await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({checks:[expect.objectContaining({kind:'field_checked',selector:'#agree',expected:false,required:true})]}),undefined));
+    const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Verify'}));await user.click(screen.getByRole('option',{name:'Checked state'}));const selector=screen.getByLabelText('CSS selector');await user.clear(selector);await enterText(user,selector,'#agree');await user.click(screen.getByRole('combobox',{name:'Expected form state'}));await user.click(screen.getByRole('option',{name:'Not checked'}));await user.click(screen.getByRole('button',{name:'Save test'}));await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({checks:[expect.objectContaining({kind:'field_checked',selector:'#agree',expected:false,required:true})]}),undefined));
   });
 
   it('saves configured checks without executing a model until Run is selected', async () => {
@@ -107,7 +108,7 @@ describe('Dynamic saved tests and run history', () => {
   it('requires acknowledgment for exceptional input and persists exclusions with reasons',async()=>{
     const user=userEvent.setup();renderScreen();await fillDraft(user);await user.click(screen.getByRole('combobox',{name:'Criteria source'}));await user.click(screen.getByRole('option',{name:'Example requirements (development only)'}));await waitFor(()=>expect(screen.getByRole('button',{name:'Save test'})).toBeEnabled());
     await user.click(screen.getByRole('combobox',{name:'Mock input scenario'}));await user.click(screen.getByRole('option',{name:'Stale source'}));const acknowledgment=await screen.findByRole('checkbox',{name:/I acknowledge this snapshot/});expect(screen.getByRole('button',{name:'Save test'})).toBeDisabled();await user.click(acknowledgment);
-    await user.click(screen.getByRole('combobox',{name:'Requirement criterion'}));await user.click(screen.getByRole('option',{name:'After sign-out a protected page requires authentication.'}));await user.click(screen.getByText('Unselected criteria and exclusions'));await user.click(screen.getByRole('checkbox',{name:'Exclude An incomplete payment form cannot create a transaction.'}));await user.type(screen.getByLabelText('Reason for excluding MOCK-RWA-PAYMENT-01-C1'),'Payment outside read-only authentication scope');await user.click(screen.getByRole('button',{name:'Save test'}));
+    await user.click(screen.getByRole('combobox',{name:'Requirement criterion'}));await user.click(screen.getByRole('option',{name:'After sign-out a protected page requires authentication.'}));await user.click(screen.getByText('Unselected criteria and exclusions'));await user.click(screen.getByRole('checkbox',{name:'Exclude An incomplete payment form cannot create a transaction.'}));await enterText(user,screen.getByLabelText('Reason for excluding MOCK-RWA-PAYMENT-01-C1'),'Payment outside read-only authentication scope');await user.click(screen.getByRole('button',{name:'Save test'}));
     await waitFor(()=>expect(api.saveDynamicMission).toHaveBeenCalledWith('project-a',expect.objectContaining({context:expect.objectContaining({snapshotId:'mock-snapshot-rwa-stale'}),contextAcknowledged:true,criterionExclusions:[{criterionId:'MOCK-RWA-PAYMENT-01-C1',reason:'Payment outside read-only authentication scope'}]}),undefined));
   });
   it('preserves criterion options from the loaded revision instead of regenerating a normal fixture',async()=>{

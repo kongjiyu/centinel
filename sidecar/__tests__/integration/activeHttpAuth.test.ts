@@ -12,6 +12,7 @@ import { readClientArtifactContent } from '../../src/applicationApi.js';
 import { RefreshableSupabaseRuntime } from '../../src/runtime/supabaseRuntime.js';
 import { ConnectedSourceImporter } from '../../src/integrations/index.js';
 import { SourceIndexCoordinator } from '../../src/review/sourceIndexJobs.js';
+import { readZip } from '../../src/diagnostics/zip.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const otherId = '22222222-2222-4222-8222-222222222222';
@@ -327,6 +328,22 @@ describe('active sidecar HTTP bearer contract', () => {
     const response = await fetch(route, { method: 'POST', headers: { Authorization: 'Bearer owner-token' } });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: 'fail', message: 'The saved embedding configuration is incomplete.' });
+  });
+
+  it('exports diagnostics only for an authenticated caller and never echoes the bearer token', async () => {
+    const route = `${baseUrl}/diagnostics/export`;
+    const denied = await fetch(route, { method: 'POST', body: JSON.stringify({ appVersion: '0.2.0' }) });
+    expect(denied.status).toBe(401);
+    const response = await fetch(route, { method: 'POST', headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ appVersion: '0.2.0' }) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/zip');
+    expect(response.headers.get('content-disposition')).toMatch(/^attachment; filename="centinel-diagnostics-\d{8}-\d{6}\.zip"$/);
+    const archive = Buffer.from(await response.arrayBuffer());
+    const files = readZip(archive);
+    expect(JSON.parse(files.get('system.json')!)).toMatchObject({ appVersion: '0.2.0' });
+    // The earlier 401 is recorded as a code and route shape only.
+    expect(JSON.parse(files.get('errors.json')!)).toEqual(expect.arrayContaining([expect.objectContaining({ status: 401, code: 'unauthenticated', route: '/diagnostics/export' })]));
+    expect(archive.toString('latin1')).not.toContain('owner-token');
   });
 
   it('guards all local Dynamic endpoints with shared project membership', async () => {

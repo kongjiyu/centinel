@@ -54,6 +54,36 @@
 
 .help-note svg { flex: 0 0 auto; margin-top: 2px; color: var(--workspace-text-subtle); }
 
+
+
+.help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 14px;
+}
+
+.help-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.help-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--workspace-primary);
+  font-size: var(--font-size-support);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.help-link:hover { text-decoration: underline; }
+.help-link:focus-visible { outline: 2px solid var(--workspace-primary); outline-offset: 2px; border-radius: 4px; }
+.help-section p.help-error { color: var(--workspace-danger); }
+
 @media (max-width: 760px) {
   .help-sections { grid-template-columns: 1fr; }
   .help-section { padding: 16px; }
