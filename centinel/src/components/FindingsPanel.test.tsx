@@ -196,7 +196,7 @@ describe('FindingsPanel', () => {
   });
 
   it('supports numbered pages and ordered detail fields for Project Detail', async () => {
-    const findings = Array.from({ length: 6 }, (_, index) => ({ ...baseFinding, id: `f-page-${index}`, title: `Paged finding ${index + 1}`, severity: index === 0 ? 'critical' : 'low' }));
+    const findings = Array.from({ length: 6 }, (_, index) => ({ ...baseFinding, id: `f-page-${index}`, title: `Paged finding ${index + 1}`, filePath: `src/page-${index}.ts`, severity: index === 0 ? 'critical' : 'low' }));
     vi.mocked(api.listFindings).mockResolvedValue(findings);
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
@@ -283,7 +283,7 @@ describe('FindingsPanel', () => {
     const row = await screen.findByRole('row', { name: /Code Deep Nesting Issue/ });
     expect(screen.getAllByRole('row')).toHaveLength(2);
     expect(within(row).queryByText('Unresolved')).not.toBeInTheDocument();
-    expect(within(row).getByText('2 affected occurrences')).toBeInTheDocument();
+    expect(within(row).getByText('2 affected locations')).toBeInTheDocument();
     await user.click(row);
     const details = screen.getByRole('article', { name: 'Finding details' });
     await user.selectOptions(within(details).getByRole('combobox', { name: 'Location' }), 'f-2');

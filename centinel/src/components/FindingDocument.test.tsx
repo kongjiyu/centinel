@@ -98,4 +98,74 @@ describe('finding detail', () => {
     expect(screen.getByText('This is a candidate source location and needs verification.')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Reviewed source src/b.ts' }).querySelector('[data-line="5"]')).toHaveClass('is-uncertain');
   });
+
+  it('copies a fix prompt for the selected occurrence and confirms it', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const group = groupFindings([make('a', 'Use an atomic claim.')])[0];
+    render(<StatefulFindingDocument group={group} />);
+
+    const fix = screen.getByRole('region', { name: 'Fix this issue' });
+    await user.click(within(fix).getByRole('button', { name: 'Copy fix prompt' }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const prompt = writeText.mock.calls[0][0] as string;
+    expect(prompt).toContain('Issue: Race condition in request handling');
+    expect(prompt).toContain('Location: src/a.ts:5');
+    expect(prompt).toContain('await insert();');
+    expect(prompt).toContain('What to do:\nUse an atomic claim.');
+    expect(prompt).not.toContain('artifact-a');
+    expect(within(fix).getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Fix prompt copied to the clipboard.');
+  });
+
+  it('shows the prompt for manual copying when the clipboard is unavailable', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true });
+    Object.defineProperty(document, 'execCommand', { value: vi.fn().mockReturnValue(false), configurable: true });
+    render(<StatefulFindingDocument group={groupFindings([make('a', 'Use an atomic claim.')])[0]} />);
+    await user.click(screen.getByRole('button', { name: 'Copy fix prompt' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('clipboard is unavailable');
+    expect((screen.getByLabelText('Fix prompt') as HTMLTextAreaElement).value).toContain('Location: src/a.ts:5');
+  });
+
+  it('starts the host re-check and reports a failure beside the action', async () => {
+    const user = userEvent.setup();
+    const run = vi.fn().mockRejectedValueOnce(new Error('The retry request could not be created.')).mockResolvedValueOnce(undefined);
+    const recheckFor = vi.fn(() => ({ hint: 'Creates a linked attempt with the current sources.', run }));
+    const group = groupFindings([make('a', 'Use an atomic claim.')])[0];
+    render(<FindingDocument group={group} selectedId="a" onSelect={vi.fn()} onBack={vi.fn()} actions={() => null} recheckFor={recheckFor} />);
+
+    const verification = screen.getByRole('region', { name: 'How to verify resolution' });
+    expect(verification).toHaveTextContent('Creates a linked attempt with the current sources.');
+    await user.click(within(verification).getByRole('button', { name: 'Re-check' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The retry request could not be created.');
+    await user.click(within(verification).getByRole('button', { name: 'Re-check' }));
+    expect(run).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(recheckFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }));
+  });
+
+  it('hides re-check when the host offers none', () => {
+    render(<FindingDocument group={groupFindings([make('a', 'x')])[0]} selectedId="a" onSelect={vi.fn()} onBack={vi.fn()} actions={() => null} recheckFor={() => null} />);
+    expect(screen.queryByRole('button', { name: 'Re-check' })).not.toBeInTheDocument();
+  });
+
+  it('collapses repeated detections at one location while keeping each occurrence selectable', async () => {
+    const user = userEvent.setup();
+    const repeat = (id: string, line: number, createdAt: string) => ({ ...make(id, 'Use an atomic claim.'), filePath: 'src/pay.ts', lineNumber: line, createdAt });
+    const group = groupFindings([repeat('a', 5, '2026-11-03'), repeat('b', 7, '2026-11-01'), make('c', 'Use an atomic claim.')])[0];
+    render(<StatefulFindingDocument group={group} />);
+
+    expect(screen.getByText('2 affected locations · 3 occurrences across Reviews')).toBeInTheDocument();
+    expect(screen.getByText('Found 2 times at this location across Reviews.')).toBeInTheDocument();
+    const select = screen.getByRole('combobox', { name: 'Location' });
+    const optgroup = select.querySelector('optgroup');
+    expect(optgroup).toHaveAttribute('label', 'src/pay.ts:5 · 2 occurrences');
+    expect(within(optgroup as HTMLElement).getAllByRole('option')).toHaveLength(2);
+    await user.selectOptions(select, 'b');
+    expect(screen.getByRole('heading', { name: 'src/pay.ts:7' })).toBeInTheDocument();
+    await user.selectOptions(select, 'c');
+    expect(screen.queryByText(/Found \d times at this location/)).not.toBeInTheDocument();
+  });
 });
