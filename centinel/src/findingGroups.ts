@@ -109,7 +109,67 @@ export function groupFindings(findings: Finding[]): FindingGroup[] {
     if (existing) existing.members.push(finding);
     else groups.set(key, { key, title, representative: finding, members: [finding], issues: [] });
   }
-  return foldRuleGroupsIntoModelIssues([...groups.values()]).map(group => ({ ...group, issues: clusterIssues(group.members) }));
+  const order = new Map(findings.map((finding, index) => [finding.id, index]));
+  return mergeRepeatedModelIssues(foldRuleGroupsIntoModelIssues([...groups.values()]), order)
+    .map(group => ({ ...group, issues: clusterIssues(group.members) }));
+}
+
+const TITLE_STOPWORDS = new Set(['a', 'an', 'and', 'are', 'at', 'be', 'by', 'can', 'check', 'checks', 'for', 'from', 'in', 'is', 'issue', 'lack', 'lacks', 'missing', 'no', 'not', 'of', 'on', 'or', 'risk', 'the', 'to', 'via', 'with', 'without']);
+
+function titleTokens(title: string): Set<string> {
+  return new Set(normalizeIssueTitle(title).split(' ')
+    .map(token => token.length > 3 && token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1) : token)
+    .filter(token => token.length > 3 && !TITLE_STOPWORDS.has(token)));
+}
+
+/** Overlap of the smaller title's meaningful words: "Credential Enumeration" ⊂ "Credential Error Enables Email Enumeration". */
+function similarTitles(left: string, right: string): boolean {
+  const a = titleTokens(left);
+  const b = titleTokens(right);
+  if (!a.size || !b.size) return false;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared += 1;
+  return shared > 0 && shared / Math.min(a.size, b.size) >= 0.5;
+}
+
+const scopeOf = (group: FindingGroup) => JSON.stringify((JSON.parse(group.key) as unknown[]).slice(0, 3));
+const isModelIssueGroup = (group: FindingGroup) => group.representative.verifier !== 'readiness' && !group.representative.evidenceGap
+  && group.members.every(member => !isRuleFinding(member));
+
+/**
+ * Successive Reviews word or type the same model-reported problem differently
+ * ("Missing Server-Side Quantity Validation" / "Server-Side Quantity Validation
+ * Missing", or a new free-form issue type each run). Merge two such issue types
+ * when their titles normalize identically, or when they point at the same file
+ * within DUPLICATE_LINE_WINDOW lines with similar title words. Rule-engine and
+ * readiness groups keep their own identities. Presentation only.
+ */
+function mergeRepeatedModelIssues(groups: FindingGroup[], order: Map<string, number>): FindingGroup[] {
+  const parent = groups.map((_, index) => index);
+  const find = (index: number): number => parent[index] === index ? index : (parent[index] = find(parent[index]));
+  const related = (left: FindingGroup, right: FindingGroup) => {
+    const leftTitles = new Set(left.members.map(member => normalizeIssueTitle(member.title)));
+    if (right.members.some(member => leftTitles.has(normalizeIssueTitle(member.title)))) return true;
+    return left.members.some(a => right.members.some(b => normalizedPath(a) !== '' && sameIssueLocation(a, b) && similarTitles(a.title, b.title)));
+  };
+  for (let i = 0; i < groups.length; i += 1) {
+    if (!isModelIssueGroup(groups[i])) continue;
+    for (let j = i + 1; j < groups.length; j += 1) {
+      if (!isModelIssueGroup(groups[j]) || scopeOf(groups[i]) !== scopeOf(groups[j]) || find(i) === find(j)) continue;
+      if (related(groups[i], groups[j])) parent[find(j)] = find(i);
+    }
+  }
+  const merged = new Map<number, FindingGroup>();
+  groups.forEach((group, index) => {
+    const root = find(index);
+    const target = merged.get(root);
+    if (!target) merged.set(root, { ...group, members: [...group.members] });
+    else target.members.push(...group.members);
+  });
+  return [...merged.values()].map(group => {
+    const members = [...group.members].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    return { ...group, members };
+  });
 }
 
 const isRuleFinding = (finding: Finding) => Boolean(finding.location?.ruleId) && finding.verifier !== 'model';

@@ -65,4 +65,29 @@ describe('finding type grouping', () => {
     const gap = (id: string, requirementId: string) => finding(id, { filePath: '', lineNumber: null, evidenceGap: { assessmentId: 'a', code: 'traceability_mappings_incomplete' }, requirementId, title: 'Mapping missing' });
     expect(groupFindings([gap('g1', 'R1'), gap('g2', 'R1'), gap('g3', 'R2')])[0].issues.map(issue => issue.occurrences.length)).toEqual([2, 1]);
   });
+  it('merges differently worded or typed re-detections at one place, as seen in the Sample Shop runs', () => {
+    const model = (id: string, sessionId: string, title: string, filePath: string, lineNumber: number, issueType?: string) => finding(id, { sessionId, verifier: 'model', category: 'security', title, filePath, lineNumber, location: issueType ? { issueType } : {} });
+    const rows = [
+      model('e1', 'r1', 'Credential Error Enables Email Enumeration', 'server.js', 45, 'account_enumeration'),
+      model('e2', 'r2', 'Account Enumeration via Distinct Sign-in Error', 'server.js', 45),
+      model('e3', 'r2', 'Credential Enumeration', 'server.js', 45, 'credential_enumeration'),
+      model('q1', 'r1', 'Server-Side Quantity Validation Missing', 'server.js', 65),
+      model('q2', 'r2', 'Missing Server-Side Quantity Validation', 'server.js', 65, 'quantity_bounds'),
+      model('q3', 'r2', 'Missing Server-Side Quantity Validation', 'README.md', 29),
+      model('d1', 'r1', 'Unsupported Discount Variants Accepted', 'src/orders.js', 24, 'case_insensitive_discount'),
+      model('d2', 'r2', 'Unsupported Discount Variants Accepted', 'src/orders.js', 25, 'unsupported_discount_accepted'),
+      model('o1', 'r2', 'Order Ownership Check Missing', 'server.js', 76),
+      model('x', 'r2', 'Price Read From Client', 'server.js', 66),
+    ];
+    const groups = groupFindings(rows);
+    expect(groups.map(group => group.members.map(item => item.id))).toEqual([['e1', 'e2', 'e3'], ['q1', 'q2', 'q3'], ['d1', 'd2'], ['o1'], ['x']]);
+    expect(groups[1].issues.map(issue => issue.occurrences.length)).toEqual([2, 1]);
+    expect(findingCountSummary(rows)).toBe('5 issue types · 6 flagged items · 10 occurrences');
+  });
+  it('does not merge rule-engine or readiness types into model issues by title similarity', () => {
+    const rule = finding('r', { title: '[cq-console-log] console logging', location: { ruleId: 'cq-console-log' }, filePath: 'server.js', lineNumber: 107 });
+    const model = finding('m', { verifier: 'model', title: 'Console logging leaks order data', filePath: 'server.js', lineNumber: 140 });
+    const readiness = finding('ready', { verifier: 'readiness', title: 'Console logging leaks order data', filePath: 'server.js', lineNumber: 140 });
+    expect(groupFindings([model, rule, readiness])).toHaveLength(3);
+  });
 });
