@@ -13,7 +13,7 @@ import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
-import { effectiveReviewDecision, projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
+import { effectiveReviewDecision, isExecutedReviewStatus, projectActivityLifecycle, projectActivityLifecycleTone } from '../reviewViewModel';
 import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
 import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
@@ -659,19 +659,51 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const currentReviewGaps = reviewGapState?.projectId === project.id && reviewGapState.reviewId === latestSavedReview?.id ? reviewGapState : null;
   const supplementalProjectFindings = useMemo(() => [...readinessFindings, ...(currentReviewGaps?.findings ?? [])], [readinessFindings, currentReviewGaps?.findings]);
 
+  // Findings a newer comparison Review did not report again. They stay open (resolution
+  // needs exact proof), but the person who fixed them should know what Re-check found.
+  const [notFoundAgain, setNotFoundAgain] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (activeSection !== 'project-findings') return;
+    let disposed = false;
+    const children = staticSessions
+      .filter(session => session.projectId === project.id && session.parentSessionId && isExecutedReviewStatus(session.status))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 5);
+    if (!children.length) { setNotFoundAgain(new Map()); return; }
+    void Promise.all(children.map(child => api.getReviewCorrelations(project.id, child.id).then(snapshot => ({ child, snapshot })).catch(() => null)))
+      .then(results => {
+        if (disposed) return;
+        const next = new Map<string, string>();
+        for (const result of results) {
+          if (!result) continue;
+          const when = new Date(result.child.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+          for (const correlation of result.snapshot.correlations ?? []) {
+            if (correlation.classification !== 'carried_over' || correlation.method !== 'unmatched' || !correlation.parentFindingId || next.has(correlation.parentFindingId)) continue;
+            next.set(correlation.parentFindingId, `Not found in “${result.child.name}” (${when}). Centinel couldn't prove it is fixed, so it stays open. If you fixed it, mark it as resolved.`);
+          }
+        }
+        setNotFoundAgain(next);
+      });
+    return () => { disposed = true; };
+  }, [activeSection, project.id, staticSessions]);
+
   const recheckFor = useCallback((finding: Finding) => {
     const plan = findingRecheckPlan(finding, staticSessions);
     if (!plan) return null;
     const { review } = plan;
+    const latestResult = notFoundAgain.get(finding.id) ?? null;
     if (plan.kind === 'open') return {
+      latestResult,
       hint: `“${review.name}” is still running. Open it to follow its progress.`,
       run: async () => onNavigate({ name: 'review-activity', projectId: project.id, sessionId: review.id, reviewName: review.name }),
     };
     if (plan.kind === 'compare') return {
-      hint: `Starts a Review of the updated sources compared with “${review.name}”. This finding updates when it completes.`,
+      latestResult,
+      hint: `Prepares a Review of your updated code compared with “${review.name}”; start it to check whether this is fixed. This finding updates when it completes.`,
       run: async () => onNavigate({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: review.id }),
     };
     return {
+      latestResult,
       hint: `Creates a linked attempt of “${review.name}” with the current sources. This finding updates when it completes.`,
       run: async () => {
         if (typeof api.retryStaticSession !== 'function') throw new Error('Re-check is unavailable in this version.');
@@ -685,7 +717,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         onNavigate({ name: 'review-activity', projectId: project.id, sessionId: retried.id, reviewName: retried.name });
       },
     };
-  }, [onNavigate, project.id, staticSessions]);
+  }, [notFoundAgain, onNavigate, project.id, staticSessions]);
 
   const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
   const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);

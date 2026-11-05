@@ -305,3 +305,12 @@ describe('AppShell module launch', () => {
     expect(onLogOut).toHaveBeenCalledOnce();
   });
 });
+
+describe('sidebar active item', () => {
+  it('marks only Help as active on the Help screen', () => {
+    renderShell({ name: 'help' }, () => {});
+    const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
+    expect(nav.getByRole('button', { name: 'Help' }).className).toContain('active');
+    expect(nav.getByRole('button', { name: 'Home' }).className).not.toContain('active');
+  });
+});

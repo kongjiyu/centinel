@@ -29,6 +29,12 @@ describe('review estimate', () => {
     expect(describeReviewEstimate(estimate)).toContain('at least 1.5M AI tokens');
   });
 
+  it('uses the row update time for summary-list Reviews that only record their stage', () => {
+    const summary = session({ progressJson: JSON.stringify({ stage: 'complete' }), createdAt: '2026-11-05T14:45:22.000Z', updatedAt: '2026-11-05T14:56:51.000Z' });
+    expect(latestFinishedReview([summary])?.id).toBe('r');
+    expect(buildReviewEstimate(summary, null)).toMatchObject({ durationMs: 689_000 });
+  });
+
   it('says plainly when there is no earlier Review', () => {
     expect(describeReviewEstimate(buildReviewEstimate(null, null))).toMatch(/first Review of this project/);
   });

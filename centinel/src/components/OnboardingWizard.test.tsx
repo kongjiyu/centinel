@@ -75,6 +75,31 @@ describe('Connect ChatGPT step', () => {
   });
 });
 
+describe('Connect ChatGPT step status', () => {
+  it('does not mark a saved Codex setting as done until the live status arrives', async () => {
+    let resolveStatus!: (value: Awaited<ReturnType<typeof api.codexStatus>>) => void;
+    vi.mocked(api.codexStatus).mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    render(<OnboardingWizard accountId="user-a" projects={[]} aiSettings={ready} onNavigate={vi.fn()} onDataChanged={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText('Checking your ChatGPT connection…')).toBeInTheDocument();
+    expect(screen.queryByText('Model Provider is ready')).toBeNull();
+    resolveStatus({ available: true, connected: false, accountLabel: null, message: '' } as Awaited<ReturnType<typeof api.codexStatus>>);
+    expect(await screen.findByRole('button', { name: 'Connect ChatGPT' })).toBeInTheDocument();
+  });
+
+  it('keeps a way back to the sign-in page while waiting, and tells Home once connected', async () => {
+    vi.mocked(api.codexStatus).mockResolvedValue({ available: true, connected: false, accountLabel: null, message: '' } as Awaited<ReturnType<typeof api.codexStatus>>);
+    vi.mocked(api.codexLogin).mockResolvedValue({ loginId: 'login-1', authUrl: 'https://auth.openai.com/sign-in?x=1' });
+    const { openExternalUrl } = await import('../utils/openExternalUrl');
+    const onChatgptConnected = vi.fn();
+    render(<OnboardingWizard accountId="user-a" projects={[]} aiSettings={[]} onNavigate={vi.fn()} onDataChanged={vi.fn()} onClose={vi.fn()} onChatgptConnected={onChatgptConnected} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Connect ChatGPT' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Open the sign-in page again' }));
+    expect(openExternalUrl).toHaveBeenLastCalledWith('https://auth.openai.com/sign-in?x=1');
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+    expect(onChatgptConnected).not.toHaveBeenCalled();
+  });
+});
+
 describe('Sample Shop walkthrough', () => {
   it('creates the project, confirms requirements, starts the Review with the browser test and exports the report', async () => {
     vi.mocked(api.prepareSampleShop).mockResolvedValue({ path: '/home/samples/sample-shop', url: 'http://localhost:4100', server: 'started' });

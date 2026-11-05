@@ -47,6 +47,25 @@ function request<T>(path: string, init?: RequestInit): Promise<T> {
  * On the first "unauthenticated" answer, renew the session once and retry;
  * only a failed renewal ends the session.
  */
+/**
+ * The packaged app starts the local service alongside the window, so the first
+ * request can arrive before it listens. Wait for /health (up to `timeoutMs`)
+ * instead of showing an error on every cold start. Resolves false on timeout.
+ */
+export async function waitForSidecar(timeoutMs = 45_000, sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  let delay = 250;
+  for (;;) {
+    try {
+      const response = await fetch(`${BASE}/health`, { cache: 'no-store', signal: AbortSignal.timeout(3_000) });
+      if (response.ok) return true;
+    } catch { /* Not listening yet. */ }
+    if (Date.now() + delay > deadline) return false;
+    await sleep(delay);
+    delay = Math.min(delay * 2, 1_000);
+  }
+}
+
 async function sendRequest<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     return await sendOnce<T>(path, init);

@@ -51,4 +51,11 @@ describe('projectReadinessFindings', () => {
     expect(projectReadinessFindings({ ...status, stale: true })).toEqual([]);
     expect(projectReadinessFindings({ ...status, snapshot: null })).toEqual([]);
   });
+  it('names a cited requirement instead of showing its ID path', () => {
+    const [item] = projectReadinessFindings({ ...status, snapshot: { ...status.snapshot!, findings: [{ ...status.snapshot!.findings[0],
+      references: [{ artifactId: 'artifact-req', path: 'requirement/54734f60-545a-416e-810a-afa4a2323b86', excerpt: 'The order total is the sum of price × quantity.' }] }] } } as ProjectReadinessStatus);
+    expect(item.filePath).toBe('Confirmed requirement');
+    expect(item.evidenceText).toContain('Source: Confirmed requirement');
+    expect(item.evidenceText).not.toContain('54734f60');
+  });
 });

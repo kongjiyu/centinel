@@ -67,11 +67,24 @@ export function distinctFindingIssues(findings: Finding[]): Array<FindingIssue &
     .sort((a, b) => (order.get(a.representative.id) ?? 0) - (order.get(b.representative.id) ?? 0));
 }
 
+/**
+ * Header count for a findings list. Only code findings are "flagged items";
+ * requirement-coverage gaps and readiness notes are counted on their own, so
+ * one unlinked requirements document cannot look like dozens of bugs.
+ */
 export function findingCountSummary(findings: Finding[]): string {
-  const groups = groupFindings(findings);
-  const distinct = groups.reduce((total, group) => total + group.issues.length, 0);
   const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
-  return `${plural(groups.length, 'issue type', 'issue types')} · ${plural(distinct, 'flagged item', 'flagged items')}${findings.length > distinct ? ` · ${findings.length} occurrences` : ''}`;
+  const isReadiness = (finding: Finding) => finding.verifier === 'readiness';
+  const isGap = (finding: Finding) => !isReadiness(finding) && Boolean(finding.evidenceGap);
+  const issues = findings.filter(finding => !isGap(finding) && !isReadiness(finding));
+  const groups = groupFindings(issues);
+  const distinct = groups.reduce((total, group) => total + group.issues.length, 0);
+  const gapIssues = groupFindings(findings.filter(isGap)).reduce((total, group) => total + group.issues.length, 0);
+  const readinessIssues = groupFindings(findings.filter(isReadiness)).reduce((total, group) => total + group.issues.length, 0);
+  const parts = [`${plural(groups.length, 'issue type', 'issue types')} · ${plural(distinct, 'flagged item', 'flagged items')}${issues.length > distinct ? ` · ${issues.length} occurrences` : ''}`];
+  if (gapIssues) parts.push(plural(gapIssues, 'evidence gap', 'evidence gaps'));
+  if (readinessIssues) parts.push(plural(readinessIssues, 'readiness note', 'readiness notes'));
+  return parts.join(' · ');
 }
 
 /** Short row/table summary of how many places and repeated detections a group covers. */

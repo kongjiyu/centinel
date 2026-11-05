@@ -23,7 +23,7 @@ import { ReviewPlaygroundScreen } from './screens/ReviewPlaygroundScreen';
 import { HelpScreen } from './screens/HelpScreen';
 import { restartOnboarding } from './components/OnboardingWizard';
 import { AuthScreen } from './screens/AuthScreen';
-import { api } from './api/client';
+import { api, waitForSidecar } from './api/client';
 import { startConnectedSourceReconciliation } from './integrations/connectedSourceReconciliation';
 import { startRepositoryIndexSync } from './integrations/repositoryIndexSync';
 import type { Project, AiProviderSetting, Screen } from './types';
@@ -91,6 +91,8 @@ function App() {
   const loadData = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setSettingsLoading(true);
+    await waitForSidecar();
+    if (generation !== loadGeneration.current) return;
     void api.aiSettings().then(settingsData => {
       if (generation !== loadGeneration.current) return;
       setAiSettings(settingsData);

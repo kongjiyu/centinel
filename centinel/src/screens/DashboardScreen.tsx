@@ -87,12 +87,13 @@ export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, o
 
   const usesCodex = aiSettings.some(setting => (setting.id === 'text' || setting.id === 'vision') && setting.provider === 'codex');
   const [codexConnected, setCodexConnected] = useState<boolean | null>(null);
+  const [codexCheck, setCodexCheck] = useState(0);
   useEffect(() => {
     if (!usesCodex || typeof api.codexStatus !== 'function') return;
     let current = true;
     api.codexStatus().then(status => { if (current) setCodexConnected(status.connected); }).catch(() => { if (current) setCodexConnected(null); });
     return () => { current = false; };
-  }, [usesCodex]);
+  }, [usesCodex, codexCheck]);
   // An unknown Codex status is not reported as a setup problem.
   const codexUsable = (role: 'text' | 'vision') => aiSettings.find(setting => setting.id === role)?.provider !== 'codex' || codexConnected !== false;
   const hasTextSetting = isWorkflowProviderConfigured(aiSettings, 'text') && codexUsable('text');
@@ -196,6 +197,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, o
           onNavigate={onNavigate}
           onDataChanged={onDataChanged ?? (() => {})}
           onClose={() => setShowOnboarding(false)}
+          onChatgptConnected={() => setCodexCheck(value => value + 1)}
         />
       )}
 
