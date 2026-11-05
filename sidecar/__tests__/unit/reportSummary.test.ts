@@ -113,6 +113,24 @@ describe('plain-language report summary', () => {
     expect(summary).toMatchObject({ tone: 'good', headline: 'Looking good', openIssues: 0 });
   });
 
+  it('labels a partly verified review "Completed with gaps" and lists the unverified parts in every format', async () => {
+    const base = review('success')!;
+    const gaps = { ...base, session: { ...base.session, status: 'pending_approval' as never, coverage: { coverage: 'partial' as const, unverifiedPartCount: 1,
+      unverifiedParts: [{ reason: 'semantic_support' as const, files: ['src/checkout.ts'], features: ['POST /checkout'] }] } } };
+    const report = snapshot({ latestReview: gaps });
+    const summary = summarizeReport(report);
+    expect(summary.codeReview).toMatchObject({ label: 'Completed with gaps', tone: 'warning' });
+    expect(summary.codeReview.detail).toContain('1 part of the code could not be verified');
+    expect(summary.unverifiedParts).toEqual(['src/checkout.ts: the conclusions could not be backed up with evidence from the code.']);
+    expect(summary).toMatchObject({ headline: 'Needs attention' });
+    expect(summary.explanation).toContain('completed with gaps');
+    const markdown = renderProjectReportMarkdown(report);
+    expect(markdown).toContain('**Code review — Completed with gaps.**');
+    expect(markdown).toContain('    - src/checkout.ts: the conclusions could not be backed up with evidence from the code.');
+    expect((await renderProjectReportPdf(report)).subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(summarizeReport(snapshot({ latestReview: review() })).unverifiedParts).toEqual([]);
+  });
+
   it('formats readable UTC dates', () => {
     expect(friendlyDate('2026-11-01T07:31:43.006Z')).toBe('1 Nov 2026, 07:31 UTC');
     expect(friendlyDate(null)).toBe('Unavailable');

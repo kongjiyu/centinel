@@ -649,5 +649,11 @@ export const api = {
     }),
   listRequirementMappings: (projectId: string, reqId: string) =>
     request<RequirementMapping[]>(`/projects/${projectId}/requirements/${reqId}/mappings`),
+  /** Confirm or reject a Centinel-suggested requirement link. */
+  decideRequirementMappingSuggestion: (projectId: string, reqId: string, mappingId: string, decision: 'confirm' | 'reject') =>
+    request<RequirementMapping>(`/projects/${projectId}/requirements/${reqId}/mappings/${mappingId}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    }),
 };
 import type { ProjectReadinessStatus } from '../types';

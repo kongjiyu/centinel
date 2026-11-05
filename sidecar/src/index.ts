@@ -337,6 +337,11 @@ function matchRequirementMap(url: string): { projectId: string; reqId: string } 
   return m ? { projectId: m[1], reqId: m[2] } : null;
 }
 
+function matchRequirementMappingDecision(url: string): { projectId: string; reqId: string; mappingId: string } | null {
+  const m = url.match(/^\/projects\/([a-f0-9-]+)\/requirements\/([a-f0-9-]+)\/mappings\/([a-f0-9-]+)\/decision$/);
+  return m ? { projectId: m[1], reqId: m[2], mappingId: m[3] } : null;
+}
+
 function matchRequirementMappings(url: string): { projectId: string; reqId: string } | null {
   const m = url.match(/^\/projects\/([a-f0-9-]+)\/requirements\/([a-f0-9-]+)\/mappings$/);
   return m ? { projectId: m[1], reqId: m[2] } : null;
@@ -1748,6 +1753,17 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         fileId, symbolId, coverageStatus, confidence,
       });
       return json(res, 201, mapping);
+    }
+
+    // Confirm or reject a Centinel-suggested requirement link
+    const reqMappingDecisionMatch = matchRequirementMappingDecision(url);
+    if (reqMappingDecisionMatch && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const decision = body.decision === 'confirm' || body.decision === 'reject' ? body.decision : null;
+      if (!decision) return json(res, 400, { error: 'decision must be confirm or reject' });
+      const mapping = await applicationRepository!.decideRequirementMappingSuggestion(reqMappingDecisionMatch.projectId, reqMappingDecisionMatch.reqId, reqMappingDecisionMatch.mappingId, decision);
+      readiness.notify(auth!, reqMappingDecisionMatch.projectId, 'requirements_changed');
+      return json(res, 200, mapping);
     }
 
     // List mappings for requirement (must be before single requirement get)

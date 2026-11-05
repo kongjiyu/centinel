@@ -7,6 +7,8 @@ import type { Requirement, RequirementMapping } from '../staticDomainTypes.js';
 import type { ReviewDecisionRecord } from '../staticDomainTypes.js';
 import type { ReviewSourceManifest, ReviewTraceabilitySnapshot } from '../review/evidenceTypes.js';
 import { deriveRiskLevel } from '../riskPolicy.js';
+import { isConfirmedMappingStatus } from '../review/requirementLinkSuggestions.js';
+import { readCoverageProgress } from '../review/coverageGaps.js';
 import type { Finding, StaticSession } from '../staticDomainTypes.js';
 import { canonicalJson, deepFreeze } from './canonical.js';
 import { usageForReport, type ProjectReportFinding, type ProjectReportSnapshot, type ReportActionTrace, type ReportArtifact, type ReportCurrentFinding, type ReportCurrentFindings, type ReportDynamicEvidence, type ReportFindingCorrelation, type ReportProjectAssessment, type ReportRequirement, type ReportStandard, type SnapshotContext } from './types.js';
@@ -150,8 +152,17 @@ function reportArtifact(project: Project, artifact: Artifact): ReportArtifact {
   };
 }
 
+/** Completed-with-gaps coverage; only present when some parts are unverified. */
+function reviewCoverage(progressJson: string): { coverage?: NonNullable<ReturnType<typeof readCoverageProgress>> } {
+  try {
+    const coverage = readCoverageProgress(JSON.parse(progressJson || '{}'));
+    return coverage ? { coverage } : {};
+  } catch { return {}; }
+}
+
 function reportRequirement(requirement: Requirement, mappings: RequirementMapping[]): ReportRequirement {
-  return { ...requirement, mappings: [...mappings].sort((a, b) => a.id.localeCompare(b.id)) };
+  // Centinel-suggested links count only after a person confirms them.
+  return { ...requirement, mappings: mappings.filter(mapping => isConfirmedMappingStatus(mapping.coverageStatus)).sort((a, b) => a.id.localeCompare(b.id)) };
 }
 
 function reportStandard(project: Project, artifact: Artifact): ReportStandard {
@@ -270,6 +281,7 @@ export async function buildProjectReportSnapshot(
         executionTimestampBasis: staticReviewSelection?.timestamp.basis ?? 'unavailable',
         summary: review.finalSummary || null,
         failureReason: review.failureReason || null,
+        ...reviewCoverage(review.progressJson),
       },
       summary: review.finalSummary || null,
       findings: reviewFindings,

@@ -331,6 +331,27 @@ describe('SupabaseStaticReviewRepository', () => {
     expect(readiness.at(-1)).toEqual({ requirementId: 'requirement-130', state: 'missing' });
   });
 
+  it('stores requirement-link suggestions once and excludes unconfirmed links from traceability', async () => {
+    const db = new FakeDb();
+    db.seed('requirements', [{ id: 'req-1', project_id: 'project-1', title: 'Pay once', description: '', category: 'business' }]);
+    db.seed('requirement_mappings', [
+      { id: 'map-rejected', project_id: 'project-1', requirement_id: 'req-1', artifact_id: 'artifact-1', file_id: 'artifact-1', symbol_id: 'pay', coverage_status: 'suggestion_rejected', confidence: 0.7 },
+    ]);
+    const repo = repository(db);
+    const saved = await repo.saveRequirementLinkSuggestions('project-1', [
+      { requirementId: 'req-1', artifactId: 'artifact-1', symbolId: 'pay', confidence: 0.8, basis: 'finding_requirement_reference' },
+      { requirementId: 'req-1', artifactId: 'artifact-1', symbolId: 'refund', confidence: 0.7, basis: 'finding_cites_requirement' },
+    ]);
+    expect(saved).toBe(1);
+    expect(db.rows.get('requirement_mappings')?.find(row => row.symbol_id === 'refund')).toMatchObject({ coverage_status: 'suggested', confidence: 0.7, artifact_id: 'artifact-1' });
+    expect(await repo.saveRequirementLinkSuggestions('project-1', [
+      { requirementId: 'req-1', artifactId: 'artifact-1', symbolId: 'refund', confidence: 0.7, basis: 'finding_cites_requirement' },
+    ])).toBe(0);
+    const captured = await repo.captureTraceabilitySnapshot('review-suggested', 'project-1', { scope: {}, sourceManifestId: 'manifest-1', artifacts: [artifact] });
+    expect(captured.records[0]).toMatchObject({ requirementId: 'req-1', state: 'missing', mappingIds: [] });
+    expect(await repo.getTraceabilityReadiness('project-1')).toEqual([{ requirementId: 'req-1', state: 'missing' }]);
+  });
+
   it('limits traceability to selected requirements and artifacts and requires matching mapping version proof', async () => {
     const db = new FakeDb();
     db.seed('requirements', [

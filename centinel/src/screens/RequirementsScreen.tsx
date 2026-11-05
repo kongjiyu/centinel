@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Select } from '../components/Select';
 import type { Requirement, RequirementMapping, Artifact, RequirementCandidate, Screen, StandardRule } from '../types';
 import { userFacingError } from '../utils/userFacingError';
+import { isConfirmedMapping, isSuggestedMapping } from '../requirementLinks';
 
 type Props = { projectId: string; onNavigate: (screen: Screen) => void };
 
@@ -47,6 +48,13 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
         api.listRequirementCandidates(projectId), api.listStandardRules(projectId),
       ]);
       setRequirements(reqs); setArtifacts(arts); setCandidates(nextCandidates); setStandardRules(nextRules); setError(null);
+      // Load every requirement's links so Centinel's suggestions can be
+      // confirmed without expanding each requirement first.
+      const entries = await Promise.all(reqs.map(async req => {
+        try { return [req.id, await api.listRequirementMappings(projectId, req.id)] as const; }
+        catch { return null; }
+      }));
+      setMappings(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
     }
     catch (e) { setError(userFacingError(e, 'Requirements could not be loaded. Try again.')); } finally { setLoading(false); }
   }, [projectId]);
@@ -104,6 +112,16 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
     } catch (e) { setError(userFacingError(e, 'The requirement mapping could not be saved. Try again.')); }
   };
 
+  const decideSuggestion = async (reqId: string, mapping: RequirementMapping, decision: 'confirm' | 'reject') => {
+    setGroundingBusy(mapping.id); setError(null);
+    try {
+      await api.decideRequirementMappingSuggestion(projectId, reqId, mapping.id, decision);
+      const data = await api.listRequirementMappings(projectId, reqId);
+      setMappings(prev => ({ ...prev, [reqId]: data }));
+    } catch (cause) { setError(userFacingError(cause, `The suggested link could not be ${decision === 'confirm' ? 'confirmed' : 'rejected'}. Try again.`)); }
+    finally { setGroundingBusy(null); }
+  };
+
   const extractCandidates = async () => {
     if (!candidateArtifactId) { setError('Choose a requirements artifact to extract.'); return; }
     setGroundingBusy('extract'); setError(null);
@@ -145,6 +163,14 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
     priority === 'critical' || priority === 'high' ? 'danger' : priority === 'medium' ? 'warning' : 'neutral';
   const coverageTone = (coverage: string): StatusTone =>
     coverage === 'implemented' ? 'success' : coverage === 'partial' ? 'warning' : coverage === 'missing' ? 'danger' : 'neutral';
+  const artifactName = (id: string | null) => artifacts.find(a => a.id === id)?.fileName ?? id ?? 'Unknown file';
+  const suggestions = requirements.flatMap(req => (mappings[req.id] ?? []).filter(isSuggestedMapping).map(mapping => ({ req, mapping })));
+  const suggestionActions = (reqId: string, mapping: RequirementMapping) => (
+    <div className="grounding-row-actions">
+      <button type="button" className="btn-secondary" onClick={() => void decideSuggestion(reqId, mapping, 'reject')} disabled={groundingBusy !== null} aria-label={`Reject suggested link to ${artifactName(mapping.fileId)}`}><X size={14} aria-hidden="true" /> Reject</button>
+      <button type="button" className="btn-primary" onClick={() => void decideSuggestion(reqId, mapping, 'confirm')} disabled={groundingBusy !== null} aria-label={`Confirm suggested link to ${artifactName(mapping.fileId)}`}><Check size={14} aria-hidden="true" /> Confirm</button>
+    </div>
+  );
 
   return (
     <div className="screen command-requirements animate-fade-in">
@@ -203,6 +229,18 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
       {!showForm && error && <p className="form-error" role="alert">{error}</p>}
 
       {!showForm && <div className="grounding-workspace">
+        {suggestions.length > 0 && <section className="grounding-panel requirement-link-suggestions" aria-labelledby="requirement-link-suggestions-heading">
+          <div className="grounding-panel-heading">
+            <div><span className="command-eyebrow"><Sparkles size={13} aria-hidden="true" /> Suggested by Centinel</span><h2 id="requirement-link-suggestions-heading">Suggested code links</h2><p>Centinel suggested these links from validated Review evidence. They do not count for requirement coverage until you confirm them.</p></div>
+            <span className="grounding-count">{suggestions.length} to confirm</span>
+          </div>
+          <div className="grounding-list" role="list" aria-label="Suggested code links">
+            {suggestions.map(({ req, mapping }) => <article key={mapping.id} className="grounding-row" role="listitem">
+              <div className="grounding-row-main"><div><strong>{req.title}</strong><StatusBadge label="Suggested" tone="warning" /></div><p>{artifactName(mapping.fileId)}{mapping.symbolId ? ` · ${mapping.symbolId}` : ''}</p><small>{Math.round(mapping.confidence * 100)}% evidence match · from a Review finding or assessment</small></div>
+              {suggestionActions(req.id, mapping)}
+            </article>)}
+          </div>
+        </section>}
         <section className="grounding-panel" aria-labelledby="requirement-candidates-heading">
           <div className="grounding-panel-heading">
             <div><span className="command-eyebrow"><Sparkles size={13} aria-hidden="true" /> Artifact verification</span><h2 id="requirement-candidates-heading">Requirement candidates</h2><p>Extracted statements remain non-authoritative until you confirm them.</p></div>
@@ -298,15 +336,16 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
                     </div>
                   )}
 
-                  {mappings[req.id] && mappings[req.id].length > 0 ? (
+                  {(mappings[req.id] ?? []).some(m => isConfirmedMapping(m) || isSuggestedMapping(m)) ? (
                     <div className="requirement-mappings">
-                      {mappings[req.id].map(m => {
-                        const artifact = artifacts.find(a => a.id === m.fileId);
+                      {(mappings[req.id] ?? []).filter(m => isConfirmedMapping(m) || isSuggestedMapping(m)).map(m => {
+                        const suggested = isSuggestedMapping(m);
                         return (
-                          <div key={m.id} className="requirement-mapping-row">
-                            <span className="mapping-file">{artifact ? artifact.fileName : m.fileId ?? 'Unknown file'}</span>
-                            <StatusBadge label={m.coverageStatus} tone={coverageTone(m.coverageStatus)} />
-                            <span className="mapping-confidence">{Math.round(m.confidence * 100)}% confidence</span>
+                          <div key={m.id} className={`requirement-mapping-row${suggested ? ' is-suggested' : ''}`}>
+                            <span className="mapping-file">{artifactName(m.fileId)}{m.symbolId ? ` · ${m.symbolId}` : ''}</span>
+                            <StatusBadge label={suggested ? 'Suggested' : m.coverageStatus} tone={suggested ? 'warning' : coverageTone(m.coverageStatus)} />
+                            <span className="mapping-confidence">{Math.round(m.confidence * 100)}% {suggested ? 'evidence match' : 'confidence'}</span>
+                            {suggested && suggestionActions(req.id, m)}
                           </div>
                         );
                       })}

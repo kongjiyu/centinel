@@ -467,6 +467,15 @@ export class CentinelApplicationRepository {
     return this.store.saveRequirementMapping(input);
   }
 
+  async decideRequirementMappingSuggestion(projectId: string, requirementId: string, mappingId: string, decision: 'confirm' | 'reject'): Promise<StoreRequirementMapping> {
+    await this.requireProjectMember(projectId);
+    await this.requireScopedRecord('requirements', projectId, requirementId, 'Requirement');
+    if (!this.store.decideRequirementMappingSuggestion) throw new ApplicationRepositoryError('Suggested links are unavailable.', 'unsupported', 501);
+    const decided = await this.store.decideRequirementMappingSuggestion(requirementId, mappingId, decision);
+    if (!decided) throw new ApplicationRepositoryError('Suggested link not found or already decided.', 'requirement_mapping_suggestion_not_found', 404);
+    return decided;
+  }
+
   async saveRequirementMappingForRequirement(input: Omit<Parameters<CentinelStore['saveRequirementMapping']>[0], 'projectId'>): Promise<StoreRequirementMapping> {
     const projectId = await this.resolveProjectId('requirements', input.requirementId, 'Requirement');
     if (!projectId) throw new ApplicationRepositoryError('Requirement not found.', 'requirement_not_found', 404);

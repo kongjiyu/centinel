@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { CONFIRMED_SUGGESTION_STATUS, REJECTED_SUGGESTION_STATUS, SUGGESTED_MAPPING_STATUS } from '../review/requirementLinkSuggestions.js';
 import type {
   CentinelStore,
   StoreArtifact,
@@ -173,6 +174,14 @@ export class InMemoryCentinelStore implements CentinelStore {
 
   async listRequirementMappings(requirementId: string): Promise<StoreRequirementMapping[]> {
     return clone(Array.from(this.mappings.values()).filter(item => item.requirementId === requirementId));
+  }
+
+  async decideRequirementMappingSuggestion(requirementId: string, mappingId: string, decision: 'confirm' | 'reject'): Promise<StoreRequirementMapping | null> {
+    const existing = this.mappings.get(mappingId);
+    if (!existing || existing.requirementId !== requirementId || existing.coverageStatus !== SUGGESTED_MAPPING_STATUS) return null;
+    const item = { ...existing, coverageStatus: decision === 'confirm' ? CONFIRMED_SUGGESTION_STATUS : REJECTED_SUGGESTION_STATUS };
+    this.mappings.set(item.id, clone(item));
+    return clone(item);
   }
 
   async saveRequirementMapping(input: Omit<StoreRequirementMapping, 'id' | 'createdAt'>): Promise<StoreRequirementMapping> {

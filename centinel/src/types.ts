@@ -725,6 +725,8 @@ export type ReviewProgress = {
   /** Production orchestrator progress; older payloads use currentStage/stages. */
   stage?: string;
   pauseCode?: string;
+  /** Completed with gaps: some parts could not be verified. */
+  coverage?: 'partial';
   currentStage: ReviewStageId;
   stages: ReviewStageProgress[];
   startedAt: string;

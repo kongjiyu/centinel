@@ -5227,3 +5227,8 @@ div.app-shell.has-window-chrome .sidebar {
   padding-bottom: 28px;
   border-bottom: 1px solid var(--shell-border);
 }
+
+/* Centinel-suggested requirement links span the grounding workspace. */
+.workspace-mode:not(.dashboard-mode) .grounding-panel.requirement-link-suggestions {
+  grid-column: 1 / -1;
+}

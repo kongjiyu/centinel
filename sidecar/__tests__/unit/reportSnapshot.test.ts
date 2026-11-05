@@ -360,6 +360,19 @@ describe('immutable project report from a persistence-neutral source', () => {
     await expect(buildProjectReportSnapshot(project.id, { source, reviewId: 'missing' })).rejects.toThrow(/finished Review/);
   });
 
+  it('carries completed-with-gaps coverage and leaves unconfirmed suggested links out of requirements', async () => {
+    const gaps = staticAttempt('review-gaps', { progressJson: JSON.stringify({ stage: 'complete', thoughts: ['PRIVATE_HIDDEN_REASONING'], coverage: 'partial', unverifiedPartCount: 1,
+      unverifiedParts: [{ reason: 'source_evidence', files: ['src/a.ts'], features: [] }] }) });
+    const snapshot = await snapshotForAttempts([gaps], {
+      listRequirements: async () => [requirement],
+      getRequirementMappings: async () => [mapping, { ...mapping, id: 'suggested-1', coverageStatus: 'suggested' }, { ...mapping, id: 'rejected-1', coverageStatus: 'suggestion_rejected' }],
+    });
+    expect(snapshot.latestReview?.session.coverage).toEqual({ coverage: 'partial', unverifiedPartCount: 1, unverifiedParts: [{ reason: 'source_evidence', files: ['src/a.ts'], features: [] }] });
+    expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_HIDDEN_REASONING');
+    expect(snapshot.requirements.items[0].mappings.map(item => item.id)).toEqual([mapping.id]);
+    expect((await snapshotForAttempts([staticAttempt('clean')])).latestReview?.session).not.toHaveProperty('coverage');
+  });
+
   it('orders Static attempts by execution time and ignores later activity', async () => {
     const oldApproved = staticAttempt('review-old', {
       createdAt: '2026-10-01T00:00:00.000Z', completedAt: '2026-10-01T00:30:00.000Z',

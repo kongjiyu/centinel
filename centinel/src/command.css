@@ -485,6 +485,7 @@
 .requirement-map-form { margin-top: 9px; padding: 11px; border: 1px solid var(--command-line); background: rgba(102, 201, 214, 0.025); }
 .requirement-mappings { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; }
 .requirement-mapping-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid rgba(89, 180, 199, 0.13); background: rgba(3, 15, 22, 0.36); }
+.requirement-mapping-row.is-suggested { grid-template-columns: minmax(0, 1fr) auto auto auto; }
 .mapping-file { overflow: hidden; color: var(--command-text); font-family: var(--font-mono); font-size: var(--font-size-meta); text-overflow: ellipsis; white-space: nowrap; }
 .mapping-confidence { color: var(--command-muted); font-family: var(--font-mono); font-size: var(--font-size-meta); }
 .coverage-implemented { color: var(--command-success); }
@@ -779,7 +780,7 @@
   .requirement-summary { grid-template-columns: 1fr auto; }
   .requirement-summary > .command-status,
   .requirement-summary > .finding-category { display: none; }
-  .requirement-mapping-row { grid-template-columns: 1fr; }
+  .requirement-mapping-row, .requirement-mapping-row.is-suggested { grid-template-columns: 1fr; }
   .command-static-session .session-info { grid-template-columns: 1fr; }
   .command-static-session .info-row { border-right: 0; border-bottom: 1px solid var(--command-line); }
   .command-mode .provider-endpoint-fields { grid-template-columns: 1fr; }

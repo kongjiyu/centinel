@@ -598,7 +598,8 @@ describe('StaticReviewOrchestrator', () => {
     const finished = await started.completion;
     const repairAudit = repository.audits.find(event => event.event === 'review_assessment_repair_scheduled');
 
-    expect(finished.status).toBe('failed');
+    expect(finished.status).toBe('pending_approval');
+    expect(finished.progress?.coverage).toBe('partial');
     expect(finished.modelStatus).toBe('partial');
     expect(prompts).toHaveLength(2);
     expect(prompts.every(request => request.prompt.length <= 200_000)).toBe(true);

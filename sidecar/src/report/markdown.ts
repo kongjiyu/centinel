@@ -159,6 +159,10 @@ function summaryLines(snapshot: ProjectReportSnapshot): string[] {
   }
   lines.push('### What Centinel checked', '');
   lines.push('- **Code review — ' + summary.codeReview.label + '.** ' + (snapshot.latestReview ? '"' + plainText(snapshot.latestReview.session.name) + '". ' : '') + plainText(summary.codeReview.detail));
+  if (summary.unverifiedParts.length) {
+    lines.push('  - Parts that could not be verified:');
+    summary.unverifiedParts.forEach(part => lines.push('    - ' + plainText(part)));
+  }
   lines.push('- **Browser test — ' + summary.browserTest.label + '.** ' + (snapshot.latestDynamicTest ? '"' + plainText(snapshot.latestDynamicTest.session.name) + '". ' : '') + plainText(summary.browserTest.detail));
   if (summary.requirements) {
     lines.push('- **Requirements.** ' + summary.requirements.complete + ' implemented, ' + summary.requirements.incomplete + ' partly implemented, ' + summary.requirements.missing + ' not linked to code yet.');

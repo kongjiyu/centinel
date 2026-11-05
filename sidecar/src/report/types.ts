@@ -155,6 +155,8 @@ export type ReportReviewSession = {
   executionTimestampBasis?: 'completed_at' | 'progress.completedAt' | 'created_at' | 'unavailable';
   summary: string | null;
   failureReason: string | null;
+  /** Completed with gaps: bounded, safe descriptions of unverified parts. */
+  coverage?: import('../review/coverageGaps.js').ReviewCoverageProgress;
 };
 
 /** User-facing Dynamic summary only; runtime internals are not exported. */

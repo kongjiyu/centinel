@@ -21,6 +21,7 @@ vi.mock('../api/client', () => ({
     deleteRequirement: vi.fn(),
     mapRequirement: vi.fn(),
     listRequirementMappings: vi.fn(),
+    decideRequirementMappingSuggestion: vi.fn(),
   },
 }));
 
@@ -89,5 +90,35 @@ describe('RequirementsScreen grounding workspace', () => {
 
     await waitFor(() => expect(api.setStandardRuleEnabled).toHaveBeenCalledWith('project-1', 'rule-1', false));
     expect(screen.getByRole('button', { name: 'Enable' })).toBeInTheDocument();
+  });
+
+  it('lets the reviewer confirm or reject Centinel-suggested code links', async () => {
+    const user = userEvent.setup();
+    const requirement = { id: 'req-1', projectId: 'project-1', title: 'Pay once', description: 'Charge an order once.', category: 'functional', priority: 'high', createdAt: '', updatedAt: '' };
+    const code = { ...artifacts[0], id: 'code-1', type: 'source_code' as const, fileName: 'checkout.ts', filePath: 'src/checkout.ts' };
+    vi.mocked(api.listRequirements).mockResolvedValue([requirement] as never);
+    vi.mocked(api.listArtifacts).mockResolvedValue([...artifacts, code]);
+    const suggested = [
+      { id: 'map-1', requirementId: 'req-1', fileId: 'code-1', symbolId: 'POST /checkout', coverageStatus: 'suggested', confidence: 0.8 },
+      { id: 'map-2', requirementId: 'req-1', fileId: 'code-1', symbolId: 'refund', coverageStatus: 'suggested', confidence: 0.7 },
+      { id: 'map-3', requirementId: 'req-1', fileId: 'code-1', symbolId: 'old', coverageStatus: 'suggestion_rejected', confidence: 0.6 },
+    ];
+    vi.mocked(api.listRequirementMappings).mockResolvedValueOnce(suggested)
+      .mockResolvedValueOnce([{ ...suggested[0], coverageStatus: 'unknown' }, suggested[1], suggested[2]])
+      .mockResolvedValue([{ ...suggested[0], coverageStatus: 'unknown' }, { ...suggested[1], coverageStatus: 'suggestion_rejected' }, suggested[2]]);
+    vi.mocked(api.decideRequirementMappingSuggestion).mockResolvedValue(suggested[0]);
+    render(<RequirementsScreen projectId="project-1" onNavigate={vi.fn()} />);
+
+    const list = await screen.findByRole('list', { name: 'Suggested code links' });
+    expect(list).toHaveTextContent('checkout.ts · POST /checkout');
+    expect(list).toHaveTextContent('80% evidence match');
+    expect(list).not.toHaveTextContent('old');
+    expect(screen.getByText('2 to confirm')).toBeInTheDocument();
+    await user.click(screen.getAllByRole('button', { name: 'Confirm suggested link to checkout.ts' })[0]);
+    expect(api.decideRequirementMappingSuggestion).toHaveBeenCalledWith('project-1', 'req-1', 'map-1', 'confirm');
+    expect(await screen.findByText('1 to confirm')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reject suggested link to checkout.ts' }));
+    expect(api.decideRequirementMappingSuggestion).toHaveBeenLastCalledWith('project-1', 'req-1', 'map-2', 'reject');
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Suggested code links' })).not.toBeInTheDocument());
   });
 });

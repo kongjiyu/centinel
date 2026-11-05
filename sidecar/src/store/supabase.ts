@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { CONFIRMED_SUGGESTION_STATUS, REJECTED_SUGGESTION_STATUS, SUGGESTED_MAPPING_STATUS } from '../review/requirementLinkSuggestions.js';
 import type {
   CentinelStore,
   StoreArtifact,
@@ -286,6 +287,17 @@ export class SupabaseCentinelStore implements CentinelStore {
 
   async saveRequirementMapping(input: Omit<StoreRequirementMapping, 'id' | 'createdAt'>): Promise<StoreRequirementMapping> {
     return single(this.client.from('requirement_mappings').insert({ project_id: input.projectId, requirement_id: input.requirementId, standard_id: input.standardId, artifact_id: input.artifactId, file_id: input.fileId, symbol_id: input.symbolId, coverage_status: input.coverageStatus, confidence: input.confidence }).select('*').single(), 'requirement mapping', mapMapping);
+  }
+
+  async decideRequirementMappingSuggestion(requirementId: string, mappingId: string, decision: 'confirm' | 'reject'): Promise<StoreRequirementMapping | null> {
+    // Conditional on the row still being a suggestion, so a stale decision
+    // cannot rewrite a human-entered or already-decided mapping.
+    const result = await this.client.from('requirement_mappings')
+      .update({ coverage_status: decision === 'confirm' ? CONFIRMED_SUGGESTION_STATUS : REJECTED_SUGGESTION_STATUS })
+      .eq('id', mappingId).eq('requirement_id', requirementId).eq('coverage_status', SUGGESTED_MAPPING_STATUS).select('*');
+    if (result.error) throw new Error(`Supabase requirement mapping decision query failed: ${result.error.message}`);
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    return row ? mapMapping(asRow(row)) : null;
   }
 
   async listFindings(projectId: string, reviewSessionId?: string): Promise<StoreFinding[]> {

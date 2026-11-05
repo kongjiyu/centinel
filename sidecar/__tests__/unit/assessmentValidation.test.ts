@@ -102,11 +102,15 @@ describe('Assessment acceptance boundary', () => {
   it.each([{ filePath: 'missing.ts', lineNumber: 999 }, { evidence: 'invented source text' }, { sourceVersion: 'wrong-version' }, { artifactId: 'wrong-artifact' }])('retains unsupported observations only with explicit verification flags (%j)', async overrides => {
     const repository = new InMemoryStaticReviewRepository();
     const run = await service(repository, provider(request => ({ findings: [{ ...issue, severity: 'critical', ...overrides }], featureAssessments: assessments(request) }))).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial' });
+    // Validated domain assessments with an uncertain citation finish as
+    // Completed with gaps; the uncertain part still has no clean proof.
+    const completed = await run.completion;
+    expect(completed).toMatchObject({ status: 'pending_approval', modelStatus: 'partial' });
+    expect(completed.progress).toMatchObject({ coverage: 'partial', unverifiedParts: [expect.objectContaining({ reason: 'uncertain_citation', count: 1 })] });
     expect(repository.findings).toHaveLength(1);
     expect(repository.findings[0].sourceLocator?.citationEvidence).toMatchObject({ verification: 'needs_verification' });
     expect(repository.audits.some(event => event.event === 'review_assessment_validated')).toBe(false);
-    expect(repository.evidenceAssessments.get(run.review.id)?.gaps.some(gap => gap.code === 'model_assessment_invalid')).toBe(true);
+    expect(repository.audits.some(event => event.event === 'review_completed_with_gaps')).toBe(true);
   });
   it('rejects a title-only observation rather than inventing Medium risk', async () => {
     const repository = new InMemoryStaticReviewRepository();
@@ -461,7 +465,7 @@ describe('Assessment acceptance boundary', () => {
       } };
     } };
     const run = await service(repository, model).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial', modelFindingCount: 2 });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', modelFindingCount: 2, progress: { coverage: 'partial' } });
     expect(supportCalls).toBe(2); // independent source sweep also runs
     expect(repository.findings.filter(finding => finding.source === 'model').map(finding => finding.title).sort()).toEqual([issue.title, sibling.title].sort());
     expect(repository.findings.find(finding => finding.title === sibling.title)?.sourceLocator?.citationEvidence).toMatchObject({ verification: 'needs_verification' });
@@ -657,6 +661,66 @@ describe('Assessment acceptance boundary', () => {
     expect(supportPrompt).toContain('confirmed-ownership');
     expect(supportPrompt).toContain('Only the selected user may access the record.');
     expect(repository.findings.some(finding => finding.requirementId === 'confirmed-ownership')).toBe(true);
+  });
+  it('suggests an unconfirmed requirement link from a validated finding that references the requirement', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const grounding = new InMemoryGroundingRepository();
+    grounding.requirements.set('confirmed-ownership', {
+      id: 'confirmed-ownership', projectId: 'project', title: 'Record ownership', description: 'Only the selected user may access the record.',
+      category: 'manual', priority: 'high', sourceCandidateId: null, sourceLocator: null, sourceVersion: null, confidence: null, createdAt: '2026-10-25T00:00:00Z',
+    });
+    const model = provider(request => ({
+      findings: [{ ...issue, title: 'Ownership rule mismatch', category: 'business', domain: 'business', requirementId: 'confirmed-ownership' }],
+      featureAssessments: assessments(request),
+    }));
+    const run = await createStaticReviewOrchestrator({ repository, groundingRepository: grounding, readArtifactContent: async () => content,
+      deterministic: async () => [], modelProvider: model, retry: { sleep: async () => undefined },
+    }).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect((await run.completion).status).toBe('pending_approval');
+    expect(repository.requirementLinkSuggestions).toEqual([expect.objectContaining({
+      projectId: 'project', requirementId: 'confirmed-ownership', artifactId: artifact.id, basis: 'finding_requirement_reference', confidence: 0.8,
+    })]);
+    expect(repository.audits.some(event => event.event === 'requirement_links_suggested')).toBe(true);
+  });
+  it('does not fail the Review when saving requirement-link suggestions fails', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    vi.spyOn(repository, 'saveRequirementLinkSuggestions').mockRejectedValue(new Error('private suggestion failure'));
+    const grounding = new InMemoryGroundingRepository();
+    grounding.requirements.set('confirmed-ownership', {
+      id: 'confirmed-ownership', projectId: 'project', title: 'Record ownership', description: 'Only the selected user may access the record.',
+      category: 'manual', priority: 'high', sourceCandidateId: null, sourceLocator: null, sourceVersion: null, confidence: null, createdAt: '2026-10-25T00:00:00Z',
+    });
+    const model = provider(request => ({ findings: [{ ...issue, requirementId: 'confirmed-ownership' }], featureAssessments: assessments(request) }));
+    const run = await createStaticReviewOrchestrator({ repository, groundingRepository: grounding, readArtifactContent: async () => content,
+      deterministic: async () => [], modelProvider: model, retry: { sleep: async () => undefined },
+    }).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect((await run.completion).status).toBe('pending_approval');
+    expect(repository.audits.some(event => event.event === 'requirement_links_suggestion_failed')).toBe(true);
+    expect(JSON.stringify(repository.audits)).not.toContain('private suggestion failure');
+  });
+  it('completes with gaps without resolving an earlier issue by absence', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const first = await service(repository, provider(request => ({ findings: [issue], featureAssessments: assessments(request) })))
+      .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'first' });
+    expect(await first.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded' });
+    // The changed source no longer reports the issue, but another observation
+    // cites code that cannot be matched: that part stays unverified.
+    const second = await service(repository, provider(request => ({ findings: [{ ...issue, title: 'Different concern', filePath: 'missing.ts', lineNumber: 999 }], featureAssessments: assessments(request) })))
+      .start({ projectId: 'project', reviewType: 'code_review', artifacts: [{ ...artifact, contentHash: 'version-2' }], idempotencyKey: 'second' });
+    const finished = await second.completion;
+    expect(finished).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
+    expect(finished.summary).toContain('completed with gaps');
+    expect(repository.findingCorrelations.get(second.review.id)?.counts.resolved ?? 0).toBe(0);
+    expect(repository.audits.some(event => event.reviewId === second.review.id && event.event === 'review_assessment_validated')).toBe(false);
+  });
+  it('still fails when no part of the model assessment could be verified', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const run = await service(repository, provider(request => ({ findings: [{ ...issue, filePath: 'missing.ts', lineNumber: 999 }],
+      featureAssessments: assessments(request).map((row: any) => ({ ...row, assessments: row.assessments.map((item: any) => ({ ...item, status: 'unverified', outcome: 'unverified', evidence: [] })) })) })))
+      .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    const finished = await run.completion;
+    expect(finished).toMatchObject({ status: 'failed', modelStatus: 'partial' });
+    expect(finished.progress?.coverage).toBeUndefined();
   });
   it('reports bounded field-specific repair codes without retaining rejected source text', () => {
     const invalid = { ...issue, source: 'model' as const, evidence: 'private rejected payload' };

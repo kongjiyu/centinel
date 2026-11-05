@@ -479,6 +479,44 @@ describe('ReviewActivityScreen', () => {
     expect(screen.getByText('regressed').nextSibling).toHaveTextContent('1');
   });
 
+  it('shows Completed with gaps with plain-language unverified parts and keeps the approval actions', async () => {
+    const gaps = { ...baseSession, status: 'pending_approval' as const, progressJson: JSON.stringify({ stage: 'complete', completedStages: ['model_analysis'], coverage: 'partial', unverifiedPartCount: 1,
+      unverifiedParts: [{ reason: 'semantic_support', files: ['src/cart.ts'], features: ['addToCart'] }] }) };
+    setup(gaps);
+    render(<ReviewActivityScreen projectId={project.id} sessionId={gaps.id} onNavigate={vi.fn()} />);
+
+    const panel = await screen.findByRole('status', { name: 'Completed with gaps' });
+    expect(within(panel).getByRole('list', { name: 'Parts that could not be verified' })).toHaveTextContent('src/cart.ts');
+    expect(panel).toHaveTextContent('The conclusions could not be backed up with evidence from the code.');
+    expect(panel).toHaveTextContent('cannot close earlier findings');
+    expect(screen.getAllByText('Completed with gaps').length).toBeGreaterThan(1);
+    expect(screen.getByTestId('review-decision-approve')).toBeInTheDocument();
+  });
+
+  it('replaces per-requirement coverage warnings with one link to confirm suggested links', async () => {
+    const onNavigate = vi.fn();
+    const requirement: Requirement = { id: 'req-1', projectId: project.id, title: 'Pay once', description: '', category: 'Business', priority: 'High', createdAt: baseSession.createdAt };
+    vi.mocked(api.listRequirements).mockResolvedValue([requirement, { ...requirement, id: 'req-2', title: 'Refund' }]);
+    vi.mocked(api.listRequirementMappings).mockImplementation(async (_projectId, reqId) => reqId === 'req-1' ? [
+      { id: 'map-1', requirementId: 'req-1', fileId: 'artifact-1', symbolId: null, coverageStatus: 'suggested', confidence: 0.8 },
+      { id: 'map-2', requirementId: 'req-1', fileId: 'artifact-2', symbolId: null, coverageStatus: 'suggested', confidence: 0.7 },
+    ] : []);
+    vi.mocked(api.getReviewEvidenceSufficiency).mockResolvedValue({
+      id: 'assessment-3', reviewId: baseSession.id, projectId: project.id, reviewType: 'code_review', readiness: 'ready_with_warnings',
+      gaps: ['req-1', 'req-2'].map(id => ({ id: `gap-${id}`, code: 'traceability_mappings_incomplete', severity: 'warning' as const, title: 'Incomplete Requirement Coverage', requirementId: id,
+        detail: `${id} has missing implementation mapping evidence.`, remediation: 'Link the relevant versioned sources.', affectedStages: ['model_analysis'] })),
+      contradictions: [], artifactCount: 1, availableArtifactCount: 1, staleArtifactCount: 0, confirmedRequirementCount: 2, enabledStandardRuleCount: 0, assessedAt: baseSession.createdAt,
+    });
+    const user = userEvent.setup();
+    render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={onNavigate} />);
+
+    const readiness = await screen.findByRole('status', { name: 'Evidence needs attention' });
+    await waitFor(() => expect(readiness).toHaveTextContent('Centinel suggested 2 links'));
+    expect(readiness).not.toHaveTextContent('req-1 has missing implementation mapping evidence.');
+    await user.click(within(readiness).getByRole('button', { name: 'Confirm suggested links' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'requirements', projectId: project.id });
+  });
+
   it('records an attributable decision for a blocked evidence conflict', async () => {
     const user = userEvent.setup();
     const blocked = { ...baseSession, status: 'blocked' as const };
