@@ -100,7 +100,7 @@ function withCodexUsage(error: unknown, usage: TokenUsage | undefined, observedR
 
 export function codexGenerationTimeoutMs(): number {
   const configured = Number(process.env.CENTINEL_CODEX_GENERATION_TIMEOUT_MS);
-  return Number.isSafeInteger(configured) && configured >= 120_000 && configured <= 1_800_000 ? configured : 600_000;
+  return Number.isSafeInteger(configured) && configured >= 120_000 && configured <= 1_800_000 ? configured : 1_200_000;
 }
 
 function turnFailure(turn: ObjectValue): ModelProviderError {

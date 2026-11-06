@@ -155,7 +155,7 @@ describe('isolated Codex app-server transport', () => {
   it('bounds runtime generation configuration without changing RPC timeouts', () => {
     vi.stubEnv('CENTINEL_CODEX_GENERATION_TIMEOUT_MS', '900000'); expect(codexGenerationTimeoutMs()).toBe(900000);
     for (const invalid of ['0', '119999', '1800001', 'NaN']) {
-      vi.stubEnv('CENTINEL_CODEX_GENERATION_TIMEOUT_MS', invalid); expect(codexGenerationTimeoutMs()).toBe(600000);
+      vi.stubEnv('CENTINEL_CODEX_GENERATION_TIMEOUT_MS', invalid); expect(codexGenerationTimeoutMs()).toBe(1200000);
     }
   });
 
