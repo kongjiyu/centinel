@@ -47,7 +47,6 @@ type Props = {
 
 export const RELEASES_API_URL = 'https://api.github.com/repos/kongjiyu/centinel/releases/latest';
 export const RELEASES_URL = 'https://github.com/kongjiyu/centinel/releases';
-const VERSION_MOCK_VALUE = 'Centinel v0.0.1';
 
 export type LatestRelease = {
   version: string;
@@ -148,9 +147,9 @@ function AppVersionSection() {
     }
   };
 
-  const formatVersion = (value: string | null) => value ? `Centinel v${value.replace(/^v/i, '')}` : VERSION_MOCK_VALUE;
-  const currentVersion = formatVersion(version);
-  const latestVersion = formatVersion(latestRelease?.version ?? null);
+  const formatVersion = (value: string | null, missing: string) => value ? `Centinel v${value.replace(/^v/i, '')}` : missing;
+  const currentVersion = formatVersion(version, versionLoading ? 'Checking…' : 'Unknown');
+  const latestVersion = formatVersion(latestRelease?.version ?? null, updateState === 'checking' ? 'Checking…' : 'Not checked yet');
 
   return (
     <section className="settings-section settings-versions" aria-labelledby="settings-app-version-title">

@@ -36,6 +36,22 @@ fn take_auth_callback(state: tauri::State<'_, PendingAuthCallback>) -> Result<Op
         .map(|mut callback| callback.take())
 }
 
+/// Stops the local service this app started. The updater's restart skips
+/// `RunEvent::Exit`, so without this the old version's service keeps running
+/// and the updated app reuses it.
+#[tauri::command]
+fn stop_sidecar(state: tauri::State<'_, SidecarProcess>) -> Result<(), String> {
+    let mut slot = state
+        .0
+        .lock()
+        .map_err(|_| "Could not stop the local service.".to_string())?;
+    if let Some(mut child) = slot.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    Ok(())
+}
+
 /// True when something already listens on the sidecar port, e.g. `pnpm dev`.
 fn sidecar_already_running() -> bool {
     ["127.0.0.1", "[::1]"].iter().any(|host| {
@@ -158,7 +174,7 @@ fn main() {
             })?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![app_data_dir, take_auth_callback])
+        .invoke_handler(tauri::generate_handler![app_data_dir, take_auth_callback, stop_sidecar])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

@@ -1,5 +1,6 @@
 import { checkUpdate, installUpdate } from '@tauri-apps/api/updater';
 import { relaunch } from '@tauri-apps/api/process';
+import { invoke } from '@tauri-apps/api/tauri';
 
 export type AppUpdate = { version: string; notes: string | null };
 
@@ -24,8 +25,13 @@ export async function checkForAppUpdate(): Promise<AppUpdate | null> {
   }
 }
 
-/** Downloads and verifies the signed update, replaces the app, then restarts it. */
+/**
+ * Downloads and verifies the signed update, replaces the app, then restarts it.
+ * The local service is stopped first: the restart skips the normal exit
+ * handling, and the new version must start its own service, not reuse the old one.
+ */
 export async function installUpdateAndRestart(): Promise<void> {
   await installUpdate();
+  try { await invoke('stop_sidecar'); } catch { /* Development builds use an external service. */ }
   await relaunch();
 }
