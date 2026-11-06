@@ -95,7 +95,9 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
     expect(screen.getByText('Current version')).toBeInTheDocument();
     expect(screen.getByText('Latest version')).toBeInTheDocument();
-    expect(await screen.findAllByText('Centinel v0.0.1')).toHaveLength(2);
+    // The current version comes from the app; the latest one is shown only after a check.
+    expect(await screen.findByText('Centinel v0.0.1')).toBeInTheDocument();
+    expect(screen.getByText('Not checked yet')).toBeInTheDocument();
     expect(screen.queryByText('Versions')).not.toBeInTheDocument();
     expect(screen.queryByText('Provider credentials')).not.toBeInTheDocument();
     expect(screen.queryByText('Model activity')).not.toBeInTheDocument();

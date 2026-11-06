@@ -1,17 +1,19 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { throwIfAborted } from './abort.js';
+import { centinelHome } from '../paths.js';
 
 export const REPOSITORY_INDEX_ENGINE = 'open-codebase-index@0.38.1';
 export const REPOSITORY_INDEX_POLICY = 'frozen-local-index-v1';
 /** Shared default for Review and authenticated index-sync routes. Tests and
- * isolated evaluations may pass a temporary cacheRoot explicitly. */
-export const DEFAULT_REPOSITORY_INDEX_CACHE_ROOT = fileURLToPath(new URL('../../../data/repository-index/', import.meta.url));
+ * isolated evaluations may pass a temporary cacheRoot explicitly. It lives
+ * under CENTINEL_HOME, never next to the code: the packaged app runs the
+ * sidecar from its signed, read-only bundle. */
+export const DEFAULT_REPOSITORY_INDEX_CACHE_ROOT = path.join(centinelHome(), 'data', 'repository-index') + path.sep;
 export const MAX_REPOSITORY_INDEX_ARCHIVE_BYTES = 32 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 128 * 1024 * 1024;
 const MAX_FILES = 64;
