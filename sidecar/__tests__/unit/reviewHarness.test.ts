@@ -60,6 +60,18 @@ describe('Review harness audit boundaries', () => {
     expect(JSON.stringify(events)).not.toContain('secret API token');
   });
 
+  it('records only an allowlisted error code with a failed step', async () => {
+    const events: Array<Omit<ReviewAuditEvent, 'createdAt'>> = [];
+    const harness = new ReviewHarness({ reviewId: 'review', projectId: 'project' }, async event => { events.push(event); });
+    const unique = Object.assign(new Error('duplicate key value violates unique constraint (secret value)'), { code: '23505' });
+    await expect(harness.step('persisting_evidence', 'save_findings', {}, async () => { throw unique; })).rejects.toBe(unique);
+    expect(events[1].detail).toMatchObject({ outcome: 'failed', errorCode: '23505' });
+    const unsafe = Object.assign(new Error('x'), { code: 'Bearer abc.def' });
+    await expect(harness.step('persisting_evidence', 'save_findings', {}, async () => { throw unsafe; })).rejects.toBe(unsafe);
+    expect(events[3].detail).not.toHaveProperty('errorCode');
+    expect(JSON.stringify(events)).not.toContain('secret value');
+  });
+
   it('does not run a step if its start cannot be audited', async () => {
     let ran = false;
     const harness = new ReviewHarness({ reviewId: 'review', projectId: 'project' }, async () => { throw new Error('storage'); });

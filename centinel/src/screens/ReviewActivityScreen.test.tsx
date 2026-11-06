@@ -212,6 +212,8 @@ describe('ReviewActivityScreen', () => {
     expect(screen.queryByTestId('review-decision-reject')).not.toBeInTheDocument();
     expect(screen.queryByText('Candidate findings')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Write feedback about this review' })).not.toBeInTheDocument();
+    // No correlation snapshot exists until the Review finishes.
+    expect(api.getReviewCorrelations).not.toHaveBeenCalled();
   });
 
   it('only exposes cancel while the review is running', async () => {

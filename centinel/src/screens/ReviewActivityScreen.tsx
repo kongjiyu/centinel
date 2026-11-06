@@ -401,7 +401,9 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         }
         catch { if (isCurrentLoad()) setEvidenceAssessment(null); }
       }
-      if (typeof api.getReviewCorrelations === 'function') {
+      // A correlation snapshot is written when a Review finishes; asking while it
+      // runs only returns 404 on every poll.
+      if (typeof api.getReviewCorrelations === 'function' && !['queued', 'prepared', 'running'].includes(sessionResult.status)) {
         try {
           const value = await api.getReviewCorrelations(projectId, sessionId);
           if (!isCurrentLoad()) return;

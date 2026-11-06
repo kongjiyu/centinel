@@ -127,7 +127,11 @@ function mapReview(row: Row): StaticReviewRecord {
 
 function errorFor(label: string, error: unknown): Error {
   const message = error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : String(error);
-  return new Error(`Supabase ${label} failed: ${message}`);
+  const failure = new Error(`Supabase ${label} failed: ${message}`) as Error & { code?: string };
+  // Keep the database/API error code (e.g. SQLSTATE 23505) so diagnostics can name the cause.
+  const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code ?? '') : '';
+  if (code) failure.code = code;
+  return failure;
 }
 
 function isMissingRevisionError(error: unknown): boolean {
