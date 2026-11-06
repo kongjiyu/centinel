@@ -64,8 +64,19 @@ export class ReviewHarness {
     } catch (error) {
       // Persist outcomes, never credentials, prompts, model thoughts, or raw exceptions.
       const cancelled = error instanceof Error && /Abort|Cancel/i.test(error.name);
-      await this.emit({ ...this.context, event: cancelled ? 'harness_step_cancelled' : 'harness_step_failed', stage, detail: { executionId, step, durationMs: Math.round(performance.now() - started), outcome: cancelled ? 'cancelled' : 'failed' } });
+      const errorCode = safeErrorCode(error);
+      await this.emit({ ...this.context, event: cancelled ? 'harness_step_cancelled' : 'harness_step_failed', stage, detail: { executionId, step, durationMs: Math.round(performance.now() - started), outcome: cancelled ? 'cancelled' : 'failed', ...(errorCode ? { errorCode } : {}) } });
       throw error;
     }
   }
+}
+
+/**
+ * An allowlisted error code for the audit trail: a Postgres SQLSTATE (e.g.
+ * 23505) or a snake_case application code. Messages are never recorded.
+ */
+export function safeErrorCode(error: unknown): string | undefined {
+  const code = error && typeof error === 'object' && 'code' in error ? (error as { code: unknown }).code : undefined;
+  if (typeof code !== 'string') return undefined;
+  return /^[0-9A-Z]{5}$/.test(code) || /^[a-z][a-z0-9_]{1,63}$/.test(code) ? code : undefined;
 }
