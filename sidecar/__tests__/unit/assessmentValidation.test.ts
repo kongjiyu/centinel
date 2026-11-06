@@ -176,6 +176,32 @@ describe('Assessment acceptance boundary', () => {
     expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial' });
     expect(repository.findingCorrelations.size).toBe(0);
   });
+  it('marks a batch that exceeds the AI time limit as unverified and still runs the other batches', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const source = [content, ...Array.from({ length: 8 }, (_, index) => `export function extra${index}() { return true; }`)].join('\n');
+    const stages: string[] = [];
+    const runner = createStaticReviewOrchestrator({ repository, readArtifactContent: async () => source, deterministic: async () => [],
+      retry: { sleep: async () => undefined }, modelProvider: provider(request => {
+        stages.push(request.stage);
+        if (stages.length === 2) throw new ModelProviderError('Codex generation exceeded its time limit.', { code: 'codex_timeout', retryable: false });
+        return { findings: [], featureAssessments: assessments(request) };
+      }),
+    });
+    const run = await runner.start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    const completed = await run.completion;
+    expect(completed).toMatchObject({ status: 'pending_approval', modelStatus: 'partial' });
+    expect(completed.progress).toMatchObject({ coverage: 'partial', unverifiedParts: expect.arrayContaining([expect.objectContaining({ reason: 'model_timeout' })]) });
+    expect(new Set(stages).size).toBe(3); // the batch after the timeout and the source sweep still ran
+    expect(repository.audits.filter(event => event.event === 'review_batch_needs_verification').map(event => event.detail?.reason)).toEqual(['model_timeout']);
+    expect(repository.audits.some(event => event.event === 'review_assessment_validated')).toBe(false);
+    expect(repository.findingCorrelations.size).toBe(0);
+  });
+  it('still fails when every batch exceeds the AI time limit', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const run = await service(repository, provider(() => { throw new ModelProviderError('Codex generation exceeded its time limit.', { code: 'codex_timeout', retryable: false }); }))
+      .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect(await run.completion).toMatchObject({ status: 'failed' });
+  });
   it('bounds local coverage repairs and continues later batches without clean completion', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const source = [content, ...Array.from({ length: 8 }, (_, index) => `export function extra${index}() { return true; }`)].join('\n');

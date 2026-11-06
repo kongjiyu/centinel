@@ -6,7 +6,7 @@ import type { StaticSession } from './types';
  * `progress.coverage = 'partial'` with bounded, safe descriptions of the parts
  * that could not be verified. Those parts never establish a clean result.
  */
-export type ReviewUnverifiedReason = 'response_shape' | 'finding_shape' | 'domain_coverage' | 'source_evidence' | 'semantic_support' | 'uncertain_citation';
+export type ReviewUnverifiedReason = 'response_shape' | 'finding_shape' | 'domain_coverage' | 'source_evidence' | 'semantic_support' | 'uncertain_citation' | 'model_timeout';
 export type ReviewUnverifiedPart = { reason: ReviewUnverifiedReason; files: string[]; features: string[]; count?: number };
 export type ReviewCoverageGaps = { parts: ReviewUnverifiedPart[]; total: number };
 
@@ -17,6 +17,7 @@ const REASON_TEXT: Record<ReviewUnverifiedReason, string> = {
   source_evidence: 'the quoted code did not match the saved source exactly',
   semantic_support: 'the conclusions could not be backed up with evidence from the code',
   uncertain_citation: 'some issues point to code that could not be matched exactly',
+  model_timeout: 'the AI did not answer within the time limit',
 };
 
 const strings = (value: unknown, max: number) => Array.isArray(value)
