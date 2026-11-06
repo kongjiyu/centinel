@@ -4,7 +4,7 @@ import { verifiedSourceText } from './sourceText.js';
 import crypto from 'node:crypto';
 import type { ValidatedBatchCache, ValidatedBatchCacheRecord } from './batchCheckpoint.js';
 import { ValidatedBatchCacheError } from './batchCheckpoint.js';
-import { BatchCachePersistenceError, batchRequestIdentity, projectPublicAssessment, validateCachedBatch, type BatchCacheBasis } from './batchCacheValidation.js';
+import { BatchCachePersistenceError, batchRequestIdentity, projectPublicAssessment, recoveryBasisFromJournal, validateCachedBatch, type BatchCacheBasis, type RecoveryBatchBasis } from './batchCacheValidation.js';
 import { ReviewHarness } from './harness.js';
 import { analysisMapForBatchPrompt, contextForAssessmentBatch, planAssessmentBatches, findingsWithinBatch, type AssessmentSourceSegment } from './assessmentBatches.js';
 import { prepareAssessmentPlan } from './assessmentPlan.js';
@@ -989,6 +989,24 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
             }
           } catch { throw new BatchCachePersistenceError(); }
         }
+        // Same-Review lease recovery (user-approved, 6 November 2026): a
+        // resumed Review may reuse batches it validated and cached itself
+        // before the interruption. The journal is read before this run
+        // records any batch, so it reflects only the interrupted runs.
+        let recoveryBasis: RecoveryBatchBasis | null = null;
+        if (!cacheBasis && this.deps.batchCache && this.deps.cacheOwnerId && providerFingerprint
+          && typeof this.deps.repository.getRecoveryJournal === 'function') {
+          try { recoveryBasis = recoveryBasisFromJournal(await this.deps.repository.getRecoveryJournal(review.id, review.projectId), review); }
+          catch (error) {
+            if (isAbortLike(error) || signal.aborted) throw error;
+            // Without this Review's journal nothing can be proven reusable;
+            // every batch runs normally, as before this amendment.
+            await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_batch_cache_rejected', stage: 'model_analysis',
+              detail: { reason: 'recovery_journal_unavailable' } });
+          }
+        }
+        const reuseBasis: BatchCacheBasis | RecoveryBatchBasis | null = cacheBasis ?? recoveryBasis;
+        const reuseOrigins = cacheBasis ? cacheOrigins : new Set([review.id]);
         for (const batch of batches) {
           const uncertainBeforeBatch = uncertainCitationCount;
           try {
@@ -1007,10 +1025,10 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
             request: modelRequest, ownerId: this.deps.cacheOwnerId, providerFingerprint, policyVersion: STATIC_REVIEW_MODEL_POLICY_VERSION,
             lineageRootId: review.lineage.lineageRootId, batchId: batch.id, artifacts, authorities: cacheAuthorities,
           }) : null;
-          const cacheValidation = requestHash && providerFingerprint && this.deps.cacheOwnerId && cacheBasis ? {
+          const cacheValidation = requestHash && providerFingerprint && this.deps.cacheOwnerId && reuseBasis ? {
             projectId: review.projectId, ownerId: this.deps.cacheOwnerId, requestHash, providerFingerprint,
             policyVersion: STATIC_REVIEW_MODEL_POLICY_VERSION, batch, map: batchMap, evidence: batchEvidence, authorities: cacheAuthorities,
-            allowedOrigins: cacheOrigins, basis: cacheBasis,
+            allowedOrigins: reuseOrigins, basis: reuseBasis,
             ground: (findings: StaticFindingInput[]) => this.sanitizeGroundingReferences(findings, confirmedRequirements, enabledStandardRules),
           } : null;
           let cached: ValidatedBatchCacheRecord | null = null;
@@ -1020,10 +1038,13 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
             try { candidate = await this.deps.batchCache.load(review.projectId, requestHash!, signal); }
             catch (error) {
               if (isAbortLike(error) || signal.aborted) throw error;
-              if (!(error instanceof ValidatedBatchCacheError) || !['invalid_archive', 'invalid_receipt', 'invalid_record'].includes(error.code)) throw new BatchCachePersistenceError();
+              const validationMiss = error instanceof ValidatedBatchCacheError && ['invalid_archive', 'invalid_receipt', 'invalid_record'].includes(error.code);
+              // Explicit reuse fails closed; recovery reuse is optional and
+              // falls back to running the batch, as before this amendment.
+              if (!validationMiss && !recoveryBasis) throw new BatchCachePersistenceError();
               cacheWriteAllowed = false;
               await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_batch_cache_rejected', stage: 'model_analysis',
-                detail: { batchId: batch.id, reason: error.code } });
+                detail: { batchId: batch.id, reason: validationMiss ? (error as ValidatedBatchCacheError).code : 'persistence' } });
             }
             if (candidate) {
               try { cached = validateCachedBatch(candidate, cacheValidation); }
@@ -1523,6 +1544,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           if (cached) {
             await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_batch_cache_reused', stage: 'model_analysis',
               detail: { batchId: batch.id, originReviewId: cached.originReviewId, requestHash: cached.requestHash,
+                ...(recoveryBasis ? { reuseKind: 'lease_recovery' } : {}),
                 providerCallsAvoided: cacheSupportRecords.length ? 2 : 1, sourceReferences: batchSourceReferences } });
           } else if (requestHash && providerFingerprint && this.deps.batchCache && this.deps.cacheOwnerId && cacheSupportEligible && cacheWriteAllowed
             && !uncertain.length && !grounding.rejectedRequirementReferences && !grounding.rejectedStandardReferences && modelResult.providerUsed === 'primary') {
