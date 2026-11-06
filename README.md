@@ -30,9 +30,9 @@ Both feed one **quality report** (PDF, Markdown or JSON). The first part is writ
 
 ## Download and install
 
-> Centinel 0.2.1 is an early release for **macOS** (macOS 11 or newer, Apple silicon or Intel).
+> Centinel 0.2.2 is an early release for **macOS** (macOS 11 or newer, Apple silicon or Intel).
 
-1. Download the disk image for your Mac from the [Releases page](https://github.com/kongjiyu/centinel/releases): `Centinel_0.2.1_aarch64.dmg` for Apple silicon (M1 or newer), `Centinel_0.2.1_x64.dmg` for Intel. To check which you have, open the Apple menu → **About This Mac**: *Chip: Apple M…* means Apple silicon.
+1. Download the disk image for your Mac from the [Releases page](https://github.com/kongjiyu/centinel/releases): `Centinel_0.2.2_aarch64.dmg` for Apple silicon (M1 or newer), `Centinel_0.2.2_x64.dmg` for Intel. To check which you have, open the Apple menu → **About This Mac**: *Chip: Apple M…* means Apple silicon.
 2. Open the DMG and drag **Centinel** into **Applications**.
 3. Open Centinel from Applications. The app is signed with a Developer ID and notarized by Apple, so macOS opens it without a security warning.
 
