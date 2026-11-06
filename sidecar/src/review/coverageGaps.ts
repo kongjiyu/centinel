@@ -15,7 +15,7 @@ import type { InvalidModelAssessmentError } from './assessmentValidation.js';
  * `modelStatus = 'partial'`, which every resolution and baseline path rejects.
  */
 
-export type ReviewUnverifiedReason = InvalidModelAssessmentError['reason'] | 'uncertain_citation';
+export type ReviewUnverifiedReason = InvalidModelAssessmentError['reason'] | 'uncertain_citation' | 'model_timeout';
 
 export type ReviewUnverifiedPart = {
   reason: ReviewUnverifiedReason;
@@ -102,6 +102,7 @@ const REASON_TEXT: Record<ReviewUnverifiedReason, string> = {
   source_evidence: 'the quoted code did not match the saved source exactly',
   semantic_support: 'the conclusions could not be backed up with evidence from the code',
   uncertain_citation: 'some issues point to code that could not be matched exactly',
+  model_timeout: 'the AI did not answer within the time limit',
 };
 
 /** Plain-language description of one unverified part, e.g. for reports. */

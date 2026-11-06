@@ -627,6 +627,8 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
     const supportExcludedArtifactIds = new Set<string>();
     let deferredEvidenceBatches = 0;
     let firstDeferredEvidenceError: InvalidModelAssessmentError | undefined;
+    let timedOutBatches = 0;
+    let firstTimeoutError: ModelProviderError | undefined;
     let uncertainCitationCount = 0;
     let validatedBatchCount = 0;
     const unverifiedParts: ReviewUnverifiedPart[] = [];
@@ -1543,7 +1545,20 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           validatedBatchCount++;
           if (uncertainCitationCount > uncertainBeforeBatch) unverifiedParts.push(unverifiedPartForBatch(batch, 'uncertain_citation', uncertainCitationCount - uncertainBeforeBatch));
           } catch (error) {
-            if (isAbortLike(error) || signal.aborted || reviewProviderPause(error) || !(error instanceof InvalidModelAssessmentError)) throw error;
+            if (isAbortLike(error) || signal.aborted || reviewProviderPause(error)) throw error;
+            // One batch that exceeds the generation deadline (6 November 2026,
+            // user-requested for large scopes) becomes an unverified part; the
+            // other independent batches still run. It is not retried, its usage
+            // stays unknown, and it never gives clean or absence-resolution proof.
+            if (error instanceof ModelProviderError && error.code === 'codex_timeout') {
+              timedOutBatches++;
+              firstTimeoutError ??= error;
+              unverifiedParts.push(unverifiedPartForBatch(batch, 'model_timeout'));
+              await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_batch_needs_verification', stage: 'model_analysis',
+                detail: { batchId: batch.id, reason: 'model_timeout', policyVersion: STATIC_REVIEW_MODEL_POLICY_VERSION } });
+              continue;
+            }
+            if (!(error instanceof InvalidModelAssessmentError)) throw error;
             deferredEvidenceBatches++;
             firstDeferredEvidenceError ??= error;
             unverifiedParts.push(unverifiedPartForBatch(batch, error.reason, uncertainCitationCount - uncertainBeforeBatch));
@@ -1553,8 +1568,8 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           }
         }
         await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_source_batches_finished', stage: 'model_analysis',
-          detail: { plannedBatches: batches.length, batchesNeedingVerification: deferredEvidenceBatches, uncertainCitations: uncertainCitationCount } });
-        const partlyVerified = Boolean(firstDeferredEvidenceError || uncertainCitationCount);
+          detail: { plannedBatches: batches.length, batchesNeedingVerification: deferredEvidenceBatches, uncertainCitations: uncertainCitationCount, timedOutBatches } });
+        const partlyVerified = Boolean(firstDeferredEvidenceError || uncertainCitationCount || timedOutBatches);
         // Completed with gaps (user-approved, 5 November 2026): when at least
         // one independent batch or finding was validated, unverified batches
         // stay recorded as gaps instead of failing the whole Review. Inputs
@@ -1564,6 +1579,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
           || analysisMap.features.some(feature => feature.assessments.some(item => item.status === 'assessed'));
         if (partlyVerified && !hasVerifiedResult) {
           if (firstDeferredEvidenceError) throw firstDeferredEvidenceError;
+          if (firstTimeoutError) throw firstTimeoutError;
           throw new InvalidModelAssessmentError('semantic_support', uncertainCitationCount);
         }
         if (evidenceArtifacts.some(item => typeof item.content !== 'string' || item.state && item.state !== 'available')) throw new InvalidModelAssessmentError('source_evidence');
