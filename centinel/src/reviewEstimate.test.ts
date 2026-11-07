@@ -38,4 +38,21 @@ describe('review estimate', () => {
   it('says plainly when there is no earlier Review', () => {
     expect(describeReviewEstimate(buildReviewEstimate(null, null))).toMatch(/first Review of this project/);
   });
+
+  it('counts only active run time when an interrupted Review resumed hours later', () => {
+    const finished = session({ createdAt: '2026-11-06T03:00:42.000Z', completedAt: '2026-11-06T10:22:48.000Z' });
+    const step = (event: string, createdAt: string, durationMs?: number) => ({ reviewId: 'r', event, createdAt, detail: durationMs == null ? {} : { durationMs } });
+    const events = [
+      step('harness_step_started', '2026-11-06T03:00:43.000Z'),
+      step('harness_step_completed', '2026-11-06T03:20:43.000Z', 1_200_000),
+      // The computer was off; lease recovery resumed the Review four hours later.
+      step('harness_step_started', '2026-11-06T08:02:52.000Z'),
+      step('harness_step_completed', '2026-11-06T08:32:52.000Z', 1_800_000),
+      step('harness_step_completed', '2026-11-06T08:42:52.000Z', 60_000),
+    ];
+    const estimate = buildReviewEstimate(finished, null, events);
+    expect(estimate).toMatchObject({ durationMs: 60 * 60 * 1000 });
+    expect(describeReviewEstimate(estimate)).toContain('about 1h 0m 0s');
+    expect(buildReviewEstimate(finished, null)).toMatchObject({ durationMs: 26_526_000 });
+  });
 });

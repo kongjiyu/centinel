@@ -199,8 +199,11 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
     if (!selectedProjectId) return () => { active = false; };
     void (async () => {
       const latest = latestFinishedReview(await api.listStaticSessions(selectedProjectId, { summary: true }));
-      const usage = latest ? await api.getReviewModelUsage(selectedProjectId, latest.id).catch(() => null) : null;
-      if (active) setEstimateText(describeReviewEstimate(buildReviewEstimate(latest, usage)));
+      const [usage, trace] = latest ? await Promise.all([
+        api.getReviewModelUsage(selectedProjectId, latest.id).catch(() => null),
+        api.getReviewHarness(selectedProjectId, latest.id).catch(() => null),
+      ]) : [null, null];
+      if (active) setEstimateText(describeReviewEstimate(buildReviewEstimate(latest, usage, trace?.events)));
     })().catch(() => { if (active) setEstimateText(null); });
     return () => { active = false; };
   }, [selectedProjectId]);
@@ -639,8 +642,6 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   return (
     <div className="screen command-review-entry review-entry-screen">
       <CommandPageHeader eyebrow="Review" title="Start a Review" onBack={() => onNavigate({ name: 'dashboard' })} />
-      {selectedProject && !comparisonParentReviewId && <RecentReviews projectId={selectedProject.id} onNavigate={onNavigate} />}
-
       <form className="review-entry-form" aria-label="Start review" onSubmit={event => { void handleCreateReview(event); }}>
         <section className="review-form-section review-entry-basics" aria-labelledby="review-entry-details-heading">
           <h2 id="review-entry-details-heading" className="review-entry-section-title">Review details</h2>
@@ -703,6 +704,9 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
         {estimateText && <p className="review-entry-estimate">{estimateText}</p>}
         <div className="review-entry-actions"><button type="submit" className="btn-primary review-entry-submit" disabled={submitting || sourceBlocked || providerReady === false}>{submitting ? 'Starting review…' : 'Start review'}</button><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dashboard' })} disabled={submitting}>Cancel</button></div>
       </form>
+
+      {/* Below the form: the list loads after the fields, so above them it would push the form down mid-click. */}
+      {selectedProject && !comparisonParentReviewId && <RecentReviews projectId={selectedProject.id} onNavigate={onNavigate} />}
 
       <ProjectCreateModal isOpen={showProjectModal} onClose={() => setShowProjectModal(false)} onCreate={onCreateProject} onCreated={handleProjectCreated} />
     </div>

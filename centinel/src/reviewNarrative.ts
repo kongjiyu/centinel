@@ -60,22 +60,39 @@ export function formatReviewDuration(ms: number | null): string {
   return seconds >= 3600 ? `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m ${seconds % 60}s`
     : seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
 }
-/** Wall-clock boundaries avoid adding nested/parallel step durations twice. */
-function executionTiming(events: HarnessEvent[], active: boolean, now: number) {
-  const starts: number[] = []; const ends: number[] = [];
+/**
+ * No recorded step can run silently for longer than the 30-minute maximum AI
+ * generation deadline, so a longer gap between events means the Review was not
+ * running (for example, the computer was off until lease recovery resumed it).
+ */
+export const REVIEW_IDLE_GAP_MS = 35 * 60 * 1000;
+
+/**
+ * Active run time: wall-clock between recorded step boundaries (so nested or
+ * parallel steps are not added twice), excluding idle gaps longer than
+ * REVIEW_IDLE_GAP_MS.
+ */
+export function executionTiming(events: HarnessEvent[], active: boolean, now: number) {
+  const points: number[] = []; const ends: number[] = [];
   for (const event of events) {
     const time = timestamp(event.createdAt);
     if (time == null || !event.event.startsWith('harness_step_')) continue;
-    if (event.event === 'harness_step_started') starts.push(time);
-    else {
+    points.push(time);
+    if (event.event !== 'harness_step_started') {
       ends.push(time);
       const duration = event.detail?.durationMs;
-      if (typeof duration === 'number' && Number.isFinite(duration) && duration >= 0) starts.push(time - duration);
+      if (typeof duration === 'number' && Number.isFinite(duration) && duration >= 0) points.push(time - duration);
     }
   }
-  const start = starts.length ? Math.min(...starts) : null;
   const end = active ? now : ends.length ? Math.max(...ends) : null;
-  return { ms: start != null && end != null && end >= start ? end - start : null, end: !active && end != null ? new Date(end).toISOString() : null };
+  if (!points.length || end == null) return { ms: null, end: null };
+  const sorted = [...points.filter(point => point <= end), end].sort((a, b) => a - b);
+  let ms = 0;
+  for (let index = 1; index < sorted.length; index += 1) {
+    const gap = sorted[index] - sorted[index - 1];
+    if (gap <= REVIEW_IDLE_GAP_MS) ms += gap;
+  }
+  return { ms, end: !active ? new Date(end).toISOString() : null };
 }
 export function reviewAspect(category: string): ReviewAspect {
   if (/personnel|human.error|usability|user.experience/i.test(category)) return 'Human error';
