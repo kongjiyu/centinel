@@ -4,7 +4,7 @@ import {
   USABILITY_RULES,
   type UsabilityConfig,
   type UsabilityRule,
-} from '../../../sidecar/src/dynamic/usability/types';
+} from '../dynamic/usability';
 import type { DynamicRun } from '../dynamic/types';
 const labels: Record<UsabilityRule, string> = {
   labels: 'Control labels',

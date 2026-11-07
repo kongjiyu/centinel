@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DynamicUsabilityEditor, DynamicUsabilityResults } from './DynamicUsabilityPanel';
-import type { UsabilityConfig } from '../../../sidecar/src/dynamic/usability/types';
+import type { UsabilityConfig } from '../dynamic/usability';
 import type { DynamicRun } from '../dynamic/types';
 const config: UsabilityConfig = {
   schemaVersion: 1,

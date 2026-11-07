@@ -1,6 +1,6 @@
 import { DynamicReportsPanel } from './DynamicReportsPanel';
 import { DynamicUsabilityEditor, DynamicUsabilityResults } from './DynamicUsabilityPanel';
-import type { UsabilityConfig } from '../../../sidecar/src/dynamic/usability/types';
+import type { UsabilityConfig } from '../dynamic/usability';
 import { RunEvidencePanel } from './RunEvidencePanel';
 import { DynamicFindingsPanel } from './DynamicFindingsPanel';
 import { RunDownloadedFiles } from './RunDownloadedFiles';
