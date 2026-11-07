@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { analysisMapFromEvents } from './assessmentBatches.js';
+import { RECOVERY_JOURNAL_EVENTS } from './batchCacheValidation.js';
 import type { Artifact } from '../artifacts.js';
 import type {
   ModelAttemptRecord,
@@ -49,6 +50,11 @@ export class InMemoryStaticReviewRepository implements StaticReviewRepository {
     if (!review || !['blocked', 'failed', 'cancelled', 'pending_approval', 'completed', 'approved', 'changes_requested'].includes(review.status)) return null;
     const analysisMap = analysisMapFromEvents(this.audits.filter(event => event.reviewId === reviewId));
     return analysisMap ? { reviewId, projectId: review.projectId, analysisMap, findings: await this.listReviewFindings(reviewId) } : null;
+  }
+
+  async getRecoveryJournal(reviewId: string, projectId: string): Promise<ReviewAuditEvent[]> {
+    const types = new Set<string>(RECOVERY_JOURNAL_EVENTS);
+    return clone(this.audits.filter(event => event.reviewId === reviewId && event.projectId === projectId && types.has(event.event)));
   }
 
   async createReview(input: NewStaticReview): Promise<StaticReviewRecord> {

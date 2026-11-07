@@ -312,6 +312,8 @@ export type StaticReviewRepository = {
   getFindingCorrelationSnapshot?(childReviewId: string): Promise<FindingCorrelationSnapshot | null>;
   listReviewFindings(reviewId: string): Promise<PersistedReviewFinding[]>;
   getBatchCacheBasis?(reviewId: string): Promise<import('./batchCacheValidation.js').BatchCacheBasis | null>;
+  /** This Review's own lease-recovery and batch journal, oldest first (same-Review recovery reuse). */
+  getRecoveryJournal?(reviewId: string, projectId: string): Promise<ReviewAuditEvent[]>;
   /** Store unconfirmed requirement-link suggestions; returns how many new rows were added. */
   saveRequirementLinkSuggestions?(projectId: string, suggestions: import('./requirementLinkSuggestions.js').RequirementLinkSuggestion[], signal?: AbortSignal): Promise<number>;
 

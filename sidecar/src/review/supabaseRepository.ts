@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { analysisMapFromEvents } from './assessmentBatches.js';
+import { RECOVERY_JOURNAL_EVENTS } from './batchCacheValidation.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
@@ -544,6 +545,19 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
         const payload = objectValue(row.payload);
         return { id: text(row, 'id'), projectId, reviewId, event: text(row, 'event_type'), stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: objectValue(payload.detail), createdAt: text(row, 'created_at') };
       });
+  }
+
+  async getRecoveryJournal(reviewId: string, projectId: string): Promise<ReviewAuditEvent[]> {
+    const rows = await this.allRows('audit_events', 'review recovery journal', query => query
+      .select('id, project_id, entity_id, event_type, payload, created_at')
+      .eq('project_id', projectId).eq('entity_type', 'review').eq('entity_id', reviewId)
+      .in('event_type', [...RECOVERY_JOURNAL_EVENTS])
+      .order('created_at', { ascending: true }).order('id', { ascending: true }));
+    return rows.map(row => {
+      const payload = objectValue(row.payload);
+      return { id: text(row, 'id'), projectId: text(row, 'project_id'), reviewId: text(row, 'entity_id'), event: text(row, 'event_type'),
+        stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: objectValue(payload.detail), createdAt: text(row, 'created_at') };
+    });
   }
 
   async listReviews(projectId: string): Promise<StaticReviewRecord[]> {
