@@ -3,7 +3,7 @@ import { formatActivityTime } from '../hooks/useProjectSummaries';
 import { api } from '../api/client';
 import { userFacingError } from '../utils/userFacingError';
 import { DynamicReportsPanel } from './DynamicReportsPanel';
-import type { DynamicUnitRun } from '../../../sidecar/src/dynamic/unit/types';
+import type { DynamicUnitRun } from '../dynamic/contracts';
 import type { EnvironmentData } from '../dynamic/types';
 export function DynamicUnitPanel({
   projectId,

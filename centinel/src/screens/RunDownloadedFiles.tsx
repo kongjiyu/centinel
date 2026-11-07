@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';import {api} from '../api/client';import {userFacingError} from '../utils/userFacingError';import type {DynamicRun} from '../dynamic/types';import type {LocalDownload} from '../../../sidecar/src/dynamic/environment/downloadVault';
+import {useEffect,useRef,useState} from 'react';import {api} from '../api/client';import {userFacingError} from '../utils/userFacingError';import type {DynamicRun} from '../dynamic/types';import type {LocalDownload} from '../dynamic/contracts';
 import {saveDownloadedCopy} from '../dynamic/saveDownloadedCopy';
 export function RunDownloadedFiles({projectId,run}:{projectId:string;run:DynamicRun}){
  const [files,setFiles]=useState<LocalDownload[]|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const scope=useRef(0);const errorRef=useRef<HTMLParagraphElement>(null);

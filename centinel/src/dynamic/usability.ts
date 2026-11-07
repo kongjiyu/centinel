@@ -1,5 +1,5 @@
 /**
- * Frontend-owned copy of `sidecar/src/dynamic/usability/types.ts` (rule list, personas and DTOs).
+ * Frontend-owned copy of the sidecar `dynamic/usability/types.ts` (rule list, personas and DTOs).
  * `contracts/sidecarParity.test.ts` checks that the constants and types stay identical.
  */
 export const USABILITY_RULES = ['labels', 'keyboard', 'focus', 'feedback', 'error_recovery'] as const;

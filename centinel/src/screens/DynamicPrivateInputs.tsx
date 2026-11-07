@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import type { EnvironmentProfile } from '../dynamic/types';
-import type { PrivateInputGrant } from '../../../sidecar/src/dynamic/browser/privateInputs';
+import type { PrivateInputGrant } from '../dynamic/contracts';
 export function DynamicPrivateInputs({
   projectId,
   profile,

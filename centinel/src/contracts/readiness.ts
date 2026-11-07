@@ -1,5 +1,5 @@
 /**
- * Frontend-owned copy of the public Project Readiness DTOs from `sidecar/src/readiness/types.ts`.
+ * Frontend-owned copy of the public Project Readiness DTOs from the sidecar `readiness/types.ts`.
  * Only the response types the desktop reads are declared here; sidecar-only inputs stay in the sidecar.
  * `contracts/sidecarParity.test.ts` fails the type check if these declarations drift.
  */

@@ -25,9 +25,9 @@ import {
   type IncomingContextSource,
   type StaticContextFixture,
   type StubScenario,
-} from '../../../sidecar/src/dynamic/testing/staticContextStub';
-import { validateIncomingContext, contextNeedsAcknowledgment } from '../../../sidecar/src/dynamic/context';
-import type { CriterionExclusion } from '../../../sidecar/src/dynamic/types';
+} from '../dynamic/staticContextStub';
+import { validateIncomingContext, contextNeedsAcknowledgment } from '../dynamic/context';
+import type { CriterionExclusion } from '../dynamic/contracts';
 import { DynamicContextPanel } from './DynamicContextPanel';
 import { DynamicCoveragePanel } from './DynamicCoveragePanel';
 import { userFacingError } from '../utils/userFacingError';

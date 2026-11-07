@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { userFacingError } from '../utils/userFacingError';
 import type { EnvironmentProfile } from '../dynamic/types';
-import { MAX_DOWNLOAD_BYTES, type DownloadGrant } from '../../../sidecar/src/dynamic/browser/fileTypes';
+import { MAX_DOWNLOAD_BYTES, type DownloadGrant } from '../dynamic/limits';
 export function DynamicDownloadPanel({
   projectId,
   profile,

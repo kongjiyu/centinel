@@ -1,6 +1,6 @@
 /**
  * Frontend-owned copy of the sidecar's public embedding settings contract
- * (`sidecar/src/embeddingSettingsTypes.ts`). Credentials never appear in catalogs or usage.
+ * (the sidecar `embeddingSettingsTypes.ts`). Credentials never appear in catalogs or usage.
  * `contracts/sidecarParity.test.ts` fails the type check if the two declarations drift.
  */
 export type EmbeddingProviderId = 'voyage' | 'custom';

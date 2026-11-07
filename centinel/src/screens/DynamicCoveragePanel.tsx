@@ -1,4 +1,4 @@
-import { calculateRunCoverage } from '../../../sidecar/src/dynamic/coverage';
+import { calculateRunCoverage } from '../dynamic/coverage';
 import type { DynamicRun } from '../dynamic/types';
 const labels: Record<string, string> = {
   passed: 'Passed',

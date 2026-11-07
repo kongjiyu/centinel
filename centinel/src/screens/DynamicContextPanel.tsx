@@ -3,9 +3,9 @@ import {
   STUB_SCENARIOS,
   type StaticContextFixture,
   type StubScenario,
-} from '../../../sidecar/src/dynamic/testing/staticContextStub';
-import { contextNeedsAcknowledgment } from '../../../sidecar/src/dynamic/context';
-import type { CriterionExclusion } from '../../../sidecar/src/dynamic/types';
+} from '../dynamic/staticContextStub';
+import { contextNeedsAcknowledgment } from '../dynamic/context';
+import type { CriterionExclusion } from '../dynamic/contracts';
 export function DynamicContextPanel({
   context,
   scenario,

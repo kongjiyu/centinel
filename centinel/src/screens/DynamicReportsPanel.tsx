@@ -3,7 +3,7 @@ import { formatActivityTime } from '../hooks/useProjectSummaries';
 import { api } from '../api/client';
 import { saveDynamicReport } from '../dynamic/saveReport';
 import { userFacingError } from '../utils/userFacingError';
-import type { DynamicReportSummary } from '../../../sidecar/src/dynamic/reports/types';
+import type { DynamicReportSummary } from '../dynamic/contracts';
 export function DynamicReportsPanel({
   projectId,
   runId,
@@ -14,7 +14,7 @@ export function DynamicReportsPanel({
   kind?: 'browser' | 'unit';
 }) {
   const [reports, setReports] = useState<
-      Array<DynamicReportSummary | import('../../../sidecar/src/dynamic/unit/reports').UnitReportSnapshot['metadata']>
+      Array<DynamicReportSummary | import('../dynamic/contracts').UnitReportSnapshot['metadata']>
     >([]),
     [busy, setBusy] = useState(false),
     [status, setStatus] = useState(''),

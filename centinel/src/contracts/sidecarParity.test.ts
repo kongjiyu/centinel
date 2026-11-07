@@ -10,6 +10,23 @@ import type * as SidecarRegistry from '../../../sidecar/src/dynamic/workspace/re
 import type * as SidecarOperations from '../../../sidecar/src/dynamic/workspace/operations';
 import type * as SidecarSessionBroker from '../../../sidecar/src/dynamic/environment/sessionBroker';
 import * as SidecarUsability from '../../../sidecar/src/dynamic/usability/types';
+import type * as SidecarFindings from '../../../sidecar/src/dynamic/findings/types';
+import type * as SidecarReports from '../../../sidecar/src/dynamic/reports/types';
+import type * as SidecarUnit from '../../../sidecar/src/dynamic/unit/types';
+import type * as SidecarUnitReports from '../../../sidecar/src/dynamic/unit/reports';
+import type * as SidecarEvidence from '../../../sidecar/src/dynamic/sharedEvidence/types';
+import type * as SidecarArtifacts from '../../../sidecar/src/dynamic/sharedEvidence/artifacts';
+import type * as SidecarFileTypes from '../../../sidecar/src/dynamic/browser/fileTypes';
+import type * as SidecarActionPolicy from '../../../sidecar/src/dynamic/browser/actionPolicy';
+import type * as SidecarPrivateInputs from '../../../sidecar/src/dynamic/browser/privateInputs';
+import type * as SidecarDownloadVault from '../../../sidecar/src/dynamic/environment/downloadVault';
+import type * as SidecarDiscovery from '../../../sidecar/src/dynamic/environment/controlDiscovery';
+import type * as SidecarStub from '../../../sidecar/src/dynamic/testing/staticContextStub';
+import type * as SidecarCoverage from '../../../sidecar/src/dynamic/coverage';
+import type * as SidecarRegression from '../../../sidecar/src/dynamic/regression';
+import type * as FrontendStub from '../dynamic/staticContextStub';
+import type * as FrontendCoverage from '../dynamic/coverage';
+import type * as FrontendRegression from '../dynamic/regression';
 import type * as SidecarEmbedding from '../../../sidecar/src/embeddingSettingsTypes';
 import type * as SidecarReadiness from '../../../sidecar/src/readiness/types';
 import type * as Dynamic from '../dynamic/contracts';
@@ -51,6 +68,33 @@ describe('frontend contract copies', () => {
       same<Readiness.ReadinessAssessment, SidecarReadiness.ReadinessAssessment>(true),
       same<Readiness.ReadinessCategoryResult, SidecarReadiness.ReadinessCategoryResult>(true),
       same<Readiness.ReadinessGap, SidecarReadiness.ReadinessGap>(true),
+      same<Dynamic.DynamicFinding, SidecarFindings.DynamicFinding>(true),
+      same<Dynamic.FindingDetail, SidecarFindings.FindingDetail>(true),
+      same<Dynamic.ReviewFindingInput, SidecarFindings.ReviewFindingInput>(true),
+      same<Dynamic.RemediationInput, SidecarFindings.RemediationInput>(true),
+      same<Dynamic.VerificationDecision, SidecarFindings.VerificationDecision>(true),
+      same<Dynamic.DynamicReportSnapshot, SidecarReports.DynamicReportSnapshot>(true),
+      same<Dynamic.DynamicReportSummary, SidecarReports.DynamicReportSummary>(true),
+      same<Dynamic.DynamicUnitRun, SidecarUnit.DynamicUnitRun>(true),
+      same<Dynamic.UnitReportSnapshot, SidecarUnitReports.UnitReportSnapshot>(true),
+      same<Dynamic.EvidenceCopy, SidecarEvidence.EvidenceCopy>(true),
+      same<Dynamic.RunArtifact, SidecarArtifacts.RunArtifact>(true),
+      same<Dynamic.UploadGrant, SidecarFileTypes.UploadGrant>(true),
+      same<Dynamic.DownloadGrant, SidecarFileTypes.DownloadGrant>(true),
+      same<Dynamic.LocalUploadFixture, SidecarFileTypes.LocalUploadFixture>(true),
+      same<Dynamic.BrowserActionPolicy, SidecarActionPolicy.BrowserActionPolicy>(true),
+      same<Dynamic.InteractionAction, SidecarActionPolicy.InteractionAction>(true),
+      same<Dynamic.PrivateInputGrant, SidecarPrivateInputs.PrivateInputGrant>(true),
+      same<Dynamic.LocalDownload, SidecarDownloadVault.LocalDownload>(true),
+      same<Dynamic.DiscoveryResult, SidecarDiscovery.DiscoveryResult>(true),
+      same<Dynamic.DiscoveredControl, SidecarDiscovery.DiscoveredControl>(true),
+      same<Dynamic.DiscoveryPage, SidecarDiscovery.DiscoveryPage>(true),
+      same<Dynamic.StaticContextFixture, SidecarStub.StaticContextFixture>(true),
+      same<FrontendStub.StubScenario, SidecarStub.StubScenario>(true),
+      same<FrontendStub.IncomingContextSource, SidecarStub.IncomingContextSource>(true),
+      same<FrontendCoverage.RunCoverage, SidecarCoverage.RunCoverage>(true),
+      same<FrontendRegression.RegressionComparison, SidecarRegression.RegressionComparison>(true),
+      same<Dynamic.RegressionBaseline, SidecarRegression.RegressionBaseline>(true),
     ];
     expect(proofs.every(Boolean)).toBe(true);
   });

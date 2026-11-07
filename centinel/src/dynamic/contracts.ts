@@ -1,11 +1,11 @@
 /**
  * Frontend-owned copies of the sidecar's public Dynamic DTOs. They mirror the declarations in
- * `sidecar/src/dynamic/**` exactly, so the desktop no longer imports sidecar source files.
+ * the sidecar's `dynamic` folder exactly, so the desktop no longer imports sidecar source files.
  * `contracts/sidecarParity.test.ts` fails the type check if a copy drifts from the sidecar.
  */
-import type { UsabilityAssessment, UsabilityConfig } from './usability';
+import type { UsabilityAssessment, UsabilityConfig, UsabilityObservation, UsabilitySuggestion } from './usability';
 
-// sidecar/src/dynamic/budgetLimits.ts
+// sidecar dynamic/budgetLimits.ts
 export type ExecutionBudget = {
   runtimeMs: number;
   maxSteps: number;
@@ -15,15 +15,28 @@ export type ExecutionBudget = {
   maxAccountedTokens?: number;
 };
 
-// sidecar/src/dynamic/browser/fileTypes.ts
+// sidecar dynamic/browser/fileTypes.ts
 export type UploadFixture = { id: string; sha256: string; bytes: number; mimeType: string };
 export type UploadGrant = UploadFixture & { selector: string };
+export type LocalUploadFixture = UploadFixture & {
+  name: string;
+  expiresAt: string;
+  availability: 'available' | 'expired';
+};
+export type DownloadReceipt = {
+  kind: 'download';
+  id: string;
+  permissionUrl: string;
+  sha256: string;
+  bytes: number;
+  mimeType: string;
+};
 export type DownloadGrant = { selector: string; url: string; maxBytes: number; mimeType: string; publicTestData: true };
 
-// sidecar/src/dynamic/browser/privateInputs.ts
+// sidecar dynamic/browser/privateInputs.ts
 export type PrivateInputGrant = { selector: string; variable: string; origin: string };
 
-// sidecar/src/dynamic/browser/actionPolicy.ts
+// sidecar dynamic/browser/actionPolicy.ts
 export type InteractionAction = 'click' | 'type' | 'select_option' | 'set_checked';
 export type BrowserActionPolicy = {
   schemaVersion: 1;
@@ -34,7 +47,7 @@ export type BrowserActionPolicy = {
   privateInputs?: PrivateInputGrant[];
 };
 
-// sidecar/src/dynamic/testing/staticContextStub.ts
+// sidecar dynamic/testing/staticContextStub.ts
 export interface StaticContextFixture {
   schemaVersion: 1;
   /** mock-static: synthetic development input; review-snapshot: exported from a frozen Static Review. */
@@ -63,7 +76,7 @@ export interface StaticContextFixture {
   limitations: string[];
 }
 
-// sidecar/src/dynamic/environment/types.ts
+// sidecar dynamic/environment/types.ts
 export type EnvironmentInput = {
   budgets?: ExecutionBudget;
   actionPolicy?: BrowserActionPolicy;
@@ -124,7 +137,7 @@ export type EnvironmentData = {
   events: DataEvent[];
 };
 
-// sidecar/src/dynamic/types.ts
+// sidecar dynamic/types.ts
 export type CheckDefinition = {
   id: string;
   criterionId: string;
@@ -195,7 +208,7 @@ export type Mission = {
   updatedBy?: string;
 };
 
-// sidecar/src/dynamic/browser/exploration.ts
+// sidecar dynamic/browser/exploration.ts
 export type ExplorationSnapshot = {
   schemaVersion: 1;
   mode: 'exploratory';
@@ -225,7 +238,7 @@ export type ExplorationSnapshot = {
   limitations: string[];
 };
 
-// sidecar/src/dynamic/regression.ts
+// sidecar dynamic/regression.ts
 export type RegressionBaseline = {
   schemaVersion: 1;
   runId: string;
@@ -242,7 +255,7 @@ export type RegressionBaseline = {
   evidence: EvidenceReference[];
 };
 
-// sidecar/src/dynamic/types.ts
+// sidecar dynamic/types.ts
 export type DynamicRun = {
   id: string;
   projectId: string;
@@ -279,7 +292,7 @@ export type DynamicRun = {
   legacySessionId: string | null;
 };
 
-// sidecar/src/dynamic/workspace/registry.ts
+// sidecar dynamic/workspace/registry.ts
 export type WorkspaceAuthorization = {
   directory: string;
   packageManager: 'pnpm' | 'yarn';
@@ -300,7 +313,7 @@ export type WorkspaceInspection = {
   gitCommit: string | null;
 };
 
-// sidecar/src/dynamic/workspace/process.ts
+// sidecar dynamic/workspace/process.ts
 export type ProcessResult = {
   outcome: 'passed' | 'failed' | 'cancelled' | 'timeout' | 'output_limit' | 'runner_error';
   exitCode: number | null;
@@ -310,7 +323,7 @@ export type ProcessResult = {
   durationMs: number;
 };
 
-// sidecar/src/dynamic/workspace/operations.ts
+// sidecar dynamic/workspace/operations.ts
 export type HookKind = 'setup' | 'cleanup';
 export type HookOperation = {
   id: string;
@@ -331,10 +344,296 @@ export type HookOperation = {
   lease?: { workerId: string; heartbeatAt: string; expiresAt: string };
 };
 
-// sidecar/src/dynamic/environment/sessionBroker.ts
+// sidecar dynamic/environment/sessionBroker.ts
 export type SessionCaptureStatus = {
   captureId: string;
   state: 'opening' | 'open' | 'closed';
   reference: string;
   reason?: string;
+};
+
+// sidecar environment/downloadVault.ts
+export type LocalDownload = DownloadReceipt & { expiresAt: string; availability: 'available' | 'expired' };
+
+// sidecar environment/controlDiscovery.ts
+export type DiscoveredControl = {
+  selector: string;
+  label: string;
+  actions: InteractionAction[];
+  kind: string;
+  page?: string;
+};
+export type DiscoveryPage = { url: string; finalUrl: string; controls: number; redirected: boolean };
+export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryPage[] };
+
+// sidecar riskPolicy.ts
+export type RiskSeverity = 'critical' | 'high' | 'medium' | 'low';
+export type RiskPriority = 'high' | 'medium' | 'low';
+
+// sidecar findings/types.ts
+export type VerificationDecision = 'confirmed' | 'rejected' | 'needs_investigation';
+export type DynamicFinding = {
+  id: string;
+  projectId: string;
+  missionId: string;
+  key: string;
+  version: number;
+  source: 'dynamic_checker' | 'dynamic_usability';
+  title: string;
+  category: 'functional' | 'usability';
+  verification: 'unreviewed' | VerificationDecision;
+  remediation: 'open' | 'in_progress' | 'resolved';
+  severity: RiskSeverity | 'info' | null;
+  priority: RiskPriority | null;
+  confidence: 'low' | 'medium' | 'high' | null;
+  confidenceBasis: string;
+  observationCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type FindingObservation = {
+  id: string;
+  findingId: string;
+  projectId: string;
+  runId: string;
+  revisionId: string;
+  executorId: string;
+  checkId: string;
+  criterionId: string;
+  definition: CheckDefinition;
+  result: CheckResult;
+  evidence: EvidenceReference[];
+  targetUrl: string;
+  targetVersion: string | null;
+  goal: string;
+  usability?: UsabilityObservation & {
+    observationIndex: number;
+    correlation: 'stable_control' | 'explicit_check' | 'run_only';
+  };
+  suggestions?: UsabilitySuggestion[];
+  createdAt: string;
+};
+export type FindingEvent = {
+  id: string;
+  findingId: string;
+  projectId: string;
+  actorId: string;
+  version: number;
+  kind: 'verification' | 'remediation' | 'recurrence';
+  automatic?: boolean;
+  decision?: VerificationDecision;
+  remediation?: DynamicFinding['remediation'];
+  regressionRunId?: string | null;
+  note: string;
+  severity?: DynamicFinding['severity'];
+  priority?: DynamicFinding['priority'];
+  confidence?: DynamicFinding['confidence'];
+  conditionChanges?: string[];
+  createdAt: string;
+};
+export type FindingDetail = {
+  finding: DynamicFinding;
+  observations: FindingObservation[];
+  events: FindingEvent[];
+};
+export type ReviewFindingInput = {
+  version: number;
+  decision: VerificationDecision;
+  note: string;
+  severity?: DynamicFinding['severity'];
+  priority?: DynamicFinding['priority'];
+  confidence?: DynamicFinding['confidence'];
+};
+export type RemediationInput = {
+  version: number;
+  status: DynamicFinding['remediation'];
+  note: string;
+  regressionRunId?: string;
+};
+
+// sidecar sharedEvidence/artifacts.ts
+export type ArtifactKind =
+  | 'partial_trace'
+  | 'partial_network'
+  | 'partial_console'
+  | 'partial_budget'
+  | 'partial_observation'
+  | 'partial_manifest'
+  | 'partial_usability'
+  | 'download';
+export type RunArtifact = {
+  id: string;
+  projectId: string;
+  runId: string;
+  slot: string;
+  kind: ArtifactKind;
+  sha256: string;
+  sourceSha256: string;
+  bytes: number;
+  mimeType: string;
+  sourceManifestId: string | null;
+  permissionUrl: string | null;
+  capturedAt: string;
+  registeredBy: string;
+  createdAt: string;
+  privacyVersion: 1;
+  criterionProof: false;
+};
+
+// sidecar sharedEvidence/types.ts
+export type EvidenceCopy = {
+  id: string;
+  projectId: string;
+  runId: string;
+  evidenceId: string;
+  kind: 'screenshot' | 'checks' | 'file_manifest' | 'usability' | ArtifactKind;
+  sha256: string;
+  bytes: number;
+  mimeType: string;
+  criterionProof?: false;
+  sourceSha256?: string;
+  privacyVersion?: 1;
+  availability: 'pending' | 'available' | 'failed' | 'expired' | 'deleting' | 'deleted';
+  expiresAt: string;
+  executorId: string;
+  syncedBy: string | null;
+  deletedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// sidecar reports/types.ts
+export type DynamicReportSnapshot = {
+  metadata: {
+    schemaVersion: 'centinel-dynamic-report-v1';
+    generatorVersion: 'dynamic-report-1';
+    reportId: string;
+    projectId: string;
+    runId: string;
+    actorId: string;
+    generatedAt: string;
+  };
+  run: Omit<DynamicRun, 'lease' | 'idempotencyKey' | 'legacySessionId' | 'actionPolicy'>;
+  findings: FindingDetail[];
+  evidenceCopies: EvidenceCopy[];
+  artifacts: RunArtifact[];
+  dataEvents: DataEvent[];
+  modelUsage: {
+    status: 'available' | 'unavailable';
+    calls: Array<{
+      id: string;
+      stage: string;
+      provider: string;
+      model: string;
+      outcome: string;
+      input: number | null;
+      output: number | null;
+      cacheRead: number | null;
+      cacheCreation: number | null;
+      durationMs: number | null;
+      createdAt: string;
+    }>;
+  };
+  limitations: string[];
+};
+export type DynamicReportSummary = DynamicReportSnapshot['metadata'];
+
+// sidecar unit/types.ts
+export type UnitOutcome =
+  | 'passed'
+  | 'failed'
+  | 'not_tested'
+  | 'no_tests'
+  | 'configuration_error'
+  | 'missing_dependencies'
+  | 'parser_error'
+  | 'cancelled'
+  | 'timeout'
+  | 'output_limit'
+  | 'runner_error';
+export type UnitCounts = {
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  todo: number;
+  totalSuites: number;
+  failedSuites: number;
+};
+export type UnitTestCase = {
+  file: string;
+  name: string;
+  status: 'passed' | 'failed' | 'pending' | 'skipped' | 'todo';
+  durationMs: number | null;
+  failureMessages: string[];
+};
+export type UnitAssessment = {
+  counts: UnitCounts;
+  tests: UnitTestCase[];
+  suiteErrors: Array<{ file: string; message: string }>;
+  success: boolean;
+  detailsTruncated: boolean;
+};
+export type UnitExecutionResult = {
+  schemaVersion: 1;
+  framework: { name: 'vitest'; version: string | null; nodeVersion?: string };
+  command: { program: 'node'; script: string | null; args: string[] };
+  workspace: {
+    fingerprint: string | null;
+    gitCommit: string | null;
+    authorizationId: string | null;
+    cliSha256?: string;
+  };
+  outcome: UnitOutcome;
+  process: ProcessResult | null;
+  assessment: UnitAssessment | null;
+  reason: string;
+  startedAt: string;
+  finishedAt: string;
+  limitations: string[];
+};
+export type UnitCommand = {
+  program: 'node';
+  script: string | null;
+  fingerprint: string | null;
+  authorizationId: string | null;
+  gitCommit: string | null;
+  frameworkVersion: string | null;
+  cliSha256: string | null;
+  nodeVersion: string | null;
+};
+export type DynamicUnitRun = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  kind: 'unit';
+  state: RunState;
+  verdict: CheckVerdict;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  idempotencyKey: string;
+  command: UnitCommand;
+  timeoutMs: number;
+  environment: EnvironmentProfile & { preparation: EnvironmentData['preparation']; resourceKey: string };
+  result: UnitExecutionResult | null;
+  reason: string | null;
+  cancelRequested?: boolean;
+  lease?: { workerId: string; heartbeatAt: string; expiresAt: string };
+};
+
+// sidecar unit/reports.ts
+export type UnitReportSnapshot = {
+  metadata: {
+    schemaVersion: 'centinel-unit-report-v1';
+    generatorVersion: 'unit-report-1';
+    reportId: string;
+    projectId: string;
+    runId: string;
+    actorId: string;
+    generatedAt: string;
+  };
+  run: Omit<DynamicUnitRun, 'lease' | 'idempotencyKey'>;
+  cleanupEvents: Array<{ kind: string; outcome: string; note: string; actorId: string; createdAt: string }>;
+  limitations: string[];
 };
