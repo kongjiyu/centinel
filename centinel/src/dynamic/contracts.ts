@@ -178,7 +178,22 @@ export type MissionRevision = MissionInput & {
   createdBy: string;
   createdAt: string;
 };
-export type Mission = { id: string; projectId: string; currentRevisionId: string; createdBy: string; createdAt: string };
+/**
+ * Saved test (Mission). displayName overrides the current revision name without a new revision;
+ * archivedAt marks an archived test that is hidden by default and cannot start new Runs.
+ */
+export type Mission = {
+  id: string;
+  projectId: string;
+  currentRevisionId: string;
+  createdBy: string;
+  createdAt: string;
+  displayName?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
 
 // sidecar/src/dynamic/browser/exploration.ts
 export type ExplorationSnapshot = {

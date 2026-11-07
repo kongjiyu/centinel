@@ -22,7 +22,15 @@ export type CheckResult = { checkId: string; criterionId: string; verdict: Check
 export type CriterionExclusion = {criterionId:string;reason:string};
 export type MissionInput = {usability?:UsabilityConfig;mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
 export type MissionRevision = MissionInput & { id: string; missionId: string; projectId: string; revision: number; createdBy: string; createdAt: string };
-export type Mission = { id: string; projectId: string; currentRevisionId: string; createdBy: string; createdAt: string };
+/**
+ * Saved test (Mission). Optional management fields live in the existing payload JSON:
+ * displayName overrides the current revision name without creating a revision;
+ * archivedAt/archivedBy hide the test from the default list and block new Runs. Runs and evidence are never deleted.
+ */
+export type Mission = { id: string; projectId: string; currentRevisionId: string; createdBy: string; createdAt: string; displayName?: string; archivedAt?: string; archivedBy?: string; updatedAt?: string; updatedBy?: string };
+/** displayName null clears a rename so the current revision name applies again. */
+export type MissionUpdate = { displayName?: string | null; archived?: boolean };
+export const MAX_MISSION_DISPLAY_NAME = 200;
 export type DynamicRun = {
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
@@ -39,6 +47,8 @@ export type RunPatch = Pick<DynamicRun, 'state' | 'verdict' | 'reason' | 'checks
 export interface DynamicRepository {
   saveRevision(projectId: string, actorId: string, input: MissionInput, missionId?: string): Promise<MissionRevision>;
   listMissions(projectId: string): Promise<Mission[]>;
+  getMission(projectId: string, missionId: string): Promise<Mission | null>;
+  updateMission(projectId: string, actorId: string, missionId: string, update: MissionUpdate): Promise<Mission>;
   getRevision(projectId: string, revisionId: string): Promise<MissionRevision | null>;
   getRun(projectId: string, runId: string): Promise<DynamicRun | null>;
   listRuns(projectId: string, missionId?: string): Promise<DynamicRun[]>;

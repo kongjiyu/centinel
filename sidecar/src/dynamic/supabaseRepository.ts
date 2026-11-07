@@ -1,7 +1,7 @@
 import type {ExplorationSnapshot} from './browser/exploration.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { DynamicContractError, type DynamicRepository, type DynamicRun, type Mission, type MissionInput, type MissionRevision, type RunPatch, type RunState } from './types.js';
+import { DynamicContractError, type DynamicRepository, type DynamicRun, type Mission, type MissionInput, type MissionUpdate, type MissionRevision, type RunPatch, type RunState } from './types.js';
 
 function storageError(error: { code?: string; message?: string }): never {
   if (['P0002'].includes(error.code ?? '')) throw new DynamicContractError(404, 'Dynamic record not found.');
@@ -21,6 +21,21 @@ export class SupabaseDynamicRepository implements DynamicRepository {
     const { data, error } = await this.client.from('dynamic_missions').select('payload').eq('project_id', projectId).order('created_at', { ascending: false });
     if (error) storageError(error);
     return (data ?? []).map(row => row.payload as Mission);
+  }
+  async getMission(projectId: string, missionId: string): Promise<Mission | null> {
+    const { data, error } = await this.client.from('dynamic_missions').select('payload').eq('project_id', projectId).eq('id', missionId).maybeSingle();
+    if (error) storageError(error);
+    return data?.payload as Mission ?? null;
+  }
+  async updateMission(projectId: string, actorId: string, missionId: string, update: MissionUpdate): Promise<Mission> {
+    const { data, error } = await this.client.rpc('update_dynamic_mission', {
+      p_project_id: projectId, p_actor_id: actorId, p_mission_id: missionId,
+      p_display_name: typeof update.displayName === 'string' ? update.displayName : null,
+      p_clear_display_name: update.displayName === null,
+      p_archived: update.archived ?? null,
+    });
+    if (error) storageError(error);
+    return data as Mission;
   }
   async getRevision(projectId: string, revisionId: string): Promise<MissionRevision | null> {
     const { data, error } = await this.client.from('dynamic_mission_revisions').select('payload').eq('project_id', projectId).eq('id', revisionId).maybeSingle();
