@@ -1,5 +1,6 @@
 import { DynamicUnitPanel } from './DynamicUnitPanel';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { DynamicPrivateInputs } from './DynamicPrivateInputs';
 import { DynamicDownloadPanel } from './DynamicDownloadPanel';
 import { DynamicUploadPanel } from './DynamicUploadPanel';
@@ -122,10 +123,10 @@ export function DynamicEnvironmentPanel({
         });
     };
     refresh();
-    const timer = window.setInterval(refresh, 5000);
+    const stop = setVisibleInterval(refresh, 5000);
     return () => {
       current = false;
-      window.clearInterval(timer);
+      stop();
     };
   }, [projectId, value]);
   useEffect(() => {

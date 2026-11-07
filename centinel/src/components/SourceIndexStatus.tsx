@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { setVisibleTimeout } from '../hooks/usePageVisible';
 import type { SourceIndexStatus as Status } from '../types';
 import './SourceIndexStatus.css';
 
@@ -15,7 +16,7 @@ export function SourceIndexStatus({ projectId, sourceVersionKey }: { projectId: 
   const epoch = useRef(0);
   useEffect(() => {
     if (typeof api.getSourceIndexStatus !== 'function') return;
-    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController(); let cancelTimer: (() => void) | undefined;
     epoch.current++;
     setStatus(null); setError(false); setStarting(false);
     const poll = async () => {
@@ -23,10 +24,10 @@ export function SourceIndexStatus({ projectId, sourceVersionKey }: { projectId: 
         const next = await api.getSourceIndexStatus(projectId, controller.signal);
         if (!controller.signal.aborted) { setStatus(next); setError(false); }
       } catch { if (!controller.signal.aborted) setError(true); }
-      if (!controller.signal.aborted) timer = setTimeout(() => void poll(), 15_000);
+      if (!controller.signal.aborted) cancelTimer = setVisibleTimeout(() => void poll(), 15_000);
     };
     void poll();
-    return () => { epoch.current++; controller.abort(); clearTimeout(timer); };
+    return () => { epoch.current++; controller.abort(); cancelTimer?.(); };
   }, [projectId, sourceVersionKey, refresh]);
   const resume = async () => {
     const requestEpoch = epoch.current;

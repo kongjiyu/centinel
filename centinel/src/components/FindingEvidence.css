@@ -145,3 +145,10 @@
 .finding-recheck { min-width: 168px; }
 .finding-recheck-error { color: var(--workspace-danger) !important; }
 .finding-repeat-count { margin: 4px 0 0; color: var(--workspace-text-muted); font-size: var(--font-size-support) !important; }
+
+/* Repeats of one issue kept as evidence on a finding (same Review). */
+.finding-merged-observations ul { display: grid; gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
+.finding-merged-observations li { padding-top: 12px; border-top: 1px solid var(--workspace-border); }
+.finding-merged-observations li:first-child { padding-top: 0; border-top: 0; }
+.finding-merged-observations li p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.finding-merged-observations li pre { max-height: 200px; }

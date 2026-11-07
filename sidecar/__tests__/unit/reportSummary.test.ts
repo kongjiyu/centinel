@@ -131,6 +131,18 @@ describe('plain-language report summary', () => {
     expect(summarizeReport(snapshot({ latestReview: review() })).unverifiedParts).toEqual([]);
   });
 
+  it('counts reworded repeats of one issue once and keeps the raw occurrence count', () => {
+    const verified = finding('auth', 'critical', { title: 'Missing Account Update Authorization', filePath: 'backend/user-routes.ts', lineNumber: 87, mergedObservationCount: 2 });
+    const reworded = finding('auth-2', 'high', { title: 'Account update authorization not enforced', filePath: 'backend/user-routes.ts', lineNumber: 91 });
+    const otherIssue = finding('amount', 'medium', { title: 'Payment amount not validated', filePath: 'backend/user-routes.ts', lineNumber: 89, category: 'business' });
+    const report = snapshot({ latestReview: review(), currentFindings: { status: 'available', reason: null, items: [current(reworded), current(verified), current(otherIssue)] } });
+    const summary = summarizeReport(report);
+    expect(summary).toMatchObject({ openIssues: 2, openOccurrences: 5, seriousIssues: 1 });
+    expect(summary.riskCounts).toEqual({ critical: 1, high: 0, medium: 1, low: 0, unclassified: 0 });
+    expect(summary.topIssues.map(issue => issue.id)).toEqual(['auth', 'amount']);
+    expect(renderProjectReportMarkdown(report)).toContain('| 2 (5 occurrences) | 1 |');
+  });
+
   it('formats readable UTC dates', () => {
     expect(friendlyDate('2026-11-01T07:31:43.006Z')).toBe('1 Nov 2026, 07:31 UTC');
     expect(friendlyDate(null)).toBe('Unavailable');

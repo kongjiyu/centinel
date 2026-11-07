@@ -227,7 +227,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
       {
         const nothingRan = !snapshot.latestReview && !snapshot.latestDynamicTest;
         const tiles: Array<{ label: string; value: string; caption: string; tone: SummaryTone; word: boolean }> = [
-          { label: 'Open issues', value: String(summary.openIssues), caption: nothingRan ? 'no checks yet' : summary.openIssues ? 'still to look at' : 'nothing open', tone: nothingRan ? 'neutral' : summary.openIssues ? 'warning' : 'good', word: false },
+          { label: 'Open issues', value: String(summary.openIssues), caption: nothingRan ? 'no checks yet' : summary.openOccurrences > summary.openIssues ? summary.openOccurrences + ' occurrences' : summary.openIssues ? 'still to look at' : 'nothing open', tone: nothingRan ? 'neutral' : summary.openIssues ? 'warning' : 'good', word: false },
           { label: 'Serious issues', value: String(summary.seriousIssues), caption: 'critical or high risk', tone: nothingRan ? 'neutral' : summary.seriousIssues ? 'critical' : 'good', word: false },
           { label: 'Code review', value: summary.codeReview.label, caption: snapshot.latestReview ? friendlyDate(snapshot.latestReview.session.executionTimestamp ?? snapshot.latestReview.session.updatedAt).replace(/,.*$/, '') : 'not run yet', tone: summary.codeReview.tone, word: true },
           { label: 'Browser test', value: summary.browserTest.label, caption: snapshot.latestDynamicTest ? friendlyDate(snapshot.latestDynamicTest.session.updatedAt).replace(/,.*$/, '') : 'not run yet', tone: summary.browserTest.tone, word: true },

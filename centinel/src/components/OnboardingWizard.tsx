@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { CheckCircle2, Circle, Loader2, X } from 'lucide-react';
 import { api, type ProjectReportExportResult } from '../api/client';
 import { isWorkflowProviderConfigured } from '../providerReadiness';
@@ -144,7 +145,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
 
   useEffect(() => {
     if (!loginId) return;
-    const timer = setInterval(() => {
+    return setVisibleInterval(() => {
       if (Date.now() - loginStarted.current > 10 * 60_000) {
         setLoginId(null);
         void api.codexCancelLogin(loginId).catch(() => {});
@@ -158,7 +159,6 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
         void act('models', chooseModels);
       }).catch(() => { /* Keep waiting; sign-in may still finish. */ });
     }, 2000);
-    return () => clearInterval(timer);
   }, [loginId, refreshCodex, chooseModels]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const connectChatgpt = () => act('connect', async () => {
@@ -291,8 +291,8 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
     let current = true;
     const poll = () => api.getStaticSession(projectId, reviewId).then(next => { if (current) setReview(next); }).catch(() => {});
     void poll();
-    const timer = setInterval(poll, 5000);
-    return () => { current = false; clearInterval(timer); };
+    const stop = setVisibleInterval(() => { void poll(); }, 5000);
+    return () => { current = false; stop(); };
   }, [record, reviewFinished, reviewStopped]);
 
   const exportReport = () => act('report', async () => {

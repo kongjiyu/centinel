@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { api } from '../api/client';
 import type { AiProviderSetting } from '../types';
 import { StatusBadge } from './CommandUI';
@@ -130,7 +131,7 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
 
   useEffect(() => {
     if (!loginId) return;
-    const timer = setInterval(() => {
+    return setVisibleInterval(() => {
       if (Date.now() - loginStarted.current > 10 * 60_000) {
         setLoginId(null);
         void api.codexCancelLogin(loginId).catch(() => {});
@@ -139,7 +140,6 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
       }
       void refresh().catch(() => { /* Keep pending sign-in retryable. */ });
     }, 2000);
-    return () => clearInterval(timer);
   }, [loginId, refresh]);
 
   async function act(name: string, task: () => Promise<void>) {

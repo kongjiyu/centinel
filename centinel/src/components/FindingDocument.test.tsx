@@ -178,4 +178,45 @@ describe('finding detail', () => {
     await user.selectOptions(select, 'c');
     expect(screen.queryByText(/Found \d times at this location/)).not.toBeInTheDocument();
   });
+  it('explains a rule-only check, says no AI issue covers it and does not invent a requirement link', () => {
+    const secret: Finding = { ...make('secret', 'Load it from the environment.'), title: '[secrets-api-key] Possible hardcoded credential in "secret".',
+      verifier: 'deterministic', category: 'secrets', filePath: 'backend/app.ts', lineNumber: 60, location: { ruleId: 'secrets-api-key' } };
+    render(<StatefulFindingDocument group={groupFindings([secret])[0]} initialId="secret" />);
+    const section = screen.getByRole('region', { name: 'About this rule check' });
+    expect(section).toHaveTextContent('written directly in the source code');
+    expect(section).toHaveTextContent('The AI review did not report an issue at this location');
+    expect(section).toHaveTextContent('No requirement is linked to this finding');
+  });
+
+  it('shows a recorded requirement link on a rule-only check', () => {
+    const secret: Finding = { ...make('secret', 'Load it from the environment.'), title: '[secrets-api-key] Possible hardcoded credential in "secret".',
+      verifier: 'deterministic', category: 'secrets', requirementId: 'REQ-7', location: { ruleId: 'secrets-api-key' } };
+    render(<StatefulFindingDocument group={groupFindings([secret])[0]} initialId="secret" />);
+    expect(screen.getByRole('region', { name: 'About this rule check' })).toHaveTextContent('Linked requirement: REQ-7');
+  });
+
+  it('does not show the rule-only note when an AI-reported issue covers the same place', () => {
+    const model = make('a', 'Use an atomic claim.');
+    const rule: Finding = { ...make('rule', 'Check it.'), title: '[cq-console-log] console.log', verifier: 'deterministic', filePath: 'src/a.ts', lineNumber: 5, location: { ruleId: 'cq-console-log' } };
+    const groups = groupFindings([model, rule]);
+    expect(groups).toHaveLength(1);
+    render(<StatefulFindingDocument group={groups[0]} initialId="rule" />);
+    expect(screen.queryByRole('region', { name: 'About this rule check' })).not.toBeInTheDocument();
+  });
+
+  it('lists repeats of the issue that the Review kept as evidence on the finding', () => {
+    const finding = make('a', 'Use an atomic claim.');
+    finding.location = { ...finding.location, sourceLocator: { mergedObservationTotal: 2, mergedObservations: [
+      { version: 1, reason: 'uncertain_copy_of_verified', source: 'model', title: 'Duplicate payment insert', description: 'Both requests insert.', severity: 'high', confidence: 'medium',
+        category: 'technical', issueType: 'race_condition', filePath: 'src/a.ts', lineNumber: 6, evidence: 'await insert(payment);', requirementId: null, fingerprint: 'f1', verification: 'needs_verification' },
+      { version: 1, reason: 'same_location_and_type', source: 'model', title: 'Concurrent write race', description: 'Concurrent write race', severity: 'high', confidence: 'high',
+        category: 'technical', issueType: 'race_condition', filePath: 'src/a.ts', lineNumber: 5, evidence: 'await insert();', requirementId: null, fingerprint: 'f2', verification: 'verified' },
+    ] } };
+    render(<StatefulFindingDocument group={groupFindings([finding])[0]} />);
+    const section = screen.getByRole('region', { name: 'Also reported in this Review' });
+    expect(section).toHaveTextContent('2 more times');
+    expect(section).toHaveTextContent('Duplicate payment insert · src/a.ts:6 · Needs verification');
+    expect(section).toHaveTextContent('Concurrent write race · src/a.ts:5 · Citation verified');
+    expect(within(section).getByText('await insert(payment);')).toBeInTheDocument();
+  });
 });

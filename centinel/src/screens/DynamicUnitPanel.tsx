@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { api } from '../api/client';
 import { userFacingError } from '../utils/userFacingError';
 import { DynamicReportsPanel } from './DynamicReportsPanel';
@@ -55,10 +56,10 @@ export function DynamicUnitPanel({
         });
     };
     load();
-    const timer = window.setInterval(load, 5000);
+    const stop = setVisibleInterval(load, 5000);
     return () => {
       scope.current++;
-      window.clearInterval(timer);
+      stop();
     };
   }, [projectId, environmentId]);
   const active = history.find((r) => ['queued', 'running'].includes(r.state)),

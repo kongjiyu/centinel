@@ -57,7 +57,9 @@ const secretsRules: Rule[] = [
               const symbolic = /^(?:access_token|refresh_token|csrf_token|id_token|authorization|your[_ -].*|example[_ -].*|placeholder|changeme|\$\{[^}]+\})$/i.test(literal);
               if (literal.length >= 8 && !symbolic) findings.push({ ruleId: 'secrets-api-key', filePath,
                 lineNumber: source.getLineAndCharacterOfPosition(value.getStart(source)).line + 1, severity: 'high', category: 'secrets',
-                message: `Possible hardcoded credential in "${name}". Verify whether this literal is sensitive and reachable before treating it as a leak.`, evidence: `${name} = [literal redacted]` });
+                message: `Possible hardcoded credential in "${name}". Verify whether this literal is sensitive and reachable before treating it as a leak.`, evidence: `${name} = [literal redacted]`,
+                // Not part of the finding fingerprint, so existing correlation identities are unchanged.
+                recommendation: `If "${name}" protects sessions, tokens or accounts in any deployed environment, load it from an environment variable or secrets manager, refuse to start when it is missing, and rotate the value because anyone with the source code can read it.` });
             }
           }
           ts.forEachChild(node, visit);

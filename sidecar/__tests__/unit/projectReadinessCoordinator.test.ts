@@ -62,6 +62,7 @@ function setup(options: {
   assess?: (input: ReadinessInput, provider: Pick<StaticAnalysisModelProvider, 'analyze'>, signal?: AbortSignal) => Promise<ReadinessAssessment>;
   debounceMs?: number;
   jobTimeoutMs?: number;
+  configurationRevision?: () => Promise<string | null>;
 } = {}) {
   let currentIndex = options.initialIndex ?? index();
   const jobs = new Map<string, ReadinessJob>();
@@ -82,6 +83,7 @@ function setup(options: {
     now: () => new Date(clock++),
     debounceMs: options.debounceMs,
     jobTimeoutMs: options.jobTimeoutMs,
+    configurationRevision: options.configurationRevision ? vi.fn(options.configurationRevision) : undefined,
   });
   return {
     coordinator,
@@ -301,6 +303,55 @@ describe('ProjectReadinessCoordinator', () => {
     expect(failed?.error).toContain('Configure one in Settings');
     expect(failed?.error).not.toContain('private configuration detail');
     expect(failed?.snapshot).toEqual(oldSnapshot);
+  });
+
+  it('G-S6 stops presenting a configuration failure as current after the Model Provider configuration changes', async () => {
+    const oldJob = completedJob();
+    let revision: string | null = null;
+    const assess = vi.fn(async () => { throw new ModelConfigurationError('private configuration detail', 'not_configured'); });
+    const test = setup({ initialJob: oldJob, assess, configurationRevision: async () => revision });
+
+    await test.coordinator.request(auth(), projectId, 'manual', true);
+    await test.coordinator.waitForIdle();
+    const failed = await test.store.latest(projectId);
+    expect(failed).toMatchObject({ status: 'failed', errorCode: 'not_configured', configurationRevision: null });
+
+    // Unchanged configuration: the failure is still the current explanation.
+    expect(await test.coordinator.status(auth(), projectId)).toMatchObject({ status: 'failed', errorCode: 'not_configured' });
+
+    revision = 'configured-revision-1';
+    const presented = await test.coordinator.status(auth(), projectId);
+    expect(presented).toMatchObject({ status: 'idle', error: null, errorCode: null, snapshot: oldJob.snapshot, stale: false });
+    // The historical record is kept; only its presentation changes, and no paid run starts.
+    expect(await test.store.latest(projectId)).toMatchObject({ status: 'failed', errorCode: 'not_configured' });
+    expect(assess).toHaveBeenCalledTimes(1);
+  });
+
+  it('G-S6 treats a legacy not-configured failure as superseded once any configuration exists', async () => {
+    const legacy: ReadinessJob = { ...completedJob(), status: 'failed', errorCode: 'not_configured', error: 'No Model Provider is configured. Configure one in Settings, then select Start to retry.' };
+    const configured = setup({ initialJob: legacy, configurationRevision: async () => 'configured-revision-1' });
+    expect(await configured.coordinator.status(auth(), projectId)).toMatchObject({ status: 'idle', error: null, errorCode: null });
+
+    const stillMissing = setup({ initialJob: legacy, configurationRevision: async () => null });
+    expect(await stillMissing.coordinator.status(auth(), projectId)).toMatchObject({ status: 'failed', errorCode: 'not_configured' });
+
+    const lookupFails = setup({ initialJob: legacy, configurationRevision: async () => { throw new Error('offline'); } });
+    expect(await lookupFails.coordinator.status(auth(), projectId)).toMatchObject({ status: 'failed', errorCode: 'not_configured' });
+
+    const unrelated = setup({ initialJob: { ...legacy, errorCode: 'timeout', error: 'timed out' }, configurationRevision: async () => 'configured-revision-1' });
+    expect(await unrelated.coordinator.status(auth(), projectId)).toMatchObject({ status: 'failed', errorCode: 'timeout' });
+  });
+
+  it('G-S6 clears a failure reason when changed sources requeue the assessment', async () => {
+    const failedJob: ReadinessJob = { ...completedJob(), status: 'failed', errorCode: 'not_configured', error: 'No Model Provider is configured.' };
+    const assess = vi.fn(async (readinessInput: ReadinessInput) => assessment(readinessInput));
+    const test = setup({ initialJob: failedJob, assess });
+    test.setIndex(index('fingerprint-2'));
+
+    const queued = await test.coordinator.status(auth(), projectId);
+    expect(queued).toMatchObject({ status: 'queued', error: null, errorCode: null, trigger: 'source_check' });
+    await test.coordinator.waitForIdle();
+    expect(await test.store.latest(projectId)).toMatchObject({ status: 'completed', error: null, errorCode: null, stale: false });
   });
 
   it('classifies a persistence failure and retains the previous snapshot when the failure can be saved', async () => {

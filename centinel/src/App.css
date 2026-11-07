@@ -3724,3 +3724,4 @@ body {
 
 .project-workspace-loading { padding: 32px; box-sizing: border-box; }
 .project-workspace-loading > .loading-skeleton { width: min(100%, 960px); }
+.screen-loading { display: grid; gap: 16px; align-content: start; }

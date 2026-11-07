@@ -91,14 +91,17 @@ export type ReadinessValidationReasonCode =
   | 'cross_batch_candidate_mismatch'
   | 'cross_batch_evidence_insufficient'
   | 'cross_batch_batch_coverage_incomplete'
-  | 'batch_status_conflict';
+  | 'batch_status_conflict'
+  | 'classification_uncorroborated';
 export type ReadinessValidationReasonCounts = Partial<Record<ReadinessValidationReasonCode, number>>;
 export type ReadinessValidationDiagnostics = {
   // .1 snapshots predate reasonCounts and remain valid historical evidence.
+  // .4 adds classificationCorroborated; .1-.3 remain valid historical evidence.
   schemaVersion:
     | 'readiness-validation-2026-10-23.1'
     | 'readiness-validation-2026-10-23.2'
-    | 'readiness-validation-2026-10-23.3';
+    | 'readiness-validation-2026-10-23.3'
+    | 'readiness-validation-2026-11-07.4';
   batchCount: number;
   categories: Array<{
     category: Exclude<ReadinessCategory, 'repository'>;
@@ -110,6 +113,8 @@ export type ReadinessValidationDiagnostics = {
     shapeValid: boolean;
     missingSemanticsValid: boolean;
     crossBatchComparison: 'not_required' | 'pass' | 'gap' | 'unknown' | 'not_run';
+    /** Deterministic content check on present-category evidence (.4+ only). */
+    classificationCorroborated?: boolean;
     reasonCounts?: ReadinessValidationReasonCounts;
     checks: Array<{
       id: string;

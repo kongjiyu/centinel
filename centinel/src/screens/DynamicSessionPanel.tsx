@@ -4,6 +4,7 @@ import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import type { EnvironmentProfile } from '../dynamic/types';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 type SessionView = Awaited<ReturnType<typeof api.dynamicSession>>;
 export function DynamicSessionPanel({
   projectId,
@@ -42,10 +43,10 @@ export function DynamicSessionPanel({
         });
     };
     load();
-    const timer = window.setInterval(load, 5000);
+    const stop = setVisibleInterval(load, 5000);
     return () => {
       scope.current++;
-      window.clearInterval(timer);
+      stop();
     };
   }, [projectId, profile.id, profile.version]);
   const captureActive = Boolean(view?.capture && view.capture.state !== 'closed');

@@ -1,4 +1,5 @@
 import { DynamicReportsPanel } from './DynamicReportsPanel';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { DynamicUsabilityEditor, DynamicUsabilityResults } from './DynamicUsabilityPanel';
 import type { UsabilityConfig } from '../dynamic/usability';
 import { RunEvidencePanel } from './RunEvidencePanel';
@@ -222,7 +223,7 @@ export function DynamicWorkspaceScreen({
       .finally(() => {
         if (current) setLoading(false);
       });
-    const timer = window.setInterval(() => {
+    const stop = setVisibleInterval(() => {
       void load().catch((e) => {
         if (current) setError(userFacingError(e, 'Run history could not be refreshed.'));
       });
@@ -230,7 +231,7 @@ export function DynamicWorkspaceScreen({
     return () => {
       current = false;
       loadGeneration.current++;
-      window.clearInterval(timer);
+      stop();
     };
   }, [projectId, load, resetDraft]);
   useEffect(() => {

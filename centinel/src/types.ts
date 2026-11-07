@@ -523,6 +523,9 @@ export type StaticSession = {
   scope?: ReviewScopeSelection | null;
   /** Optional embedded usage summary; the renderer also supports the usage endpoint. */
   modelUsage?: ReviewModelUsage | null;
+  /** Findings saved when the Review finished; absent from older services. */
+  deterministicFindingCount?: number;
+  modelFindingCount?: number;
 };
 
 /**
@@ -655,9 +658,31 @@ export type FindingLineageHistoryEntry = {
   createdAt: string;
 };
 
+/**
+ * A repeat of the same issue that its Review kept as evidence on one finding
+ * instead of a separate row (same file, overlapping lines, same issue type).
+ */
+export type MergedFindingObservation = {
+  version: 1;
+  reason: 'duplicate' | 'same_location_and_type' | 'uncertain_copy_of_verified';
+  source: 'model' | 'deterministic';
+  title: string;
+  description: string;
+  severity: string;
+  confidence: string;
+  category: string;
+  issueType: string | null;
+  filePath: string;
+  lineNumber: number | null;
+  evidence: string;
+  requirementId: string | null;
+  fingerprint: string | null;
+  verification: 'verified' | 'needs_verification' | 'unrecorded';
+};
+
 export type Finding = {
   /** Source-backed feature/path link validated by the Review runner. */
-  location?: { ruleId?: string | null; sourceVersion?: string | null; domain?: string | null; issueType?: string | null; logicFlow?: string[]; relatedLocations?: Array<{ artifactId?: string | null; filePath: string; lineNumber: number; evidence: string; sourceVersion?: string | null }>; sourceLocator?: { artifactId?: string; filePath?: string; lineStart?: number; excerpt?: string; analysis?: { featureId: string; pathId: string; domain: string }; citationEvidence?: { version: 1; verification: 'verified' | 'needs_verification'; reason: 'source_match' | 'support_unverified'; candidates: Array<{ artifactId: string; sourceVersion: string; filePath: string; lineNumber: number; excerpt: string; score: number; confidence: 'high' | 'medium' | 'low'; match: 'exact' | 'relocated_exact' | 'approximate'; referenceIndex: number }>; unmatchedReferences: number } | null } | null };
+  location?: { ruleId?: string | null; sourceVersion?: string | null; domain?: string | null; issueType?: string | null; logicFlow?: string[]; relatedLocations?: Array<{ artifactId?: string | null; filePath: string; lineNumber: number; evidence: string; sourceVersion?: string | null }>; sourceLocator?: { artifactId?: string; filePath?: string; lineStart?: number; excerpt?: string; analysis?: { featureId: string; pathId: string; domain: string }; citationEvidence?: { version: 1; verification: 'verified' | 'needs_verification'; reason: 'source_match' | 'support_unverified'; candidates: Array<{ artifactId: string; sourceVersion: string; filePath: string; lineNumber: number; excerpt: string; score: number; confidence: 'high' | 'medium' | 'low'; match: 'exact' | 'relocated_exact' | 'approximate'; referenceIndex: number }>; unmatchedReferences: number } | null; mergedObservations?: MergedFindingObservation[]; mergedObservationTotal?: number } | null };
   artifactVersionId?: string | null;
   requirementId?: string | null;
   relatedSources?: FindingSourceReference[];
@@ -840,6 +865,8 @@ export type Screen =
     }
   | { name: 'review-entry'; projectId?: string; comparisonParentReviewId?: string; returnToPlayground?: boolean }
   | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
+  /** A project's full Reviews list; status keeps the selected filter restorable. */
+  | { name: 'reviews'; projectId: string; status?: string }
   /** draft pre-fills a new test, e.g. from a Review finding; it never starts a Run. */
   | { name: 'dynamic-testing'; projectId?: string; runId?: string; draft?: DynamicTestDraft }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
