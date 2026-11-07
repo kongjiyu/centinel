@@ -6,29 +6,223 @@ import { DynamicFindingsPanel } from './DynamicFindingsPanel';
 import { api } from '../api/client';
 import type { DynamicRun } from '../dynamic/types';
 import type { FindingDetail } from '../../../sidecar/src/dynamic/findings/types';
-vi.mock('../api/client', () => ({ api: { dynamicFindings: vi.fn(), dynamicFinding: vi.fn(), collectDynamicFindings: vi.fn(), reviewDynamicFinding: vi.fn(), remediateDynamicFinding: vi.fn() } }));
-const finding = { id: 'f', projectId: 'p', missionId: 'm', key: 'key', version: 1, source: 'dynamic_checker' as const, title: 'First Name persisted', category: 'functional' as const, verification: 'unreviewed' as const, remediation: 'open' as const, severity: null, priority: null, confidence: null, confidenceBasis: 'Independent check failed; verify the application.', observationCount: 1, createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z' };
+vi.mock('../api/client', () => ({
+  api: {
+    dynamicFindings: vi.fn(),
+    dynamicFinding: vi.fn(),
+    collectDynamicFindings: vi.fn(),
+    reviewDynamicFinding: vi.fn(),
+    remediateDynamicFinding: vi.fn(),
+  },
+}));
+const finding = {
+  id: 'f',
+  projectId: 'p',
+  missionId: 'm',
+  key: 'key',
+  version: 1,
+  source: 'dynamic_checker' as const,
+  title: 'First Name persisted',
+  category: 'functional' as const,
+  verification: 'unreviewed' as const,
+  remediation: 'open' as const,
+  severity: null,
+  priority: null,
+  confidence: null,
+  confidenceBasis: 'Independent check failed; verify the application.',
+  observationCount: 1,
+  createdAt: '2026-10-14T00:00:00Z',
+  updatedAt: '2026-10-14T00:00:00Z',
+};
 const detail: FindingDetail = { finding, observations: [], events: [] };
-const run = { id: 'r', missionId: 'm', state: 'completed', verdict: 'failed', checks: [{ checkId: 'one', verdict: 'failed' }] } as DynamicRun;
-beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.dynamicFindings).mockResolvedValue([finding]); vi.mocked(api.dynamicFinding).mockResolvedValue(detail); vi.mocked(api.collectDynamicFindings).mockResolvedValue([finding]); });
-async function inspect() { await userEvent.click(await screen.findByRole('button', { name: 'Inspect First Name persisted' })); await screen.findByLabelText('Verification decision'); }
-async function choose(name: string, option: string) { await userEvent.click(screen.getByRole('combobox', { name })); await userEvent.click(await screen.findByRole('option', { name: option })); }
+const run = {
+  id: 'r',
+  missionId: 'm',
+  state: 'completed',
+  verdict: 'failed',
+  checks: [{ checkId: 'one', verdict: 'failed' }],
+} as DynamicRun;
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(api.dynamicFindings).mockResolvedValue([finding]);
+  vi.mocked(api.dynamicFinding).mockResolvedValue(detail);
+  vi.mocked(api.collectDynamicFindings).mockResolvedValue([finding]);
+});
+async function inspect() {
+  await userEvent.click(await screen.findByRole('button', { name: 'Inspect First Name persisted' }));
+  await screen.findByLabelText('Verification decision');
+}
+async function choose(name: string, option: string) {
+  await userEvent.click(screen.getByRole('combobox', { name }));
+  await userEvent.click(await screen.findByRole('option', { name: option }));
+}
 describe('Dynamic finding verification', () => {
-    it('allows evidenced usability failures even when functional checks passed and shows rule provenance',async()=>{const us={...finding,source:'dynamic_usability' as const,category:'usability' as const,title:'Missing label'};const observed={...run,state:'completed',verdict:'passed',checks:[],usability:{observations:[{kind:'deterministic',verdict:'failed',ruleId:'labels'}]}} as unknown as DynamicRun;vi.mocked(api.dynamicFindings).mockResolvedValue([us]);vi.mocked(api.dynamicFinding).mockResolvedValue({finding:us,events:[],observations:[{id:'obs',createdAt:'2026-10-15T00:00:00Z',runId:'r',executorId:'actor',definition:{expected:'Label'},result:{observed:'Missing'},targetUrl:'http://localhost/lineage',goal:'Ready',evidence:[],usability:{ruleId:'labels',persona:'first_time',kind:'deterministic',controlRef:'u0',controlKey:'a'.repeat(64),correlation:'stable_control',verdict:'failed',expected:'Label',observed:'Missing',evidenceIds:[],observationIndex:0},suggestions:[{ruleId:'labels',suggestion:'Consider a label',rationale:'Subjective basis',observationIndexes:[0],evidenceIds:[]}]}]} as unknown as FindingDetail);render(<DynamicFindingsPanel projectId="p" run={observed} runs={[observed]}/>);await waitFor(()=>expect(screen.getByRole('button',{name:'Record failed-check and rule candidates'})).toBeEnabled());await userEvent.click(screen.getByRole('button',{name:'Inspect Missing label'}));expect(await screen.findByText(/Stable identity retained/)).toBeInTheDocument();expect(screen.getByText('labels · first_time · u0')).toBeInTheDocument();expect(screen.getByText(/Reference only/)).toBeInTheDocument();});
-    it('records candidates automatically once for a completed Run with failed checks', async () => { const failedRun = { ...run, state: 'completed', checks: [{ checkId: 'c', criterionId: 'x', verdict: 'failed', observed: null, reason: 'Mismatch', evidenceIds: [], checkedAt: '' }] } as unknown as DynamicRun; const view = render(<DynamicFindingsPanel projectId="p" run={failedRun} runs={[failedRun]}/>); await waitFor(() => expect(api.collectDynamicFindings).toHaveBeenCalledWith('p', failedRun.id)); view.rerender(<DynamicFindingsPanel projectId="p" run={{ ...failedRun }} runs={[failedRun]}/>); await waitFor(() => expect(screen.getByText(/candidate recorded/)).toBeInTheDocument()); expect(api.collectDynamicFindings).toHaveBeenCalledTimes(1); });
-    it('keeps candidates unclassified and requires explicit triage before confirming', async () => { render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]}/>); await inspect(); expect(screen.getByText(/Severity Unclassified/)).toBeInTheDocument(); await choose('Verification decision', 'Confirm issue'); await enterText(userEvent,screen.getByLabelText('Verification reason'), 'Reproduced unchanged persisted value'); expect(screen.getByRole('button', { name: 'Record verification' })).toBeDisabled(); await choose('Severity', 'High'); await choose('Priority', 'Medium'); await choose('Confidence', 'High'); vi.mocked(api.reviewDynamicFinding).mockResolvedValue({ ...finding, version: 2, verification: 'confirmed', severity: 'high', priority: 'medium', confidence: 'high' }); await userEvent.click(screen.getByRole('button', { name: 'Record verification' })); await waitFor(() => expect(api.reviewDynamicFinding).toHaveBeenCalledWith('p', 'f', { version: 1, decision: 'confirmed', note: 'Reproduced unchanged persisted value', severity: 'high', priority: 'medium', confidence: 'high' })); await waitFor(() => expect(screen.getByRole('combobox', { name: 'Verification decision' })).toHaveTextContent('Choose a decision')); });
-    it('does not resolve an unconfirmed candidate without a pinned passing regression', async () => { render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]}/>); await inspect(); await userEvent.click(screen.getByText('Remediation and pinned regression')); await choose('Remediation status', 'Resolved after regression'); await enterText(userEvent,screen.getByLabelText('Remediation reason'), 'Checked the fix'); expect(screen.getByRole('button', { name: 'Record remediation' })).toBeDisabled(); expect(api.remediateDynamicFinding).not.toHaveBeenCalled(); });
-    it('preserves input on a stale decision failure and exposes refresh', async () => { vi.mocked(api.reviewDynamicFinding).mockRejectedValue(Error('Finding changed')); render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]}/>); await inspect(); await choose('Verification decision', 'Reject candidate'); await enterText(userEvent,screen.getByLabelText('Verification reason'), 'Wrong expected wording'); await userEvent.click(screen.getByRole('button', { name: 'Record verification' })); expect(await screen.findByRole('alert')).toBeInTheDocument(); expect(screen.getByLabelText('Verification reason')).toHaveValue('Wrong expected wording'); expect(screen.getByRole('button', { name: 'Refresh finding' })).toBeEnabled(); });
-    it('does not mutate findings while the selected Run is active', async () => { render(<DynamicFindingsPanel projectId="p" run={{ ...run, state: 'running' }} runs={[run]}/>); await inspect(); await choose('Verification decision', 'Needs investigation'); await enterText(userEvent,screen.getByLabelText('Verification reason'), 'Investigate the retained observation'); expect(screen.getByRole('button', { name: 'Record verification' })).toBeDisabled(); expect(screen.getByRole('button', { name: 'Record failed-check candidates' })).toBeDisabled(); });
+  it('allows evidenced usability failures even when functional checks passed and shows rule provenance', async () => {
+    const us = {
+      ...finding,
+      source: 'dynamic_usability' as const,
+      category: 'usability' as const,
+      title: 'Missing label',
+    };
+    const observed = {
+      ...run,
+      state: 'completed',
+      verdict: 'passed',
+      checks: [],
+      usability: { observations: [{ kind: 'deterministic', verdict: 'failed', ruleId: 'labels' }] },
+    } as unknown as DynamicRun;
+    vi.mocked(api.dynamicFindings).mockResolvedValue([us]);
+    vi.mocked(api.dynamicFinding).mockResolvedValue({
+      finding: us,
+      events: [],
+      observations: [
+        {
+          id: 'obs',
+          createdAt: '2026-10-15T00:00:00Z',
+          runId: 'r',
+          executorId: 'actor',
+          definition: { expected: 'Label' },
+          result: { observed: 'Missing' },
+          targetUrl: 'http://localhost/lineage',
+          goal: 'Ready',
+          evidence: [],
+          usability: {
+            ruleId: 'labels',
+            persona: 'first_time',
+            kind: 'deterministic',
+            controlRef: 'u0',
+            controlKey: 'a'.repeat(64),
+            correlation: 'stable_control',
+            verdict: 'failed',
+            expected: 'Label',
+            observed: 'Missing',
+            evidenceIds: [],
+            observationIndex: 0,
+          },
+          suggestions: [
+            {
+              ruleId: 'labels',
+              suggestion: 'Consider a label',
+              rationale: 'Subjective basis',
+              observationIndexes: [0],
+              evidenceIds: [],
+            },
+          ],
+        },
+      ],
+    } as unknown as FindingDetail);
+    render(<DynamicFindingsPanel projectId="p" run={observed} runs={[observed]} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Record failed-check and rule candidates' })).toBeEnabled(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Inspect Missing label' }));
+    expect(await screen.findByText(/Stable identity retained/)).toBeInTheDocument();
+    expect(screen.getByText('labels · first_time · u0')).toBeInTheDocument();
+    expect(screen.getByText(/Reference only/)).toBeInTheDocument();
+  });
+  it('records candidates automatically once for a completed Run with failed checks', async () => {
+    const failedRun = {
+      ...run,
+      state: 'completed',
+      checks: [
+        {
+          checkId: 'c',
+          criterionId: 'x',
+          verdict: 'failed',
+          observed: null,
+          reason: 'Mismatch',
+          evidenceIds: [],
+          checkedAt: '',
+        },
+      ],
+    } as unknown as DynamicRun;
+    const view = render(<DynamicFindingsPanel projectId="p" run={failedRun} runs={[failedRun]} />);
+    await waitFor(() => expect(api.collectDynamicFindings).toHaveBeenCalledWith('p', failedRun.id));
+    view.rerender(<DynamicFindingsPanel projectId="p" run={{ ...failedRun }} runs={[failedRun]} />);
+    await waitFor(() => expect(screen.getByText(/candidate recorded/)).toBeInTheDocument());
+    expect(api.collectDynamicFindings).toHaveBeenCalledTimes(1);
+  });
+  it('keeps candidates unclassified and requires explicit triage before confirming', async () => {
+    render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]} />);
+    await inspect();
+    expect(screen.getByText(/Severity Unclassified/)).toBeInTheDocument();
+    await choose('Verification decision', 'Confirm issue');
+    await enterText(userEvent, screen.getByLabelText('Verification reason'), 'Reproduced unchanged persisted value');
+    expect(screen.getByRole('button', { name: 'Record verification' })).toBeDisabled();
+    await choose('Severity', 'High');
+    await choose('Priority', 'Medium');
+    await choose('Confidence', 'High');
+    vi.mocked(api.reviewDynamicFinding).mockResolvedValue({
+      ...finding,
+      version: 2,
+      verification: 'confirmed',
+      severity: 'high',
+      priority: 'medium',
+      confidence: 'high',
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Record verification' }));
+    await waitFor(() =>
+      expect(api.reviewDynamicFinding).toHaveBeenCalledWith('p', 'f', {
+        version: 1,
+        decision: 'confirmed',
+        note: 'Reproduced unchanged persisted value',
+        severity: 'high',
+        priority: 'medium',
+        confidence: 'high',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Verification decision' })).toHaveTextContent('Choose a decision'),
+    );
+  });
+  it('does not resolve an unconfirmed candidate without a pinned passing regression', async () => {
+    render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]} />);
+    await inspect();
+    await userEvent.click(screen.getByText('Remediation and pinned regression'));
+    await choose('Remediation status', 'Resolved after regression');
+    await enterText(userEvent, screen.getByLabelText('Remediation reason'), 'Checked the fix');
+    expect(screen.getByRole('button', { name: 'Record remediation' })).toBeDisabled();
+    expect(api.remediateDynamicFinding).not.toHaveBeenCalled();
+  });
+  it('preserves input on a stale decision failure and exposes refresh', async () => {
+    vi.mocked(api.reviewDynamicFinding).mockRejectedValue(Error('Finding changed'));
+    render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]} />);
+    await inspect();
+    await choose('Verification decision', 'Reject candidate');
+    await enterText(userEvent, screen.getByLabelText('Verification reason'), 'Wrong expected wording');
+    await userEvent.click(screen.getByRole('button', { name: 'Record verification' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByLabelText('Verification reason')).toHaveValue('Wrong expected wording');
+    expect(screen.getByRole('button', { name: 'Refresh finding' })).toBeEnabled();
+  });
+  it('does not mutate findings while the selected Run is active', async () => {
+    render(<DynamicFindingsPanel projectId="p" run={{ ...run, state: 'running' }} runs={[run]} />);
+    await inspect();
+    await choose('Verification decision', 'Needs investigation');
+    await enterText(userEvent, screen.getByLabelText('Verification reason'), 'Investigate the retained observation');
+    expect(screen.getByRole('button', { name: 'Record verification' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Record failed-check candidates' })).toBeDisabled();
+  });
 });
 
 it('ignores a delayed finding list from a previously selected project', async () => {
- let resolveOld:(value:typeof finding[])=>void=()=>{};
- vi.mocked(api.dynamicFindings).mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve;})).mockResolvedValueOnce([{...finding,id:'other',projectId:'other',missionId:'other',title:'Current project issue'}]);
- const view=render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]}/>);
- view.rerender(<DynamicFindingsPanel projectId="other" run={{...run,missionId:'other'}} runs={[]}/>);
- await screen.findByRole('button',{name:'Inspect Current project issue'});
- await act(async()=>{resolveOld([finding]);});
- expect(screen.queryByRole('button',{name:'Inspect First Name persisted'})).not.toBeInTheDocument();
- expect(screen.getByRole('button',{name:'Inspect Current project issue'})).toBeEnabled();
+  let resolveOld: (value: (typeof finding)[]) => void = () => {};
+  vi.mocked(api.dynamicFindings)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    )
+    .mockResolvedValueOnce([
+      { ...finding, id: 'other', projectId: 'other', missionId: 'other', title: 'Current project issue' },
+    ]);
+  const view = render(<DynamicFindingsPanel projectId="p" run={run} runs={[run]} />);
+  view.rerender(<DynamicFindingsPanel projectId="other" run={{ ...run, missionId: 'other' }} runs={[]} />);
+  await screen.findByRole('button', { name: 'Inspect Current project issue' });
+  await act(async () => {
+    resolveOld([finding]);
+  });
+  expect(screen.queryByRole('button', { name: 'Inspect First Name persisted' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Inspect Current project issue' })).toBeEnabled();
 });

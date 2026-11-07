@@ -1,92 +1,873 @@
-import {DynamicUnitPanel} from './DynamicUnitPanel';
+import { DynamicUnitPanel } from './DynamicUnitPanel';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
-import {DynamicPrivateInputs} from './DynamicPrivateInputs';
-import {DynamicDownloadPanel} from './DynamicDownloadPanel';
-import {DynamicUploadPanel} from './DynamicUploadPanel';
-import {DynamicActionPermissions,emptyInteractionSelectors} from './DynamicActionPermissions';
-import type {BrowserActionPolicy,InteractionAction} from '../../../sidecar/src/dynamic/browser/actionPolicy';
-import {DEFAULT_EXECUTION_BUDGET} from '../../../sidecar/src/dynamic/budgetLimits';
-import {DynamicSessionPanel} from './DynamicSessionPanel';
-import {DynamicHookPanel} from './DynamicHookPanel';
-import {DynamicWorkspaceAuthorization} from './DynamicWorkspaceAuthorization';
-import {useEffect,useRef,useState} from 'react';
-import {api} from '../api/client';
-import {Select} from '../components/Select';
-import {userFacingError} from '../utils/userFacingError';
-import type {EnvironmentInput,EnvironmentProfile,EnvironmentSnapshot,EnvironmentData} from '../dynamic/types';
-const blank = ():EnvironmentInput=>({budgets:{...DEFAULT_EXECUTION_BUDGET},name:'',targetUrl:'',allowedOrigins:[],viewport:{width:1280,height:720},accountRole:'',requiredVariables:[],startupInstructions:'',targetVersion:''});
-export function DynamicEnvironmentPanel({projectId,value,onChange,disabled,onDataBusy}:{projectId:string;value:string;onChange(id:string):void;disabled:boolean;onDataBusy?(busy:boolean):void}) {
- const [profiles,setProfiles]=useState<EnvironmentProfile[]>([]);const [editing,setEditing]=useState<string|undefined>();
- const [interactionSelectors,setInteractionSelectors]=useState(emptyInteractionSelectors);const [repeatableSelectors,setRepeatableSelectors]=useState('');
- const [draft,setDraft]=useState(blank);const [origins,setOrigins]=useState('');const [variables,setVariables]=useState('');
- const [secretName,setSecretName]=useState('');const [secretValue,setSecretValue]=useState('');const [available,setAvailable]=useState<string[]>([]);
- const [preflight,setPreflight]=useState<EnvironmentSnapshot|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
- const [captureBusy,setCaptureBusy]=useState(false);
- const [dataState,setDataState]=useState<EnvironmentData|null>(null);const [dataNote,setDataNote]=useState('');const [dataOutcome,setDataOutcome]=useState<'completed'|'failed'>('completed');
- const dataSequence=useRef(0);
- const scope=useRef(0);const errorRef=useRef<HTMLParagraphElement>(null);
- useEffect(()=>{const generation=++scope.current;setProfiles([]);setCaptureBusy(false);setDraft(blank());setInteractionSelectors(emptyInteractionSelectors());setRepeatableSelectors('');setEditing(undefined);setOrigins('');setVariables('');setSecretName('');setSecretValue('');setError('');setPreflight(null);setNotice('');setBusy(false);
-  void api.dynamicEnvironments(projectId).then(rows=>{if(generation===scope.current)setProfiles(rows);}).catch(e=>{if(generation===scope.current)setError(userFacingError(e,'Environments could not be loaded.'));});
-  return()=>{scope.current++;};
- },[projectId]);
- useEffect(()=>{let current=true;setAvailable([]);setPreflight(null);setSecretValue('');
-  if(value)void api.dynamicEnvironmentValues(projectId,value).then(result=>{if(current)setAvailable(result.variableNames);}).catch(e=>{if(current)setError(userFacingError(e));});
-  return()=>{current=false;};
- },[projectId,value]);
- useEffect(()=>{let current=true;setDataState(null);setDataNote('');if(!value)return;
-  const refresh=()=>{const sequence=++dataSequence.current;void api.dynamicEnvironmentData(projectId,value).then(result=>{if(current&&sequence===dataSequence.current)setDataState(result);}).catch(e=>{if(current)setError(userFacingError(e));});};refresh();const timer=window.setInterval(refresh,5000);
-  return()=>{current=false;window.clearInterval(timer);};
- },[projectId,value]);
- useEffect(()=>{onDataBusy?.(captureBusy||Boolean(dataState&&['in_use','preparing','cleaning'].includes(dataState.state)));},[dataState?.state,captureBusy,onDataBusy]);
- const recordData=async(event:React.SyntheticEvent,cleanup=false)=>{event.preventDefault();dataSequence.current++;const generation=scope.current;setBusy(true);setError('');try{const result=await api.recordDynamicEnvironmentData(projectId,value,dataState?.state==='cleanup_required'||cleanup?'cleanup':'preparation',dataOutcome,dataNote);if(generation!==scope.current)return;dataSequence.current++;setDataState(result);setDataNote('');setPreflight(null);setNotice('Manual data outcome recorded. Browser results are unchanged.');}catch(e){if(generation===scope.current)setError(userFacingError(e));}finally{if(generation===scope.current)setBusy(false);}};
- useEffect(()=>{if(error)errorRef.current?.focus();},[error]);
- const edit=(profile?:EnvironmentProfile)=>{const selectors=emptyInteractionSelectors();for(const row of profile?.actionPolicy?.interactions??[])for(const action of row.actions)selectors[action]+=(selectors[action]?'\n':'')+row.selector;setInteractionSelectors(selectors);setRepeatableSelectors((profile?.actionPolicy?.interactions??[]).filter(row=>row.repeatable).map(row=>row.selector).join('\n'));setDraft(profile?{...profile,budgets:profile.budgets??{...DEFAULT_EXECUTION_BUDGET}}:blank());setEditing(profile?.id);setOrigins(profile?.allowedOrigins.join('\n')??'');setVariables(profile?.requiredVariables.join('\n')??'');setError('');setNotice('');};
- const limits=draft.budgets??DEFAULT_EXECUTION_BUDGET;
- const setLimit=(name:keyof typeof limits,value:number|undefined)=>{const next={...limits};if(value===undefined)delete next[name];else next[name]=value;setDraft({...draft,budgets:next});};
- const save=async(event:React.FormEvent)=>{event.preventDefault();const generation=scope.current;setBusy(true);setError('');try{
-  const allowedOrigins=origins.trim()?origins.split(/\s+/).filter(Boolean):[new URL(draft.targetUrl).origin];
-  const grants=new Map<string,InteractionAction[]>();for(const [action,text] of Object.entries(interactionSelectors))for(const selector of new Set(text.split('\n').map(item=>item.trim()).filter(Boolean)))grants.set(selector,[...(grants.get(selector)??[]),action as InteractionAction]);
-  const repeatable=new Set(repeatableSelectors.split('\n').map(value=>value.trim()).filter(Boolean));if([...repeatable].some(selector=>!grants.get(selector)?.includes('click')))throw new Error('Repeatable controls must already be approved for clicking.');
-  const actionPolicy:BrowserActionPolicy={schemaVersion:1,interactions:[...grants].map(([selector,actions])=>({selector,actions,...(repeatable.has(selector)?{repeatable:true}:{})})),allowCoordinates:draft.actionPolicy?.allowCoordinates??false,...(draft.actionPolicy?.uploads?{uploads:draft.actionPolicy.uploads}:{}),...(draft.actionPolicy?.downloads?{downloads:draft.actionPolicy.downloads}:{}),...(draft.actionPolicy?.privateInputs?{privateInputs:draft.actionPolicy.privateInputs}:{})};
-  const profile=await api.saveDynamicEnvironment(projectId,{...draft,actionPolicy,allowedOrigins,requiredVariables:variables.split(/[\s,]+/).filter(Boolean)},editing);
-  if(generation!==scope.current)return;
-  setProfiles(previous=>[profile,...previous.filter(item=>item.id!==profile.id)]);edit(profile);onChange(profile.id);setNotice(`Environment version ${profile.version} saved. Run conditions will be frozen at start.`);
- }catch(e){if(generation===scope.current)setError(userFacingError(e,'Environment could not be saved.'));}finally{if(generation===scope.current)setBusy(false);}};
- const saveValue=async(event:React.FormEvent)=>{event.preventDefault();const generation=scope.current;setBusy(true);setError('');try{const result=await api.saveDynamicEnvironmentValues(projectId,value,{[secretName]:secretValue});if(generation!==scope.current)return;setAvailable(result.variableNames);setSecretValue('');setPreflight(null);setNotice('Local value saved. Its content is not returned or sent to the model.');}catch(e){if(generation===scope.current)setError(userFacingError(e));}finally{if(generation===scope.current)setBusy(false);}};
- return <section className="dw-environments" aria-labelledby="dw-env-title">
-  <div className="dw-field"><label id="dw-env-title" htmlFor="dw-environment">Run environment</label><Select id="dw-environment" disabled={disabled||busy||captureBusy} value={value||'test-address'} options={[{value:'test-address',label:'Use test address (no saved environment)'},...profiles.map(profile=>({value:profile.id,label:`${profile.name} · v${profile.version}`}))]} onChange={id=>onChange(id==='test-address'?'':id)}/></div>
-  {error&&<p ref={errorRef} className="dw-error" role="alert" tabIndex={-1}>{error}</p>}
-  {notice&&<p className="dw-feedback" role="status">{notice}</p>}
-  <details className="dw-advanced"><summary>Manage environments and local values</summary>
-   <p className="dw-muted">Profiles are shared with project members. Values are encrypted on this device for your account. They are prerequisites only; browser credential injection is configured separately.</p>
-   <div className="dw-actions"><button type="button" className="btn-secondary" disabled={disabled||busy||captureBusy} onClick={()=>edit()}>New environment</button><button type="button" className="btn-secondary" disabled={disabled||busy||captureBusy} onClick={()=>{const generation=scope.current;setBusy(true);setError('');void api.dynamicEnvironments(projectId).then(rows=>{if(generation!==scope.current)return;setProfiles(rows);setPreflight(null);setNotice('Environments refreshed. Edit the selected environment to load its latest saved version.');}).catch(e=>{if(generation===scope.current)setError(userFacingError(e));}).finally(()=>{if(generation===scope.current)setBusy(false);});}}>Refresh environments</button>{value&&<button type="button" className="btn-secondary" disabled={disabled||busy||captureBusy} onClick={()=>edit(profiles.find(profile=>profile.id===value))}>Edit selected environment</button>}</div>
-   <form onSubmit={save}><fieldset className="dw-form-body" disabled={disabled||busy||captureBusy}>
-    <div className="dw-check-fields"><div className="dw-field"><label htmlFor="dw-env-name">Environment name</label><input id="dw-env-name" required maxLength={120} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})}/></div><div className="dw-field"><label htmlFor="dw-env-url">Environment website</label><input id="dw-env-url" required type="url" value={draft.targetUrl} onChange={e=>setDraft({...draft,targetUrl:e.target.value})}/></div></div>
-    <div className="dw-check-fields"><div className="dw-field"><label htmlFor="dw-env-origins">Allowed origins (one per line)</label><textarea id="dw-env-origins" rows={2} value={origins} onChange={e=>setOrigins(e.target.value)} placeholder="Defaults to this website's origin"/></div><div className="dw-field"><label htmlFor="dw-env-vars">Required variable names</label><textarea id="dw-env-vars" rows={2} value={variables} onChange={e=>setVariables(e.target.value)} placeholder="TEST_USERNAME&#10;TEST_PASSWORD"/></div></div>
-    <div className="dw-check-fields"><div className="dw-field"><label htmlFor="dw-env-role">Account role / preparation note</label><input id="dw-env-role" value={draft.accountRole} onChange={e=>setDraft({...draft,accountRole:e.target.value})}/></div><div className="dw-field"><label htmlFor="dw-env-version">Target version or commit</label><input id="dw-env-version" value={draft.targetVersion} onChange={e=>setDraft({...draft,targetVersion:e.target.value})}/></div></div>
-    <div className="dw-check-fields"><div className="dw-field"><label htmlFor="dw-env-width">Browser width</label><input id="dw-env-width" type="number" required min={320} max={3840} value={draft.viewport.width} onChange={e=>setDraft({...draft,viewport:{...draft.viewport,width:Number(e.target.value)}})}/></div><div className="dw-field"><label htmlFor="dw-env-height">Browser height</label><input id="dw-env-height" type="number" required min={320} max={2160} value={draft.viewport.height} onChange={e=>setDraft({...draft,viewport:{...draft.viewport,height:Number(e.target.value)}})}/></div></div>
-    <div className="dw-check-fields"><div className="dw-field"><label htmlFor="dw-env-session">Session reference (optional)</label><input id="dw-env-session" pattern="[A-Za-z][A-Za-z0-9_-]{0,63}" maxLength={64} value={draft.sessionReference??''} onChange={e=>setDraft({...draft,sessionReference:e.target.value})}/></div><div className="dw-field"><label htmlFor="dw-env-ready">Signed-in readiness selector</label><input id="dw-env-ready" maxLength={500} value={draft.sessionReadySelector??''} onChange={e=>setDraft({...draft,sessionReadySelector:e.target.value})} placeholder="One element visible only after sign-in"/></div></div><p className="dw-muted">Save both fields to use a signed-in session. The selector is checked before model actions; keep passwords and tokens out of it.</p>
-    <div className="dw-field"><label htmlFor="dw-env-resource">Shared test-data resource (optional)</label><input id="dw-env-resource" maxLength={100} pattern="[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}" value={draft.dataResourceKey??''} onChange={e=>setDraft({...draft,dataResourceKey:e.target.value})} placeholder="qa-payment-data"/><p className="dw-muted">Profiles in this project that use the same test data use the same key. Cleanup must finish before another profile can prepare it.</p></div>
-    <details className="dw-advanced"><summary>Execution limits</summary><p className="dw-muted">Limits are recorded for each Run. The stricter of the saved test and environment step limits applies.</p><div className="dw-check-fields">
-     <div className="dw-field"><label htmlFor="dw-budget-time">Maximum duration (seconds)</label><input id="dw-budget-time" type="number" required min={1} max={300} step={1} value={limits.runtimeMs/1000} onChange={e=>setLimit('runtimeMs',Number(e.target.value)*1000)}/></div>
-     <div className="dw-field"><label htmlFor="dw-budget-steps">Maximum steps</label><input id="dw-budget-steps" type="number" required min={1} max={25} step={1} value={limits.maxSteps} onChange={e=>setLimit('maxSteps',Number(e.target.value))}/></div>
-     <div className="dw-field"><label htmlFor="dw-budget-calls">Maximum model calls</label><input id="dw-budget-calls" type="number" required min={1} max={100} step={1} value={limits.maxModelCalls} onChange={e=>setLimit('maxModelCalls',Number(e.target.value))}/></div>
-     <div className="dw-field"><label htmlFor="dw-budget-observation">Maximum page observation characters</label><input id="dw-budget-observation" type="number" required min={256} max={32000} step={1} value={limits.maxObservationChars} onChange={e=>setLimit('maxObservationChars',Number(e.target.value))}/></div>
-     <div className="dw-field"><label htmlFor="dw-budget-console">Maximum console bytes</label><input id="dw-budget-console" type="number" required min={1024} max={262144} step={1} value={limits.maxConsoleBytes} onChange={e=>setLimit('maxConsoleBytes',Number(e.target.value))}/></div>
-     <div className="dw-field"><label htmlFor="dw-budget-tokens">Accounted-token stop limit (optional)</label><input id="dw-budget-tokens" type="number" min={1} max={1000000} step={1} value={limits.maxAccountedTokens??''} onChange={e=>setLimit('maxAccountedTokens',e.target.value?Number(e.target.value):undefined)}/></div>
-    </div><p className="dw-muted">Retries and response repairs count as model calls. Token usage is checked after each request; a request can exceed this stop limit. Missing usage stops the Run when this optional limit is set. It is not a billing cap.</p></details>
-    <DynamicActionPermissions onDiscover={paths=>api.discoverDynamicControls(projectId,draft.targetUrl,paths,editing)} repeatableSelectors={repeatableSelectors} onRepeatableChange={setRepeatableSelectors} selectors={interactionSelectors} onChange={(action,value)=>setInteractionSelectors(previous=>({...previous,[action]:value}))} allowCoordinates={draft.actionPolicy?.allowCoordinates??false} onCoordinatesChange={value=>setDraft({...draft,actionPolicy:{...draft.actionPolicy,schemaVersion:1,interactions:draft.actionPolicy?.interactions??[],allowCoordinates:value}})}/>
-    <div className="dw-field"><label htmlFor="dw-env-startup">Local startup instructions</label><textarea id="dw-env-startup" rows={2} value={draft.startupInstructions} onChange={e=>setDraft({...draft,startupInstructions:e.target.value})}/></div><p className="dw-muted">Keep values and passwords out of shared profile fields. Instructions are shown for manual use; no command runs automatically.</p>
-    <button type="submit" className="btn-secondary">Save environment</button>
-   </fieldset></form>
-   {value&&<>{profiles.find(profile=>profile.id===value)&&<DynamicPrivateInputs projectId={projectId} profile={profiles.find(profile=>profile.id===value)!} disabled={disabled||busy||captureBusy||Boolean(dataState&&['in_use','preparing','cleaning','cleanup_required'].includes(dataState.state))} onSaved={profile=>{setProfiles(previous=>previous.map(item=>item.id===profile.id?profile:item));setPreflight(null);if(editing===profile.id)edit(profile);}}/>}{profiles.find(profile=>profile.id===value)&&<DynamicDownloadPanel projectId={projectId} profile={profiles.find(profile=>profile.id===value)!} disabled={disabled||busy||captureBusy||Boolean(dataState&&['in_use','preparing','cleaning','cleanup_required'].includes(dataState.state))} onSaved={profile=>{setProfiles(previous=>previous.map(item=>item.id===profile.id?profile:item));setPreflight(null);if(editing===profile.id)edit(profile);}}/>}{profiles.find(profile=>profile.id===value)&&<DynamicUploadPanel projectId={projectId} profile={profiles.find(profile=>profile.id===value)!} disabled={disabled||busy||captureBusy||Boolean(dataState&&['in_use','preparing','cleaning','cleanup_required'].includes(dataState.state))} onSaved={profile=>{setProfiles(previous=>previous.map(item=>item.id===profile.id?profile:item));setPreflight(null);if(editing===profile.id)edit(profile);}}/>}{profiles.find(profile=>profile.id===value)?.sessionReference&&<DynamicSessionPanel projectId={projectId} profile={profiles.find(profile=>profile.id===value)!} disabled={disabled||busy} onCaptureBusy={setCaptureBusy}/>}<DynamicWorkspaceAuthorization projectId={projectId} environmentId={value} disabled={disabled||busy||captureBusy} availableNames={available}/><section aria-labelledby="dw-data-title"><h3 id="dw-data-title">Test data lifecycle</h3><p className="dw-muted">{dataState ? ({unprepared:'Prepare the initial test data before running.',ready:dataState.preparation?.note.startsWith('Approved ')?'Approved preparation completed. Check it again if the target changed.':'Manual preparation recorded. Check it again if the target changed.',in_use:'A Run is using this environment. Cleanup is available after it stops.',cleanup_required:'Cleanup required. This environment cannot be reused yet.',preparing:'Environment preparation or sign-in capture is in progress.',cleaning:'Approved cleanup script is in progress.'}[dataState.state]) : 'Loading data state…'}</p>
-    {dataState?.resource&&!dataState.resource.available&&<p className="dw-notice" role="status">Shared data is reserved by {dataState.resource.ownerName??'another environment'}. Finish its cleanup first.</p>}{dataState?.resource?.reserved&&<p className="dw-muted">This environment owns {dataState.resource.key.startsWith('shared:')?'shared data '+dataState.resource.key.slice(7):'its prepared test data'} until cleanup is confirmed.</p>}{dataState?.preparation&&<p className="dw-muted">Preparation v{dataState.preparation.profileVersion}: {dataState.preparation.note}</p>}
-    {dataState&&!['in_use','preparing','cleaning'].includes(dataState.state)&&<form onSubmit={event=>void recordData(event)}><fieldset className="dw-form-body" disabled={disabled||busy||captureBusy}><div className="dw-field"><label htmlFor="dw-data-note">{dataState.state==='cleanup_required'?'Cleanup outcome and verification':'Initial data and preparation verification'}</label><textarea id="dw-data-note" required minLength={3} maxLength={2000} rows={2} value={dataNote} onChange={e=>setDataNote(e.target.value)} placeholder="Record the account/data baseline, what you prepared or removed, and how you checked it."/></div><div className="dw-field"><label htmlFor="dw-data-outcome">Data operation outcome</label><Select id="dw-data-outcome" value={dataOutcome} options={[{value:'completed',label:'Completed and manually checked'},{value:'failed',label:'Failed — needs recovery'}]} onChange={value=>setDataOutcome(value as 'completed'|'failed')}/></div><p className="dw-muted">This records your manual work. Centinel does not perform or independently verify the data operation.</p><button type="submit" className="btn-secondary" disabled={dataState.resource?.available===false}>{dataState.state==='cleanup_required'?'Record cleanup':'Record preparation'}</button>{dataState.resource?.reserved&&dataState.state!=='cleanup_required'&&<><p className="dw-muted">To release this reserved baseline without a Run, record the cleanup and verification in the note above.</p><button type="button" className="btn-secondary" onClick={event=>{if(event.currentTarget.form?.reportValidity())void recordData(event,true);}}>Release prepared data</button></>}</fieldset></form>}
-    {Boolean(dataState?.events.length)&&<details className="dw-advanced"><summary>Data preparation and cleanup history</summary><ul>{dataState?.events.map(event=><li key={event.id}>{event.kind} · {event.outcome} · {formatActivityTime(event.createdAt)} — {event.note}<small> · Recorded by {event.actorId}</small></li>)}</ul></details>}
-   </section><DynamicHookPanel projectId={projectId} environmentId={value} disabled={disabled||busy||captureBusy} dataState={dataState}/><DynamicUnitPanel projectId={projectId} environmentId={value} disabled={disabled||busy||captureBusy} dataState={dataState} onDataChange={setDataState}/><form onSubmit={saveValue}><fieldset className="dw-form-body" disabled={disabled||busy||captureBusy}><h3>Local variables</h3><p className="dw-muted">Available names: {available.join(', ')||'None on this device'}. Submit an empty value to remove a name.</p><div className="dw-check-fields"><div className="dw-field"><label htmlFor="dw-secret-name">Variable name</label><input id="dw-secret-name" required pattern="[A-Z][A-Z0-9_]{0,63}" value={secretName} onChange={e=>setSecretName(e.target.value)}/></div><div className="dw-field"><label htmlFor="dw-secret-value">Local value</label><input id="dw-secret-value" type="password" autoComplete="off" value={secretValue} onChange={e=>setSecretValue(e.target.value)}/></div></div><button type="submit" className="btn-secondary">Save local value</button></fieldset></form>
-    <div className="dw-actions"><button type="button" className="btn-secondary" disabled={disabled||busy||captureBusy} onClick={()=>{const generation=scope.current;setBusy(true);setError('');void api.preflightDynamicEnvironment(projectId,value).then(result=>{if(generation===scope.current)setPreflight(result);}).catch(e=>{if(generation===scope.current)setError(userFacingError(e));}).finally(()=>{if(generation===scope.current)setBusy(false);});}}>Check environment</button></div>
-   </>}
-  </details>
-  {preflight&&<div className="dw-notice"><strong>Environment preflight</strong><ul>{preflight.preflight.map(check=><li key={check.name}>{check.name}: {check.ready?'Ready':'Needs attention'} — {check.reason}</li>)}</ul>{preflight.startupInstructions&&<p>{preflight.startupInstructions}</p>}</div>}
- </section>;
+import { DynamicPrivateInputs } from './DynamicPrivateInputs';
+import { DynamicDownloadPanel } from './DynamicDownloadPanel';
+import { DynamicUploadPanel } from './DynamicUploadPanel';
+import { DynamicActionPermissions, emptyInteractionSelectors } from './DynamicActionPermissions';
+import type { BrowserActionPolicy, InteractionAction } from '../../../sidecar/src/dynamic/browser/actionPolicy';
+import { DEFAULT_EXECUTION_BUDGET } from '../../../sidecar/src/dynamic/budgetLimits';
+import { DynamicSessionPanel } from './DynamicSessionPanel';
+import { DynamicHookPanel } from './DynamicHookPanel';
+import { DynamicWorkspaceAuthorization } from './DynamicWorkspaceAuthorization';
+import { useEffect, useRef, useState } from 'react';
+import { api } from '../api/client';
+import { Select } from '../components/Select';
+import { userFacingError } from '../utils/userFacingError';
+import type { EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData } from '../dynamic/types';
+const blank = (): EnvironmentInput => ({
+  budgets: { ...DEFAULT_EXECUTION_BUDGET },
+  name: '',
+  targetUrl: '',
+  allowedOrigins: [],
+  viewport: { width: 1280, height: 720 },
+  accountRole: '',
+  requiredVariables: [],
+  startupInstructions: '',
+  targetVersion: '',
+});
+export function DynamicEnvironmentPanel({
+  projectId,
+  value,
+  onChange,
+  disabled,
+  onDataBusy,
+}: {
+  projectId: string;
+  value: string;
+  onChange(id: string): void;
+  disabled: boolean;
+  onDataBusy?(busy: boolean): void;
+}) {
+  const [profiles, setProfiles] = useState<EnvironmentProfile[]>([]);
+  const [editing, setEditing] = useState<string | undefined>();
+  const [interactionSelectors, setInteractionSelectors] = useState(emptyInteractionSelectors);
+  const [repeatableSelectors, setRepeatableSelectors] = useState('');
+  const [draft, setDraft] = useState(blank);
+  const [origins, setOrigins] = useState('');
+  const [variables, setVariables] = useState('');
+  const [secretName, setSecretName] = useState('');
+  const [secretValue, setSecretValue] = useState('');
+  const [available, setAvailable] = useState<string[]>([]);
+  const [preflight, setPreflight] = useState<EnvironmentSnapshot | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [dataState, setDataState] = useState<EnvironmentData | null>(null);
+  const [dataNote, setDataNote] = useState('');
+  const [dataOutcome, setDataOutcome] = useState<'completed' | 'failed'>('completed');
+  const dataSequence = useRef(0);
+  const scope = useRef(0);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const generation = ++scope.current;
+    setProfiles([]);
+    setCaptureBusy(false);
+    setDraft(blank());
+    setInteractionSelectors(emptyInteractionSelectors());
+    setRepeatableSelectors('');
+    setEditing(undefined);
+    setOrigins('');
+    setVariables('');
+    setSecretName('');
+    setSecretValue('');
+    setError('');
+    setPreflight(null);
+    setNotice('');
+    setBusy(false);
+    void api
+      .dynamicEnvironments(projectId)
+      .then((rows) => {
+        if (generation === scope.current) setProfiles(rows);
+      })
+      .catch((e) => {
+        if (generation === scope.current) setError(userFacingError(e, 'Environments could not be loaded.'));
+      });
+    return () => {
+      scope.current++;
+    };
+  }, [projectId]);
+  useEffect(() => {
+    let current = true;
+    setAvailable([]);
+    setPreflight(null);
+    setSecretValue('');
+    if (value)
+      void api
+        .dynamicEnvironmentValues(projectId, value)
+        .then((result) => {
+          if (current) setAvailable(result.variableNames);
+        })
+        .catch((e) => {
+          if (current) setError(userFacingError(e));
+        });
+    return () => {
+      current = false;
+    };
+  }, [projectId, value]);
+  useEffect(() => {
+    let current = true;
+    setDataState(null);
+    setDataNote('');
+    if (!value) return;
+    const refresh = () => {
+      const sequence = ++dataSequence.current;
+      void api
+        .dynamicEnvironmentData(projectId, value)
+        .then((result) => {
+          if (current && sequence === dataSequence.current) setDataState(result);
+        })
+        .catch((e) => {
+          if (current) setError(userFacingError(e));
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [projectId, value]);
+  useEffect(() => {
+    onDataBusy?.(captureBusy || Boolean(dataState && ['in_use', 'preparing', 'cleaning'].includes(dataState.state)));
+  }, [dataState?.state, captureBusy, onDataBusy]);
+  const recordData = async (event: React.SyntheticEvent, cleanup = false) => {
+    event.preventDefault();
+    dataSequence.current++;
+    const generation = scope.current;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.recordDynamicEnvironmentData(
+        projectId,
+        value,
+        dataState?.state === 'cleanup_required' || cleanup ? 'cleanup' : 'preparation',
+        dataOutcome,
+        dataNote,
+      );
+      if (generation !== scope.current) return;
+      dataSequence.current++;
+      setDataState(result);
+      setDataNote('');
+      setPreflight(null);
+      setNotice('Manual data outcome recorded. Browser results are unchanged.');
+    } catch (e) {
+      if (generation === scope.current) setError(userFacingError(e));
+    } finally {
+      if (generation === scope.current) setBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
+  const edit = (profile?: EnvironmentProfile) => {
+    const selectors = emptyInteractionSelectors();
+    for (const row of profile?.actionPolicy?.interactions ?? [])
+      for (const action of row.actions) selectors[action] += (selectors[action] ? '\n' : '') + row.selector;
+    setInteractionSelectors(selectors);
+    setRepeatableSelectors(
+      (profile?.actionPolicy?.interactions ?? [])
+        .filter((row) => row.repeatable)
+        .map((row) => row.selector)
+        .join('\n'),
+    );
+    setDraft(profile ? { ...profile, budgets: profile.budgets ?? { ...DEFAULT_EXECUTION_BUDGET } } : blank());
+    setEditing(profile?.id);
+    setOrigins(profile?.allowedOrigins.join('\n') ?? '');
+    setVariables(profile?.requiredVariables.join('\n') ?? '');
+    setError('');
+    setNotice('');
+  };
+  const limits = draft.budgets ?? DEFAULT_EXECUTION_BUDGET;
+  const setLimit = (name: keyof typeof limits, value: number | undefined) => {
+    const next = { ...limits };
+    if (value === undefined) delete next[name];
+    else next[name] = value;
+    setDraft({ ...draft, budgets: next });
+  };
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const generation = scope.current;
+    setBusy(true);
+    setError('');
+    try {
+      const allowedOrigins = origins.trim() ? origins.split(/\s+/).filter(Boolean) : [new URL(draft.targetUrl).origin];
+      const grants = new Map<string, InteractionAction[]>();
+      for (const [action, text] of Object.entries(interactionSelectors))
+        for (const selector of new Set(
+          text
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean),
+        ))
+          grants.set(selector, [...(grants.get(selector) ?? []), action as InteractionAction]);
+      const repeatable = new Set(
+        repeatableSelectors
+          .split('\n')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      );
+      if ([...repeatable].some((selector) => !grants.get(selector)?.includes('click')))
+        throw new Error('Repeatable controls must already be approved for clicking.');
+      const actionPolicy: BrowserActionPolicy = {
+        schemaVersion: 1,
+        interactions: [...grants].map(([selector, actions]) => ({
+          selector,
+          actions,
+          ...(repeatable.has(selector) ? { repeatable: true } : {}),
+        })),
+        allowCoordinates: draft.actionPolicy?.allowCoordinates ?? false,
+        ...(draft.actionPolicy?.uploads ? { uploads: draft.actionPolicy.uploads } : {}),
+        ...(draft.actionPolicy?.downloads ? { downloads: draft.actionPolicy.downloads } : {}),
+        ...(draft.actionPolicy?.privateInputs ? { privateInputs: draft.actionPolicy.privateInputs } : {}),
+      };
+      const profile = await api.saveDynamicEnvironment(
+        projectId,
+        { ...draft, actionPolicy, allowedOrigins, requiredVariables: variables.split(/[\s,]+/).filter(Boolean) },
+        editing,
+      );
+      if (generation !== scope.current) return;
+      setProfiles((previous) => [profile, ...previous.filter((item) => item.id !== profile.id)]);
+      edit(profile);
+      onChange(profile.id);
+      setNotice(`Environment version ${profile.version} saved. Run conditions will be frozen at start.`);
+    } catch (e) {
+      if (generation === scope.current) setError(userFacingError(e, 'Environment could not be saved.'));
+    } finally {
+      if (generation === scope.current) setBusy(false);
+    }
+  };
+  const saveValue = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const generation = scope.current;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.saveDynamicEnvironmentValues(projectId, value, { [secretName]: secretValue });
+      if (generation !== scope.current) return;
+      setAvailable(result.variableNames);
+      setSecretValue('');
+      setPreflight(null);
+      setNotice('Local value saved. Its content is not returned or sent to the model.');
+    } catch (e) {
+      if (generation === scope.current) setError(userFacingError(e));
+    } finally {
+      if (generation === scope.current) setBusy(false);
+    }
+  };
+  return (
+    <section className="dw-environments" aria-labelledby="dw-env-title">
+      <div className="dw-field">
+        <label id="dw-env-title" htmlFor="dw-environment">
+          Run environment
+        </label>
+        <Select
+          id="dw-environment"
+          disabled={disabled || busy || captureBusy}
+          value={value || 'test-address'}
+          options={[
+            { value: 'test-address', label: 'Use test address (no saved environment)' },
+            ...profiles.map((profile) => ({ value: profile.id, label: `${profile.name} · v${profile.version}` })),
+          ]}
+          onChange={(id) => onChange(id === 'test-address' ? '' : id)}
+        />
+      </div>
+      {error && (
+        <p ref={errorRef} className="dw-error" role="alert" tabIndex={-1}>
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="dw-feedback" role="status">
+          {notice}
+        </p>
+      )}
+      <details className="dw-advanced">
+        <summary>Manage environments and local values</summary>
+        <p className="dw-muted">
+          Profiles are shared with project members. Values are encrypted on this device for your account. They are
+          prerequisites only; browser credential injection is configured separately.
+        </p>
+        <div className="dw-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={disabled || busy || captureBusy}
+            onClick={() => edit()}
+          >
+            New environment
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={disabled || busy || captureBusy}
+            onClick={() => {
+              const generation = scope.current;
+              setBusy(true);
+              setError('');
+              void api
+                .dynamicEnvironments(projectId)
+                .then((rows) => {
+                  if (generation !== scope.current) return;
+                  setProfiles(rows);
+                  setPreflight(null);
+                  setNotice('Environments refreshed. Edit the selected environment to load its latest saved version.');
+                })
+                .catch((e) => {
+                  if (generation === scope.current) setError(userFacingError(e));
+                })
+                .finally(() => {
+                  if (generation === scope.current) setBusy(false);
+                });
+            }}
+          >
+            Refresh environments
+          </button>
+          {value && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={disabled || busy || captureBusy}
+              onClick={() => edit(profiles.find((profile) => profile.id === value))}
+            >
+              Edit selected environment
+            </button>
+          )}
+        </div>
+        <form onSubmit={save}>
+          <fieldset className="dw-form-body" disabled={disabled || busy || captureBusy}>
+            <div className="dw-check-fields">
+              <div className="dw-field">
+                <label htmlFor="dw-env-name">Environment name</label>
+                <input
+                  id="dw-env-name"
+                  required
+                  maxLength={120}
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                />
+              </div>
+              <div className="dw-field">
+                <label htmlFor="dw-env-url">Environment website</label>
+                <input
+                  id="dw-env-url"
+                  required
+                  type="url"
+                  value={draft.targetUrl}
+                  onChange={(e) => setDraft({ ...draft, targetUrl: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="dw-check-fields">
+              <div className="dw-field">
+                <label htmlFor="dw-env-origins">Allowed origins (one per line)</label>
+                <textarea
+                  id="dw-env-origins"
+                  rows={2}
+                  value={origins}
+                  onChange={(e) => setOrigins(e.target.value)}
+                  placeholder="Defaults to this website's origin"
+                />
+              </div>
+              <div className="dw-field">
+                <label htmlFor="dw-env-vars">Required variable names</label>
+                <textarea
+                  id="dw-env-vars"
+                  rows={2}
+                  value={variables}
+                  onChange={(e) => setVariables(e.target.value)}
+                  placeholder="TEST_USERNAME&#10;TEST_PASSWORD"
+                />
+              </div>
+            </div>
+            <div className="dw-check-fields">
+              <div className="dw-field">
+                <label htmlFor="dw-env-role">Account role / preparation note</label>
+                <input
+                  id="dw-env-role"
+                  value={draft.accountRole}
+                  onChange={(e) => setDraft({ ...draft, accountRole: e.target.value })}
+                />
+              </div>
+              <div className="dw-field">
+                <label htmlFor="dw-env-version">Target version or commit</label>
+                <input
+                  id="dw-env-version"
+                  value={draft.targetVersion}
+                  onChange={(e) => setDraft({ ...draft, targetVersion: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="dw-check-fields">
+              <div className="dw-field">
+                <label htmlFor="dw-env-width">Browser width</label>
+                <input
+                  id="dw-env-width"
+                  type="number"
+                  required
+                  min={320}
+                  max={3840}
+                  value={draft.viewport.width}
+                  onChange={(e) =>
+                    setDraft({ ...draft, viewport: { ...draft.viewport, width: Number(e.target.value) } })
+                  }
+                />
+              </div>
+              <div className="dw-field">
+                <label htmlFor="dw-env-height">Browser height</label>
+                <input
+                  id="dw-env-height"
+                  type="number"
+                  required
+                  min={320}
+                  max={2160}
+                  value={draft.viewport.height}
+                  onChange={(e) =>
+                    setDraft({ ...draft, viewport: { ...draft.viewport, height: Number(e.target.value) } })
+                  }
+                />
+              </div>
+            </div>
+            <div className="dw-check-fields">
+              <div className="dw-field">
+                <label htmlFor="dw-env-session">Session reference (optional)</label>
+                <input
+                  id="dw-env-session"
+                  pattern="[A-Za-z][A-Za-z0-9_-]{0,63}"
+                  maxLength={64}
+                  value={draft.sessionReference ?? ''}
+                  onChange={(e) => setDraft({ ...draft, sessionReference: e.target.value })}
+                />
+              </div>
+              <div className="dw-field">
+                <label htmlFor="dw-env-ready">Signed-in readiness selector</label>
+                <input
+                  id="dw-env-ready"
+                  maxLength={500}
+                  value={draft.sessionReadySelector ?? ''}
+                  onChange={(e) => setDraft({ ...draft, sessionReadySelector: e.target.value })}
+                  placeholder="One element visible only after sign-in"
+                />
+              </div>
+            </div>
+            <p className="dw-muted">
+              Save both fields to use a signed-in session. The selector is checked before model actions; keep passwords
+              and tokens out of it.
+            </p>
+            <div className="dw-field">
+              <label htmlFor="dw-env-resource">Shared test-data resource (optional)</label>
+              <input
+                id="dw-env-resource"
+                maxLength={100}
+                pattern="[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}"
+                value={draft.dataResourceKey ?? ''}
+                onChange={(e) => setDraft({ ...draft, dataResourceKey: e.target.value })}
+                placeholder="qa-payment-data"
+              />
+              <p className="dw-muted">
+                Profiles in this project that use the same test data use the same key. Cleanup must finish before
+                another profile can prepare it.
+              </p>
+            </div>
+            <details className="dw-advanced">
+              <summary>Execution limits</summary>
+              <p className="dw-muted">
+                Limits are recorded for each Run. The stricter of the saved test and environment step limits applies.
+              </p>
+              <div className="dw-check-fields">
+                <div className="dw-field">
+                  <label htmlFor="dw-budget-time">Maximum duration (seconds)</label>
+                  <input
+                    id="dw-budget-time"
+                    type="number"
+                    required
+                    min={1}
+                    max={300}
+                    step={1}
+                    value={limits.runtimeMs / 1000}
+                    onChange={(e) => setLimit('runtimeMs', Number(e.target.value) * 1000)}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-budget-steps">Maximum steps</label>
+                  <input
+                    id="dw-budget-steps"
+                    type="number"
+                    required
+                    min={1}
+                    max={25}
+                    step={1}
+                    value={limits.maxSteps}
+                    onChange={(e) => setLimit('maxSteps', Number(e.target.value))}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-budget-calls">Maximum model calls</label>
+                  <input
+                    id="dw-budget-calls"
+                    type="number"
+                    required
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={limits.maxModelCalls}
+                    onChange={(e) => setLimit('maxModelCalls', Number(e.target.value))}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-budget-observation">Maximum page observation characters</label>
+                  <input
+                    id="dw-budget-observation"
+                    type="number"
+                    required
+                    min={256}
+                    max={32000}
+                    step={1}
+                    value={limits.maxObservationChars}
+                    onChange={(e) => setLimit('maxObservationChars', Number(e.target.value))}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-budget-console">Maximum console bytes</label>
+                  <input
+                    id="dw-budget-console"
+                    type="number"
+                    required
+                    min={1024}
+                    max={262144}
+                    step={1}
+                    value={limits.maxConsoleBytes}
+                    onChange={(e) => setLimit('maxConsoleBytes', Number(e.target.value))}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-budget-tokens">Accounted-token stop limit (optional)</label>
+                  <input
+                    id="dw-budget-tokens"
+                    type="number"
+                    min={1}
+                    max={1000000}
+                    step={1}
+                    value={limits.maxAccountedTokens ?? ''}
+                    onChange={(e) =>
+                      setLimit('maxAccountedTokens', e.target.value ? Number(e.target.value) : undefined)
+                    }
+                  />
+                </div>
+              </div>
+              <p className="dw-muted">
+                Retries and response repairs count as model calls. Token usage is checked after each request; a request
+                can exceed this stop limit. Missing usage stops the Run when this optional limit is set. It is not a
+                billing cap.
+              </p>
+            </details>
+            <DynamicActionPermissions
+              onDiscover={(paths) => api.discoverDynamicControls(projectId, draft.targetUrl, paths, editing)}
+              repeatableSelectors={repeatableSelectors}
+              onRepeatableChange={setRepeatableSelectors}
+              selectors={interactionSelectors}
+              onChange={(action, value) => setInteractionSelectors((previous) => ({ ...previous, [action]: value }))}
+              allowCoordinates={draft.actionPolicy?.allowCoordinates ?? false}
+              onCoordinatesChange={(value) =>
+                setDraft({
+                  ...draft,
+                  actionPolicy: {
+                    ...draft.actionPolicy,
+                    schemaVersion: 1,
+                    interactions: draft.actionPolicy?.interactions ?? [],
+                    allowCoordinates: value,
+                  },
+                })
+              }
+            />
+            <div className="dw-field">
+              <label htmlFor="dw-env-startup">Local startup instructions</label>
+              <textarea
+                id="dw-env-startup"
+                rows={2}
+                value={draft.startupInstructions}
+                onChange={(e) => setDraft({ ...draft, startupInstructions: e.target.value })}
+              />
+            </div>
+            <p className="dw-muted">
+              Keep values and passwords out of shared profile fields. Instructions are shown for manual use; no command
+              runs automatically.
+            </p>
+            <button type="submit" className="btn-secondary">
+              Save environment
+            </button>
+          </fieldset>
+        </form>
+        {value && (
+          <>
+            {profiles.find((profile) => profile.id === value) && (
+              <DynamicPrivateInputs
+                projectId={projectId}
+                profile={profiles.find((profile) => profile.id === value)!}
+                disabled={
+                  disabled ||
+                  busy ||
+                  captureBusy ||
+                  Boolean(
+                    dataState && ['in_use', 'preparing', 'cleaning', 'cleanup_required'].includes(dataState.state),
+                  )
+                }
+                onSaved={(profile) => {
+                  setProfiles((previous) => previous.map((item) => (item.id === profile.id ? profile : item)));
+                  setPreflight(null);
+                  if (editing === profile.id) edit(profile);
+                }}
+              />
+            )}
+            {profiles.find((profile) => profile.id === value) && (
+              <DynamicDownloadPanel
+                projectId={projectId}
+                profile={profiles.find((profile) => profile.id === value)!}
+                disabled={
+                  disabled ||
+                  busy ||
+                  captureBusy ||
+                  Boolean(
+                    dataState && ['in_use', 'preparing', 'cleaning', 'cleanup_required'].includes(dataState.state),
+                  )
+                }
+                onSaved={(profile) => {
+                  setProfiles((previous) => previous.map((item) => (item.id === profile.id ? profile : item)));
+                  setPreflight(null);
+                  if (editing === profile.id) edit(profile);
+                }}
+              />
+            )}
+            {profiles.find((profile) => profile.id === value) && (
+              <DynamicUploadPanel
+                projectId={projectId}
+                profile={profiles.find((profile) => profile.id === value)!}
+                disabled={
+                  disabled ||
+                  busy ||
+                  captureBusy ||
+                  Boolean(
+                    dataState && ['in_use', 'preparing', 'cleaning', 'cleanup_required'].includes(dataState.state),
+                  )
+                }
+                onSaved={(profile) => {
+                  setProfiles((previous) => previous.map((item) => (item.id === profile.id ? profile : item)));
+                  setPreflight(null);
+                  if (editing === profile.id) edit(profile);
+                }}
+              />
+            )}
+            {profiles.find((profile) => profile.id === value)?.sessionReference && (
+              <DynamicSessionPanel
+                projectId={projectId}
+                profile={profiles.find((profile) => profile.id === value)!}
+                disabled={disabled || busy}
+                onCaptureBusy={setCaptureBusy}
+              />
+            )}
+            <DynamicWorkspaceAuthorization
+              projectId={projectId}
+              environmentId={value}
+              disabled={disabled || busy || captureBusy}
+              availableNames={available}
+            />
+            <section aria-labelledby="dw-data-title">
+              <h3 id="dw-data-title">Test data lifecycle</h3>
+              <p className="dw-muted">
+                {dataState
+                  ? {
+                      unprepared: 'Prepare the initial test data before running.',
+                      ready: dataState.preparation?.note.startsWith('Approved ')
+                        ? 'Approved preparation completed. Check it again if the target changed.'
+                        : 'Manual preparation recorded. Check it again if the target changed.',
+                      in_use: 'A Run is using this environment. Cleanup is available after it stops.',
+                      cleanup_required: 'Cleanup required. This environment cannot be reused yet.',
+                      preparing: 'Environment preparation or sign-in capture is in progress.',
+                      cleaning: 'Approved cleanup script is in progress.',
+                    }[dataState.state]
+                  : 'Loading data state…'}
+              </p>
+              {dataState?.resource && !dataState.resource.available && (
+                <p className="dw-notice" role="status">
+                  Shared data is reserved by {dataState.resource.ownerName ?? 'another environment'}. Finish its cleanup
+                  first.
+                </p>
+              )}
+              {dataState?.resource?.reserved && (
+                <p className="dw-muted">
+                  This environment owns{' '}
+                  {dataState.resource.key.startsWith('shared:')
+                    ? 'shared data ' + dataState.resource.key.slice(7)
+                    : 'its prepared test data'}{' '}
+                  until cleanup is confirmed.
+                </p>
+              )}
+              {dataState?.preparation && (
+                <p className="dw-muted">
+                  Preparation v{dataState.preparation.profileVersion}: {dataState.preparation.note}
+                </p>
+              )}
+              {dataState && !['in_use', 'preparing', 'cleaning'].includes(dataState.state) && (
+                <form onSubmit={(event) => void recordData(event)}>
+                  <fieldset className="dw-form-body" disabled={disabled || busy || captureBusy}>
+                    <div className="dw-field">
+                      <label htmlFor="dw-data-note">
+                        {dataState.state === 'cleanup_required'
+                          ? 'Cleanup outcome and verification'
+                          : 'Initial data and preparation verification'}
+                      </label>
+                      <textarea
+                        id="dw-data-note"
+                        required
+                        minLength={3}
+                        maxLength={2000}
+                        rows={2}
+                        value={dataNote}
+                        onChange={(e) => setDataNote(e.target.value)}
+                        placeholder="Record the account/data baseline, what you prepared or removed, and how you checked it."
+                      />
+                    </div>
+                    <div className="dw-field">
+                      <label htmlFor="dw-data-outcome">Data operation outcome</label>
+                      <Select
+                        id="dw-data-outcome"
+                        value={dataOutcome}
+                        options={[
+                          { value: 'completed', label: 'Completed and manually checked' },
+                          { value: 'failed', label: 'Failed — needs recovery' },
+                        ]}
+                        onChange={(value) => setDataOutcome(value as 'completed' | 'failed')}
+                      />
+                    </div>
+                    <p className="dw-muted">
+                      This records your manual work. Centinel does not perform or independently verify the data
+                      operation.
+                    </p>
+                    <button type="submit" className="btn-secondary" disabled={dataState.resource?.available === false}>
+                      {dataState.state === 'cleanup_required' ? 'Record cleanup' : 'Record preparation'}
+                    </button>
+                    {dataState.resource?.reserved && dataState.state !== 'cleanup_required' && (
+                      <>
+                        <p className="dw-muted">
+                          To release this reserved baseline without a Run, record the cleanup and verification in the
+                          note above.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={(event) => {
+                            if (event.currentTarget.form?.reportValidity()) void recordData(event, true);
+                          }}
+                        >
+                          Release prepared data
+                        </button>
+                      </>
+                    )}
+                  </fieldset>
+                </form>
+              )}
+              {Boolean(dataState?.events.length) && (
+                <details className="dw-advanced">
+                  <summary>Data preparation and cleanup history</summary>
+                  <ul>
+                    {dataState?.events.map((event) => (
+                      <li key={event.id}>
+                        {event.kind} · {event.outcome} · {formatActivityTime(event.createdAt)} — {event.note}
+                        <small> · Recorded by {event.actorId}</small>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </section>
+            <DynamicHookPanel
+              projectId={projectId}
+              environmentId={value}
+              disabled={disabled || busy || captureBusy}
+              dataState={dataState}
+            />
+            <DynamicUnitPanel
+              projectId={projectId}
+              environmentId={value}
+              disabled={disabled || busy || captureBusy}
+              dataState={dataState}
+              onDataChange={setDataState}
+            />
+            <form onSubmit={saveValue}>
+              <fieldset className="dw-form-body" disabled={disabled || busy || captureBusy}>
+                <h3>Local variables</h3>
+                <p className="dw-muted">
+                  Available names: {available.join(', ') || 'None on this device'}. Submit an empty value to remove a
+                  name.
+                </p>
+                <div className="dw-check-fields">
+                  <div className="dw-field">
+                    <label htmlFor="dw-secret-name">Variable name</label>
+                    <input
+                      id="dw-secret-name"
+                      required
+                      pattern="[A-Z][A-Z0-9_]{0,63}"
+                      value={secretName}
+                      onChange={(e) => setSecretName(e.target.value)}
+                    />
+                  </div>
+                  <div className="dw-field">
+                    <label htmlFor="dw-secret-value">Local value</label>
+                    <input
+                      id="dw-secret-value"
+                      type="password"
+                      autoComplete="off"
+                      value={secretValue}
+                      onChange={(e) => setSecretValue(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <button type="submit" className="btn-secondary">
+                  Save local value
+                </button>
+              </fieldset>
+            </form>
+            <div className="dw-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={disabled || busy || captureBusy}
+                onClick={() => {
+                  const generation = scope.current;
+                  setBusy(true);
+                  setError('');
+                  void api
+                    .preflightDynamicEnvironment(projectId, value)
+                    .then((result) => {
+                      if (generation === scope.current) setPreflight(result);
+                    })
+                    .catch((e) => {
+                      if (generation === scope.current) setError(userFacingError(e));
+                    })
+                    .finally(() => {
+                      if (generation === scope.current) setBusy(false);
+                    });
+                }}
+              >
+                Check environment
+              </button>
+            </div>
+          </>
+        )}
+      </details>
+      {preflight && (
+        <div className="dw-notice">
+          <strong>Environment preflight</strong>
+          <ul>
+            {preflight.preflight.map((check) => (
+              <li key={check.name}>
+                {check.name}: {check.ready ? 'Ready' : 'Needs attention'} — {check.reason}
+              </li>
+            ))}
+          </ul>
+          {preflight.startupInstructions && <p>{preflight.startupInstructions}</p>}
+        </div>
+      )}
+    </section>
+  );
 }
