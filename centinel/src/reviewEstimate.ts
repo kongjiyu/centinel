@@ -1,4 +1,5 @@
-import { formatReviewDuration } from './reviewNarrative';
+import { executionTiming, formatReviewDuration } from './reviewNarrative';
+import type { HarnessEvent } from './reviewHarness';
 import { isExecutedReviewStatus } from './reviewViewModel';
 import type { ReviewModelUsage, StaticSession } from './types';
 
@@ -35,19 +36,25 @@ export function latestFinishedReview(sessions: StaticSession[]): StaticSession |
     .sort((a, b) => (time(finishedAt(b)) ?? 0) - (time(finishedAt(a)) ?? 0))[0] ?? null;
 }
 
-export function buildReviewEstimate(session: StaticSession | null, usage: ReviewModelUsage | null): ReviewEstimate {
+/**
+ * The recorded step events, when available, give the active run time: an
+ * interrupted Review that resumed hours later is not counted as running while
+ * the computer was off. Without events, creation-to-finish is the fallback.
+ */
+export function buildReviewEstimate(session: StaticSession | null, usage: ReviewModelUsage | null, events?: HarnessEvent[] | null): ReviewEstimate {
   if (!session) return { kind: 'none' };
   const end = finishedAt(session);
   const start = time(session.createdAt);
   const stop = time(end);
   const totals = usage?.totals;
   const tokens = totals ? (totals.accountedTokens ?? totals.totalTokens ?? totals.input + totals.output) : null;
+  const activeMs = events?.length ? executionTiming(events, false, Date.now()).ms : null;
   const tokensIncomplete = Boolean(totals && ((totals.unknownTotalCalls ?? 0) > 0 || (totals.unknownInputCalls ?? 0) > 0 || (totals.unknownOutputCalls ?? 0) > 0));
   return {
     kind: 'previous',
     reviewName: session.name,
     finishedAt: end ?? session.updatedAt,
-    durationMs: start != null && stop != null && stop >= start ? stop - start : null,
+    durationMs: activeMs ?? (start != null && stop != null && stop >= start ? stop - start : null),
     tokens: tokens != null && Number.isFinite(tokens) ? tokens : null,
     tokensIncomplete,
   };
