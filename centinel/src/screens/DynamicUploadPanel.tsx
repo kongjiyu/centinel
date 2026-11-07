@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';import {api} from '../api/client';import {Select} from '../components/Select';import {userFacingError} from '../utils/userFacingError';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
-import type {EnvironmentProfile} from '../dynamic/types';import {MAX_UPLOAD_BYTES,type LocalUploadFixture,type UploadGrant} from '../../../sidecar/src/dynamic/browser/fileTypes';
+import type {EnvironmentProfile} from '../dynamic/types';import {MAX_UPLOAD_BYTES,type LocalUploadFixture,type UploadGrant} from '../dynamic/limits';
 export function DynamicUploadPanel({projectId,profile,disabled,onSaved}:{projectId:string;profile:EnvironmentProfile;disabled:boolean;onSaved(profile:EnvironmentProfile):void}){
  const [files,setFiles]=useState<LocalUploadFixture[]>([]);const [loaded,setLoaded]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [file,setFile]=useState<File|null>(null);const [approved,setApproved]=useState(false);const [selector,setSelector]=useState('');const [selected,setSelected]=useState('choose-file');
  const generation=useRef(0);const input=useRef<HTMLInputElement>(null);const errorRef=useRef<HTMLParagraphElement>(null);

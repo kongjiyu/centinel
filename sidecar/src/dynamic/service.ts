@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { dynamicWorkerId } from './recovery.js';
 import { aggregateChecks } from './checker.js';
 import {publicDownloadUrl} from './browser/fileTypes.js';
-import { DynamicContractError, type CheckResult, type DynamicRepository, type DynamicRun, type EvidenceReference, type MissionInput, type RunPatch } from './types.js';
+import { DynamicContractError, MAX_MISSION_DISPLAY_NAME, type CheckResult, type DynamicRepository, type DynamicRun, type EvidenceReference, type Mission, type MissionInput, type RunPatch } from './types.js';
 
 export function validateMission(value: unknown, projectId: string): MissionInput {
   const fail = (message: string): never => { throw new DynamicContractError(400, message); };
@@ -58,13 +58,44 @@ export function validateMission(value: unknown, projectId: string): MissionInput
 export class DynamicService {
   private readonly leaseTokens = new Map<string, string>();
   constructor(readonly repository: DynamicRepository, readonly workerId = dynamicWorkerId) {}
-  saveMission(projectId: string, actorId: string, input: unknown, missionId?: string) {
-    return this.repository.saveRevision(projectId, actorId, validateMission(input, projectId), missionId);
+  async saveMission(projectId: string, actorId: string, input: unknown, missionId?: string) {
+    const validated = validateMission(input, projectId);
+    const mission = missionId ? await this.requireMission(projectId, missionId) : null;
+    if (mission?.archivedAt) throw new DynamicContractError(409, 'Unarchive this saved test before editing it.');
+    const revision = await this.repository.saveRevision(projectId, actorId, validated, missionId);
+    // The editor starts from the displayed name, so a saved revision name supersedes an earlier rename.
+    if (mission?.displayName !== undefined) await this.repository.updateMission(projectId, actorId, mission.id, { displayName: null });
+    return revision;
+  }
+  async requireMission(projectId: string, missionId: string): Promise<Mission> {
+    if (typeof missionId !== 'string' || !missionId || missionId.length > 200) throw new DynamicContractError(400, 'Choose a valid saved test.');
+    const mission = await this.repository.getMission(projectId, missionId);
+    if (!mission) throw new DynamicContractError(404, 'Saved test not found.');
+    return mission;
+  }
+  /** Renames the saved test only; revisions, Runs and evidence keep their recorded names. */
+  async renameMission(projectId: string, actorId: string, missionId: string, name: unknown) {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > MAX_MISSION_DISPLAY_NAME) throw new DynamicContractError(400, `Enter a test name of 1 to ${MAX_MISSION_DISPLAY_NAME} characters.`);
+    await this.requireMission(projectId, missionId);
+    return this.repository.updateMission(projectId, actorId, missionId, { displayName: name.trim() });
+  }
+  /** Archive hides a saved test and blocks new Runs. Nothing is deleted; history stays readable. */
+  async setMissionArchived(projectId: string, actorId: string, missionId: string, archived: boolean) {
+    await this.requireMission(projectId, missionId);
+    return this.repository.updateMission(projectId, actorId, missionId, { archived });
+  }
+  /** Rejects new Runs of archived saved tests before any environment preparation. */
+  async assertRunnable(projectId: string, revisionId: string) {
+    const revision = await this.repository.getRevision(projectId, revisionId);
+    if (!revision) throw new DynamicContractError(404, 'Mission revision not found.');
+    const mission = await this.repository.getMission(projectId, revision.missionId);
+    if (!mission) throw new DynamicContractError(404, 'Saved test not found.');
+    if (mission.archivedAt) throw new DynamicContractError(409, 'Unarchive this saved test before running it.');
+    return revision;
   }
   async start(projectId: string, actorId: string, revisionId: string, idempotencyKey: string, environment?: EnvironmentSnapshot, baselineRunId?:string) {
     if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128) throw new DynamicContractError(400, 'A bounded idempotencyKey is required.');
-    const revision = await this.repository.getRevision(projectId, revisionId);
-    if (!revision) throw new DynamicContractError(404, 'Mission revision not found.');
+    const revision = await this.assertRunnable(projectId, revisionId);
     if(baselineRunId!==undefined){if(typeof baselineRunId!=='string'||!/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.test(baselineRunId))throw new DynamicContractError(400,'Choose a valid regression baseline.');baselineRunId=baselineRunId.toLowerCase();const baseline=await this.repository.getRun(projectId,baselineRunId);if(!baseline)throw new DynamicContractError(404,'Regression baseline not found in this project.');if(baseline.state!=='completed'||baseline.revision.id!==revision.id||!baseline.checks.length||!baseline.evidence.length)throw new DynamicContractError(409,'Regression must use the baseline’s frozen revision and retained completed observations.');}
     return this.repository.createRun(projectId, actorId, revision, idempotencyKey.trim(), environment,baselineRunId);
   }

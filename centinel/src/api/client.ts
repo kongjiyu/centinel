@@ -1,5 +1,5 @@
-import type {EvidenceCopy} from '../../../sidecar/src/dynamic/sharedEvidence/types';
-import type {DynamicFinding,FindingDetail,ReviewFindingInput,RemediationInput} from '../../../sidecar/src/dynamic/findings/types';
+import type {EvidenceCopy} from '../dynamic/contracts';
+import type {DynamicFinding,FindingDetail,ReviewFindingInput,RemediationInput} from '../dynamic/contracts';
 import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInput, EnvironmentProfile, EnvironmentSnapshot, EnvironmentData, WorkspaceAuthorization, WorkspaceInspection, HookOperation, HookKind } from '../dynamic/types';
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
@@ -452,21 +452,23 @@ export const api = {
   startProjectReadiness: (projectId: string) => request<ProjectReadinessStatus>(`/projects/${projectId}/readiness`, { method: 'POST', body: JSON.stringify({ trigger: 'manual' }) }),
 
   // Versioned Dynamic missions and independently checked runs.
-  dynamicReports:(project:string,run:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSummary[]>(`/projects/${project}/dynamic/runs/${run}/reports`),
-  captureDynamicReport:(project:string,run:string,reportId:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSnapshot>(`/projects/${project}/dynamic/runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
-  dynamicReport:(project:string,id:string)=>request<import('../../../sidecar/src/dynamic/reports/types').DynamicReportSnapshot>(`/projects/${project}/dynamic/reports/${id}`),
+  dynamicReports:(project:string,run:string)=>request<import('../dynamic/contracts').DynamicReportSummary[]>(`/projects/${project}/dynamic/runs/${run}/reports`),
+  captureDynamicReport:(project:string,run:string,reportId:string)=>request<import('../dynamic/contracts').DynamicReportSnapshot>(`/projects/${project}/dynamic/runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
+  dynamicReport:(project:string,id:string)=>request<import('../dynamic/contracts').DynamicReportSnapshot>(`/projects/${project}/dynamic/reports/${id}`),
   dynamicReportExport:(project:string,id:string,format:'json'|'markdown'|'pdf')=>downloadReport(`/projects/${project}/dynamic/reports/${id}/${format}`,id,format),
-  unitRuns:(project:string,profile:string)=>request<import('../../../sidecar/src/dynamic/unit/types').DynamicUnitRun[]>(`/projects/${project}/dynamic/environments/${profile}/unit-runs`),
-  startUnitRun:(project:string,profile:string,idempotencyKey:string,timeoutMs:number)=>request<import('../../../sidecar/src/dynamic/unit/types').DynamicUnitRun>(`/projects/${project}/dynamic/environments/${profile}/unit-runs`,{method:'POST',body:JSON.stringify({idempotencyKey,timeoutMs})}),
-  cancelUnitRun:(project:string,profile:string,id:string)=>request<import('../../../sidecar/src/dynamic/unit/types').DynamicUnitRun>(`/projects/${project}/dynamic/environments/${profile}/unit-runs/${id}/cancel`,{method:'POST',body:'{}'}),
-  unitReports:(project:string,run:string)=>request<import('../../../sidecar/src/dynamic/unit/reports').UnitReportSnapshot['metadata'][]>(`/projects/${project}/dynamic/unit-runs/${run}/reports`),
-  captureUnitReport:(project:string,run:string,reportId:string)=>request<import('../../../sidecar/src/dynamic/unit/reports').UnitReportSnapshot>(`/projects/${project}/dynamic/unit-runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
+  unitRuns:(project:string,profile:string)=>request<import('../dynamic/contracts').DynamicUnitRun[]>(`/projects/${project}/dynamic/environments/${profile}/unit-runs`),
+  startUnitRun:(project:string,profile:string,idempotencyKey:string,timeoutMs:number)=>request<import('../dynamic/contracts').DynamicUnitRun>(`/projects/${project}/dynamic/environments/${profile}/unit-runs`,{method:'POST',body:JSON.stringify({idempotencyKey,timeoutMs})}),
+  cancelUnitRun:(project:string,profile:string,id:string)=>request<import('../dynamic/contracts').DynamicUnitRun>(`/projects/${project}/dynamic/environments/${profile}/unit-runs/${id}/cancel`,{method:'POST',body:'{}'}),
+  unitReports:(project:string,run:string)=>request<import('../dynamic/contracts').UnitReportSnapshot['metadata'][]>(`/projects/${project}/dynamic/unit-runs/${run}/reports`),
+  captureUnitReport:(project:string,run:string,reportId:string)=>request<import('../dynamic/contracts').UnitReportSnapshot>(`/projects/${project}/dynamic/unit-runs/${run}/reports`,{method:'POST',body:JSON.stringify({reportId})}),
   unitReportExport:(project:string,id:string,format:'json'|'markdown'|'pdf')=>downloadReport(`/projects/${project}/dynamic/unit-reports/${id}/${format}`,id,format),
   dynamicMissions: (projectId: string) => request<Mission[]>(`/projects/${projectId}/dynamic/missions`),
+  renameDynamicMission: (projectId: string, missionId: string, name: string) => request<Mission>(`/projects/${projectId}/dynamic/missions/${missionId}/rename`, { method: 'POST', body: JSON.stringify({ name }) }),
+  setDynamicMissionArchived: (projectId: string, missionId: string, archived: boolean) => request<Mission>(`/projects/${projectId}/dynamic/missions/${missionId}/${archived ? 'archive' : 'unarchive'}`, { method: 'POST', body: '{}' }),
   dynamicRevision: (projectId: string, revisionId: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/revisions/${revisionId}`),
   saveDynamicMission: (projectId: string, data: MissionInput & { contextScenario?: string }, missionId?: string) => request<MissionRevision>(`/projects/${projectId}/dynamic/missions${missionId ? `/${missionId}/revisions` : ''}`, { method: 'POST', body: JSON.stringify(data) }),
-  dynamicRunArtifacts:(projectId:string,runId:string)=>request<import('../../../sidecar/src/dynamic/sharedEvidence/artifacts').RunArtifact[]>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/artifacts`),
-  shareDynamicRunArtifacts:(projectId:string,runId:string)=>request<{artifacts:import('../../../sidecar/src/dynamic/sharedEvidence/artifacts').RunArtifact[];copies:EvidenceCopy[];omitted:Array<{slot:string;reason:string}>}>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/artifacts`,{method:'POST',body:'{}'}),
+  dynamicRunArtifacts:(projectId:string,runId:string)=>request<import('../dynamic/contracts').RunArtifact[]>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/artifacts`),
+  shareDynamicRunArtifacts:(projectId:string,runId:string)=>request<{artifacts:import('../dynamic/contracts').RunArtifact[];copies:EvidenceCopy[];omitted:Array<{slot:string;reason:string}>}>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/artifacts`,{method:'POST',body:'{}'}),
   dynamicEvidenceCopies:(projectId:string,runId:string)=>request<EvidenceCopy[]>(`/projects/${projectId}/dynamic/runs/${runId}/evidence`),
   syncDynamicEvidence:(projectId:string,runId:string)=>request<EvidenceCopy[]>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/sync`,{method:'POST',body:'{}'}),
   deleteDynamicEvidenceCopy:(projectId:string,runId:string,id:string)=>request<EvidenceCopy>(`/projects/${projectId}/dynamic/runs/${runId}/evidence/${id}/delete`,{method:'POST',body:'{}'}),
@@ -504,15 +506,15 @@ export const api = {
   recordDynamicEnvironmentData: (projectId:string,id:string,kind:'preparation'|'cleanup',outcome:'completed'|'failed',note:string) => request<EnvironmentData>(`/projects/${projectId}/dynamic/environments/${id}/${kind}`,{method:'POST',body:JSON.stringify({outcome,note})}),
   dynamicEnvironmentValues: (projectId: string, id: string) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`),
   saveDynamicEnvironmentValues: (projectId: string, id: string, values: Record<string,string>) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`, {method:'POST',body:JSON.stringify({values})}),
-  saveDynamicPrivateInputs: (projectId:string,id:string,version:number,grants:import('../../../sidecar/src/dynamic/browser/privateInputs').PrivateInputGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/private-inputs`,{method:'POST',body:JSON.stringify({version,grants})}),
-  saveDynamicDownloadPermissions: (projectId:string,id:string,version:number,downloads:import('../../../sidecar/src/dynamic/browser/fileTypes').DownloadGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/downloads`,{method:'POST',body:JSON.stringify({version,downloads})}),
-  dynamicDownloadedFiles: (projectId:string,runId:string) => request<import('../../../sidecar/src/dynamic/environment/downloadVault').LocalDownload[]>(`/projects/${projectId}/dynamic/runs/${runId}/downloads`),
-  getDynamicDownloadedFile: (projectId:string,runId:string,id:string) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Downloaded copies require the local Centinel service on this device.',400);return request<import('../../../sidecar/src/dynamic/environment/downloadVault').LocalDownload&{base64:string}>(`/projects/${projectId}/dynamic/runs/${runId}/downloads/${id}`);},
+  saveDynamicPrivateInputs: (projectId:string,id:string,version:number,grants:import('../dynamic/contracts').PrivateInputGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/private-inputs`,{method:'POST',body:JSON.stringify({version,grants})}),
+  saveDynamicDownloadPermissions: (projectId:string,id:string,version:number,downloads:import('../dynamic/limits').DownloadGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/downloads`,{method:'POST',body:JSON.stringify({version,downloads})}),
+  dynamicDownloadedFiles: (projectId:string,runId:string) => request<import('../dynamic/contracts').LocalDownload[]>(`/projects/${projectId}/dynamic/runs/${runId}/downloads`),
+  getDynamicDownloadedFile: (projectId:string,runId:string,id:string) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Downloaded copies require the local Centinel service on this device.',400);return request<import('../dynamic/contracts').LocalDownload&{base64:string}>(`/projects/${projectId}/dynamic/runs/${runId}/downloads/${id}`);},
   forgetDynamicDownloadedFile: (projectId:string,runId:string,id:string) => request<{availability:string}>(`/projects/${projectId}/dynamic/runs/${runId}/downloads/${id}`,{method:'DELETE'}),
-  dynamicUploadFixtures: (projectId:string,id:string) => request<import('../../../sidecar/src/dynamic/browser/fileTypes').LocalUploadFixture[]>(`/projects/${projectId}/dynamic/environments/${id}/uploads`),
-  saveDynamicUploadFixture: (projectId:string,id:string,data:{name:string;mimeType:string;base64:string;publicTestData:true}) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Test files require a loopback Centinel service on this device.',400);return request<import('../../../sidecar/src/dynamic/browser/fileTypes').LocalUploadFixture>(`/projects/${projectId}/dynamic/environments/${id}/uploads`,{method:'POST',body:JSON.stringify(data)});},
+  dynamicUploadFixtures: (projectId:string,id:string) => request<import('../dynamic/limits').LocalUploadFixture[]>(`/projects/${projectId}/dynamic/environments/${id}/uploads`),
+  saveDynamicUploadFixture: (projectId:string,id:string,data:{name:string;mimeType:string;base64:string;publicTestData:true}) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Test files require a loopback Centinel service on this device.',400);return request<import('../dynamic/limits').LocalUploadFixture>(`/projects/${projectId}/dynamic/environments/${id}/uploads`,{method:'POST',body:JSON.stringify(data)});},
   forgetDynamicUploadFixture: (projectId:string,id:string,fixtureId:string) => request<{availability:string}>(`/projects/${projectId}/dynamic/environments/${id}/uploads/${fixtureId}`,{method:'DELETE'}),
-  saveDynamicUploadPermissions: (projectId:string,id:string,version:number,uploads:import('../../../sidecar/src/dynamic/browser/fileTypes').UploadGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/uploads/permissions`,{method:'POST',body:JSON.stringify({version,uploads})}),
+  saveDynamicUploadPermissions: (projectId:string,id:string,version:number,uploads:import('../dynamic/limits').UploadGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/uploads/permissions`,{method:'POST',body:JSON.stringify({version,uploads})}),
   preflightDynamicEnvironment: (projectId: string, id: string) => request<EnvironmentSnapshot>(`/projects/${projectId}/dynamic/environments/${id}/preflight`, {method:'POST',body:'{}'}),
 
   // Dynamic Sessions
@@ -603,7 +605,7 @@ export const api = {
     request<import('../types').SourceCurrency>(`/projects/${projectId}/artifacts/${artifactId}/currency`, { method: 'POST', body: JSON.stringify({ action }) }),
   /** Read-only page scan proposing unique control selectors; nothing is clicked or approved. */
   discoverDynamicControls: (projectId: string, targetUrl: string, paths: string[] = [], environmentId?: string) =>
-    request<import('../../../sidecar/src/dynamic/environment/controlDiscovery').DiscoveryResult>(`/projects/${projectId}/dynamic/control-discovery`, { method: 'POST', body: JSON.stringify({ targetUrl, paths, ...(environmentId ? { environmentId } : {}) }) }),
+    request<import('../dynamic/contracts').DiscoveryResult>(`/projects/${projectId}/dynamic/control-discovery`, { method: 'POST', body: JSON.stringify({ targetUrl, paths, ...(environmentId ? { environmentId } : {}) }) }),
   listProjectMembers: (projectId: string) => request<import('../types').ProjectMemberList>(`/projects/${projectId}/members`),
   addProjectMember: (projectId: string, email: string, role: 'member' | 'viewer') =>
     request<import('../types').ProjectMember>(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) }),
@@ -611,7 +613,7 @@ export const api = {
     request<{ removed: boolean }>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' }),
   /** Frozen Review requirements, versions and approval state for a Dynamic test. */
   getReviewDynamicContext: (projectId: string, sessionId: string) =>
-    request<import('../../../sidecar/src/dynamic/testing/staticContextStub').StaticContextFixture>(`/projects/${projectId}/static-sessions/${sessionId}/dynamic-context`),
+    request<import('../dynamic/staticContextStub').StaticContextFixture>(`/projects/${projectId}/static-sessions/${sessionId}/dynamic-context`),
   getReviewTraceability: (projectId: string, sessionId: string) =>
     request<ReviewTraceabilitySnapshot>(`/projects/${projectId}/static-sessions/${sessionId}/traceability`),
   getReviewEvidenceSufficiency: (projectId: string, sessionId: string) =>

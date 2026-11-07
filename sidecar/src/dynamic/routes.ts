@@ -16,7 +16,7 @@ export type DynamicRouteDependencies = {
 };
 
 export async function handleDynamicRoute(request: { method: string; pathname: string; readBody(): Promise<Record<string, unknown>> }, deps: DynamicRouteDependencies): Promise<{ status: number; body: unknown } | null> {
-  const match = request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/(missions|revisions|runs)(?:\/([^/]+))?(?:\/(revisions|cancel))?$/);
+  const match = request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/(missions|revisions|runs)(?:\/([^/]+))?(?:\/(revisions|cancel|rename|archive|unarchive))?$/);
   if (!match) return null;
   const [, projectId, resource, id, action] = match;
   await deps.requireProjectMember(projectId);
@@ -46,6 +46,13 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
       await deps.validateAuthoring?.(projectId,body);
       return { status: 201, body: await service.saveMission(projectId, deps.actorId, body, id) };
     }
+    if (resource === 'missions' && id && request.method === 'POST' && action === 'rename') {
+      const body = await request.readBody();
+      return { status: 200, body: await service.renameMission(projectId, deps.actorId, id, body.name) };
+    }
+    if (resource === 'missions' && id && request.method === 'POST' && (action === 'archive' || action === 'unarchive')) {
+      return { status: 200, body: await service.setMissionArchived(projectId, deps.actorId, id, action === 'archive') };
+    }
     if (resource === 'revisions' && id && request.method === 'GET') {
       const revision = await service.repository.getRevision(projectId, id);
       if (!revision) throw new DynamicContractError(404, 'Revision not found.');
@@ -67,6 +74,7 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
         if (old.revision.id !== body.revisionId || old.createdBy !== deps.actorId) throw new DynamicContractError(409, 'Idempotency key belongs to a different request.');
         return { status: 200, body: old };
       }
+      await service.assertRunnable(projectId, body.revisionId);
       const prepared = await deps.prepareExecution(projectId, body.revisionId, body.environmentId as string | undefined);
       const execute = typeof prepared === 'function' ? prepared : prepared.execute;
       const environment = typeof prepared === 'function' ? undefined : prepared.environment;

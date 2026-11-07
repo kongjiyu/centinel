@@ -1,5 +1,5 @@
 import type {DynamicRun} from '../dynamic/types';
-import {compareRegression} from '../../../sidecar/src/dynamic/regression';
+import {compareRegression} from '../dynamic/regression';
 const labels={passed:'Passed',failed:'Failed',uncertain:'Uncertain',not_tested:'Not tested'};
 export function DynamicRegressionPanel({run}:{run:DynamicRun}){
  const comparison=compareRegression(run);if(!comparison||!run.regression)return null;

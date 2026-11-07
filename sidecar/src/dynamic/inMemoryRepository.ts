@@ -4,7 +4,7 @@ import {normalizeBudget} from './budgets.js';
 import type { EnvironmentSnapshot } from './environment/types.js';
 import { DYNAMIC_LEASE_MS, DYNAMIC_QUEUE_GRACE_MS, DYNAMIC_LEGACY_GRACE_MS } from './recovery.js';
 import crypto from 'node:crypto';
-import { DynamicContractError, type DynamicRepository, type DynamicRun, type Mission, type MissionInput, type MissionRevision, type RunPatch, type RunState } from './types.js';
+import { DynamicContractError, type DynamicRepository, type DynamicRun, type Mission, type MissionInput, type MissionUpdate, type MissionRevision, type RunPatch, type RunState } from './types.js';
 
 /** Explicit test/development injection only; never a production persistence fallback. */
 export class InMemoryDynamicRepository implements DynamicRepository {
@@ -25,6 +25,18 @@ export class InMemoryDynamicRepository implements DynamicRepository {
     return structuredClone(revision);
   }
   async listMissions(projectId: string) { return structuredClone([...this.missions.values()].filter(row => row.projectId === projectId)); }
+  async getMission(projectId: string, missionId: string) { const row = this.missions.get(missionId); return row?.projectId === projectId ? structuredClone(row) : null; }
+  async updateMission(projectId: string, actorId: string, missionId: string, update: MissionUpdate) {
+    const row = this.missions.get(missionId);
+    if (!row || row.projectId !== projectId) throw new DynamicContractError(404, 'Mission not found.');
+    const now = new Date(this.now()).toISOString();
+    if (typeof update.displayName === 'string') row.displayName = update.displayName;
+    else if (update.displayName === null) delete row.displayName;
+    if (update.archived === true && !row.archivedAt) { row.archivedAt = now; row.archivedBy = actorId; }
+    if (update.archived === false) { delete row.archivedAt; delete row.archivedBy; }
+    row.updatedAt = now; row.updatedBy = actorId;
+    return structuredClone(row);
+  }
   async getRevision(projectId: string, id: string) { const row = this.revisions.get(id); return row?.projectId === projectId ? structuredClone(row) : null; }
   async getRun(projectId: string, id: string) { const row = this.runs.get(id); return row?.projectId === projectId ? structuredClone(row) : null; }
   async listRuns(projectId: string, missionId?: string) { return structuredClone([...this.runs.values()].filter(row => row.projectId === projectId && (!missionId || row.missionId === missionId))); }

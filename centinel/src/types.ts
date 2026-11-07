@@ -165,7 +165,7 @@ export type AiProviderSetting = {
   updatedAt: string;
 };
 
-export type { EmbeddingSettingsCatalog, EmbeddingModelOption, EmbeddingModelUsage, EmbeddingProviderId } from '../../sidecar/src/embeddingSettingsTypes';
+export type { EmbeddingSettingsCatalog, EmbeddingModelOption, EmbeddingModelUsage, EmbeddingProviderId } from './contracts/embeddingSettings';
 
 export type AiProviderPreset = {
   id: string;
@@ -943,7 +943,7 @@ export type StandardRule = {
   createdAt: string;
   updatedAt: string;
 };
-export type { ReadinessStatus as ProjectReadinessStatus, ReadinessAssessment, ReadinessCategoryResult, ReadinessGap } from '../../sidecar/src/readiness/types';
+export type { ReadinessStatus as ProjectReadinessStatus, ReadinessAssessment, ReadinessCategoryResult, ReadinessGap } from './contracts/readiness';
 export type SourceIndexStatus = {
   state: 'none' | 'queued' | 'running' | 'ready' | 'paused' | 'failed' | 'superseded';
   fingerprint?: string; updatedAt?: string; errorCode?: string | null;

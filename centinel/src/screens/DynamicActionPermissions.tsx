@@ -1,6 +1,6 @@
 import {useState} from 'react';
-import type {InteractionAction} from '../../../sidecar/src/dynamic/browser/actionPolicy';
-import type {DiscoveredControl,DiscoveryPage,DiscoveryResult} from '../../../sidecar/src/dynamic/environment/controlDiscovery';
+import type {InteractionAction} from '../dynamic/contracts';
+import type {DiscoveredControl,DiscoveryPage,DiscoveryResult} from '../dynamic/contracts';
 export const emptyInteractionSelectors=():Record<InteractionAction,string>=>({click:'',type:'',select_option:'',set_checked:''});
 const fields:Array<{action:InteractionAction;label:string}>=[{action:'click',label:'Controls allowed to click'},{action:'type',label:'Fields allowed to fill'},{action:'select_option',label:'Lists allowed to select'},{action:'set_checked',label:'Checkboxes allowed to change'}];
 export function DynamicActionPermissions({selectors,onChange,allowCoordinates,onCoordinatesChange,repeatableSelectors,onRepeatableChange,onDiscover}:{selectors:Record<InteractionAction,string>;onChange(action:InteractionAction,value:string):void;allowCoordinates:boolean;onCoordinatesChange(value:boolean):void;repeatableSelectors:string;onRepeatableChange(value:string):void;onDiscover?(paths:string[]):Promise<DiscoveryResult>}){

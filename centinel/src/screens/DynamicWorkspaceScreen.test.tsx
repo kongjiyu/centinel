@@ -146,3 +146,21 @@ it('publishes Run history before slow revisions and coalesces polling during hyd
   expect(api.dynamicRuns).toHaveBeenCalledTimes(2);expect(api.dynamicRevision).toHaveBeenCalledOnce();
  }finally{vi.useRealTimers();}
 });
+
+describe('Archived saved tests in the workspace', () => {
+  it('hides archived tests by default, keeps their runs readable and blocks running them', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.dynamicMissions).mockResolvedValue([{ id: 'mission-one', projectId: 'project-a', currentRevisionId: 'revision-one', createdBy: 'actor', createdAt: '', displayName: 'Renamed smoke', archivedAt: '2026-11-05T10:00:00Z', archivedBy: 'actor' }]);
+    vi.mocked(api.dynamicRuns).mockResolvedValue([makeRun()]);
+    renderScreen('run-one');
+    expect(await screen.findByText(/This saved test is archived/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run this revision again' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Renamed smoke.*Revision 1/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: 'Show archived (1)' }));
+    await user.click(screen.getByRole('button', { name: /Renamed smoke.*Archived/ }));
+    expect(screen.getByLabelText('Test name')).toHaveValue('Renamed smoke');
+    expect(screen.getByLabelText('Test name')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Unarchive' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Run saved test' })).toBeDisabled();
+  });
+});

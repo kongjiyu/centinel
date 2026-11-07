@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import type { DynamicRun } from '../dynamic/types';
-import type { DynamicFinding, FindingDetail, ReviewFindingInput, VerificationDecision } from '../../../sidecar/src/dynamic/findings/types';
+import type { DynamicFinding, FindingDetail, ReviewFindingInput, VerificationDecision } from '../dynamic/contracts';
 const label = (value: string) => ({ unreviewed: 'Unreviewed', confirmed: 'Confirmed', rejected: 'Rejected', needs_investigation: 'Needs investigation', open: 'Open', in_progress: 'In progress', resolved: 'Resolved' }[value] ?? value);
 export function DynamicFindingsPanel({ projectId, run, runs,onOpenRun }: {
     projectId: string;
