@@ -7,6 +7,8 @@ describe('screen hash routing', () => {
     expect(hashToScreen(screenToHash(review))).toEqual(review);
     const dynamic = { name: 'dynamic-testing' as const, projectId: 'p-1', draft: { name: 'Verify fix', goal: 'Check & confirm', reviewId: 'r-1' } };
     expect(hashToScreen(screenToHash(dynamic))).toEqual(dynamic);
+    const reviews = { name: 'reviews' as const, projectId: 'p-1', status: 'gaps' };
+    expect(hashToScreen(screenToHash(reviews))).toEqual(reviews);
   });
   it('drops one-shot entry actions and ignores non-route hashes', () => {
     expect(screenToHash({ name: 'projects', initialCreate: true })).toBe('#/projects');
@@ -14,5 +16,6 @@ describe('screen hash routing', () => {
     expect(hashToScreen('#review')).toBeNull();
     expect(hashToScreen('#/review-activity?projectId=p-1')).toBeNull();
     expect(hashToScreen('#/unknown')).toBeNull();
+    expect(hashToScreen('#/reviews')).toBeNull();
   });
 });

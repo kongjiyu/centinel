@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
 import {
   X,
@@ -161,8 +162,7 @@ export function DynamicSessionScreen({ projectId, sessionId, onNavigate }: Props
 
   useEffect(() => {
     if (!session || (session.status !== 'running' && session.status !== 'queued')) return;
-    const interval = setInterval(load, 2000);
-    return () => clearInterval(interval);
+    return setVisibleInterval(load, 2000);
   }, [session?.status, load]);
 
   const handleCancel = async () => {

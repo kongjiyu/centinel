@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { checkForAppUpdate, installUpdateAndRestart } from '../utils/appUpdate';
@@ -821,8 +822,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
 
   useEffect(() => {
     if (!pendingConnection) return;
-    const timer = window.setInterval(() => { void refreshConnections(); }, 2500);
-    return () => window.clearInterval(timer);
+    return setVisibleInterval(() => { void refreshConnections(); }, 2500);
   }, [pendingConnection]);
 
   const backendProvider = (connection: ConnectionDefinition): 'github' | 'google_drive' | 'slack' => connection.id === 'google-drive' ? 'google_drive' : connection.id;

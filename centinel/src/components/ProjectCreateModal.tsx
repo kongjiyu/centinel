@@ -1,3 +1,4 @@
+import './ProjectCreateModal.css';
 import { useState } from 'react';
 import { FolderGit2, GitBranch } from 'lucide-react';
 import { open } from '@tauri-apps/api/dialog';

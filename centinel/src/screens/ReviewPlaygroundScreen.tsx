@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { setVisibleTimeout } from '../hooks/usePageVisible';
 import { FileCheck2, FlaskConical, RefreshCw } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandEmptyState, CommandPageHeader, StatusBadge } from '../components/CommandUI';
@@ -41,7 +42,7 @@ export function ReviewPlaygroundScreen({ projects, initialProjectId, initialSess
 
   useEffect(() => {
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelTimer: (() => void) | undefined;
     setTrace(null);
     setStageId('');
     if (!projectId || !sessionId) return;
@@ -52,13 +53,13 @@ export function ReviewPlaygroundScreen({ projects, initialProjectId, initialSess
         setTrace(value);
         setError(null);
         setStageId(current => current || value.review.progress?.stage || value.workflow.stages[0]?.id || '');
-        if (['queued', 'running'].includes(value.review.status)) timer = setTimeout(() => void load(), 1500);
+        if (['queued', 'running'].includes(value.review.status)) cancelTimer = setVisibleTimeout(() => void load(), 1500);
       } catch {
         if (!disposed) setError('The execution trace could not be loaded. Confirm the updated sidecar is running, then refresh.');
       }
     };
     void load();
-    return () => { disposed = true; clearTimeout(timer); };
+    return () => { disposed = true; cancelTimer?.(); };
   }, [projectId, sessionId, refresh]);
 
   const active = trace && ['queued', 'running'].includes(trace.review.status);

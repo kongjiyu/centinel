@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api/client';
+import { setVisibleInterval } from './usePageVisible';
 import type { Finding, ReviewProgress, StaticSession } from '../types';
 import {
   ActiveReviewContext,
@@ -130,7 +131,7 @@ export function useActiveReview() {
 
   useEffect(() => {
     let cancelled = false;
-    let intervalId: number | null = null;
+    let stopPolling: (() => void) | null = null;
     let consecutiveFailures = 0;
 
     const handleResult = async (ok: boolean, active: StaticSession[]) => {
@@ -210,14 +211,14 @@ export function useActiveReview() {
       await handleResult(ok, active);
     })();
 
-    intervalId = window.setInterval(async () => {
+    stopPolling = setVisibleInterval(async () => {
       const { ok, active } = await runOnce();
       await handleResult(ok, active);
     }, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      if (intervalId !== null) window.clearInterval(intervalId);
+      stopPolling?.();
     };
   }, [retryTick, runOnce]);
 

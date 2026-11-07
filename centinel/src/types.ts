@@ -523,6 +523,9 @@ export type StaticSession = {
   scope?: ReviewScopeSelection | null;
   /** Optional embedded usage summary; the renderer also supports the usage endpoint. */
   modelUsage?: ReviewModelUsage | null;
+  /** Findings saved when the Review finished; absent from older services. */
+  deterministicFindingCount?: number;
+  modelFindingCount?: number;
 };
 
 /**
@@ -862,6 +865,8 @@ export type Screen =
     }
   | { name: 'review-entry'; projectId?: string; comparisonParentReviewId?: string; returnToPlayground?: boolean }
   | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
+  /** A project's full Reviews list; status keeps the selected filter restorable. */
+  | { name: 'reviews'; projectId: string; status?: string }
   /** draft pre-fills a new test, e.g. from a Review finding; it never starts a Run. */
   | { name: 'dynamic-testing'; projectId?: string; runId?: string; draft?: DynamicTestDraft }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }

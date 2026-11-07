@@ -9,7 +9,9 @@ import { assessProjectReadiness } from './engine.js';
 import { sourceReadIssue } from './sourceIssues.js';
 import { providerPause } from '../review/providerPause.js';
 
-export type ReadinessJob = ReadinessStatus & { sourceFingerprint: string };
+/** configurationRevision is an additive journal field: a hash of the owner's
+ * Model Provider configuration when a configuration-class failure was saved. */
+export type ReadinessJob = ReadinessStatus & { sourceFingerprint: string; configurationRevision?: string | null };
 export type ReadinessIndex = { description: string; fingerprint: string; artifacts: Artifact[]; unavailable: ReadinessArtifact[]; preloaded?: ReadinessArtifact[]; importing: boolean };
 export interface ReadinessStore { latest(projectId: string): Promise<ReadinessJob | null>; save(job: ReadinessJob): Promise<void> }
 export type ReadinessDependencies = {
@@ -21,7 +23,12 @@ export type ReadinessDependencies = {
   now?: () => Date;
   debounceMs?: number;
   jobTimeoutMs?: number;
+  /** Safe hash of the current owner/project Model Provider configuration, or null when none is configured. */
+  configurationRevision?(auth: AuthenticatedRequest, projectId: string): Promise<string | null>;
 };
+
+/** Failures whose explanation is invalidated by a later configuration change. */
+const CONFIGURATION_FAILURE_CODES = new Set(['not_configured', 'secret_unavailable']);
 
 const SOURCE_READ_CONCURRENCY = 4;
 const DEFAULT_READINESS_JOB_TIMEOUT_MS = 900_000;
@@ -116,6 +123,27 @@ export class ProjectReadinessCoordinator {
     try { return await this.deps.inspect(auth, projectId); } catch { throw new ReadinessSourceChangesError(); }
   }
 
+  private async configurationRevision(auth: AuthenticatedRequest, projectId: string): Promise<string | null | undefined> {
+    if (!this.deps.configurationRevision) return undefined;
+    try { return await this.deps.configurationRevision(auth, projectId); } catch { return undefined; }
+  }
+
+  /**
+   * Keep the failed job as history, but do not present a configuration failure
+   * as the current explanation once the configuration it describes changed.
+   * No assessment is started; the user still chooses Start.
+   */
+  private async presentStoredJob(auth: AuthenticatedRequest, projectId: string, job: ReadinessJob, fingerprint: string): Promise<ReadinessStatus> {
+    const presented: ReadinessJob = { ...job, stale: job.snapshot?.sourceFingerprint !== fingerprint };
+    if (job.status !== 'failed' || !job.errorCode || !CONFIGURATION_FAILURE_CODES.has(job.errorCode)) return presented;
+    const current = await this.configurationRevision(auth, projectId);
+    if (current === undefined) return presented;
+    const superseded = job.configurationRevision !== undefined
+      ? current !== job.configurationRevision
+      : job.errorCode === 'not_configured' && current !== null;
+    return superseded ? { ...presented, status: 'idle', error: null, errorCode: null } : presented;
+  }
+
   /** Coalesce file batches; import/sync completion or GET recovery supplies durability. */
   notify(auth: AuthenticatedRequest, projectId: string, trigger: string) {
     this.adoptSession(auth);
@@ -162,7 +190,7 @@ export class ProjectReadinessCoordinator {
           this.schedule(context, projectId);
           return { ...latest, stale: latest.snapshot?.sourceFingerprint !== index.fingerprint };
         }
-        if (!force) return { ...latest, stale: latest.snapshot?.sourceFingerprint !== index.fingerprint };
+        if (!force) return this.presentStoredJob(context, projectId, latest, index.fingerprint);
       }
       const previousRequestedMs = Date.parse(latest?.requestedAt ?? '');
       const requestedAt = new Date(Math.max(Date.parse(this.now()), Number.isFinite(previousRequestedMs) ? previousRequestedMs + 1 : 0)).toISOString();
@@ -233,8 +261,10 @@ export class ProjectReadinessCoordinator {
           const failure = classifyReadinessFailure(error);
           const capacityStop = providerPause({ code: failure.code });
           if (latest && (latest.requestId === job.requestId || capacityStop && ['queued', 'running'].includes(latest.status))) {
+            const configurationRevision = !capacityStop && CONFIGURATION_FAILURE_CODES.has(failure.code)
+              ? await this.configurationRevision(this.context(original), projectId) : undefined;
             await this.save(store, { ...latest, status: capacityStop ? 'paused' : 'failed', startedAt: latest.requestId === job.requestId ? startedAt : latest.startedAt, completedAt: this.now(), stale: true,
-              error: failure.message, errorCode: failure.code });
+              error: failure.message, errorCode: failure.code, ...(configurationRevision !== undefined ? { configurationRevision } : {}) });
           }
         } catch { /* A failed persistence attempt cannot safely be recorded. */ }
       } finally { if (timeout !== undefined) clearTimeout(timeout); }

@@ -1,4 +1,5 @@
 import { reviewHandover } from '../reviewHandover';
+import { setVisibleInterval, setVisibleTimeout } from '../hooks/usePageVisible';
 import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Download, Expand, FileCheck2, FlaskConical, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
@@ -19,6 +20,7 @@ import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason } from
 import { confirmedMappingsByRequirement, suggestedLinkCount } from '../requirementLinks';
 import {
   awaitsReviewDecision,
+  reviewLifecycleTone,
   createReviewActivityViewModel,
   isExecutedReviewStatus,
   formatReviewTimestamp,
@@ -134,13 +136,7 @@ function traceabilityRecords(
   });
 }
 
-function stateTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
-  if (state === 'Completed') return 'success';
-  if (state === 'In progress' || state === 'Queued') return 'running';
-  if (awaitsReviewDecision(state) || state === 'Completed with gaps' || state === 'Blocked' || state === 'Paused') return 'warning';
-  if (state === 'Failed') return 'danger';
-  return 'neutral';
-}
+const stateTone = reviewLifecycleTone;
 
 function decisionLabel(decision: ReviewDecisionRecord['decision']): string {
   if (decision === 'approved') return 'Approved review';
@@ -472,7 +468,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
   // evidence independently so legacy progress cannot hide the saved activity.
   useEffect(() => {
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelTimer: (() => void) | undefined;
     setHarnessTrace(null);
     setHarnessError(null);
     setHarnessLoading(false);
@@ -485,24 +481,23 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
         if (trace.review.id !== sessionId) throw new Error('Review history mismatch');
         setHarnessTrace(trace);
         setHarnessError(null);
-        if (trace.review.status === 'queued' || trace.review.status === 'running') timer = setTimeout(() => void refresh(), 1500);
+        if (trace.review.status === 'queued' || trace.review.status === 'running') cancelTimer = setVisibleTimeout(() => void refresh(), 1500);
       } catch {
         if (!disposed) {
           setHarnessError('Saved execution details could not be loaded. Reopen the review to try again; finding evidence remains available.');
-          if (session?.status === 'queued' || session?.status === 'running') timer = setTimeout(() => void refresh(), 3000);
+          if (session?.status === 'queued' || session?.status === 'running') cancelTimer = setVisibleTimeout(() => void refresh(), 3000);
         }
       } finally {
         if (!disposed) setHarnessLoading(false);
       }
     };
     void refresh();
-    return () => { disposed = true; clearTimeout(timer); };
+    return () => { disposed = true; cancelTimer?.(); };
   }, [projectId, sessionId, session?.status]);
 
   useEffect(() => {
     if (!session || (session.status !== 'queued' && session.status !== 'running')) return undefined;
-    const interval = window.setInterval(() => { void load({ silent: true }); }, 1500);
-    return () => window.clearInterval(interval);
+    return setVisibleInterval(() => { void load({ silent: true }); }, 1500);
   }, [load, session?.status]);
 
   const loadOlderDecisions = async () => {
