@@ -162,3 +162,15 @@
   .dynamic-workspace-screen .dw-actions .btn-primary,
   .dynamic-workspace-screen .dw-actions .btn-secondary { max-width: 100%; white-space: normal; text-align: center; }
 }
+/* Saved test management and Run history filters. */
+.dynamic-workspace-screen .dw-list-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin: 24px 0 10px; }
+.dynamic-workspace-screen .dw-list-heading h3 { margin: 0; }
+.dynamic-workspace-screen .dw-history-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+.dynamic-workspace-screen .dw-history-filters .dw-field { margin-bottom: 10px; }
+.dynamic-workspace-screen .dw-history-summary { margin: 0 0 8px; font-size: var(--font-size-meta); }
+.dynamic-workspace-screen .dw-link-button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.dynamic-workspace-screen .dw-show-more { width: 100%; margin-top: 10px; }
+.dynamic-workspace-screen .dw-saved-test-actions { margin: -6px 0 16px; }
+.dynamic-workspace-screen .dw-saved-test-actions .dw-actions { margin: 0 0 10px; }
+.dynamic-workspace-screen .dw-rename .dw-field { max-width: 420px; margin-bottom: 10px; }
+@media (max-width: 720px) { .dynamic-workspace-screen .dw-history-filters { grid-template-columns: 1fr; } .dynamic-workspace-screen .dw-show-more { min-height: 44px; } }

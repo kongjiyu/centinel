@@ -16,7 +16,10 @@ import { Select } from '../components/Select';
 import type { DynamicTestDraft, Project, Screen, StaticSession } from '../types';
 import { isExecutedReviewStatus } from '../reviewViewModel';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
-import type { CheckDefinition, DynamicRun, MissionRevision } from '../dynamic/types';
+import type { CheckDefinition, DynamicRun, Mission, MissionRevision } from '../dynamic/types';
+import { savedTestEntries } from '../dynamic/savedTests';
+import { DynamicSavedTestActions, DynamicSavedTestList } from './DynamicSavedTests';
+import { DynamicRunHistory } from './DynamicRunHistory';
 import {
   createStaticContextStub,
   type IncomingContextSource,
@@ -97,6 +100,8 @@ export function DynamicWorkspaceScreen({
 }: Props) {
   const [projectId, setProjectId] = useState(initialProjectId ?? projects[0]?.id ?? '');
   const [revisions, setRevisions] = useState<MissionRevision[]>([]);
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const missionsRef = useRef<Mission[]>([]);
   const [runs, setRuns] = useState<DynamicRun[]>([]);
   const [missionId, setMissionId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState(initialRunId ?? '');
@@ -136,6 +141,10 @@ export function DynamicWorkspaceScreen({
   const resultRef = useRef<HTMLElement>(null);
   const selectedRun = runs.find((run) => run.id === selectedRunId);
   const selectedRevision = revisions.find((revision) => revision.missionId === missionId);
+  const selectedMission = missions.find((mission) => mission.id === missionId);
+  const selectedArchived = Boolean(selectedMission?.archivedAt);
+  const savedTests = savedTestEntries(missions, revisions);
+  const missionArchived = (id: string) => Boolean(missions.find((mission) => mission.id === id)?.archivedAt);
   const activeRun = runs.find(active);
   const criteria = draftContext?.requirements.flatMap((requirement) => requirement.criteria) ?? [];
 
@@ -180,6 +189,8 @@ export function DynamicWorkspaceScreen({
         }),
       );
       if (generation !== loadGeneration.current || sequence !== loadSequence.current) return;
+      missionsRef.current = missions;
+      setMissions(missions);
       setRevisions(latest);
     })();
     loadFlight.current = { projectId, generation, promise: pending };
@@ -199,6 +210,8 @@ export function DynamicWorkspaceScreen({
     setEnvironmentId('');
     setRuns([]);
     setRevisions([]);
+    missionsRef.current = [];
+    setMissions([]);
     setSelectedRunId(initialRunId ?? '');
     setError(null);
     setLoading(Boolean(projectId));
@@ -241,7 +254,8 @@ export function DynamicWorkspaceScreen({
     setMissionId(revision.missionId);
     setUsability(revision.usability ? structuredClone(revision.usability) : undefined);
     setMode(revision.mode ?? 'guided');
-    setName(revision.name);
+    // Start from the displayed saved-test name; saving makes it the new revision's name.
+    setName(missionsRef.current.find((mission) => mission.id === revision.missionId)?.displayName ?? revision.name);
     setGoal(revision.goal);
     setTargetUrl(revision.targetUrl);
     setMaxSteps(revision.maxSteps);
@@ -525,8 +539,29 @@ export function DynamicWorkspaceScreen({
                   </button>
                 )}
               </div>
+              {selectedMission && (
+                <DynamicSavedTestActions
+                  key={selectedMission.id}
+                  projectId={projectId}
+                  mission={selectedMission}
+                  revision={selectedRevision}
+                  disabled={busy || loading}
+                  onBusy={setBusy}
+                  onError={setError}
+                  onChanged={(updated, message) => {
+                    missionsRef.current = missionsRef.current.map((mission) =>
+                      mission.id === updated.id ? updated : mission,
+                    );
+                    setMissions((previous) =>
+                      previous.map((mission) => (mission.id === updated.id ? updated : mission)),
+                    );
+                    setError(null);
+                    setFeedback(message);
+                  }}
+                />
+              )}
               <form onSubmit={save}>
-                <fieldset className="dw-form-body" disabled={busy || loading || contextLoading}>
+                <fieldset className="dw-form-body" disabled={busy || loading || contextLoading || selectedArchived}>
                   <div className="dw-field">
                     <label htmlFor="dw-name">Test name</label>
                     <input
@@ -885,48 +920,25 @@ export function DynamicWorkspaceScreen({
                   Loading saved tests…
                 </p>
               )}
-              <h3>Saved tests</h3>
-              {!loading && !revisions.length && <p className="dw-muted">Your saved tests will appear here.</p>}
-              <div className="dw-saved-list">
-                {revisions.map((revision) => (
-                  <button
-                    type="button"
-                    className={missionId === revision.missionId ? 'selected' : ''}
-                    key={revision.id}
-                    disabled={busy}
-                    onClick={() => edit(revision)}
-                  >
-                    <strong>{revision.name}</strong>
-                    <span>
-                      Revision {revision.revision} · {revision.checks.length} checks
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <h3>Run history</h3>
-              {!loading && !runs.length && <p className="dw-muted">Run a saved test to begin its history.</p>}
-              <div className="dw-run-list">
-                {runs.map((run) => (
-                  <button
-                    type="button"
-                    key={run.id}
-                    className={selectedRunId === run.id ? 'selected' : ''}
-                    onClick={() => {
-                      setSelectedRunId(run.id);
-                      onNavigate({ name: 'dynamic-testing', projectId, runId: run.id });
-                    }}
-                  >
-                    <strong>{run.revision.name}</strong>
-                    <span className="dw-run-outcome">
-                      <span>{stateLabel(run)}</span>
-                      <span className={`dw-verdict dw-${run.verdict}`}>{verdictLabel(run.verdict)}</span>
-                    </span>
-                    <small>
-                      Revision {run.revision.revision} · {dateLabel(run.createdAt)}
-                    </small>
-                  </button>
-                ))}
-              </div>
+              <DynamicSavedTestList
+                entries={savedTests}
+                selectedMissionId={missionId}
+                loading={loading}
+                disabled={busy}
+                onOpen={edit}
+              />
+              <DynamicRunHistory
+                runs={runs}
+                savedTests={savedTests}
+                selectedRunId={selectedRunId}
+                loading={loading}
+                stateLabel={stateLabel}
+                verdictLabel={verdictLabel}
+                onOpen={(id) => {
+                  setSelectedRunId(id);
+                  onNavigate({ name: 'dynamic-testing', projectId, runId: id });
+                }}
+              />
             </aside>
           </div>
           {selectedRun && (
@@ -952,7 +964,9 @@ export function DynamicWorkspaceScreen({
                   <button
                     type="button"
                     className="btn-secondary"
-                    disabled={busy || environmentDataBusy || Boolean(activeRun)}
+                    disabled={
+                      busy || environmentDataBusy || Boolean(activeRun) || missionArchived(selectedRun.missionId)
+                    }
                     onClick={() => void start(selectedRun.revision, selectedRun.environment?.id ?? environmentId)}
                   >
                     Run this revision again
@@ -970,6 +984,11 @@ export function DynamicWorkspaceScreen({
                 <p className={`dw-result-verdict dw-${selectedRun.verdict}`}>{verdictLabel(selectedRun.verdict)}</p>
               )}
               {selectedRun.reason && <p className="dw-notice">{selectedRun.reason}</p>}
+              {missionArchived(selectedRun.missionId) && (
+                <p className="dw-notice">
+                  This saved test is archived. Its history stays readable; unarchive it to run it again.
+                </p>
+              )}
               {selectedRun.state === 'interrupted' && (
                 <p className="dw-muted">
                   Execution was not resumed automatically. Check the test data before running again.
@@ -1045,7 +1064,9 @@ export function DynamicWorkspaceScreen({
                     <button
                       type="button"
                       className="btn-secondary"
-                      disabled={busy || environmentDataBusy || Boolean(activeRun)}
+                      disabled={
+                        busy || environmentDataBusy || Boolean(activeRun) || missionArchived(selectedRun.missionId)
+                      }
                       onClick={() =>
                         void start(
                           selectedRun.revision,
