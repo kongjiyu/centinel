@@ -1,6 +1,6 @@
 import { reviewHandover } from '../reviewHandover';
 import { setVisibleInterval, setVisibleTimeout } from '../hooks/usePageVisible';
-import { findingToDynamicDraft } from '../dynamic/findingDraft';
+import { findingToDynamicDraft, reviewToDynamicDraft } from '../dynamic/findingDraft';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Download, Expand, FileCheck2, FlaskConical, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
 import { api, type ProjectReportExportResult } from '../api/client';
@@ -791,7 +791,7 @@ export function ReviewActivityScreen({ projectId, sessionId, onNavigate }: Props
     finally { setReportBusy(false); }
   };
   const followUpActions = executed && <>
-    <button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dynamic-testing', projectId, draft: { name: `${session.name}: runtime check`, goal: `Check in the running application that the requirements reviewed in ${session.name} behave as specified.`, reviewId: session.id } })}><FlaskConical size={15} aria-hidden="true" /> Test in Dynamic Testing</button>
+    <button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dynamic-testing', projectId, draft: reviewToDynamicDraft(session) })}><FlaskConical size={15} aria-hidden="true" /> Test in Dynamic Testing</button>
     <button type="button" className="btn-secondary" onClick={() => void exportReviewReport()} disabled={reportBusy}><Download size={15} aria-hidden="true" /> {reportBusy ? 'Exporting…' : 'Export report'}</button>
   </>;
 
