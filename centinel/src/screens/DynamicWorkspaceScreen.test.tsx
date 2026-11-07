@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { enterText } from '../testing/enterText';
@@ -162,5 +162,97 @@ describe('Archived saved tests in the workspace', () => {
     expect(screen.getByLabelText('Test name')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Unarchive' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Run saved test' })).toBeDisabled();
+  });
+});
+
+describe('Selected Run stays current when polling is paused', () => {
+  let visibility: DocumentVisibilityState = 'visible';
+  const setVisibility = (next: DocumentVisibilityState) => { visibility = next; document.dispatchEvent(new Event('visibilitychange')); };
+  const mission = { id: 'mission-one', projectId: 'project-a', currentRevisionId: 'revision-one', createdBy: 'actor', createdAt: '' };
+  const blocked = (): DynamicRun => ({ ...makeRun('blocked'), id: 'run-two', reason: 'Browser target connection unavailable.' });
+  beforeEach(() => {
+    visibility = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+  });
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  it('shows a Run that ends seconds after starting even while the window reports hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.dynamicMissions).mockResolvedValue([mission]);
+    let started = false; let readsAfterStart = 0;
+    vi.mocked(api.dynamicRuns).mockImplementation(async () => {
+      if (!started) return [];
+      // The read right after the start sees the Run still running; it is blocked ~1.5 s later.
+      return readsAfterStart++ === 0 ? [{ ...makeRun('running'), id: 'run-two' }] : [blocked()];
+    });
+    vi.mocked(api.startDynamicRun).mockImplementation(async () => { started = true; return { ...makeRun('queued'), id: 'run-two' }; });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderScreen();
+    await user.click(await screen.findByRole('button', { name: /Sign-in smoke.*Revision 1/ }));
+    setVisibility('hidden');
+    await user.click(screen.getByRole('button', { name: 'Run saved test' }));
+    expect(await screen.findByRole('button', { name: 'Stop run' })).toBeInTheDocument();
+    expect(api.dynamicRuns).toHaveBeenLastCalledWith('project-a', { fresh: true });
+    // Within 3 s (follow-up read, and polling resumed by the click) the terminal state replaces "running".
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(await screen.findByText('Browser target connection unavailable.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop run' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Running · up to/)).not.toBeInTheDocument();
+    // Without further interaction the hidden window pauses polling again.
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    const reads = vi.mocked(api.dynamicRuns).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(api.dynamicRuns).toHaveBeenCalledTimes(reads);
+  });
+
+  it('keeps the Run panel current while someone interacts with a window that reports hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let finished = false;
+    vi.mocked(api.dynamicRuns).mockImplementation(async () => [finished ? blocked() : { ...makeRun('running'), id: 'run-two' }]);
+    visibility = 'hidden';
+    renderScreen('run-two');
+    expect(await screen.findByText(/Running · up to/)).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(api.dynamicRuns).toHaveBeenCalledOnce();
+    // A scroll inside the page resumes polling; the Run finishing later is picked up without another interaction.
+    await act(async () => { window.dispatchEvent(new Event('scroll')); });
+    finished = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(await screen.findByText('Browser target connection unavailable.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop run' })).not.toBeInTheDocument();
+  });
+
+  it('refresh reads the selected Run fresh instead of joining a stalled poll', async () => {
+    let call = 0;
+    vi.mocked(api.dynamicRuns).mockImplementation((_project: string, options?: { fresh?: boolean }) => {
+      call++;
+      if (call === 1) return Promise.resolve([{ ...makeRun('running'), id: 'run-two' }]);
+      if (!options?.fresh) return new Promise<DynamicRun[]>(() => undefined);
+      return Promise.resolve([blocked()]);
+    });
+    const user = userEvent.setup();
+    visibility = 'hidden';
+    renderScreen('run-two');
+    expect(await screen.findByText(/Running · up to/)).toBeInTheDocument();
+    // A poll starts (page shown) and never answers, then the window reports hidden again.
+    await act(async () => { setVisibility('visible'); });
+    await act(async () => { setVisibility('hidden'); });
+    expect(call).toBe(2);
+    await user.click(screen.getByRole('button', { name: 'Refresh test history' }));
+    expect(await screen.findByText('Browser target connection unavailable.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop run' })).not.toBeInTheDocument();
+    expect(api.dynamicRuns).toHaveBeenCalledWith('project-a', { fresh: true });
+  });
+
+  it('refetches an active Run when the window regains focus while it reports hidden', async () => {
+    let finished = false;
+    vi.mocked(api.dynamicRuns).mockImplementation(async () => [finished ? blocked() : { ...makeRun('running'), id: 'run-two' }]);
+    visibility = 'hidden';
+    renderScreen('run-two');
+    expect(await screen.findByText(/Running · up to/)).toBeInTheDocument();
+    finished = true;
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(await screen.findByText('Browser target connection unavailable.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop run' })).not.toBeInTheDocument();
   });
 });

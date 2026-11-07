@@ -67,6 +67,8 @@ const verdictLabel = (value: string) =>
 // Same day-month-year 24-hour format as Home, Projects and Review.
 const dateLabel = (value: string) => formatActivityTime(value);
 const active = (run: DynamicRun) => ['queued', 'running'].includes(run.state);
+/** Delay before the single extra Run-list read after a start; Runs that cannot reach their target end sooner. */
+const START_FOLLOW_UP_MS = 3000;
 /** What a check actually verifies, so several checks with similar names stay distinguishable. */
 const checkExpectation = (check: CheckDefinition): string => {
   switch (check.kind) {
@@ -137,6 +139,7 @@ export function DynamicWorkspaceScreen({
   const revisionCache = useRef(new Map<string, MissionRevision>());
   const loadGeneration = useRef(0);
   const loadSequence = useRef(0);
+  const followUp = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const dirty = useRef(false);
   const resultRef = useRef<HTMLElement>(null);
@@ -168,14 +171,20 @@ export function DynamicWorkspaceScreen({
     dirty.current = false;
     setFeedback('');
   }, []);
-  const load = useCallback(async () => {
+  // Ordinary polls join an in-flight load. A `fresh` load (explicit refresh, or after a start or stop) starts
+  // a new read that supersedes it, because the in-flight read may predate the change and would otherwise leave
+  // a stale Run state on screen.
+  const load = useCallback(async (options: { fresh?: boolean } = {}) => {
     if (!projectId) return;
     const generation = loadGeneration.current;
-    if (loadFlight.current?.projectId === projectId && loadFlight.current.generation === generation)
+    if (!options.fresh && loadFlight.current?.projectId === projectId && loadFlight.current.generation === generation)
       return loadFlight.current.promise;
     const sequence = ++loadSequence.current;
     const pending = (async () => {
-      const [missions, history] = await Promise.all([api.dynamicMissions(projectId), api.dynamicRuns(projectId)]);
+      const [missions, history] = await Promise.all([
+        api.dynamicMissions(projectId),
+        options.fresh ? api.dynamicRuns(projectId, { fresh: true }) : api.dynamicRuns(projectId),
+      ]);
       if (generation !== loadGeneration.current || sequence !== loadSequence.current) return;
       // History is independently usable while immutable saved revisions hydrate.
       setRuns(history);
@@ -232,6 +241,8 @@ export function DynamicWorkspaceScreen({
       current = false;
       loadGeneration.current++;
       stop();
+      if (followUp.current) clearTimeout(followUp.current);
+      followUp.current = null;
     };
   }, [projectId, load, resetDraft]);
   useEffect(() => {
@@ -440,8 +451,21 @@ export function DynamicWorkspaceScreen({
           : await api.startDynamicRun(projectId, revision.id, requestKey.current.key);
       if (generation !== loadGeneration.current) return;
       requestKey.current = null;
+      // Show the Run the sidecar returned at once, then read the list fresh: a poll already in flight may
+      // predate this Run. One follow-up read, independent of page visibility, catches Runs that end within
+      // seconds (for example an unreachable target) even if visibility-gated polling is paused.
+      setRuns((previous) =>
+        previous.some((item) => item.id === run.id)
+          ? previous.map((item) => (item.id === run.id ? run : item))
+          : [run, ...previous],
+      );
       setSelectedRunId(run.id);
-      await load();
+      if (followUp.current) clearTimeout(followUp.current);
+      followUp.current = setTimeout(() => {
+        followUp.current = null;
+        if (generation === loadGeneration.current) void load({ fresh: true }).catch(() => undefined);
+      }, START_FOLLOW_UP_MS);
+      await load({ fresh: true });
       if (generation !== loadGeneration.current) return;
       onNavigate({ name: 'dynamic-testing', projectId, runId: run.id });
     } catch (e) {
@@ -458,7 +482,7 @@ export function DynamicWorkspaceScreen({
     try {
       await api.stopDynamicRun(projectId, run.id);
       if (generation !== loadGeneration.current) return;
-      await load();
+      await load({ fresh: true });
     } catch (e) {
       if (generation === loadGeneration.current)
         setError(userFacingError(e, 'The run could not be stopped. Refresh to inspect its state.'));
@@ -506,7 +530,7 @@ export function DynamicWorkspaceScreen({
             type="button"
             onClick={() => {
               setError(null);
-              void load().catch((e) => setError(userFacingError(e)));
+              void load({ fresh: true }).catch((e) => setError(userFacingError(e)));
             }}
           >
             Refresh
@@ -910,7 +934,7 @@ export function DynamicWorkspaceScreen({
                   aria-label="Refresh test history"
                   disabled={busy}
                   onClick={() => {
-                    void load().catch((e) => setError(userFacingError(e)));
+                    void load({ fresh: true }).catch((e) => setError(userFacingError(e)));
                   }}
                 >
                   <RefreshCw size={16} />
