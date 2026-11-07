@@ -17,3 +17,17 @@ export function findingToDynamicDraft(finding: Finding): DynamicTestDraft {
     ...(finding.sessionId ? { reviewId: finding.sessionId } : {}),
   };
 }
+
+/**
+ * Turn a Review into an editable Dynamic test draft. The goal points at the
+ * criteria the tester links to the checks, not every requirement the Review
+ * covered, so changing the selected criterion never leaves a misleading goal.
+ * The planner separately lists exactly those checks and criteria.
+ */
+export function reviewToDynamicDraft(review: { id: string; name: string }): DynamicTestDraft {
+  return {
+    name: clip(`${review.name}: runtime check`, 120),
+    goal: clip(`Check in the running application that the criteria selected for this test's checks (from ${review.name}) behave as specified. Other requirements in that Review are not in scope.`, 1800),
+    reviewId: review.id,
+  };
+}

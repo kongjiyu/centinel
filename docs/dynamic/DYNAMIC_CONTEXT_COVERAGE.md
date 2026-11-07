@@ -119,3 +119,23 @@ frozen coverage boundary with an explicit synthetic-source label.
   to M5. Richer observations/action policies/exploration/regression, usability,
   unit-run integration and release/isolation evaluation remain M4–M7. API-provider
   live acceptance remains user-deferred for this release.
+
+## Planner check brief, 7 November 2026
+
+A live run from a Review stopped as blocked/not_tested because the browser agent
+saw only the generic goal, not the selected criteria. `browser/checkBrief.ts` now
+adds a bounded "What this test checks" section to each planner prompt: for every
+required, then optional, frozen check its description, the linked criterion
+statement from the revision's frozen context and a plain expectation (at most 20
+items, 300 characters per field, about 4,000 characters in all; omissions are
+counted). Field values, selected option values and file fingerprints are withheld;
+the whole prompt still passes through the existing private-value redaction.
+Unselected and excluded criteria are never listed. The section grants no
+permissions, and the independent checker remains the only source of a verdict.
+The Review prefill goal now names "the criteria selected for this test's checks"
+instead of every reviewed requirement. No migration or execution-version change.
+
+`finish_blocked` remains an operational abstention: the checker does not evaluate
+the final page, so observation-only checks still end not_tested when the agent
+abstains. Evaluating them anyway would change the documented DYN-09 semantics and
+is left as a follow-up decision.

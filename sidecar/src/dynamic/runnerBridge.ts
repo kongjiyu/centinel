@@ -16,6 +16,7 @@ import { DYNAMIC_HEARTBEAT_MS } from './recovery.js';
 import { ExecutionLease } from './executionLease.js';
 import { cancelSession, runDynamicSession } from '../dynamicRunner.js';
 import { checkPage } from './checker.js';
+import { buildCheckBrief } from './browser/checkBrief.js';
 import { DynamicService } from './service.js';
 import type { DynamicRun, EvidenceReference } from './types.js';
 
@@ -57,6 +58,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     await runDynamicSession(session, workspace, {
       ...providers,
       budgets:limits,
+      checkBrief:buildCheckBrief(run.revision.checks,run.revision.context,run.revision.criterionExclusions),
       usabilityConfig:run.revision.usability,
       includeUsabilitySuggestions:run.executionVersions?.usability===2&&run.revision.usability?.includeSuggestions===true,
       observationMode:'dom_first',
