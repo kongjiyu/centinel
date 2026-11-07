@@ -125,6 +125,10 @@ The latest dashboard and shell requirements supersede the earlier Home table/fil
 - Place Start and the active-work loading indicator on the right of the title. Disable Start during active work. Preserve previous results on failure with explicit feedback and Retry. Do not add a separate readiness screen or technical logs to the card.
 - Show current readiness gaps in the existing Project Findings workspace, with Project Readiness origin, source evidence, recommended action, and immutable assessment context. Keep them outside the persisted Project Assessment risk aggregation and Review approval state.
 
+### Readiness criteria disclosure (7 November 2026)
+
+- At the user's request (G-S6), each Readiness category row with saved criteria has a visible chevron disclosure. Expanding it lists every criterion with its saved verdict (Met, Gap or Not verified), the saved basis and up to three cited source excerpts; confirmed records show as "Confirmed requirement" or "Confirmed coding standard" instead of internal IDs. Older snapshots without criteria and the Repository row show no disclosure. Nothing is generated for the card.
+
 ### Provider capacity pause (20 October 2026)
 
 - Provider rate-limit, quota, credit and billing blocks pause the affected workflow; never present them as completed assessment or approval-ready Review results.

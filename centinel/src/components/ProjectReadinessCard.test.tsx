@@ -229,4 +229,47 @@ describe('ProjectReadinessCard', () => {
     expect(screen.queryByText('Missing')).not.toBeInTheDocument();
     expect(screen.getAllByText('Completed')).toHaveLength(4);
   });
+
+  it('G-S6 expands each category to show the saved criterion verdicts, basis and cited sources', async () => {
+    const snapshot = completedSnapshot.snapshot!;
+    vi.mocked(api.getProjectReadiness).mockResolvedValue({
+      ...completedSnapshot,
+      snapshot: {
+        ...snapshot,
+        categories: snapshot.categories.map(category => category.id !== 'standards' ? category : {
+          ...category,
+          state: 'incomplete', checksPassed: 1,
+          criteria: [
+            { id: 'applicability', status: 'pass', basis: 'The policy names the TypeScript sidecar as its scope.',
+              references: [{ artifactId: 'doc-1', path: 'docs/standards.md', excerpt: 'This policy applies to the TypeScript sidecar.' }] },
+            { id: 'checkability', status: 'unknown', basis: 'No checking method is named in the cited material.', references: [] },
+            { id: 'conflicts', status: 'gap', basis: 'Two cited quote rules contradict each other.',
+              references: [{ artifactId: 'standard-1', path: 'coding_standard/0f6c7f0e-1111-4222-8333-944445555666', excerpt: 'Use double quotes.' }] },
+          ],
+        }),
+      },
+    });
+    render(<ProjectReadinessCard projectId="project-1" />);
+
+    const toggle = await screen.findByRole('button', { name: 'Show criteria for Coding standards' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('The policy names the TypeScript sidecar as its scope.')).not.toBeInTheDocument();
+    // Old snapshots and the repository row have no stored criteria, so no disclosure is offered.
+    expect(screen.queryByRole('button', { name: 'Show criteria for Repository' })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Hide criteria for Coding standards' })).toHaveAttribute('aria-expanded', 'true');
+    const list = screen.getByRole('list', { name: 'Coding standards criteria' });
+    expect(list).toHaveTextContent('Rule applicability');
+    expect(list).toHaveTextContent('Met');
+    expect(list).toHaveTextContent('The policy names the TypeScript sidecar as its scope.');
+    expect(list).toHaveTextContent('docs/standards.md');
+    expect(list).toHaveTextContent('This policy applies to the TypeScript sidecar.');
+    expect(list).toHaveTextContent('Checking methods');
+    expect(list).toHaveTextContent('Not verified');
+    expect(list).toHaveTextContent('Rule conflicts');
+    expect(list).toHaveTextContent('Gap');
+    expect(list).toHaveTextContent('Confirmed coding standard');
+    expect(list).not.toHaveTextContent('0f6c7f0e');
+  });
 });

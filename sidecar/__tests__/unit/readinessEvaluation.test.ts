@@ -388,7 +388,9 @@ describe('readiness outcome evaluation fixtures', () => {
     const result = await score(fixture, resultBody);
 
     expect(result.passed).toBe(false);
-    expect(result.overclaimedCompleted).toEqual(['requirements', 'design', 'standards']);
+    // The content corroboration gate blocks the injected sentence as coding
+    // standards evidence; requirements/design still depend on model validation.
+    expect(result.overclaimedCompleted).toEqual(['requirements', 'design']);
     const report = await runReadinessEvaluation(providerFor(responseFor(fixture)), [fixture], () => new Date('2026-10-19T12:00:00.000Z'));
     const json = serializeReadinessEvaluationReport(report);
     expect(JSON.parse(json)).toMatchObject({ schemaVersion: 1, fixtureCount: 1, failedCaseCount: 0 });

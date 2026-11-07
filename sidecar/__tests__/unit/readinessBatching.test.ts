@@ -271,8 +271,8 @@ describe('Readiness semantic batching and cross-batch evidence', () => {
     const checkDiagnostic = diagnostic?.checks.find(check => check.id === 'testability');
     const finding = result.findings.find(item => item.category === 'requirements' && item.title === 'Evidence is needed for testability');
 
-    expect(result.policyVersion).toBe('readiness-2026-10-23.3');
-    expect(result.validationDiagnostics?.schemaVersion).toBe('readiness-validation-2026-10-23.3');
+    expect(result.policyVersion).toBe('readiness-2026-11-07.1');
+    expect(result.validationDiagnostics?.schemaVersion).toBe('readiness-validation-2026-11-07.4');
     expect(requirements?.state).toBe('incomplete');
     expect(testability?.status).toBe('unknown');
     expect(testability?.basis).toContain('both pass and gap assessments');

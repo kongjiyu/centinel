@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CircleDashed, CircleX, LoaderCircle, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleDashed, CircleX, LoaderCircle, ShieldAlert } from 'lucide-react';
 import { api } from '../api/client';
 import type { ProjectReadinessStatus, ReadinessCategoryResult } from '../types';
 import { userFacingError } from '../utils/userFacingError';
@@ -18,6 +18,61 @@ const CATEGORY_LABELS: Record<ReadinessCategoryResult['id'], string> = {
 };
 
 const CATEGORY_ORDER: ReadinessCategoryResult['id'][] = ['repository', 'requirements', 'design', 'standards'];
+
+type ReadinessCriterion = NonNullable<ReadinessCategoryResult['criteria']>[number];
+
+const CRITERION_LABELS: Partial<Record<ReadinessCategoryResult['id'], Record<string, string>>> = {
+  requirements: {
+    clarity: 'Clarity', consistency: 'Consistency', testability: 'Testability', business_decisions: 'Business decision logic',
+    boundaries: 'Boundaries and constraints', exceptions: 'Exceptions', scope: 'Scope',
+  },
+  design: {
+    responsibilities: 'Responsibilities', interfaces: 'Interfaces', data: 'Data', flows: 'Flows',
+    failure_decisions: 'Failure decisions', scope: 'Scope coverage',
+  },
+  standards: { applicability: 'Rule applicability', checkability: 'Checking methods', conflicts: 'Rule conflicts' },
+};
+
+const CRITERION_STATUS_LABELS: Record<ReadinessCriterion['status'], string> = { pass: 'Met', gap: 'Gap', unknown: 'Not verified' };
+const MAX_CRITERION_SOURCES = 3;
+
+/** Readiness cites confirmed records by internal ID; show people what they are instead. */
+function sourceLabel(path: string): string {
+  if (/^requirement\/[^/]+$/i.test(path)) return 'Confirmed requirement';
+  if (/^coding_standard\/[^/]+$/i.test(path)) return 'Confirmed coding standard';
+  return path;
+}
+
+function CriteriaList({ categoryId, label, criteria, id }: { categoryId: ReadinessCategoryResult['id']; label: string; criteria: ReadinessCriterion[]; id: string }) {
+  return (
+    <ul id={id} className="project-readiness-criteria" aria-label={`${label} criteria`}>
+      {criteria.map(criterion => {
+        const sources = criterion.references.slice(0, MAX_CRITERION_SOURCES);
+        const hidden = criterion.references.length - sources.length;
+        return (
+          <li key={criterion.id}>
+            <div className="project-readiness-criterion-head">
+              <span className="project-readiness-criterion-name">{CRITERION_LABELS[categoryId]?.[criterion.id] ?? criterion.id.replace(/_/g, ' ')}</span>
+              <span className={`project-readiness-criterion-status is-${criterion.status}`}>{CRITERION_STATUS_LABELS[criterion.status]}</span>
+            </div>
+            <p className="project-readiness-criterion-basis">{criterion.basis}</p>
+            {sources.length > 0 && (
+              <ul className="project-readiness-criterion-sources" aria-label="Cited sources">
+                {sources.map((reference, index) => (
+                  <li key={`${reference.artifactId}-${index}`}>
+                    <span className="project-readiness-criterion-path">{sourceLabel(reference.path)}</span>
+                    <q>{reference.excerpt}</q>
+                  </li>
+                ))}
+                {hidden > 0 && <li className="project-readiness-criterion-more">{hidden} more cited {hidden === 1 ? 'source' : 'sources'}</li>}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function CategoryState({ state }: { state: ReadinessCategoryResult['state'] | null }) {
   if (!state) return <span className="project-readiness-value is-unavailable">—</span>;
@@ -44,6 +99,7 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [starting, setStarting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<ReadonlySet<ReadinessCategoryResult['id']>>(() => new Set());
   const lifecycle = useRef(0);
   const requestSequence = useRef(0);
   const statusRequest = useRef<{ lifecycleId: number; requestId: number } | null>(null);
@@ -75,6 +131,7 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
     lifecycle.current += 1;
     setStatus(null);
     setRequestError(null);
+    setExpandedCategories(new Set());
     setStarting(false);
     setLoadingStatus(true);
     void refreshStatus();
@@ -125,7 +182,12 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
 
   const busy = (loadingStatus && !status) || starting || active;
   const snapshot = status?.snapshot ?? null;
-  const stateByCategory = new Map(snapshot?.categories.map(category => [category.id, category.state]) ?? []);
+  const categoryById = new Map(snapshot?.categories.map(category => [category.id, category]) ?? []);
+  const toggleCategory = (id: ReadinessCategoryResult['id']) => setExpandedCategories(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const statusError = status?.status === 'failed' || status?.status === 'paused'
     ? userFacingError(status.error, 'The readiness assessment could not finish. Check the project sources and AI connection, then retry.')
     : null;
@@ -162,12 +224,36 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
       {isStaleSnapshot && <p className="project-readiness-previous"><strong>Previous assessment — sources have changed</strong><span>{assessedAt ? `Assessed ${assessedAt}` : 'Assessment date unavailable.'}</span></p>}
       <p className="project-readiness-job-state" role="status" aria-live="polite" aria-atomic="true">{jobState}</p>
       <ul className="project-readiness-categories" aria-label="Project readiness categories">
-        {CATEGORY_ORDER.map(id => (
-          <li key={id}>
-            <strong>{CATEGORY_LABELS[id]}</strong>
-            <CategoryState state={stateByCategory.get(id) ?? null} />
-          </li>
-        ))}
+        {CATEGORY_ORDER.map(id => {
+          const category = categoryById.get(id);
+          const criteria = category?.criteria ?? [];
+          const expanded = criteria.length > 0 && expandedCategories.has(id);
+          const regionId = `project-readiness-criteria-${id}`;
+          return (
+            <li key={id} className={expanded ? 'is-expanded' : undefined}>
+              <div className="project-readiness-category-row">
+                <strong>{CATEGORY_LABELS[id]}</strong>
+                <span className="project-readiness-category-end">
+                  <CategoryState state={category?.state ?? null} />
+                  {criteria.length > 0 && (
+                    <button
+                      type="button"
+                      className="project-readiness-criteria-toggle"
+                      aria-expanded={expanded}
+                      aria-controls={expanded ? regionId : undefined}
+                      aria-label={`${expanded ? 'Hide' : 'Show'} criteria for ${CATEGORY_LABELS[id]}`}
+                      title={`${expanded ? 'Hide' : 'Show'} criteria`}
+                      onClick={() => toggleCategory(id)}
+                    >
+                      <ChevronDown size={16} aria-hidden="true" />
+                    </button>
+                  )}
+                </span>
+              </div>
+              {expanded && <CriteriaList id={regionId} categoryId={id} label={CATEGORY_LABELS[id]} criteria={criteria} />}
+            </li>
+          );
+        })}
       </ul>
       {errorMessage && <p className="project-readiness-error" role="alert">{snapshot ? 'Showing the previous assessment. ' : ''}{errorMessage}</p>}
     </section>

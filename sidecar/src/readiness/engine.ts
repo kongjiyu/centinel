@@ -69,7 +69,7 @@ For requirements scope, identify explicitly named features or journeys even when
 
 Each check needs a concise, criterion-specific basis (a short explanation of how the cited text supports or fails the criterion; do not provide private reasoning) and an evidence array. Use pass only when the criterion is explicit, usable, and supported by at least one exact quotation from a supplied source. Citations must use the exact sourceId and an exact, concise substring of that source's content. Do not cite project description text because it has no artifact source ID. Use unknown when source coverage or evidence is insufficient. For requirements consistency and standards conflicts, compare at least two distinct source quotations; use unknown if there are not two explicit statements to compare. In each category, enumerate every explicit in-scope project item you can identify in category-level scopeCoverage. In a bounded batch, this is only the partial inventory identifiable from that batch; do not claim the batch inventory is complete for the project. Use one row per scope item when practical. When the same item recurs within or across batches, reuse its label; the caller merges exact repeated labels, preserves their citations, and treats conflicting statuses as unknown. If two distinct items share a name, add a concise distinguishing word. Each item needs an exact scope quotation and a status of covered, gap, or unknown; covered also needs at least one exact quotation showing how the category's requirements, design, or standards address the item. Scope coverage asks whether relevant category content exists for the item, not whether that content passes every quality criterion. Mark an item covered when substantive content addresses it, even if that content is contradictory, unclear, untestable, or missing an exception decision; report those defects in their corresponding checks. Mark an item gap only when the category has no substantive coverage for it or the source explicitly leaves that in-scope item unaddressed. Do not turn a defect in covered content into a scope gap. If the scope cannot be established from the supplied sources, return an empty scopeCoverage and mark requirements/design scope or standards applicability unknown. Do not claim all scope is covered without assessing each listed item.
 
-Do not claim missing based only on names or extensions. Keep basis, gap titles, details, and recommendations concise and actionable; do not reproduce source bodies, secrets, private reasoning, or prompts. Do not return thoughts, analysis, or extra fields.`;
+Classification evidence must quote content that is itself of that kind: for coding standards, an explicit rule about writing, formatting, naming, reviewing, testing, or checking code (for example a language, tool, or code-construct rule); for design, a statement about implementation structure such as services, components, interfaces, data stores, or flows. A product requirement or feature request is not coding-standards or design evidence. If no such quotation exists, do not mark the category present. The caller independently checks classification quotations and will not complete a category whose quotations do not read as that kind of content.\n\nDo not claim missing based only on names or extensions. Keep basis, gap titles, details, and recommendations concise and actionable; do not reproduce source bodies, secrets, private reasoning, or prompts. Do not return thoughts, analysis, or extra fields.`;
 
 const BATCH_PROMPT = `This request contains one bounded batch of source content. Review and classify only the supplied batch; do not infer what other batches contain. The same source ID may appear in another request for a different segment. List each source ID in this batch exactly once in reviewedSourceIds. A category marked missing means no matching content was found in this batch; the caller will mark the project category Missing only if every validated batch is missing. Scope inventory is partial: list items identified from this batch only, and an empty scopeCoverage means no scope item was identified in this batch, not that the project has no scope. Reuse a label for the same item in any repeated rows; the caller merges exact repeated labels, keeps their source anchors, and treats conflicting statuses as unknown. The caller merges exact, validated scope items across batches. For requirements consistency and standards conflicts, include representative exact quotations from the relevant supplied sources so the caller can compare results across batches.`;
 
@@ -1359,7 +1359,7 @@ function mergeSemanticBatches(
   return {
     categories,
     diagnostics: {
-      schemaVersion: 'readiness-validation-2026-10-23.3',
+      schemaVersion: 'readiness-validation-2026-11-07.4',
       batchCount: batches.length,
       categories: categories.map(({ diagnostic, ..._rest }) => ({
         category: diagnostic.category,
@@ -1376,6 +1376,99 @@ function mergeSemanticBatches(
       })),
     },
   };
+}
+
+const CORROBORATION_LABELS: Record<SemanticCategory, string> = {
+  requirements: 'Requirements',
+  design: 'Design',
+  standards: 'Coding standards',
+};
+
+// Content signals, never filenames or extensions. A matching quotation is a
+// necessary (not sufficient) condition for a present category: the model's
+// verdict still has to pass every other validation gate. Requirements are the
+// default project-material kind and have no lexical gate.
+const STANDARDS_SUBJECT = /\b(?:code|coding|codebase|source files?|lint(?:er|ers|ing|s)?|eslint|prettier|stylelint|rubocop|pylint|flake8|gofmt|clippy|style ?guides?|naming|camel ?case|pascal ?case|snake[_ ]case|kebab[- ]case|indent(?:ation|ed)?|semicolons?|(?:single|double) quotes|string literals?|import (?:statements?|order)|functions?|variables?|constants?|identifiers?|classes|class names?|methods?|enums?|generics|type annotations?|typecheck(?:ing|s)?|type[- ]check(?:ing|s)?|typescript|javascript|python|java|kotlin|swift|golang|rust|cpp|php|ruby|commit messages?|commits?|pull requests?|code reviews?|unit tests?|test coverage|formatt(?:er|ers|ing)|compiler|docstrings?|jsdoc|ci)\b/i;
+const STANDARDS_RULE = /\b(?:must|shall|should|never|always|required?|requires|prohibit(?:ed|s)?|forbid(?:den|s)?|avoid|prefer(?:red|s)?|do not|don't|use|uses|using|apply|applies|enforce[sd]?|checks?|checked|policy|policies|rules?|conventions?|standards?|guidelines?|allowed|disallow(?:ed)?)\b/i;
+const DESIGN_SUBJECT = /\b(?:designs?|architecture|architectural|components?|modules?|services?|microservices?|layers?|interfaces?|apis?|endpoints?|routes?|controllers?|handlers?|repositor(?:y|ies)|databases?|tables?|schemas?|data models?|entit(?:y|ies)|records?|stores?|storage|caches?|caching|queues?|workers?|jobs?|events?|sequence|flows?|diagrams?|state machines?|adapters?|gateways?|deploy(?:ment|ments|ed)?|infrastructure|servers?|backend|frontend|webhooks?)\b|\b(?:GET|POST|PUT|PATCH|DELETE) \//i;
+
+const CATEGORY_CONTENT_SIGNALS: Partial<Record<SemanticCategory, (excerpt: string) => boolean>> = {
+  standards: excerpt => STANDARDS_SUBJECT.test(excerpt) && STANDARDS_RULE.test(excerpt),
+  design: excerpt => DESIGN_SUBJECT.test(excerpt),
+};
+
+/** Exported for focused tests of the deterministic content gate. */
+export function classificationEvidenceCorroborates(category: SemanticCategory, excerpts: string[]): boolean {
+  const signal = CATEGORY_CONTENT_SIGNALS[category];
+  return !signal || excerpts.some(excerpt => signal(excerpt));
+}
+
+function gapIdFor(projectId: string, category: ReadinessCategory, key: string): string {
+  return `readiness-${sha256(`${projectId}\u0000${category}\u0000${key}`).slice(0, 24)}`;
+}
+
+/**
+ * A present category whose classification quotations do not read as that kind
+ * of content cannot keep any criterion verdict: an unrelated document must
+ * never produce Completed (or source-anchored gaps) for that category.
+ */
+function applyClassificationCorroboration(
+  input: ReadinessInput,
+  categories: RawCategoryResult[],
+  diagnostics: ReadinessValidationDiagnostics,
+): void {
+  for (const category of categories) {
+    const id = category.result.id as SemanticCategory;
+    const diagnostic = diagnostics.categories.find(item => item.category === id);
+    if (!diagnostic || diagnostic.rawPresence !== 'present' || !CATEGORY_CONTENT_SIGNALS[id]) continue;
+    const corroborated = classificationEvidenceCorroborates(id, category.classificationEvidence.map(reference => reference.excerpt));
+    diagnostic.classificationCorroborated = corroborated;
+    if (corroborated) continue;
+    diagnostic.reasonCounts = mergeReasonCounts(diagnostic.reasonCounts ?? {}, { classification_uncorroborated: 1 });
+    diagnostic.checks = diagnostic.checks.map(check => ({ ...check, effectiveStatus: 'unknown' }));
+    const label = CORROBORATION_LABELS[id];
+    const specs = SEMANTIC_CHECKS[id];
+    const criteria = (category.result.criteria ?? []).map(criterion => {
+      const spec = specs.find(item => item.id === criterion.id);
+      return {
+        ...criterion,
+        status: 'unknown' as const,
+        basis: `The ${spec?.label ?? criterion.id} criterion is not counted because the cited material was not corroborated as ${label.toLowerCase()} content.`,
+      };
+    });
+    const replacedIds = new Set(specs.flatMap(spec => [gapIdFor(input.projectId, id, spec.id), gapIdFor(input.projectId, id, `check_${spec.id}`)]));
+    const findings = category.findings.filter(gap => !replacedIds.has(gap.id));
+    const gapIds = category.result.gapIds.filter(gapId => !replacedIds.has(gapId));
+    gapIds.push(addGap(findings, {
+      projectId: input.projectId,
+      category: id,
+      key: 'category_classification_uncorroborated',
+      title: `${label} content is not corroborated`,
+      description: `The quotations offered as ${label.toLowerCase()} content do not read as ${label.toLowerCase()} material, so this category cannot be completed from them.`,
+      recommendation: `Add explicit ${label.toLowerCase()} material to the project sources, then rerun the assessment.`,
+      references: category.classificationEvidence,
+    }));
+    for (const spec of specs) {
+      const criterion = criteria.find(item => item.id === spec.id);
+      gapIds.push(addGap(findings, {
+        projectId: input.projectId,
+        category: id,
+        key: spec.id,
+        title: `Evidence is needed for ${spec.label}`,
+        description: `The ${spec.label} criterion could not be verified because no corroborated ${label.toLowerCase()} content was identified.`,
+        recommendation: `Add explicit, verifiable guidance for ${spec.label}.`,
+        references: criterion?.references ?? [],
+      }));
+    }
+    category.findings = findings;
+    category.result = {
+      ...category.result,
+      state: category.result.state === 'missing' ? 'missing' : 'incomplete',
+      checksPassed: 0,
+      gapIds: [...new Set(gapIds)],
+      ...(category.result.criteria ? { criteria } : {}),
+    };
+  }
 }
 
 type Ecosystem = 'node' | 'typescript' | 'python' | 'go' | 'rust' | 'dotnet' | 'java' | 'ruby' | 'php' | 'static-web' | 'native';
@@ -1790,7 +1883,7 @@ export async function assessProjectReadiness(
     ? {
       categories: batchResults[0].categories,
       diagnostics: {
-        schemaVersion: 'readiness-validation-2026-10-23.3' as const,
+        schemaVersion: 'readiness-validation-2026-11-07.4' as const,
         batchCount: 1,
         categories: batchResults[0].categories.map(({ diagnostic }) => ({
           category: diagnostic.category,
@@ -1809,6 +1902,7 @@ export async function assessProjectReadiness(
     }
     : mergeSemanticBatches(input, batchResults, allSources, hasUnavailable, crossBatchOutcomes);
   const semantic = merged.categories;
+  applyClassificationCorroboration(input, semantic, merged.diagnostics);
 
   const findings = [...repo.findings, ...semantic.flatMap(item => item.findings)];
   return {
