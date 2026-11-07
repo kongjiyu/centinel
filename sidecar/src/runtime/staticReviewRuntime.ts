@@ -17,18 +17,28 @@ import {
 import type { StaticReviewRepository } from '../review/types.js';
 import { RefreshableSupabaseRuntime } from './supabaseRuntime.js';
 
-const REVIEW_REPOSITORY_METHODS = new Set([
-  'createReview', 'getReview', 'listReviews', 'transitionReview', 'findOperation', 'saveOperation',
-  'findReviewByIdempotencyKey', 'createRetryReview', 'saveSourceManifest',
-  'loadSourceManifestArtifacts', 'captureTraceabilitySnapshot', 'getTraceabilitySnapshot', 'saveTraceabilitySnapshot', 'getLatestDecision',
-  'getTraceabilityReadiness', 'saveReviewIteration', 'saveEvidenceSufficiency',
-  'appendEvidenceSufficiency',
-  'getEvidenceSufficiency', 'listContradictionDispositions', 'saveFindingCorrelations', 'getFindingCorrelationSnapshot',
-  'listReviewFindings', 'getBatchCacheBasis', 'saveFinding', 'updateProgress', 'recordModelAttempt', 'getModelAttemptCount', 'recordAudit', 'recordAudits',
-  'saveRequirementCandidates', 'listRequirementCandidates', 'confirmRequirementCandidate',
-  'rejectRequirementCandidate', 'saveStandardRules', 'listStandardRules',
-  'setStandardRuleEnabled', 'listConfirmedRequirements',
-]);
+/**
+ * Every Review/grounding repository method the production proxy forwards.
+ * Typed as an exhaustive record so adding a method to StaticReviewRepository
+ * or GroundingRepository without forwarding it is a compile error: an
+ * unlisted method reads as `undefined` through the proxy, and the
+ * orchestrator silently skips optional work such as requirement-link
+ * suggestions or same-Review recovery reuse.
+ */
+const REVIEW_REPOSITORY_METHOD_FLAGS: Record<keyof StaticReviewRepository | keyof GroundingRepository, true> = {
+  createReview: true, getReview: true, listReviews: true, transitionReview: true, findOperation: true, saveOperation: true,
+  findReviewByIdempotencyKey: true, createRetryReview: true, saveSourceManifest: true,
+  loadSourceManifestArtifacts: true, captureTraceabilitySnapshot: true, getTraceabilitySnapshot: true, saveTraceabilitySnapshot: true,
+  getLatestDecision: true, getTraceabilityReadiness: true, saveReviewIteration: true, saveEvidenceSufficiency: true,
+  appendEvidenceSufficiency: true, getEvidenceSufficiency: true, listContradictionDispositions: true, saveFindingCorrelations: true,
+  getFindingCorrelationSnapshot: true, listReviewFindings: true, getBatchCacheBasis: true, getRecoveryJournal: true,
+  saveRequirementLinkSuggestions: true, saveFinding: true, updateProgress: true, recordModelAttempt: true, getModelAttemptCount: true,
+  recordAudit: true, recordAudits: true,
+  saveRequirementCandidates: true, listRequirementCandidates: true, confirmRequirementCandidate: true,
+  rejectRequirementCandidate: true, saveStandardRules: true, listStandardRules: true,
+  setStandardRuleEnabled: true, listConfirmedRequirements: true,
+};
+const REVIEW_REPOSITORY_METHODS = new Set(Object.keys(REVIEW_REPOSITORY_METHOD_FLAGS));
 
 const LEASE_REPOSITORY_METHODS = new Set([
   'acquireLease', 'renewLease', 'releaseLease', 'listExpiredLeases', 'saveCheckpoint', 'getCheckpoint',
@@ -43,10 +53,14 @@ function refreshableAdapter<T extends object>(
   runtime: RefreshableSupabaseRuntime,
   create: (client: SupabaseClient) => object,
   methodNames: Set<string>,
+  implementation?: object,
 ): T {
+  // Optional methods are feature-detected with `typeof === 'function'`, so
+  // only advertise a method the adapter class really implements.
+  const implemented = (name: string) => !implementation || typeof (implementation as Record<string, unknown>)[name] === 'function';
   return new Proxy({}, {
     get(_target, property) {
-      if (property === 'then' || typeof property !== 'string' || !methodNames.has(property)) return undefined;
+      if (property === 'then' || typeof property !== 'string' || !methodNames.has(property) || !implemented(property)) return undefined;
       return (...args: unknown[]) => runtime.withClient(async client => {
         const adapter = create(client) as Record<string, unknown>;
         const method = adapter[property];
@@ -55,6 +69,21 @@ function refreshableAdapter<T extends object>(
       });
     },
   }) as T;
+}
+
+/**
+ * The Review repository exactly as production Reviews see it: every call is
+ * forwarded through REVIEW_REPOSITORY_METHODS to an adapter built from the
+ * runtime's current client. `implementation` is the adapter class prototype
+ * used for feature detection. Exported so tests can exercise the same
+ * forwarding rule with an in-memory adapter.
+ */
+export function createRefreshableReviewRepository<T extends object = StaticReviewRepository & GroundingRepository>(
+  runtime: RefreshableSupabaseRuntime,
+  create: (client: SupabaseClient) => object,
+  implementation: object,
+): T {
+  return refreshableAdapter<T>(runtime, create, REVIEW_REPOSITORY_METHODS, implementation);
 }
 
 export type RefreshableStaticReviewRuntimeOptions = {
@@ -87,10 +116,10 @@ export function createRefreshableStaticReviewRuntime(
   runtime: RefreshableSupabaseRuntime,
   options: RefreshableStaticReviewRuntimeOptions = {},
 ): RefreshableStaticReviewRuntime {
-  const repository = refreshableAdapter<StaticReviewRepository & GroundingRepository>(
+  const repository = createRefreshableReviewRepository(
     runtime,
     client => new SupabaseStaticReviewRepository(client, runtime.state().userId),
-    REVIEW_REPOSITORY_METHODS,
+    SupabaseStaticReviewRepository.prototype,
   );
   const leaseRepository = refreshableAdapter<ReviewLeaseRepository>(
     runtime,

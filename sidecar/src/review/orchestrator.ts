@@ -1929,9 +1929,20 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
     signal: AbortSignal,
   ): Promise<void> {
     const repository = this.deps.repository;
-    if (!repository.saveRequirementLinkSuggestions || !requirements.length) return;
+    // A skip is legitimate but must stay diagnosable: audit a safe reason
+    // enum and counts only, never requirement or source text.
+    const skip = async (reason: 'repository_unsupported' | 'no_confirmed_requirements' | 'no_validated_evidence') => {
+      try {
+        await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'requirement_links_suggestion_skipped', stage: 'persisting_evidence',
+          detail: { reason, findingCount: findings.length } });
+      } catch (error) {
+        if (isAbortLike(error) || signal.aborted) throw error;
+      }
+    };
+    if (typeof repository.saveRequirementLinkSuggestions !== 'function') return skip('repository_unsupported');
+    if (!requirements.length) return skip('no_confirmed_requirements');
     const suggestions = suggestRequirementLinks({ requirements, artifacts: evidenceArtifacts.map(item => item.artifact), findings, analysisMap });
-    if (!suggestions.length) return;
+    if (!suggestions.length) return skip('no_validated_evidence');
     try {
       await harness.step('persisting_evidence', 'suggest_requirement_links', { candidateCount: suggestions.length },
         () => repository.saveRequirementLinkSuggestions!(review.projectId, suggestions, signal), saved => ({ saved }));

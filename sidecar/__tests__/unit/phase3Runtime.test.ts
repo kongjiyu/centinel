@@ -294,6 +294,42 @@ describe('Phase 3 model/runtime contracts', () => {
   });
 });
 
+describe('Production Review repository proxy forwarding', () => {
+  it('forwards requirement-link suggestions and the recovery journal through the refreshed bearer client', async () => {
+    const first = {} as any; const refreshed = {} as any;
+    const runtime = new RefreshableSupabaseRuntime({ userId: 'user-1', accessToken: 'token-1', client: first, clientFactory: () => refreshed });
+    const adapter = createRefreshableStaticReviewRuntime(runtime);
+    const clients: unknown[] = [];
+    const save = vi.spyOn(SupabaseStaticReviewRepository.prototype, 'saveRequirementLinkSuggestions').mockImplementation(async function (_projectId, suggestions) {
+      clients.push((this as any).client); return suggestions.length;
+    });
+    const journal = vi.spyOn(SupabaseStaticReviewRepository.prototype, 'getRecoveryJournal').mockImplementation(async function () {
+      clients.push((this as any).client); return [];
+    });
+    try {
+      expect(typeof adapter.repository.saveRequirementLinkSuggestions).toBe('function');
+      expect(typeof adapter.repository.getRecoveryJournal).toBe('function');
+      const suggestion = { requirementId: 'req-1', artifactId: 'artifact-1', symbolId: null, confidence: 0.8, basis: 'finding_requirement_reference' as const };
+      await expect(adapter.repository.saveRequirementLinkSuggestions!('project-1', [suggestion])).resolves.toBe(1);
+      runtime.replaceAccessToken('token-2');
+      await expect(adapter.repository.getRecoveryJournal!('review-1', 'project-1')).resolves.toEqual([]);
+      expect(clients).toEqual([first, refreshed]);
+      expect(save).toHaveBeenCalledWith('project-1', [suggestion]);
+    } finally { save.mockRestore(); journal.mockRestore(); }
+  });
+  it('exposes every Review repository method the Supabase adapter implements', () => {
+    const runtime = new RefreshableSupabaseRuntime({ userId: 'user-1', accessToken: 'token-1', client: {} as any });
+    const repository = createRefreshableStaticReviewRuntime(runtime).repository as unknown as Record<string, unknown>;
+    const implemented = Object.getOwnPropertyNames(SupabaseStaticReviewRepository.prototype)
+      .filter(name => name !== 'constructor' && typeof (SupabaseStaticReviewRepository.prototype as any)[name] === 'function');
+    const inMemory = Object.getOwnPropertyNames(InMemoryStaticReviewRepository.prototype).filter(name => name !== 'constructor');
+    // Methods both adapters share are the Review repository contract; each
+    // must reach the orchestrator through the production proxy.
+    const missing = inMemory.filter(name => implemented.includes(name) && typeof repository[name] !== 'function');
+    expect(missing).toEqual([]);
+  });
+});
+
 describe('Phase 3 lease/recovery and abort contracts', () => {
   const artifact: Artifact = {
     id: 'artifact-1', projectId: 'project-1', type: 'source_code', source: 'repository', fileName: 'a.ts', filePath: 'a.ts', originalPath: null,

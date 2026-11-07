@@ -10,6 +10,8 @@ import { ModelProviderError } from '../../src/review/retry.js';
 import { analysisMapFromEvents } from '../../src/review/assessmentBatches.js';
 import { candidateSupportResult, isCandidateSupportRequest } from '../fixtures/semanticSupport.js';
 import { InMemoryGroundingRepository } from '../../src/review/grounding.js';
+import { RefreshableSupabaseRuntime } from '../../src/runtime/supabaseRuntime.js';
+import { createRefreshableReviewRepository } from '../../src/runtime/staticReviewRuntime.js';
 
 const content = 'export function account() { return true; }';
 const artifact: Artifact = { id: 'code', projectId: 'project', type: 'source_code', source: 'repository', fileName: 'account.ts', filePath: 'src/account.ts', contentHash: 'version-1', originalPath: null, createdAt: '2026-10-21T00:00:00Z' };
@@ -707,6 +709,57 @@ describe('Assessment acceptance boundary', () => {
       projectId: 'project', requirementId: 'confirmed-ownership', artifactId: artifact.id, basis: 'finding_requirement_reference', confidence: 0.8,
     })]);
     expect(repository.audits.some(event => event.event === 'requirement_links_suggested')).toBe(true);
+  });
+  it('suggests requirement links through the production refreshable repository proxy', async () => {
+    // Production Reviews receive the Review repository through the
+    // allowlisted refreshable proxy, not the adapter itself. A method missing
+    // from that allowlist reads as undefined and silently disabled suggestions.
+    const memory = new InMemoryStaticReviewRepository();
+    const grounding = new InMemoryGroundingRepository();
+    grounding.requirements.set('confirmed-ownership', {
+      id: 'confirmed-ownership', projectId: 'project', title: 'Record ownership', description: 'Only the selected user may access the record.',
+      category: 'manual', priority: 'high', sourceCandidateId: null, sourceLocator: null, sourceVersion: null, confidence: null, createdAt: '2026-10-25T00:00:00Z',
+    });
+    const runtime = new RefreshableSupabaseRuntime({ userId: 'user-1', accessToken: 'token-1', client: {} as any });
+    const repository = createRefreshableReviewRepository<InMemoryStaticReviewRepository>(runtime, () => memory, InMemoryStaticReviewRepository.prototype);
+    const model = provider(request => ({
+      findings: [{ ...issue, title: 'Ownership rule mismatch', category: 'business', domain: 'business', requirementId: 'confirmed-ownership' }],
+      featureAssessments: assessments(request),
+    }));
+    const run = await createStaticReviewOrchestrator({ repository, groundingRepository: grounding, readArtifactContent: async () => content,
+      deterministic: async () => [], modelProvider: model, retry: { sleep: async () => undefined },
+    }).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect((await run.completion).status).toBe('pending_approval');
+    expect(memory.findings.some(finding => finding.requirementId === 'confirmed-ownership')).toBe(true);
+    expect(memory.requirementLinkSuggestions).toEqual([expect.objectContaining({
+      projectId: 'project', requirementId: 'confirmed-ownership', artifactId: artifact.id, basis: 'finding_requirement_reference', confidence: 0.8,
+    })]);
+    expect(memory.audits.some(event => event.event === 'requirement_links_suggested')).toBe(true);
+  });
+  it('audits a safe reason when no requirement link can be suggested', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const run = await service(repository, provider(request => ({ findings: [issue], featureAssessments: assessments(request) })))
+      .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect((await run.completion).status).toBe('pending_approval');
+    expect(repository.requirementLinkSuggestions).toEqual([]);
+    expect(repository.audits.find(event => event.event === 'requirement_links_suggestion_skipped')?.detail)
+      .toEqual({ reason: 'no_confirmed_requirements', findingCount: 1 });
+  });
+  it('audits when the runtime repository cannot store requirement-link suggestions', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    (repository as any).saveRequirementLinkSuggestions = undefined;
+    const grounding = new InMemoryGroundingRepository();
+    grounding.requirements.set('confirmed-ownership', {
+      id: 'confirmed-ownership', projectId: 'project', title: 'Record ownership', description: 'Only the selected user may access the record.',
+      category: 'manual', priority: 'high', sourceCandidateId: null, sourceLocator: null, sourceVersion: null, confidence: null, createdAt: '2026-10-25T00:00:00Z',
+    });
+    const run = await createStaticReviewOrchestrator({ repository, groundingRepository: grounding, readArtifactContent: async () => content,
+      deterministic: async () => [], modelProvider: provider(request => ({ findings: [{ ...issue, requirementId: 'confirmed-ownership' }], featureAssessments: assessments(request) })),
+      retry: { sleep: async () => undefined },
+    }).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect((await run.completion).status).toBe('pending_approval');
+    expect(repository.audits.find(event => event.event === 'requirement_links_suggestion_skipped')?.detail)
+      .toEqual({ reason: 'repository_unsupported', findingCount: 1 });
   });
   it('does not fail the Review when saving requirement-link suggestions fails', async () => {
     const repository = new InMemoryStaticReviewRepository();
