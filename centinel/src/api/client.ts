@@ -481,7 +481,8 @@ export const api = {
   collectDynamicFindings:(projectId:string,runId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/runs/${runId}/findings`,{method:'POST',body:'{}'}),
   reviewDynamicFinding:(projectId:string,id:string,input:ReviewFindingInput)=>request<DynamicFinding>(`/projects/${projectId}/dynamic/findings/${id}/review`,{method:'POST',body:JSON.stringify(input)}),
   remediateDynamicFinding:(projectId:string,id:string,input:RemediationInput)=>request<DynamicFinding>(`/projects/${projectId}/dynamic/findings/${id}/remediation`,{method:'POST',body:JSON.stringify(input)}),
-  dynamicRuns: (projectId: string) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`),
+  // `fresh` skips joining an in-flight identical read (which may predate a Run start or stop) and the HTTP cache.
+  dynamicRuns: (projectId: string, options?: { fresh?: boolean }) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`, options?.fresh ? { cache: 'no-store' } : undefined),
   startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string, environmentId?: string, baselineRunId?:string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey, ...(environmentId ? {environmentId} : {}),...(baselineRunId?{baselineRunId}:{}) }) }),
   stopDynamicRun: (projectId: string, runId: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs/${runId}/cancel`, { method: 'POST', body: '{}' }),
   dynamicEvidenceBlob: async (filePath: string): Promise<Blob> => {

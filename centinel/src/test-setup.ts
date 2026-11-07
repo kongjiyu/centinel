@@ -8,6 +8,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { resetPageActivityForTests } from './hooks/usePageVisible';
 
 // Radix Select uses pointer capture to keep the trigger interaction stable.
 // jsdom does not implement the Pointer Events capture methods, so provide the
@@ -27,4 +28,6 @@ if (!Element.prototype.scrollIntoView) {
 
 afterEach(() => {
   cleanup();
+  // Interaction keeps a hidden page polling for a while; start every test idle.
+  resetPageActivityForTests();
 });
