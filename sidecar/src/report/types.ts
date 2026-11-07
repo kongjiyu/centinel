@@ -10,7 +10,11 @@ import type { TokenUsageSummary } from '../tokenUsage.js';
 import type { ProjectFindingHistoryEntry, ProjectFindingResolutionEvidence } from '../review/findingReconciliation.js';
 import type { ProjectAssessment } from '../staticDomainTypes.js';
 
-export type ProjectReportFinding = Finding & { riskLevel: RiskLevel | null };
+export type ProjectReportFinding = Finding & {
+  riskLevel: RiskLevel | null;
+  /** Repeats of this issue that its Review kept as evidence on this finding instead of separate rows. */
+  mergedObservationCount?: number;
+};
 
 export type ReportCurrentFinding = ProjectReportFinding & {
   /** State saved on the canonical root occurrence before reconciliation. */

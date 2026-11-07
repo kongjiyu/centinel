@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { displayPath } from '../utils/displayPath';
 import type { Finding, FindingSourceReference } from '../types';
-import { findingDomain, findingGroupDomains, findingIssueFor, groupStatus, type FindingGroup } from '../findingGroups';
+import { findingDomain, findingGroupDomains, findingIssueFor, groupStatus, mergedObservations, ruleCheckExplanation, type FindingGroup } from '../findingGroups';
 import { buildFixPrompt, copyText } from '../fixPrompt';
 import { effectiveFindingStatus } from '../findingStatus';
 import { FindingEvidence, SourceCode } from './FindingEvidence';
@@ -10,6 +10,42 @@ import { formatEntityId } from '../utils/entityId';
 function locationLabel(finding: Finding): string {
   const source = (finding.filePath && displayPath(finding.filePath)) || (finding.requirementId ? `Requirement ${finding.requirementId}` : 'Location unavailable');
   return `${source}${finding.lineNumber ? `:${finding.lineNumber}` : ''}`;
+}
+
+/**
+ * For a rule-only issue: what the pattern means, that no AI-reported issue
+ * explains this location, and any requirement link that was actually recorded.
+ * Nothing here is an AI verdict.
+ */
+function RuleCheckExplanation({ finding, explanation }: { finding: Finding; explanation: string }) {
+  const observedRequirements = [...new Set(mergedObservations(finding).map(item => item.requirementId).filter((id): id is string => Boolean(id)))];
+  return <section className="finding-document-section finding-rule-explanation" aria-label="About this rule check">
+    <h4>What this check means</h4>
+    <p>{explanation}</p>
+    <p className="finding-verification-hint">The AI review did not report an issue at this location, so this result comes from Centinel's pattern check alone. Read the code to confirm it; it is not an AI-verified conclusion.</p>
+    {finding.requirementId
+      ? <p>Linked requirement: <code>{finding.requirementId}</code></p>
+      : observedRequirements.length
+        ? <p>An AI observation merged into this finding cited {observedRequirements.length === 1 ? 'requirement' : 'requirements'} {observedRequirements.map((id, index) => <span key={id}>{index ? ', ' : ''}<code>{id}</code></span>)}.</p>
+        : <p>No requirement is linked to this finding. If a confirmed requirement covers this code, link it on the Requirements screen.</p>}
+  </section>;
+}
+
+function MergedObservationList({ finding }: { finding: Finding }) {
+  const items = mergedObservations(finding);
+  if (!items.length) return null;
+  const total = Math.max(items.length, finding.location?.sourceLocator?.mergedObservationTotal ?? 0);
+  return <section className="finding-document-section finding-merged-observations" aria-label="Also reported in this Review">
+    <h4>Also reported in this Review</h4>
+    <p className="finding-verification-hint">The same Review described this issue {total === 1 ? 'one more time' : `${total} more times`} at this place. The repeats are kept here as evidence instead of separate findings.{total > items.length ? ` The first ${items.length} are shown.` : ''}</p>
+    <ul>
+      {items.map((item, index) => <li key={`${finding.id}:merged:${index}`}>
+        <p><strong>{item.title}</strong> · {item.filePath ? displayPath(item.filePath) : 'Location unavailable'}{item.lineNumber ? `:${item.lineNumber}` : ''} · {item.verification === 'needs_verification' ? 'Needs verification' : item.verification === 'verified' ? 'Citation verified' : item.source === 'deterministic' ? 'Rule check' : 'Recorded'}</p>
+        {item.description && item.description !== item.title && <p>{item.description}</p>}
+        {item.evidence && <pre>{item.evidence}</pre>}
+      </li>)}
+    </ul>
+  </section>;
 }
 
 function occurrenceLabel(finding: Finding): string {
@@ -119,6 +155,8 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
   const descriptions = group.members.map(item => item.description.trim());
   const commonDescription = descriptions[0] && descriptions.every(value => value === descriptions[0]) ? descriptions[0] : null;
   const origin = group.representative.verifier === 'readiness' ? 'Readiness' : group.representative.source === 'dynamic' ? 'Dynamic Testing' : 'Review';
+  // Rule groups are folded into an AI-reported issue at the same place; a group without one is rule-only.
+  const ruleExplanation = group.members.every(item => ruleCheckExplanation(item) !== null) ? ruleCheckExplanation(selected) : null;
   const occurrenceChoices = useMemo(() => {
     const query = occurrenceSearch.trim().toLocaleLowerCase();
     const matches = query
@@ -231,12 +269,16 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
         <p>{selected.description.trim() || 'A plain-language explanation was not recorded for this occurrence.'}</p>
       </section>}
 
+      {ruleExplanation && <RuleCheckExplanation finding={selected} explanation={ruleExplanation} />}
+
       {selected.location?.logicFlow?.length ? <section className="finding-document-section finding-occurrence-cause" aria-label="Recorded cause">
         <h4>Where and why</h4>
         <ol aria-label="Recorded causal sequence">{selected.location.logicFlow.map((step, index) => <li key={`${selected.id}:${index}`}>{step}</li>)}</ol>
       </section> : null}
 
       <FindingEvidence key={selected.id} finding={selected} headingLevel={4} onOpenSource={openSavedSource} />
+
+      <MergedObservationList finding={selected} />
 
       {!commonDescription && selected.evidenceText && !selected.filePath && <section className="finding-document-section finding-occurrence-evidence-text" aria-label="Recorded evidence">
         <h4>Recorded evidence</h4><pre>{selected.evidenceText}</pre>
