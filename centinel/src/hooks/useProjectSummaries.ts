@@ -103,9 +103,15 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
   // A Review that has a later retry or iteration child is superseded by it;
   // only the newest attempt in each chain can still require action.
   const superseded = new Set(sessions.map(session => session.parentSessionId).filter(Boolean));
+  // A failure older than a Review that later produced results for the same
+  // project no longer needs action: the project has been re-checked since.
+  const latestExecuted = Math.max(-Infinity, ...sessions
+    .filter(session => isExecutedReviewStatus(session.status))
+    .map(session => timestamp(session.createdAt)));
 
   sortedSessions(sessions).filter(session => !superseded.has(session.id)).forEach(session => {
     if (session.status === 'failure' || session.status === 'failed' || session.status === 'blocked') {
+      if (timestamp(session.createdAt) < latestExecuted) return;
       const paused = reviewLifecycleState(session) === 'Paused';
       candidates.push({
         id: `review-failure:${session.id}`,

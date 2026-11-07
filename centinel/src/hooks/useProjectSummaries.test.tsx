@@ -96,6 +96,33 @@ describe('progressive project summaries', () => {
     expect(getProjectState(result.current.summaries[0])).toMatchObject({ label: 'Completed', tone: 'success' });
   });
 
+  it('does not flag an older failed Review once a later Review of the project has results', async () => {
+    const base = { projectId: 'fast', reviewType: 'code_review', progressJson: '{}', configJson: '{}', parentSessionId: '' };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([
+      { ...base, id: 'old-failed', status: 'failed', name: 'First attempt', failureReason: 'Model timed out', updatedAt: '2026-11-06T02:30:00Z', createdAt: '2026-11-06T02:09:00Z' },
+      { ...base, id: 'later', status: 'pending_approval', name: 'Second attempt', progressJson: JSON.stringify({ coverage: 'partial' }), updatedAt: '2026-11-06T13:22:00Z', createdAt: '2026-11-06T12:06:00Z' },
+    ] as StaticSession[]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
+    const selected = [projects[0]];
+    const { result } = renderHook(() => useProjectSummaries(selected));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.summaries[0].action?.id).toBe('review-decision:later');
+    expect(getProjectState(result.current.summaries[0]).label).toBe('Need Approval');
+  });
+
+  it('still flags a failed Review that is newer than every completed one', async () => {
+    const base = { projectId: 'fast', reviewType: 'code_review', progressJson: '{}', configJson: '{}', parentSessionId: '' };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([
+      { ...base, id: 'done', status: 'pending_approval', name: 'Earlier', updatedAt: '2026-11-06T03:00:00Z', createdAt: '2026-11-06T02:00:00Z' },
+      { ...base, id: 'new-failed', status: 'failed', name: 'Latest', failureReason: 'Model timed out', updatedAt: '2026-11-06T05:00:00Z', createdAt: '2026-11-06T04:00:00Z' },
+    ] as StaticSession[]);
+    vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
+    const selected = [projects[0]];
+    const { result } = renderHook(() => useProjectSummaries(selected));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.summaries[0].action?.id).toBe('review-failure:new-failed');
+  });
+
   it('asks for a decision on a summary Review awaiting approval', async () => {
     vi.mocked(api.listStaticSessions).mockResolvedValue([{ id: 'awaiting', projectId: 'fast', status: 'pending_approval', reviewType: 'code_review', name: 'Awaiting review',
       progressJson: '{}', parentSessionId: '', updatedAt: '2026-10-30', createdAt: '2026-10-30' } as StaticSession]);
