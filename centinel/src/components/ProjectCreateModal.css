@@ -1,0 +1,53 @@
+.project-create-modal-form { display: grid; gap: 4px; }
+.project-create-modal-form .form-field { margin-bottom: 12px; }
+.project-create-modal-form .workspace-picker { align-items: center; }
+.project-create-modal-form .workspace-picker input { flex: 1; min-width: 0; }
+.project-create-modal-form .workspace-picker .btn-secondary { flex: 0 0 auto; }
+.project-create-modal-form .field-help { margin: 6px 0 0; }
+
+.project-source-choice {
+  margin: 4px 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.project-source-choice legend {
+  margin-bottom: 8px;
+  color: var(--color-text);
+  font-size: var(--font-size-support);
+  font-weight: 650;
+}
+
+.project-source-choice > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-source-choice label {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  min-height: 80px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.project-source-choice label.is-selected {
+  border-color: var(--color-primary);
+  background: var(--color-surface-selected);
+}
+
+.project-source-choice input { margin-top: 3px; accent-color: var(--color-primary); }
+.project-source-choice svg { margin-top: 1px; color: var(--color-primary); }
+.project-source-choice span { display: grid; gap: 3px; }
+.project-source-choice strong { color: var(--color-text); font-size: var(--font-size-support); }
+.project-source-choice small { color: var(--color-text-muted); font-size: var(--font-size-meta); line-height: 17px; }
+
+
+@media (max-width: 720px) {
+  .project-source-choice > div { grid-template-columns: 1fr; }
+}

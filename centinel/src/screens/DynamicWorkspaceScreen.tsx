@@ -1,4 +1,5 @@
 import {DynamicReportsPanel} from './DynamicReportsPanel';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import {DynamicUsabilityEditor,DynamicUsabilityResults} from './DynamicUsabilityPanel';
 import type {UsabilityConfig} from '../../../sidecar/src/dynamic/usability/types';
 import {RunEvidencePanel} from './RunEvidencePanel';
@@ -112,8 +113,8 @@ export function DynamicWorkspaceScreen({ projects, initialProjectId, initialRunI
     resetDraft();setBusy(false);requestKey.current=null; setEnvironmentId(''); setRuns([]); setRevisions([]); setSelectedRunId(initialRunId ?? ''); setError(null);
     setLoading(Boolean(projectId));
     void load().catch(e => { if (current) setError(userFacingError(e, 'Saved tests could not be loaded.')); }).finally(() => { if (current) setLoading(false); });
-    const timer = window.setInterval(() => { void load().catch(e => { if (current) setError(userFacingError(e, 'Run history could not be refreshed.')); }); }, 5000);
-    return () => { current = false; loadGeneration.current++; window.clearInterval(timer); };
+    const stop = setVisibleInterval(() => { void load().catch(e => { if (current) setError(userFacingError(e, 'Run history could not be refreshed.')); }); }, 5000);
+    return () => { current = false; loadGeneration.current++; stop(); };
   }, [projectId, load, resetDraft]);
   useEffect(() => { if (initialProjectId && initialProjectId !== projectId) setProjectId(initialProjectId); }, [initialProjectId]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);

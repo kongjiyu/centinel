@@ -6,3 +6,8 @@
 .recent-reviews-link:hover .recent-reviews-name, .recent-reviews-link:focus-visible .recent-reviews-name { color: var(--workspace-primary); text-decoration: underline; }
 .recent-reviews-name { overflow: hidden; white-space: normal; font-size: var(--font-size-support); font-weight: 600; overflow-wrap: anywhere; }
 .recent-reviews-link small { flex: none; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
+.recent-reviews-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
+.recent-reviews-heading h2 { margin: 0; }
+.recent-reviews-all { min-height: 32px; padding: 4px 0; border: 0; background: none; color: var(--color-primary); cursor: pointer; font-family: inherit; font-size: var(--font-size-meta); font-weight: 650; white-space: nowrap; }
+.recent-reviews-all:hover { text-decoration: underline; }
+.recent-reviews-all:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }

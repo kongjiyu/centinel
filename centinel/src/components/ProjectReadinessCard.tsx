@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, CircleDashed, CircleX, LoaderCircle, ShieldAlert } from 'lucide-react';
 import { api } from '../api/client';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import type { ProjectReadinessStatus, ReadinessCategoryResult } from '../types';
 import { userFacingError } from '../utils/userFacingError';
 import './ProjectReadinessCard.css';
@@ -96,8 +97,9 @@ export function ProjectReadinessCard({ projectId, onStatusChange }: Props) {
   const active = status?.status === 'queued' || status?.status === 'running';
   useEffect(() => {
     if (!active) return;
-    const timer = window.setInterval(() => void refreshStatus(), 2000);
-    return () => window.clearInterval(timer);
+    // Skip polls while the window is hidden; the visibility listener above
+    // refreshes as soon as it is shown again.
+    return setVisibleInterval(() => void refreshStatus(), 2000);
   }, [active, refreshStatus]);
 
   useEffect(() => {

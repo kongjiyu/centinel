@@ -151,6 +151,14 @@ export function reviewLifecycleState(
   return 'Need Approval';
 }
 
+export function reviewLifecycleTone(state: ReviewLifecycleState): 'neutral' | 'running' | 'success' | 'warning' | 'danger' {
+  if (state === 'Completed') return 'success';
+  if (state === 'In progress' || state === 'Queued') return 'running';
+  if (awaitsReviewDecision(state) || state === 'Blocked' || state === 'Paused') return 'warning';
+  if (state === 'Failed') return 'danger';
+  return 'neutral';
+}
+
 /** Lifecycle states that still wait for a human approve/request-changes decision. */
 export function awaitsReviewDecision(state: ReviewLifecycleState): boolean {
   return state === 'Need Approval' || state === 'Completed with gaps';

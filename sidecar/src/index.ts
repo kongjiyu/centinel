@@ -494,6 +494,8 @@ function toClientStaticSession(review: StaticReviewRecord) {
     updatedAt: review.updatedAt,
     completedAt: review.progress?.stage === 'complete' ? review.progress.updatedAt : null,
     modelStatus: review.modelStatus,
+    deterministicFindingCount: review.deterministicFindingCount,
+    modelFindingCount: review.modelFindingCount,
     baseRef: typeof config.baseRef === 'string' ? config.baseRef : '',
     headRef: typeof config.headRef === 'string' ? config.headRef : '',
     changedFilesJson: JSON.stringify([]),

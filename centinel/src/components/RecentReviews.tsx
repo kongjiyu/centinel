@@ -25,7 +25,10 @@ export function RecentReviews({ projectId, onNavigate, limit = 5 }: { projectId:
   if (!reviews?.length) return null;
   return (
     <section className="recent-reviews" aria-labelledby="recent-reviews-heading">
-      <h2 id="recent-reviews-heading"><History size={16} aria-hidden="true" /> Recent Reviews in this project</h2>
+      <div className="recent-reviews-heading">
+        <h2 id="recent-reviews-heading"><History size={16} aria-hidden="true" /> Recent Reviews in this project</h2>
+        <button type="button" className="recent-reviews-all" onClick={() => onNavigate({ name: 'reviews', projectId })}>All Reviews</button>
+      </div>
       <ul>
         {reviews.slice(0, limit).map(review => {
           const state = projectActivityLifecycle(review, 'review');
