@@ -140,7 +140,7 @@ function summaryLines(snapshot: ProjectReportSnapshot): string[] {
     '',
     '| Open issues | Serious issues | Code review | Browser test |',
     '| :---: | :---: | :---: | :---: |',
-    '| ' + summary.openIssues + ' | ' + summary.seriousIssues + ' | ' + tableCell(summary.codeReview.label) + ' | ' + tableCell(summary.browserTest.label) + ' |',
+    '| ' + summary.openIssues + (summary.openOccurrences > summary.openIssues ? ' (' + summary.openOccurrences + ' occurrences)' : '') + ' | ' + summary.seriousIssues + ' | ' + tableCell(summary.codeReview.label) + ' | ' + tableCell(summary.browserTest.label) + ' |',
     '',
     '### Open issues by risk level',
     '',

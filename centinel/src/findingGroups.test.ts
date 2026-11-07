@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { distinctFindingIssues, findingCountSummary, findingSourceReferences, groupFindings, groupOccurrenceSummary, groupStatus } from './findingGroups';
+import { distinctFindingIssues, findingCountSummary, findingObservationCount, findingSourceReferences, groupFindings, groupOccurrenceSummary, groupStatus, ruleCheckExplanation } from './findingGroups';
 import type { Finding } from './types';
 const finding = (id: string, extra: Partial<Finding> = {}): Finding => ({ id, projectId: 'p', sessionId: 'r', source: 'static', verifier: 'deterministic', severity: 'medium', title: '[cq-deep-nesting] nested 6 levels', description: 'Keep this original evidence.', status: 'new', createdAt: '', artifactId: id, category: 'code_quality', evidenceText: 'if (ready) {', recommendation: '', confidence: 'high', fromRemarks: false, filePath: `${id}.ts`, lineNumber: 4, ...extra });
 describe('finding type grouping', () => {
@@ -98,5 +98,18 @@ describe('finding type grouping', () => {
     const model = finding('m', { verifier: 'model', title: 'Console logging leaks order data', filePath: 'server.js', lineNumber: 140 });
     const readiness = finding('ready', { verifier: 'readiness', title: 'Console logging leaks order data', filePath: 'server.js', lineNumber: 140 });
     expect(groupFindings([model, rule, readiness])).toHaveLength(3);
+  });
+  it('counts repeats a Review merged into one finding as raw occurrences, not as extra flagged items', () => {
+    const merged = finding('m', { verifier: 'model', title: 'Payment amount not validated', category: 'business', filePath: 'validators.ts', lineNumber: 87,
+      location: { issueType: 'non_positive_amount', sourceLocator: { mergedObservationTotal: 5, mergedObservations: [] } } });
+    expect(findingObservationCount(merged)).toBe(6);
+    expect(findingCountSummary([merged])).toBe('1 issue type · 1 flagged item · 6 occurrences');
+  });
+  it('explains a rule-only check in plain language without treating model findings as rule checks', () => {
+    const secret = finding('s', { title: '[secrets-api-key] Possible hardcoded credential in "secret".', category: 'secrets', location: { ruleId: 'secrets-api-key' } });
+    expect(groupFindings([secret])[0].title).toBe('Hard-coded Secret');
+    expect(ruleCheckExplanation(secret)).toMatch(/written directly in the source code/);
+    expect(ruleCheckExplanation(finding('unknown', { title: '[custom-rule] something' }))).toMatch(/pattern check/);
+    expect(ruleCheckExplanation(finding('model', { verifier: 'model', title: 'Session secret hard-coded' }))).toBeNull();
   });
 });

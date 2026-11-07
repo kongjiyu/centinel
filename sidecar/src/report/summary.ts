@@ -24,7 +24,10 @@ export type ReportSummary = {
   tone: SummaryTone;
   headline: string;
   explanation: string;
+  /** Distinct open issues: repeats of one issue at the same place count once. */
   openIssues: number;
+  /** Raw open occurrences, including stored rows for repeats and observations merged into a finding. */
+  openOccurrences: number;
   seriousIssues: number;
   riskCounts: Record<RiskLevel | 'unclassified', number>;
   codeReview: { label: string; tone: SummaryTone; detail: string };
@@ -71,15 +74,55 @@ function isRuleCheck(finding: ProjectReportFinding): boolean {
   return /^\[[\w.-]+\]/.test(finding.title);
 }
 
-/** The same issue can be open from more than one Review; show it once in the summary. */
+const TITLE_STOPWORDS = new Set(['a', 'an', 'and', 'are', 'at', 'be', 'by', 'can', 'check', 'checks', 'for', 'from', 'in', 'is', 'issue', 'lack', 'lacks', 'missing', 'no', 'not', 'of', 'on', 'or', 'risk', 'the', 'to', 'via', 'with', 'without']);
+
+function normalizedTitle(title: string): string {
+  return title.trim().replace(/^\[[^\]]+\]\s*/, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function titleWords(title: string): Set<string> {
+  return new Set(normalizedTitle(title).split(' ')
+    .map(token => token.length > 3 && token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1) : token)
+    .filter(token => token.length > 3 && !TITLE_STOPWORDS.has(token)));
+}
+
+function similarTitles(left: string, right: string): boolean {
+  const a = titleWords(left);
+  const b = titleWords(right);
+  if (!a.size || !b.size) return false;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared += 1;
+  return shared > 0 && shared / Math.min(a.size, b.size) >= 0.5;
+}
+
+/** Same lines-may-move window the Findings screen uses for one issue. */
+const SAME_ISSUE_LINE_WINDOW = 5;
+
+function sameIssue(left: ProjectReportFinding, right: ProjectReportFinding): boolean {
+  const path = (finding: ProjectReportFinding) => (finding.filePath || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  if (path(left) !== path(right)) return false;
+  const sameTitle = normalizedTitle(left.title) === normalizedTitle(right.title);
+  if (left.lineNumber == null || right.lineNumber == null) return sameTitle && left.lineNumber == null && right.lineNumber == null;
+  if (left.lineNumber === right.lineNumber && sameTitle) return true;
+  return Boolean(path(left)) && Math.abs(left.lineNumber - right.lineNumber) <= SAME_ISSUE_LINE_WINDOW
+    && (sameTitle || left.category === right.category && similarTitles(left.title, right.title));
+}
+
+/**
+ * The same issue can be open from more than one Review, or reported twice by
+ * one Review in different words; show it once in the summary. Input order is
+ * kept, so the first (highest-risk after sorting) occurrence represents it.
+ */
 function distinctIssues<T extends ProjectReportFinding>(items: T[]): T[] {
-  const seen = new Set<string>();
-  return items.filter(item => {
-    const key = [item.title.trim().toLowerCase(), item.filePath, item.lineNumber ?? ''].join('\u0000');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const kept: T[] = [];
+  for (const item of items) if (!kept.some(existing => sameIssue(existing, item))) kept.push(item);
+  return kept;
+}
+
+/** A stored row plus the observations its Review merged into it. */
+function occurrenceCount(finding: ProjectReportFinding): number {
+  const merged = finding.mergedObservationCount;
+  return 1 + (typeof merged === 'number' && Number.isInteger(merged) && merged > 0 ? merged : 0);
 }
 
 function origin(finding: ProjectReportFinding): SummaryIssue['origin'] {
@@ -138,9 +181,13 @@ function browserTestStatus(snapshot: ProjectReportSnapshot): ReportSummary['brow
 
 export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary {
   const open = openFindings(snapshot);
+  const sorted = distinctIssues([...open].sort((a, b) => riskRank(a.riskLevel) - riskRank(b.riskLevel)
+    || Number(isRuleCheck(a)) - Number(isRuleCheck(b)) || a.title.localeCompare(b.title)));
+  // Count distinct issues (each at its highest open risk); raw occurrences stay available separately.
   const riskCounts: ReportSummary['riskCounts'] = { critical: 0, high: 0, medium: 0, low: 0, unclassified: 0 };
-  open.forEach(item => { riskCounts[item.riskLevel ?? 'unclassified'] += 1; });
+  sorted.forEach(item => { riskCounts[item.riskLevel ?? 'unclassified'] += 1; });
   const seriousIssues = riskCounts.critical + riskCounts.high;
+  const openOccurrences = open.reduce((total, item) => total + occurrenceCount(item), 0);
   const codeReview = codeReviewStatus(snapshot);
   const browserTest = browserTestStatus(snapshot);
   const traceability = snapshot.latestReview?.traceability;
@@ -148,8 +195,6 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     ? { complete: traceability.summary.complete, incomplete: traceability.summary.incomplete, missing: traceability.summary.missing }
     : null;
 
-  const sorted = distinctIssues([...open].sort((a, b) => riskRank(a.riskLevel) - riskRank(b.riskLevel)
-    || Number(isRuleCheck(a)) - Number(isRuleCheck(b)) || a.title.localeCompare(b.title)));
   const topIssues: SummaryIssue[] = sorted.slice(0, 5).map(item => ({
     id: item.id,
     title: item.title,
@@ -172,11 +217,11 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     tone = 'neutral';
     headline = 'Not checked yet';
     explanation = 'No code review or browser test has finished, so there is no result to report yet.';
-  } else if (open.length > 0 || codeReview.tone === 'critical' || codeReview.tone === 'warning' || browserTest.tone === 'critical' || browserTest.tone === 'warning') {
+  } else if (sorted.length > 0 || codeReview.tone === 'critical' || codeReview.tone === 'warning' || browserTest.tone === 'critical' || browserTest.tone === 'warning') {
     tone = 'warning';
     headline = 'Needs attention';
     const reasons: string[] = [];
-    if (open.length) reasons.push('There ' + (open.length === 1 ? 'is ' : 'are ') + plural(open.length, 'open issue') + ' to look at.');
+    if (sorted.length) reasons.push('There ' + (sorted.length === 1 ? 'is ' : 'are ') + plural(sorted.length, 'open issue') + ' to look at.');
     if (browserTest.tone === 'critical') reasons.push('The latest browser test failed.');
     else if (browserTest.tone === 'warning') reasons.push('The latest browser test could not finish.');
     if (codeReview.tone === 'critical') reasons.push('The latest code review failed.');
@@ -201,12 +246,13 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
   if (!snapshot.latestDynamicTest) nextSteps.push('Run a browser test so Centinel can check your website in a real browser.');
   if (['success', 'pending_approval'].includes(snapshot.latestReview?.session.status ?? '') && !snapshot.latestReview?.decision) nextSteps.push('Open the latest code review and approve it or request changes.');
   if (requirements && requirements.missing > 0) nextSteps.push('Link ' + plural(requirements.missing, 'requirement') + ' to the code that implements ' + (requirements.missing === 1 ? 'it' : 'them') + ', so Centinel can check coverage.');
-  if (nextSteps.length < 3 && open.length > seriousIssues) nextSteps.push('Work through the ' + plural(open.length - seriousIssues, 'remaining medium or low issue') + ' listed below.');
+  if (nextSteps.length < 3 && sorted.length > seriousIssues) nextSteps.push('Work through the ' + plural(sorted.length - seriousIssues, 'remaining medium or low issue') + ' listed below.');
   if (!nextSteps.length) nextSteps.push('Run a new review and browser test after your next change to keep this result up to date.');
 
   return {
     tone, headline, explanation,
-    openIssues: open.length,
+    openIssues: sorted.length,
+    openOccurrences,
     seriousIssues,
     riskCounts,
     codeReview,

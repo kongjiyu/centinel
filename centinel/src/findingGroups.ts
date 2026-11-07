@@ -1,4 +1,4 @@
-import type { Finding, FindingSourceReference } from './types';
+import type { Finding, FindingSourceReference, MergedFindingObservation } from './types';
 import { effectiveFindingStatus } from './findingStatus';
 
 const RULE_TITLES: Record<string, string> = {
@@ -8,7 +8,54 @@ const RULE_TITLES: Record<string, string> = {
   'sec-eval': 'Unsafe Code Evaluation', 'sec-innerhtml': 'Unsafe HTML Assignment',
   'sec-sql-injection': 'SQL Injection Risk', 'sec-disabled-headers': 'Disabled Security Headers',
   'sec-hardcoded-url-creds': 'Credentials in URL', 'sec-math-random': 'Insecure Randomness Risk',
+  'secrets-api-key': 'Hard-coded Secret', 'secrets-aws-key': 'Hard-coded AWS Key', 'secrets-private-key': 'Private Key in Source',
+  'secrets-connection-string': 'Database Password in Source', 'secrets-jwt-token': 'Hard-coded JWT', 'secrets-bearer-token': 'Hard-coded Bearer Token',
 };
+
+/**
+ * Plain-language meaning of a rule-engine check, shown when no AI-reported
+ * issue explains the same location. It says what the pattern means and why it
+ * can matter; it is not an AI verdict on this code.
+ */
+const RULE_EXPLANATIONS: Record<string, string> = {
+  'secrets-api-key': 'A value that looks like a password, key or secret is written directly in the source code. If it is used in a real environment, anyone who can read the code can read it too, and a session or signing secret could let them forge sessions or tokens.',
+  'secrets-aws-key': 'An AWS access key ID is written in the source code. Anyone who can read the code may be able to use the AWS account it belongs to.',
+  'secrets-private-key': 'A private key is stored in the source code. Anyone who can read the code can impersonate whatever the key protects.',
+  'secrets-connection-string': 'A database address with a password inside it is stored in the source code. Anyone who can read the code can try to connect to that database.',
+  'secrets-jwt-token': 'A complete sign-in token (JWT) is stored in the source code. Anyone who can read the code may be able to reuse it.',
+  'secrets-bearer-token': 'A fixed access token is sent in a request header from the source code. Anyone who can read the code may be able to reuse it.',
+  'sec-eval': 'The code runs text as program code. If that text can come from a user, they may be able to run their own code.',
+  'sec-innerhtml': 'The code inserts HTML into the page directly. If any part comes from a user, it could run their script in other people\'s browsers.',
+  'sec-sql-injection': 'A database query is built by joining text. If any part comes from a user, they may be able to change what the query does.',
+  'sec-hardcoded-url-creds': 'A web address contains a user name and password. Anyone who can read the code can read those credentials.',
+  'sec-math-random': 'Math.random() is not safe for secrets such as tokens or reset codes, because its values can be predicted.',
+  'cq-console-log': 'Debug logging was left in the code. It can clutter logs or reveal details that should stay private.',
+  'cq-empty-catch': 'An error is caught and silently ignored, so failures can go unnoticed.',
+};
+
+export function ruleIdOf(finding: Finding): string | null {
+  return finding.location?.ruleId || finding.title.match(/^\[([^\]]+)\]/)?.[1] || null;
+}
+
+/** Plain-language explanation for a rule-only finding, or null when it is not a rule finding. */
+export function ruleCheckExplanation(finding: Finding): string | null {
+  if (finding.verifier === 'model' || finding.verifier === 'readiness') return null;
+  const rule = ruleIdOf(finding);
+  if (!rule) return null;
+  return RULE_EXPLANATIONS[rule] ?? 'Centinel\'s built-in pattern check matched this line. Read the code to confirm whether it is a real problem.';
+}
+
+/** Repeats of the same issue that its Review kept as evidence on this finding. */
+export function mergedObservations(finding: Finding): MergedFindingObservation[] {
+  const value = finding.location?.sourceLocator?.mergedObservations;
+  return Array.isArray(value) ? value : [];
+}
+
+/** How many times one stored finding was observed: itself plus repeats its Review merged into it. */
+export function findingObservationCount(finding: Finding): number {
+  const total = finding.location?.sourceLocator?.mergedObservationTotal;
+  return 1 + (typeof total === 'number' && Number.isInteger(total) && total > 0 ? total : mergedObservations(finding).length);
+}
 const GAP_TITLES: Record<string, string> = {
   traceability_mappings_incomplete: 'Incomplete Requirement Coverage',
   confirmed_requirements_missing: 'Missing Confirmed Requirements', unconfirmed_requirements: 'Unconfirmed Business Requirements',
@@ -81,7 +128,9 @@ export function findingCountSummary(findings: Finding[]): string {
   const distinct = groups.reduce((total, group) => total + group.issues.length, 0);
   const gapIssues = groupFindings(findings.filter(isGap)).reduce((total, group) => total + group.issues.length, 0);
   const readinessIssues = groupFindings(findings.filter(isReadiness)).reduce((total, group) => total + group.issues.length, 0);
-  const parts = [`${plural(groups.length, 'issue type', 'issue types')} · ${plural(distinct, 'flagged item', 'flagged items')}${issues.length > distinct ? ` · ${issues.length} occurrences` : ''}`];
+  // Raw occurrences include repeats a Review kept as evidence on one finding.
+  const occurrences = issues.reduce((total, finding) => total + findingObservationCount(finding), 0);
+  const parts = [`${plural(groups.length, 'issue type', 'issue types')} · ${plural(distinct, 'flagged item', 'flagged items')}${occurrences > distinct ? ` · ${occurrences} occurrences` : ''}`];
   if (gapIssues) parts.push(plural(gapIssues, 'evidence gap', 'evidence gaps'));
   if (readinessIssues) parts.push(plural(readinessIssues, 'readiness note', 'readiness notes'));
   return parts.join(' · ');

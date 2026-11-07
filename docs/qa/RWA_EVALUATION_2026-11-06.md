@@ -161,3 +161,24 @@ update or the transaction-list scope override. The public-profile false positive
 - **Precision:** one recurring false positive (public profile returns only name and avatar by design).
 - **Cost and time:** about 1.85M input / 0.21M output tokens and 1¼–1¾ h per uninterrupted run. Each
   20-minute timeout adds 20 minutes and leaves a gap; run 3 had none.
+
+## Follow-up changes (7 November 2026, not yet re-evaluated)
+
+No live Review has been run with these changes; the effect on the RWA runs above is expected, not measured.
+
+- **Reworded duplicate rows.** Cause: the final per-Review deduplication never merged a verified finding
+  with a needs-verification copy, and otherwise required similar title words, so reworded titles for the same
+  line stayed separate rows. A Review now keeps one finding per issue when observations share the file, the
+  line (or overlapping lines) and the issue type; a needs-verification copy only merges into a verified one.
+  Every merged observation stays on the finding as evidence (title, line, excerpt, citation state), shown under
+  "Also reported in this Review". Report and Findings counts show distinct issues and the raw occurrence count.
+  Earlier Reviews' stored rows are unchanged.
+- **Hard-coded session secret (REQ-7).** The rule hit now carries a concrete recommendation, and a rule-only
+  finding explains in plain language what the pattern means and that no AI issue covers that line. Centinel
+  does not infer a requirement link for a pattern-only match; it shows one only when it is recorded.
+- **Public profile false positive.** Policy `review-2026-11-07-distinct-findings-v23` asks the model to
+  identify and cite the fields an endpoint actually returns before claiming data exposure. Not yet verified
+  against the RWA project.
+- **Logout redirect (REQ-8).** Unchanged known limitation: the model may describe the right line as a double
+  response instead of a redirect to a missing page. A prompt rule about redirect targets was not added, because
+  `/` is often served outside the reviewed backend and the rule could cause false positives elsewhere.

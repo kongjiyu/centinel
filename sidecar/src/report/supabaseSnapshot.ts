@@ -162,7 +162,16 @@ function locationOf(row: Row): { filePath: string; lineNumber: number | null } {
   return { filePath: text(location.filePath ?? location.file_path ?? location.path ?? row.file_path), lineNumber: Number.isFinite(number) ? number : null };
 }
 
-function findingFromRow(row: Row): Finding {
+/** Observations a Review merged into this finding (additive findings JSON; absent on older rows). */
+function mergedObservationCountOf(locationValue: unknown): { mergedObservationCount?: number } {
+  const locator = record(record(locationValue).sourceLocator);
+  const total = locator.mergedObservationTotal;
+  const count = typeof total === 'number' && Number.isInteger(total) && total > 0 ? total
+    : Array.isArray(locator.mergedObservations) ? locator.mergedObservations.length : 0;
+  return count > 0 ? { mergedObservationCount: count } : {};
+}
+
+function findingFromRow(row: Row): Finding & { mergedObservationCount?: number } {
   const location = locationOf(row);
   const priority = normalizeRiskPriority(row.priority);
   return {
@@ -171,6 +180,7 @@ function findingFromRow(row: Row): Finding {
     status: text(row.status, 'new') as Finding['status'], createdAt: text(row.created_at), artifactId: nullable(row.artifact_id), category: text(row.category),
     evidenceText: text(row.evidence_text), recommendation: text(row.recommendation), confidence: text(row.confidence), fromRemarks: Boolean(row.from_remarks),
     filePath: location.filePath, lineNumber: location.lineNumber,
+    ...mergedObservationCountOf(row.location),
   };
 }
 
@@ -310,6 +320,7 @@ function reportCurrentFinding(projected: StoreFinding & Record<string, unknown>,
     fromRemarks: false,
     filePath: text(projected.filePath ?? record(projected.location).filePath),
     lineNumber: projected.lineNumber == null ? null : Number(projected.lineNumber),
+    ...mergedObservationCountOf(projected.location),
   };
 }
 

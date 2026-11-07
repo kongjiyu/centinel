@@ -2,7 +2,18 @@ import crypto from 'node:crypto';
 import type { Artifact } from '../artifacts.js';
 import { correlateReviewFindings, type FindingCorrelationSnapshot, type FindingResolutionContext } from './correlation.js';
 import { reconcileProjectFindings, type ReconciliationManifest } from './findingReconciliation.js';
+import { mergedObservationsOf } from './findings.js';
 import type { PersistedReviewFinding, StaticReviewRecord } from './types.js';
+
+/** True when an observation merged into a current finding matches the old finding's identity or location. */
+function mergedObservationCovers(old: PersistedReviewFinding, current: PersistedReviewFinding[]): boolean {
+  const path = (value: string) => value.replace(/\\/g, '/').toLowerCase();
+  return current.some(finding => mergedObservationsOf(finding).some(observation =>
+    Boolean(old.fingerprint) && observation.fingerprint === old.fingerprint
+    || Boolean(old.filePath) && path(observation.filePath ?? '') === path(old.filePath)
+      && observation.lineNumber != null && old.lineNumber != null && Math.abs(observation.lineNumber - old.lineNumber) <= 2
+      && observation.category === old.category));
+}
 
 const EXECUTED = new Set(['pending_approval', 'completed', 'approved', 'changes_requested']);
 
@@ -52,8 +63,9 @@ export function correlateProjectReview(input: {
   });
   const representatives = registry.map(item => previousById.get(item.latestOccurrence?.findingId ?? item.id)!).filter(Boolean);
   const formerlyResolved = new Set(registry.filter(item => item.resolutionEvidence).map(item => item.latestOccurrence?.findingId ?? item.id));
+  const currentFindings = input.current.filter(item => item.projectId === review.projectId && item.reviewId === review.id);
   const snapshot = correlateReviewFindings({ parentReviewId: primary.id, childReviewId: review.id,
-    previous: representatives, current: input.current.filter(item => item.projectId === review.projectId && item.reviewId === review.id) });
+    previous: representatives, current: currentFindings });
   const uncertain = new Set(snapshot.ambiguities.flatMap(item => item.candidateParentFindingIds));
   const source = (artifact: Artifact) => ({ artifactId: artifact.id, sourceIdentity: artifact.originalPath ?? artifact.filePath,
     filePath: artifact.filePath, sourceVersion: artifact.contentHash });
@@ -76,6 +88,13 @@ export function correlateProjectReview(input: {
         } : undefined;
       result = correlateReviewFindings({ parentReviewId: parent.id, childReviewId: review.id, previous: [old], current: [],
         evaluatedSources: input.evaluated.filter(item => item.readable).map(item => source(item.artifact)), resolutionContext: context }).correlations[0];
+    }
+    if (old && result.classification === 'resolved' && mergedObservationCovers(old, currentFindings)) {
+      // A repeat merged into another finding of this Review still points at
+      // this issue; its absence as a separate row is not resolution evidence.
+      const { resolutionEligibility: _eligibility, ...rest } = result;
+      result = { ...rest, classification: 'carried_over',
+        detail: 'A repeated observation in this Review still points at this location; absence of a separate finding does not establish resolution.' };
     }
     if (old && result.childFindingId && formerlyResolved.has(old.id)) result = { ...result, classification: 'regressed' };
     return { ...result, parentReviewId: parent.id,
