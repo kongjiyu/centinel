@@ -1,6 +1,6 @@
 import { LoadingSkeleton } from './components/LoadingSkeleton';
 import { hashToScreen, isRouteHash, screenToHash } from './navigation/screenHash';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import './App.css';
 import { userFacingError } from './utils/userFacingError';
 import './command.css';
@@ -8,19 +8,7 @@ import './workspace.css';
 import './screens/ProfileScreen.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
-import { ProjectsScreen } from './screens/ProjectsScreen';
-import { ProjectDetailScreen } from './screens/ProjectDetailScreen';
 import type { ProjectCreateSource } from './components/ProjectCreateModal';
-import { DynamicWorkspaceScreen } from './screens/DynamicWorkspaceScreen';
-import { DynamicSessionScreen } from './screens/DynamicSessionScreen';
-import { SettingsScreen } from './screens/SettingsScreen';
-import { ProfileScreen } from './screens/ProfileScreen';
-import { RequirementsScreen } from './screens/RequirementsScreen';
-import { EvidenceBrowser } from './screens/EvidenceBrowser';
-import { ReviewActivityScreen } from './screens/ReviewActivityScreen';
-import { ReviewEntryScreen } from './screens/ReviewEntryScreen';
-import { ReviewPlaygroundScreen } from './screens/ReviewPlaygroundScreen';
-import { HelpScreen } from './screens/HelpScreen';
 import { restartOnboarding } from './components/OnboardingWizard';
 import { AuthScreen } from './screens/AuthScreen';
 import { api, waitForSidecar } from './api/client';
@@ -33,6 +21,32 @@ import { UpdatePrompt } from './components/UpdatePrompt';
 import { GithubConnectionPrompt } from './components/GithubConnectionPrompt';
 import { isSupabaseAuthConfigured, restoreSupabaseSession, signOutSupabase, subscribeToDeepLinkAuth, subscribeToSupabaseAuth } from './auth/supabaseAuth';
 import type { Session } from '@supabase/supabase-js';
+
+// Screens outside the first view load on demand so the initial bundle stays
+// small. Home and the sign-in screen stay in the main chunk.
+const ProjectsScreen = lazy(() => import('./screens/ProjectsScreen').then(module => ({ default: module.ProjectsScreen })));
+const ProjectDetailScreen = lazy(() => import('./screens/ProjectDetailScreen').then(module => ({ default: module.ProjectDetailScreen })));
+const DynamicWorkspaceScreen = lazy(() => import('./screens/DynamicWorkspaceScreen').then(module => ({ default: module.DynamicWorkspaceScreen })));
+const DynamicSessionScreen = lazy(() => import('./screens/DynamicSessionScreen').then(module => ({ default: module.DynamicSessionScreen })));
+const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then(module => ({ default: module.SettingsScreen })));
+const ProfileScreen = lazy(() => import('./screens/ProfileScreen').then(module => ({ default: module.ProfileScreen })));
+const RequirementsScreen = lazy(() => import('./screens/RequirementsScreen').then(module => ({ default: module.RequirementsScreen })));
+const EvidenceBrowser = lazy(() => import('./screens/EvidenceBrowser').then(module => ({ default: module.EvidenceBrowser })));
+const ReviewActivityScreen = lazy(() => import('./screens/ReviewActivityScreen').then(module => ({ default: module.ReviewActivityScreen })));
+const ReviewEntryScreen = lazy(() => import('./screens/ReviewEntryScreen').then(module => ({ default: module.ReviewEntryScreen })));
+const ReviewPlaygroundScreen = lazy(() => import('./screens/ReviewPlaygroundScreen').then(module => ({ default: module.ReviewPlaygroundScreen })));
+const ReviewsListScreen = lazy(() => import('./screens/ReviewsListScreen').then(module => ({ default: module.ReviewsListScreen })));
+const HelpScreen = lazy(() => import('./screens/HelpScreen').then(module => ({ default: module.HelpScreen })));
+
+/** Shared placeholder while an on-demand screen downloads. */
+function ScreenLoading() {
+  return (
+    <div className="screen screen-loading" aria-busy="true">
+      <LoadingSkeleton label="Loading page" variant="panel" />
+      <LoadingSkeleton label="Loading page content" variant="rows" rows={4} />
+    </div>
+  );
+}
 
 type AuthProvider = 'github' | 'google' | 'email' | null;
 
@@ -310,6 +324,7 @@ function App() {
         onSwitchAccount={switchAccount}
         onLogOut={returnToSignIn}
       >
+        <Suspense fallback={<ScreenLoading />}>
         {screen.name === 'dashboard' && (
           <DashboardScreen
             projects={projects}
@@ -386,6 +401,15 @@ function App() {
           <ReviewPlaygroundScreen projects={projects} initialProjectId={screen.projectId} initialSessionId={screen.sessionId} onNavigate={setScreen} />
         )}
         {screen.name === 'profile' && <ProfileScreen accountEmail={accountEmail} authProvider={authProvider} />}
+        {screen.name === 'reviews' && (
+          <ReviewsListScreen
+            projectId={screen.projectId}
+            projects={projects}
+            initialStatus={screen.status}
+            onNavigate={navigate}
+          />
+        )}
+        </Suspense>
       </AppShell>
       <ReviewToast />
       <UpdatePrompt />

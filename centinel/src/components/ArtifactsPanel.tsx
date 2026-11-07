@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { setVisibleTimeout } from '../hooks/usePageVisible';
 import { sourceCurrencyState } from '../sourceCurrency';
 import { open as pickPath } from '@tauri-apps/api/dialog';
 import { readBinaryFile } from '@tauri-apps/api/fs';
@@ -447,7 +448,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
     if (!connectedSourceKey || typeof api.listConnectedSources !== 'function') return undefined;
     let disposed = false;
     let requestInFlight = false;
-    let timer: number | undefined;
+    let cancelTimer: (() => void) | undefined;
     const poll = async () => {
       if (disposed || requestInFlight) return;
       requestInFlight = true;
@@ -475,13 +476,13 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
         if (!disposed) setSourceStatusStale(true);
       } finally {
         requestInFlight = false;
-        if (!disposed) timer = window.setTimeout(() => { void poll(); }, activeSourceKey ? 2_000 : 30_000);
+        if (!disposed) cancelTimer = setVisibleTimeout(() => { void poll(); }, activeSourceKey ? 2_000 : 30_000);
       }
     };
-    timer = window.setTimeout(() => { void poll(); }, activeSourceKey ? 1_000 : 30_000);
+    cancelTimer = setVisibleTimeout(() => { void poll(); }, activeSourceKey ? 1_000 : 30_000);
     return () => {
       disposed = true;
-      if (timer !== undefined) window.clearTimeout(timer);
+      cancelTimer?.();
     };
   }, [activeSourceKey, connectedSourceKey, projectId]);
 

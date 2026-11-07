@@ -1,10 +1,11 @@
 import {useEffect,useRef,useState} from 'react';import {api} from '../api/client';import {Select} from '../components/Select';import {userFacingError} from '../utils/userFacingError';import type {EnvironmentProfile} from '../dynamic/types';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 type SessionView=Awaited<ReturnType<typeof api.dynamicSession>>;
 export function DynamicSessionPanel({projectId,profile,disabled,onCaptureBusy}:{projectId:string;profile:EnvironmentProfile;disabled:boolean;onCaptureBusy(busy:boolean):void}){
  const [view,setView]=useState<SessionView|null>(null);const [busy,setBusy]=useState<string|null>(null);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [hours,setHours]=useState('1');const scope=useRef(0);const sequence=useRef(0);const errorRef=useRef<HTMLParagraphElement>(null);
  useEffect(()=>{const generation=++scope.current;setView(null);setBusy(null);setError('');setNotice('');
-  const load=()=>{const tick=++sequence.current;void api.dynamicSession(projectId,profile.id).then(result=>{if(scope.current===generation&&tick===sequence.current)setView(result);}).catch(e=>{if(scope.current===generation)setError(userFacingError(e,'Session status unavailable.'));});};load();const timer=window.setInterval(load,5000);return()=>{scope.current++;window.clearInterval(timer);};
+  const load=()=>{const tick=++sequence.current;void api.dynamicSession(projectId,profile.id).then(result=>{if(scope.current===generation&&tick===sequence.current)setView(result);}).catch(e=>{if(scope.current===generation)setError(userFacingError(e,'Session status unavailable.'));});};load();const stop=setVisibleInterval(load,5000);return()=>{scope.current++;stop();};
  },[projectId,profile.id,profile.version]);
  const captureActive=Boolean(view?.capture&&view.capture.state!=='closed');
  useEffect(()=>{onCaptureBusy(captureActive||busy==='open');return()=>onCaptureBusy(false);},[captureActive,busy,onCaptureBusy]);

@@ -1,5 +1,6 @@
 import {DynamicUnitPanel} from './DynamicUnitPanel';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import {DynamicPrivateInputs} from './DynamicPrivateInputs';
 import {DynamicDownloadPanel} from './DynamicDownloadPanel';
 import {DynamicUploadPanel} from './DynamicUploadPanel';
@@ -34,8 +35,8 @@ export function DynamicEnvironmentPanel({projectId,value,onChange,disabled,onDat
   return()=>{current=false;};
  },[projectId,value]);
  useEffect(()=>{let current=true;setDataState(null);setDataNote('');if(!value)return;
-  const refresh=()=>{const sequence=++dataSequence.current;void api.dynamicEnvironmentData(projectId,value).then(result=>{if(current&&sequence===dataSequence.current)setDataState(result);}).catch(e=>{if(current)setError(userFacingError(e));});};refresh();const timer=window.setInterval(refresh,5000);
-  return()=>{current=false;window.clearInterval(timer);};
+  const refresh=()=>{const sequence=++dataSequence.current;void api.dynamicEnvironmentData(projectId,value).then(result=>{if(current&&sequence===dataSequence.current)setDataState(result);}).catch(e=>{if(current)setError(userFacingError(e));});};refresh();const stop=setVisibleInterval(refresh,5000);
+  return()=>{current=false;stop();};
  },[projectId,value]);
  useEffect(()=>{onDataBusy?.(captureBusy||Boolean(dataState&&['in_use','preparing','cleaning'].includes(dataState.state)));},[dataState?.state,captureBusy,onDataBusy]);
  const recordData=async(event:React.SyntheticEvent,cleanup=false)=>{event.preventDefault();dataSequence.current++;const generation=scope.current;setBusy(true);setError('');try{const result=await api.recordDynamicEnvironmentData(projectId,value,dataState?.state==='cleanup_required'||cleanup?'cleanup':'preparation',dataOutcome,dataNote);if(generation!==scope.current)return;dataSequence.current++;setDataState(result);setDataNote('');setPreflight(null);setNotice('Manual data outcome recorded. Browser results are unchanged.');}catch(e){if(generation===scope.current)setError(userFacingError(e));}finally{if(generation===scope.current)setBusy(false);}};

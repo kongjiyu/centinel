@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatActivityTime } from '../hooks/useProjectSummaries';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { api } from '../api/client';
 import { userFacingError } from '../utils/userFacingError';
 import { DynamicReportsPanel } from './DynamicReportsPanel';
@@ -25,7 +26,7 @@ export function DynamicUnitPanel({ projectId, environmentId, disabled, dataState
         if (generation === scope.current && tick === sequence.current)
             onData.current(data);
     } }).catch(e => { if (generation === scope.current)
-        setError(userFacingError(e, 'Unit history unavailable.')); }); }; load(); const timer = window.setInterval(load, 5000); return () => { scope.current++; window.clearInterval(timer); }; }, [projectId, environmentId]);
+        setError(userFacingError(e, 'Unit history unavailable.')); }); }; load(); const stop = setVisibleInterval(load, 5000); return () => { scope.current++; stop(); }; }, [projectId, environmentId]);
     const active = history.find(r => ['queued', 'running'].includes(r.state)), selected = history.find(r => r.id === selectedId);
     async function start() { const generation = scope.current, timeoutMs = Math.round(seconds * 1000); if (!request.current || request.current.timeoutMs !== timeoutMs)
         request.current = { key: crypto.randomUUID(), timeoutMs }; setBusy(true); setError(''); try {

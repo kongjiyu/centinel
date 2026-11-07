@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { setVisibleInterval } from '../hooks/usePageVisible';
 import { ProjectMembersPanel } from '../components/ProjectMembersPanel';
 import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { Download, Plus, FolderOpen, Play, AlertCircle, GitBranch, Clock3, ChevronLeft, ChevronRight, ChevronDown, Users, Settings, ShieldAlert, Info, Trash2, Search, UserPlus, CheckCircle2, ListFilter, FileCheck2, MonitorPlay } from 'lucide-react';
@@ -316,8 +317,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     const hasActive = dynamicSessions.some(s => s.status === 'running' || s.status === 'queued') ||
       staticSessions.some(s => s.status === 'running' || s.status === 'queued');
     if (!hasActive) return;
-    const interval = setInterval(() => { loadDynamicSessions(); loadStaticSessions(); }, 2000);
-    return () => clearInterval(interval);
+    return setVisibleInterval(() => { loadDynamicSessions(); loadStaticSessions(); }, 2000);
   }, [activeSection, dynamicSessions, staticSessions, loadDynamicSessions, loadStaticSessions]);
 
   const handleExportReport = async () => {
@@ -1163,7 +1163,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                  <button type="button" className={activityType === 'review' ? 'active' : ''} aria-pressed={activityType === 'review'} onClick={() => setActivityType('review')}><FileCheck2 size={16} aria-hidden="true" /><span>Review</span></button>
                  <button type="button" className={activityType === 'dynamic' ? 'active' : ''} aria-pressed={activityType === 'dynamic'} onClick={() => setActivityType('dynamic')}><MonitorPlay size={16} aria-hidden="true" /><span>Dynamic Testing</span></button>
                </div></div>
-                <span className="panel-count">{activityInitialReadLoading ? 'Loading…' : activityLoadError && projectActivities.length === 0 ? 'Unavailable' : `${Math.min(5, projectActivities.length)} of ${projectActivities.length}`}</span>
+                <span className="project-activity-header-end">
+                  <span className="panel-count">{activityInitialReadLoading ? 'Loading…' : activityLoadError && projectActivities.length === 0 ? 'Unavailable' : `${Math.min(5, projectActivities.length)} of ${projectActivities.length}`}</span>
+                  <button type="button" className="project-activity-all-reviews" onClick={() => onNavigate({ name: 'reviews', projectId: project.id })}>All Reviews</button>
+                </span>
              </div>
              <div className="project-activity-filters" aria-label="Filter recent activity">
                <label className="project-activity-search"><span className="visually-hidden">Search activity</span><input type="search" aria-label="Search activity" value={activityQuery} onChange={event => setActivityQuery(event.target.value)} placeholder="Activity name or state" /></label>

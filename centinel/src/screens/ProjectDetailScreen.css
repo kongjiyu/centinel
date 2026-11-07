@@ -730,6 +730,29 @@
   row-gap: 10px;
 }
 
+.command-project-detail .project-activity-header-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.command-project-detail .project-activity-all-reviews {
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.command-project-detail .project-activity-all-reviews:hover { text-decoration: underline; }
+.command-project-detail .project-activity-all-reviews:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+
 .command-project-detail .project-activity-title {
   display: flex;
   min-width: 0;

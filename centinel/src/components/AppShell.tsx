@@ -155,7 +155,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
     onNavigate({ name: 'project-detail', projectId: selectedProject.id, initialAction });
   };
 
-  const staticActive = screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-entry' ||
+  const staticActive = screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-entry' || screen.name === 'reviews' ||
     (screen.name === 'project-detail' && screen.initialAction === 'static');
   const dynamicActive = screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' ||
     (screen.name === 'project-detail' && screen.initialAction === 'dynamic');
