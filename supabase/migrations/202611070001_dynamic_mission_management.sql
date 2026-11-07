@@ -41,5 +41,5 @@ begin
   return result;
 end $$;
 
-revoke all on function public.update_dynamic_mission(uuid,uuid,uuid,text,boolean,boolean) from public;
+revoke all on function public.update_dynamic_mission(uuid,uuid,uuid,text,boolean,boolean) from public, anon;
 grant execute on function public.update_dynamic_mission(uuid,uuid,uuid,text,boolean,boolean) to authenticated;
