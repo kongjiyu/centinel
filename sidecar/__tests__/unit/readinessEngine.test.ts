@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
-import { assessProjectReadiness, assessRepositoryReadiness } from '../../src/readiness/engine.js';
+import { assessProjectReadiness, assessRepositoryReadiness, classificationEvidenceCorroborates } from '../../src/readiness/engine.js';
 import type { ReadinessArtifact, ReadinessCategory } from '../../src/readiness/types.js';
 
 const projectId = 'project-readiness-test';
@@ -579,5 +579,58 @@ describe('assessProjectReadiness', () => {
 
     expect(result.categories.filter(category => category.id !== 'repository').map(category => category.state)).toEqual(['incomplete', 'incomplete', 'incomplete']);
     expect(result.findings.some(finding => finding.title === 'Source coverage is incomplete')).toBe(true);
+  });
+  it('G-S6 never completes coding standards from requirement text the model mislabels as standards', async () => {
+    const requirementOnly = [...Object.values(evidence.requirements).flat()].join('\n');
+    const response = completeResponse('requirements-doc');
+    const standards = response.categories.find(category => category.category === 'standards')!;
+    standards.classificationEvidence = [{ sourceId: 'requirements-doc', excerpt: evidence.requirements.business_decisions[0] }];
+    standards.scopeCoverage = standards.scopeCoverage.map(item => ({ ...item, coverageEvidence: [{ sourceId: 'requirements-doc', excerpt: evidence.requirements.boundaries[0] }] }));
+    standards.checks = standards.checks.map(check => ({
+      ...check,
+      evidence: (check.criterion === 'conflicts' ? evidence.requirements.consistency : [evidence.requirements.testability[0]])
+        .map(excerpt => ({ sourceId: 'requirements-doc', excerpt })),
+    }));
+    const result = await assessProjectReadiness(input([
+      { artifact: artifact('requirements-doc', 'docs/requirements.md'), content: requirementOnly },
+    ]), { analyze: vi.fn(async () => ({ result: response })) });
+
+    const category = result.categories.find(item => item.id === 'standards')!;
+    expect(category.state).toBe('incomplete');
+    expect(category.checksPassed).toBe(0);
+    expect(category.criteria?.every(item => item.status === 'unknown')).toBe(true);
+    expect(category.criteria?.every(item => item.basis.includes('not corroborated'))).toBe(true);
+    const corroboration = result.findings.find(finding => finding.category === 'standards' && finding.title === 'Coding standards content is not corroborated');
+    expect(corroboration?.references.map(reference => reference.excerpt)).toEqual([evidence.requirements.business_decisions[0]]);
+    expect(category.gapIds).toContain(corroboration?.id);
+    expect(result.validationDiagnostics?.categories.find(item => item.category === 'standards')?.reasonCounts?.classification_uncorroborated).toBe(1);
+    expect(result.validationDiagnostics?.categories.find(item => item.category === 'standards')?.classificationCorroborated).toBe(false);
+    // A genuine coding-standards statement is still accepted from content alone.
+    expect(result.categories.find(item => item.id === 'requirements')?.state).not.toBe('missing');
+  });
+
+  it('G-S6 never completes design from a coding-standards rule mislabelled as design', async () => {
+    const response = completeResponse('spec');
+    const design = response.categories.find(category => category.category === 'design')!;
+    design.classificationEvidence = [{ sourceId: 'spec', excerpt: evidence.standards.conflicts[0] }];
+    const result = await assessProjectReadiness(input([
+      { artifact: artifact('spec', 'docs/spec.md'), content: comprehensiveContent },
+    ]), { analyze: vi.fn(async () => ({ result: response })) });
+    expect(result.categories.find(item => item.id === 'design')?.state).toBe('incomplete');
+    expect(result.categories.find(item => item.id === 'standards')?.state).toBe('completed');
+    expect(result.categories.find(item => item.id === 'requirements')?.state).toBe('completed');
+  });
+});
+
+describe('classification content corroboration', () => {
+  it('accepts coding-standards rules and design statements from content, not filenames', () => {
+    expect(classificationEvidenceCorroborates('standards', ['Functions must use camelCase names.'])).toBe(true);
+    expect(classificationEvidenceCorroborates('standards', ['CI checks TypeScript changes with pnpm lint and pnpm typecheck.'])).toBe(true);
+    expect(classificationEvidenceCorroborates('standards', ['Users must be able to reset their password by email.'])).toBe(false);
+    expect(classificationEvidenceCorroborates('standards', ['Orders above $5,000 require manager approval before payment capture.'])).toBe(false);
+    expect(classificationEvidenceCorroborates('standards', ['The checkout page should load within two seconds.'])).toBe(false);
+    expect(classificationEvidenceCorroborates('design', ['POST /checkout accepts order lines and returns an order ID.'])).toBe(true);
+    expect(classificationEvidenceCorroborates('design', ['TypeScript files use single quotes.'])).toBe(false);
+    expect(classificationEvidenceCorroborates('requirements', ['Anything readable.'])).toBe(true);
   });
 });

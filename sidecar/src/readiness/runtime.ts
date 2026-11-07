@@ -5,6 +5,7 @@ import { CentinelApplicationRepository } from '../applicationRepository.js';
 import { listClientArtifacts, readClientArtifactContent } from '../applicationApi.js';
 import { SupabaseConnectedSourceRepository } from '../integrations/supabaseRepository.js';
 import { createGroundingModelProvider } from '../review/groundingProvider.js';
+import { SupabaseModelConfigurationRepository } from '../review/modelProviderResolver.js';
 import { SupabaseReadinessStore } from './repository.js';
 import { ProjectReadinessCoordinator, type ReadinessIndex } from './service.js';
 import type { ReadinessArtifact } from './types.js';
@@ -22,6 +23,20 @@ export function createReadinessModelProvider(auth: AuthenticatedRequest, current
     return current.client;
   };
   return createGroundingModelProvider(currentClient, auth.userId);
+}
+
+/** Hash-only identity of the configuration Readiness would resolve; never returns secrets or endpoints. */
+export async function readinessConfigurationRevision(auth: AuthenticatedRequest, projectId: string): Promise<string | null> {
+  const record = await new SupabaseModelConfigurationRepository(auth.client)
+    .getModelConfiguration({ ownerId: auth.userId, projectId, purpose: 'static_review' });
+  if (!record) return null;
+  const digest = (value: string | null | undefined) => value ? crypto.createHash('sha256').update(value).digest('hex') : null;
+  return crypto.createHash('sha256').update(JSON.stringify({
+    version: 1, id: record.id ?? null, provider: record.provider, apiFormat: record.apiFormat ?? null, model: record.model,
+    baseUrl: digest(record.baseUrl), secret: digest(record.secretCiphertext),
+    fallback: [record.fallbackProvider ?? null, record.fallbackApiFormat ?? null, record.fallbackModel ?? null,
+      digest(record.fallbackBaseUrl), digest(record.fallbackSecretCiphertext)],
+  })).digest('hex');
 }
 
 export async function inspectReadinessSources(auth: AuthenticatedRequest, projectId: string): Promise<ReadinessIndex> {
@@ -99,6 +114,7 @@ export function createProjectReadinessCoordinator(options: { jobTimeoutMs?: numb
     inspect: inspectReadinessSources,
     read: readFrozenReadinessArtifact,
     provider: createReadinessModelProvider,
+    configurationRevision: readinessConfigurationRevision,
     jobTimeoutMs: options.jobTimeoutMs,
   });
 }
