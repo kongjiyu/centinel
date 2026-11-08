@@ -1,7 +1,7 @@
 # PRD §13.2 acceptance walk-through (7–8 November 2026)
 
 Build: packaged macOS app built locally with `pnpm build` from `main` (first at `39612eb`, rebuilt at
-`c4d1a42`, and again with PRs #76 and #77), run from the repository build folder with its bundled sidecar.
+`c4d1a42`, and again with PRs #76, #77 and #79), run from the repository build folder with its bundled sidecar.
 Signed in to the hosted Supabase project as the test owner. Static Review model: Codex through the
 user's ChatGPT login; embeddings: Voyage. Targets: the bundled Sample Shop (app copy in
 `~/Library/Application Support/com.centinel.app/samples/sample-shop`, port 4100) and the Cypress Real
@@ -55,9 +55,17 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
   suggestions and 2 `requirement_mappings` rows with `coverage_status = 'suggested'`.
 - The Review stalled for about 9 hours before this run (PR #76) and did not resume after a quick
   restart (PR #77). After both fixes it recovered (`review_lease_recovered`, attempt 2) and finished.
-  Lease-recovery batch reuse (#65/#73) was not observed: the restart came 7 seconds after the first
-  batch's support check, before its cache record was saved, so that batch ran again. Later batches saved
-  cache records normally.
+  Lease-recovery batch reuse (#65/#73) was not observed in this Review: the restart came 7 seconds after
+  the first batch's support check, before its cache record was saved, so that batch ran again.
+- Dedicated reuse check (8 November): Review `69d85356` was quit 6 s after batch `294295c1` was cached
+  and relaunched once its lease expired. Recovery started at once (PR #77), but the batch ran again with no
+  reuse or rejection event: its cache key differed between runs (`0232…` vs `37a9…`). Cause: the prompt
+  embedded the frozen traceability records with `JSON.stringify`, and the resumed run reads them back
+  from `jsonb`, which reorders keys. Fixed in PR #79. Repeated on the fixed build with Review `a99b594b`:
+  quit 13:47:57, relaunched 13:48:20, and batch `294295c1` was reused
+  (`review_batch_cache_reused`, `reuseKind: lease_recovery`, 1 provider call avoided, same
+  `requestHash` `fff25237…`). The Review succeeded with 5 findings. Batch `2d450356` was not cached
+  either time because its support check contradicted a candidate, which correctly prevents reuse.
 
 ### 3. New shared project — Pass
 - Project "Acceptance S3 new project" created in the UI from a local folder; Dynamic Run `0021ad2e`
@@ -147,10 +155,11 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
 | #75 | Open Run panel kept showing "Running" after the Run ended |
 | #76 | A Review stalled 9 hours: the TypeScript callback checker searched the real disk for `node_modules/@types`, and in a build under `~/Documents` that read waited on an unanswered macOS privacy prompt, blocking the sidecar. The checker now reads only frozen sources; Supabase bodies also time out after 15 s without data |
 | #77 | After a quick restart, Review recovery ran before the old lease expired and never checked again, so the Review stayed "running" with no worker. Later requests now re-check at most once a minute |
+| #79 | Lease-recovery batch reuse never hit after a restart: frozen traceability records read back from `jsonb` had reordered keys, so the prompt bytes and the batch cache key changed. Prompt now uses sorted-key JSON |
 
 ## Limits
 - Scenarios 9 and 11 rely on earlier recorded evidence; 12 needs an API key; 13's second-member and
   revoked checks need a second hosted account (this session does not sign in to hosted accounts).
-- Scenario 2 did not show a resolved issue or lease-recovery batch reuse live; see its details.
+- Scenario 2 did not show a resolved issue live; see its details.
 - Run from a build inside `~/Documents`, so macOS privacy prompts appeared after each rebuild. An
   installed app in `/Applications` asks once per protected folder.
