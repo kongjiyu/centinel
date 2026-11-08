@@ -8,6 +8,11 @@ Model: Codex `gpt-6.1-sol` through the user's ChatGPT login. Generation limit pe
 Goal text: "Check the payment backend against REQ-1…REQ-8, especially that users can only read or
 change their own account, transactions and bank accounts, and that sessions are protected."
 
+**Method limits.** No pass thresholds were set before these runs, so this is a descriptive
+evaluation, not a pass/fail acceptance against PRD §13.1. The answer key has five known issues; the
+other findings were judged by one person reading the code after the runs. Precision and recall
+figures below therefore describe this corpus only and are not general claims.
+
 ## Run 1 — Review `3af027d5-21d9-467e-82aa-4f363e783434`
 
 The computer was shut down while the run was in progress (03:00–04:00 UTC). When Centinel reopened at
