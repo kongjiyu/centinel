@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { centinelHome } from './paths.js';
+import { ReviewRecoveryRecheck } from './review/recoveryRecheck.js';
 import { preparePackagedRuntime } from './packagedRuntime.js';
 import { analysisMapFromEvents } from './review/assessmentBatches.js';
 import {UnitRepository} from './dynamic/unit/repository.js';
@@ -360,8 +361,18 @@ type CachedReviewRuntime = {
   authRuntime: RefreshableSupabaseRuntime;
   staticRuntime: RefreshableStaticReviewRuntime;
   orchestrator: StaticReviewOrchestratorService;
-  recoveryPromise: Promise<void>;
+  recovery: ReviewRecoveryRecheck;
 };
+
+function recoverReviews(staticRuntime: RefreshableStaticReviewRuntime, orchestrator: StaticReviewOrchestratorService): Promise<void> {
+  return staticRuntime.recoverExpiredReviews().then(result => {
+    for (const reviewId of result.requeued) {
+      void orchestrator.resumeQueuedReview(reviewId).then(resumed => {
+        if (resumed) void resumed.completion.catch(error => console.error('[review] recovered execution failed:', error));
+      }).catch(error => console.error('[review] recovery launch failed:', error));
+    }
+  }).catch(error => { console.error('[review] lease recovery failed:', error); });
+}
 function adoptVerifiedReviewSession(auth: AuthenticatedRequest, reviewRuntimes: Map<string, CachedReviewRuntime>): void {
   const existing = reviewRuntimes.get(auth.userId);
   if (existing && existing.authRuntime.state().tokenFingerprint !== accessTokenFingerprint(auth.accessToken)) {
@@ -377,7 +388,9 @@ async function reviewRuntime(auth: AuthenticatedRequest, indexes: SourceIndexCoo
   const existing = reviewRuntimes.get(auth.userId);
   if (existing) {
     adoptVerifiedReviewSession(auth, reviewRuntimes);
-    await existing.recoveryPromise;
+    await existing.recovery.initial;
+    // Re-check in the background; only the first check delays a request.
+    existing.recovery.maybeRecheck();
     return existing.orchestrator;
   }
   const authRuntime = new RefreshableSupabaseRuntime({ userId: auth.userId, accessToken: auth.accessToken, client: auth.client, verifiedIssuedAt: auth.verifiedIssuedAt });
@@ -408,16 +421,9 @@ async function reviewRuntime(auth: AuthenticatedRequest, indexes: SourceIndexCoo
       persisted: false,
     })),
   });
-  const cached: CachedReviewRuntime = { authRuntime, staticRuntime, orchestrator, recoveryPromise: Promise.resolve() };
+  const cached: CachedReviewRuntime = { authRuntime, staticRuntime, orchestrator, recovery: new ReviewRecoveryRecheck(() => recoverReviews(staticRuntime, orchestrator)) };
   reviewRuntimes.set(auth.userId, cached);
-  cached.recoveryPromise = staticRuntime.recoverExpiredReviews().then(result => {
-    for (const reviewId of result.requeued) {
-      void orchestrator.resumeQueuedReview(reviewId).then(resumed => {
-        if (resumed) void resumed.completion.catch(error => console.error('[review] recovered execution failed:', error));
-      }).catch(error => console.error('[review] recovery launch failed:', error));
-    }
-  }).catch(error => { console.error('[review] lease recovery failed:', error); });
-  await cached.recoveryPromise;
+  await cached.recovery.start();
   return orchestrator;
 }
 
