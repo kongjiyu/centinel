@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Must stay the first import: it sizes libuv's thread pool before first use.
+import './threadPool.js';
 import { centinelHome } from './paths.js';
 import { preparePackagedRuntime } from './packagedRuntime.js';
 import { analysisMapFromEvents } from './review/assessmentBatches.js';
