@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
@@ -12,6 +13,25 @@ function source(content: string, filePath = 'src/account.ts'): EvidenceArtifact 
 }
 
 describe('bounded feature and path analysis', () => {
+  it('never touches the real disk while binding callbacks', () => {
+    // TypeScript's default compiler host walks up from the working directory
+    // looking for node_modules/@types. Under ~/Documents that synchronous read
+    // waited on a macOS privacy prompt and froze the sidecar for hours.
+    const calls: string[] = [];
+    const spies = (['readdirSync', 'statSync', 'existsSync', 'readFileSync', 'realpathSync', 'lstatSync'] as const)
+      .map(name => vi.spyOn(fs, name).mockImplementation(((...args: unknown[]) => { calls.push(`${name} ${String(args[0])}`); throw new Error('disk access'); }) as never));
+    try {
+      const map = deriveReviewAnalysisMap([
+        source("const { save } = require('./store');\nfunction run(cb) { return cb(); }\nrun(() => save());\nmodule.exports = { run };\n", 'server.js'),
+        source("function save() { return 1; }\nmodule.exports = { save };\n", 'store.js'),
+      ]);
+      expect(map.coverage.parsedArtifacts).toBe(2);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(calls).toEqual([]);
+  });
+
   it('maps a route handler built by a third-party package factory as an explicit external boundary', () => {
     const map = deriveReviewAnalysisMap([source(`import express from "express";
 import expressPlayground from "graphql-playground-middleware-express";

@@ -197,13 +197,23 @@ function callbackChecker(parsed: ParsedArtifact[]): ts.TypeChecker | undefined {
     target: ts.ScriptTarget.Latest,
     module: ts.ModuleKind.ESNext,
     jsx: ts.JsxEmit.Preserve,
+    // Without an explicit empty list TypeScript discovers node_modules/@types
+    // folders by walking up from the working directory on the real disk.
+    types: [],
   };
   const sources = new Map(parsed.map(item => [callbackFileKey(item.source.fileName), item.source]));
   if (sources.size !== parsed.length) return undefined;
+  // Every host method that could reach the disk answers from the frozen
+  // sources only. Synchronous disk lookups here once blocked the sidecar's
+  // event loop for hours behind a macOS privacy prompt for ~/Documents.
   const host = ts.createCompilerHost(options);
   host.getSourceFile = fileName => sources.get(callbackFileKey(fileName));
   host.fileExists = fileName => sources.has(callbackFileKey(fileName));
   host.readFile = fileName => sources.get(callbackFileKey(fileName))?.text;
+  host.directoryExists = () => false;
+  host.getDirectories = () => [];
+  host.realpath = fileName => fileName;
+  host.writeFile = () => undefined;
   const program = ts.createProgram(parsed.map(item => item.source.fileName), options, host);
   return program.getTypeChecker();
 }

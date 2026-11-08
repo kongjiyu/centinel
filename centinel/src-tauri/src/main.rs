@@ -133,9 +133,6 @@ fn start_sidecar(app: &tauri::App) -> Result<Option<Child>, String> {
         .current_dir(&sidecar_dir)
         .env("CENTINEL_PACKAGED", "1")
         .env("CENTINEL_HOME", &home)
-        // A larger libuv pool keeps file reads held by a macOS privacy prompt
-        // from starving network decompression and DNS (see sidecar threadPool.ts).
-        .env("UV_THREADPOOL_SIZE", "32")
         .env("CENTINEL_RUNTIME_ENV", sidecar_dir.join("runtime.env"))
         .env("PATH", tool_path())
         .stdin(Stdio::null())
