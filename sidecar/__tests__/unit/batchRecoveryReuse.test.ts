@@ -158,6 +158,33 @@ describe('same-Review validated batch reuse after lease recovery', () => {
     expect(findings.map(finding => `${finding.filePath}:${finding.lineNumber}:${finding.title}`).sort()).toEqual(clean.findings);
   });
 
+  it('reuses finished batches when the resumed run reads its traceability snapshot back with reordered keys', async () => {
+    // 8 November 2026: the first run builds traceability records in memory, the
+    // resumed run reads them from Postgres jsonb, which stores object keys in
+    // its own order. The prompt (and so the cache identity) must not change.
+    const clean = await cleanCallCount();
+    const finishedBatches = clean.saved - 1;
+    const harness = makeHarness();
+    const capturedAt = '2026-11-08T13:23:49.615Z';
+    const record = { requirementId: 'req-1', title: 'Catalogue is public', description: 'Anyone can list products.',
+      category: 'acceptance_criterion', state: 'missing', mappingIds: [], sourceArtifactIds: [], sourceSymbolIds: [],
+      confidence: null, capturedAt, evidenceStatus: 'verified', mappings: [] };
+    const reversed = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).reverse());
+    const capture = harness.repository.captureTraceabilitySnapshot.bind(harness.repository);
+    let calls = 0;
+    vi.spyOn(harness.repository, 'captureTraceabilitySnapshot').mockImplementation(async (...args) => {
+      const snapshot = await capture(...args);
+      calls++;
+      return { ...snapshot, records: [calls === 1 ? record : reversed(record)] as typeof snapshot.records };
+    });
+    const run = await interruptAndRecover(harness, finishedBatches * 2 + 1);
+    expect(calls).toBe(2);
+    const prompts = harness.requests.map(request => request.prompt);
+    expect(prompts[0]).toContain(JSON.stringify(Object.fromEntries(Object.entries(record).sort(([a], [b]) => a < b ? -1 : 1))));
+    expect(run.events.filter(event => event.event === 'review_batch_cache_reused')).toHaveLength(finishedBatches);
+    expect(run.resumedCalls).toBe(2);
+  });
+
   it('reuses nothing when the Review was not requeued by lease recovery', async () => {
     const harness = makeHarness();
     const run = await interruptAndRecover(harness, 3, undefined, 'none');

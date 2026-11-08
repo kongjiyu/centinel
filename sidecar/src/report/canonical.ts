@@ -12,6 +12,13 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortValue(value), null, 2) + '\n';
 }
 
+/** Compact canonical JSON for prompts and identities: the same value gives the
+ * same bytes whether it was built in memory or read back from Postgres jsonb,
+ * which stores object keys in its own order. */
+export function compactCanonicalJson(value: unknown): string {
+  return JSON.stringify(sortValue(value));
+}
+
 export function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   Object.freeze(value);
