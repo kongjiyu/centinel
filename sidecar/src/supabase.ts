@@ -115,12 +115,51 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, input: RequestInfo | UR
   else inheritedSignal?.addEventListener('abort', forwardAbort, { once: true });
 
   const timer = setTimeout(() => controller.abort(new Error('Supabase request timed out.')), SUPABASE_REQUEST_TIMEOUT_MS);
+  let response: Response;
   try {
-    return await fetchImpl(input, { ...init, signal: controller.signal });
+    response = await fetchImpl(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    inheritedSignal?.removeEventListener('abort', forwardAbort);
+    throw error;
   } finally {
     clearTimeout(timer);
-    inheritedSignal?.removeEventListener('abort', forwardAbort);
   }
+  return withBodyIdleTimeout(response, controller, () => inheritedSignal?.removeEventListener('abort', forwardAbort));
+}
+
+/**
+ * The header deadline above does not cover reading the body. A response whose
+ * body never arrives (for example decompression waiting behind a starved libuv
+ * thread pool) would otherwise hang its caller forever. Abort when no body
+ * chunk arrives for SUPABASE_REQUEST_TIMEOUT_MS; large downloads that keep
+ * streaming are unaffected.
+ */
+function withBodyIdleTimeout(response: Response, controller: AbortController, done: () => void): Response {
+  if (!response.body) {
+    done();
+    return response;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+    done();
+  };
+  const arm = (streamController: TransformStreamDefaultController<Uint8Array>) => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      const error = new Error('Supabase response body timed out.');
+      controller.abort(error);
+      try { streamController.error(error); } catch { /* The stream already ended. */ }
+      stop();
+    }, SUPABASE_REQUEST_TIMEOUT_MS);
+  };
+  const guarded = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    start(streamController) { arm(streamController); },
+    transform(chunk, streamController) { arm(streamController); streamController.enqueue(chunk); },
+    flush() { stop(); },
+  }));
+  return new Response(guarded, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
 function createBearerFetch(accessToken: string, baseUrl: string, transport: SupabaseTransportOptions): typeof fetch {
