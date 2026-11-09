@@ -76,6 +76,12 @@
   font-family: var(--font-sans);
 }
 
+/* Toasts and app-level prompts sit outside the shell. The wrapper has no box
+   of its own; it only scopes the shared light primitives to them. */
+.workspace-mode.global-overlays {
+  display: contents;
+}
+
 /* Findings progressive disclosure: keep the search path compact and expose
    secondary filters only when requested. */
 .workspace-mode:not(.dashboard-mode) .findings-filter-shell {
@@ -1391,82 +1397,6 @@
   }
 }
 
-/* The background review surface is global, so it uses the approved light
-   material system on Home and project routes alike. */
-.workspace-mode .review-toast {
-  top: auto;
-  right: 20px;
-  bottom: 20px;
-  left: auto;
-  width: min(390px, calc(100vw - 40px));
-  min-width: 0;
-  max-width: none;
-  padding: 14px;
-  transform: none;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: #ffffff;
-  color: var(--color-text);
-  box-shadow:
-    0 0 0 1px rgba(28, 25, 23, 0.045),
-    0 12px 32px rgba(28, 25, 23, 0.16);
-}
-
-.workspace-mode .review-toast.status-success { border-color: rgba(21, 128, 61, 0.35); }
-.workspace-mode .review-toast.status-failure { border-color: rgba(185, 28, 28, 0.35); }
-.workspace-mode .review-toast.status-cancelled { border-color: rgba(180, 83, 9, 0.35); }
-
-.workspace-mode .review-toast-collapsed {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.workspace-mode .review-toast-close {
-  top: 7px;
-  right: 7px;
-  display: grid;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--color-text-subtle);
-}
-
-.workspace-mode .review-toast-close:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
-.workspace-mode .review-toast-title { color: var(--color-text); }
-.workspace-mode .review-toast-review-type,
-.workspace-mode .review-toast-current,
-.workspace-mode .review-toast-stage-status,
-.workspace-mode .review-toast-thoughts { color: var(--color-text-muted); }
-
-.workspace-mode .review-toast-stage {
-  border-color: var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface-hover);
-}
-
-.workspace-mode .review-toast-stage.stage-pending { border-color: var(--color-border); }
-.workspace-mode .review-toast-stage.stage-active { border-color: rgba(22, 101, 52, 0.45); }
-.workspace-mode .review-toast-stage.stage-done { border-color: rgba(21, 128, 61, 0.3); }
-
-@media (max-width: 720px) {
-  .workspace-mode .review-toast {
-    right: 12px;
-    bottom: 12px;
-    width: calc(100vw - 24px);
-  }
-}
 
 .workspace-mode:not(.dashboard-mode) .finding-detail,
 .workspace-mode:not(.dashboard-mode) .requirement-detail,

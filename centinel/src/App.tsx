@@ -411,9 +411,13 @@ function App() {
         )}
         </Suspense>
       </AppShell>
-      <ReviewToast />
-      <UpdatePrompt />
-      <GithubConnectionPrompt isOpen={githubConnectionPromptOpen} onClose={() => setGithubConnectionPromptOpen(false)} />
+      {/* Global overlays render outside the shell; this box-less wrapper gives
+          them the same light workspace primitives (buttons, dialogs). */}
+      <div className="workspace-mode global-overlays">
+        <ReviewToast />
+        <UpdatePrompt />
+        <GithubConnectionPrompt isOpen={githubConnectionPromptOpen} onClose={() => setGithubConnectionPromptOpen(false)} />
+      </div>
     </ActiveReviewProvider>
   );
 }
