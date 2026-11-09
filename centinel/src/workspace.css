@@ -5162,3 +5162,14 @@ div.app-shell.has-window-chrome .sidebar {
 .workspace-mode:not(.dashboard-mode) .grounding-panel.requirement-link-suggestions {
   grid-column: 1 / -1;
 }
+
+/* Content gutters (DESIGN.md §7): 32 px at 1440, 24 px at 1200 and 16 px
+   below 960. The split-shell rule above fixes 32 px with a more specific
+   selector, so the narrower gutters are restated at the same specificity. */
+@media (max-width: 1200px) {
+  div.app-shell.has-window-chrome .page-content-container > .main-content { padding: 24px; }
+}
+
+@media (max-width: 960px) {
+  div.app-shell.has-window-chrome .page-content-container > .main-content { padding: 16px; }
+}

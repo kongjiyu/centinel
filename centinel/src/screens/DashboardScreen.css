@@ -238,11 +238,9 @@
 }
 
 .action-required-context {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 7px;
+  gap: 1px;
   color: var(--color-text-subtle);
   font-size: var(--font-size-meta);
   line-height: 18px;
@@ -256,6 +254,20 @@
   line-height: 19px;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.action-required-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  /* Stack module and time rather than leaving a separator at a line edge. */
+  .action-required-meta { display: grid; gap: 0; }
+  .action-required-meta > [aria-hidden="true"] { display: none; }
 }
 
 .action-required-context time {
