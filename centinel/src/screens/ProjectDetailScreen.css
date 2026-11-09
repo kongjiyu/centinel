@@ -1120,6 +1120,26 @@
     grid-auto-rows: auto;
   }
 
+  /* Three filter columns no longer fit: search takes a full row above
+     date and state so no control is clipped. */
+  .command-project-detail .project-activity-filters {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .command-project-detail .project-activity-search {
+    grid-column: 1 / -1;
+  }
+
+  .command-project-detail .project-activity-header-end {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  /* The header stacks here; keep the title left-aligned with the content. */
+  .command-project-detail header.command-page-header {
+    align-items: flex-start;
+  }
+
   .command-project-detail .project-overview-grid .detail-card {
     min-height: 280px;
     height: auto;
@@ -1161,6 +1181,18 @@
   .command-project-detail .project-activity-type-toggle {
     max-width: 100%;
     overflow-x: auto;
+  }
+
+  /* Let the title, type filter and review count wrap inside the card
+     instead of running past its edge. */
+  .command-project-detail .project-activity-title,
+  .command-project-detail .project-activity-header-end {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .command-project-detail .project-activity-header-end {
+    margin-left: 0;
   }
 
   .command-project-detail .project-attention-row,
