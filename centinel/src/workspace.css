@@ -726,6 +726,30 @@
   font-size: var(--font-size-support);
 }
 
+/* Page and panel-level failure banner (DESIGN.md §9: banner with recovery). */
+.workspace-mode:not(.dashboard-mode) .command-inline-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 28%, transparent);
+  border-radius: var(--workspace-radius-control);
+  background: var(--color-danger-subtle);
+  color: var(--workspace-text);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.workspace-mode:not(.dashboard-mode) .command-inline-alert > svg {
+  flex: 0 0 auto;
+  color: var(--color-danger);
+}
+
+.workspace-mode:not(.dashboard-mode) .command-inline-alert > span { flex: 1 1 240px; min-width: 0; }
+
 .workspace-mode:not(.dashboard-mode) .form-success {
   background: var(--workspace-success-subtle);
   border: 1px solid rgba(21, 128, 61, 0.24);
