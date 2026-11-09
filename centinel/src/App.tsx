@@ -1,3 +1,4 @@
+import { AlertTriangle } from 'lucide-react';
 import { LoadingSkeleton } from './components/LoadingSkeleton';
 import { hashToScreen, isRouteHash, screenToHash } from './navigation/screenHash';
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
@@ -296,7 +297,8 @@ function App() {
 
   if (!sidecarOnline && error) {
     return (
-      <div className="error-screen">
+      <div className="error-screen" role="alert">
+        <span className="error-screen-icon" aria-hidden="true"><AlertTriangle size={24} /></span>
         <h1>Centinel</h1>
         <p>The workspace could not be loaded.</p>
         <p className="error-detail">{error}</p>

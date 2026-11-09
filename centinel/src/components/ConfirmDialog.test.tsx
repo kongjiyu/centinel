@@ -23,4 +23,20 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('describes the pending action in the same words as the confirm button', () => {
+    render(
+      <ConfirmDialog
+        isOpen
+        busy
+        title="Delete requirement?"
+        description="This requirement will be deleted."
+        confirmLabel="Delete requirement"
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled();
+  });
 });
