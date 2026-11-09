@@ -1,4 +1,4 @@
-# PRD §13.2 acceptance walk-through (7–8 November 2026)
+# PRD §13.2 acceptance walk-through (7–9 November 2026)
 
 Build: packaged macOS app built locally with `pnpm build` from `main` (first at `39612eb`, rebuilt at
 `c4d1a42`, and again with PRs #76, #77 and #79), run from the repository build folder with its bundled sidecar.
@@ -8,7 +8,7 @@ user's ChatGPT login; embeddings: Voyage. Targets: the bundled Sample Shop (app 
 World App (port 3000).
 
 Legend: **Pass** = shown in this build with the evidence listed. **Partial** = part shown here, the
-rest relies on earlier recorded evidence. **Blocked** = needs something not available in this session.
+rest relies on earlier recorded evidence. **Not applicable** = outside how this product is used.
 
 | # | Scenario | Result |
 |---|---|---|
@@ -20,10 +20,10 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
 | 6 | Exploratory mission discloses unvisited scope | Pass |
 | 7 | Repeat a saved mission, keep both runs and history | Pass |
 | 8 | Cancel, and reconcile an interruption without a false state | Pass |
-| 9 | Test-data preparation, repeatable state, collisions, cleanup failure | Partial (earlier evidence) |
+| 9 | Test-data preparation, repeatable state, collisions, cleanup failure | Pass |
 | 10 | Usability observation with evidence, subjective kept separate | Pass |
-| 11 | Passing and failing unit tests, runner errors distinguished | Partial (earlier evidence) |
-| 12 | API and Codex modes independently | Blocked (no API key configured) |
+| 11 | Passing and failing unit tests, runner errors distinguished | Pass |
+| 12 | API and Codex modes independently | Not applicable (owner does not use API mode) |
 | 13 | Export report; member can, non-member and revoked member cannot | Partial |
 | 14 | No seeded secrets in prompts/logs/reports; endpoint authorization | Pass |
 
@@ -72,7 +72,7 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
   completed / passed against the Real World App with 1 check passed. No earlier local project record
   was involved.
 
-### 4. Requirement → mission — PENDING
+### 4. Requirement → mission — Pass
 - "Test in Dynamic Testing" from a Review prefilled Criteria source = Requirements from a Review, the
   source Review marked "Not approved", and required an acknowledgement before saving (verified).
 - First run `70d28d9b` was blocked: the browser agent only received the goal, not the selected
@@ -88,8 +88,17 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
 - Unreachable target: Run `d4115c8e` against `localhost:3999` ended blocked / not tested in about
   1.5 s with "Browser target connection unavailable", an environment block, not a defect. The open Run
   panel kept showing "Running" until reload; fixed in PR #75.
-- Seeded defect and provider outage: not re-run in this build; earlier evidence in
-  `docs/dynamic/` acceptance notes.
+- Seeded defect (9 November): saved test "S5 seeded defect: sign-in error hides registered emails"
+  on Sample Shop, environment "S5 Sample Shop sign-in" (`2bca41b3…`) allowing only `#email`,
+  `#password` and `#signin-form button`. Required check: visible text "Email or password is
+  incorrect." (REQ-1). Run `a00986b7` completed / **failed**: the agent typed an unregistered email and a
+  test password (masked in the screenshot, `[REDACTED]` in the summary), clicked Sign in, and the page
+  showed the planted message "No account uses this email."; the independent check failed with
+  screenshot evidence. The first attempt (`ab8c5674`) was blocked / not tested at preflight because
+  the environment's test data had not been prepared, without taking a data lock.
+- Provider outage: not re-run in this build (reproducing it would mean breaking the working Codex
+  setup); earlier controlled evidence: Run `8babdf29` blocked / not tested,
+  `docs/dynamic/DYNAMIC_RELEASE_RESILIENCE.md`.
 
 ### 6. Exploratory mission — Pass
 - Run `c3159a39` (before PR #74) recorded `mode: exploratory`, `exhaustive: false`, limits of 25 actions
@@ -112,21 +121,37 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
 - Interruption: quitting the app during Review `ca34f0c1` and relaunching produced
   `review_lease_recovered` (14:59:12), reused the source manifest, and resumed model analysis.
 
-### 9. Test data — Partial
-- Not re-run in this build. Earlier live evidence: `docs/dynamic/DYNAMIC_DATA_LIFECYCLE.md`.
+### 9. Test data — Pass
+- 9 November, environment "S9 S11 RWA unit tests" (`e7c31422…`) on project "Acceptance S3 new project",
+  all through the app UI. Recorded preparation (v1) → the environment held its prepared data and the
+  passed unit Run `5dd3d37f` used it → state became *cleanup required* and "Run authorized unit tests"
+  was disabled (no reuse of dirty data) → recorded a **failed** cleanup: the lock stayed and the run
+  button stayed disabled → recorded a successful cleanup: state returned to *unprepared* and preparation
+  had to be recorded again before the next Run. The earlier passed verdict was unchanged by the
+  failed cleanup. A click on "Release prepared data" with an empty note was refused by form validation.
+- History (7 events, attributable): preparation completed, cleanup failed, cleanup completed, then two
+  more preparation/cleanup pairs for the S11 runs. Final state: unprepared.
 
 ### 10. Usability — Pass
 - Run `0021ad2e`: 18 deterministic observations (labels, keyboard, focus; passed / failed / uncertain)
   and 3 subjective suggestions stored with `kind: subjective`, evidence IDs and a caveat that they do
   not establish a defect. The UI states that Dynamic findings stay separate from Project Assessment.
 
-### 11. Unit tests — Partial
-- Not re-run in this build. Earlier live evidence: `docs/dynamic/DYNAMIC_UNIT_TESTS.md` (RWA Vitest:
-  54 tests, 44 passed, 10 skipped).
+### 11. Unit tests — Pass
+- 9 November, same environment. Inspected and authorized the RWA test copy
+  (`centinel-test-targets/rwa-unit-release-20261015`, Yarn, script `test:unit:ci` = `vitest --run`,
+  Vitest 3.2.4) in the UI. Three Runs:
+  - `5dd3d37f` completed / **passed**: 44 passed, 10 skipped, 0 failed (54 tests, 20 suites).
+  - `b6b6f73c` completed / **failed** after adding one deliberately failing test file to the copy:
+    1 failed, 44 passed, 10 skipped ("Vitest reported failing tests or suites").
+  - `663c17b3` with a 1-second limit: blocked / **timeout**, "No complete suite verdict is claimed",
+    no counts. A runner error is kept separate from a test failure.
+- The temporary failing test file was moved to the Trash afterwards and cleanup was recorded.
 
-### 12. API and Codex modes — Blocked
-- Only Codex (Static Review, vision) and Voyage (embeddings) are configured. API mode needs a provider
-  key from the user; Codex alone does not pass this scenario.
+### 12. API and Codex modes — Not applicable
+- Only Codex (Static Review, vision) and Voyage (embeddings) are configured. The project owner does
+  not use API-key model access, so API mode was not tested and is out of scope for this acceptance
+  pass. Codex mode is covered by scenarios 1, 2, 4 and 6.
 
 ### 13. Export and member access — Partial
 - Member export (8 November): "Create report" on the Sample Shop project produced a report with PDF,
@@ -158,8 +183,8 @@ rest relies on earlier recorded evidence. **Blocked** = needs something not avai
 | #79 | Lease-recovery batch reuse never hit after a restart: frozen traceability records read back from `jsonb` had reordered keys, so the prompt bytes and the batch cache key changed. Prompt now uses sorted-key JSON |
 
 ## Limits
-- Scenarios 9 and 11 rely on earlier recorded evidence; 12 needs an API key; 13's second-member and
-  revoked checks need a second hosted account (this session does not sign in to hosted accounts).
+- 12 is not applicable (no API-mode use); 13's second-member and revoked checks need a second hosted
+  account (this session does not sign in to hosted accounts).
 - Scenario 2 did not show a resolved issue live; see its details.
 - Run from a build inside `~/Documents`, so macOS privacy prompts appeared after each rebuild. An
   installed app in `/Applications` asks once per protected folder.
