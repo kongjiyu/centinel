@@ -174,3 +174,30 @@
 .dynamic-workspace-screen .dw-saved-test-actions .dw-actions { margin: 0 0 10px; }
 .dynamic-workspace-screen .dw-rename .dw-field { max-width: 420px; margin-bottom: 10px; }
 @media (max-width: 720px) { .dynamic-workspace-screen .dw-history-filters { grid-template-columns: 1fr; } .dynamic-workspace-screen .dw-show-more { min-height: 44px; } }
+
+/* Environment form: titled groups break the long form into scannable parts. */
+.dynamic-workspace-screen .dw-form-group { min-width: 0; margin: 0; padding: 20px 0 4px; border: 0; border-top: 1px solid var(--workspace-border); }
+.dynamic-workspace-screen .dw-form-group:first-child { padding-top: 4px; border-top: 0; }
+.dynamic-workspace-screen .dw-form-group > legend { float: left; width: 100%; margin: 0; padding: 0 0 14px; color: var(--workspace-text); font-size: var(--font-size-title); font-weight: 600; line-height: 22px; }
+.dynamic-workspace-screen .dw-form-group > legend + * { clear: both; margin-top: 0; }
+.dynamic-workspace-screen .dw-environments .dw-form-group .dw-field { margin: 0 0 16px; }
+.dynamic-workspace-screen .dw-form-group > .dw-muted { margin: -6px 0 16px; }
+.dynamic-workspace-screen .dw-form-footer { display: flex; justify-content: flex-start; gap: 10px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--workspace-border); }
+
+/* Disclosures use the Lucide chevron instead of the platform triangle. */
+.dynamic-workspace-screen details > summary { display: flex; align-items: center; gap: 8px; min-height: 32px; list-style: none; border-radius: var(--workspace-radius-control); }
+.dynamic-workspace-screen details > summary::-webkit-details-marker { display: none; }
+.dynamic-workspace-screen details > summary::before {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  background: var(--workspace-text-muted);
+  content: '';
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / 16px 16px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / 16px 16px no-repeat;
+  transition: transform var(--workspace-standard) var(--workspace-ease);
+}
+.dynamic-workspace-screen details[open] > summary::before { transform: rotate(90deg); }
+.dynamic-workspace-screen details > summary:hover { color: var(--workspace-primary); }
+.dynamic-workspace-screen details > summary:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .dynamic-workspace-screen details > summary::before { transition: none; } }

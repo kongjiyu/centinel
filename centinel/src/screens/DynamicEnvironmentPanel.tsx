@@ -337,139 +337,148 @@ export function DynamicEnvironmentPanel({
         </div>
         <form onSubmit={save}>
           <fieldset className="dw-form-body" disabled={disabled || busy || captureBusy}>
-            <div className="dw-check-fields">
-              <div className="dw-field">
-                <label htmlFor="dw-env-name">Environment name</label>
-                <input
-                  id="dw-env-name"
-                  required
-                  maxLength={120}
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                />
+            <fieldset className="dw-form-group">
+              <legend>Environment</legend>
+              <div className="dw-check-fields">
+                <div className="dw-field">
+                  <label htmlFor="dw-env-name">Environment name</label>
+                  <input
+                    id="dw-env-name"
+                    required
+                    maxLength={120}
+                    value={draft.name}
+                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-env-url">Environment website</label>
+                  <input
+                    id="dw-env-url"
+                    required
+                    type="url"
+                    value={draft.targetUrl}
+                    onChange={(e) => setDraft({ ...draft, targetUrl: e.target.value })}
+                  />
+                </div>
               </div>
-              <div className="dw-field">
-                <label htmlFor="dw-env-url">Environment website</label>
-                <input
-                  id="dw-env-url"
-                  required
-                  type="url"
-                  value={draft.targetUrl}
-                  onChange={(e) => setDraft({ ...draft, targetUrl: e.target.value })}
-                />
+              <div className="dw-check-fields">
+                <div className="dw-field">
+                  <label htmlFor="dw-env-origins">Allowed origins (one per line)</label>
+                  <textarea
+                    id="dw-env-origins"
+                    rows={2}
+                    value={origins}
+                    onChange={(e) => setOrigins(e.target.value)}
+                    placeholder="Defaults to this website's origin"
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-env-vars">Required variable names</label>
+                  <textarea
+                    id="dw-env-vars"
+                    rows={2}
+                    value={variables}
+                    onChange={(e) => setVariables(e.target.value)}
+                    placeholder="TEST_USERNAME&#10;TEST_PASSWORD"
+                  />
+                </div>
               </div>
-            </div>
-            <div className="dw-check-fields">
-              <div className="dw-field">
-                <label htmlFor="dw-env-origins">Allowed origins (one per line)</label>
-                <textarea
-                  id="dw-env-origins"
-                  rows={2}
-                  value={origins}
-                  onChange={(e) => setOrigins(e.target.value)}
-                  placeholder="Defaults to this website's origin"
-                />
+              <div className="dw-check-fields">
+                <div className="dw-field">
+                  <label htmlFor="dw-env-role">Account role / preparation note</label>
+                  <input
+                    id="dw-env-role"
+                    value={draft.accountRole}
+                    onChange={(e) => setDraft({ ...draft, accountRole: e.target.value })}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-env-version">Target version or commit</label>
+                  <input
+                    id="dw-env-version"
+                    value={draft.targetVersion}
+                    onChange={(e) => setDraft({ ...draft, targetVersion: e.target.value })}
+                  />
+                </div>
               </div>
-              <div className="dw-field">
-                <label htmlFor="dw-env-vars">Required variable names</label>
-                <textarea
-                  id="dw-env-vars"
-                  rows={2}
-                  value={variables}
-                  onChange={(e) => setVariables(e.target.value)}
-                  placeholder="TEST_USERNAME&#10;TEST_PASSWORD"
-                />
+            </fieldset>
+            <fieldset className="dw-form-group">
+              <legend>Browser and signed-in session</legend>
+              <div className="dw-check-fields">
+                <div className="dw-field">
+                  <label htmlFor="dw-env-width">Browser width</label>
+                  <input
+                    id="dw-env-width"
+                    type="number"
+                    required
+                    min={320}
+                    max={3840}
+                    value={draft.viewport.width}
+                    onChange={(e) =>
+                      setDraft({ ...draft, viewport: { ...draft.viewport, width: Number(e.target.value) } })
+                    }
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-env-height">Browser height</label>
+                  <input
+                    id="dw-env-height"
+                    type="number"
+                    required
+                    min={320}
+                    max={2160}
+                    value={draft.viewport.height}
+                    onChange={(e) =>
+                      setDraft({ ...draft, viewport: { ...draft.viewport, height: Number(e.target.value) } })
+                    }
+                  />
+                </div>
               </div>
-            </div>
-            <div className="dw-check-fields">
-              <div className="dw-field">
-                <label htmlFor="dw-env-role">Account role / preparation note</label>
-                <input
-                  id="dw-env-role"
-                  value={draft.accountRole}
-                  onChange={(e) => setDraft({ ...draft, accountRole: e.target.value })}
-                />
+              <div className="dw-check-fields">
+                <div className="dw-field">
+                  <label htmlFor="dw-env-session">Session reference (optional)</label>
+                  <input
+                    id="dw-env-session"
+                    pattern="[A-Za-z][A-Za-z0-9_-]{0,63}"
+                    maxLength={64}
+                    value={draft.sessionReference ?? ''}
+                    onChange={(e) => setDraft({ ...draft, sessionReference: e.target.value })}
+                  />
+                </div>
+                <div className="dw-field">
+                  <label htmlFor="dw-env-ready">Signed-in readiness selector</label>
+                  <input
+                    id="dw-env-ready"
+                    maxLength={500}
+                    value={draft.sessionReadySelector ?? ''}
+                    onChange={(e) => setDraft({ ...draft, sessionReadySelector: e.target.value })}
+                    placeholder="One element visible only after sign-in"
+                  />
+                </div>
               </div>
-              <div className="dw-field">
-                <label htmlFor="dw-env-version">Target version or commit</label>
-                <input
-                  id="dw-env-version"
-                  value={draft.targetVersion}
-                  onChange={(e) => setDraft({ ...draft, targetVersion: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="dw-check-fields">
-              <div className="dw-field">
-                <label htmlFor="dw-env-width">Browser width</label>
-                <input
-                  id="dw-env-width"
-                  type="number"
-                  required
-                  min={320}
-                  max={3840}
-                  value={draft.viewport.width}
-                  onChange={(e) =>
-                    setDraft({ ...draft, viewport: { ...draft.viewport, width: Number(e.target.value) } })
-                  }
-                />
-              </div>
-              <div className="dw-field">
-                <label htmlFor="dw-env-height">Browser height</label>
-                <input
-                  id="dw-env-height"
-                  type="number"
-                  required
-                  min={320}
-                  max={2160}
-                  value={draft.viewport.height}
-                  onChange={(e) =>
-                    setDraft({ ...draft, viewport: { ...draft.viewport, height: Number(e.target.value) } })
-                  }
-                />
-              </div>
-            </div>
-            <div className="dw-check-fields">
-              <div className="dw-field">
-                <label htmlFor="dw-env-session">Session reference (optional)</label>
-                <input
-                  id="dw-env-session"
-                  pattern="[A-Za-z][A-Za-z0-9_-]{0,63}"
-                  maxLength={64}
-                  value={draft.sessionReference ?? ''}
-                  onChange={(e) => setDraft({ ...draft, sessionReference: e.target.value })}
-                />
-              </div>
-              <div className="dw-field">
-                <label htmlFor="dw-env-ready">Signed-in readiness selector</label>
-                <input
-                  id="dw-env-ready"
-                  maxLength={500}
-                  value={draft.sessionReadySelector ?? ''}
-                  onChange={(e) => setDraft({ ...draft, sessionReadySelector: e.target.value })}
-                  placeholder="One element visible only after sign-in"
-                />
-              </div>
-            </div>
-            <p className="dw-muted">
-              Save both fields to use a signed-in session. The selector is checked before model actions; keep passwords
-              and tokens out of it.
-            </p>
-            <div className="dw-field">
-              <label htmlFor="dw-env-resource">Shared test-data resource (optional)</label>
-              <input
-                id="dw-env-resource"
-                maxLength={100}
-                pattern="[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}"
-                value={draft.dataResourceKey ?? ''}
-                onChange={(e) => setDraft({ ...draft, dataResourceKey: e.target.value })}
-                placeholder="qa-payment-data"
-              />
               <p className="dw-muted">
-                Profiles in this project that use the same test data use the same key. Cleanup must finish before
-                another profile can prepare it.
+                Save both fields to use a signed-in session. The selector is checked before model actions; keep passwords
+                and tokens out of it.
               </p>
-            </div>
+            </fieldset>
+            <fieldset className="dw-form-group">
+              <legend>Shared test data</legend>
+              <div className="dw-field">
+                <label htmlFor="dw-env-resource">Shared test-data resource (optional)</label>
+                <input
+                  id="dw-env-resource"
+                  maxLength={100}
+                  pattern="[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}"
+                  value={draft.dataResourceKey ?? ''}
+                  onChange={(e) => setDraft({ ...draft, dataResourceKey: e.target.value })}
+                  placeholder="qa-payment-data"
+                />
+                <p className="dw-muted">
+                  Profiles in this project that use the same test data use the same key. Cleanup must finish before
+                  another profile can prepare it.
+                </p>
+              </div>
+            </fieldset>
             <details className="dw-advanced">
               <summary>Execution limits</summary>
               <p className="dw-muted">
@@ -581,22 +590,27 @@ export function DynamicEnvironmentPanel({
                 })
               }
             />
-            <div className="dw-field">
-              <label htmlFor="dw-env-startup">Local startup instructions</label>
-              <textarea
-                id="dw-env-startup"
-                rows={2}
-                value={draft.startupInstructions}
-                onChange={(e) => setDraft({ ...draft, startupInstructions: e.target.value })}
-              />
+            <fieldset className="dw-form-group">
+              <legend>Local startup</legend>
+              <div className="dw-field">
+                <label htmlFor="dw-env-startup">Local startup instructions</label>
+                <textarea
+                  id="dw-env-startup"
+                  rows={2}
+                  value={draft.startupInstructions}
+                  onChange={(e) => setDraft({ ...draft, startupInstructions: e.target.value })}
+                />
+              </div>
+              <p className="dw-muted">
+                Keep values and passwords out of shared profile fields. Instructions are shown for manual use; no command
+                runs automatically.
+              </p>
+            </fieldset>
+            <div className="dw-form-footer">
+              <button type="submit" className="btn-primary">
+                Save environment
+              </button>
             </div>
-            <p className="dw-muted">
-              Keep values and passwords out of shared profile fields. Instructions are shown for manual use; no command
-              runs automatically.
-            </p>
-            <button type="submit" className="btn-secondary">
-              Save environment
-            </button>
           </fieldset>
         </form>
         {value && (
