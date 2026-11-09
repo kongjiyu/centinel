@@ -1,0 +1,282 @@
+/*
+ * Background Review progress toast (DESIGN.md §9 Status and feedback).
+ * Rendered outside the application shell, so every value comes from the
+ * shared tokens rather than a screen layer. Bottom-right; the update prompt
+ * owns bottom-left.
+ */
+
+.review-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 9999;
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 40px));
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-dense);
+  line-height: 20px;
+  box-shadow: 0 8px 24px rgba(23, 32, 51, 0.12);
+}
+
+.review-toast.status-failure,
+.review-toast.status-failed { border-color: rgba(185, 28, 28, 0.35); }
+.review-toast.status-blocked,
+.review-toast.status-cancelled { border-color: rgba(180, 83, 9, 0.35); }
+
+.review-toast-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-subtle);
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+}
+
+.review-toast-close:hover { background: var(--color-surface-hover); color: var(--color-text); }
+
+.review-toast button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Header row shared by every state. The trailing padding keeps the title
+   clear of the absolutely positioned dismiss control. */
+.review-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 44px;
+}
+
+.review-toast-header svg { flex-shrink: 0; color: var(--color-text-muted); }
+
+.review-toast-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-toast-chevron { color: var(--color-text-subtle); }
+
+/* Collapsed summary: the whole summary is one button that opens details. */
+.review-toast-collapsed,
+.review-toast-collapse {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-toast-collapse { display: flex; padding-right: 44px; }
+
+.review-toast-collapsed:hover .review-toast-chevron,
+.review-toast-collapse:hover .review-toast-chevron { color: var(--color-text); }
+
+.review-toast-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.review-toast-segment {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+/* Green means finished; running work stays neutral (DESIGN.md §7). */
+.review-toast-segment.stage-done { background: var(--color-success); }
+.review-toast-segment.stage-active { background: var(--color-text-muted); }
+
+.review-toast-current {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.review-toast-step {
+  color: var(--color-text);
+  font-size: var(--font-size-support);
+  font-weight: 600;
+  line-height: 19px;
+}
+
+.review-toast-activity {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Expanded stage list */
+.review-toast-expanded { display: grid; gap: 12px; }
+
+.review-toast-stages {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.review-toast-stage {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.review-toast-stage-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.review-toast-stage-header svg { flex-shrink: 0; color: var(--color-text-subtle); }
+.review-toast-stage.stage-done .review-toast-stage-header svg { color: var(--color-success); }
+.review-toast-stage.stage-active .review-toast-stage-header svg { color: var(--color-text); }
+
+.review-toast-stage-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-dense);
+}
+
+.review-toast-stage.stage-active .review-toast-stage-label { color: var(--color-text); font-weight: 600; }
+
+.review-toast-stage-status {
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-meta);
+  line-height: 18px;
+}
+
+.review-toast-thoughts {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0 0 0 24px;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.review-toast-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Terminal states */
+.review-toast-complete { display: grid; gap: 8px; }
+
+.review-toast-finished .review-toast-header svg { color: var(--color-success); }
+.review-toast-failure .review-toast-header svg { color: var(--color-danger); }
+.review-toast-blocked .review-toast-header svg,
+.review-toast-cancelled .review-toast-header svg { color: var(--color-warning); }
+
+.review-toast-message {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.review-toast-severity-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-toast .severity-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: var(--font-size-meta);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.review-toast .severity-count.critical { color: var(--color-level-critical); background: var(--color-level-critical-subtle); }
+.review-toast .severity-count.high { color: var(--color-level-high); background: var(--color-level-high-subtle); }
+.review-toast .severity-count.medium { color: var(--color-level-medium); background: var(--color-level-medium-subtle); }
+.review-toast .severity-count.low { color: var(--color-level-low); background: var(--color-level-low-subtle); }
+
+/* Connection lost */
+.review-toast-connection-lost {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.review-toast-connection-lost p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+}
+
+.review-toast-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.review-toast-spin { animation: review-toast-spin 1s linear infinite; }
+
+@keyframes review-toast-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .review-toast-spin { animation: none; }
+  .review-toast-close { transition: none; }
+}
+
+@media (max-width: 720px) {
+  .review-toast {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+}

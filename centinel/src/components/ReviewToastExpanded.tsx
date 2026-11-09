@@ -1,18 +1,11 @@
-import { ChevronDown, ChevronRight, Loader } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Circle, Loader } from 'lucide-react';
 import type { ActiveReviewSnapshot } from '../context/ActiveReviewContext';
 import { api } from '../api/client';
-
-const STAGE_LABELS: Record<string, string> = {
-  understanding_context: 'Understanding Context',
-  code_review: 'Code Review',
-  requirement_validation: 'Requirement Validation',
-  summarizing: 'Summarizing',
-};
-
-const ALL_STAGES = ['understanding_context', 'code_review', 'requirement_validation', 'summarizing'] as const;
+import { REVIEW_TOAST_STAGES, reviewToastStageLabel, reviewToastStageStatus } from './reviewToastStages';
 
 export function ReviewToastExpanded({ snapshot, onCancel }: {
   snapshot: ActiveReviewSnapshot;
+  /** Collapses the toast back to its one-line summary. */
   onCancel: () => void;
 }) {
   const handleCancel = async () => {
@@ -21,31 +14,35 @@ export function ReviewToastExpanded({ snapshot, onCancel }: {
 
   return (
     <div className="review-toast-expanded">
-      <div className="review-toast-stages">
-        {ALL_STAGES.map(stageId => {
+      <button type="button" className="review-toast-header review-toast-collapse" onClick={onCancel} aria-expanded="true" aria-label={`Hide review progress details for ${snapshot.name}`}>
+        <Loader size={16} className="review-toast-spin" aria-hidden="true" />
+        <span className="review-toast-title">{snapshot.name}</span>
+        <ChevronDown size={16} className="review-toast-chevron" aria-hidden="true" />
+      </button>
+      <ol className="review-toast-stages">
+        {REVIEW_TOAST_STAGES.map(stageId => {
           const stage = snapshot.progress.stages.find(s => s.id === stageId);
           const status = stage?.status ?? 'pending';
-          const label = STAGE_LABELS[stageId] ?? stageId;
-          const Icon = status === 'done' ? ChevronDown : status === 'active' ? Loader : ChevronRight;
+          const Icon = status === 'done' ? CheckCircle2 : status === 'active' ? Loader : Circle;
           return (
-            <div key={stageId} className={`review-toast-stage stage-${status}`}>
+            <li key={stageId} className={`review-toast-stage stage-${status}`}>
               <div className="review-toast-stage-header">
-                <Icon size={12} className={status === 'active' ? 'spin' : ''} />
-                <span>{label}</span>
-                <span className="review-toast-stage-status">({status})</span>
+                <Icon size={16} className={status === 'active' ? 'review-toast-spin' : undefined} aria-hidden="true" />
+                <span className="review-toast-stage-label">{reviewToastStageLabel(stageId)}</span>
+                <span className="review-toast-stage-status">{reviewToastStageStatus(status)}</span>
               </div>
               {stage && stage.thoughts.length > 0 && (
                 <ul className="review-toast-thoughts">
                   {stage.thoughts.slice(-3).map((t, i) => <li key={i}>{t}</li>)}
                 </ul>
               )}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ol>
       {(snapshot.status === 'running' || snapshot.status === 'queued') && (
         <div className="review-toast-actions">
-          <button className="btn-secondary" onClick={handleCancel}>Cancel Review</button>
+          <button type="button" className="btn-secondary" onClick={handleCancel}>Cancel review</button>
         </div>
       )}
     </div>

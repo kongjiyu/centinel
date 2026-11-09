@@ -224,10 +224,11 @@ export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, o
                         </span>
                         <div className="action-required-context">
                           <strong>{action.project.name}</strong>
-                          <span aria-hidden="true">·</span>
-                          <span>{action.module}</span>
-                          <span aria-hidden="true">·</span>
-                          <time dateTime={action.updatedAt}>{formatActivityTime(action.updatedAt)}</time>
+                          <span className="action-required-meta">
+                            <span>{action.module}</span>
+                            <span aria-hidden="true">·</span>
+                            <time dateTime={action.updatedAt}>{formatActivityTime(action.updatedAt)}</time>
+                          </span>
                         </div>
                         <button
                           type="button"

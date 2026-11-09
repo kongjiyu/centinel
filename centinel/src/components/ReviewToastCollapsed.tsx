@@ -1,44 +1,36 @@
-import { ChevronRight, Loader } from 'lucide-react';
+import { ChevronUp, Loader } from 'lucide-react';
 import type { ActiveReviewSnapshot } from '../context/ActiveReviewContext';
-
-const STAGE_LABELS: Record<string, string> = {
-  understanding_context: 'Context',
-  code_review: 'Code',
-  requirement_validation: 'Req',
-  summarizing: 'Summary',
-};
-
-function stageLabel(stageId: string): string {
-  return STAGE_LABELS[stageId] ?? stageId;
-}
+import { REVIEW_TOAST_STAGES, reviewToastStageIndex, reviewToastStageLabel } from './reviewToastStages';
 
 export function ReviewToastCollapsed({ snapshot, onClick }: {
   snapshot: ActiveReviewSnapshot;
   onClick: () => void;
 }) {
-  const stages = ['understanding_context', 'code_review', 'requirement_validation', 'summarizing'] as const;
   const active = snapshot.progress.stages.find(s => s.status === 'active');
   const currentStageId = active?.id ?? snapshot.progress.currentStage;
+  const stageIndex = reviewToastStageIndex(currentStageId);
+  const latestActivity = active && active.thoughts.length > 0 ? active.thoughts[active.thoughts.length - 1] : '';
 
   return (
-    <button type="button" className="review-toast-collapsed" onClick={onClick} aria-label={`Open review progress for ${snapshot.name}`}>
-      <div className="review-toast-header">
-        <Loader size={14} className="spin" />
+    <button type="button" className="review-toast-collapsed" onClick={onClick} aria-expanded="false" aria-label={`Open review progress for ${snapshot.name}`}>
+      <span className="review-toast-header">
+        <Loader size={16} className="review-toast-spin" aria-hidden="true" />
         <span className="review-toast-title">{snapshot.name}</span>
-        <span className="review-toast-review-type">{snapshot.reviewType.replace(/_/g, ' ')}</span>
-        <ChevronRight size={14} />
-      </div>
-      <div className="review-toast-progress">
-        {stages.map(s => {
+        <ChevronUp size={16} className="review-toast-chevron" aria-hidden="true" />
+      </span>
+      <span className="review-toast-progress" aria-hidden="true">
+        {REVIEW_TOAST_STAGES.map(s => {
           const stage = snapshot.progress.stages.find(x => x.id === s);
           const status = stage?.status ?? (s === currentStageId ? 'active' : 'pending');
-          return <span key={s} className={`stage-dot stage-${status}`} title={stageLabel(s)} />;
+          return <span key={s} className={`review-toast-segment stage-${status}`} title={reviewToastStageLabel(s)} />;
         })}
-      </div>
-      <div className="review-toast-current">
-        {stageLabel(currentStageId)}
-        {active && active.thoughts.length > 0 ? ` · ${active.thoughts[active.thoughts.length - 1]}` : '…'}
-      </div>
+      </span>
+      <span className="review-toast-current">
+        <span className="review-toast-step">
+          {stageIndex >= 0 ? `Step ${stageIndex + 1} of ${REVIEW_TOAST_STAGES.length} · ` : ''}{reviewToastStageLabel(currentStageId)}
+        </span>
+        {latestActivity && <span className="review-toast-activity">{latestActivity}</span>}
+      </span>
     </button>
   );
 }

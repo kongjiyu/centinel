@@ -76,6 +76,12 @@
   font-family: var(--font-sans);
 }
 
+/* Toasts and app-level prompts sit outside the shell. The wrapper has no box
+   of its own; it only scopes the shared light primitives to them. */
+.workspace-mode.global-overlays {
+  display: contents;
+}
+
 /* Findings progressive disclosure: keep the search path compact and expose
    secondary filters only when requested. */
 .workspace-mode:not(.dashboard-mode) .findings-filter-shell {
@@ -231,6 +237,29 @@
 .workspace-mode:not(.dashboard-mode) .input-mono,
 .workspace-mode:not(.dashboard-mode) .evidence-path {
   font-family: var(--font-mono);
+}
+
+/* Inline code: a quiet light chip. Replaces the legacy command-centre rule
+   (navy background, cyan text) that still matched inside the light shell.
+   Same specificity, later in the cascade, so screen rules still win. */
+.workspace-mode code {
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Code blocks and source readers are plain text on their own surface. */
+.workspace-mode pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  overflow-wrap: normal;
 }
 
 /* Shell: quiet, stable navigation with the same 232px rail as Home. */
@@ -696,6 +725,30 @@
   color: var(--workspace-danger);
   font-size: var(--font-size-support);
 }
+
+/* Page and panel-level failure banner (DESIGN.md §9: banner with recovery). */
+.workspace-mode:not(.dashboard-mode) .command-inline-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 28%, transparent);
+  border-radius: var(--workspace-radius-control);
+  background: var(--color-danger-subtle);
+  color: var(--workspace-text);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.workspace-mode:not(.dashboard-mode) .command-inline-alert > svg {
+  flex: 0 0 auto;
+  color: var(--color-danger);
+}
+
+.workspace-mode:not(.dashboard-mode) .command-inline-alert > span { flex: 1 1 240px; min-width: 0; }
 
 .workspace-mode:not(.dashboard-mode) .form-success {
   background: var(--workspace-success-subtle);
@@ -1391,82 +1444,6 @@
   }
 }
 
-/* The background review surface is global, so it uses the approved light
-   material system on Home and project routes alike. */
-.workspace-mode .review-toast {
-  top: auto;
-  right: 20px;
-  bottom: 20px;
-  left: auto;
-  width: min(390px, calc(100vw - 40px));
-  min-width: 0;
-  max-width: none;
-  padding: 14px;
-  transform: none;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: #ffffff;
-  color: var(--color-text);
-  box-shadow:
-    0 0 0 1px rgba(28, 25, 23, 0.045),
-    0 12px 32px rgba(28, 25, 23, 0.16);
-}
-
-.workspace-mode .review-toast.status-success { border-color: rgba(21, 128, 61, 0.35); }
-.workspace-mode .review-toast.status-failure { border-color: rgba(185, 28, 28, 0.35); }
-.workspace-mode .review-toast.status-cancelled { border-color: rgba(180, 83, 9, 0.35); }
-
-.workspace-mode .review-toast-collapsed {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.workspace-mode .review-toast-close {
-  top: 7px;
-  right: 7px;
-  display: grid;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--color-text-subtle);
-}
-
-.workspace-mode .review-toast-close:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
-.workspace-mode .review-toast-title { color: var(--color-text); }
-.workspace-mode .review-toast-review-type,
-.workspace-mode .review-toast-current,
-.workspace-mode .review-toast-stage-status,
-.workspace-mode .review-toast-thoughts { color: var(--color-text-muted); }
-
-.workspace-mode .review-toast-stage {
-  border-color: var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface-hover);
-}
-
-.workspace-mode .review-toast-stage.stage-pending { border-color: var(--color-border); }
-.workspace-mode .review-toast-stage.stage-active { border-color: rgba(22, 101, 52, 0.45); }
-.workspace-mode .review-toast-stage.stage-done { border-color: rgba(21, 128, 61, 0.3); }
-
-@media (max-width: 720px) {
-  .workspace-mode .review-toast {
-    right: 12px;
-    bottom: 12px;
-    width: calc(100vw - 24px);
-  }
-}
 
 .workspace-mode:not(.dashboard-mode) .finding-detail,
 .workspace-mode:not(.dashboard-mode) .requirement-detail,
@@ -4687,6 +4664,17 @@ div.app-shell.has-window-chrome .sidebar {
   flex: 0 0 auto;
 }
 
+.connection-status-message > span { flex: 1 1 240px; min-width: 0; }
+
+/* A failed status read is a recoverable warning, not neutral copy. */
+.connection-status-message.is-unavailable {
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  background: var(--color-warning-subtle);
+  color: var(--color-text);
+}
+
+.connection-status-message .connection-status-icon { flex: 0 0 auto; color: var(--color-warning); }
+
 .connection-dialog-security code {
   font-family: var(--font-mono, 'Cascadia Mono', monospace);
   font-size: var(--font-size-meta);
@@ -5231,4 +5219,15 @@ div.app-shell.has-window-chrome .sidebar {
 /* Centinel-suggested requirement links span the grounding workspace. */
 .workspace-mode:not(.dashboard-mode) .grounding-panel.requirement-link-suggestions {
   grid-column: 1 / -1;
+}
+
+/* Content gutters (DESIGN.md §7): 32 px at 1440, 24 px at 1200 and 16 px
+   below 960. The split-shell rule above fixes 32 px with a more specific
+   selector, so the narrower gutters are restated at the same specificity. */
+@media (max-width: 1200px) {
+  div.app-shell.has-window-chrome .page-content-container > .main-content { padding: 24px; }
+}
+
+@media (max-width: 960px) {
+  div.app-shell.has-window-chrome .page-content-container > .main-content { padding: 16px; }
 }

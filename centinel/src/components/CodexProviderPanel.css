@@ -167,3 +167,13 @@
     min-height: 44px;
   }
 }
+
+.codex-provider-panel .codex-saved-empty {
+  color: var(--shell-text-muted, var(--text-muted));
+  font-size: var(--font-size-support);
+}
+
+/* Keep account errors clear of the action row above them. */
+.app-shell.has-window-chrome .provider-form.codex-provider-panel .form-error {
+  margin-top: 12px;
+}

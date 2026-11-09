@@ -45,6 +45,13 @@ describe('AppShell module launch', () => {
     Reflect.deleteProperty(window, '__TAURI_IPC__');
   });
 
+  it('marks the active navigation destination as the current page', () => {
+    renderShell({ name: 'settings' }, vi.fn());
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+    expect(within(nav).getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current');
+  });
+
   it('uses operating-system window chrome inside Tauri', () => {
     Object.defineProperty(window, '__TAURI_IPC__', {
       configurable: true,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Edit, ChevronDown, ChevronUp, Link, FileText, Activity, Check, X, ShieldCheck, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Edit, ChevronDown, ChevronUp, Link, FileText, Activity, Check, X, ShieldCheck, Sparkles, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandEmptyState, CommandPageHeader, IconButton, StatusBadge, type StatusTone } from '../components/CommandUI';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -226,7 +226,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
         </div>
       )}
 
-      {!showForm && error && <p className="form-error" role="alert">{error}</p>}
+      {!showForm && error && <p className="command-inline-alert" role="alert"><AlertCircle size={16} aria-hidden="true" /><span>{error}</span></p>}
 
       {!showForm && <div className="grounding-workspace">
         {suggestions.length > 0 && <section className="grounding-panel requirement-link-suggestions" aria-labelledby="requirement-link-suggestions-heading">

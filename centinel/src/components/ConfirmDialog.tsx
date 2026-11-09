@@ -11,6 +11,14 @@ type Props = {
   busy?: boolean;
 };
 
+/** Progress wording that matches the confirm action ("Deleting…", "Removing…"). */
+function busyLabelFor(confirmLabel: string): string {
+  const verb = confirmLabel.trim().split(/\s+/)[0]?.toLowerCase();
+  if (verb === 'delete') return 'Deleting…';
+  if (verb === 'remove') return 'Removing…';
+  return 'Working…';
+}
+
 export function ConfirmDialog({
   isOpen,
   title,
@@ -38,7 +46,7 @@ export function ConfirmDialog({
           onClick={() => void onConfirm()}
           disabled={busy}
         >
-          {busy ? 'Removing…' : confirmLabel}
+          {busy ? busyLabelFor(confirmLabel) : confirmLabel}
         </button>
       </div>
     </Modal>

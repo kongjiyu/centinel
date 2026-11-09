@@ -205,8 +205,16 @@
 .review-advanced-grid label svg { color: var(--workspace-primary); }
 
 .review-entry-error { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; border: 1px solid var(--workspace-danger); border-radius: var(--workspace-radius-control, 8px); background: var(--workspace-danger-subtle); color: var(--workspace-danger); font-size: var(--font-size-support); line-height: 20px; }
-.review-entry-provider { align-items: center; border-color: var(--workspace-warning); background: var(--workspace-warning-subtle); color: var(--workspace-text); }
-.review-entry-provider > span { flex: 1; }
+.review-entry-provider { flex-wrap: wrap; align-items: center; border-color: var(--workspace-warning); background: var(--workspace-warning-subtle); color: var(--workspace-text); }
+.review-entry-provider > span { flex: 1 1 220px; min-width: 0; }
+.review-entry-provider > svg { flex: none; color: var(--workspace-warning); }
+@media (max-width: 720px) {
+  /* Keep the message beside its icon; the action moves to its own line. */
+  .review-entry-provider { align-items: flex-start; }
+  .review-entry-provider > svg { margin-top: 2px; }
+  .review-entry-provider > span { flex-basis: calc(100% - 32px); }
+  .review-entry-provider > .btn-secondary { margin-left: 25px; }
+}
 .review-entry-provider > .btn-secondary { flex: none; }
 .review-entry-error:focus { outline: 2px solid var(--workspace-focus); outline-offset: 3px; }
 .review-entry-estimate { margin: 0; color: var(--workspace-text-muted); font-size: var(--font-size-meta); line-height: 19px; }

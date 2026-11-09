@@ -191,6 +191,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <div className="sidebar-category">Dashboard</div>
               <button
                 className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
+                aria-current={isActive(['dashboard']) ? 'page' : undefined}
                 onClick={() => nav('dashboard')}
                 aria-label="Home"
                 title="Home"
@@ -200,6 +201,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               </button>
               <button
                 className={`nav-item ${projectsActive ? 'active' : ''}`}
+                aria-current={projectsActive ? 'page' : undefined}
                 onClick={() => nav('projects')}
                 aria-label="Projects"
                 title="Projects"
@@ -213,6 +215,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <div className="sidebar-category">Activities</div>
               <button
                 className={`nav-item ${staticActive ? 'active' : ''}`}
+                aria-current={staticActive ? 'page' : undefined}
                 onClick={() => openModule('static')}
                 aria-label="Review"
                 title="Review"
@@ -222,6 +225,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               </button>
               <button
                 className={`nav-item ${dynamicActive ? 'active' : ''}`}
+                aria-current={dynamicActive ? 'page' : undefined}
                 onClick={() => openModule('dynamic')}
                 aria-label="Dynamic Testing"
                 title="Dynamic Testing"
@@ -230,7 +234,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 <span>Dynamic Testing</span>
               </button>
               {/* Developer harness: hidden from the product navigation outside development builds (DESIGN.md navigation). */}
-              {import.meta.env.DEV && <button className={`nav-item ${isActive(['review-playground']) ? 'active' : ''}`} onClick={() => onNavigate({ name: 'review-playground', ...('projectId' in screen ? { projectId: screen.projectId } : {}) })} aria-label="Playground" title="Playground">
+              {import.meta.env.DEV && <button className={`nav-item ${isActive(['review-playground']) ? 'active' : ''}`} aria-current={isActive(['review-playground']) ? 'page' : undefined} onClick={() => onNavigate({ name: 'review-playground', ...('projectId' in screen ? { projectId: screen.projectId } : {}) })} aria-label="Playground" title="Playground">
                 <FlaskConical size={18} aria-hidden="true" />
                 <span>Playground</span>
               </button>}
@@ -240,6 +244,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <div className="sidebar-category">Settings</div>
               <button
                 className={`nav-item ${isActive(['settings']) ? 'active' : ''}`}
+                aria-current={isActive(['settings']) ? 'page' : undefined}
                 onClick={() => nav('settings')}
                 aria-label="Settings"
                 title="Settings"
@@ -249,6 +254,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               </button>
               <button
                 className={`nav-item ${isActive(['help']) ? 'active' : ''}`}
+                aria-current={isActive(['help']) ? 'page' : undefined}
                 onClick={() => nav('help')}
                 aria-label="Help"
                 title="Help"
@@ -280,6 +286,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                     key={project.id}
                     type="button"
                     className={`nav-item sidebar-pin-item ${screen.name === 'project-detail' && screen.projectId === project.id ? 'active' : ''}`}
+                    aria-current={screen.name === 'project-detail' && screen.projectId === project.id ? 'page' : undefined}
                     onClick={() => onNavigate({ name: 'project-detail', projectId: project.id })}
                     aria-label={`Open ${project.name} overview`}
                     title={project.name}
