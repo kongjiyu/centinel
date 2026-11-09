@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { setVisibleInterval } from '../hooks/usePageVisible';
-import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus } from 'lucide-react';
+import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus, AlertTriangle } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { checkForAppUpdate, installUpdateAndRestart } from '../utils/appUpdate';
 import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
@@ -911,7 +911,8 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
             <h2 id="settings-connections-title"><SectionTitleIcon Icon={Cable} />Connections</h2>
           </div>
           {(connectionStatusUnavailable || !hasConnectionSnapshot) && (
-            <div className="connection-dialog-security connection-status-message" role="status" aria-live="polite">
+            <div className={`connection-dialog-security connection-status-message${connectionStatusUnavailable ? ' is-unavailable' : ''}`} role="status" aria-live="polite">
+              {connectionStatusUnavailable && <AlertTriangle size={16} aria-hidden="true" className="connection-status-icon" />}
               <span>{connectionStatusMessage ?? 'Checking saved connection status…'}</span>
               <button type="button" className="btn-secondary" onClick={() => void refreshConnections()} disabled={connectionStatusChecking}>
                 {connectionStatusChecking ? 'Checking…' : 'Check status'}

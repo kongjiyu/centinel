@@ -34,6 +34,11 @@ function describeSavedModel(settings: AiProviderSetting[], role: Role): string {
   return setting.model.trim() ? `${provider} · ${setting.model.trim()}` : `${provider} · no model saved`;
 }
 
+/** Model identifiers use the technical face; the empty state is plain text. */
+function SavedModelValue({ value }: { value: string }) {
+  return value === 'Not configured' ? <span className="codex-saved-empty">{value}</span> : <code>{value}</code>;
+}
+
 function modelSupportDescription(model: Model | undefined, role: Role): string {
   if (!model) return 'Choose a model from the available account list.';
   const imageSupportKnown = (model as Model & { imageSupportKnown?: boolean }).imageSupportKnown;
@@ -181,8 +186,8 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
     </div>
     <p className="form-hint">Sign in with ChatGPT to use your ChatGPT plan for Review and Dynamic testing. Requests count toward your plan’s usage limits, and no API key is needed. Centinel connects through the official Codex CLI included with the app. Sign-in is saved for your Centinel account on this device.</p>
     <dl className="codex-saved-assignments" aria-label="Saved model assignments">
-      <div><dt>Review</dt><dd><code>{describeSavedModel(settings, 'text')}</code></dd></div>
-      <div><dt>Dynamic testing</dt><dd><code>{describeSavedModel(settings, 'vision')}</code></dd></div>
+      <div><dt>Review</dt><dd><SavedModelValue value={describeSavedModel(settings, 'text')} /></dd></div>
+      <div><dt>Dynamic testing</dt><dd><SavedModelValue value={describeSavedModel(settings, 'vision')} /></dd></div>
     </dl>
     {status?.accountLabel
       ? <p className="form-hint">Connected as {status.accountLabel}</p>

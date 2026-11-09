@@ -239,6 +239,29 @@
   font-family: var(--font-mono);
 }
 
+/* Inline code: a quiet light chip. Replaces the legacy command-centre rule
+   (navy background, cyan text) that still matched inside the light shell.
+   Same specificity, later in the cascade, so screen rules still win. */
+.workspace-mode code {
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Code blocks and source readers are plain text on their own surface. */
+.workspace-mode pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  overflow-wrap: normal;
+}
+
 /* Shell: quiet, stable navigation with the same 232px rail as Home. */
 .workspace-mode:not(.dashboard-mode) .sidebar {
   width: 232px;
@@ -4616,6 +4639,17 @@ div.app-shell.has-window-chrome .sidebar {
 .connection-status-message button {
   flex: 0 0 auto;
 }
+
+.connection-status-message > span { flex: 1 1 240px; min-width: 0; }
+
+/* A failed status read is a recoverable warning, not neutral copy. */
+.connection-status-message.is-unavailable {
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  background: var(--color-warning-subtle);
+  color: var(--color-text);
+}
+
+.connection-status-message .connection-status-icon { flex: 0 0 auto; color: var(--color-warning); }
 
 .connection-dialog-security code {
   font-family: var(--font-mono, 'Cascadia Mono', monospace);
