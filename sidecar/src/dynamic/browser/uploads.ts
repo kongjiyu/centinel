@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';import type {Page} from 'playwright';
 import {BrowserPolicyBlocked,type BrowserActionPolicy} from './actionPolicy.js';
 import {BrowserActionUnavailable,BrowserActionUncertain,type AgentAction,type ElementBinding,type ActionReceipt} from './actions.js';
-import {allowedBrowserUrl} from './policy.js';import type {ActionLedger} from './actionLedger.js';import type {UploadGrant,UploadPayload} from './fileTypes.js';
-export async function executeApprovedUpload(page:Page,action:Extract<AgentAction,{action:'upload_file'}>,options:{policy?:BrowserActionPolicy;origins?:readonly string[];bindings?:ReadonlyMap<string,ElementBinding>;signal?:AbortSignal;ledger?:ActionLedger;resolveUpload?:(grant:UploadGrant)=>UploadPayload;onUploadPrivateValue?:(value:string)=>void}):Promise<ActionReceipt>{
+import {allowedBrowserUrl} from './policy.js';import {beginLiveAction,type LiveActionContext} from '../live/actionEvents.js';import type {ActionLedger} from './actionLedger.js';import type {UploadGrant,UploadPayload} from './fileTypes.js';
+export async function executeApprovedUpload(page:Page,action:Extract<AgentAction,{action:'upload_file'}>,options:{policy?:BrowserActionPolicy;origins?:readonly string[];bindings?:ReadonlyMap<string,ElementBinding>;signal?:AbortSignal;ledger?:ActionLedger;resolveUpload?:(grant:UploadGrant)=>UploadPayload;onUploadPrivateValue?:(value:string)=>void;live?:LiveActionContext}):Promise<ActionReceipt>{
  const stopped=()=>{if(options.signal?.aborted)throw new DOMException('Upload stopped','AbortError');};stopped();
  if(!options.policy||!options.resolveUpload||!allowedBrowserUrl(page.url(),options.origins??[]))throw new BrowserPolicyBlocked('Upload requires a frozen environment grant and an available local test file.');
  const binding=action.elementRef?options.bindings?.get(action.elementRef):action.selector;if(!binding)throw new BrowserActionUnavailable('Upload target is absent from the current observation.');
@@ -17,6 +17,7 @@ export async function executeApprovedUpload(page:Page,action:Extract<AgentAction
  options.onUploadPrivateValue?.(payload.name);stopped();
  const aliases=await target.evaluate((element,selectors)=>selectors.filter(selector=>{try{return element.matches(selector)&&document.querySelectorAll(selector).length===1;}catch{return false;}}),(options.policy.uploads??[]).map(row=>row.selector));stopped();
  const location=new URL(page.url());options.ledger?.reserveClick(crypto.createHash('sha256').update('upload\n'+location.origin+location.pathname+'\n'+aliases.sort().join('\n')).digest('hex'),false);
- try{await target.setInputFiles(payload,{timeout:5000});}catch{stopped();throw new BrowserActionUncertain();}stopped();
+ const liveDone=options.live?await beginLiveAction(page,options.live,{action:'upload_file',label:'File upload',target}):undefined;stopped();
+ try{await target.setInputFiles(payload,{timeout:5000});}catch{stopped();throw new BrowserActionUncertain();}finally{liveDone?.();}stopped();
  return {dispatch:'upload',selector:grant.selector,fileTransfer:{kind:'upload',fixtureId:grant.id,sha256:grant.sha256,bytes:grant.bytes,mimeType:grant.mimeType}};
 }

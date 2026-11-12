@@ -19,10 +19,13 @@ import { checkPage } from './checker.js';
 import { buildCheckBrief } from './browser/checkBrief.js';
 import { DynamicService } from './service.js';
 import type { DynamicRun, EvidenceReference } from './types.js';
+import type { LiveRunOptions } from './live/liveHub.js';
 
 /** Attach a frozen Mission revision to the existing local browser executor. */
 export async function executeMissionRun(service: DynamicService, run: DynamicRun, workspace: string,
-  providers: { resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./browser/fileTypes.js').UploadGrant)=>import('./browser/fileTypes.js').UploadPayload;storageState?:BrowserSessionState; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown> }) {
+  providers: { resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./browser/fileTypes.js').UploadGrant)=>import('./browser/fileTypes.js').UploadPayload;storageState?:BrowserSessionState; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>;
+    /** Opt-in live view for Autonomous runs; absent keeps the normal headed Run unchanged. */
+    live?: LiveRunOptions }) {
   let legacySessionId: string | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let watchdogTimer: ReturnType<typeof setInterval> | undefined;
