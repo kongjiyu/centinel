@@ -486,14 +486,21 @@ const clients = new Map<string, CodexBackend>();
 // Keep sign-in state in the writable Centinel home. Packaged builds run from
 // app resources, which an update replaces.
 const root = () => path.join(centinelHome(), 'data/codex');
-export function getCodexBackend(ownerId: string): CodexBackend {
+/**
+ * One Codex app-server per owner, plus optional named slots (Auto test lanes) that share the
+ * owner's Codex home and sign-in but run in their own process. Codex serialises auth refresh
+ * across processes with its auth.lock, and each slot's cancel/timeout closes only that slot.
+ */
+export function getCodexBackend(ownerId: string, slot?: string): CodexBackend {
   if (!ownerId.trim()) throw failure('A verified Centinel user is required.', 'codex_identity_required');
-  let client = clients.get(ownerId);
+  if (slot !== undefined && !/^[a-z0-9-]{1,32}$/.test(slot)) throw failure('Invalid Codex slot.', 'codex_invalid_response');
+  const key = slot ? `${ownerId}#${slot}` : ownerId;
+  let client = clients.get(key);
   if (!client) {
     if (clients.size >= 32) throw failure('Too many local Codex accounts are open. Restart Centinel.', 'codex_capacity');
     // Hashing prevents path traversal; authorization still comes from AuthGateway.
     client = new CodexAppServer(path.join(root(), createHash('sha256').update(ownerId).digest('hex')), spawn, 120_000, localCodexTokenSource(ownerId), fetch, codexGenerationTimeoutMs());
-    clients.set(ownerId, client);
+    clients.set(key, client);
   }
   return client;
 }

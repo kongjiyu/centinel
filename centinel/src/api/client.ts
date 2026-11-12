@@ -4,6 +4,7 @@ import type { DynamicRun, Mission, MissionInput, MissionRevision, EnvironmentInp
 import type { Project, CollaborationStatus, CollaboratorSearchResult, CollaboratorInviteResult, GithubCollaboratorSnapshot, AiProviderSetting, AiProvider, AiApiFormat, AiTestResult, DynamicSession, DynamicEvidence, Artifact, StaticSession, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, ProjectAssessment, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewDecision, ReviewDecisionAttachmentInput, ReviewModelUsage, ReviewScopeSelection, IntegrationProvider, ConnectedSource, ConnectedSourceStatusResult, ConnectedSourceBrowsePage, ConnectedSourceSyncResult, ConnectedSourceSyncRun, EvidenceSufficiencyAssessment, EvidenceContradictionDisposition, FindingCorrelationSnapshot, RequirementCandidate, StandardRule } from '../types';
 
 import { SIDECAR_BASE_URL } from './transport';
+import type { AutoTestSession } from '../autotest/types';
 import { invoke } from '@tauri-apps/api/tauri';
 import { refreshSupabaseSession } from '../auth/supabaseAuth';
 import type { EmbeddingSettingsCatalog } from '../types';
@@ -546,6 +547,10 @@ export const api = {
   reviewDynamicFinding:(projectId:string,id:string,input:ReviewFindingInput)=>request<DynamicFinding>(`/projects/${projectId}/dynamic/findings/${id}/review`,{method:'POST',body:JSON.stringify(input)}),
   remediateDynamicFinding:(projectId:string,id:string,input:RemediationInput)=>request<DynamicFinding>(`/projects/${projectId}/dynamic/findings/${id}/remediation`,{method:'POST',body:JSON.stringify(input)}),
   // `fresh` skips joining an in-flight identical read (which may predate a Run start or stop) and the HTTP cache.
+  autoTests: (projectId: string) => request<AutoTestSession[]>(`/projects/${projectId}/dynamic/autonomous`, { cache: 'no-store' }),
+  autoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}`, { cache: 'no-store' }),
+  startAutoTest: (projectId: string, input: { folder?: string; lanes?: number }) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous`, { method: 'POST', body: JSON.stringify(input) }),
+  cancelAutoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}/cancel`, { method: 'POST', body: '{}' }),
   dynamicRuns: (projectId: string, options?: { fresh?: boolean }) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`, options?.fresh ? { cache: 'no-store' } : undefined),
   startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string, environmentId?: string, baselineRunId?:string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey, ...(environmentId ? {environmentId} : {}),...(baselineRunId?{baselineRunId}:{}) }) }),
   stopDynamicRun: (projectId: string, runId: string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs/${runId}/cancel`, { method: 'POST', body: '{}' }),

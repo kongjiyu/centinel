@@ -1,6 +1,7 @@
 import {normalizeBudget} from '../budgets.js';
 import type { EnvironmentProfile, EnvironmentSnapshot, PreflightCheck, EnvironmentData } from './types.js';
-/** Read-only preflight: instructions are suggestions and never shell commands. */
+/** Read-only preflight: instructions are suggestions and never shell commands.
+ * (Auto test starts apps itself through autonomous/launcher.ts, not through preflight.) */
 export async function checkEnvironment(profile: EnvironmentProfile, variableNames: string[], providerReady: boolean, reach: typeof fetch = fetch, data?: EnvironmentData,session?:{availability:string;reason?:string;captureActive?:boolean;version?:string;expiresAt?:string},uploadsReady?:boolean): Promise<EnvironmentSnapshot> {
   const checks: PreflightCheck[] = profile.requiredVariables.map(name=>({name,ready:variableNames.includes(name),reason:variableNames.includes(name)?'Value available on this device.':'Enter this value on the executing device.'}));
   if(data)checks.push({name:'Test data',ready:data.state==='ready'&&data.preparedVersion===profile.version,reason:data.state==='cleanup_required'?'Complete and record cleanup before reuse.':['in_use','preparing','cleaning'].includes(data.state)?'A Run or data operation is using this environment.':data.state==='ready'&&data.preparedVersion===profile.version?'Manual preparation recorded for this profile version.':'Prepare test data and record its initial state.'});

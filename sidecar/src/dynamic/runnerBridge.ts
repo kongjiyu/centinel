@@ -60,6 +60,8 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     heartbeatTimer.unref();
     await runDynamicSession(session, workspace, {
       ...providers,
+      // Each live Auto test lane gets its own Codex process so lanes run model calls in parallel.
+      ...(providers.live && providers.vision ? { vision: { ...providers.vision, codexSlot: providers.live.laneId } } : {}),
       budgets:limits,
       checkBrief:buildCheckBrief(run.revision.checks,run.revision.context,run.revision.criterionExclusions),
       usabilityConfig:run.revision.usability,

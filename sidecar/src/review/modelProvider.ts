@@ -155,7 +155,7 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
       if (settings.apiFormat !== 'codex-app-server' || !settings.ownerId || !settings.model) {
         throw new ModelProviderError('Codex requires an authenticated user and selected model.', { code: 'invalid_configuration', retryable: false });
       }
-      const reply = await (this.codexBackend ?? getCodexBackend(settings.ownerId)).generate({
+      const reply = await (this.codexBackend ?? getCodexBackend(settings.ownerId, settings.codexSlot)).generate({
         model: settings.model, systemPrompt: request.systemPrompt,
         prompt: request.repair ? `Return only JSON matching the requested schema and supplied evidence references.\n\n${request.prompt}` : request.prompt,
         imagePaths: request.imagePaths, signal: request.signal, outputSchema: request.outputSchema,

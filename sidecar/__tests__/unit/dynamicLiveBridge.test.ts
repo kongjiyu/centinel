@@ -25,6 +25,7 @@ describe('Mission bridge live option', () => {
     await executeMissionRun(service, run, '/tmp/not-used', { vision: {} as any });
     const options = mocks.execute.mock.calls[0][2];
     expect(options).not.toHaveProperty('live');
+    expect(options.vision).not.toHaveProperty('codexSlot');
     expect(options.observationMode).toBe('dom_first');
   });
   it('forwards the live option unchanged to the browser runner', async () => {
@@ -34,5 +35,6 @@ describe('Mission bridge live option', () => {
     const options = mocks.execute.mock.calls[0][2];
     expect(options.live).toBe(live);
     expect(options.observationMode).toBe('dom_first');
+    expect(options.vision.codexSlot).toBe('lane-2');
   });
 });

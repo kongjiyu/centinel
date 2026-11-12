@@ -10,6 +10,16 @@
 
 This document defines the product-wide UI and UX contract. It supersedes the previous dark mission-control direction. New work must follow it; existing screens should migrate toward it without changing product behavior.
 
+## Auto test live view amendment (12 November 2026)
+
+At the user's request, Dynamic testing has an **Auto test** panel above the environment and editor. It has an App folder field with Browse and a primary **Start Auto test** button, then a six-step stage timeline (Read the code, Start the app, Explore pages, Write tests, Run tests, Results).
+
+While tests run, a grid shows up to four live browser tiles (three columns at 1440, two below 1100, one on narrow widths). Each tile has its lane label, test name, state chip and a one-line caption ("Clicking **Sign in**"). Tiles can be enlarged one at a time (Esc returns).
+
+This is an approved exception to the no-decorative-motion rule, because the motion is evidence of what the browser is doing. A Centinel-drawn arrow cursor glides to each target. It has a click ripple, target outline and masked typing caret, and its label names the test. Each lane uses an existing token colour (forest, teal, amber, stone) and always has a text label. Reduced-motion users get instant jumps without ripples.
+
+Results lead with failures. Each failed test shows Expected/Actual rows, an **AI explanation** block that is visibly labelled as AI, source references in the technical face, and **Open run evidence**. Limitations are listed under "What this did not cover". All values come from real Run data.
+
 ## Activity and overview refinements (11 November 2026)
 
 - Create project accepts local folders and GitHub links in one dialog. Two direct actions open the native folder picker or reveal the GitHub URL input. Each selected source has a remove action.

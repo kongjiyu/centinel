@@ -47,7 +47,8 @@ export class InMemoryDynamicRepository implements DynamicRepository {
       if (existing.revision.id !== revision.id || existing.createdBy !== actorId || existing.environment?.id !== environment?.id||existing.regression?.runId!==baselineRunId) throw new DynamicContractError(409, 'Idempotency key belongs to a different request.');
       return { run: structuredClone(existing), reused: true };
     }
-    if ([...this.runs.values()].some(run => run.projectId === projectId && ['queued', 'running'].includes(run.state))) throw new DynamicContractError(409, 'A Run is already active in this project.');
+    // Mirrors dynamic_one_active_run_per_environment: one active Run per environment (runs without one share a slot).
+    if ([...this.runs.values()].some(run => run.projectId === projectId && (run.environment?.id ?? '') === (environment?.id ?? '') && ['queued', 'running'].includes(run.state))) throw new DynamicContractError(409, 'A Run is already active in this project.');
     const now = new Date(this.now()).toISOString();
     const limits=normalizeBudget(environment?.budgets);limits.maxSteps=Math.min(limits.maxSteps,revision.maxSteps);
     const run: DynamicRun = { executionBudget:limits, ...(environment ? {environment:structuredClone(environment)} : {}), id: crypto.randomUUID(), projectId, missionId: revision.missionId, revision: structuredClone(revision), idempotencyKey: key, createdBy: actorId, createdAt: now, updatedAt: now, state: 'queued', verdict: 'not_tested', checks: [], evidence: [], reason: null, legacySessionId: null };

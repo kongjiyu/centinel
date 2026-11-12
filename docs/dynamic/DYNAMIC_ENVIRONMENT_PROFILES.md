@@ -22,7 +22,7 @@ Variables establish prerequisites and remain encrypted locally. Approved
 [private browser inputs](DYNAMIC_BROWSER_CREDENTIALS.md) can fill named references
 into frozen field/origin grants; captured sessions remain separately controlled.
 An account-role note is not proof
-that a browser is authenticated. No environment command is automatically run.
+that a browser is authenticated. No environment command is automatically run. (Auto test, added 12 November 2026, starts the app it tests from a fixed recipe table; see AUTONOMOUS_DYNAMIC_TESTING_2026-11-12.md.)
 Startup instructions are explicit manual text; inspection of authorized target
 workspace templates and approved hooks comes with the preparation lifecycle.
 

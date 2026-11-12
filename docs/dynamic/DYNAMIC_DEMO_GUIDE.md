@@ -32,7 +32,7 @@ Use with LOCAL_RUNTIME_SETUP.md and DYNAMIC_RELEASE_CHECKLIST.md. Final native/J
    allowed frontend/API origins, viewport, declared version, budgets and independent
    data resource. Add required private values locally; ordinary fields hold names
    and references only. Inspect and authorize a workspace only if hooks/unit tests
-   are needed; no suggested command executes automatically.
+   are needed; no suggested command executes automatically (Auto test is the one exception: it starts the app from a fixed recipe table).
 2. Select an explicit mock snapshot, choose one criterion and review the generated
    mission. Confirm mock-static provenance and a supported independent check. A
    manual mission can omit context. Save to create an immutable revision.
