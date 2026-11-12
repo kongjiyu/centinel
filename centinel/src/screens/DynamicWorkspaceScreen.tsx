@@ -1,4 +1,5 @@
 import { DynamicReportsPanel } from './DynamicReportsPanel';
+import { AutoTestPanel } from './autotest/AutoTestPanel';
 import { setVisibleInterval } from '../hooks/usePageVisible';
 import { DynamicUsabilityEditor, DynamicUsabilityResults } from './DynamicUsabilityPanel';
 import type { UsabilityConfig } from '../dynamic/usability';
@@ -541,6 +542,15 @@ export function DynamicWorkspaceScreen({
         <p className="dw-empty">Create or select a project to save your first browser test.</p>
       ) : (
         <>
+          <AutoTestPanel
+            projectId={projectId}
+            defaultFolder={projects.find((project) => project.id === projectId)?.workspacePath || undefined}
+            onOpenRun={(runId) => {
+              setSelectedRunId(runId);
+              void load({ fresh: true }).catch(() => undefined);
+              requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+            }}
+          />
           <DynamicEnvironmentPanel
             projectId={projectId}
             value={environmentId}
