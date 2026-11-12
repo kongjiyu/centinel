@@ -70,11 +70,14 @@ export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryP
  * session for the environment may be supplied so pages behind sign-in can be
  * read; it is used only inside this short-lived, read-only browser context.
  */
-export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState } = {}): Promise<DiscoveryResult> {
+/** maxPaths/maxControls are raised only by Autonomous testing; the manual scan keeps 5 pages and 20 controls. */
+export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState; maxPaths?: number; maxControls?: number } = {}): Promise<DiscoveryResult> {
+  const maxPaths = Math.min(Math.max(options.maxPaths ?? 5, 0), 19);
+  const maxControls = Math.min(Math.max(options.maxControls ?? MAX_CONTROLS, 1), 80);
   const pageUrls = [target, ...(options.paths ?? []).map(path => new URL(path, target))]
     .filter((url, index, all) => all.findIndex(other => other.href === url.href) === index);
   if (pageUrls.some(url => url.origin !== target.origin)) throw new DynamicContractError(400, 'Additional pages must be on the same website as the test address.');
-  if (pageUrls.length > 6) throw new DynamicContractError(400, 'Scan at most five additional pages at a time.');
+  if (pageUrls.length > maxPaths + 1) throw new DynamicContractError(400, maxPaths === 5 ? 'Scan at most five additional pages at a time.' : `Scan at most ${maxPaths} additional pages at a time.`);
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ acceptDownloads: false, ...(options.storageState ? { storageState: options.storageState } : {}) });
@@ -94,12 +97,12 @@ export async function discoverControls(target: URL, options: { timeoutMs?: numbe
         pages.push({ url: url.toString(), finalUrl: page.url(), controls: 0, redirected: true });
         continue;
       }
-      const found = await page.evaluate(`(${COLLECT_CONTROLS})(${MAX_CONTROLS})`) as Array<{ selector: string; label: string; actions: string[]; kind: string }>;
+      const found = await page.evaluate(`(${COLLECT_CONTROLS})(${maxControls})`) as Array<{ selector: string; label: string; actions: string[]; kind: string }>;
       const finalUrl = page.url();
       const redirected = new URL(finalUrl).pathname !== url.pathname;
       let added = 0;
       for (const item of found) {
-        if (controls.length >= MAX_CONTROLS || controls.some(existing => existing.selector === item.selector)) continue;
+        if (controls.length >= maxControls || controls.some(existing => existing.selector === item.selector)) continue;
         controls.push({ ...item, actions: item.actions as InteractionAction[], page: new URL(finalUrl).pathname });
         added++;
       }

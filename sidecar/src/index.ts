@@ -54,6 +54,11 @@ import { CollaborationError } from './githubTypes.js';
 import { SupabaseGithubCollaborationService } from './githubCollaboration.js';
 import { getCodexBackend, closeCodexBackends, type CodexBackend } from './model/codex.js';
 import { startSampleShop, stopSampleShop } from './sampleShop.js';
+import { handleAutoTestRoute, autoTestRuntime } from './dynamic/autonomous/routes.js';
+import { SupabaseAutoTestStore, autoTestLiveRuns } from './dynamic/autonomous/store.js';
+import { createAutoTestDeps } from './dynamic/autonomous/runtimeDeps.js';
+import { createLiveSseHandler } from './dynamic/live/sse.js';
+const autoTestLiveSse = createLiveSseHandler();
 import { testCodexProvider } from './model/codexTest.js';
 import { ModelProviderError } from './review/retry.js';
 import { ModelConfigurationError, resolveModelProviderChain, SupabaseModelConfigurationRepository } from './review/modelProviderResolver.js';
@@ -695,7 +700,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       if(reportResponse){if('mimeType' in reportResponse&&Buffer.isBuffer(reportResponse.body)){res.writeHead(200,{'Content-Type':reportResponse.mimeType,'Content-Length':reportResponse.body.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename="${reportResponse.filename}"`,'X-Centinel-SHA256':reportResponse.sha256,'Access-Control-Expose-Headers':'X-Centinel-SHA256, Content-Disposition'});res.end(reportResponse.body);return;}return json(res,reportResponse.status,reportResponse.body);}
       const findingResponse=await handleFindingRoute({method:req.method??'GET',pathname:url,readBody:()=>parseJsonBody(req,100_000)},{repository:new SupabaseFindingRepository(auth.client),requireMember:projectId=>authGateway.requireProjectMember(auth,projectId),validatePrivate:async(projectId,value)=>{const secrets=(await environments.list(projectId)).flatMap(profile=>privateValues(projectId,profile));if(containsLocalValue(value,secrets))throw new DynamicContractError(400,'Keep private local values out of shared finding decisions.');}});
       if(findingResponse)return json(res,findingResponse.status,findingResponse.body);
-      const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, {
+      const dynamicRouteDeps: import('./dynamic/routes.js').DynamicRouteDependencies = {
         actorId: ownerId,
         validateAuthoring: async (projectId,body)=>{
           const profiles=await environments.list(projectId);
@@ -738,6 +743,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
             ...(run.environment?{resolveUpload:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>uploads.resolve(ownerId,projectId,run.environment!.id,grant)}:{}),
             sensitiveValues:[...frozenValues,...(localSession?sessionSensitiveValues(localSession):[])],
             storageState:localSession?.state,
+            ...(autoTestLiveRuns.get(run.idempotencyKey)?{live:autoTestLiveRuns.get(run.idempotencyKey)}:{}),
             recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
               ownerId, projectId, reviewSessionId: null, stage: usage.stage ?? 'dynamic-action', attempt: 1,
               provider: usage.provider, model: usage.model, outcome: 'success', inputTokens: usage.inputTokens,
@@ -760,7 +766,28 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
             await execute(run);
           }};
         },
+      };
+      const autoTestStore = new SupabaseAutoTestStore(auth.client, ownerId);
+      const autoTestResponse = await handleAutoTestRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req, 10_000) }, {
+        ownerId, store: autoTestStore, requireMember: projectId => authGateway.requireProjectMember(auth, projectId),
+        defaultFolder: async projectId => { const project = await applicationRepository!.getProject(projectId); return project?.workspacePath || null; },
+        createDeps: (projectId, session) => createAutoTestDeps({
+          projectId, ownerId, session, store: autoTestStore, environments, service, dynamicRouteDeps,
+          home: path.join(dataDir, 'autotest-home'),
+          modelChain: () => resolveModelProviderChain(new SupabaseModelConfigurationRepository(auth.client), { ownerId, projectId, purpose: 'vision' }),
+          recordUsage: usage => new SupabaseCentinelStore(auth.client).saveModelUsage({
+            ownerId, projectId, reviewSessionId: null, stage: usage.stage, attempt: 1, provider: usage.provider, model: usage.model,
+            outcome: usage.outcome, inputTokens: usage.inputTokens ?? null, outputTokens: usage.outputTokens ?? null,
+            cacheReadTokens: usage.cacheReadTokens ?? null, cacheCreationTokens: null, durationMs: usage.durationMs, errorCode: usage.errorCode ?? null, cost: null,
+            metadata: { callKind: 'dynamic_autonomous', autoTestId: session.id },
+          }),
+        }),
       });
+      if (autoTestResponse) {
+        if ('live' in autoTestResponse) { autoTestLiveSse(req, res, autoTestResponse.live); return; }
+        return json(res, autoTestResponse.status, autoTestResponse.body);
+      }
+      const response = await handleDynamicRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req) }, dynamicRouteDeps);
       if (response) return json(res, response.status, response.body);
     }
 
@@ -1940,6 +1967,6 @@ if (launchedDirectly) {
   server.listen(Number(PORT), HOST, () => {
     console.error(`[server] Centinel sidecar listening on ${HOST}:${PORT}`);
   });
-  process.on('SIGTERM', () => { closeCodexBackends(); stopSampleShop(); server.close(); process.exit(0); });
+  process.on('SIGTERM', () => { closeCodexBackends(); stopSampleShop(); void autoTestRuntime.stopAll(); server.close(); process.exit(0); });
   process.on('exit', stopSampleShop);
 }
