@@ -353,6 +353,8 @@ function App() {
             initialAction={screen.initialAction}
             initialSection={screen.initialSection}
             sourceArtifactId={screen.sourceArtifactId}
+            findingsReviewId={screen.findingsReviewId}
+            findingId={screen.findingId}
             initialStaticSessionId={screen.initialStaticSessionId}
             onNavigate={navigate}
             onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}

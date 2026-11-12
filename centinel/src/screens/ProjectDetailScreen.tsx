@@ -19,7 +19,7 @@ import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
 import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
 import { projectReadinessFindings } from '../readinessFindings';
-import { reviewEvidenceFindings } from '../reviewEvidenceFindings';
+import { reviewEvidenceFindings, reviewTraceabilityFindings } from '../reviewEvidenceFindings';
 import { assessReviewSourceCurrency, latestSuccessfulReview } from '../reviewCurrency';
 import { effectiveFindingStatus } from '../findingStatus';
 import { distinctFindingIssues, groupFindings } from '../findingGroups';
@@ -34,7 +34,9 @@ type Props = {
   onNavigate: (screen: Screen) => void;
   onProjectUpdated?: (project: Project) => void;
   initialAction?: 'static' | 'dynamic';
-  initialSection?: 'source';
+  initialSection?: 'source' | 'findings';
+  findingsReviewId?: string;
+  findingId?: string;
   sourceArtifactId?: string;
   initialStaticSessionId?: string;
 };
@@ -89,7 +91,8 @@ function attentionPreview(detail: string): string {
   return (boundary > ATTENTION_PREVIEW_LIMIT - 30 ? preview.slice(0, boundary) : preview).trimEnd();
 }
 
-export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialSection, sourceArtifactId, initialStaticSessionId: _initialStaticSessionId }: Props) {
+export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialSection, sourceArtifactId, findingsReviewId, findingId, initialStaticSessionId: _initialStaticSessionId }: Props) {
+  const showCollaborators = import.meta.env.VITE_ENABLE_PROJECT_COLLABORATORS === 'true';
   const [currentProject, setCurrentProject] = useState(project);
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
@@ -112,8 +115,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [showReportHistory, setShowReportHistory] = useState(false);
   const [reportLinks, setReportLinks] = useState<Record<string, ProjectReportDownloadLinks>>({});
   const [renewingReportId, setRenewingReportId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState(initialSection === 'source' ? 'project-source' : 'project-overview');
-  useEffect(() => { setActiveSection(initialSection === 'source' ? 'project-source' : 'project-overview'); }, [project.id, initialSection]);
+  const [activeSection, setActiveSection] = useState(initialSection === 'source' ? 'project-source' : initialSection === 'findings' ? 'project-findings' : 'project-overview');
+  useEffect(() => { setActiveSection(initialSection === 'source' ? 'project-source' : initialSection === 'findings' ? 'project-findings' : 'project-overview'); }, [project.id, initialSection, findingsReviewId, findingId]);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activityQuery, setActivityQuery] = useState('');
   const [activityType, setActivityType] = useState<'all' | 'review' | 'dynamic'>('all');
@@ -685,18 +688,33 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const readinessFindings = useMemo(() => projectReadinessFindings(readinessStatus), [readinessStatus]);
   const latestSavedReview = useMemo(() => [...staticSessions].filter(review => !['queued', 'prepared', 'running'].includes(review.status)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id))[0], [staticSessions]);
   useEffect(() => {
-    if (activeSection !== 'project-findings' || !latestSavedReview) return;
+    if (activeSection !== 'project-findings' || !latestSavedReview || findingsReviewId) return;
     let disposed = false;
     const identity = { projectId: project.id, reviewId: latestSavedReview.id };
     setReviewGapState({ ...identity, findings: [], message: 'Loading the latest Review’s document findings…' });
     if (typeof api.getReviewEvidenceSufficiency !== 'function') {
       setReviewGapState({ ...identity, findings: [], message: 'The latest Review’s saved document assessment is unavailable.' }); return;
     }
-    void api.getReviewEvidenceSufficiency(project.id, latestSavedReview.id).then(assessment => {
-      if (!disposed) setReviewGapState({ ...identity, findings: reviewEvidenceFindings(latestSavedReview, assessment), message: assessment ? null : 'The latest Review has no saved document assessment.' });
-    }).catch(() => { if (!disposed) setReviewGapState({ ...identity, findings: [], message: 'The latest Review’s document findings could not be loaded. Reopen Findings to retry.' }); });
+    void Promise.allSettled([
+      api.getReviewEvidenceSufficiency(project.id, latestSavedReview.id),
+      Promise.resolve().then(() => api.getReviewTraceability(project.id, latestSavedReview.id)),
+      Promise.resolve().then(() => api.getReviewHarness(project.id, latestSavedReview.id)),
+      Promise.resolve().then(() => api.listStaticFindings(project.id, latestSavedReview.id)),
+    ]).then(([assessment, snapshot, harness, findings]) => {
+      if (disposed) return;
+      setReviewGapState({
+        ...identity,
+        findings: [
+          ...reviewEvidenceFindings(latestSavedReview, assessment.status === 'fulfilled' ? assessment.value : null),
+          ...reviewTraceabilityFindings(latestSavedReview, snapshot.status === 'fulfilled' ? snapshot.value : null,
+            harness.status === 'fulfilled' && harness.value && isExecutedReviewStatus(harness.value.review.status) ? harness.value.analysisMap : null, findings.status === 'fulfilled' ? findings.value : []),
+        ],
+        message: assessment.status === 'rejected' ? 'The latest Review’s document findings could not be loaded. Reopen Findings to retry.'
+          : !assessment.value ? 'The latest Review has no saved document assessment.' : null,
+      });
+    });
     return () => { disposed = true; };
-  }, [activeSection, project.id, latestSavedReview?.id, latestSavedReview?.updatedAt]);
+  }, [activeSection, project.id, findingsReviewId, latestSavedReview?.id, latestSavedReview?.updatedAt]);
   const currentReviewGaps = reviewGapState?.projectId === project.id && reviewGapState.reviewId === latestSavedReview?.id ? reviewGapState : null;
   const supplementalProjectFindings = useMemo(() => [...readinessFindings, ...(currentReviewGaps?.findings ?? [])], [readinessFindings, currentReviewGaps?.findings]);
 
@@ -922,7 +940,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [loadCollaborationStatus, project.id]);
 
   useEffect(() => {
-    if (activeSection !== 'project-collaborations') return;
+    if (!showCollaborators || activeSection !== 'project-collaborations') return;
     void loadCollaboratorData();
   }, [activeSection, loadCollaboratorData]);
 
@@ -1052,7 +1070,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         <button className={activeSection === 'project-assessment' ? 'active' : ''} aria-current={activeSection === 'project-assessment' ? 'page' : undefined} onClick={() => moveToSection('project-assessment')}>Assessment</button>
         <button className={activeSection === 'project-findings' ? 'active' : ''} aria-current={activeSection === 'project-findings' ? 'page' : undefined} onClick={() => { setAttentionFindingId(null); moveToSection('project-findings'); }}>Findings</button>
         <button className={activeSection === 'project-source' ? 'active' : ''} aria-current={activeSection === 'project-source' ? 'page' : undefined} onClick={() => moveToSection('project-source')}>Source</button>
-        <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborators</button>
+        {showCollaborators && <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborators</button>}
         <button className={activeSection === 'project-settings' ? 'active' : ''} aria-current={activeSection === 'project-settings' ? 'page' : undefined} onClick={() => moveToSection('project-settings')}>Settings</button>
       </nav>
 
@@ -1220,7 +1238,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              supplementalFindings={supplementalProjectFindings}
              supplementalUnavailableMessage={[readinessStatus?.stale && readinessStatus.snapshot ? 'Readiness findings describe previous sources and are hidden until a current assessment is available.' : null, currentReviewGaps?.message].filter(Boolean).join(' ') || null}
              presentation="project"
-             focusFindingId={attentionFindingId}
+             focusFindingId={initialSection === 'findings' ? findingId : attentionFindingId}
+             initialReviewFilter={findingsReviewId}
+             readOnly={Boolean(findingsReviewId && !staticSessions.some(review =>
+               review.id === findingsReviewId && review.status !== 'queued' && review.status !== 'running'))}
              onVerifyWithDynamic={finding => onNavigate({ name: 'dynamic-testing', projectId: project.id, draft: findingToDynamicDraft(finding) })}
              recheckFor={recheckFor}
              onOpenReview={reviewId => {
@@ -1237,7 +1258,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
            />
         </div>}
 
-        {activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
+        {showCollaborators && activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
           <div className="panel-header project-collaboration-header">
             <h2><Users size={19} aria-hidden="true" /> Project Collaborators</h2>
             <div className="project-collaboration-actions">
@@ -1311,7 +1332,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       </Modal>
 
       <Modal
-        isOpen={showCollaboratorDialog}
+        isOpen={showCollaborators && showCollaboratorDialog}
         onClose={collaboratorAddLoading ? () => undefined : () => setShowCollaboratorDialog(false)}
         title="Add collaborator"
         width={560}

@@ -256,3 +256,10 @@
 .finding-evidence-hover > p { margin: 8px 14px; }
 .finding-threat-link { display: inline-block; margin-inline-end: 8px; }
 .finding-evidence-ranked > button { justify-self: start; }
+
+.finding-evidence-loading { display: grid; min-height: 220px; place-items: center; }
+.finding-evidence-loading svg { animation: finding-evidence-spin 900ms linear infinite; }
+@keyframes finding-evidence-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .finding-evidence-loading svg { animation: none; }
+}

@@ -1257,7 +1257,7 @@
 .review-detail-panel { min-width: 0; }
 .review-result-surface { padding: 0; border: 0; background: transparent; box-shadow: none; }
 
-.review-activity-body { grid-template-columns: minmax(0, 9fr) minmax(250px, 3fr); }
+.review-activity-body { grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); }
 .review-objective { padding: 20px; }
 .review-objective > p { display: none; }
 .review-information-list { display: grid; gap: 12px; margin: 14px 0 0; }
@@ -1345,14 +1345,14 @@
 .review-overview-objective-text.is-truncated { display: -webkit-box; max-height: 168px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 8; }
 .review-overview-card .review-source-tags { margin-top: 12px; }
 
-.review-activity-body { grid-template-columns: minmax(0, 9fr) minmax(0, 3fr); }
+.review-activity-body { grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); }
 .review-activity-metadata { min-width: 0; padding: 20px; overflow-wrap: anywhere; }
 .review-activity-metadata .review-activity-source-count { padding-bottom: 16px; border-bottom: 1px solid var(--workspace-border); }
 .review-activity-source-count strong { font-size: var(--font-size-page); }
 .review-activity-metadata dl { display: grid; gap: 16px; margin: 0; }
-.review-activity-metadata dl > div { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); column-gap: 10px; }
+.review-activity-metadata dl > div { grid-template-columns: minmax(100px, 2fr) minmax(0, 10fr); align-items: baseline; column-gap: 16px; }
 .review-activity-metadata dt { font-weight: 600; }
-.review-activity-metadata dd { text-align: end; }
+.review-activity-metadata dd { text-align: start; }
 .review-activity-metadata dd span, .review-activity-metadata dd code { margin-inline-end: 4px; }
 .review-activity-metadata dd p { margin: 4px 0 0; }
 .review-activity-metadata .review-objective-points { padding-inline-start: 18px; margin: 0; text-align: start; }
@@ -1462,7 +1462,6 @@
 .review-activity-outcome p { margin: 8px 0 0; }
 .review-analysis-scope { max-height: 480px; overflow: auto; overscroll-behavior: contain; }
 .review-overview-rail { align-self: start; }
-.review-overview-heading .review-purpose { margin: 8px 0 0; font-size: var(--font-size-support); color: var(--workspace-text-muted); line-height: 1.6; }
 .review-overview-main { gap: 12px; }
 .review-next-actions { margin: 8px 0; }
 .review-overview-main .review-session-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
@@ -1509,3 +1508,42 @@
 @media (max-width: 480px) {
   .form-actions.review-approval-actions > button { flex: 1 1 auto; min-height: 44px; }
 }
+
+.review-activity-metadata > section + section {
+  border-top: 1px solid var(--workspace-border);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+.review-activity-metadata h3 { margin: 0 0 8px; font-size: var(--font-size-body); }
+.review-activity-metadata section > div[aria-live] > p { margin: 0 0 8px; }
+.review-activity-metadata section > div[aria-live] > ul { list-style: none; padding: 0; margin: 0 0 8px; }
+.review-activity-metadata li + li { margin-top: 6px; }
+.review-activity-metadata li button { text-align: start; overflow-wrap: anywhere; }
+.review-activity-metadata section > dl { gap: 8px; }
+.review-activity-metadata section > dl > div { display: grid; }
+.review-activity-metadata section > dl dd { margin: 0; }
+.review-activity-metadata section:first-child div > span { display: block; }
+
+.review-sidebar-finding {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--workspace-text);
+  transition: background-color 150ms ease;
+}
+.review-sidebar-finding:hover,
+.review-sidebar-finding:focus-within { background: var(--surface-muted); }
+.review-sidebar-finding-jump {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.review-sidebar-finding > .command-icon-button { flex-shrink: 0; margin-inline-end: 4px; }
+.review-activity-metadata .review-overview-objective { margin-top: 16px; }

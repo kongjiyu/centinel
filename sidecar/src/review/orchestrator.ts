@@ -1018,6 +1018,7 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
         const reuseOrigins = cacheBasis ? cacheOrigins : new Set([review.id]);
         for (const batch of batches) {
           const uncertainBeforeBatch = uncertainCitationCount;
+          const findingsBeforeBatch = model.length;
           try {
           checkCancelled(signal);
           const operation = batches.length === 1 ? 'model_analysis' : `model_analysis:${batch.id}`;
@@ -1574,6 +1575,15 @@ export class StaticReviewOrchestratorService implements StaticReviewOrchestrator
                   detail: { batchId: batch.id, reason: error.code } });
               }
             }
+          }
+          const recentTitles = [...new Set(model.slice(findingsBeforeBatch)
+            .filter(finding => !needsCitationVerification(finding))
+            .map(finding => finding.title.replace(/\s+/g, ' ').trim().slice(0, 160))
+            .filter(Boolean))].slice(-5);
+          if (recentTitles.length) {
+            await this.audit({ reviewId: review.id, projectId: review.projectId, event: 'review_live_finding_titles',
+              stage: 'model_analysis', detail: { titles: recentTitles } })
+              .catch(() => { /* Activity preview delivery must not interrupt saved findings. */ });
           }
           validatedBatchCount++;
           if (uncertainCitationCount > uncertainBeforeBatch) unverifiedParts.push(unverifiedPartForBatch(batch, 'uncertain_citation', uncertainCitationCount - uncertainBeforeBatch));

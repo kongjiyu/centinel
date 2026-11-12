@@ -1,3 +1,4 @@
+import { isExecutedReviewStatus } from '../reviewViewModel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { featureDisplayName, groupReviewFeatures, type ReviewFeatureGroup } from '../reviewFeatures';
@@ -5,7 +6,7 @@ import { rankFindingEvidence } from '../findingEvidenceRanking';
 import { displayPath } from '../utils/displayPath';
 import { AlertCircle, ChevronDown, FileSearch, Filter, Search, X } from 'lucide-react';
 import { api } from '../api/client';
-import { mergeReviewFindings } from '../reviewEvidenceFindings';
+import { mergeReviewFindings, reviewEvidenceFindings, reviewTraceabilityFindings } from '../reviewEvidenceFindings';
 import { effectiveFindingStatus } from '../findingStatus';
 import type { ReviewAnalysisMap } from '../reviewHarness';
 import type { Finding } from '../types';
@@ -27,6 +28,7 @@ type Props = {
   /** Optional review scope. When supplied, the shared project presentation
    * reads only findings produced by that review session. */
   sessionId?: string;
+  initialReviewFilter?: string;
   onLoadStateChange?: (findings: Finding[], error: string | null) => void;
   refreshKey?: string;
   reviewRead?: { findings: Finding[]; loading: boolean; error: string | null; refresh: () => Promise<void> };
@@ -57,6 +59,26 @@ function reviewIdFor(finding: Finding) {
   return finding.latestOccurrence?.reviewId || finding.sessionId;
 }
 
+async function loadDynamicActivityFindings(projectId: string, activityId: string): Promise<Finding[]> {
+  const [findings, runs] = await Promise.all([api.dynamicFindings(projectId), api.dynamicRuns(projectId)]);
+  const run = runs.find(item => item.id === activityId);
+  const candidates = findings.filter(finding => finding.missionId === (run?.missionId ?? activityId));
+  const matched = run
+    ? (await Promise.all(candidates.map(async finding => {
+      const detail = await api.dynamicFinding(projectId, finding.id);
+      return detail.observations.some(observation => observation.runId === run.id) ? finding : null;
+    }))).filter(finding => finding !== null)
+    : candidates;
+  return matched.map(finding => ({
+    id: finding.id, projectId, sessionId: activityId, source: 'dynamic', verifier: 'dynamic_observation',
+    title: finding.title, category: finding.category, severity: finding.severity ?? 'info', priority: finding.priority,
+    confidence: finding.confidence ?? '', description: finding.confidenceBasis,
+    status: finding.remediation === 'resolved' ? 'fixed' : finding.verification === 'rejected' ? 'dismissed' : 'new',
+    createdAt: finding.createdAt, updatedAt: finding.updatedAt, evidenceText: '', recommendation: '',
+    artifactId: null, filePath: '', lineNumber: null, fromRemarks: false,
+  }));
+}
+
 function operationNames(groups: ReviewFeatureGroup[]) {
   return new Map(groups.flatMap(group => group.operations.map(operation =>
     [operation.id, featureDisplayName(group.feature.label)] as const)));
@@ -65,7 +87,7 @@ function operationNames(groups: ReviewFeatureGroup[]) {
 const FINDINGS_BATCH_SIZE = 50;
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
-function findingRiskLevel(finding: Finding): string | null {
+export function findingRiskLevel(finding: Finding): string | null {
   return finding.riskLevel ?? deriveRiskLevelWithFallback(finding.severity, finding.priority);
 }
 
@@ -136,6 +158,7 @@ function FindingActions({
 }) {
   const presentationStatus = displayedFindingStatus(finding);
   if (readOnly) return <p>The review is still running. You can inspect this finding; updates become available when the review stops.</p>;
+  if (finding.source === 'dynamic' && finding.verifier === 'dynamic_observation') return <p>Manage this finding in Dynamic Testing.</p>;
   if (finding.evidenceGap) return finding.verifier === 'readiness'
     ? <p>This issue is an immutable snapshot from Project Readiness. Update the project sources and start a new readiness assessment to check it again.</p>
     : <p>This document issue comes from the saved review. Update the documents and run a new review to check it again.</p>;
@@ -147,7 +170,7 @@ function FindingActions({
   );
 }
 
-export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, refreshKey, reviewRead, presentation = 'default', featureGroups, pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, onOpenFinding, onBackToFindings, initialFilter = null, onLoadStateChange, onOpenReview, onVerifyWithDynamic, recheckFor }: Props) {
+export function FindingsPanel({ supplementalFindings, supplementalUnavailableMessage, readOnly = false, projectId, sessionId, initialReviewFilter, refreshKey, reviewRead, presentation = 'default', featureGroups, pageSize = FINDINGS_BATCH_SIZE, focusFindingId = null, onOpenFinding, onBackToFindings, initialFilter = null, onLoadStateChange, onOpenReview, onVerifyWithDynamic, recheckFor }: Props) {
   const [loadedFindings, setFindings] = useState<Finding[]>([]);
   const [initialLoading, setLoading] = useState(true);
   const [initialError, setLoadError] = useState<string | null>(null);
@@ -159,6 +182,18 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterRiskLevel, setFilterRiskLevel] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [activityId, setActivityId] = useState(initialReviewFilter ?? '');
+  const [reviewScopeId, setReviewScopeId] = useState(initialReviewFilter);
+  const [dynamicScopeId, setDynamicScopeId] = useState<string>();
+  const [activityType, setActivityType] = useState<'review' | 'dynamic'>('review');
+  const activityKey = activityId.trim().replace(/^#/, '');
+  const validActivityKey = /^[a-z0-9-]{1,128}$/i.test(activityKey);
+  useEffect(() => {
+    setActivityId(initialReviewFilter ?? '');
+    setReviewScopeId(initialReviewFilter);
+    setDynamicScopeId(undefined);
+    setActivityType('review');
+  }, [initialReviewFilter]);
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(FINDINGS_BATCH_SIZE);
   const [page, setPage] = useState(0);
@@ -197,11 +232,29 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
   const loadFindings = useCallback(async () => {
     const request = ++findingsRequest.current;
     try {
-      const nextFindings = sessionId
-        ? await api.listStaticFindings(projectId, sessionId)
+      const scopedReview = sessionId ?? reviewScopeId;
+      const nextFindings = dynamicScopeId
+        ? await loadDynamicActivityFindings(projectId, dynamicScopeId)
+        : scopedReview
+        ? await api.listStaticFindings(projectId, scopedReview)
         : await api.listFindings(projectId);
       if (request !== findingsRequest.current) return;
-      const combined = mergeReviewFindings(nextFindings, supplementalFindings ?? []);
+      let gaps = dynamicScopeId ? [] : supplementalFindings ?? [];
+      if (reviewScopeId) {
+        const [assessment, snapshot, harness] = await Promise.allSettled([
+          api.getReviewEvidenceSufficiency(projectId, reviewScopeId),
+          api.getReviewTraceability(projectId, reviewScopeId),
+          api.getReviewHarness(projectId, reviewScopeId),
+        ]);
+        if (request !== findingsRequest.current) return;
+        const identity = { id: reviewScopeId, projectId };
+        gaps = [
+          ...reviewEvidenceFindings(identity, assessment.status === 'fulfilled' ? assessment.value : null),
+          ...reviewTraceabilityFindings(identity, snapshot.status === 'fulfilled' ? snapshot.value : null,
+            harness.status === 'fulfilled' && harness.value && isExecutedReviewStatus(harness.value.review.status) ? harness.value.analysisMap : null, nextFindings),
+        ];
+      }
+      const combined = mergeReviewFindings(nextFindings, gaps);
       loadedFindingsRef.current = { loaded: true, findings: combined };
       setFindings(combined);
       setLoadError(null);
@@ -215,7 +268,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
     } finally {
       if (request === findingsRequest.current) setLoading(false);
     }
-  }, [onLoadStateChange, projectId, sessionId, supplementalFindings]);
+  }, [onLoadStateChange, projectId, sessionId, reviewScopeId, dynamicScopeId, supplementalFindings]);
 
   useEffect(() => {
     if (!isControlled) void loadFindings();
@@ -276,6 +329,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
 
   const sorted = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const activity = activityId.trim().toLowerCase().replace(/^#/, '');
     const compareFindings = (a: Finding, b: Finding) => {
       if (presentation === 'project') {
         const riskComparison = riskLevelRank(findingRiskLevel(a)) - riskLevelRank(findingRiskLevel(b));
@@ -291,6 +345,8 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
     };
     return findings
       .filter(finding => {
+        if (activity && ![finding.sessionId, finding.latestOccurrence?.reviewId, ...(finding.lineageHistory ?? []).map(item => item.reviewId)]
+          .some(id => id?.toLowerCase() === activity)) return false;
         if (filterSource !== 'all' && finding.source !== filterSource) return false;
         if (filterSeverity !== 'all' && finding.severity.toLowerCase() !== filterSeverity) return false;
         if (filterStatus !== 'all' && displayedFindingStatus(finding) !== filterStatus) return false;
@@ -304,7 +360,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
         return true;
       })
       .sort(compareFindings);
-  }, [filterCategory, filterPriority, filterRiskLevel, filterSeverity, filterSource, filterStatus, findings, presentation, searchQuery]);
+  }, [activityId, filterCategory, filterPriority, filterRiskLevel, filterSeverity, filterSource, filterStatus, findings, presentation, searchQuery]);
 
   const grouped = useMemo(() => groupFindings(sorted), [sorted]);
   const findingGroupCount = useMemo(() => isProjectFindings ? groupFindings(findings).length : 0, [findings, isProjectFindings]);
@@ -406,6 +462,9 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
 
   const clearFilters = () => {
     setSearchQuery('');
+    setActivityId('');
+    setReviewScopeId(undefined);
+    setDynamicScopeId(undefined);
     setFilterSource('all');
     setFilterSeverity('all');
     setFilterStatus('all');
@@ -441,6 +500,31 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
         {activeFilters.map(entry => <button key={entry.key} type="button" className="findings-active-filter" onClick={() => clearFilter(entry.key)} aria-label={`Remove ${entry.label} filter`}><span>{entry.label}: {entry.value}</span><X size={13} aria-hidden="true" /></button>)}
         <button type="button" className="findings-clear-filters" onClick={clearFilters}>Clear filters</button>
       </div>}
+      {!sessionId && <form className="findings-activity-filter" onSubmit={event => {
+        event.preventDefault();
+        if (validActivityKey) {
+          setReviewScopeId(activityType === 'review' ? activityKey : undefined);
+          setDynamicScopeId(activityType === 'dynamic' ? activityKey : undefined);
+        }
+      }}>
+        <label>Activity type <select value={activityType} onChange={event => {
+          setActivityType(event.target.value === 'dynamic' ? 'dynamic' : 'review');
+          setReviewScopeId(undefined);
+          setDynamicScopeId(undefined);
+        }}><option value="review">Review</option><option value="dynamic">Dynamic Testing</option></select></label>
+        <label>Review or Dynamic Test ID <input type="search" value={activityId} onChange={event => {
+          setActivityId(event.target.value);
+          setReviewScopeId(undefined);
+          setDynamicScopeId(undefined);
+          setPage(0);
+        }} /></label>
+        {activityId && <button type="button" className="btn-link" onClick={() => {
+          setActivityId('');
+          setReviewScopeId(undefined);
+          setDynamicScopeId(undefined);
+        }}>Clear activity ID</button>}
+        {activityId.trim() && <button type="submit" className="btn-link" disabled={!validActivityKey}>Load activity findings</button>}
+      </form>}
       {filtersOpen && <div id={`${filterPrefix}finding-filter-options`} className="findings-filter-options">
         {includeSource && <label className="finding-filter-field" htmlFor="finding-source-filter"><span>Source</span><Select id="finding-source-filter" aria-label="Source" value={filterSource} onChange={value => setFilterSource(value as 'all' | 'static' | 'dynamic')} options={[{ value: 'all', label: 'All sources' }, { value: 'static', label: 'Review' }, { value: 'dynamic', label: 'Dynamic Testing' }]} /></label>}
         <label className="finding-filter-field" htmlFor="finding-severity-filter"><span>Severity</span><Select id="finding-severity-filter" aria-label="Severity" value={filterSeverity} onChange={setFilterSeverity} options={[{ value: 'all', label: 'All severities' }, { value: 'critical', label: 'Critical' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low' }, { value: 'info', label: 'Info' }]} /></label>
@@ -477,7 +561,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
           {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void (reviewRead?.refresh ?? loadFindings)()}>Retry</button></div>}
           {supplementalUnavailableMessage && <p className="findings-supplemental-context" role="status">{supplementalUnavailableMessage}</p>}
           {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
-          {findings.length > 0 && filterToolbar(false)}
+          {filterToolbar(!sessionId)}
           {sorted.length > 0 && <p className="findings-table-scroll-hint">Scroll the table to see all columns.</p>}
           {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 && supplementalUnavailableMessage ? 'No current findings are available in this view. Some document evidence is unavailable; see the message above.' : findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : (
             <section className="project-findings-table-region" aria-label="Findings table" tabIndex={0}>

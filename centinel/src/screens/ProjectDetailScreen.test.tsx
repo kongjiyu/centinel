@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProjectDateTime, ProjectDetailScreen } from './ProjectDetailScreen';
 import { api } from '../api/client';
 import type { DynamicRun, MissionRevision } from '../dynamic/types';
@@ -132,6 +132,8 @@ function renderProject(
   return render(<ProjectDetailScreen project={project} onNavigate={onNavigate} onProjectUpdated={onProjectUpdated} />);
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
   vi.clearAllMocks();
   folderPicker.mockReset();
@@ -215,7 +217,17 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByRole('button', { name: 'Remove project' })).toBeInTheDocument();
   });
 
+  it('hides the Collaborators tab and does not sync collaborators by default', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', '');
+    render(<ProjectDetailScreen project={project} onNavigate={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Overview' });
+    expect(screen.queryByRole('button', { name: 'Collaborators' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Project Collaborators' })).not.toBeInTheDocument();
+    expect(api.syncGithubCollaborators).not.toHaveBeenCalled();
+  });
+
   it('shows project members without a separate member form or invented GitHub users', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
     const account = { provider: 'centinel', id: 'centinel-1', name: 'new@example.com', state: 'available' } as const;
     vi.mocked(api.githubStatus).mockResolvedValue({ connected: false, login: null, message: '' });
@@ -248,6 +260,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
   });
 
   it('syncs project viewer access only when the project owner requests it', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
     vi.mocked(api.syncGithubCollaborators).mockResolvedValue({ repository: availableCollaboration.repository, collaborators: [], syncedAt: null, projectMembersAdded: 1 });
     renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
@@ -316,6 +329,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
   });
 
   it('syncs GitHub once and distinguishes Joined, available and pending Viewer access', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
     const syncedSnapshot: GithubCollaboratorSnapshot = {
       repository: availableCollaboration.repository,
@@ -364,6 +378,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
   });
 
   it('keeps project members visible after GitHub sync failure without retrying automatically', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
     const savedSnapshot: GithubCollaboratorSnapshot = {
       repository: availableCollaboration.repository,
@@ -677,7 +692,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(within(detail).getByText('Readiness', { exact: true })).toBeInTheDocument();
     expect(within(detail).getByText('Document quality', { exact: true })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Clarify acceptance criteria', level: 2 })).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Related sources' })).getByText('requirements.md')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Related sources' })).getAllByText('requirements.md').length).toBeGreaterThan(0);
     expect(screen.getByText(/immutable snapshot from Project Readiness/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();

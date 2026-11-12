@@ -248,6 +248,8 @@
   .projects-data-warning { align-items: flex-start; flex-direction: column; }
   .project-pagination { align-items: flex-start; flex-direction: column; }
 }
+.activity-directory .review-directory-filters { grid-template-columns: minmax(0, 1fr); }
+
 .activity-directory :is(.activity-directory-title, .activity-directory-link) {
   display: flex;
   flex-wrap: wrap;

@@ -118,16 +118,18 @@ export function ActivityDirectoryScreen({ kind, projects, onNavigate }: {
     } />
     <section className="projects-directory" aria-labelledby="activity-directory-heading">
       <div className="projects-directory-heading"><h2 id="activity-directory-heading">All {kind === 'review' ? 'reviews' : 'dynamic tests'}</h2></div>
-      <div className="project-filters" role="search" aria-label={`Search ${title}`}>
+      <div className={`project-filters${kind === 'review' ? ' review-directory-filters' : ''}`} role="search" aria-label={`Search ${title}`}>
         <label className="project-filter-search">
           <span className="project-search-control"><Search size={16} aria-hidden="true" />
             <input type="search" aria-label={`Search by project or ${itemLabel.toLowerCase()}`} placeholder={`Search by project or ${itemLabel.toLowerCase()}`}
               value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} />
           </span>
         </label>
-        <button className="btn-secondary" type="button" disabled={loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} aria-hidden="true" /> Refresh</button>
+        {kind === 'dynamic' && <button className="btn-secondary" type="button" disabled={loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} aria-hidden="true" /> Refresh</button>}
       </div>
-      {unavailable && <p className="projects-data-warning" role="status">Some activity could not be loaded. Refresh to try again.</p>}
+      {unavailable && <p className="projects-data-warning" role="status">Some activity could not be loaded. {kind === 'review'
+        ? <button type="button" className="btn-link" onClick={() => setRefresh(value => value + 1)}>Retry</button>
+        : 'Refresh to try again.'}</p>}
       {loading ? <LoadingSkeleton variant="rows" rows={PAGE_SIZE} className="activity-directory-placeholder" label={kind === 'review' ? 'Loading reviews' : 'Loading dynamic tests'} />
         : !results.length ? <p className="projects-directory-message" role="status">{normalized ? 'No activity matches your search.' : 'No activity to show yet.'}</p>
         : <>

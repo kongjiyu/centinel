@@ -289,6 +289,7 @@ export function FindingDocument({ group, selectedId, onSelect, onBack, actions, 
       </div>
       <p className="finding-header-kicker"><span>{findingDomain(selected)}</span> · <span>{origin}</span></p>
       {summary && <p className="finding-document-summary">{summary}</p>}
+      {selected.affectedFeature && <p>Affected feature <strong>{selected.affectedFeature}</strong></p>}
       <div className="finding-header-metadata">
         <span className="finding-header-id" title={entityIdTitle('Finding ID:', selected.id)}>{formatEntityId(selected.id)}</span>
         {group.members.length > 1 && <span>{issueCount > 1 ? `${issueCount} affected locations · ` : ''}{group.members.length} occurrences{repeated ? ' across Reviews' : ''}</span>}

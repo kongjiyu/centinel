@@ -700,6 +700,7 @@ export type MergedFindingObservation = {
 };
 
 export type Finding = {
+  affectedFeature?: string;
   /** Source-backed feature/path link validated by the Review runner. */
   location?: { ruleId?: string | null; sourceVersion?: string | null; domain?: string | null; issueType?: string | null; logicFlow?: string[]; relatedLocations?: Array<{ artifactId?: string | null; filePath: string; lineNumber: number; evidence: string; sourceVersion?: string | null }>; sourceLocator?: { artifactId?: string; filePath?: string; lineStart?: number; excerpt?: string; analysis?: { featureId: string; pathId: string; domain: string }; citationEvidence?: { version: 1; verification: 'verified' | 'needs_verification'; reason: 'source_match' | 'support_unverified'; candidates: Array<{ artifactId: string; sourceVersion: string; filePath: string; lineNumber: number; excerpt: string; score: number; confidence: 'high' | 'medium' | 'low'; match: 'exact' | 'relocated_exact' | 'approximate'; referenceIndex: number }>; unmatchedReferences: number } | null; mergedObservations?: MergedFindingObservation[]; mergedObservationTotal?: number } | null };
   artifactVersionId?: string | null;
@@ -882,7 +883,9 @@ export type Screen =
   | {
       name: 'project-detail';
       projectId: string;
-      initialSection?: 'source';
+      initialSection?: 'source' | 'findings';
+      findingsReviewId?: string;
+      findingId?: string;
       sourceArtifactId?: string;
       initialAction?: 'static' | 'dynamic';
       initialStaticSessionId?: string;

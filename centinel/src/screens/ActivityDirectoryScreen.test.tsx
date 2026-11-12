@@ -21,6 +21,7 @@ it('lists reviews across projects and searches by either name', async () => {
   render(<ActivityDirectoryScreen kind="review" projects={projects} onNavigate={navigate} />);
   expect(screen.getByRole('status', { name: 'Loading reviews' })).toHaveAttribute('aria-busy', 'true');
   const table = await screen.findByRole('table', { name: 'Reviews' });
+  expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
   expect(screen.queryByRole('status', { name: 'Loading reviews' })).not.toBeInTheDocument();
   expect(within(table).getAllByRole('row')).toHaveLength(3);
   const search = screen.getByRole('searchbox', { name: 'Search by project or review' });
@@ -50,6 +51,7 @@ it('opens a saved Dynamic test that has never been run', async () => {
   render(<ActivityDirectoryScreen kind="dynamic" projects={[projects[0]]} onNavigate={navigate} />);
   expect(screen.getByRole('status', { name: 'Loading dynamic tests' })).toHaveAttribute('aria-busy', 'true');
   const row = await screen.findByRole('row', { name: 'Open Sign-in smoke in North Shop' });
+  expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
   await userEvent.click(within(row).getByText('Sign-in smoke'));
   expect(navigate).toHaveBeenCalledWith({ name: 'dynamic-testing', projectId: projects[0].id, missionId: 'mission-1' });
 });

@@ -1,6 +1,7 @@
+import { LoaderCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { displayPath } from '../utils/displayPath';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Finding, FindingSourceReference } from '../types';
 import { findingSourceReferences, groupStatus, type FindingGroup } from '../findingGroups';
 import { effectiveFindingStatus } from '../findingStatus';
@@ -180,7 +181,7 @@ export function SourceCode({ text, sourceRef, additionalRefs = [], preview = fal
   const displayStart = preview && targetLine ? Math.max(1, targetLine - 36) : 1;
   const displayEnd = preview && targetLine ? Math.min(lines.length, Math.max(rangeEnd ?? targetLine, targetLine) + 36) : preview ? Math.min(lines.length, 80) : lines.length;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!targetLine || !container.current) return;
     const scrollArea = container.current;
     const target = scrollArea.querySelector<HTMLElement>('[data-preview-location="true"]');
@@ -288,8 +289,8 @@ export function EvidenceFileControl({ path, findings, selectedId, pressed, onOpe
     </button>
     {anchor && ref && createPortal(<div className="finding-evidence-hover" style={{ left: anchor.left, top: anchor.top, transform: anchor.above ? 'translateY(-100%)' : undefined }}>
       <header><strong>{shownPath}</strong><small>{ref.lineNumber ? `Line ${ref.lineNumber} · ` : ''}{source?.error && ref.excerpt ? 'Recorded excerpt' : 'Saved Review source'}</small></header>
-      {source?.text ? <SourceCode text={source.text} sourceRef={ref} additionalRefs={additionalRefs} uncertain={uncertain} preview /> :
-        ref.excerpt ? <pre>{ref.excerpt}</pre> : <p>{source?.error || 'Loading saved source…'}</p>}
+      {!source ? <div className="finding-evidence-loading" role="status" aria-label="Loading highlighted source"><LoaderCircle size={24} aria-hidden="true" /></div> : source.text ? <SourceCode text={source.text} sourceRef={ref} additionalRefs={additionalRefs} uncertain={uncertain} preview /> :
+        ref.excerpt ? <pre>{ref.excerpt}</pre> : <p>{source.error || 'Saved source is unavailable.'}</p>}
     </div>, document.querySelector('.workspace-mode') ?? document.body)}
   </>;
 }

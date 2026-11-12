@@ -3,22 +3,19 @@ import { setVisibleInterval, setVisibleTimeout } from '../hooks/usePageVisible';
 import { save } from '@tauri-apps/api/dialog';
 import { writeTextFile } from '@tauri-apps/api/fs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Download, Expand, FileCheck2, History, MessageSquare, Paperclip, RotateCcw, Search, Send, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, ExternalLink, History, List, MessageSquare, Paperclip, RotateCcw, Send, ShieldAlert, X } from 'lucide-react';
 import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { readReviewActivityPreview, rememberReviewActivity } from '../reviewActivityCache';
 import { ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
-import { buildReviewNarrative, objectivePoints, type ReviewNarrative } from '../reviewNarrative';
-import { mergeReviewFindings, reviewEvidenceFindings } from '../reviewEvidenceFindings';
-import type { ReviewAnalysisMap, ReviewHarnessTrace } from '../reviewHarness';
-import { ReviewUseCaseDetails } from '../components/ReviewUseCases';
-import { featureDisplayName, groupReviewFeatures, type ReviewFeatureGroup } from '../reviewFeatures';
-import { FindingsPanel } from '../components/FindingsPanel';
+import { buildReviewNarrative, type ReviewNarrative } from '../reviewNarrative';
+import { mergeReviewFindings, reviewEvidenceFindings, reviewTraceabilityFindings } from '../reviewEvidenceFindings';
+import type { ReviewHarnessTrace } from '../reviewHarness';
+import { findingRiskLevel } from '../components/FindingsPanel';
 import { Modal } from '../components/Modal';
-import { Select } from '../components/Select';
 import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason } from '../reviewCoverage';
-import { confirmedMappingsByRequirement, suggestedLinkCount } from '../requirementLinks';
+import { suggestedLinkCount } from '../requirementLinks';
 import {
   awaitsReviewDecision,
   reviewLifecycleTone,
@@ -29,8 +26,8 @@ import {
   truncateReviewSourceName,
   type ReviewLifecycleState,
 } from '../reviewViewModel';
-import type { Artifact, EvidenceSufficiencyAssessment, Finding, Project, Requirement, RequirementMapping, ReviewDecisionRecord, ReviewSourceManifest, ReviewTraceabilityRecord, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
-import { entityIdTitle, formatEntityId } from '../utils/entityId';
+import type { Artifact, EvidenceSufficiencyAssessment, Finding, Project, RequirementMapping, ReviewDecisionRecord, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
+import { formatEntityId } from '../utils/entityId';
 import { screenToHash } from '../navigation/screenHash';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 import './ReviewActivityScreen.css';
@@ -44,7 +41,6 @@ type Props = {
   onNavigate: (screen: Screen) => void;
 };
 
-type Tab = 'Overview' | 'Activity' | 'Findings' | 'Traceability';
 type EvidenceReadStatus = 'not-requested' | 'loading' | 'loaded' | 'unavailable' | 'failed';
 type ReviewEvidenceReadState = {
   projectId: string | null;
@@ -55,26 +51,12 @@ type ReviewEvidenceReadState = {
 };
 type SupportiveDocument = { id: string; name: string };
 
-const REVIEW_DETAIL_TABS: Tab[] = ['Overview', 'Activity', 'Findings', 'Traceability'];
-const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 type TraceabilityState = 'complete' | 'incomplete' | 'missing';
-type TraceabilityFilter = 'all' | 'attention' | TraceableState;
-
-type TraceabilityRecord = {
-  requirement: Requirement;
-  sources: Artifact[];
-  findings: Finding[];
-  state: TraceabilityState;
-};
 
 function reportNamePart(value: string | undefined, fallback: string) {
   const cleaned = value?.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 100)
     .replace(/[\uD800-\uDBFF]$/, '').replace(/[. ]+$/, '');
   return cleaned || fallback;
-}
-
-function traceabilityStateLabel(state: TraceableState) {
-  return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
 /** Collapse the validation dimensions into the single reviewer-facing state. */
@@ -83,66 +65,6 @@ export function traceabilityOverallState(states: TraceabilityState[]): Traceabil
   if (states.includes('incomplete')) return 'incomplete';
   return 'complete';
 }
-
-function normalizeTraceabilityState(value: string | undefined, fallback: TraceabilityState): TraceabilityState {
-  const normalized = value?.trim().toLowerCase() || '';
-  if (/^(incomplete|partial|pending|weak|uncertain)$/.test(normalized)) return 'incomplete';
-  if (/^(complete|covered|verified|pass|passed|full|fully[_ -]?covered)$/.test(normalized)) return 'complete';
-  if (/^(missing|uncovered|none|fail|failed)$/.test(normalized)) return 'missing';
-  return fallback;
-}
-
-function traceabilityRecords(
-  requirements: Requirement[],
-  mappings: Record<string, RequirementMapping[]>,
-  artifacts: Artifact[],
-  findings: Finding[],
-): TraceabilityRecord[] {
-  const artifactsById = new Map(artifacts.map(artifact => [artifact.id, artifact]));
-  return requirements.map(requirement => {
-    const requirementMappings = mappings[requirement.id] ?? [];
-    const mappedArtifacts = requirementMappings
-      .map(mapping => mapping.fileId ? artifactsById.get(mapping.fileId) : undefined)
-      .filter((artifact): artifact is Artifact => Boolean(artifact));
-    const relatedFindings = findings.filter(finding => {
-      if (requirementMappings.some(mapping => mapping.fileId && mapping.fileId === finding.artifactId)) return true;
-      if (finding.category && requirement.category && finding.category.toLowerCase() === requirement.category.toLowerCase()) return true;
-      // Free-text overlap is intentionally not evidence. A relationship is
-      // discoverable here only when the persisted mapping or category gives
-      // us a structured join; the snapshot endpoint is authoritative for
-      // completed Reviews.
-      return false;
-    });
-    const confidence = requirementMappings.length > 0
-      ? Math.min(...requirementMappings.map(mapping => mapping.confidence).filter(value => Number.isFinite(value)))
-      : NaN;
-    const completeness = requirementMappings.length === 0
-      ? 'missing'
-      : requirementMappings.every(mapping => normalizeTraceabilityState(mapping.coverageStatus, 'incomplete') === 'complete')
-        ? 'complete'
-        : 'incomplete';
-    const correctness = mappedArtifacts.length === 0
-      ? 'missing'
-      : Number.isFinite(confidence) && confidence < 0.7
-        ? 'incomplete'
-        : relatedFindings.some(finding => /incorrect|invalid|mismatch|contradict/i.test(`${finding.category} ${finding.title} ${finding.description}`))
-          ? 'incomplete'
-          : 'complete';
-    const consistency = mappedArtifacts.length === 0
-      ? 'missing'
-      : relatedFindings.some(finding => /inconsisten|contradict|conflict|mismatch/i.test(`${finding.category} ${finding.title} ${finding.description}`))
-        ? 'incomplete'
-        : 'complete';
-    return {
-      requirement,
-      sources: mappedArtifacts,
-      findings: relatedFindings,
-      state: traceabilityOverallState([completeness, correctness, consistency]),
-    };
-  });
-}
-
-const stateTone = reviewLifecycleTone;
 
 function decisionLabel(decision: ReviewDecisionRecord['decision']): string {
   if (decision === 'approved') return 'Approved review';
@@ -204,7 +126,6 @@ function createRetryIdempotencyKey(): string {
 }
 
 export function ReviewActivityScreen({ accountId, findingId, initialTab, projectId, sessionId, onNavigate }: Props) {
-  const resultTabStorageKey = `centinel:review-result-tab:${projectId}:${sessionId}`;
   const [project, setProject] = useState<Project | null>(null);
   const [session, setSession] = useState<StaticSession | null>(null);
   const [storedFindings, setFindings] = useState<Finding[]>([]);
@@ -215,7 +136,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   const evidenceRequestSequence = useRef(0);
   const screenRequestSequence = useRef(0);
   const activeScreenRead = useRef<{ identity: string; requestId: number } | null>(null);
-  const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [requirementMappings, setRequirementMappings] = useState<Record<string, RequirementMapping[]>>({});
   const [sourceManifest, setSourceManifest] = useState<ReviewSourceManifest | null>(null);
@@ -229,15 +149,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   const [hasOlderDecisions, setHasOlderDecisions] = useState(false);
   const [loadingOlderDecisions, setLoadingOlderDecisions] = useState(false);
   const [olderDecisionsError, setOlderDecisionsError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>(() => {
-    if (initialTab === 'Findings') return initialTab;
-    try {
-      const stored = window.sessionStorage.getItem(resultTabStorageKey) as Tab | null;
-      return stored && REVIEW_DETAIL_TABS.includes(stored) ? stored : 'Overview';
-    } catch {
-      return 'Overview';
-    }
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -256,12 +167,9 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   const [preparedChild, setPreparedChild] = useState<StaticSession | null>(null);
   const [evidenceAssessment, setEvidenceAssessment] = useState<EvidenceSufficiencyAssessment | null>(null);
   const evidenceFindings = useMemo(() => session ? reviewEvidenceFindings(session, evidenceAssessment) : [], [session, evidenceAssessment]);
-  const findings = useMemo(() => mergeReviewFindings(storedFindings, evidenceFindings), [storedFindings, evidenceFindings]);
   const [contradictionDrafts, setContradictionDrafts] = useState<Record<string, { decision: 'authoritative_left' | 'authoritative_right' | 'not_conflict'; rationale: string }>>({});
   const [savingContradiction, setSavingContradiction] = useState<string | null>(null);
   const [contradictionNotice, setContradictionNotice] = useState<string | null>(null);
-  const [traceabilityFilter, setTraceabilityFilter] = useState<TraceabilityFilter>('all');
-  const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement>>>({});
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
 
   const loadReviewEvidence = useCallback(async () => {
@@ -413,7 +321,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
             ? await api.listArtifacts(projectId)
             : [];
           if (!isCurrentLoad()) return;
-          setRequirements(nextRequirements);
           setArtifacts(nextArtifacts);
           if (typeof api.listRequirementMappings === 'function') {
             const mappingEntries = await Promise.all(nextRequirements.map(async requirement => {
@@ -430,7 +337,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
           }
         } catch {
           if (!isCurrentLoad()) return;
-          setRequirements([]);
           setArtifacts([]);
           setRequirementMappings({});
         }
@@ -534,6 +440,10 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     }
   };
 
+  const findings = useMemo(() => mergeReviewFindings(storedFindings, [
+    ...evidenceFindings,
+    ...(session && isExecutedReviewStatus(session.status) ? reviewTraceabilityFindings(session, traceabilitySnapshot, harnessTrace?.analysisMap, storedFindings) : []),
+  ]), [storedFindings, evidenceFindings, session, traceabilitySnapshot, harnessTrace?.analysisMap]);
   const embeddedDecision = session?.currentDecision;
   const currentDecision = embeddedDecision && embeddedDecision.decision !== 'commented'
     ? embeddedDecision
@@ -551,9 +461,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     session, trace: harnessTrace, findings, findingsError, findingsLoading: currentEvidenceReads.findings === 'not-requested' || currentEvidenceReads.findings === 'loading',
     assessment: evidenceAssessment, traceability: traceabilitySnapshot, decision: currentDecision,
   }) : null, [session, harnessTrace, findings, findingsError, currentEvidenceReads.findings, evidenceAssessment, traceabilitySnapshot, currentDecision]);
-  const featureGroups = useMemo(() => harnessTrace?.analysisMap
-    ? groupReviewFeatures(harnessTrace.analysisMap, findings, traceabilitySnapshot)
-    : [], [harnessTrace?.analysisMap, findings, traceabilitySnapshot]);
   const config = session ? parseReviewConfig(session) : {};
   const isCurrentSession = Boolean(session && session.id === sessionId && session.projectId === projectId);
   const explicitScope = session ? hasExplicitReviewScope(session) : { artifacts: false, requirements: false };
@@ -602,26 +509,16 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     }
   };
   const coverageGaps = session ? reviewCoverageGaps(session) : null;
-  const confirmedRequirementMappings = useMemo(() => confirmedMappingsByRequirement(requirementMappings), [requirementMappings]);
   const suggestedLinks = suggestedLinkCount(requirementMappings);
   const objective = viewModel?.objective ?? null;
   const objectiveDocuments = supportiveDocuments(config);
-  const reviewer = currentDecision?.reviewer || (typeof config.reviewer === 'string' && config.reviewer.trim() ? config.reviewer.trim() : null);
-  const openFinding = (id: string) => onNavigate({ name: 'review-finding', projectId, sessionId, findingId: id, reviewName: session?.name });
-
-  const availableTabs = REVIEW_DETAIL_TABS;
-
+  const findingsTarget = (id?: string): Screen => ({
+    name: 'project-detail', projectId, initialSection: 'findings', findingsReviewId: sessionId, ...(id ? { findingId: id } : {}),
+  });
+  const openFinding = (id: string) => onNavigate(findingsTarget(id));
   useEffect(() => {
-    if (!availableTabs.includes(tab)) changeTab(availableTabs[0]);
-  // `changeTab` is intentionally stable for this small state correction.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
-
-  useEffect(() => {
-    if (session && (state === 'In progress' || state === 'Queued')) changeTab('Activity');
-  // New and active runs always open on their live activity view.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.id, state]);
+    if (findingId || initialTab === 'Findings') onNavigate(findingsTarget(findingId));
+  }, [findingId, initialTab, onNavigate, projectId, sessionId]);
 
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -725,26 +622,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     }
   };
 
-  const changeTab = (next: Tab, focus = false) => {
-    setTab(next);
-    try { window.sessionStorage.setItem(resultTabStorageKey, next); } catch { /* storage is optional */ }
-    if (focus) window.requestAnimationFrame(() => tabRefs.current[next]?.focus());
-  };
-
-  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, current: Tab) => {
-    const tabs = REVIEW_DETAIL_TABS;
-    const index = tabs.indexOf(current);
-    let nextIndex = index;
-    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
-    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
-    if (event.key === 'Home') nextIndex = 0;
-    if (event.key === 'End') nextIndex = tabs.length - 1;
-    if (nextIndex !== index) {
-      event.preventDefault();
-      changeTab(tabs[nextIndex], true);
-    }
-  };
-
   if (loading || (session && !isCurrentSession)) {
     const preview = readReviewActivityPreview(accountId, projectId, sessionId);
     return <div className="screen review-activity-screen">
@@ -760,14 +637,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     </div>;
   }
   if (!session || !viewModel) return <div className="screen review-activity-screen"><div className="command-inline-alert" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>{error || 'Review activity could not be loaded.'}</span><button type="button" className="btn-link" onClick={() => void load()}>Try again</button></div></div>;
-  const findingRead = { findings, loading: currentEvidenceReads.findings !== 'loaded' && !findings.length && !findingsError, error: findingsError, refresh: loadReviewEvidence };
-  const findingsReadOnly = state === 'In progress' || state === 'Queued';
-  if (findingId) return <div className="screen review-finding-screen">
-    <FindingsPanel readOnly={findingsReadOnly} projectId={session.projectId} sessionId={session.id}
-      presentation="project" featureGroups={featureGroups} focusFindingId={findingId} reviewRead={findingRead}
-      onBackToFindings={() => onNavigate({ name: 'review-activity', projectId, sessionId, reviewName: session.name, initialTab: 'Findings' })} />
-  </div>;
-
   const showApproval = awaitsReviewDecision(state) && !currentDecision;
   const executed = isExecutedReviewStatus(session.status);
   const exportReviewReport = async () => {
@@ -800,11 +669,10 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     : 0;
 
   return (
-    <div className={`screen command-review-activity review-activity-screen${awaitsReviewDecision(state) && tab === 'Activity' ? ' has-feedback-composer' : ''}`}>
+    <div className={`screen command-review-activity review-activity-screen${awaitsReviewDecision(state) ? ' has-feedback-composer' : ''}`}>
       <CommandPageHeader
         eyebrow={`Review / ${project?.name || 'Project'}`}
         title={`${session.name} ${formatEntityId(session.id)}`}
-        status={{ label: state, tone: stateTone(state) }}
         onBack={() => onNavigate({ name: 'project-detail', projectId })}
         actions={executed || showApproval ? <section className="review-activity-actions" aria-label={showApproval ? 'Review decision actions' : 'Review follow-up actions'}>
           {executed && <button type="button" className="btn-secondary" onClick={() => void exportReviewReport()} disabled={reportBusy}><Download size={15} aria-hidden="true" /> {reportBusy ? 'Exporting…' : 'Export report'}</button>}
@@ -893,38 +761,14 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
           <button type="button" className="btn-primary" onClick={() => void retryReview()} disabled={retrying}>{retrying ? 'Starting review…' : 'Retry review'}</button>
         </div>
       </Modal>
-      <ReviewTabs tabs={REVIEW_DETAIL_TABS} tab={tab} onTabChange={changeTab} onTabKeyDown={handleTabKeyDown} tabRefs={tabRefs} label="Review detail sections" />
-
-      {tab === 'Overview' ? (
-        <section id="review-result-panel-overview" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-overview">
-          <ReviewResultOverview
-            narrative={narrative!}
-            evidenceReady={currentEvidenceReads.findings === 'loaded' && currentEvidenceReads.sourceManifest === 'loaded' && currentEvidenceReads.traceability === 'loaded' && !harnessLoading && !harnessError}
-            analysisMap={harnessTrace?.analysisMap}
-            assessment={evidenceAssessment}
-            onOpenFinding={openFinding}
-            onOpenActivity={() => changeTab('Activity')}
-            session={session}
-            findings={findings}
-            findingsError={findingsError}
-            decisionsError={decisionsError}
-            currentDecision={currentDecision}
-            reviewer={reviewer}
-            state={state}
-            objective={objective}
-            supportiveDocuments={objectiveDocuments}
-            sourceManifest={sourceManifest}
-            traceabilitySnapshot={traceabilitySnapshot}
-            onOpenTraceability={() => {
-              setTraceabilityFilter('attention');
-              changeTab('Traceability');
-            }}
-          />
-        </section>
-      ) : tab === 'Activity' ? (
-        <section id="review-result-panel-activity" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-activity">
           <ReviewActivityContent
             onOpenSettings={() => onNavigate({ name: 'settings' })}
+            liveEvents={harnessTrace?.events}
+            onViewAll={() => onNavigate(findingsTarget())}
+            onCancel={session.status === 'queued' || session.status === 'running' ? () => void cancelReview() : undefined}
+            cancelling={cancelling}
+            objective={objective}
+            supportiveDocuments={objectiveDocuments}
             narrative={narrative!}
             sourceManifest={sourceManifest}
             projectArtifacts={artifacts}
@@ -943,28 +787,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
             onLoadOlderDecisions={() => void loadOlderDecisions()}
             currentDecision={currentDecision}
           />
-        </section>
-      ) : tab === 'Findings' ? (
-        <section id="review-result-panel-findings" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-findings">
-          <FindingsPanel key={session.id} readOnly={findingsReadOnly} projectId={session.projectId} sessionId={session.id} presentation="project" featureGroups={featureGroups} pageSize={5} onOpenFinding={openFinding} reviewRead={findingRead} />
-        </section>
-      ) : (
-        <section id="review-result-panel-traceability" className="review-detail-panel review-result-panel" role="tabpanel" tabIndex={0} aria-labelledby="review-result-tab-traceability">
-          {!harnessTrace?.analysisMap && (state === 'In progress' || state === 'Queued')
-            ? <ReviewWaitingPanel title="Traceability" />
-            : <Traceability key={session.id} requirements={requirements} mappings={confirmedRequirementMappings} artifacts={artifacts} findings={findings} snapshot={traceabilitySnapshot} readStatus={currentEvidenceReads.traceability} featureGroups={featureGroups} map={harnessTrace?.analysisMap} filter={traceabilityFilter} onFilterChange={setTraceabilityFilter} onOpenFinding={openFinding} />}
-        </section>
-      )}
-
-      {canCancel && (
-        <div className="review-decision-dock">
-          <button className="btn-secondary" type="button" onClick={() => void cancelReview()} disabled={!canCancel}>
-            <X size={15} aria-hidden="true" /> {cancelling ? 'Cancelling…' : 'Cancel review'}
-          </button>
-        </div>
-      )}
-
-      {awaitsReviewDecision(state) && tab === 'Activity' && (
+      {awaitsReviewDecision(state) && (
         <FeedbackComposer
           value={composerFeedback}
           files={composerFiles}
@@ -1002,43 +825,8 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   );
 }
 
-function ReviewTabs({
-  tabs,
-  tab,
-  onTabChange,
-  onTabKeyDown,
-  tabRefs,
-  label,
-}: {
-  tabs: Tab[];
-  tab: Tab;
-  onTabChange: (tab: Tab, focus?: boolean) => void;
-  onTabKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>, tab: Tab) => void;
-  tabRefs: React.MutableRefObject<Partial<Record<Tab, HTMLButtonElement>>>;
-  label: string;
-}) {
-  return (
-    <nav className="review-result-tabs review-activity-tabs" role="tablist" aria-label={label}>
-      {tabs.map(item => (
-        <button
-          key={item}
-          id={`review-result-tab-${item.toLowerCase()}`}
-          role="tab"
-          aria-selected={tab === item}
-          aria-controls={`review-result-panel-${item.toLowerCase()}`}
-          tabIndex={tab === item ? 0 : -1}
-          ref={element => { if (element) tabRefs.current[item] = element; }}
-          type="button"
-          onClick={() => onTabChange(item)}
-          onKeyDown={event => onTabKeyDown(event, item)}
-        >{item}</button>
-      ))}
-    </nav>
-  );
-}
-
 function ReviewActivityContent({
-  onOpenFinding,
+  onOpenFinding, liveEvents, onViewAll, onCancel, cancelling, objective, supportiveDocuments,
   narrative,
   sourceManifest,
   projectArtifacts,
@@ -1059,6 +847,12 @@ function ReviewActivityContent({
 }: {
   onOpenSettings: () => void;
   onOpenFinding: (id: string) => void;
+  liveEvents?: ReviewHarnessTrace['events'];
+  onViewAll: () => void;
+  onCancel?: () => void;
+  cancelling: boolean;
+  objective: string | null;
+  supportiveDocuments: SupportiveDocument[];
   narrative: ReviewNarrative;
   sourceManifest: ReviewSourceManifest | null;
   projectArtifacts: Artifact[];
@@ -1076,7 +870,18 @@ function ReviewActivityContent({
   onLoadOlderDecisions: () => void;
   currentDecision: ReviewDecisionRecord | null;
 }) {
-  const scope = session.scope;
+  const savedTitles = new Set(findings.map(finding => finding.title));
+  const liveFindings = session.status === 'running' ? (liveEvents ?? []).flatMap(event =>
+    event.reviewId === session.id && event.event === 'review_live_finding_titles' && Array.isArray(event.detail?.titles)
+      ? event.detail.titles.slice(0, 5).reverse().flatMap((title, index) => typeof title === 'string' && title.length <= 160 && !savedTitles.has(title)
+        ? [{ key: `${event.id ?? event.createdAt}:${index}`, title, time: event.createdAt, findingId: undefined }]
+        : [])
+      : []) : [];
+  const recentFindings = [...findings.map(finding => ({
+    key: finding.id, title: finding.title, time: finding.createdAt, findingId: finding.id,
+  })), ...new Map(liveFindings.map(finding => [finding.title, finding])).values()]
+    .sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5);
+  const reviewedTime = state === 'Completed' ? narrative.timing.endedAt : null;
   const config = parseReviewConfig(session);
   const knownSources = sourceManifest?.artifacts?.length ? sourceManifest.artifacts : projectArtifacts;
   const resolveSource = (path: string) => {
@@ -1090,9 +895,10 @@ function ReviewActivityContent({
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
         <div className="review-activity-surface-heading">
-          <h2>Review activity</h2>
+          <h2>Overview</h2>
+
         </div>
-        <ReviewNarrativeTimeline key={session.id} narrative={narrative} findings={findings} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} resolveSource={resolveSource} />
+        <ReviewNarrativeTimeline key={session.id} narrative={narrative} findings={findings} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} resolveSource={resolveSource} liveFindings={liveFindings} />
         {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p>{/model provider|provider unavailable|no model/i.test(session.failureReason ?? '') && <button type="button" className="btn-secondary" onClick={onOpenSettings}>Open Settings</button>}</div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
@@ -1106,10 +912,8 @@ function ReviewActivityContent({
         {decisions.length > 0 && <DecisionHistory decisions={decisions} hasOlder={hasOlderDecisions} loadingOlder={loadingOlderDecisions} olderError={olderDecisionsError} onLoadOlder={onLoadOlderDecisions} />}
         {findingsError && <p className="review-history-unavailable" role="status">Findings could not be loaded. Decisions are disabled until the evidence can be reloaded.</p>}
       </section>
-      <aside className="review-activity-metadata review-decision-card" aria-label="Review details">
-        <dl>
-          <div className="review-activity-source-count"><dt>Source files reviewed</dt><dd><strong>{narrative.reviewedSourceCount ?? '—'}</strong></dd></div>
-          <div><dt>Source reference</dt><dd>
+      <aside className="review-activity-metadata" aria-label="Review details">
+        <section><h3>Version</h3>
             {sourceManifest?.gitRefs?.map(ref => {
               const branch = ref.commit === config.repositoryRevision && typeof config.repositoryBranch === 'string' ? config.repositoryBranch : ref.branch;
               return <div key={JSON.stringify([ref.repository, ref.commit, ref.branch])}>
@@ -1118,11 +922,39 @@ function ReviewActivityContent({
             })}
             {sourceManifest?.snapshotId && (!sourceManifest.gitRefs?.length || Boolean(sourceManifest.snapshotOnlyFileCount)) && <div>Snapshot <code>{sourceManifest.snapshotId}</code></div>}
             {!sourceManifest?.snapshotId && !sourceManifest?.gitRefs?.length && 'Unavailable'}
-          </dd></div>
-          <div><dt>Review status</dt><dd><StatusBadge label={state} tone={reviewLifecycleTone(state)} />{narrative.timing.duration !== 'Not recorded' && <p>{narrative.timing.duration}</p>}</dd></div>
-          <div><dt>Review scope</dt><dd>{scope ? `${scope.artifactIds?.length ?? 0} selected files · ${scope.requirementIds?.length ?? 0} requirements · ${scope.standardIds?.length ?? 0} standards` : 'No explicit scope recorded.'}</dd></div>
-          <div><dt>Goal</dt><dd><ReviewObjectiveList points={narrative.objectives} /></dd></div>
+        </section>
+        <section><h3>State</h3>{state === 'Need Approval' ? <span>{state}</span> : <StatusBadge label={state} tone={reviewLifecycleTone(state)} />}</section>
+        <section><h3>Findings</h3>
+          <div aria-live="polite">
+            {recentFindings.length > 0 ? <ul aria-label="Recent findings">{recentFindings.map(({ key, title, findingId }) => (
+              <li key={key} className="review-sidebar-finding">
+                <button type="button" className="review-sidebar-finding-jump" onClick={() => {
+                  const target = document.getElementById(`review-finding-${key}`);
+                  target?.focus({ preventScroll: true });
+                  target?.scrollIntoView?.({ block: 'center' });
+                }}>{title}</button>
+                {findingId && <button type="button" className="command-icon-button" aria-label={`Open finding detail: ${title}`}
+                  title="Open finding detail" onClick={() => onOpenFinding(findingId)}><ExternalLink size={16} aria-hidden="true" /></button>}
+              </li>
+            ))}</ul> : <p>{findingsError ? 'Findings unavailable' : 'No findings recorded yet'}</p>}
+          </div>
+          <button type="button" className="btn-secondary" onClick={onViewAll}><List size={16} aria-hidden="true" /> All Findings</button>
+        </section>
+        <section><h3>Risk</h3><dl>
+          {['Critical', 'High', 'Medium', 'Low'].map(level => <div key={level}><dt>{level}</dt><dd>{findingsError ? '—' : findings.filter(finding => findingRiskLevel(finding)?.toLowerCase() === level.toLowerCase()).length}</dd></div>)}
+        </dl></section>
+        <section><h3>Review</h3><dl>
+          <div><dt>Review scope</dt><dd>{config.scopeMode === 'focused' ? 'Focused Review' : 'Full Review'}</dd></div>
+          <div><dt>Duration</dt><dd>{narrative.timing.duration}</dd></div>
+          <div><dt>Source files reviewed</dt><dd>{narrative.reviewedSourceCount ?? '—'}</dd></div>
+          <div><dt>Reviewed time</dt><dd>{reviewedTime ? formatReviewTimestamp(reviewedTime) : ''}</dd></div>
         </dl>
+          {objective && <section className="review-overview-objective" aria-label="Goal">
+            <h3>Goal</h3><ReviewObjectiveList points={narrative.objectives} />
+            {supportiveDocuments.length > 0 && <div className="review-source-tags" aria-label="References">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name}>{document.name}</span>)}</div>}
+          </section>}
+        </section>
+        {onCancel && <section><button className="btn-secondary" type="button" onClick={onCancel} disabled={cancelling}><X size={15} aria-hidden="true" /> {cancelling ? 'Cancelling…' : 'Cancel review'}</button></section>}
       </aside>
     </div>
   );
@@ -1166,344 +998,6 @@ function DecisionHistory({ decisions, hasOlder, loadingOlder, olderError, onLoad
       {hasOlder && <button className="btn-secondary review-decision-history-more" type="button" onClick={onLoadOlder} disabled={loadingOlder}>{loadingOlder ? 'Loading older decisions…' : 'Load older decisions'}</button>}
     </section>
   );
-}
-
-function ReviewWaitingPanel({ title }: { title: string }) {
-  return <section className="review-waiting-panel" role="status">
-    <h2>{title}</h2>
-    <p>—</p>
-    <span>This section will be available when the review has produced evidence.</span>
-  </section>;
-}
-
-function ReviewResultOverview({
-  analysisMap, assessment, onOpenFinding, onOpenActivity, evidenceReady,
-  narrative,
-  session,
-  findings,
-  findingsError,
-  decisionsError,
-  currentDecision,
-  reviewer,
-  state,
-  objective,
-  supportiveDocuments,
-  sourceManifest,
-  traceabilitySnapshot,
-  onOpenTraceability,
-}: {
-  evidenceReady: boolean;
-  analysisMap: ReviewHarnessTrace['analysisMap'];
-  assessment: EvidenceSufficiencyAssessment | null;
-  onOpenFinding: (id: string) => void;
-  onOpenActivity: () => void;
-  narrative: ReviewNarrative;
-  session: StaticSession;
-  findings: Finding[];
-  findingsError: string | null;
-  decisionsError: string | null;
-  currentDecision: ReviewDecisionRecord | null;
-  reviewer: string | null;
-  state: ReviewLifecycleState;
-  objective: string | null;
-  supportiveDocuments: SupportiveDocument[];
-  sourceManifest: ReviewSourceManifest | null;
-  traceabilitySnapshot: ReviewTraceabilitySnapshot | null;
-  onOpenTraceability: () => void;
-}) {
-  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  const endedAt = narrative.timing.endedAt;
-  const executionTimeLabel = state === 'Paused' ? 'Paused at'
-    : ['Failed', 'Blocked', 'Cancelled'].includes(state) ? 'Stopped at' : 'Execution finished';
-  const duration = narrative.timing.duration;
-  const config = parseReviewConfig(session);
-  const reviewMode = typeof config.reviewMode === 'string' ? config.reviewMode : '';
-  const pullRequest = typeof config.pullRequest === 'string' ? config.pullRequest : '';
-  const reviewScope = config.scopeMode === 'focused' ? 'Focused review'
-    : config.scopeMode === 'full' ? 'Full review'
-      : pullRequest ? 'Pull Request (PR Review)' : reviewMode === 'changed-files' ? 'Change File Review' : 'Full Scope Review';
-  const waitingForEvidence = state === 'In progress' || state === 'Queued';
-  const metricValue = (value: number) => findingsError || waitingForEvidence ? '—' : String(value);
-  const objectiveText = objective || 'Not specified';
-  const objectiveNeedsDisclosure = objectiveText.length > 280 || narrative.objectives.length > 2;
-  const traceabilityAvailable = traceabilitySnapshot?.status === 'available' && Boolean(traceabilitySnapshot.summary) && traceabilitySnapshot.records.length > 0;
-  const traceabilitySummary = traceabilitySnapshot?.summary;
-  const traceabilityDetail = traceabilityAvailable && traceabilitySummary
-    ? `${traceabilitySummary.missing} Missing · ${traceabilitySummary.incomplete} Incomplete`
-    : 'Not available for this review';
-  const handover = reviewHandover({ findings, findingsError, evidenceReady, state, executionStatus: session.status, modelStatus: session.modelStatus, manifest: sourceManifest, traceability: traceabilitySnapshot, assessment, map: analysisMap });
-  const completedStages = narrative.stages.filter(stage => stage.state === 'Completed');
-  const pendingStages = narrative.stages.filter(stage => stage.state !== 'Completed');
-  const carryoverCount = findings.filter(finding => finding.status === 'carryover').length;
-  return (
-    <div className="review-overview-grid">
-      <section className="review-overview-main review-overview-card">
-        <div className="review-overview-heading"><div><span className="command-eyebrow">Handover recommendation</span><h2>{handover.recommendation}</h2>{narrative.objectives[0] && <p className="review-purpose">{narrative.objectives[0]}</p>}</div><StatusBadge label={state} tone={stateTone(state)} /></div>
-        <section className="review-next-actions" aria-label="Next actions">
-          <h3>What to do next</h3>
-          {findingsError ? <p>Reload findings before deciding.</p> : <ol>
-            {[
-              ...handover.blockers.map(finding => ({ finding, label: 'Confirmed blocker' })),
-              ...handover.risks.map(finding => ({ finding, label: 'Remaining risk' })),
-              ...handover.gaps.map(finding => ({ finding, label: 'Evidence gap' })),
-            ].slice(0, 3).map(({ finding, label }) => <li key={finding.id}><strong>{label}</strong><button className="btn-link" onClick={() => onOpenFinding(finding.id)}>{finding.recommendation || finding.title}</button></li>)}
-            {handover.blockers.length + handover.risks.length + handover.gaps.length < 3 && handover.reasons.length > 0 && <li><strong>Evidence gap</strong><button className="btn-link" onClick={onOpenActivity}>{handover.reasons[0]} View coverage and activity →</button></li>}
-          </ol>}
-          {!findingsError && !handover.blockers.length && !handover.risks.length && !handover.gaps.length && !handover.reasons.length && <p>No outstanding actions in the recorded scope.</p>}
-        </section>
-        <section className="review-overview-summary" aria-label="Review summary">
-          <h3>What this review established</h3>
-          <dl className="review-narrative-summary">
-            <div><dt>Completed work</dt><dd>{completedStages.length ? completedStages.map(stage => stage.title).join(' · ') : 'No completed assessment stages are recorded.'}</dd></div>
-            <div><dt>Requirements</dt><dd>{traceabilityAvailable ? `${traceabilitySnapshot!.records.length} identified. See Traceability for links and coverage.` : assessment?.confirmedRequirementCount === 0 ? 'Requirements not identified. Code checks are reported separately.' : 'Requirement coverage unavailable.'}</dd></div>
-            <div><dt>Results</dt><dd>{findingsError ? 'Findings unavailable.' : `${findings.length} reported findings: ${handover.blockers.length} confirmed blockers, ${handover.risks.length} remaining risks and ${handover.gaps.length} needing evidence verification.`}</dd></div>
-            {pendingStages.length > 0 && <div><dt>Not completed</dt><dd>{pendingStages.map(stage => `${stage.title} (${stage.state.toLowerCase()})`).join(' · ')}</dd></div>}
-            {session.failureReason && <div><dt>Why it stopped</dt><dd>{reviewFailureMessage(session.failureReason)}</dd></div>}
-          </dl>
-          {handover.reasons.length > 0 && <details><summary>Coverage limits · {handover.reasons.length}</summary><ul>{handover.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul></details>}
-        </section>
-        <div className="review-severity-grid review-session-metrics" aria-label="Review metrics"><button type="button" className="review-metric-link review-traceability-metric" onClick={onOpenTraceability} aria-label="View incomplete and missing requirements in Traceability"><strong>{waitingForEvidence ? '—' : traceabilityAvailable && traceabilitySummary ? String(traceabilitySummary.attention) : '—'}</strong><span>Traceability attention</span>{!waitingForEvidence && traceabilityAvailable && traceabilitySummary && <small>{traceabilityDetail}</small>}<span className="review-metric-link-action">View incomplete and missing requirements →</span></button><div className="review-severity-total"><strong>{metricValue(findings.length)}</strong><span>Reported findings</span>{!waitingForEvidence && !findingsError && carryoverCount > 0 && <small>{carryoverCount} carried over · {findings.length - carryoverCount} new</small>}</div></div>
-        <section className="review-overview-objective" aria-labelledby="review-overview-objective-heading">
-          <div className="review-overview-subheading">
-            <h3 id="review-overview-objective-heading">Objective</h3>
-            {objectiveNeedsDisclosure && <button type="button" className="command-icon-button" aria-label="Expand review objective" title="Expand review objective" aria-expanded={objectiveExpanded} onClick={() => setObjectiveExpanded(true)}><Expand size={16} aria-hidden="true" /></button>}
-          </div>
-          <ReviewObjectiveList points={narrative.objectives.slice(0, 2)} />
-          {supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}
-        </section>
-
-         {findingsError && <p className="review-history-unavailable" role="status">Finding totals could not be loaded for this result.</p>}
-      </section>
-      <aside className="review-overview-rail review-decision-card"><h2>Human decision</h2><dl><div><dt>Decision</dt><dd>{currentDecision ? decisionLabel(currentDecision.decision) : awaitsReviewDecision(state) ? 'Pending approval' : waitingForEvidence ? 'Waiting for review' : 'Not supplied'}</dd></div><div><dt>Reviewer</dt><dd>{reviewer || 'Not supplied'}</dd></div><div><dt>Review scope</dt><dd>{reviewScope}</dd></div><div><dt>{executionTimeLabel}</dt><dd>{waitingForEvidence ? 'Not yet' : endedAt ? formatReviewTimestamp(endedAt) : 'Not supplied'}</dd></div><div><dt>Duration</dt><dd>{duration}</dd></div></dl>{currentDecision?.comment && <div className="review-final-rationale"><h3>Decision rationale</h3><p>{currentDecision.comment}</p></div>}{decisionsError && <p className="review-history-unavailable">Decision history could not be loaded.</p>}</aside>
-      <Modal isOpen={objectiveExpanded} onClose={() => setObjectiveExpanded(false)} title="Review objective" width={720}>
-        <div className="review-objective-dialog-content"><ReviewObjectiveList points={objectivePoints(objective)} />{supportiveDocuments.length > 0 && <div className="review-source-tags" role="group" aria-label="Supportive documents">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name} aria-label={document.name}>{truncateReviewSourceName(document.name)}</span>)}</div>}</div>
-      </Modal>
-    </div>
-  );
-}
-
-const TRACEABILITY_PAGE_SIZE = 5;
-type TraceableState = TraceabilityState | 'unavailable';
-type TraceableRequirement = Pick<ReviewTraceabilityRecord, 'requirementId' | 'title' | 'description' | 'category' | 'state' | 'evidenceStatus' | 'sourceArtifactIds'> & {
-  references: string[];
-  findings: Finding[];
-};
-type TraceableItem = { id: string; title: string; searchText: string; state: TraceableState } & (
-  | { requirement: TraceableRequirement }
-  | { featureGroup: ReviewFeatureGroup; requirements: TraceableRequirement[]; fileRequirements: TraceableRequirement[]; findings: Finding[] }
-);
-
-function traceabilityIdLabel(item: TraceableItem): string {
-  // Analysis map IDs share a namespace, so shorten the hash instead of the prefix.
-  const featureHash = 'featureGroup' in item ? /^feature-([a-f0-9]{8})[a-f0-9]+$/.exec(item.id)?.[1] : undefined;
-  return formatEntityId(featureHash ?? item.id);
-}
-
-function Traceability({
-  requirements,
-  mappings,
-  artifacts,
-  findings,
-  snapshot,
-  readStatus,
-  featureGroups,
-  map,
-  filter,
-  onFilterChange,
-  onOpenFinding,
-}: {
-  requirements: Requirement[];
-  mappings: Record<string, RequirementMapping[]>;
-  artifacts: Artifact[];
-  findings: Finding[];
-  snapshot: ReviewTraceabilitySnapshot | null;
-  readStatus: EvidenceReadStatus;
-  featureGroups: ReviewFeatureGroup[];
-  map?: ReviewAnalysisMap | null;
-  filter: TraceabilityFilter;
-  onFilterChange: (filter: TraceabilityFilter) => void;
-  onOpenFinding: (findingId: string) => void;
-}) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(0);
-  const items = useMemo(() => {
-    const saved = snapshot?.status === 'available';
-    const requirementRows: TraceableRequirement[] = saved
-      ? snapshot.records.map(record => ({
-        ...record,
-        references: [
-          ...record.sourceArtifactIds.map(id => `Saved artifact ${formatEntityId(id)}`),
-          ...(record.sourceSymbolIds ?? []).map(id => `Symbol ${formatEntityId(id)}`),
-        ],
-        findings: findings.filter(finding => finding.requirementId === record.requirementId || (finding.artifactId && record.sourceArtifactIds.includes(finding.artifactId))),
-      }))
-      : !snapshot && !map && readStatus === 'unavailable'
-        ? traceabilityRecords(requirements, mappings, artifacts, findings).map(record => ({
-          ...record.requirement,
-          requirementId: record.requirement.id,
-          state: record.state,
-          sourceArtifactIds: record.sources.map(source => source.id),
-          references: record.sources.map(source => source.fileName || source.filePath),
-          findings: record.findings,
-        }))
-        : [];
-
-    const requirementsById = new Map(requirementRows.map(record => [record.requirementId, record]));
-    const findingsByFeature = new Map<string, Finding[]>();
-    for (const finding of findings) {
-      const featureId = finding.location?.sourceLocator?.analysis?.featureId;
-      if (!featureId) continue;
-      const related = findingsByFeature.get(featureId) ?? [];
-      related.push(finding);
-      findingsByFeature.set(featureId, related);
-    }
-    const linkedRequirementIds = new Set<string>();
-    const featureItems: TraceableItem[] = featureGroups.map(featureGroup => {
-      const { feature, operations } = featureGroup;
-      const relatedFindings = operations.flatMap(operation => {
-        const paths = new Set(operation.paths.map(path => path.id));
-        return (findingsByFeature.get(operation.id) ?? []).filter(finding => paths.has(finding.location?.sourceLocator?.analysis?.pathId ?? ''));
-      });
-      const linkedIds = new Set(relatedFindings.flatMap(finding => finding.requirementId ? [finding.requirementId] : []));
-      const linked = [...linkedIds].flatMap(id => {
-        const record = requirementsById.get(id);
-        if (!record) return [];
-        linkedRequirementIds.add(id);
-        return [record];
-      });
-      const entryArtifacts = new Set(operations.flatMap(operation => operation.entryPoints.map(point => point.artifactId)));
-      const mappedToEntry = (record: TraceableRequirement) => record.sourceArtifactIds.some(id => entryArtifacts.has(id));
-      const fileRequirements = requirementRows.filter(record => !linkedIds.has(record.requirementId) && mappedToEntry(record));
-      // A mapping on a shared file alone cannot verify an operation in that file.
-      const state = !saved ? 'unavailable' : linked.length
-        ? traceabilityOverallState(linked.map(record => record.state === 'complete' && (!mappedToEntry(record) || (record.evidenceStatus && record.evidenceStatus !== 'verified')) ? 'incomplete' : record.state))
-        : fileRequirements.length ? 'incomplete' : 'missing';
-      const title = featureDisplayName(feature.label);
-      return {
-        id: feature.id,
-        title,
-        state,
-        featureGroup,
-        requirements: linked,
-        fileRequirements,
-        findings: relatedFindings,
-        searchText: [...operations.flatMap(operation => [operation.label, ...operation.paths.map(path => path.label)]), ...linked.map(record => record.title)].join(' '),
-      };
-    });
-    return [...featureItems, ...requirementRows.filter(record => !linkedRequirementIds.has(record.requirementId)).map(record => ({
-      id: record.requirementId,
-      title: record.title,
-      state: record.state,
-      searchText: `${record.description} ${record.category}`,
-      requirement: record,
-    }))];
-  }, [artifacts, featureGroups, findings, map, mappings, readStatus, requirements, snapshot]);
-
-  const normalizedQuery = query.trim().toLowerCase();
-  const filtered = items.filter(item => `${item.id} ${item.title} ${item.searchText}`.toLowerCase().includes(normalizedQuery)
-    && (filter === 'all' || (filter === 'attention' ? item.state === 'incomplete' || item.state === 'missing' : item.state === filter)));
-  const safePage = Math.min(page, Math.max(0, Math.ceil(filtered.length / TRACEABILITY_PAGE_SIZE) - 1));
-  const visible = filtered.slice(safePage * TRACEABILITY_PAGE_SIZE, (safePage + 1) * TRACEABILITY_PAGE_SIZE);
-  const selected = visible.find(item => item.id === selectedId) ?? (map?.features.length ? undefined : visible[0]);
-  const unavailable = snapshot?.status === 'unavailable' || readStatus === 'unavailable' || readStatus === 'failed';
-
-  return <section className="review-traceability" aria-labelledby="review-traceability-heading">
-    <div className={selected ? 'review-traceability-layout' : undefined}>
-      <div className="review-traceability-table-card">
-        <div className="review-traceability-table-heading"><h2 id="review-traceability-heading"><FileCheck2 size={18} aria-hidden="true" /> Traceability</h2></div>
-        {map?.coverage.featureInventoryTruncated && <p className="traceability-muted" role="status">Feature inventory limit reached.</p>}
-        {unavailable && <p className="traceability-muted" role="status">{snapshot?.status === 'available'
-          ? 'Saved requirement evidence could not be refreshed.'
-          : 'Saved requirement evidence is unavailable for this Review.'}</p>}
-        {snapshot?.status === 'available' && snapshot.records.length === 0 && <p className="traceability-muted">Requirements not identified.</p>}
-        {readStatus === 'loading' && <p className="traceability-muted" role="status">Loading requirement evidence…</p>}
-        <TraceabilityToolbar query={query} filter={filter} onQueryChange={value => { setQuery(value); setPage(0); }} onFilterChange={value => { onFilterChange(value); setPage(0); }} />
-        <div className="review-traceability-table-wrap">
-          <table className="review-traceability-table" aria-label="Traceability matrix">
-            <thead><tr><th scope="col">ID</th><th scope="col">Feature</th><th scope="col">State</th></tr></thead>
-            <tbody>{visible.length ? visible.map(item => <tr key={item.id} className={selected?.id === item.id ? 'selected' : undefined} onClick={() => setSelectedId(item.id)}>
-              <td><span className="finding-id-label" title={entityIdTitle('Traceability ID:', item.id)}>{traceabilityIdLabel(item)}</span></td>
-              <td><button type="button" className="traceability-requirement-link" aria-pressed={selected?.id === item.id} onClick={event => { event.stopPropagation(); setSelectedId(item.id); }}><strong>{item.title}</strong></button></td>
-              <td><TraceabilityStateBadge state={item.state} /></td>
-            </tr>) : <tr><td colSpan={3}><div className="review-traceability-empty" role="status">{items.length
-              ? 'No traceability items match the current filters.'
-              : 'No traceable items were recorded for this Review.'}</div></td></tr>}</tbody>
-          </table>
-        </div>
-        <TraceabilityPagination total={filtered.length} page={safePage} onPageChange={setPage} />
-      </div>
-      {selected && <aside className="review-traceability-detail" aria-label="Traceability details">
-        <div className="review-traceability-detail-heading">
-          <div><h3>{selected.title}</h3><span className="finding-id-label" title={entityIdTitle('Traceability ID:', selected.id)}>{traceabilityIdLabel(selected)}</span></div>
-          <TraceabilityStateBadge state={selected.state} />
-        </div>
-        {'featureGroup' in selected ? <>
-          <section>
-            <h4>Requirement evidence</h4>
-            {selected.requirements.length ? <ul className="review-traceability-evidence">
-              {selected.requirements.map(record => <li key={record.requirementId}>
-                <strong>{record.title}</strong> · {traceabilityStateLabel(record.state)}
-                {record.description && <p className="traceability-muted">{record.description}</p>}
-                {record.references.length > 0 && <p className="traceability-muted">{record.references.join(' · ')}</p>}
-                {record.evidenceStatus && record.evidenceStatus !== 'verified' && <p className="traceability-muted">Implementation evidence is {record.evidenceStatus}.</p>}
-              </li>)}
-            </ul> : <p className="traceability-muted">{savedEvidenceMessage(snapshot)}</p>}
-            {selected.fileRequirements.length > 0 && <>
-              <p className="traceability-muted">Requirements mapped to the same file still need a feature-level link.</p>
-              <ul className="review-traceability-evidence">{selected.fileRequirements.map(record => <li key={record.requirementId}>{record.title}</li>)}</ul>
-            </>}
-          </section>
-          <ReviewUseCaseDetails operations={selected.featureGroup.operations} findings={selected.findings} onOpenFinding={onOpenFinding} />
-        </> : <>
-          <section><h4>Requirement evidence</h4><p className="review-traceability-detail-description">{selected.requirement.description || 'No requirement description was supplied.'}</p></section>
-          {selected.requirement.evidenceStatus && selected.requirement.evidenceStatus !== 'verified' && <p className="review-history-unavailable" role="status">{selected.requirement.evidenceStatus === 'stale' ? 'Implementation evidence is stale.' : 'Implementation evidence is unavailable.'} The saved mapping does not prove coverage of the reviewed source version.</p>}
-          <section><h4>Implementation references</h4>{selected.requirement.references.length
-            ? <div className="traceability-detail-list">{selected.requirement.references.map((reference, index) => <span key={index} className="traceability-source-tag">{reference}</span>)}</div>
-            : <p className="traceability-muted">No implementation evidence is linked.</p>}</section>
-          <section><h4>Linked findings</h4>{selected.requirement.findings.length
-            ? <div className="traceability-detail-list">{selected.requirement.findings.map(finding => <button key={finding.id} type="button" className="traceability-detail-finding" title={entityIdTitle(finding.title, finding.id)} aria-label={`Open finding ${formatEntityId(finding.id)}: ${finding.title}`} onClick={() => onOpenFinding(finding.id)}>{formatEntityId(finding.id)}</button>)}</div>
-            : <p className="traceability-muted">No findings are linked to this item.</p>}</section>
-        </>}
-      </aside>}
-    </div>
-  </section>;
-}
-
-function savedEvidenceMessage(snapshot: ReviewTraceabilitySnapshot | null) {
-  if (snapshot?.status !== 'available') return 'Saved requirement evidence is unavailable.';
-  return snapshot.records.length ? 'No saved requirement is linked to this feature.' : 'Requirements not identified.';
-}
-
-function TraceabilityToolbar({ query, filter, onQueryChange, onFilterChange }: {
-  query: string;
-  filter: TraceabilityFilter;
-  onQueryChange: (query: string) => void;
-  onFilterChange: (filter: TraceabilityFilter) => void;
-}) {
-  return <div className="review-traceability-toolbar" role="search" aria-label="Traceability filters">
-    <label className="review-traceability-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search traceability" value={query} onChange={event => onQueryChange(event.target.value)} placeholder="Feature or ID" /></label>
-    <Select className="review-traceability-state" aria-label="Traceability state" value={filter} onChange={value => onFilterChange(value as TraceabilityFilter)} options={[
-      { value: 'all', label: 'All states' }, { value: 'attention', label: 'Incomplete and missing' },
-      { value: 'complete', label: 'Complete' }, { value: 'incomplete', label: 'Incomplete' }, { value: 'missing', label: 'Missing' }, { value: 'unavailable', label: 'Unavailable' },
-    ]} />
-  </div>;
-}
-
-function TraceabilityPagination({ total, page, onPageChange }: { total: number; page: number; onPageChange: (page: number) => void }) {
-  const pageCount = Math.ceil(total / TRACEABILITY_PAGE_SIZE);
-  return <footer>
-    {pageCount > 1 && <nav className="review-traceability-pagination" aria-label="Traceability pages">
-      <button type="button" className="btn-secondary" onClick={() => onPageChange(page - 1)} disabled={page === 0}>Previous</button>
-      <span>Page {page + 1} of {pageCount}</span>
-      <button type="button" className="btn-secondary" onClick={() => onPageChange(page + 1)} disabled={page >= pageCount - 1}>Next</button>
-    </nav>}
-    <div className="findings-count-label">{total} {total === 1 ? 'item' : 'items'}</div>
-  </footer>;
-}
-
-function TraceabilityStateBadge({ state }: { state: TraceableState }) {
-  return <span className={`traceability-state-badge traceability-state-${state}`}>{traceabilityStateLabel(state)}</span>;
 }
 
 function DecisionRecord({ decision }: { decision: ReviewDecisionRecord }) {

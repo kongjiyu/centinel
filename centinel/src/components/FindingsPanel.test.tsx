@@ -10,6 +10,12 @@ vi.mock('../api/client', () => ({
     listFindings: vi.fn(),
     listStaticFindings: vi.fn(),
     getReviewArtifactContent: vi.fn(),
+    getReviewEvidenceSufficiency: vi.fn(),
+    getReviewTraceability: vi.fn(),
+    getReviewHarness: vi.fn(),
+    dynamicFindings: vi.fn(),
+    dynamicRuns: vi.fn(),
+    dynamicFinding: vi.fn(),
     updateFinding: vi.fn().mockResolvedValue({ ok: true }),
   },
 }));
@@ -239,6 +245,37 @@ describe('FindingsPanel', () => {
     expect(text).not.toContain('Severity');
     expect(text).not.toContain('Risk Category');
     expect(text).toContain('Recommended changes');
+  });
+
+  it('opens the exact saved occurrence for a review ID from the Overview', async () => {
+    vi.mocked(api.listStaticFindings).mockResolvedValue([baseFinding]);
+    render(<FindingsPanel projectId={baseFinding.projectId} presentation="project"
+      initialReviewFilter={baseFinding.sessionId!} focusFindingId={baseFinding.id} />);
+    expect(await screen.findByRole('article', { name: 'Finding details' })).toHaveTextContent(baseFinding.title);
+    expect(api.listStaticFindings).toHaveBeenCalledWith(baseFinding.projectId, baseFinding.sessionId);
+    expect(api.listFindings).not.toHaveBeenCalled();
+  });
+
+  it('filters Dynamic Testing findings by an exact run observation', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listFindings).mockResolvedValue([]);
+    vi.mocked(api.dynamicRuns).mockResolvedValue([{ id: 'run-1', missionId: 'mission-1' }] as Awaited<ReturnType<typeof api.dynamicRuns>>);
+    const dynamicFindings = ['Observed in run', 'Observed in another run'].map((title, index) => ({
+      id: `dynamic-${index}`, title, projectId: baseFinding.projectId, missionId: 'mission-1', category: 'functional',
+      severity: 'medium', confidence: 'high', confidenceBasis: 'Observed result', createdAt: baseFinding.createdAt,
+    })) as Awaited<ReturnType<typeof api.dynamicFindings>>;
+    vi.mocked(api.dynamicFindings).mockResolvedValue(dynamicFindings);
+    vi.mocked(api.dynamicFinding).mockImplementation(async (_projectId, id) => ({
+      finding: dynamicFindings.find(finding => finding.id === id)!,
+      observations: [{ runId: id === 'dynamic-0' ? 'run-1' : 'run-2' }],
+      events: [],
+    }) as unknown as Awaited<ReturnType<typeof api.dynamicFinding>>);
+    render(<FindingsPanel projectId={baseFinding.projectId} presentation="project" />);
+    await user.selectOptions(await screen.findByLabelText('Activity type'), 'dynamic');
+    await user.type(screen.getByRole('searchbox', { name: 'Review or Dynamic Test ID' }), 'run-1');
+    await user.click(screen.getByRole('button', { name: 'Load activity findings' }));
+    expect(await screen.findByText('Observed in run')).toBeInTheDocument();
+    expect(screen.queryByText('Observed in another run')).not.toBeInTheDocument();
   });
 
   it('uses the project findings columns for Review results', async () => {
