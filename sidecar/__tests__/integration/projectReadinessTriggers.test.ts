@@ -22,6 +22,8 @@ const appMocks = vi.hoisted(() => ({
   syncSource: vi.fn(),
   removeSource: vi.fn(),
   queueGitHubProjectImport: vi.fn(),
+  queueGitHubRepositoryImport: vi.fn(),
+  listSources: vi.fn(),
 }));
 
 vi.mock('../../src/applicationRepository.js', async importOriginal => {
@@ -31,6 +33,7 @@ vi.mock('../../src/applicationRepository.js', async importOriginal => {
     CentinelApplicationRepository: class {
       createProject(input: unknown) { return appMocks.createProject(input); }
       saveSource(input: unknown) { return appMocks.saveSource(input); }
+      listSources(project: string) { return appMocks.listSources(project); }
       deleteArtifact(project: string, artifact: string) { return appMocks.deleteArtifact(project, artifact); }
     },
   };
@@ -61,7 +64,7 @@ vi.mock('../../src/integrations/index.js', async importOriginal => {
 
 vi.mock('../../src/integrations/projectImport.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../../src/integrations/projectImport.js')>();
-  return { ...actual, queueGitHubProjectImport: (...args: unknown[]) => appMocks.queueGitHubProjectImport(...args) };
+  return { ...actual, queueGitHubProjectImport: (...args: unknown[]) => appMocks.queueGitHubProjectImport(...args), queueGitHubRepositoryImport: (...args: unknown[]) => appMocks.queueGitHubRepositoryImport(...args) };
 });
 
 vi.mock('../../src/integrations/sourceWorker.js', async importOriginal => {
@@ -117,7 +120,12 @@ describe('project readiness automatic trigger HTTP wiring', () => {
       run: { id: runId },
     });
 
+    appMocks.listSources.mockResolvedValue([]);
+    appMocks.queueGitHubRepositoryImport.mockResolvedValue({ source: { id: sourceId }, run: { id: runId } });
     vi.spyOn(fs, 'statSync').mockReturnValue({ isDirectory: () => true } as ReturnType<typeof fs.statSync>);
+    // Project creation now resolves and checks each local folder asynchronously.
+    vi.spyOn(fs.promises, 'realpath').mockImplementation(async value => String(value));
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ isDirectory: () => true } as Awaited<ReturnType<typeof fs.promises.stat>>);
     server = createSidecarServer(authGateway, { readinessCoordinator: coordinator });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
@@ -154,7 +162,7 @@ describe('project readiness automatic trigger HTTP wiring', () => {
     });
     expect(local.status).toBe(201);
     expectTrigger('project_created');
-    expect(fs.statSync).toHaveBeenCalledWith('C:\\fixture\\repo');
+    expect(fs.promises.realpath).toHaveBeenCalledWith('C:\\fixture\\repo');
 
     notify.mockClear();
     const github = await request('/projects', 'POST', {
@@ -162,16 +170,20 @@ describe('project readiness automatic trigger HTTP wiring', () => {
     });
     expect(github.status).toBe(201);
     expectTrigger('project_created');
-    expect(appMocks.queueGitHubProjectImport).toHaveBeenCalledTimes(1);
+    expect(appMocks.queueGitHubRepositoryImport).toHaveBeenCalledTimes(1);
   });
 
-  it('does not trigger project creation when source preparation fails', async () => {
+  it('keeps a created project when its local import fails, and does not create one when GitHub is not connected', async () => {
+    // The project is created first; a failed local import is reported as a warning, not a failed request.
     appMocks.importLocalRepositoryArtifacts.mockRejectedValueOnce(new Error('local import failed'));
     const local = await request('/projects', 'POST', {
       name: 'Example', description: '', workspacePath: 'C:\\fixture\\repo', source: { type: 'local-repository' },
     });
-    expect(local.status).toBe(400);
-    expect(notify).not.toHaveBeenCalled();
+    expect(local.status).toBe(201);
+    expect(local.body.sourceImportWarnings).toEqual([expect.stringMatching(/^Local folder .*repo could not be imported\.$/)]);
+    expectTrigger('project_created');
+
+    notify.mockClear();
 
     appMocks.sourceStatus.mockResolvedValueOnce({ connected: false });
     const github = await request('/projects', 'POST', {
