@@ -59,10 +59,16 @@ function requestedTriple() {
   return value?.trim() || hostTriple();
 }
 
+/**
+ * Release builds use the hosted Supabase project. `.env.production.local` (git-ignored, also
+ * read by Vite for production builds) overrides `.env`, so development can point `.env` at a
+ * local Supabase without changing what the packaged app connects to.
+ */
 function readPublicRuntimeEnv() {
-  const envFile = path.join(root, '.env');
   const values = {};
-  if (fs.existsSync(envFile)) {
+  for (const name of ['.env', '.env.production.local']) {
+    const envFile = path.join(root, name);
+    if (!fs.existsSync(envFile)) continue;
     for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
       const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
       if (match) values[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
