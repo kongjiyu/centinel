@@ -18,6 +18,8 @@ import {allowedBrowserUrl} from './dynamic/browser/policy.js';
 import {createRunNetworkProxy} from './dynamic/browser/networkProxy.js';
 import {captureProtectedPage,UnsafeVisualObservation} from './dynamic/browser/capture.js';
 import {redactObservation,redactObservationRecord} from './dynamic/browser/privacy.js';
+import type {LiveRunOptions,LiveBox} from './dynamic/live/liveHub.js';
+import {startLiveScreencast} from './dynamic/live/screencast.js';
 import { chromium, type Browser, type Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -55,6 +57,10 @@ type ActionTraceEntry = {
   action: string;
   fileTransfer?:import('./dynamic/browser/actions.js').ActionReceipt['fileTransfer'];privateVariable?:string;elementRef?:string;visualFallbackReason?:string;dispatch?:string;alreadyMatched?:boolean;coordinateFallbackReason?:string;requestedUrl?:string;
   beforeObservationPath?:string;afterObservationPath?:string;
+  /** Live runs only: the target's viewport box read just before dispatch. */
+  box?:LiveBox;
+  /** Live runs only: protected pre-action screenshot used to replay the highlight. */
+  replayScreenshotPath?:string;
   targetDescription?: string;
   selector?: string;
   x?: number;
@@ -245,7 +251,7 @@ async function createDynamicFinding(
 export async function runDynamicSession(
   session: DynamicSession,
   projectWorkspacePath: string,
-  providers: { checkBrief?:string;includeUsabilitySuggestions?:boolean;usabilityConfig?:UsabilityConfig;resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}, budgetControl?:{reserveKeyboardAction():boolean;suggestUsability?(assessment:UsabilityAssessment):Promise<UsabilitySuggestions>}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
+  providers: { checkBrief?:string;includeUsabilitySuggestions?:boolean;usabilityConfig?:UsabilityConfig;resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./dynamic/browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./dynamic/browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./dynamic/browser/fileTypes.js').UploadGrant)=>import('./dynamic/browser/fileTypes.js').UploadPayload;checkpointExploration?:(snapshot:ExplorationSnapshot)=>Promise<void>;exploratoryChecks?:readonly import('./dynamic/types.js').CheckDefinition[];actionPolicy?:BrowserActionPolicy;observationMode?:'dom_first'|'visual';budgets?:ExecutionBudget;canForward?:()=>boolean;storageState?:BrowserSessionState;sessionReadySelector?:string; allowedOrigins?:readonly string[]; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; live?:LiveRunOptions; vision: ModelProviderSettings; viewport?: {width:number;height:number}; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>; verifyOutcome?: (page: Page, signal: AbortSignal, privacy: {sensitiveValues:readonly string[];sensitiveSelectors?:readonly string[];exploration?:ExplorationSnapshot;downloads?:readonly import('./dynamic/browser/fileTypes.js').DownloadReceipt[]}, budgetControl?:{reserveKeyboardAction():boolean;suggestUsability?(assessment:UsabilityAssessment):Promise<UsabilitySuggestions>}) => Promise<CheckVerdict|{verdict:CheckVerdict;checks:import('./dynamic/types.js').CheckResult[]}> }
 ): Promise<void> {
   const limits=normalizeBudget(providers.budgets);
   const budget=new RunBudget(limits);
@@ -307,7 +313,7 @@ export async function runDynamicSession(
   const runtimeTimer = setTimeout(() => controller.abort(), maximumRuntime);
   const signal = controller.signal;
   let browserDisconnected = false; let closingBrowser = false;
-  let browser: Browser | null = null;let downloads:ApprovedDownloads|undefined;
+  let browser: Browser | null = null;let downloads:ApprovedDownloads|undefined;let stopLiveScreencast:(()=>Promise<void>)|undefined;
   let proxy:Awaited<ReturnType<typeof createRunNetworkProxy>>|undefined;
   const actionTrace: ActionTraceEntry[] = [];const actionLedger=new ActionLedger();const exploration=providers.exploratoryChecks?new ExplorationJournal(providers.exploratoryChecks,secrets):undefined;let explorationStateId:string|undefined;
   const consoleLogs: string[] = [];const networkDiagnostics=new NetworkDiagnostics(secrets);
@@ -339,13 +345,15 @@ export async function runDynamicSession(
     debugLog.log('info', 'navigation', 'Launching browser');
     const origins=providers.allowedOrigins??[targetOrigin];
     proxy=await createRunNetworkProxy(origins,(origin)=>{if(!targetStarted){deniedStartupRequests++;return;}const timer=setTimeout(()=>{policyTimers.delete(timer);if(observedOrigins.has(origin)){deniedOrigin=origin;policyViolated=true;controller.abort();}else deniedStartupRequests++;},50);policyTimers.add(timer);},()=>{if(targetStarted){transportFailed=true;controller.abort();}},()=>!signal.aborted&&(providers.canForward?.()??true));
-    browser = await chromium.launch({ headless: false,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
+    browser = await chromium.launch({ headless: providers.live?.headless===true,proxy:{server:proxy.server},args:['--proxy-bypass-list=<-loopback>','--disable-quic','--disable-http2','--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
     browser.on('disconnected', () => {
       if (!closingBrowser && !signal.aborted) { browserDisconnected = true; controller.abort(); }
     });
     if (signal.aborted) throw new DOMException('Session stopped', 'AbortError');
     signal.addEventListener('abort', () => { void browser?.close().catch(() => {}); }, { once: true });
     const page = await browser.newPage({serviceWorkers:'block',...(providers.actionPolicy?{acceptDownloads:false}:{}),...(providers.storageState?{storageState:providers.storageState}:{}),...(providers.viewport?{viewport:providers.viewport}:{})});
+    // Live frames stay in memory for the signed-in local viewer; nothing is injected into the page.
+    if(providers.live){try{stopLiveScreencast=await startLiveScreencast(page,providers.live.sink);}catch{debugLog.log('warn','navigation','Live view frames are unavailable for this lane.');}}
 
     if(providers.actionPolicy?.downloads?.length&&providers.retainDownload){downloads=new ApprovedDownloads({signal,canForward:providers.canForward,secrets,onPrivateValue:value=>discoverPrivateValues([value]),onViolation:reason=>{filePolicyReason=reason;controller.abort();},retain:providers.retainDownload});await downloads.attach(page);}
     const observe=(url:string)=>{try{observedOrigins.add(new URL(url.replace(/^ws:/,'http:').replace(/^wss:/,'https:')).origin);}catch{}};
@@ -413,6 +421,11 @@ export async function runDynamicSession(
       const beforeObservationPath=path.join(logsDir,`step-${String(step).padStart(3,'0')}-before.json`);
       fs.writeFileSync(beforeObservationPath,JSON.stringify({capturedAt:new Date().toISOString(),observation:context},null,2));
       await addEvidence(session.projectId,session.id,'session_summary',beforeObservationPath,`Step ${step} before observation`);
+      let replayScreenshotPath:string|undefined;
+      if(providers.live?.perStepScreenshots){
+        if(hasScreenshot)replayScreenshotPath=screenshotPath;
+        else{replayScreenshotPath=path.join(screenshotsDir,`step-${String(step).padStart(3,'0')}-replay.png`);await captureProtectedPage(page,replayScreenshotPath,{secrets,sensitiveSelectors:providers.sensitiveSelectors,signal});await addEvidence(session.projectId,session.id,'screenshot',replayScreenshotPath,`Step ${step} replay screenshot`);}
+      }
 
       await checkpointExploration();
       const explorationBeforeStateId=explorationStateId;
@@ -468,7 +481,8 @@ export async function runDynamicSession(
       if(signal.aborted||providers.canForward?.()===false)throw new DOMException('Execution stopped','AbortError');
       const action = aiResult.action as AgentAction;
       // Repairs are also proposals and must pass the same private-value boundary.
-      if(action.action==='type'&&await privateTypingTarget(page,action,bindings,providers.sensitiveSelectors))discoverPrivateValues([action.text]);
+      const privateTyping=action.action==='type'&&await privateTypingTarget(page,action,bindings,providers.sensitiveSelectors);
+      if(privateTyping&&action.action==='type')discoverPrivateValues([action.text]);
       const beforeUrl = page.url();
 
       const trace: ActionTraceEntry = {
@@ -487,6 +501,7 @@ export async function runDynamicSession(
         screenshotPath:hasScreenshot?screenshotPath:'',
         aiResponsePath,
         timestamp: new Date().toISOString(),
+        ...(replayScreenshotPath?{replayScreenshotPath}:{}),
       };
 
       let explorationActionRecorded=false;
@@ -550,7 +565,7 @@ export async function runDynamicSession(
 
         // The frozen policy authorizes the actual target before one dispatch.
         debugLog.log('info', 'action_execute', `Executing ${action.action}`, step);
-        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger,downloads,resolvePrivateValue:providers.resolvePrivateValue,onPrivateValue:value=>discoverPrivateValues([value]),resolveUpload:providers.resolveUpload,onUploadPrivateValue:value=>discoverPrivateValues([value])});
+        const receipt=await executeBrowserAction(page,action,{signal,bindings,hasScreenshot,policy:providers.actionPolicy,origins,ledger:actionLedger,downloads,resolvePrivateValue:providers.resolvePrivateValue,onPrivateValue:value=>discoverPrivateValues([value]),resolveUpload:providers.resolveUpload,onUploadPrivateValue:value=>discoverPrivateValues([value]),...(providers.live?{live:{laneId:providers.live.laneId,step,masked:privateTyping,emit:event=>{if(event.phase==='move'&&event.box)trace.box=event.box;try{providers.live!.sink.action({...event,targetLabel:sanitize(event.targetLabel)});}catch{/* live view is best-effort */}}}}:{})});
         Object.assign(trace,receipt);
         trace.result = 'success';
         trace.afterUrl = page.url();
@@ -657,6 +672,7 @@ export async function runDynamicSession(
     }catch{debugLog.log('warn','session_end','Partial execution evidence could not be retained.');}
     for(const timer of policyTimers)clearTimeout(timer);
     downloads?.close();
+    await stopLiveScreencast?.();
     await proxy?.close().catch(()=>{});
     clearTimeout(runtimeTimer);
     CONTROLLERS.delete(session.id);

@@ -9,7 +9,7 @@ import { CentinelApplicationRepository } from './applicationRepository.js';
 import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType, type SourceCurrency } from './artifacts.js';
 import type { StoreArtifact, StoreArtifactVersion } from './store/types.js';
 
-const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'vendor', 'target', 'bin', 'obj', '.idea', '.vscode']);
+export const SKIP_DIRS: ReadonlySet<string> = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'vendor', 'target', 'bin', 'obj', '.idea', '.vscode']);
 const MAX_IMPORT_FILES = 2_000;
 const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_LOCAL_INVENTORY_ENTRIES = 20_000;
@@ -58,7 +58,7 @@ export type LocalImportCoverage = {
   contentFingerprint?: string;
 };
 
-type LocalRepositoryFile = { path: string; fullPath: string; size: number; mtimeMs: number; ctimeMs: number; symlink: boolean };
+export type LocalRepositoryFile = { path: string; fullPath: string; size: number; mtimeMs: number; ctimeMs: number; symlink: boolean };
 
 const sha256 = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
 const LOCAL_OTHER_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.xml', '.toml', '.ini', '.mod', '.csproj', '.gradle', '.kts', '.swift', '.kt', '.scala', '.dart', '.vue', '.svelte', '.sql', '.sh', '.bash', '.lua']);
@@ -79,14 +79,11 @@ export function localRepositoryContentFingerprint(sources: Array<{ filePath: str
   return sha256(JSON.stringify(normalized));
 }
 
-/** A bounded metadata-first inventory for local-repository polling. Content
- * hashes are read only after metadata changes or when establishing a legacy
- * baseline; sources too large to scan safely leave the inventory incomplete. */
-export async function inspectLocalRepository(repoPath: string, includeContent = false): Promise<LocalRepositoryInventory | null> {
-  if (typeof repoPath !== 'string' || !repoPath.trim()) return null;
-  const root = path.resolve(repoPath);
-  const rootStat = await fs.stat(root).catch(() => null);
-  if (!rootStat?.isDirectory()) return null;
+/** Bounded walk shared by local-repository polling and the autonomous Dynamic
+ * repository digest. Skips `SKIP_DIRS`, never descends into directory
+ * symlinks and reports file symlinks so callers can apply containment. */
+export async function walkLocalRepository(root: string, maxEntries = MAX_LOCAL_INVENTORY_ENTRIES)
+  : Promise<{ files: LocalRepositoryFile[]; complete: boolean }> {
   const files: LocalRepositoryFile[] = [];
   const directories = [root];
   let visited = 0;
@@ -94,7 +91,7 @@ export async function inspectLocalRepository(repoPath: string, includeContent = 
     while (directories.length) {
       const current = directories.pop()!;
       for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-        if (++visited > MAX_LOCAL_INVENTORY_ENTRIES) return { root, rootHash: localRootHash(root), complete: false };
+        if (++visited > maxEntries) return { files, complete: false };
         const fullPath = path.join(current, entry.name);
         const relativePath = path.relative(root, fullPath).replaceAll('\\', '/');
         if (entry.isDirectory() && !entry.isSymbolicLink()) {
@@ -107,7 +104,21 @@ export async function inspectLocalRepository(repoPath: string, includeContent = 
           symlink: entry.isSymbolicLink() });
       }
     }
-  } catch { return { root, rootHash: localRootHash(root), complete: false }; }
+  } catch { return { files, complete: false }; }
+  return { files, complete: true };
+}
+
+/** A bounded metadata-first inventory for local-repository polling. Content
+ * hashes are read only after metadata changes or when establishing a legacy
+ * baseline; sources too large to scan safely leave the inventory incomplete. */
+export async function inspectLocalRepository(repoPath: string, includeContent = false): Promise<LocalRepositoryInventory | null> {
+  if (typeof repoPath !== 'string' || !repoPath.trim()) return null;
+  const root = path.resolve(repoPath);
+  const rootStat = await fs.stat(root).catch(() => null);
+  if (!rootStat?.isDirectory()) return null;
+  const walked = await walkLocalRepository(root);
+  if (!walked.complete) return { root, rootHash: localRootHash(root), complete: false };
+  const files = walked.files;
   files.sort((left, right) => left.path.localeCompare(right.path));
   const inventoryFingerprint = sha256(JSON.stringify(files.map(file => [file.path, file.symlink ? 'symlink' : 'file', file.size, file.mtimeMs, file.ctimeMs])));
   if (!includeContent) return { root, rootHash: localRootHash(root), inventoryFingerprint, complete: true };
