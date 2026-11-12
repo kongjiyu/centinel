@@ -76,6 +76,7 @@ describe('AutoTestPanel', () => {
     expect(screen.getByText('The page shows “Email or password is incorrect.”')).toBeInTheDocument();
     expect(screen.getByText('AI explanation')).toBeInTheDocument();
     expect(screen.getByText('server.js:45')).toBeInTheDocument();
+    expect(screen.queryByText(/absent/)).toBeNull();
     const rows = container.querySelectorAll('.at-test-summary');
     expect(rows[0]).toHaveTextContent('Unknown email gets the generic error');
     fireEvent.click(screen.getByRole('button', { name: 'Open run evidence' }));

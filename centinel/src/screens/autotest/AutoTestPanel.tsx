@@ -20,6 +20,13 @@ function expectedText(test: AutoTestEntry, checkId: string): string {
   return check.description;
 }
 
+/** The checker reports absence as a note, not page text; say that plainly. */
+function actualText(result: { observed: string | null; reason: string }): string {
+  const observed = result.observed?.trim();
+  if (!observed || /^expected .* absent\.?$/i.test(observed)) return 'This was not shown on the page.';
+  return `“${observed.slice(0, 300)}”`;
+}
+
 function TestRow({ test, onOpenRun }: { test: AutoTestEntry; onOpenRun?(runId: string): void }) {
   const [open, setOpen] = useState(test.state === 'failed');
   const failed = (test.checkResults ?? []).filter(result => result.verdict !== 'passed');
@@ -39,7 +46,7 @@ function TestRow({ test, onOpenRun }: { test: AutoTestEntry; onOpenRun?(runId: s
               {failed.map(result => (
                 <div key={result.checkId}>
                   <dt>Expected</dt><dd>{expectedText(test, result.checkId)}</dd>
-                  <dt>Actual</dt><dd>{result.observed ? `“${result.observed.slice(0, 300)}”` : result.reason || 'Not found on the page'}</dd>
+                  <dt>Actual</dt><dd>{actualText(result)}</dd>
                 </div>
               ))}
             </dl>

@@ -188,6 +188,9 @@ export type ModelProviderSettings = {
   codexScreenshots?: boolean;
   /** Canonical authenticated user for local OAuth credentials. */
   ownerId?: string;
+  /** Parallel Auto test lanes use their own Codex process for the same owner, so one lane's
+   * cancellation or timeout never closes another lane's model call. */
+  codexSlot?: string;
   geminiOAuthProject?: string;
   provider: AiProvider;
   apiFormat: AiApiFormat;
