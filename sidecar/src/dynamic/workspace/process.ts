@@ -23,6 +23,8 @@ export async function runBoundedProcess(input: {
     maxOutputBytes?: number;
     signal?: AbortSignal;
     onOutput?(redacted: string): void;
+    /** Only the autonomous dependency install sets this; every other command stays offline. */
+    allowNetwork?: boolean;
 }): Promise<ProcessResult> {
     if (process.platform === 'win32')
         throw new Error('Bounded repository execution currently requires Unix process groups.');
@@ -46,7 +48,7 @@ export async function runBoundedProcess(input: {
         const chunks: Buffer[] = [];
         let ended = false;
         let outputTruncated = false;
-        const launch = () => spawn(input.executable, input.args, { cwd: input.cwd, detached: process.platform !== 'win32', shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: [input.runtimeBinDirectory, process.env.PATH].filter(Boolean).join(path.delimiter), HOME: input.home, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG ?? 'en_US.UTF-8', CI: '1', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0', COREPACK_ENABLE_PROJECT_SPEC: '0', npm_config_manage_package_manager_versions: 'false', npm_config_offline: 'true', ...variables } });
+        const launch = () => spawn(input.executable, input.args, { cwd: input.cwd, detached: process.platform !== 'win32', shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: [input.runtimeBinDirectory, process.env.PATH].filter(Boolean).join(path.delimiter), HOME: input.home, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG ?? 'en_US.UTF-8', CI: '1', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0', COREPACK_ENABLE_PROJECT_SPEC: '0', npm_config_manage_package_manager_versions: 'false', ...(input.allowNetwork ? {} : { npm_config_offline: 'true' }), ...variables } });
         let child: ReturnType<typeof launch>;
         try {
             child = launch();
