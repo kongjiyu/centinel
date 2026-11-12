@@ -183,7 +183,7 @@ For example, a create-customer test needs an account with the right role and a c
 
 An initial delivery may connect to an already-running website and use manual setup. Local service launching is a later sub-increment of environment support: propose the executable/arguments, let the user configure or confirm them, check readiness, track only processes Centinel owns, and stop those processes according to the selected lifecycle. Environment variables typed into Centinel do not reconfigure an already-running remote website.
 
-Seed/reset/cleanup commands and unit-test commands execute local code. Their workspace, executable/arguments, timeout, and intended data effects must be explicit. Arbitrary model-generated shell commands are not automatically executed. Database resets are not a default cleanup operation.
+Seed/reset/cleanup commands and unit-test commands execute local code. Their workspace, executable/arguments, timeout, and intended data effects must be explicit. Arbitrary model-generated shell commands are not automatically executed. Database resets are not a default cleanup operation. Exception (12 November 2026, user decision): Auto test starts the app automatically, but only with commands built from a fixed recipe table matched to repository files; the model can choose a detected recipe but never supplies a command. See docs/dynamic/AUTONOMOUS_DYNAMIC_TESTING_2026-11-12.md.
 
 ## 10. Context, records, and outcome semantics
 
