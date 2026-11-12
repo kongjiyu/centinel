@@ -1,15 +1,14 @@
-/** Shared, plain-language labels for the four Review progress stages shown in the toast. */
-export const REVIEW_TOAST_STAGES = ['understanding_context', 'code_review', 'requirement_validation', 'summarizing'] as const;
+import { REVIEW_WORKFLOW_STAGES } from '../reviewNarrative';
+import type { ReviewProgress } from '../types';
 
-const STAGE_LABELS: Record<string, string> = {
-  understanding_context: 'Understanding context',
-  code_review: 'Code review',
-  requirement_validation: 'Requirement validation',
-  summarizing: 'Summarizing',
-};
-
-export function reviewToastStageLabel(stageId: string): string {
-  return STAGE_LABELS[stageId] ?? stageId.replace(/_/g, ' ');
+export function reviewToastStages(progress: ReviewProgress) {
+  if (!progress.stage) return progress.stages;
+  return REVIEW_WORKFLOW_STAGES.map(({ id, title }) => ({
+    id,
+    label: title,
+    status: progress.completedStages?.includes(id) ? 'done' : progress.stage === id ? 'active' : 'pending',
+    thoughts: [],
+  }));
 }
 
 export function reviewToastStageStatus(status: string): string {
@@ -17,8 +16,4 @@ export function reviewToastStageStatus(status: string): string {
   if (status === 'active') return 'In progress';
   if (status === 'pending') return 'Not started';
   return status.replace(/_/g, ' ');
-}
-
-export function reviewToastStageIndex(stageId: string): number {
-  return (REVIEW_TOAST_STAGES as readonly string[]).indexOf(stageId);
 }

@@ -1,10 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { api } from './api/client';
+import { api, prepareWorkspaceSidecar } from './api/client';
 
-vi.mock('./api/client', () => ({ api: { projects: vi.fn(), aiSettings: vi.fn(), githubStatus: vi.fn() }, waitForSidecar: vi.fn().mockResolvedValue(true) }));
+vi.mock('./api/client', () => ({ api: { projects: vi.fn(), aiSettings: vi.fn(), githubStatus: vi.fn() }, prepareWorkspaceSidecar: vi.fn().mockResolvedValue(true) }));
 vi.mock('./auth/supabaseAuth', () => ({ isSupabaseAuthConfigured: () => false, signOutSupabase: vi.fn().mockResolvedValue(undefined), restoreSupabaseSession: vi.fn(), subscribeToDeepLinkAuth: vi.fn(), subscribeToSupabaseAuth: vi.fn() }));
 vi.mock('./screens/AuthScreen', () => ({ AuthScreen: ({ onSignIn }: any) => <button onClick={() => onSignIn('person@example.test')}>Sign in</button> }));
 vi.mock('./components/AppShell', () => ({ AppShell: ({ children }: any) => <main>{children}</main> }));
@@ -31,5 +31,17 @@ describe('workspace metadata loading', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(await screen.findByText('Available project')).toBeInTheDocument();
     expect(screen.queryByText('Cannot connect to the local sidecar service.')).not.toBeInTheDocument();
+  });
+  it('prepares the local service again when Retry opens the workspace', async () => {
+    vi.mocked(api.aiSettings).mockResolvedValue([]);
+    render(<App />);
+
+    await waitFor(() => expect(api.projects).toHaveBeenCalledTimes(1));
+    vi.mocked(api.projects).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('Available project')).toBeInTheDocument();
+    expect(prepareWorkspaceSidecar).toHaveBeenCalledTimes(3);
   });
 });

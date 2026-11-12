@@ -7,6 +7,12 @@ export type Project = {
   updatedAt: string;
 };
 
+export type ProjectRepositoryInput =
+  | { type: 'local-repository'; path: string }
+  | { type: 'github'; repoUrl: string };
+
+export type ProjectCreationResult = Project & { sourceImportWarnings?: string[] };
+
 /** A Centinel account with access to a project. Owners manage membership. */
 export type ProjectMember = { userId: string; email: string; role: 'owner' | 'member' | 'viewer'; addedAt: string };
 export type ProjectMemberList = { viewerUserId: string; members: ProjectMember[] };
@@ -32,11 +38,20 @@ export type CollaboratorSearchResult = {
   matches: CollaboratorMatch[];
 };
 
+export type ProjectCollaboratorMatch = {
+  provider: 'centinel' | 'github';
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  state: 'available' | 'joined' | 'pending';
+};
+
 export type GithubProjectCollaborator = CollaboratorMatch & {
   permission: string;
 };
 
 export type GithubCollaboratorSnapshot = {
+  projectMembersAdded?: number;
   repository: { owner: string; repo: string; remoteUrl: string } | null;
   collaborators: GithubProjectCollaborator[];
   syncedAt: string | null;
@@ -91,7 +106,7 @@ export type ConnectedSourceStatusResult = {
 export type ConnectedSourceBrowseEntry = {
   id: string;
   name: string;
-  kind: 'repository' | 'branch' | 'folder' | 'file' | 'workspace' | 'channel';
+  kind: 'repository' | 'branch' | 'commit' | 'folder' | 'file' | 'workspace' | 'channel';
   mimeType?: string | null;
   remoteUrl?: string | null;
   revision?: string | null;
@@ -144,6 +159,8 @@ export type AiProvider = 'mimo' | 'gemini' | 'custom' | 'codex';
 export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native' | 'codex-app-server';
 
 export type AiProviderSetting = {
+  connectionMethod?: 'oauth';
+  codexScreenshots?: boolean;
   id: 'text' | 'vision' | 'embedding';
   label: string;
   provider: AiProvider;
@@ -220,6 +237,8 @@ export type Artifact = {
   id: string;
   projectId: string;
   sourceId?: string | null;
+  localRepositoryName?: string;
+  git?: { repository: string; commit: string; branch?: string; subject?: string };
   versionId?: string;
   type: ArtifactType;
   source: ArtifactSource;
@@ -750,6 +769,7 @@ export type ReviewProgress = {
   /** Production orchestrator progress; older payloads use currentStage/stages. */
   stage?: string;
   pauseCode?: string;
+  completedStages?: string[];
   /** Completed with gaps: some parts could not be verified. */
   coverage?: 'partial';
   currentStage: ReviewStageId;
@@ -788,6 +808,9 @@ export type ReviewSourceManifest = {
   updatedAt?: string;
   sources: ReviewSourceManifestItem[];
   artifactCount: number | null;
+  snapshotId?: string;
+  gitRefs?: Array<{ repository: string; commit: string; branch?: string; subject?: string }>;
+  snapshotOnlyFileCount?: number;
   /** Exact artifacts saved with this Review. Legacy snapshots may omit these. */
   artifacts?: ReviewSourceArtifact[];
 };
@@ -860,20 +883,24 @@ export type Screen =
       name: 'project-detail';
       projectId: string;
       initialSection?: 'source';
+      sourceArtifactId?: string;
       initialAction?: 'static' | 'dynamic';
       initialStaticSessionId?: string;
     }
   | { name: 'review-entry'; projectId?: string; comparisonParentReviewId?: string; returnToPlayground?: boolean }
-  | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string }
+  | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string; initialTab?: 'Findings' }
+  | { name: 'review-finding'; projectId: string; sessionId: string; findingId: string; reviewName?: string }
   /** A project's full Reviews list; status keeps the selected filter restorable. */
+  | { name: 'review-directory' }
+  | { name: 'dynamic-directory' }
   | { name: 'reviews'; projectId: string; status?: string }
   /** draft pre-fills a new test, e.g. from a Review finding; it never starts a Run. */
-  | { name: 'dynamic-testing'; projectId?: string; runId?: string; draft?: DynamicTestDraft }
+  | { name: 'dynamic-testing'; projectId?: string; runId?: string; missionId?: string; draft?: DynamicTestDraft; listing?: boolean }
   | { name: 'dynamic-session'; projectId: string; sessionId: string }
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
   | { name: 'review-playground'; projectId?: string; sessionId?: string }
-  | { name: 'settings' }
+  | { name: 'settings'; section?: 'connections' }
     | { name: 'help' }
   | { name: 'profile' };
 

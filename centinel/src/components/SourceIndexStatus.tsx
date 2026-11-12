@@ -17,11 +17,16 @@ export function SourceIndexStatus({ projectId, sourceVersionKey }: { projectId: 
   useEffect(() => {
     if (typeof api.getSourceIndexStatus !== 'function') return;
     const controller = new AbortController(); let cancelTimer: (() => void) | undefined;
+    let requestedPreparation = false;
     epoch.current++;
     setStatus(null); setError(false); setStarting(false);
     const poll = async () => {
       try {
-        const next = await api.getSourceIndexStatus(projectId, controller.signal);
+        let next = await api.getSourceIndexStatus(projectId, controller.signal);
+        if (!controller.signal.aborted && next.state === 'none' && !requestedPreparation && typeof api.ensureSourceIndex === 'function') {
+          requestedPreparation = true;
+          next = await api.ensureSourceIndex(projectId, controller.signal);
+        }
         if (!controller.signal.aborted) { setStatus(next); setError(false); }
       } catch { if (!controller.signal.aborted) setError(true); }
       if (!controller.signal.aborted) cancelTimer = setVisibleTimeout(() => void poll(), 15_000);
@@ -36,8 +41,8 @@ export function SourceIndexStatus({ projectId, sourceVersionKey }: { projectId: 
     catch { if (epoch.current === requestEpoch) setError(true); }
     finally { if (epoch.current === requestEpoch) setStarting(false); }
   };
-  if (!status && !error) return null;
-  const canStart = status && ['none', 'paused', 'failed', 'superseded'].includes(status.state);
+  if (!error && (!status || status.state === 'ready')) return null;
+  const canStart = status && ['paused', 'failed', 'superseded'].includes(status.state);
   return <div className="source-index-status">
     <div role="status" aria-atomic="true">
       <span>{error ? 'Source search status is unavailable. Try again shortly.' : status ? labels[status.state] : ''}</span>

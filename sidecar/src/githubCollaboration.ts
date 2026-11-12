@@ -178,10 +178,17 @@ export class SupabaseGithubCollaborationService {
 
   async syncCollaborators(projectId: string): Promise<GithubCollaboratorSnapshot> {
     const { repository, token } = await this.context(projectId);
+    const collaborators = await this.fetchCollaborators(repository, token);
+    const syncedAt = new Date().toISOString();
+    await this.collaboratorPersistence.replace(projectId, collaborators, syncedAt);
+    return { repository, collaborators, syncedAt };
+  }
+
+  private async fetchCollaborators(repository: GithubRepository, token: string, signal?: AbortSignal): Promise<GithubCollaborator[]> {
     const collaborators: GithubCollaborator[] = [];
     for (let page = 1; page <= 100; page += 1) {
       const endpoint = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/collaborators?per_page=100&page=${page}`;
-      const response = await this.request(endpoint, { headers: headers(token) });
+      const response = await this.request(endpoint, { headers: headers(token), signal });
       let body: unknown;
       try { body = await response.json(); }
       catch { throw new CollaborationError('GitHub returned an invalid collaborator response.', 'github_request_failed', 502); }
@@ -194,9 +201,7 @@ export class SupabaseGithubCollaborationService {
       if (page === 100) throw new CollaborationError('The repository has too many collaborators to sync in one request.', 'github_request_failed', 502);
     }
 
-    const syncedAt = new Date().toISOString();
-    await this.collaboratorPersistence.replace(projectId, collaborators, syncedAt);
-    return { repository, collaborators, syncedAt };
+    return collaborators;
   }
 
   async searchUsers(projectId: string, email: string): Promise<GithubSearchResult> {
@@ -213,6 +218,33 @@ export class SupabaseGithubCollaborationService {
         type: typeof item.type === 'string' ? item.type : 'User',
       }] : []);
     return { email: normalizedEmail, repository, matches };
+  }
+
+  async searchProjectUsers(projectId: string, query: string): Promise<GithubCollaborator[]> {
+    const repository = await this.repositoryForProject(projectId);
+    const token = await this.getToken();
+    if (!token) return [];
+    const githubQuery = query.replace(/^@/, '');
+    const login = githubQuery.toLowerCase();
+    const exactLogin = query.startsWith('@') && /^[a-z\d-]+$/i.test(login);
+    if (repository && /^[a-z\d-]+$/i.test(login)) {
+      const roster = await this.fetchCollaborators(repository, token, AbortSignal.timeout(5000)).catch(() => []);
+      const matches = roster.filter(user => user.type === 'User' && user.id > 0 &&
+        (exactLogin ? user.login.toLowerCase() === login : user.login.toLowerCase().includes(login)));
+      if (matches.length) {
+        return matches.sort((a, b) => Number(b.login.toLowerCase() === login) - Number(a.login.toLowerCase() === login)).slice(0, 20);
+      }
+    }
+    const terms = exactLogin ? `user:${githubQuery}`
+      : /(?:^|\s)in:/i.test(githubQuery) ? githubQuery : `${githubQuery} in:login,name`;
+    const params = new URLSearchParams({ q: `${terms} type:user`, per_page: '20' });
+    const response = await this.request(`https://api.github.com/search/users?${params}`, { headers: headers(token), signal: AbortSignal.timeout(8000) });
+    const body = await response.json() as { items?: unknown[] };
+    if (!Array.isArray(body.items)) throw new CollaborationError('GitHub returned an invalid search response.', 'github_request_failed', 502);
+    return body.items.slice(0, 20).flatMap(item => {
+      const user = mapGithubCollaborator(item);
+      return user?.type === 'User' && user.id > 0 ? [user] : [];
+    });
   }
 
   async invite(projectId: string, username: string): Promise<GithubInviteResult> {

@@ -39,15 +39,18 @@ $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
 $fullControl = [System.Security.AccessControl.FileSystemRights]::FullControl
 $allow = [System.Security.AccessControl.AccessControlType]::Allow
 $none = [System.Security.AccessControl.PropagationFlags]::None
+$sidType = [System.Security.Principal.SecurityIdentifier]
+$accessSection = [System.Security.AccessControl.AccessControlSections]::Access
 
 foreach ($item in $items) {
-  $acl = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
-  $acl.SetAccessRuleProtection($true, $false)
-  foreach ($existingRule in @($acl.Access)) {
-    [void]$acl.RemoveAccessRuleSpecific($existingRule)
-  }
-  if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $ownerSid.Value) {
+  $acl = $item.GetAccessControl($accessSection -bor [System.Security.AccessControl.AccessControlSections]::Owner)
+  if ($acl.GetOwner($sidType).Value -ne $ownerSid.Value) {
     throw 'Codex home must be owned by the current Windows user.'
+  }
+  $previous = $acl.GetSecurityDescriptorSddlForm($accessSection)
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($existingRule in $acl.GetAccessRules($true, $false, $sidType)) {
+    [void]$acl.RemoveAccessRuleSpecific($existingRule)
   }
   if ($item.PSIsContainer) {
     $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
@@ -58,10 +61,8 @@ foreach ($item in $items) {
   $systemRule = [System.Security.AccessControl.FileSystemAccessRule]::new($systemSid, $fullControl, $inheritance, $none, $allow)
   $acl.AddAccessRule($ownerRule)
   $acl.AddAccessRule($systemRule)
-  if ($item.PSIsContainer) {
-    ([System.IO.DirectoryInfo]$item).SetAccessControl($acl)
-  } else {
-    ([System.IO.FileInfo]$item).SetAccessControl($acl)
+  if ($acl.GetSecurityDescriptorSddlForm($accessSection) -ne $previous) {
+    $item.SetAccessControl($acl)
   }
 }
 `;

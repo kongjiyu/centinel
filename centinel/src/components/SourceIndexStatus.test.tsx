@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import { SourceIndexStatus } from './SourceIndexStatus';
-vi.mock('../api/client', () => ({ api: { getSourceIndexStatus: vi.fn(), resumeSourceIndex: vi.fn() } }));
+vi.mock('../api/client', () => ({ api: { getSourceIndexStatus: vi.fn(), ensureSourceIndex: vi.fn(), resumeSourceIndex: vi.fn() } }));
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.useRealTimers());
 describe('source search preparation', () => {
@@ -12,17 +12,15 @@ describe('source search preparation', () => {
     expect(await screen.findByRole('button', { name: 'Resume indexing' })).toBeEnabled();
     expect(screen.getByRole('status')).toHaveTextContent('Automatic retries are stopped');
     expect(api.resumeSourceIndex).not.toHaveBeenCalled();
+    expect(api.ensureSourceIndex).not.toHaveBeenCalled();
   });
-  it('starts only on click, disables repeats and refreshes the saved state', async () => {
-    let release!: () => void;
-    vi.mocked(api.getSourceIndexStatus).mockResolvedValueOnce({ state: 'none' }).mockResolvedValue({ state: 'running' });
-    vi.mocked(api.resumeSourceIndex).mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve; }); return { state: 'queued' }; });
+  it('prepares search automatically only when no index exists', async () => {
+    vi.mocked(api.getSourceIndexStatus).mockResolvedValue({ state: 'none' });
+    vi.mocked(api.ensureSourceIndex).mockResolvedValue({ state: 'queued' });
     render(<SourceIndexStatus projectId="one" sourceVersionKey="v1" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Prepare search' }));
-    expect(screen.getByRole('button', { name: 'Starting…' })).toBeDisabled();
-    await act(async () => release());
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Preparing source search'));
-    expect(api.resumeSourceIndex).toHaveBeenCalledExactlyOnceWith('one');
+    expect(await screen.findByRole('status')).toHaveTextContent('Search preparation is queued.');
+    expect(api.ensureSourceIndex).toHaveBeenCalledExactlyOnceWith('one', expect.any(AbortSignal));
+    expect(api.resumeSourceIndex).not.toHaveBeenCalled();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
   it('keeps unknown status explicit after a request failure', async () => {
@@ -37,9 +35,9 @@ describe('source search preparation', () => {
       ? new Promise(resolve => { release = resolve; }) : Promise.resolve({ state: 'ready' }));
     const view = render(<SourceIndexStatus projectId="old" sourceVersionKey="v1" />);
     view.rerender(<SourceIndexStatus projectId="new" sourceVersionKey="v2" />);
-    await screen.findByText('Source search is ready.');
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
     await act(async () => release({ state: 'paused' }));
-    expect(screen.getByRole('status')).toHaveTextContent('Source search is ready.');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Resume indexing' })).not.toBeInTheDocument();
   });
   it('polls status without overlapping slow requests or implicitly starting work', async () => {

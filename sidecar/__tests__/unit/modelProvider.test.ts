@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfiguredTextModelProvider } from '../../src/review/modelProvider.js';
 import { ModelProviderError } from '../../src/review/retry.js';
+import { isAssessmentHeld } from '../../src/review/assessmentHold.js';
 
 const request = {
   reviewId: 'review-1', projectId: 'project-1', stage: 'model_analysis',
@@ -9,6 +10,12 @@ const request = {
 
 describe('ConfiguredTextModelProvider', () => {
   afterEach(() => vi.unstubAllEnvs());
+
+  it('treats an empty evaluation allowlist as unrestricted', () => {
+    vi.stubEnv('CENTINEL_AI_ASSESSMENT_PROJECT_ALLOWLIST', '');
+    vi.stubEnv('CENTINEL_AI_ASSESSMENT_PAUSED', '0');
+    expect(isAssessmentHeld('any-project')).toBe(false);
+  });
 
   it('scopes a live evaluation to trusted project bindings while preserving the global hold', async () => {
     vi.stubEnv('CENTINEL_AI_ASSESSMENT_PROJECT_ALLOWLIST', 'project-1');

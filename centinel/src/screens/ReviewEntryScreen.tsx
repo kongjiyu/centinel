@@ -1,15 +1,15 @@
 import type React from 'react';
-import { RecentReviews } from '../components/RecentReviews';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronDown, FileCheck2, GitBranch, Plus, RotateCcw } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, FileCheck2, Paperclip, Plus, RotateCcw } from 'lucide-react';
 import { api, type CreateStaticSessionPayload } from '../api/client';
 import { CommandPageHeader } from '../components/CommandUI';
-import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
+import { ProjectCreateModal } from '../components/ProjectCreateModal';
+import type { ProjectCreationResult, ProjectRepositoryInput } from '../types';
 import { Select } from '../components/Select';
+import { Modal } from '../components/Modal';
 import { userFacingError } from '../utils/userFacingError';
 import { isWorkflowProviderConfigured } from '../providerReadiness';
-import { buildReviewEstimate, describeReviewEstimate, latestFinishedReview } from '../reviewEstimate';
-import type { Artifact, ConnectedSource, Project, Requirement, ReviewScopeSelection, ReviewSourceManifest, Screen, StaticSession } from '../types';
+import type { Artifact, ConnectedSource, ConnectedSourceBrowseEntry, Project, Requirement, ReviewScopeSelection, ReviewSourceManifest, Screen, StaticSession } from '../types';
 import './ReviewEntryScreen.css';
 
 type Props = {
@@ -17,7 +17,7 @@ type Props = {
   initialProjectId?: string;
   comparisonParentReviewId?: string;
   onNavigate: (screen: Screen) => void;
-  onCreateProject: (name: string, description: string, workspacePath: string, source: ProjectCreateSource) => Promise<Project | void>;
+  onCreateProject: (name: string, description: string, sources: ProjectRepositoryInput[]) => Promise<ProjectCreationResult | void>;
 };
 
 type ScopeItem = {
@@ -39,6 +39,19 @@ type ScopeGroups = {
   documents: ScopeItem[];
   standards: ScopeItem[];
 };
+
+const MAX_REFERENCES = 5;
+const REFERENCE_EXTENSIONS = /\.(?:md|txt|pdf|json|csv|ya?ml)$/i;
+const MAX_REFERENCE_BYTES = 10 * 1024 * 1024;
+
+function encodeReference(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '');
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
 
 type UnavailableSavedMember = {
   kind: 'source' | 'requirement' | 'coding standard';
@@ -85,6 +98,9 @@ function groupArtifacts(artifacts: Artifact[], project: Project, connectedSource
     bySource.set(identity, files);
   }
   const repositories: RepositoryScope[] = [...bySource].map(([identity, sourceArtifacts]) => {
+    if (sourceArtifacts[0]?.localRepositoryName) {
+      return { identity, label: sourceArtifacts[0].localRepositoryName, detail: 'Local repository', artifactIds: sourceArtifacts.map(artifact => artifact.id) };
+    }
     if (identity.startsWith('connected:')) {
       const sourceId = identity.slice('connected:'.length);
       const connectedSource = connectedSources.find(source => source.id === sourceId && source.projectId === project.id && source.kind === 'github_repository');
@@ -108,17 +124,12 @@ function groupArtifacts(artifacts: Artifact[], project: Project, connectedSource
   const supportingArtifacts = artifacts.filter(artifact => artifact.source !== 'repository');
   return {
     repositories,
-    documents: supportingArtifacts.filter(artifact => artifact.type !== 'coding_standard').map(artifact => artifactItem(artifact, 'artifact')),
+    documents: supportingArtifacts.filter(artifact => artifact.type !== 'coding_standard').map(artifact => {
+      const connection = connectedSources.find(source => source.id === artifact.sourceId);
+      return { ...artifactItem(artifact, 'artifact'), detail: connection?.name || (artifact.source === 'drive' ? 'Google Drive' : 'Project file') };
+    }),
     standards: supportingArtifacts.filter(artifact => artifact.type === 'coding_standard').map(artifact => artifactItem(artifact, 'standard')),
   };
-}
-
-function defaultArtifactIds(groups: ScopeGroups): string[] {
-  return [
-    ...(groups.repositories[0]?.artifactIds ?? []),
-    ...groups.documents.map(item => item.id),
-    ...groups.standards.map(item => item.id),
-  ];
 }
 
 function unavailableSavedMembers(scope: ReviewScopeSelection, artifacts: Artifact[], requirements: Requirement[]): UnavailableSavedMember[] {
@@ -129,15 +140,6 @@ function unavailableSavedMembers(scope: ReviewScopeSelection, artifacts: Artifac
     ...scope.requirementIds.filter(id => !requirementIds.has(id)).map(id => ({ kind: 'requirement' as const, id })),
     ...scope.standardIds.filter(id => !artifactIds.has(id)).map(id => ({ kind: 'coding standard' as const, id })),
   ];
-}
-
-function requirementItems(requirements: Requirement[]): ScopeItem[] {
-  return requirements.map(requirement => ({
-    id: requirement.id,
-    label: requirement.title || 'Unnamed requirement',
-    detail: requirement.category || 'Project requirement',
-    kind: 'requirement',
-  }));
 }
 
 function parseReviewConfig(session: StaticSession): Record<string, unknown> {
@@ -190,23 +192,6 @@ function comparisonFailure(session: StaticSession, projectId: string, manifest: 
 
 export function ReviewEntryScreen({ projects, initialProjectId, comparisonParentReviewId: initialComparisonParentReviewId, onNavigate, onCreateProject }: Props) {
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId || projects[0]?.id || '');
-  const [estimateText, setEstimateText] = useState<string | null>(null);
-
-  // A plain "about as long as last time" estimate from this project's last finished Review.
-  useEffect(() => {
-    let active = true;
-    setEstimateText(null);
-    if (!selectedProjectId) return () => { active = false; };
-    void (async () => {
-      const latest = latestFinishedReview(await api.listStaticSessions(selectedProjectId, { summary: true }));
-      const [usage, trace] = latest ? await Promise.all([
-        api.getReviewModelUsage(selectedProjectId, latest.id).catch(() => null),
-        api.getReviewHarness(selectedProjectId, latest.id).catch(() => null),
-      ]) : [null, null];
-      if (active) setEstimateText(describeReviewEstimate(buildReviewEstimate(latest, usage, trace?.events)));
-    })().catch(() => { if (active) setEstimateText(null); });
-    return () => { active = false; };
-  }, [selectedProjectId]);
   const [comparisonParentReviewId, setComparisonParentReviewId] = useState<string | null>(initialComparisonParentReviewId || null);
   const [comparisonParentReview, setComparisonParentReview] = useState<StaticSession | null>(null);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
@@ -236,6 +221,17 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   const [headRef, setHeadRef] = useState('');
   const [pullRequest, setPullRequest] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const referenceInput = useRef<HTMLInputElement>(null);
+  const [reviewScopeMode, setReviewScopeMode] = useState<'full' | 'focused'>(initialComparisonParentReviewId ? 'focused' : 'full');
+  const [onlineRepositoryId, setOnlineRepositoryId] = useState('');
+  const [repositoryRevision, setRepositoryRevision] = useState('');
+  const [repositoryBranch, setRepositoryBranch] = useState('');
+  const [remoteBranches, setRemoteBranches] = useState<ConnectedSourceBrowseEntry[]>([]);
+  const [remoteCommits, setRemoteCommits] = useState<ConnectedSourceBrowseEntry[]>([]);
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
+  const uploadedReferences = useRef(new Map<File, { projectId: string; artifact: Artifact }>());
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -247,9 +243,10 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
     api.aiSettings()
       .then(async settings => {
         const configured = isWorkflowProviderConfigured(settings, 'text');
-        // A saved Codex model still needs a signed-in Codex account on this device.
-        const usesCodex = settings.find(item => item.id === 'text')?.provider === 'codex';
-        const ready = configured && usesCodex && typeof api.codexStatus === 'function' ? (await api.codexStatus()).connected : configured;
+        const setting = settings.find(item => item.id === 'text');
+        let ready = configured;
+        if (configured && setting?.provider === 'codex' && typeof api.codexStatus === 'function') ready = (await api.codexStatus()).connected;
+        if (configured && setting?.provider === 'gemini' && setting.connectionMethod === 'oauth') ready = (await api.geminiOAuthStatus()).connected;
         if (!cancelled) setProviderReady(ready);
       })
       .catch(() => { if (!cancelled) setProviderReady(null); });
@@ -313,6 +310,16 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   }, [comparisonParentReviewId, selectedProjectId]);
 
   const selectedProject = projects.find(project => project.id === selectedProjectId) ?? null;
+  useEffect(() => {
+    setOnlineRepositoryId('');
+    setRepositoryRevision('');
+    setRepositoryBranch('');
+    setRemoteBranches([]);
+    setRemoteCommits([]);
+    setReferenceFiles([]);
+    setReferenceError(null);
+    uploadedReferences.current.clear();
+  }, [selectedProjectId]);
 
   const loadScope = useCallback(async () => {
     const requestId = ++scopeRequestId.current;
@@ -344,15 +351,14 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
         typeof api.listConnectedSources === 'function' ? api.listConnectedSources(selectedProjectId).catch(() => [] as ConnectedSource[]) : Promise.resolve([] as ConnectedSource[]),
       ]);
       if (!isCurrentRequest()) return;
-      const activeArtifacts = nextArtifacts.filter(artifact => !isDeprecated(artifact));
+      const pinnedSources = new Set(nextConnectedSources.filter(source => source.selectedScope.reviewSnapshot === true).map(source => source.id));
+      const activeArtifacts = nextArtifacts.filter(artifact => !isDeprecated(artifact) && (comparisonParentReviewId || !artifact.sourceId || !pinnedSources.has(artifact.sourceId)));
       setArtifacts(activeArtifacts);
       setRequirements(nextRequirements);
       setConnectedSources(nextConnectedSources);
       if (!comparisonParentReviewId && selectionInitializedFor.current !== selectedProjectId) {
-        const defaults = groupArtifacts(activeArtifacts, selectedProject!, nextConnectedSources);
-        const defaultIds = new Set(defaultArtifactIds(defaults));
-        setSelectedArtifactIds(new Set(activeArtifacts.filter(artifact => artifact.type !== 'coding_standard' && defaultIds.has(artifact.id)).map(artifact => artifact.id)));
-        setSelectedStandardIds(new Set(activeArtifacts.filter(artifact => artifact.type === 'coding_standard' && defaultIds.has(artifact.id)).map(artifact => artifact.id)));
+        setSelectedArtifactIds(new Set(activeArtifacts.filter(artifact => artifact.type !== 'coding_standard').map(artifact => artifact.id)));
+        setSelectedStandardIds(new Set(activeArtifacts.filter(artifact => artifact.type === 'coding_standard').map(artifact => artifact.id)));
         setSelectedRequirementIds(new Set(nextRequirements.map(requirement => requirement.id)));
         selectionInitializedFor.current = selectedProjectId;
       }
@@ -377,6 +383,7 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
             } else {
               setComparisonParentReview(parentReview);
               if (comparisonPrefilledFor.current !== parentReview.id) {
+                setReviewScopeMode('focused');
                 const prefilledName = parentReview.name.trim().slice(0, 120);
                 setReviewName(prefilledName);
                 setObjective(typeof config.instructions === 'string' ? config.instructions : '');
@@ -442,6 +449,10 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
     comparisonPrefilledFor.current = null;
     comparisonProjectId.current = selectedProjectId;
     setFormError(null);
+    setReviewScopeMode('full');
+    setBaseRef('');
+    setHeadRef('');
+    setPullRequest('');
   }, [selectedProjectId]);
 
   const handleProjectSelection = (nextProjectId: string) => {
@@ -463,25 +474,53 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
   };
 
   const groups = useMemo(() => selectedProject ? groupArtifacts(artifacts, selectedProject, connectedSources) : { repositories: [], documents: [], standards: [] }, [artifacts, connectedSources, selectedProject]);
-  const requirementsScope = useMemo(() => requirementItems(requirements), [requirements]);
-  const selectedCount = selectedArtifactIds.size + selectedRequirementIds.size + selectedStandardIds.size;
+  const onlineRepositories = connectedSources.filter(source => source.kind === 'github_repository' && source.selectedScope.reviewSnapshot !== true && source.status === 'active'
+    && source.syncStatus === 'ready' && source.remoteRevision && groups.repositories.some(group => group.identity === `connected:${source.id}`));
+  const onlineRepository = onlineRepositories.find(source => source.id === onlineRepositoryId);
+  const revision = onlineRepository?.remoteRevision;
+  const revisionGit = artifacts.find(artifact => artifact.sourceId === onlineRepositoryId && artifact.git?.commit === revision)?.git;
+  const revisionBranch = revisionGit?.branch || (typeof onlineRepository?.selectedScope.branch === 'string' ? onlineRepository.selectedScope.branch : '');
+  const remoteId = onlineRepository?.remoteId;
+  useEffect(() => {
+    if (!remoteId || typeof api.browseConnectedSources !== 'function') return;
+    let cancelled = false;
+    void api.browseConnectedSources('github', { remoteId, pageSize: 100 }).then(page => {
+      if (!cancelled) setRemoteBranches(page.items.filter(item => item.kind === 'branch'));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [remoteId]);
+  useEffect(() => {
+    if (!remoteId || !repositoryBranch || repositoryBranch === 'saved' || typeof api.browseConnectedSources !== 'function') return;
+    let cancelled = false;
+    void api.browseConnectedSources('github', { remoteId, branch: repositoryBranch, pageSize: 100 }).then(page => {
+      if (!cancelled) setRemoteCommits(page.items.filter(item => item.kind === 'commit'));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [remoteId, repositoryBranch]);
+  const branchOptions = remoteBranches.map(branch => ({ value: branch.id, label: branch.name }));
+  if (revisionBranch && !branchOptions.some(branch => branch.value === revisionBranch)) branchOptions.push({ value: revisionBranch, label: revisionBranch });
+  if (revision && !revisionBranch && branchOptions.length === 0) branchOptions.push({ value: 'saved', label: 'Saved revision' });
+  const revisionOptions = remoteCommits.map(commit => ({ value: commit.id, label: commit.name || 'Commit message unavailable', description: commit.id }));
+  if (revision && (repositoryBranch === revisionBranch || repositoryBranch === 'saved') && !revisionOptions.some(commit => commit.value === revision)) {
+    revisionOptions.push({ value: revision, label: revisionGit?.subject || 'Saved commit', description: revision });
+  }
+  const effectiveArtifacts = artifacts.filter(artifact => (!onlineRepositoryId || artifact.source !== 'repository' || artifact.sourceId === onlineRepositoryId)
+    && (reviewScopeMode === 'full' || (onlineRepositoryId && artifact.sourceId === onlineRepositoryId)
+      || selectedArtifactIds.has(artifact.id) || selectedStandardIds.has(artifact.id)));
+  const selectedCount = effectiveArtifacts.length + selectedRequirementIds.size + referenceFiles.length;
   const isArtifactSelected = (id: string) => selectedArtifactIds.has(id) || selectedStandardIds.has(id);
   const selectedRepositoryCount = groups.repositories.filter(repository => repository.artifactIds.length > 0 && repository.artifactIds.every(isArtifactSelected)).length;
   const hasPartialRepositorySelection = groups.repositories.some(repository => repository.artifactIds.some(isArtifactSelected) && !repository.artifactIds.every(isArtifactSelected));
   const selectedDocumentCount = groups.documents.filter(item => selectedArtifactIds.has(item.id)).length;
-  const selectedRequirementCount = requirementsScope.filter(item => selectedRequirementIds.has(item.id)).length;
-  const selectedStandardCount = groups.standards.filter(item => selectedStandardIds.has(item.id)).length;
   const selectionSummary = [
     selectedRepositoryCount > 0 ? `${selectedRepositoryCount} ${selectedRepositoryCount === 1 ? 'repository' : 'repositories'}` : null,
     hasPartialRepositorySelection ? 'Partial saved repository scope' : null,
     selectedDocumentCount > 0 ? `${selectedDocumentCount} ${selectedDocumentCount === 1 ? 'document' : 'documents'}` : null,
-    selectedRequirementCount > 0 ? `${selectedRequirementCount} ${selectedRequirementCount === 1 ? 'requirement' : 'requirements'}` : null,
-    selectedStandardCount > 0 ? `${selectedStandardCount} ${selectedStandardCount === 1 ? 'standard' : 'standards'}` : null,
   ].filter(Boolean).join(' · ');
-  const hasScope = artifacts.length > 0 || requirements.length > 0;
+  const hasScope = artifacts.length > 0 || requirements.length > 0 || referenceFiles.length > 0;
   const unavailableMembers = useMemo(() => unavailableSavedMembers({ artifactIds: [...selectedArtifactIds], requirementIds: [...selectedRequirementIds], standardIds: [...selectedStandardIds] }, artifacts, requirements), [artifacts, requirements, selectedArtifactIds, selectedRequirementIds, selectedStandardIds]);
   const comparisonBlocked = Boolean(comparisonParentReviewId && (!comparisonParentReview || comparisonLoading || comparisonError));
-  const sourceBlocked = !selectedProject || loadingScope || Boolean(scopeError) || !hasScope || selectedCount === 0 || unavailableMembers.length > 0 || Boolean(activeSession) || comparisonBlocked;
+  const sourceBlocked = !selectedProject || loadingScope || Boolean(scopeError) || !hasScope || selectedCount === 0 || (reviewScopeMode === 'focused' && unavailableMembers.length > 0) || Boolean(activeSession) || comparisonBlocked;
 
   const blockingReason = !selectedProject
     ? 'Create or select a project before starting this review.'
@@ -498,10 +537,10 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
         : activeSession
           ? 'A review is already active for this project. Open its activity before starting another review.'
           : !hasScope
-            ? 'Add project sources or requirements before starting this review.'
+            ? 'Add project sources or reference files before starting this review.'
             : selectedCount === 0
-              ? 'Select at least one repository, document, requirement, or standard for this review.'
-              : unavailableMembers.length > 0
+              ? 'Select at least one project source or reference file for this review.'
+              : reviewScopeMode === 'focused' && unavailableMembers.length > 0
                 ? 'One or more saved comparison inputs are unavailable. Remove them explicitly or restore them in the project before starting.'
               : undefined;
 
@@ -577,50 +616,100 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
     if (member.kind === 'requirement') setSelectedRequirementIds(update);
   };
 
+  const addReferences = (incoming: FileList | File[]) => {
+    if (submitting) return;
+    const files = Array.from(incoming);
+    if (!files.length) return;
+    if (referenceFiles.length + files.length > MAX_REFERENCES) {
+      setReferenceError('Attach up to five reference files.');
+      return;
+    }
+    if (files.some(file => !REFERENCE_EXTENSIONS.test(file.name) || file.size === 0 || file.size > MAX_REFERENCE_BYTES)) {
+      setReferenceError('Choose non-empty PDF, Markdown, text, JSON, CSV, or YAML files up to 10 MiB each.');
+      return;
+    }
+    setReferenceError(null);
+    setReferenceFiles(current => [...current, ...files]);
+  };
+
   const handleCreateReview = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
+    if (submitting) return;
     if (!selectedProject) return setFormError('Choose a project before starting a review.');
     if (!reviewName.trim()) return setFormError('Review name is required.');
     if (!objective.trim()) return setFormError('Review objective is required.');
     if (objective.trim().length > MAX_OBJECTIVE_LENGTH) return setFormError(`Review objective must be ${MAX_OBJECTIVE_LENGTH} characters or fewer.`);
     if (sourceBlocked) return setFormError(blockingReason || 'Select valid project scope before starting this review.');
+    if (onlineRepositoryId && (!onlineRepository || !repositoryBranch || !revisionOptions.some(option => option.value === repositoryRevision))) {
+      return setFormError('Select a branch and commit for this repository.');
+    }
     if (baseRef.trim() && !headRef.trim()) return setFormError('Add a head branch or commit when a base ref is supplied.');
     if (headRef.trim() && !baseRef.trim()) return setFormError('Add a base branch or commit when a head ref is supplied.');
 
-    const artifactIds = [...selectedArtifactIds];
-    const standardIds = [...selectedStandardIds];
-    const requirementIds = [...selectedRequirementIds];
-    const scope = {
-      artifactIds,
-      requirementIds,
-      standardIds,
-      ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
-      ...(headRef.trim() ? { headRef: headRef.trim() } : {}),
-      ...(pullRequest.trim() ? { pullRequest: pullRequest.trim() } : {}),
-    };
-    const payload: CreateStaticSessionPayload = {
-      name: reviewName.trim(),
-      instructions: objective.trim(),
-      reviewMode: pullRequest.trim() ? 'pull-request' : baseRef.trim() ? 'changed-files' : 'regular',
-      reviewer: 'Project owner',
-      ...(pullRequest.trim() ? { pullRequest: pullRequest.trim() } : {}),
-      ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
-      ...(headRef.trim() ? { headRef: headRef.trim() } : {}),
-      scope,
-      artifactIds,
-      requirementIds,
-      standardIds,
-      selectedArtifactIds: artifactIds,
-      selectedRequirementIds: requirementIds,
-      selectedStandardIds: standardIds,
-      idempotencyKey: idempotencyKey.current,
-      ...(comparisonParentReview && comparisonParentReview.id === comparisonParentReviewId
-        ? { comparisonParentReviewId: comparisonParentReview.id }
-        : {}),
-    };
     setSubmitting(true);
     try {
+      let repositorySourceId = onlineRepository?.id;
+      let reviewArtifacts = effectiveArtifacts;
+      if (onlineRepository && repositoryRevision !== onlineRepository.remoteRevision) {
+        const remoteId = `${onlineRepository.remoteId}@${repositoryRevision}`;
+        const saved = connectedSources.find(source => source.remoteId === remoteId && source.status === 'active'
+          && source.syncStatus === 'ready' && source.remoteRevision === repositoryRevision);
+        const snapshot = saved ?? (await api.importConnectedSource(selectedProject.id, {
+          provider: 'github', kind: 'github_repository', remoteId, remoteUrl: onlineRepository.remoteUrl,
+          name: `${onlineRepository.name} · ${repositoryRevision.slice(0, 7)}`, selectedScope: { reviewSnapshot: true },
+        })).source;
+        if (snapshot.syncStatus !== 'ready' || snapshot.remoteRevision !== repositoryRevision) {
+          throw new Error('The selected commit has not finished importing. Retry after it is ready.');
+        }
+        repositorySourceId = snapshot.id;
+        const snapshotFiles = (await api.listArtifacts(selectedProject.id)).filter(artifact => artifact.sourceId === snapshot.id && !isDeprecated(artifact));
+        if (!snapshotFiles.length) throw new Error('The selected commit has no imported files available for Review.');
+        reviewArtifacts = [...effectiveArtifacts.filter(artifact => artifact.source !== 'repository'), ...snapshotFiles];
+      }
+      const references: Array<{ id: string; name: string }> = [];
+      for (const file of referenceFiles) {
+        const saved = uploadedReferences.current.get(file);
+        const artifact = saved?.projectId === selectedProject.id ? saved.artifact : await api.uploadArtifact(selectedProject.id, {
+          fileName: file.name, content: await encodeReference(file), type: 'other', reviewReference: true,
+        });
+        uploadedReferences.current.set(file, { projectId: selectedProject.id, artifact });
+        references.push({ id: artifact.id, name: artifact.fileName });
+      }
+      const artifactIds = [...new Set([...reviewArtifacts.filter(artifact => artifact.type !== 'coding_standard').map(artifact => artifact.id), ...references.map(file => file.id)])];
+      const standardIds = reviewArtifacts.filter(artifact => artifact.type === 'coding_standard').map(artifact => artifact.id);
+      const requirementIds = reviewScopeMode === 'full' ? requirements.map(requirement => requirement.id) : [...selectedRequirementIds];
+      const scope = {
+        artifactIds,
+        requirementIds,
+        standardIds,
+        ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
+        ...(headRef.trim() ? { headRef: headRef.trim() } : {}),
+        ...(pullRequest.trim() ? { pullRequest: pullRequest.trim() } : {}),
+      };
+      const payload: CreateStaticSessionPayload = {
+        name: reviewName.trim(),
+        instructions: objective.trim(),
+        reviewMode: pullRequest.trim() ? 'pull-request' : baseRef.trim() ? 'changed-files' : 'regular',
+        reviewer: 'Project owner',
+        ...(pullRequest.trim() ? { pullRequest: pullRequest.trim() } : {}),
+        ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
+        ...(headRef.trim() ? { headRef: headRef.trim() } : {}),
+        scope,
+        artifactIds,
+        requirementIds,
+        standardIds,
+        selectedArtifactIds: artifactIds,
+        selectedRequirementIds: requirementIds,
+        selectedStandardIds: standardIds,
+        scopeMode: reviewScopeMode,
+        ...(references.length ? { supportiveDocuments: references } : {}),
+        ...(repositorySourceId ? { repositorySourceId, repositoryRevision, ...(repositoryBranch !== 'saved' ? { repositoryBranch } : {}) } : {}),
+        idempotencyKey: idempotencyKey.current,
+        ...(comparisonParentReview && comparisonParentReview.id === comparisonParentReviewId
+          ? { comparisonParentReviewId: comparisonParentReview.id }
+          : {}),
+      };
       const session = await api.createStaticSession(selectedProject.id, payload);
       try { window.sessionStorage.removeItem(draftKey); } catch { /* storage is optional */ }
       onNavigate({ name: 'review-activity', projectId: selectedProject.id, sessionId: session.id, reviewName: session.name });
@@ -652,8 +741,8 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
           <div className="review-entry-field review-project-field form-field">
             <label htmlFor="review-entry-project">Project <span className="field-required" aria-hidden="true">*</span></label>
             <div className="review-project-row">
-              <Select id="review-entry-project" aria-label="Project" value={selectedProjectId} onChange={handleProjectSelection} disabled={projects.length === 0} placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'} options={projects.map(project => ({ value: project.id, label: project.name }))} />
-              <button type="button" className="btn-secondary review-create-project-button" onClick={() => setShowProjectModal(true)}><Plus size={15} aria-hidden="true" /> Create project</button>
+              <Select id="review-entry-project" aria-label="Project" value={selectedProjectId} onChange={handleProjectSelection} disabled={submitting || projects.length === 0} placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'} options={projects.map(project => ({ value: project.id, label: project.name }))} />
+              <button type="button" className="btn-secondary review-create-project-button" disabled={submitting} onClick={() => setShowProjectModal(true)}><Plus size={15} aria-hidden="true" /> Create project</button>
             </div>
             {comparisonLoading && comparisonParentReviewId && <p className="review-comparison-loading" role="status">Checking the saved Review comparison…</p>}
             {comparisonError && comparisonParentReviewId && <div className="review-comparison-error" role="alert"><strong>Comparison unavailable</strong><p>{comparisonError}</p><div><button type="button" className="btn-link" onClick={() => void loadScope()}>Retry comparison</button><button type="button" className="btn-link" onClick={clearComparison}>Start an independent Review</button></div></div>}
@@ -668,32 +757,43 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
             <textarea id="review-entry-objective" aria-label="Review objective" rows={4} value={objective} onChange={event => setObjective(event.target.value)} maxLength={MAX_OBJECTIVE_LENGTH} placeholder="For example, verify checkout authorization and recovery requirements." required />
             <div className="review-objective-footer"><span className="review-character-count">{objective.length}/{MAX_OBJECTIVE_LENGTH}</span></div>
           </div>
+          <div className="form-field">
+            <label htmlFor="review-entry-references">References <span className="field-optional">(optional)</span></label>
+            <input id="review-entry-references" ref={referenceInput} type="file" hidden multiple accept=".pdf,.md,.txt,.json,.csv,.yaml,.yml" disabled={submitting} onChange={event => { if (event.target.files) addReferences(event.target.files); event.target.value = ''; }} />
+            <button type="button" className="review-reference-drop" disabled={submitting} onClick={() => referenceInput.current?.click()} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); addReferences(event.dataTransfer.files); }}>
+              <Paperclip size={20} aria-hidden="true" />
+              <span>Drop files here or attach</span>
+              <small>Up to five files, 10 MiB each</small>
+            </button>
+            {referenceError && <p role="alert">{referenceError}</p>}
+            {referenceFiles.length > 0 && <ul className="review-reference-list">{referenceFiles.map((file, index) => <li key={index}><span>{file.name}</span><button type="button" className="btn-link" aria-label={`Remove ${file.name}`} disabled={submitting} onClick={() => { setReferenceFiles(current => current.filter((_, item) => item !== index)); setReferenceError(null); }}>Remove</button></li>)}</ul>}
+          </div>
         </section>
 
         <section className="review-form-section review-entry-scope" aria-labelledby="review-entry-scope-heading">
           <div className="review-form-section-heading review-scope-heading">
-            <div><h2 id="review-entry-scope-heading">Select sources</h2><p className="review-scope-summary">{selectionSummary || 'No inputs selected'}</p></div>
+            <div><h2 id="review-entry-scope-heading" className="review-entry-section-title">Review scope</h2></div>
           </div>
+          <fieldset className="review-scope-modes" aria-label="Review type" disabled={submitting}>
+            <label className="review-scope-mode"><input type="radio" name="review-scope-mode" checked={reviewScopeMode === 'full'} onChange={() => setReviewScopeMode('full')} /><span><strong>Full review</strong><small>Review all active project sources and the references you attach.</small></span></label>
+            <label className="review-scope-mode"><input type="radio" name="review-scope-mode" checked={reviewScopeMode === 'focused'} onChange={() => setReviewScopeMode('focused')} /><span><strong>Focused review</strong><small>Use the goal to focus on relevant areas within the selected sources.</small></span></label>
+          </fieldset>
           {loadingScope && <p className="review-scope-status" role="status"><RotateCcw size={15} aria-hidden="true" /> Checking project scope…</p>}
           {scopeError && <div className="review-scope-error" role="alert"><AlertCircle size={16} aria-hidden="true" /><div><strong>Project sources are unavailable</strong><p>{scopeError}</p><button type="button" className="btn-link" onClick={() => void loadScope()}>Retry</button></div></div>}
-          {!loadingScope && !scopeError && !hasScope && <div className="review-scope-empty-state"><FileCheck2 size={22} aria-hidden="true" /><div><strong>No sources or requirements found</strong><p>Add project materials before starting a Review.</p><button type="button" className="btn-secondary" onClick={() => selectedProject && onNavigate({ name: 'project-detail', projectId: selectedProject.id, initialSection: 'source' })}>Open project sources</button></div></div>}
-          {!loadingScope && !scopeError && hasScope && <div className="review-scope-groups">
-            {renderRepositories()}
-            {renderScopeItems(groups.documents, 'Attached documents', 'No active documents are available.')}
-            {renderScopeItems(requirementsScope, 'Requirements', 'No confirmed requirements yet, so traceability will be limited.', selectedProject ? <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'requirements', projectId: selectedProject.id })}>Add or confirm requirements</button> : undefined)}
-            {renderScopeItems(groups.standards, 'Coding standards', 'No coding standards are available.')}
-            {unavailableMembers.length > 0 && <fieldset className="review-scope-group review-unavailable-group"><legend>Unavailable saved inputs</legend><p>These exact inputs were saved with the comparison Review but are not available in this project now.</p><div className="review-scope-list">{unavailableMembers.map(member => <label key={`${member.kind}-${member.id}`} className="review-scope-item is-selected"><input type="checkbox" checked onChange={() => removeUnavailableMember(member)} /><span className="review-scope-check" aria-hidden="true"><Check size={13} strokeWidth={2.2} /></span><span className="review-scope-item-copy"><strong>{member.kind}</strong><small>{member.id} · remove from this Review</small></span></label>)}</div></fieldset>}
+          {!loadingScope && !scopeError && !hasScope && <div className="review-scope-empty-state"><FileCheck2 size={22} aria-hidden="true" /><div><strong>No project sources found</strong><button type="button" className="btn-secondary" onClick={() => selectedProject && onNavigate({ name: 'project-detail', projectId: selectedProject.id, initialSection: 'source' })}>Open project sources</button></div></div>}
+          {!loadingScope && !scopeError && hasScope && reviewScopeMode === 'focused' && <div className="review-source-picker-trigger">
+            <button type="button" className="btn-secondary" disabled={submitting} onClick={() => setSourcePickerOpen(true)}>Choose sources</button>
+            <p className="review-scope-summary">{selectionSummary || 'No project sources selected'}</p>
           </div>}
         </section>
 
         <section className="review-form-section review-entry-advanced">
-          <button type="button" className="review-advanced-toggle" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(open => !open)}><span><ChevronDown size={16} aria-hidden="true" /> Advanced scope</span><small>Optional branch or pull request context</small></button>
+          <button type="button" className="review-advanced-toggle" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(open => !open)}><span><ChevronDown size={16} aria-hidden="true" /> Advanced scope</span></button>
           {advancedOpen && <div className="review-advanced-fields">
-            <p className="review-advanced-help">Leave these fields blank to review the selected project scope. If you provide a branch range, both refs are required.</p>
             <div className="review-advanced-grid">
-              <div className="form-field"><label htmlFor="review-entry-base-ref"><GitBranch size={14} aria-hidden="true" /> Base branch or commit</label><input id="review-entry-base-ref" value={baseRef} onChange={event => setBaseRef(event.target.value)} placeholder="main" /></div>
-              <div className="form-field"><label htmlFor="review-entry-head-ref"><GitBranch size={14} aria-hidden="true" /> Head branch or commit</label><input id="review-entry-head-ref" value={headRef} onChange={event => setHeadRef(event.target.value)} placeholder="feature/checkout" /></div>
-              <div className="form-field review-pull-request-field"><label htmlFor="review-entry-pull-request"><GitBranch size={14} aria-hidden="true" /> Pull request reference <span className="field-optional">Optional</span></label><input id="review-entry-pull-request" value={pullRequest} onChange={event => setPullRequest(event.target.value)} placeholder="#123 or URL" /></div>
+              <div className="form-field review-advanced-repository"><label htmlFor="review-entry-online-repo">Online repository</label><Select id="review-entry-online-repo" aria-label="Online repository" value={onlineRepositoryId || 'review-scope'} disabled={submitting || !onlineRepositories.length} onChange={id => { setOnlineRepositoryId(id === 'review-scope' ? '' : id); setRepositoryBranch(''); setRepositoryRevision(''); setRemoteBranches([]); setRemoteCommits([]); }} options={[{ value: 'review-scope', label: 'Use review scope' }, ...onlineRepositories.map(source => ({ value: source.id, label: source.name }))]} /></div>
+              <div className="form-field"><label htmlFor="review-entry-branch">Branch</label><Select id="review-entry-branch" aria-label="Branch" value={repositoryBranch} placeholder="Select a branch" disabled={submitting || !branchOptions.length} onChange={branch => { setRepositoryBranch(branch); setRepositoryRevision(''); setRemoteCommits([]); }} options={branchOptions} /></div>
+              <div className="form-field"><label htmlFor="review-entry-revision">Commit</label><Select id="review-entry-revision" aria-label="Commit" value={repositoryRevision} placeholder="Select a commit" disabled={submitting || !repositoryBranch || !revisionOptions.length} onChange={setRepositoryRevision} options={revisionOptions} /></div>
             </div>
           </div>}
         </section>
@@ -701,12 +801,17 @@ export function ReviewEntryScreen({ projects, initialProjectId, comparisonParent
         {providerReady === false && <div className="review-entry-error review-entry-provider" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>The Model Provider for Review is not ready. Connect ChatGPT or save an API provider and model in Settings, then come back to start this review.</span><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'settings' })}>Open Settings</button></div>}
         {formError && <div ref={errorRef} className="review-entry-error" role="alert" tabIndex={-1}><AlertCircle size={16} aria-hidden="true" /> <span>{formError}</span></div>}
         {blockingReason && <p className="review-entry-submit-hint" role="status">{blockingReason}</p>}
-        {estimateText && <p className="review-entry-estimate">{estimateText}</p>}
         <div className="review-entry-actions"><button type="submit" className="btn-primary review-entry-submit" disabled={submitting || sourceBlocked || providerReady === false}>{submitting ? 'Starting review…' : 'Start review'}</button><button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'dashboard' })} disabled={submitting}>Cancel</button></div>
       </form>
 
-      {/* Below the form: the list loads after the fields, so above them it would push the form down mid-click. */}
-      {selectedProject && !comparisonParentReviewId && <RecentReviews projectId={selectedProject.id} onNavigate={onNavigate} />}
+      <Modal isOpen={sourcePickerOpen} onClose={() => setSourcePickerOpen(false)} title="Choose review sources" width={740}>
+        <div className="review-scope-groups">
+          {!onlineRepository && renderRepositories()}
+          {renderScopeItems([...groups.documents, ...groups.standards], 'Imported files', 'No imported files are available.')}
+          {unavailableMembers.length > 0 && <fieldset className="review-scope-group review-unavailable-group"><legend>Unavailable saved inputs</legend><div className="review-scope-list">{unavailableMembers.map(member => <label key={`${member.kind}-${member.id}`} className="review-scope-item is-selected"><input type="checkbox" checked onChange={() => removeUnavailableMember(member)} /><span className="review-scope-check" aria-hidden="true"><Check size={13} /></span><span className="review-scope-item-copy"><strong>{member.kind}</strong><small>{member.id} · remove from this Review</small></span></label>)}</div></fieldset>}
+        </div>
+        <div className="form-actions"><button type="button" className="btn-primary" onClick={() => setSourcePickerOpen(false)}>Done</button></div>
+      </Modal>
 
       <ProjectCreateModal isOpen={showProjectModal} onClose={() => setShowProjectModal(false)} onCreate={onCreateProject} onCreated={handleProjectCreated} />
     </div>

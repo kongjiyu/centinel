@@ -92,7 +92,7 @@ function sortedSessions<T extends { updatedAt: string; createdAt: string }>(sess
 
 function actionPriority(item: ProjectAction): number {
   if (item.tone === 'danger') return 4;
-  if (item.action === 'Resolve' || item.state.includes('blocked')) return 3;
+  if (item.action === 'Resolve' || item.state === 'Paused' || item.state.includes('blocked')) return 3;
   if (item.action === 'Review') return 2;
   return 1;
 }

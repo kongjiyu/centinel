@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { api } from '../api/client';
 import { setVisibleInterval } from './usePageVisible';
 import type { Finding, ReviewProgress, StaticSession } from '../types';
+import { rememberReviewActivity } from '../reviewActivityCache';
 import {
   ActiveReviewContext,
   type ActiveReviewSnapshot,
@@ -39,6 +40,7 @@ function parseProgress(progressJson: string): ReviewProgress {
     const parsedStages = Array.isArray(parsed.stages) ? parsed.stages : [];
     return {
       stage: parsed.stage,
+      completedStages: Array.isArray(parsed.completedStages) ? parsed.completedStages : [],
       pauseCode: parsed.pauseCode,
       currentStage: parsed.currentStage ?? fallback.currentStage,
       stages: STAGE_DEFINITIONS.map(defaultStage => {
@@ -86,7 +88,7 @@ async function loadSnapshot(session: StaticSession, projectName: string): Promis
   };
 }
 
-export function useActiveReview() {
+export function useActiveReview(accountId?: string | null) {
   const [state, setState] = useState<ActiveReviewState | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
@@ -97,6 +99,7 @@ export function useActiveReview() {
   stateRef.current = state;
 
   const trackSession = useCallback((session: StaticSession, projectName = '') => {
+    rememberReviewActivity(accountId, session);
     lastSessionIdRef.current = session.id;
     completedAtRef.current = null;
     if (projectName) projectNamesRef.current.set(session.projectId, projectName);
@@ -111,7 +114,7 @@ export function useActiveReview() {
         connectionLost: false,
       });
     });
-  }, []);
+  }, [accountId]);
 
   const controls: ActiveReviewControls = {
     setExpanded: (expanded) => setState(prev => prev ? { ...prev, expanded } : prev),
@@ -145,6 +148,7 @@ export function useActiveReview() {
       setConnectionLost(false);
 
       if (active.length > 0) {
+        for (const session of active) rememberReviewActivity(accountId, session);
         const session = active[0];
         lastSessionIdRef.current = session.id;
         completedAtRef.current = null;
@@ -181,6 +185,8 @@ export function useActiveReview() {
         }
 
         if (promoted && ['success', 'pending_approval', 'failure', 'failed', 'blocked', 'cancelled'].includes(promoted.status)) {
+          if (cancelled) return;
+          rememberReviewActivity(accountId, promoted);
           if (!completedAtRef.current) completedAtRef.current = new Date().toISOString();
           const projectName = projectNamesRef.current.get(promoted.projectId) ?? '';
           const snapshot = await loadSnapshot(promoted, projectName);
@@ -220,7 +226,7 @@ export function useActiveReview() {
       cancelled = true;
       stopPolling?.();
     };
-  }, [retryTick, runOnce]);
+  }, [accountId, retryTick, runOnce]);
 
   const surfaced: ActiveReviewState | null = state && connectionLost
     ? { ...state, connectionLost: true }
@@ -229,8 +235,8 @@ export function useActiveReview() {
   return { state: surfaced, controls };
 }
 
-export function ActiveReviewProvider({ children }: { children: ReactNode }) {
-  const { state, controls } = useActiveReview();
+export function ActiveReviewProvider({ children, accountId }: { children: ReactNode; accountId?: string | null }) {
+  const { state, controls } = useActiveReview(accountId);
   return (
     <ActiveReviewContext.Provider value={{ state, controls }}>
       {children}

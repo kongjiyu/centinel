@@ -48,6 +48,18 @@ afterEach(() => {
 });
 
 describe('ProjectReadinessCard', () => {
+  it('allows Retry after a local assessment hold while retaining saved results', async () => {
+    vi.mocked(api.getProjectReadiness).mockResolvedValue({ ...completedSnapshot, status: 'paused', assessmentHeld: true, errorCode: 'assessment_paused' });
+    vi.mocked(api.startProjectReadiness).mockResolvedValue(completedSnapshot);
+    render(<ProjectReadinessCard projectId="project-1" />);
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    expect(retry).toBeEnabled();
+    expect(screen.getByText(/local service is restricting/)).toBeInTheDocument();
+    expect(screen.getByText('Incomplete')).toBeInTheDocument();
+    fireEvent.click(retry);
+    await screen.findByRole('button', { name: 'Start' });
+    expect(api.startProjectReadiness).toHaveBeenCalledWith('project-1');
+  });
   it('shows a durable provider pause with previous results and a manual Resume action', async () => {
     vi.mocked(api.getProjectReadiness).mockResolvedValue({ ...completedSnapshot, status: 'paused', errorCode: 'credits_exhausted', error: 'Paused: the Model Provider reported insufficient credits. Restore provider access, then retry manually. No automatic retry will run.' });
     render(<ProjectReadinessCard projectId="project-1" />);
@@ -107,12 +119,12 @@ describe('ProjectReadinessCard', () => {
   });
 
   it.each([
-    { status: 'idle', job: 'Awaiting manual assessment.', action: 'Start' },
+    { status: 'idle', job: null, action: 'Start' },
     { status: 'queued', job: 'Assessment queued.', action: 'Start' },
     { status: 'running', job: 'Checking updated sources.', action: 'Start' },
     { status: 'failed', job: 'Assessment failed. The saved result is still available.', action: 'Retry' },
     { status: 'paused', job: 'Assessment paused. Manual resume is required.', action: 'Resume' },
-  ] as const)('labels stale $status results as previous and describes the job separately', async ({ status: jobStatus, job, action }) => {
+  ] as const)('flags stale $status results and describes active jobs separately', async ({ status: jobStatus, job, action }) => {
     vi.mocked(api.getProjectReadiness).mockResolvedValue({
       ...completedSnapshot,
       status: jobStatus,
@@ -121,9 +133,10 @@ describe('ProjectReadinessCard', () => {
     });
     render(<ProjectReadinessCard projectId="project-1" />);
 
-    expect(await screen.findByText('Previous assessment — sources have changed')).toBeInTheDocument();
-    expect(screen.getByText(/Assessed /)).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(job);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Sources have changed. Run Readiness again.');
+    expect(screen.queryByText(/Previous assessment/)).not.toBeInTheDocument();
+    if (job) expect(screen.getByRole('status')).toHaveTextContent(job);
+    else expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: action })).toBeInTheDocument();
     expect(screen.getAllByText('Incomplete')).toHaveLength(1);
     expect(api.startProjectReadiness).not.toHaveBeenCalled();
@@ -139,18 +152,18 @@ describe('ProjectReadinessCard', () => {
     expect(screen.queryByText(/Assessed /)).not.toBeInTheDocument();
   });
 
-  it('labels an invalid stale snapshot date as unavailable and clears stale copy for fresh results', async () => {
+  it('clears the changed-sources notice when a current result arrives', async () => {
     vi.mocked(api.getProjectReadiness).mockResolvedValueOnce({
       ...completedSnapshot, stale: true, snapshot: { ...completedSnapshot.snapshot!, assessedAt: 'not-a-date' },
     });
     const view = render(<ProjectReadinessCard projectId="project-1" />);
 
-    expect(await screen.findByText('Assessment date unavailable.')).toBeInTheDocument();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
     vi.mocked(api.getProjectReadiness).mockResolvedValueOnce(completedSnapshot);
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     fireEvent.focus(window);
 
-    await waitFor(() => expect(screen.queryByText('Previous assessment — sources have changed')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
     expect(screen.getByRole('status')).toHaveTextContent('Assessment is current.');
     view.unmount();
   });
@@ -230,7 +243,7 @@ describe('ProjectReadinessCard', () => {
     expect(screen.getAllByText('Completed')).toHaveLength(4);
   });
 
-  it('G-S6 expands each category to show the saved criterion verdicts, basis and cited sources', async () => {
+  it('previews only gaps and unverified checks on hover or disclosure', async () => {
     const snapshot = completedSnapshot.snapshot!;
     vi.mocked(api.getProjectReadiness).mockResolvedValue({
       ...completedSnapshot,
@@ -251,25 +264,23 @@ describe('ProjectReadinessCard', () => {
     });
     render(<ProjectReadinessCard projectId="project-1" />);
 
-    const toggle = await screen.findByRole('button', { name: 'Show criteria for Coding standards' });
+    const toggle = await screen.findByRole('button', { name: 'Show gaps for Coding standards' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('The policy names the TypeScript sidecar as its scope.')).not.toBeInTheDocument();
-    // Old snapshots and the repository row have no stored criteria, so no disclosure is offered.
-    expect(screen.queryByRole('button', { name: 'Show criteria for Repository' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show gaps for Repository' })).not.toBeInTheDocument();
+    const row = toggle.closest('li')!;
+    fireEvent.mouseEnter(row);
+    expect(screen.getByRole('region', { name: 'Coding standards gaps' })).toHaveTextContent('Two cited quote rules contradict each other.');
+    fireEvent.mouseLeave(row);
+    expect(screen.queryByRole('region', { name: 'Coding standards gaps' })).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: 'Hide criteria for Coding standards' })).toHaveAttribute('aria-expanded', 'true');
-    const list = screen.getByRole('list', { name: 'Coding standards criteria' });
-    expect(list).toHaveTextContent('Rule applicability');
-    expect(list).toHaveTextContent('Met');
-    expect(list).toHaveTextContent('The policy names the TypeScript sidecar as its scope.');
-    expect(list).toHaveTextContent('docs/standards.md');
-    expect(list).toHaveTextContent('This policy applies to the TypeScript sidecar.');
-    expect(list).toHaveTextContent('Checking methods');
-    expect(list).toHaveTextContent('Not verified');
-    expect(list).toHaveTextContent('Rule conflicts');
-    expect(list).toHaveTextContent('Gap');
-    expect(list).toHaveTextContent('Confirmed coding standard');
-    expect(list).not.toHaveTextContent('0f6c7f0e');
+    expect(screen.getByRole('button', { name: 'Hide gaps for Coding standards' })).toHaveAttribute('aria-expanded', 'true');
+    const preview = screen.getByRole('region', { name: 'Coding standards gaps' });
+    expect(preview).toHaveTextContent('Checking methods');
+    expect(preview).toHaveTextContent('Not verified');
+    expect(preview).toHaveTextContent('Rule conflicts');
+    expect(preview).not.toHaveTextContent('Rule applicability');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Coding standards gaps' })).not.toBeInTheDocument();
   });
 });

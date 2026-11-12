@@ -248,3 +248,48 @@
   .projects-data-warning { align-items: flex-start; flex-direction: column; }
   .project-pagination { align-items: flex-start; flex-direction: column; }
 }
+.activity-directory :is(.activity-directory-title, .activity-directory-link) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-directory .activity-directory-link {
+  justify-self: start;
+  color: var(--workspace-primary);
+  font-size: var(--font-size-meta);
+}
+.activity-directory .activity-directory-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+.activity-directory .activity-directory-title > svg { margin-top: 3px; }
+.activity-directory .activity-directory-title > .project-activity-meta { grid-column: 2; }
+
+.activity-directory-col-name { width: 75%; }
+.activity-directory-col-state { width: 8.333%; }
+.activity-directory-col-date { width: 16.667%; }
+
+.activity-directory-placeholder .loading-skeleton-row {
+  grid-template-columns: minmax(0, 9fr) minmax(36px, 1fr) minmax(54px, 2fr);
+  min-height: 64px;
+}
+
+.activity-directory-placeholder .loading-skeleton-row-primary { width: min(100%, 260px); }
+.activity-directory-placeholder .loading-skeleton-row-secondary { width: min(100%, 68px); }
+
+.activity-directory td[data-label="Current state"] {
+  padding-inline: 2px;
+}
+
+.activity-directory td[data-label="Current state"] .command-status {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.activity-directory td[data-label="Created"] time { white-space: normal; }

@@ -8,8 +8,10 @@ export type Artifact = {
   projectId: string;
   /** Durable connected-source identity; absent for older/local records. */
   sourceId?: string | null;
+  localRepositoryName?: string;
   /** Immutable Storage-backed input version selected for this Review. */
   versionId?: string;
+  git?: { repository: string; commit: string; branch?: string; subject?: string };
   type: ArtifactType;
   source: ArtifactSource;
   fileName: string;

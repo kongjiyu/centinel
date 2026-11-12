@@ -3,10 +3,10 @@ import { useActiveReviewState } from '../context/ActiveReviewContext';
 import { ReviewToastCollapsed } from './ReviewToastCollapsed';
 import { ReviewToastExpanded } from './ReviewToastExpanded';
 import { ReviewToastComplete } from './ReviewToastComplete';
-import { REVIEW_TOAST_STAGES, reviewToastStageIndex, reviewToastStageLabel } from './reviewToastStages';
+import { reviewToastStages } from './reviewToastStages';
 import './ReviewToast.css';
 
-export function ReviewToast() {
+export function ReviewToast({ onOpenReview }: { onOpenReview?: (projectId: string, sessionId: string, reviewName: string) => void }) {
   const { state, controls } = useActiveReviewState();
   if (!state) return null;
   if (state.dismissed) return null;
@@ -21,13 +21,13 @@ export function ReviewToast() {
 
   const { session, expanded } = state;
   const isTerminal = session.status === 'success' || session.status === 'pending_approval' || session.status === 'failure' || session.status === 'failed' || session.status === 'blocked' || session.status === 'cancelled';
-  const activeStage = session.progress.stages.find(stage => stage.status === 'active')?.id ?? session.progress.currentStage;
-  const stageIndex = reviewToastStageIndex(activeStage);
+  const stages = reviewToastStages(session.progress);
+  const stageIndex = stages.findIndex(stage => stage.status === 'active');
   // Announce stage changes only, never each streamed activity line. Terminal
   // states announce through their own status message.
-  const announcement = isTerminal
-    ? ''
-    : `${session.name}: ${reviewToastStageLabel(activeStage)}${stageIndex >= 0 ? `, step ${stageIndex + 1} of ${REVIEW_TOAST_STAGES.length}` : ''}`;
+  const announcement = !isTerminal && stageIndex >= 0
+    ? `${session.name}: ${stages[stageIndex].label}, step ${stageIndex + 1} of ${stages.length}`
+    : '';
 
   return (
     <section className={`review-toast ${expanded ? 'expanded' : 'collapsed'} status-${session.status}`} aria-label="Review progress">
@@ -48,6 +48,7 @@ export function ReviewToast() {
       ) : (
         <ReviewToastCollapsed snapshot={session} onClick={() => controls.setExpanded(true)} />
       )}
+      {onOpenReview && <button type="button" className="btn-link review-toast-open" onClick={() => onOpenReview(session.projectId, session.id, session.name)}>Open review</button>}
       <p className="review-toast-live" role="status">{announcement}</p>
     </section>
   );

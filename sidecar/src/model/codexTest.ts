@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { CodexBackend } from './codex.js';
 
+export const CONNECTION_TEST_IMAGE = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=';
+
 /** Known-color image proves screenshot input, rather than accepting a text-only ping. */
 export async function testCodexProvider(backend: CodexBackend, model: string, vision = false, signal?: AbortSignal) {
   let dir: string | undefined;
@@ -11,7 +13,7 @@ export async function testCodexProvider(backend: CodexBackend, model: string, vi
     if (vision) {
       dir = await fs.mkdtemp(path.join(os.tmpdir(), 'centinel-codex-test-'));
       const image = path.join(dir, 'sample.png');
-      await fs.writeFile(image, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=', 'base64'));
+      await fs.writeFile(image, Buffer.from(CONNECTION_TEST_IMAGE, 'base64'));
       imagePaths = [image];
     }
     const response = await backend.generate({ model, imagePaths, signal,

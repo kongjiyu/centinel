@@ -538,3 +538,6 @@
 .project-summary-table.project-summary-table-dashboard .project-summary-row:focus-visible td:last-child {
   border-radius: 0 8px 8px 0;
 }
+
+.project-summary-activity-placeholder { width: min(100%, 160px); }
+.project-summary-state-placeholder { width: min(100%, 92px); height: 24px; }

@@ -3552,6 +3552,7 @@ div.app-shell.has-window-chrome .sidebar {
   background: var(--shell-surface);
 }
 
+
 div.app-shell.has-window-chrome .page-content-container > .main-content {
   flex: 1 1 auto;
   min-width: 0;
@@ -5231,3 +5232,44 @@ div.app-shell.has-window-chrome .sidebar {
 @media (max-width: 960px) {
   div.app-shell.has-window-chrome .page-content-container > .main-content { padding: 16px; }
 }
+
+.settings-provider-section .shared-provider-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+
+.settings-provider-section .model-provider-heading {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+}
+.settings-provider-section .model-provider-heading .settings-segmented { margin-inline-start: auto; }
+
+.settings-provider-section .settings-segmented {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; width: fit-content;
+  border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface-subtle);
+}
+.settings-provider-section .settings-segmented button {
+  padding: 7px 12px; min-height: 36px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--workspace-text); cursor: pointer; font: inherit;
+}
+.settings-provider-section .settings-segmented button[aria-pressed="true"] {
+  background: var(--workspace-surface); border-color: var(--workspace-border);
+  color: var(--workspace-primary); font-weight: 600;
+}
+.settings-provider-section .oauth-connection-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 16px;
+}
+.settings-provider-section .oauth-connection-grid > .provider-form {
+  display: flex; flex-direction: column;
+  min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control); background: var(--workspace-surface);
+}
+.settings-provider-section .oauth-connection-grid .provider-form .oauth-provider-footer {
+  margin-top: auto; padding-top: 12px; flex-wrap: wrap;
+}
+.settings-provider-section .oauth-quota { display: grid; gap: 8px; margin: 0 0 12px; }
+.settings-provider-section .oauth-quota > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; }
+.settings-provider-section .oauth-quota dt { color: var(--workspace-text-muted); }
+.settings-provider-section .oauth-quota dd { margin: 0; font-variant-numeric: tabular-nums; }
+.settings-provider-section .oauth-quota-reset { flex-basis: 100%; font-size: var(--font-size-meta); color: var(--workspace-text-muted); }
+.settings-provider-section .oauth-status-note { font-size: var(--font-size-support); color: var(--workspace-text-muted); }
+.settings-provider-section .provider-form .form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.settings-provider-section .provider-form .form-actions .command-icon-button { min-width: 40px; min-height: 40px; }
+.settings-usage-section .usage-table td:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }

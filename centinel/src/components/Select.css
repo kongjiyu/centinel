@@ -108,6 +108,9 @@
   color: var(--color-primary, var(--color-primary));
 }
 
+.select-item-copy { display: grid; min-width: 0; gap: 2px; overflow-wrap: anywhere; }
+.select-item-description { color: var(--color-text-muted); font-size: var(--font-size-meta); }
+
 .select-scroll-button {
   display: flex;
   height: 24px;

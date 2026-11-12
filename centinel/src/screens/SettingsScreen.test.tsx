@@ -18,9 +18,11 @@ vi.mock('../api/client', async importOriginal => {
     api: {
       ...actual.api,
       codexStatus: vi.fn(async () => ({ available: true, connected: false, accountLabel: null, message: 'Sign in to Codex.' })),
+      geminiOAuthStatus: vi.fn(async () => ({ available: false, connected: false, models: [] })),
       getAiUsage: vi.fn(),
       embeddingModels: vi.fn(),
       updateAiSetting: vi.fn(),
+      updateSharedAiSetting: vi.fn(),
       testAiProvider: vi.fn(),
       githubStatus: vi.fn(),
       listIntegrations: vi.fn(),
@@ -82,7 +84,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByRole('heading', { name: 'Model Provider' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Connections' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Custom Model Provider' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'API provider' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('Text AI')).not.toBeInTheDocument();
     expect(screen.queryByText('Vision AI')).not.toBeInTheDocument();
     expect(screen.getByText('Google Drive')).toBeInTheDocument();
@@ -91,8 +93,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByText('Import and review shared documents and requirements.')).toBeInTheDocument();
     expect(screen.getByText('Connect repositories and pull request context to reviews.')).toBeInTheDocument();
     expect(screen.getByText('Share review updates and collaborate with your team.')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeEnabled());
-    expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: /^Connect / })).toHaveLength(3);
     expect(screen.getByText('Current version')).toBeInTheDocument();
     expect(screen.getByText('Latest version')).toBeInTheDocument();
     // The current version comes from the app; the latest one is shown only after a check.
@@ -125,27 +126,27 @@ describe('SettingsScreen information architecture and capability boundary', () =
     });
 
     render(<SettingsScreen settings={[codexSetting]} onRefresh={onRefresh} />);
-    await screen.findByRole('button', { name: 'Connect ChatGPT' });
+    await screen.findByRole('button', { name: 'Connect Codex' });
     await screen.findByText('Tokens processed');
-    const apiProvider = screen.getByRole('heading', { name: 'API provider' }).closest('.provider-form') as HTMLElement;
-    expect(within(apiProvider).getByText(/Review uses Codex/)).toBeInTheDocument();
-    expect(within(apiProvider).queryByLabelText('API Key')).not.toBeInTheDocument();
-    expect(within(apiProvider).queryByLabelText('Model')).not.toBeInTheDocument();
-    expect(within(apiProvider).queryByLabelText('Base URL')).not.toBeInTheDocument();
-
-    await user.click(within(apiProvider).getByRole('button', { name: 'Configure API provider' }));
-    expect(within(apiProvider).getByLabelText('API Key')).toBeInTheDocument();
-    expect(within(apiProvider).getByLabelText('Model')).toHaveValue('');
-    expect(within(apiProvider).getByLabelText('Base URL')).toHaveValue('');
-    await user.type(within(apiProvider).getByLabelText('API Key'), 'temporary-key');
-    await user.type(within(apiProvider).getByLabelText('Base URL'), 'https://api.example.com/v1');
-    await user.type(within(apiProvider).getByLabelText('Model'), 'replacement-model');
-    await user.click(within(apiProvider).getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => expect(api.updateAiSetting).toHaveBeenCalledWith('text', expect.objectContaining({
+    const header = screen.getByRole('heading', { name: 'Model Provider' }).parentElement!;
+    expect(within(header).getByRole('button', { name: 'OAuth' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(header).getByRole('button', { name: 'API provider' })).toBeInTheDocument();
+    expect(screen.queryByText(/^Connection method$/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'OAuth model provider' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Codex' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Gemini' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Claude' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'API provider' }));
+    expect(screen.getByLabelText('Model')).toHaveValue('');
+    await user.type(screen.getByLabelText('API key'), 'temporary-key');
+    await user.type(screen.getByLabelText('Base URL'), 'https://api.example.com/v1');
+    await user.type(screen.getByLabelText('Model'), 'replacement-model');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateSharedAiSetting).toHaveBeenCalledWith({
       provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'temporary-key',
       baseUrl: 'https://api.example.com/v1', model: 'replacement-model',
-    })));
+    }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
@@ -260,7 +261,6 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(within(form as HTMLElement).getByText('Optional')).toBeInTheDocument();
     expect(within(form as HTMLElement).getByLabelText('Provider')).toHaveTextContent('Voyage AI');
     expect(within(form as HTMLElement).getByRole('button', { name: 'Test saved connection' })).toBeDisabled();
-    expect(within(form as HTMLElement).getByText(/compatible indexes are backed up to your project/i)).toBeInTheDocument();
     expect(api.embeddingModels).toHaveBeenCalledOnce();
     await user.type(within(form as HTMLElement).getByLabelText('API key'), 'secret-key');
     await user.click(within(form as HTMLElement).getByRole('button', { name: 'Save' }));
@@ -370,7 +370,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.queryByRole('button', { name: 'Open update' })).not.toBeInTheDocument();
   });
 
-  it('renders the usage hierarchy from real totals and keeps the call log separate', async () => {
+  it('renders recorded totals and the latest execution time without a call log', async () => {
     const user = userEvent.setup();
     vi.mocked(api.getAiUsage).mockResolvedValue({
       totals: { input: 1000, output: 200, cacheRead: 300, cacheCreation: 400, calls: 5, totalTokens: 1200, providerReportedTotalTokens: 1200, providerReportedCalls: 5, unknownTotalCalls: 1 },
@@ -387,6 +387,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
         providerReportedTotalTokens: 1200,
         providerReportedCalls: 5,
         unknownTotalCalls: 1,
+        lastExecutedAt: '2026-09-08T10:00:00.000Z',
       }],
       recent: [{
         id: 'call-1',
@@ -412,7 +413,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
 
     await waitFor(() => expect(screen.getByText('Tokens processed')).toBeInTheDocument());
     expect(document.querySelector('.usage-total-value')).toHaveTextContent('1, 200');
-    expect(document.querySelector('.usage-total-note')).toHaveTextContent('1 call total unavailable.');
+    expect(document.querySelector('.usage-total-note')).not.toBeInTheDocument();
     expect(screen.getByText('Total requests')).toBeInTheDocument();
     expect(screen.getByText('5', { selector: 'strong' })).toHaveClass('usage-request-value');
     expect(screen.getByText('Cache creation')).toBeInTheDocument();
@@ -422,23 +423,18 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(within(overview).getByRole('columnheader', { name: 'Total tokens' })).toBeInTheDocument();
     expect(within(overview).getByText('mimo-v2.5')).toBeInTheDocument();
     expect(within(overview).getByText('1, 200')).toBeInTheDocument();
-    expect(within(overview).getByText('openai-compatible')).toBeInTheDocument();
+    expect(within(overview).queryByRole('columnheader', { name: 'Format' })).not.toBeInTheDocument();
+    expect(within(overview).getByRole('columnheader', { name: 'Executed At' })).toBeInTheDocument();
+    expect(overview.querySelector('time')).toHaveAttribute('datetime', '2026-09-08T10:00:00.000Z');
     expect(screen.queryByText('Cost')).not.toBeInTheDocument();
     expect(screen.queryByText('Success rate')).not.toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Recent AI calls' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Recent calls' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Show log (1)' }));
-    const recentCalls = screen.getByRole('table', { name: 'Recent AI calls' });
-    expect(recentCalls).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Recent calls' })).toBeInTheDocument();
-    expect(screen.getByText('analysis (r1)')).toBeInTheDocument();
-    expect(within(recentCalls).queryByRole('columnheader', { name: 'Scope' })).not.toBeInTheDocument();
-    await user.click(within(recentCalls).getByRole('button', { name: 'Time' }));
-    expect(within(recentCalls).getByRole('columnheader', { name: 'Time' })).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.queryByRole('button', { name: /Show log/ })).not.toBeInTheDocument();
   });
 
-  it('keeps unknown counters unavailable while labelling no-response zero assumptions', async () => {
+  it('keeps unknown counters unavailable without inline usage notes', async () => {
     const user = userEvent.setup();
     vi.mocked(api.getAiUsage).mockResolvedValue({
       totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, calls: 1, totalTokens: 0,
@@ -452,13 +448,11 @@ describe('SettingsScreen information architecture and capability boundary', () =
         responseReceived: false, accountingBasis: 'assumed_zero_no_response', accountedTokens: 0 }],
     });
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
-    expect(await screen.findByText(/No-response accounting: 1 failed call counted as 0 tokens/)).toBeInTheDocument();
+    expect(await screen.findByText('Tokens processed')).toBeInTheDocument();
+    expect(screen.queryByText(/No-response accounting/)).not.toBeInTheDocument();
     expect(document.querySelector('.usage-total-value')).toHaveTextContent('—');
-    await user.click(screen.getByRole('button', { name: 'Show log (1)' }));
-    const row = within(screen.getByRole('table', { name: 'Recent AI calls' })).getAllByRole('row')[1];
-    expect(within(row).getAllByRole('cell').filter(cell => cell.textContent === '—')).toHaveLength(3);
     const group = within(screen.getByRole('table', { name: 'Usage overview by provider' })).getAllByRole('row')[1];
-    expect(within(group).getAllByRole('cell').filter(cell => cell.textContent?.startsWith('—'))).toHaveLength(4);
+    expect(within(group).getAllByRole('cell').filter(cell => cell.textContent?.startsWith('—'))).toHaveLength(5);
   });
 
   it('compacts usage totals longer than six digits', async () => {
@@ -484,47 +478,28 @@ describe('SettingsScreen information architecture and capability boundary', () =
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
     await waitFor(() => expect(document.querySelector('.usage-total-value')).toHaveTextContent('—'));
-    expect(document.querySelector('.usage-total-note')).toHaveTextContent('A provider-aware total is not available from this service.');
+    expect(document.querySelector('.usage-total-note')).not.toBeInTheDocument();
     const overview = screen.getByRole('table', { name: 'Usage overview by provider' });
-    expect(within(overview).getByText('—')).toBeInTheDocument();
+    expect(within(overview).getAllByRole('cell')[6]).toHaveTextContent('—');
   });
 
-  it('paginates the recent call log in groups of five', async () => {
+  it('paginates the overview in groups of five and includes embedding usage', async () => {
     const user = userEvent.setup();
-    const recent = Array.from({ length: 6 }, (_, index) => ({
-      id: `call-${index + 1}`,
-      projectId: null,
-      sessionId: null,
-      scope: 'text' as const,
-      callKind: 'review' as const,
-      stage: `stage-${index + 1}`,
-      roundNumber: null,
-      provider: 'mimo' as const,
-      apiFormat: 'openai-compatible' as const,
-      model: 'mimo-v2.5',
-      inputTokens: 10,
-      outputTokens: 5,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      totalTokens: 15,
-      createdAt: '2026-09-08T10:00:00.000Z',
-    }));
     vi.mocked(api.getAiUsage).mockResolvedValue({
-      totals: { input: 60, output: 30, cacheRead: 0, cacheCreation: 0, calls: 6 },
-      byGroup: [],
-      recent,
+      totals: { input: 60, output: 0, cacheRead: 0, cacheCreation: 0, calls: 6 },
+      byGroup: Array.from({ length: 6 }, (_, index) => ({
+        provider: 'custom', apiFormat: 'openai-compatible', model: index === 5 ? 'voyage-4-lite' : 'model-' + index,
+        totalInput: 10, totalOutput: 0, totalCacheRead: 0, totalCacheCreation: 0, totalCalls: 1, totalTokens: 10,
+      })),
+      recent: [],
     });
-
-    render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
-    await user.click(await screen.findByRole('button', { name: 'Show log (6)' }));
-
-    const table = screen.getByRole('table', { name: 'Recent AI calls' });
+    render(<SettingsScreen settings={settings} onRefresh={vi.fn()} />);
+    const table = await screen.findByRole('table', { name: 'Usage overview by provider' });
     expect(within(table).getAllByRole('row')).toHaveLength(6);
-    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
-
     await user.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
+    expect(within(table).getByText('voyage-4-lite')).toBeInTheDocument();
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
   });
@@ -540,16 +515,17 @@ describe('SettingsScreen information architecture and capability boundary', () =
     vi.mocked(api.updateAiSetting).mockResolvedValue(settings[0]);
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
-    expect(screen.getByLabelText('Base URL', { selector: '#base-url-text' })).toBeEnabled();
-    expect(screen.getByLabelText('Model', { selector: '#model-text' })).toBeEnabled();
+    expect(screen.getByLabelText('Base URL', { selector: '#shared-api-endpoint' })).toBeEnabled();
+    expect(screen.getByLabelText('Model', { selector: '#shared-api-model' })).toBeEnabled();
     expect(screen.getAllByRole('button', { name: 'Show API key' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Test connection' })).toHaveLength(1);
-    await user.type(screen.getByLabelText('API Key'), 'temporary-key');
+    await user.type(screen.getByLabelText('API key'), 'temporary-key');
     await user.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(api.testAiProvider).toHaveBeenCalledWith('text', expect.objectContaining({ apiKey: 'temporary-key' }));
+    expect(api.updateSharedAiSetting).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(api.updateAiSetting).toHaveBeenCalledWith('text', expect.objectContaining({ apiKey: 'temporary-key' }));
+    expect(api.updateSharedAiSetting).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'temporary-key' }));
     await waitFor(() => expect(api.getAiUsage).toHaveBeenCalled());
   });
 
@@ -558,10 +534,9 @@ describe('SettingsScreen information architecture and capability boundary', () =
     vi.mocked(api.testAiProvider).mockResolvedValue({ status: 'fail', message: 'The endpoint rejected the key.', hint: 'Check the API key and try again.' });
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
-    await user.type(screen.getByLabelText('API Key'), 'invalid-key');
+    await user.type(screen.getByLabelText('API key'), 'invalid-key');
     await user.click(screen.getByRole('button', { name: 'Test connection' }));
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Connection failed');
     expect(alert).toHaveTextContent('The endpoint rejected the key.');
     expect(alert).toHaveTextContent('Check the API key and try again.');
   });

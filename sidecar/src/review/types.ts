@@ -185,8 +185,10 @@ export type PersistedReviewFinding = StaticFindingInput & {
 };
 
 export type ModelProviderSettings = {
-  /** Canonical authenticated user; required only for local Codex credentials. */
+  codexScreenshots?: boolean;
+  /** Canonical authenticated user for local OAuth credentials. */
   ownerId?: string;
+  geminiOAuthProject?: string;
   provider: AiProvider;
   apiFormat: AiApiFormat;
   apiKey: string;

@@ -20,7 +20,10 @@ function breadcrumbHref(screen: Screen): string {
     case 'dashboard': return '#dashboard';
     case 'projects': return '#projects';
     case 'project-detail': return `#project-${encodeURIComponent(screen.projectId)}`;
+    case 'review-directory': return '#/review-directory';
+    case 'dynamic-directory': return '#/dynamic-directory';
     case 'review-entry':
+    case 'review-finding':
     case 'review-activity':
     case 'reviews':
     case 'requirements': return '#review';
@@ -51,8 +54,11 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
       if (screen.initialAction === 'dynamic') trail.push({ label: 'Dynamic Testing setup' });
       return trail;
     }
+    case 'review-directory': return [{ label: 'Activities' }, { label: 'Reviews' }];
+    case 'dynamic-directory': return [{ label: 'Activities' }, { label: 'Dynamic Testing' }];
     case 'review-entry':
       return [{ label: 'Activities' }, { label: 'Review' }];
+    case 'review-finding':
     case 'review-activity': {
       const project = projectLabel(projects, screen.projectId);
       return [
@@ -60,7 +66,9 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
         projectsItem,
         { label: project, target: { name: 'project-detail', projectId: screen.projectId } },
         { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } },
-        { label: screen.reviewName || 'Review' },
+        ...(screen.name === 'review-finding'
+          ? [{ label: 'Findings', target: { name: 'review-activity', projectId: screen.projectId, sessionId: screen.sessionId, reviewName: screen.reviewName, initialTab: 'Findings' } as const }, { label: 'Finding detail' }]
+          : [{ label: screen.reviewName || 'Review' }]),
       ];
     }
     case 'reviews':

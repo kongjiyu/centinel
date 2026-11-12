@@ -51,7 +51,7 @@ describe('FindingsPanel', () => {
     const row = await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i });
     await user.click(row);
     const details = screen.getByRole('article', { name: 'Finding details' });
-    expect(within(details).getByText('Latest review evidence')).toBeInTheDocument();
+    expect(within(within(details).getByRole('region', { name: 'Possible threats' })).getByText('Latest review evidence')).toBeInTheDocument();
     await user.click(within(details).getByRole('button', { name: 'Open review First review' }));
     expect(onOpenReview).toHaveBeenCalledWith('first-review');
     await user.click(within(details).getByRole('button', { name: 'Mark as resolved' }));
@@ -227,27 +227,51 @@ describe('FindingsPanel', () => {
     row.focus();
     await user.keyboard('{Enter}');
     const details = screen.getByRole('article', { name: 'Finding details' });
-    expect(within(details).queryByText('Review')).not.toBeInTheDocument();
-    expect(within(details).getByRole('heading', { name: 'Keyboard-selectable finding' })).toBeInTheDocument();
+    expect(within(details).getByText('Review')).toBeInTheDocument();
+    expect(within(details).getByRole('heading', { name: 'Keyboard-selectable finding', level: 2 })).toBeInTheDocument();
     expect(within(details).getByText('Add a null check or use optional chaining.')).toBeInTheDocument();
-    expect(details.querySelector('.finding-provenance-details')).not.toHaveAttribute('open');
-    await user.click(within(details).getByText('Technical provenance'));
     expect(within(details).getByText(/#f-1/)).toBeInTheDocument();
-    expect(within(details).getByText('Recorded confidence')).toBeInTheDocument();
+    expect(within(details).getByText('Reported confidence')).toBeInTheDocument();
     const text = details.textContent || '';
     expect(text).not.toContain('Source type');
     expect(text).toContain('Review');
     expect(text).toContain('Priority high');
     expect(text).not.toContain('Severity');
     expect(text).not.toContain('Risk Category');
-    expect(text).toContain('What to do');
+    expect(text).toContain('Recommended changes');
   });
 
-  it('keeps the Review-scoped table columns unchanged', async () => {
+  it('uses the project findings columns for Review results', async () => {
     vi.mocked(api.listStaticFindings).mockResolvedValue([baseFinding]);
     render(<FindingsPanel projectId="p-1" sessionId="s-1" presentation="project" />);
     const table = await screen.findByRole('table', { name: 'Review findings' });
-    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Status', 'Priority', 'Severity', 'Risk', 'Domain', 'Finding']);
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Findings', 'Risk', 'Priority']);
+  });
+
+  it('shows the first affected feature and previews three with a detail action', async () => {
+    const user = userEvent.setup();
+    const featureGroups = ['createOrder', 'findOrder', 'listProducts', 'addToCart'].map((name, index) => {
+      const feature = {
+        id: `feature-${index}`, label: `Exported operation ${name}`, provisional: true as const,
+        entryPoints: [], paths: [], assessments: [], unresolved: [],
+      };
+      return { feature, operations: [feature] };
+    });
+    vi.mocked(api.listStaticFindings).mockResolvedValue(featureGroups.map(({ feature }, index) => ({
+      ...baseFinding, id: `f-${index}`, filePath: `src/source-${index}.ts`,
+      location: { sourceLocator: { analysis: { featureId: feature.id, pathId: 'path', domain: 'technical' } } },
+    })));
+    render(<FindingsPanel projectId="p-1" sessionId="s-1" presentation="project" featureGroups={featureGroups} />);
+    const row = await screen.findByRole('row', { name: /Null pointer risk/ });
+    expect(within(row).getByText('Create order')).toBeInTheDocument();
+    expect(within(row).queryByText('Find order')).not.toBeInTheDocument();
+    expect(within(row).queryByText('src/source-0.ts')).not.toBeInTheDocument();
+
+    await user.hover(row);
+    const preview = screen.getByRole('group', { name: 'Related features' });
+    expect(within(preview).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Create order', 'Find order', 'List products']);
+    await user.click(within(preview).getByRole('button', { name: 'See More' }));
+    expect(screen.getByRole('article', { name: 'Finding details' })).toBeInTheDocument();
   });
 
   it('keeps existing findings visible while the project list refreshes', async () => {
@@ -259,7 +283,7 @@ describe('FindingsPanel', () => {
     expect(await screen.findByRole('row', { name: /Null pointer risk in auth.ts/i })).toBeInTheDocument();
 
     rerender(<FindingsPanel projectId="p-1" presentation="project" refreshKey="refresh" />);
-    expect(await screen.findByText('Refreshing findings…')).toBeInTheDocument();
+    expect(screen.queryByText('Refreshing findings…')).not.toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Null pointer risk in auth.ts/i })).toBeInTheDocument();
 
     finishRefresh([{ ...baseFinding, id: 'f-new', title: 'Updated finding title' }]);
@@ -283,7 +307,7 @@ describe('FindingsPanel', () => {
     const row = await screen.findByRole('row', { name: /Code Deep Nesting Issue/ });
     expect(screen.getAllByRole('row')).toHaveLength(2);
     expect(within(row).queryByText('Unresolved')).not.toBeInTheDocument();
-    expect(within(row).getByText('2 affected locations')).toBeInTheDocument();
+    expect(within(row).getByText('Feature not recorded')).toBeInTheDocument();
     await user.click(row);
     const details = screen.getByRole('article', { name: 'Finding details' });
     await user.selectOptions(within(details).getByRole('combobox', { name: 'Location' }), 'f-2');
@@ -320,7 +344,7 @@ describe('FindingsPanel', () => {
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={1} focusFindingId="f-2" />);
     const details = await screen.findByRole('article', { name: 'Finding details' });
     expect(await within(details).findByRole('heading', { name: 'Code Deep Nesting Issue' })).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Project findings' })).not.toBeInTheDocument();
     expect(api.getReviewArtifactContent).not.toHaveBeenCalled();
     await user.click(within(details).getByRole('button', { name: 'Preview reviewed source src/two.ts:42' }));
     expect(api.getReviewArtifactContent).toHaveBeenCalledWith('p-1', 's-1', 'artifact-2');

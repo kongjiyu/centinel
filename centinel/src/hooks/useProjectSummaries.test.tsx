@@ -18,6 +18,19 @@ describe('progressive project summaries', () => {
     expect(getProjectState(result.current.summaries[0])).toMatchObject({ label: 'Paused', tone: 'warning' });
     expect(result.current.summaries[0].action?.state).toBe('Paused');
   });
+  it('prioritizes a newer provider pause over an older Review awaiting approval', async () => {
+    const base = { projectId: 'fast', reviewType: 'code_review', configJson: '{}', parentSessionId: '' };
+    vi.mocked(api.listStaticSessions).mockResolvedValue([
+      { ...base, id: 'earlier', name: 'Earlier review', status: 'pending_approval', progressJson: '{}', createdAt: '2026-11-10T16:00:00Z', updatedAt: '2026-11-10T16:10:00Z' },
+      { ...base, id: 'paused', name: 'Latest review', status: 'blocked', progressJson: JSON.stringify({ stage: 'provider_paused' }), failureReason: 'Provider quota exhausted', createdAt: '2026-11-10T17:00:00Z', updatedAt: '2026-11-10T17:04:00Z' },
+    ] as StaticSession[]);
+    const selected = [projects[0]];
+    const { result } = renderHook(() => useProjectSummaries(selected));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.summaries[0].action?.sessionId).toBe('paused');
+    expect(getProjectState(result.current.summaries[0])).toMatchObject({ group: 'needs_attention', label: 'Paused', tone: 'warning' });
+  });
+
   it('renders metadata immediately and enriches fast projects without waiting for another project', async () => {
     let finishSlow!: (value: []) => void;
     vi.mocked(api.listStaticSessions).mockImplementation(id => id === 'fast' ? Promise.resolve([]) : new Promise(resolve => { finishSlow = resolve; }));

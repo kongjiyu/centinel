@@ -162,13 +162,21 @@ function sourceLines(text: string, ref: FindingSourceReference): { lines: string
   return { lines, targetLine, rangeEnd: exactRange ? targetLine + excerptLines.length - 1 : targetLine };
 }
 
-export function SourceCode({ text, sourceRef, preview = false, uncertain = false, onOpen }: {
-  text: string; sourceRef: FindingSourceReference; preview?: boolean; uncertain?: boolean; onOpen?: () => void;
+export function SourceCode({ text, sourceRef, additionalRefs = [], preview = false, uncertain = false, onOpen }: {
+  text: string; sourceRef: FindingSourceReference; additionalRefs?: FindingSourceReference[]; preview?: boolean; uncertain?: boolean; onOpen?: () => void;
 }) {
   const container = useRef<HTMLPreElement>(null);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const moved = useRef(false);
   const { lines, targetLine, rangeEnd } = sourceLines(text, sourceRef);
+  const ranges = [sourceRef, ...additionalRefs].flatMap(ref => {
+    const start = ref.lineNumber;
+    if (!start || start < 1 || start > lines.length) return [];
+    const excerpt = ref.excerpt?.trim().split(/\r?\n/) ?? [];
+    const end = excerpt.length && excerpt.every((line, index) => lines[start - 1 + index]?.trim() === line.trim())
+      ? start + excerpt.length - 1 : start;
+    return [{ start, end }];
+  });
   const displayStart = preview && targetLine ? Math.max(1, targetLine - 36) : 1;
   const displayEnd = preview && targetLine ? Math.min(lines.length, Math.max(rangeEnd ?? targetLine, targetLine) + 36) : preview ? Math.min(lines.length, 80) : lines.length;
 
@@ -207,7 +215,7 @@ export function SourceCode({ text, sourceRef, preview = false, uncertain = false
     onKeyDown={preview && onOpen ? event => { if (event.key === 'Enter' && !window.getSelection()?.toString()) { event.preventDefault(); onOpen(); } } : undefined}>
     <code>{lines.slice(displayStart - 1, displayEnd).map((line, index) => {
       const lineNumber = displayStart + index;
-      const highlighted = targetLine !== null && rangeEnd !== null && lineNumber >= targetLine && lineNumber <= rangeEnd;
+      const highlighted = ranges.some(range => lineNumber >= range.start && lineNumber <= range.end);
       return <span className={`finding-source-line${highlighted ? ' is-highlighted' : ''}${highlighted && uncertain ? ' is-uncertain' : ''}`} data-line={lineNumber} data-preview-location={lineNumber === targetLine ? 'true' : undefined} key={lineNumber}>
         <span className="finding-source-line-number" aria-label={`Line ${lineNumber}`}>{lineNumber}</span><span className="finding-source-line-content">{line || ' '}</span>
       </span>;
@@ -217,12 +225,82 @@ export function SourceCode({ text, sourceRef, preview = false, uncertain = false
   </pre>;
 }
 
-export function FindingEvidence({ finding, headingLevel = 5, onOpenSource }: { finding: Finding; headingLevel?: 4 | 5; onOpenSource?: (ref: FindingSourceReference, text: string, uncertain?: boolean) => void }) {
+export async function loadFindingSavedSource(projectId: string, reviewId: string | null | undefined, ref: FindingSourceReference): Promise<SavedSource> {
+  if (!ref.artifactId || !reviewId) return { text: '', error: 'The Review and artifact identity needed to open this saved source were not recorded.' };
+  try {
+    const result = await api.getReviewArtifactContent(projectId, reviewId, ref.artifactId);
+    const normalized = (value: string) => value.replace(/^sha256:/i, '').toLowerCase();
+    if (ref.sourceVersion && normalized(ref.sourceVersion) !== normalized(result.versionId) && normalized(ref.sourceVersion) !== normalized(result.contentHash)) {
+      return { text: '', error: 'The saved reference version does not match this Review’s source version. Only the recorded excerpt can be shown.' };
+    }
+    if (result.mimeType && !result.mimeType.startsWith('text/') && !/json|xml|javascript/.test(result.mimeType) && !/\.(md|txt|js|ts|jsx|tsx|mjs|cjs|cs|py|java|go|rb|rs|php|json|ya?ml|xml|html|css|toml|ini)$/i.test(ref.filePath)) {
+      return { text: '', error: 'This file format has no text preview. The saved evidence above remains available.' };
+    }
+    const text = result.textContent ?? new TextDecoder().decode(Uint8Array.from(atob(result.content), char => char.charCodeAt(0)));
+    return { text };
+  } catch (error) {
+    return { text: '', error: userFacingError(error, 'The reviewed source is unavailable. Current source content has not been substituted.') };
+  }
+}
+
+export function EvidenceFileControl({ path, findings, selectedId, pressed, onOpen }: {
+  path: string; findings: Finding[]; selectedId?: string; pressed?: boolean;
+  onOpen?: (finding: Finding, ref?: FindingSourceReference, additionalRefs?: FindingSourceReference[]) => void;
+}) {
+  const [anchor, setAnchor] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  const [source, setSource] = useState<SavedSource | null>(null);
+  const finding = findings.find(item => item.id === selectedId) ?? findings[0];
+  const references = findingSourceReferences(finding).filter(ref => ref.filePath.replace(/\\/g, '/') === path);
+  const ref = references[0];
+  const reviewId = finding.latestOccurrence?.reviewId || finding.sessionId;
+  const additionalRefs = ref ? findings.filter(item => (item.latestOccurrence?.reviewId || item.sessionId) === reviewId)
+    .flatMap(findingSourceReferences).filter(item => item.filePath.replace(/\\/g, '/') === path && item.artifactId === ref.artifactId
+      && (item.sourceVersion ?? '') === (ref.sourceVersion ?? '')) : [];
+  const shownPath = displayPath(path);
+  const uncertain = finding.location?.sourceLocator?.citationEvidence?.verification === 'needs_verification';
+  const separator = shownPath.lastIndexOf('/');
+  useEffect(() => {
+    if (!anchor || !ref) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void loadFindingSavedSource(finding.projectId, reviewId, ref).then(result => { if (active) setSource(result); });
+    }, 180);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [anchor, finding.projectId, reviewId, ref?.artifactId, ref?.sourceVersion, ref?.filePath]);
+  const reveal = (element: HTMLButtonElement) => {
+    const bounds = element.getBoundingClientRect();
+    const width = Math.min(680, window.innerWidth - 24);
+    const above = window.innerHeight - bounds.bottom < 310 && bounds.top > window.innerHeight - bounds.bottom;
+    setSource(null);
+    setAnchor({ left: Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12)), top: above ? bounds.top - 6 : bounds.bottom + 6, above });
+  };
+  return <>
+    <button type="button" className="btn-link finding-evidence-file-control" aria-label={shownPath} aria-pressed={pressed}
+      onMouseEnter={event => reveal(event.currentTarget)} onMouseLeave={() => setAnchor(null)}
+      onFocus={event => reveal(event.currentTarget)} onBlur={() => setAnchor(null)}
+      onKeyDown={event => { if (event.key === 'Escape') setAnchor(null); }}
+      onClick={event => {
+        if (!onOpen) { reveal(event.currentTarget); return; }
+        setAnchor(null);
+        onOpen(finding, ref, additionalRefs);
+      }}>
+      {separator >= 0 && <span>{shownPath.slice(0, separator + 1)}</span>}<strong>{shownPath.slice(separator + 1)}</strong>
+    </button>
+    {anchor && ref && createPortal(<div className="finding-evidence-hover" style={{ left: anchor.left, top: anchor.top, transform: anchor.above ? 'translateY(-100%)' : undefined }}>
+      <header><strong>{shownPath}</strong><small>{ref.lineNumber ? `Line ${ref.lineNumber} · ` : ''}{source?.error && ref.excerpt ? 'Recorded excerpt' : 'Saved Review source'}</small></header>
+      {source?.text ? <SourceCode text={source.text} sourceRef={ref} additionalRefs={additionalRefs} uncertain={uncertain} preview /> :
+        ref.excerpt ? <pre>{ref.excerpt}</pre> : <p>{source?.error || 'Loading saved source…'}</p>}
+    </div>, document.querySelector('.workspace-mode') ?? document.body)}
+  </>;
+}
+
+export function FindingEvidence({ finding, headingLevel = 5, sourcePath, onOpenSource }: { finding: Finding; headingLevel?: 4 | 5; sourcePath?: string; onOpenSource?: (ref: FindingSourceReference, text: string, uncertain?: boolean) => void }) {
   const Heading = headingLevel === 4 ? 'h4' : 'h5';
   const SectionHeading = headingLevel === 4 ? 'h5' : 'h6';
-  const refs = findingSourceReferences(finding);
+  const matchesPath = (filePath: string) => !sourcePath || filePath.replace(/\\/g, '/') === sourcePath;
+  const refs = findingSourceReferences(finding).filter(ref => matchesPath(ref.filePath));
   const citationEvidence = readCitationEvidence(finding.location?.sourceLocator?.citationEvidence);
-  const citationGroups = citationEvidence ? groupCandidates(citationEvidence.candidates) : [];
+  const citationGroups = citationEvidence ? groupCandidates(citationEvidence.candidates.filter(candidate => matchesPath(candidate.filePath))) : [];
   const remainingRefs = refs.filter(ref => !citationEvidence?.candidates.some(candidate =>
     candidate.artifactId === ref.artifactId && candidate.sourceVersion === ref.sourceVersion
     && candidate.filePath === ref.filePath && candidate.lineNumber === ref.lineNumber && candidate.excerpt === ref.excerpt));
@@ -234,30 +312,14 @@ export function FindingEvidence({ finding, headingLevel = 5, onOpenSource }: { f
   const suppressTriggerFocus = useRef(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
-  useEffect(() => { sequence.current++; setPreview(null); return () => { sequence.current++; if (closeTimer.current) window.clearTimeout(closeTimer.current); }; }, [finding.id]);
+  useEffect(() => { sequence.current++; setPreview(null); return () => { sequence.current++; if (closeTimer.current) window.clearTimeout(closeTimer.current); }; }, [finding.id, sourcePath]);
   const reviewId = finding.latestOccurrence?.reviewId || finding.sessionId;
   const getSavedSource = useCallback(async (ref: FindingSourceReference, key: string): Promise<SavedSource> => {
     const cached = cache.current.get(key);
     if (cached) return cached;
     const pending = inFlight.current.get(key);
     if (pending) return pending;
-    const request = (async (): Promise<SavedSource> => {
-      if (!ref.artifactId || !reviewId) return { text: '', error: 'The Review and artifact identity needed to open this saved source were not recorded.' };
-      try {
-        const result = await api.getReviewArtifactContent(finding.projectId, reviewId, ref.artifactId);
-        const normalized = (value: string) => value.replace(/^sha256:/i, '').toLowerCase();
-        if (ref.sourceVersion && normalized(ref.sourceVersion) !== normalized(result.versionId) && normalized(ref.sourceVersion) !== normalized(result.contentHash)) {
-          return { text: '', error: 'The saved reference version does not match this Review’s source version. Only the recorded excerpt can be shown.' };
-        }
-        if (result.mimeType && !result.mimeType.startsWith('text/') && !/json|xml|javascript/.test(result.mimeType) && !/\.(md|txt|js|ts|jsx|tsx|mjs|cjs|cs|py|java|go|rb|rs|php|json|ya?ml|xml|html|css|toml|ini)$/i.test(ref.filePath)) {
-          return { text: '', error: 'This file format has no text preview. The saved evidence above remains available.' };
-        }
-        const text = result.textContent ?? new TextDecoder().decode(Uint8Array.from(atob(result.content), char => char.charCodeAt(0)));
-        return { text };
-      } catch (error) {
-        return { text: '', error: userFacingError(error, 'The reviewed source is unavailable. Current source content has not been substituted.') };
-      }
-    })();
+    const request = loadFindingSavedSource(finding.projectId, reviewId, ref);
     inFlight.current.set(key, request);
     const result = await request;
     inFlight.current.delete(key);

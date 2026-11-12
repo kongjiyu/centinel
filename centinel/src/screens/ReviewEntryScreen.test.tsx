@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
@@ -9,8 +9,11 @@ vi.mock('../api/client', () => ({
   api: {
     listArtifacts: vi.fn(),
     listRequirements: vi.fn(),
+    uploadArtifact: vi.fn(),
     listActiveStaticSessions: vi.fn(),
     listConnectedSources: vi.fn(),
+    browseConnectedSources: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    importConnectedSource: vi.fn(),
     listStaticSessions: vi.fn(),
     getReviewSourceManifest: vi.fn(),
     createStaticSession: vi.fn(),
@@ -168,14 +171,17 @@ describe('ReviewEntryScreen', () => {
     const onNavigate = vi.fn();
     render(<ReviewEntryScreen projects={[project]} onNavigate={onNavigate} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByRole('heading', { name: 'Select sources' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Review scope' })).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /Focused review/i }));
+    await user.click(await screen.findByRole('button', { name: 'Choose sources' }));
     expect(screen.getByRole('checkbox', { name: 'Repository Local imported code' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /security\.md/i })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: /Checkout requires authorization/i })).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('checkbox', { name: /security\.md/i }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
     await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Sprint review');
     await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Verify checkout authorization and evidence traceability.');
-    await user.click(screen.getByRole('checkbox', { name: /security\.md/i }));
     await user.click(screen.getByRole('button', { name: 'Start review' }));
 
     await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));
@@ -208,6 +214,101 @@ describe('ReviewEntryScreen', () => {
     expect(onNavigate).toHaveBeenCalledWith({ name: 'settings' });
   });
 
+  it('caps references at five and freezes uploaded file IDs in the submitted scope', async () => {
+    setup({ artifacts: [], requirements: [] });
+    vi.mocked(api.uploadArtifact).mockResolvedValue({ ...attachedDocument, id: 'reference-id', fileName: 'goal.txt' });
+    const user = userEvent.setup();
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+    const dropTarget = screen.getByRole('button', { name: /Drop files here or attach/i });
+    fireEvent.drop(dropTarget, { dataTransfer: { files: Array.from({ length: 6 }, (_, index) => new File(['context'], `file-${index}.txt`)) } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Attach up to five');
+    fireEvent.drop(dropTarget, {
+      dataTransfer: { files: [new File(['context'], 'goal.txt')] },
+    });
+    await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Reference review');
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Check the supplied reference.');
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledOnce());
+    expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, { fileName: 'goal.txt', content: btoa('context'), type: 'other', reviewReference: true });
+    expect(vi.mocked(api.createStaticSession).mock.calls[0][1]).toMatchObject({
+      scopeMode: 'full', scope: { artifactIds: ['reference-id'] },
+      supportiveDocuments: [{ id: 'reference-id', name: 'goal.txt' }],
+    });
+  });
+
+  it('limits the repository scope to the selected synchronized revision', async () => {
+    const sha = 'a'.repeat(40);
+    setup({
+      artifacts: [sourceArtifact, { ...sourceArtifact, id: 'online-file', sourceId: 'online' }, attachedDocument],
+      connectedSources: [{ ...connectedRepository('online'), selectedScope: { branch: 'main' }, remoteRevision: sha }],
+    });
+    const user = userEvent.setup();
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+    const advanced = screen.getByRole('button', { name: /Advanced scope/i });
+    await waitFor(() => expect(advanced).toBeEnabled());
+    await user.click(advanced);
+    await user.click(screen.getByRole('combobox', { name: 'Online repository' }));
+    await user.click(await screen.findByRole('option', { name: 'Team repository' }));
+    await user.click(screen.getByRole('combobox', { name: 'Branch' }));
+    await user.click(await screen.findByRole('option', { name: 'main' }));
+    await user.click(screen.getByRole('combobox', { name: 'Commit' }));
+    await user.click(await screen.findByRole('option', { name: /Saved commit/ }));
+    expect(advanced).toHaveAttribute('aria-expanded', 'true');
+    await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Revision review');
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Review main at the synchronized revision.');
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.createStaticSession).mock.calls[0][1]).toMatchObject({
+      repositorySourceId: 'online', repositoryRevision: sha,
+      scope: { artifactIds: ['online-file', attachedDocument.id] },
+    });
+  });
+
+  it('opens Advanced scope even when both selections are unavailable', async () => {
+    const user = userEvent.setup();
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+    const advanced = screen.getByRole('button', { name: 'Advanced scope' });
+    await user.click(advanced);
+    expect(screen.getByRole('combobox', { name: 'Online repository' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Branch' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Commit' })).toBeDisabled();
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Focus on checkout.');
+    expect(advanced).toHaveAttribute('aria-expanded', 'true');
+    await user.click(advanced);
+    expect(screen.queryByRole('combobox', { name: 'Online repository' })).not.toBeInTheDocument();
+  });
+
+  it('uses the imported files of a historical commit instead of the current repository files', async () => {
+    const latest = 'a'.repeat(40);
+    const historical = 'b'.repeat(40);
+    const online = { ...connectedRepository('online'), remoteId: 'example/repo', selectedScope: { branch: 'main' }, remoteRevision: latest };
+    const snapshot = { ...online, id: 'snapshot', remoteId: `example/repo@${historical}`, remoteRevision: historical };
+    setup({ artifacts: [{ ...sourceArtifact, sourceId: online.id }], connectedSources: [online] });
+    vi.mocked(api.browseConnectedSources).mockImplementation(async (_, options) => options?.branch ? {
+      items: [{ id: historical, kind: 'commit', name: 'Fix checkout' }], nextCursor: null,
+    } : { items: [{ id: 'main', kind: 'branch', name: 'main' }], nextCursor: null });
+    vi.mocked(api.importConnectedSource).mockResolvedValue({ source: snapshot, syncResult: null });
+    const user = userEvent.setup();
+    render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Advanced scope' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Online repository' })).toBeEnabled());
+    await user.click(screen.getByRole('combobox', { name: 'Online repository' }));
+    await user.click(await screen.findByRole('option', { name: 'Team repository' }));
+    await user.click(screen.getByRole('combobox', { name: 'Branch' }));
+    await user.click(await screen.findByRole('option', { name: 'main' }));
+    await user.click(screen.getByRole('combobox', { name: 'Commit' }));
+    await user.click(await screen.findByRole('option', { name: /Fix checkout/ }));
+    vi.mocked(api.listArtifacts).mockResolvedValue([{ ...sourceArtifact, id: 'historical-file', sourceId: snapshot.id }]);
+    await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Historical review');
+    await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Check the historical checkout.');
+    await user.click(screen.getByRole('button', { name: 'Start review' }));
+    await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledOnce());
+    expect(api.importConnectedSource).toHaveBeenCalledWith(project.id, expect.objectContaining({ remoteId: snapshot.remoteId }));
+    expect(vi.mocked(api.createStaticSession).mock.calls[0][1]).toMatchObject({
+      repositorySourceId: snapshot.id, repositoryRevision: historical, repositoryBranch: 'main', artifactIds: ['historical-file'],
+    });
+  });
+
   it('treats a saved Codex model as not ready until Codex is connected', async () => {
     vi.mocked(api.codexStatus).mockResolvedValue({ available: true, connected: false, accountLabel: null, message: 'Sign in' });
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
@@ -215,7 +316,7 @@ describe('ReviewEntryScreen', () => {
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
   });
 
-  it('defaults to the first source identity and all eligible supporting inputs', async () => {
+  it('defaults to Full review and allows repository selection in Focused review', async () => {
     const firstRepo: Artifact = { ...sourceArtifact, id: 'first-file', sourceId: 'source-first', fileName: 'first.ts' };
     const secondRepo: Artifact = { ...sourceArtifact, id: 'second-file', sourceId: 'source-second', fileName: 'second.ts' };
     setup({
@@ -225,13 +326,18 @@ describe('ReviewEntryScreen', () => {
     });
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
+    expect(screen.getByRole('radio', { name: /Full review/i })).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: 'Repository Team repository' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: /Focused review/i }));
+    expect(screen.queryByRole('checkbox', { name: 'Repository Team repository' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Choose sources' }));
     const repositories = await screen.findAllByRole('checkbox', { name: 'Repository Team repository' });
     expect(repositories).toHaveLength(2);
     expect(repositories[0]).toBeChecked();
-    expect(repositories[1]).not.toBeChecked();
+    expect(repositories[1]).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /checkout-design\.md/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /security\.md/i })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: /Checkout requires authorization/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /first\.ts|second\.ts/i })).not.toBeInTheDocument();
   });
 
@@ -239,9 +345,9 @@ describe('ReviewEntryScreen', () => {
     setup({ artifacts: [], requirements: [] });
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    expect(await screen.findByText('No sources or requirements found')).toBeInTheDocument();
+    expect(await screen.findByText('No project sources found')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent(/Add project sources or requirements/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/Add project sources or reference files/i);
     expect(api.createStaticSession).not.toHaveBeenCalled();
   });
 
@@ -250,7 +356,7 @@ describe('ReviewEntryScreen', () => {
     setup({ active: [active] });
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Select sources' });
+    await screen.findByRole('heading', { name: 'Review scope' });
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent(/A review is already active/i);
   });
@@ -260,7 +366,7 @@ describe('ReviewEntryScreen', () => {
     vi.mocked(api.createStaticSession).mockRejectedValue(new Error('HTTP 401'));
     render(<ReviewEntryScreen projects={[project]} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
-    await screen.findByRole('heading', { name: 'Select sources' });
+    await screen.findByRole('heading', { name: 'Review scope' });
     await user.type(screen.getByRole('textbox', { name: 'Review name' }), 'Auth review');
     await user.type(screen.getByRole('textbox', { name: 'Review objective' }), 'Check session handling.');
     await user.click(screen.getByRole('button', { name: 'Start review' }));
@@ -280,11 +386,13 @@ describe('ReviewEntryScreen', () => {
     expect(await screen.findByRole('note')).toHaveTextContent('Comparing updated sources with Sprint 2 review.');
     expect(screen.getByRole('textbox', { name: 'Review name' })).toHaveValue('Sprint 2 review');
     expect(screen.getByRole('textbox', { name: 'Review objective' })).toHaveValue('Verify changed checkout paths.');
+    await user.click(await screen.findByRole('button', { name: 'Choose sources' }));
     expect(screen.getByRole('checkbox', { name: 'Repository Local imported code' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /security\.md/i })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /Checkout requires authorization/i })).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: /Checkout requires authorization/i })).not.toBeInTheDocument();
     expect(api.createStaticSession).not.toHaveBeenCalled();
 
+    await user.click(screen.getByRole('button', { name: 'Done' }));
     await user.click(screen.getByRole('button', { name: 'Start review' }));
     await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));
     const [projectId, payload] = vi.mocked(api.createStaticSession).mock.calls[0];
@@ -309,9 +417,11 @@ describe('ReviewEntryScreen', () => {
     vi.mocked(api.getReviewSourceManifest).mockResolvedValue(comparisonManifest);
     render(<ReviewEntryScreen projects={[project]} comparisonParentReviewId={comparisonReview.id} onNavigate={vi.fn()} onCreateProject={vi.fn()} />);
 
+    await user.click(await screen.findByRole('button', { name: 'Choose sources' }));
     expect(await screen.findByText('removed-source-id · remove from this Review')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled();
     await user.click(screen.getByRole('checkbox', { name: /source.*removed-source-id/i }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.getByRole('button', { name: 'Start review' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Start review' }));
     await waitFor(() => expect(api.createStaticSession).toHaveBeenCalledTimes(1));

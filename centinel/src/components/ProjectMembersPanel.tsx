@@ -14,7 +14,7 @@ const ROLE_LABEL: Record<ProjectMember['role'], string> = { owner: 'Owner', memb
  * Centinel account members of one project. Membership controls who can read
  * and run project work; only the owner can add or remove people.
  */
-export function ProjectMembersPanel({ projectId }: { projectId: string }) {
+export function ProjectMembersPanel({ projectId, inline = false, search = '', onOwnerProjectChange }: { projectId: string; inline?: boolean; search?: string; onOwnerProjectChange?: (projectId: string | null) => void }) {
   const [list, setList] = useState<ProjectMemberList | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -36,6 +36,10 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
   useEffect(() => { setList(null); void load(); }, [load]);
 
   const isOwner = Boolean(list?.members.some(member => member.role === 'owner' && member.userId === list.viewerUserId));
+  const searchTerm = search.trim().toLowerCase();
+  const visibleMembers = list?.members.filter(member =>
+    !searchTerm || member.email?.toLowerCase().includes(searchTerm));
+  useEffect(() => { onOwnerProjectChange?.(isOwner ? projectId : null); }, [isOwner, onOwnerProjectChange, projectId]);
 
   const add = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -69,26 +73,27 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
   };
 
   return (
-    <section className="project-members" aria-labelledby="project-members-heading">
-      <div className="project-members-heading">
+    <section className={inline ? undefined : 'project-members'} aria-labelledby={inline ? undefined : 'project-members-heading'}>
+      {!inline && <div className="project-members-heading">
         <h3 id="project-members-heading">Project members</h3>
         <p>People with a Centinel account who can open this project's sources, Reviews, tests and evidence.</p>
-      </div>
+      </div>}
       {loadError && <p className="command-inline-alert" role="alert">{loadError} <button type="button" className="btn-link" onClick={() => void load()}>Retry</button></p>}
       {!list && !loadError && <p className="project-members-status" role="status">Loading members…</p>}
-      {list && <ul className="project-members-list" aria-label="Project members">
-        {list.members.map(member => <li key={member.userId} className="project-members-row">
+      {list && <ul className="project-members-list" aria-label={inline ? 'Project collaborators' : 'Project members'}>
+        {visibleMembers?.map(member => <li key={member.userId} className="project-members-row">
           <span className="project-members-identity"><strong>{member.email || 'Account e-mail unavailable'}</strong>{member.userId === list.viewerUserId && <small>You</small>}</span>
           <StatusBadge label={ROLE_LABEL[member.role] ?? member.role} tone={member.role === 'owner' ? 'success' : 'neutral'} />
           {isOwner && member.role !== 'owner' && <button type="button" className="btn-secondary project-members-remove" disabled={busy} onClick={() => setRemoving(member)} aria-label={`Remove ${member.email}`}><UserMinus size={15} aria-hidden="true" /> Remove</button>}
         </li>)}
       </ul>}
-      {list && isOwner && <form className="project-members-form" onSubmit={event => void add(event)} aria-label="Add a project member">
+      {searchTerm && visibleMembers?.length === 0 && <p className="project-members-status" role="status">No collaborators match your search.</p>}
+      {!inline && list && isOwner && <form className="project-members-form" onSubmit={event => void add(event)} aria-label="Add a project member">
         <div className="form-field"><label htmlFor="project-member-email">E-mail of a Centinel account</label><input id="project-member-email" type="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" autoComplete="off" /></div>
         <div className="form-field"><label htmlFor="project-member-role">Access</label><Select id="project-member-role" value={role} onChange={value => setRole(value === 'viewer' ? 'viewer' : 'member')} options={[{ value: 'member', label: 'Member: view and run' }, { value: 'viewer', label: 'Viewer: view only' }]} /></div>
         <button type="submit" className="btn-primary" disabled={busy || !email.trim()}><UserPlus size={15} aria-hidden="true" /> {busy ? 'Saving…' : 'Add member'}</button>
       </form>}
-      {list && !isOwner && <p className="project-members-status">Only the project owner can add or remove members.</p>}
+      {!inline && list && !isOwner && <p className="project-members-status">Only the project owner can add or remove members.</p>}
       {actionError && <p className="command-inline-alert" role="alert">{actionError}</p>}
       {notice && <p className="project-members-notice" role="status">{notice}</p>}
       <ConfirmDialog

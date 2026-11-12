@@ -1,4 +1,25 @@
 import type { FindingLink, ReviewNarrative } from '../reviewNarrative';
+import { EvidenceFileLabel } from './EvidenceFileLabel';
+import { Eye, LoaderCircle } from 'lucide-react';
+import { useId, useState, type ReactNode } from 'react';
+import type { Finding } from '../types';
+import { rankFindingEvidence } from '../findingEvidenceRanking';
+import { EvidenceFileControl } from './FindingEvidence';
+
+function StageFiles({ files, renderFile }: { files: string[]; renderFile: (path: string) => ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const remainingId = useId();
+  const remaining = files.slice(5);
+  return <div className="review-stage-files">
+    {files.slice(0, 5).map(renderFile)}
+    {remaining.length > 0 && <>
+      <span className="review-stage-files-remaining" id={remainingId} hidden={!expanded}>{expanded && remaining.map(renderFile)}</span>
+      <button type="button" className="btn-link review-stage-files-toggle" aria-expanded={expanded} aria-controls={remainingId} onClick={() => setExpanded(value => !value)}>
+        {expanded ? 'Show fewer files' : `Show ${remaining.length} more ${remaining.length === 1 ? 'file' : 'files'}`}
+      </button>
+    </>}
+  </div>;
+}
 
 export function ReviewObjectiveList({ points }: { points: string[] }) {
   return points.length ? <ul className="review-objective-points">{points.map((point, index) => <li key={index}>{point}</li>)}</ul>
@@ -11,24 +32,47 @@ export function ReviewNarrativeSummary({ summary }: { summary: ReviewNarrative['
     <div><dt>What to do next</dt><dd>{summary.next}</dd></div>
   </dl>;
 }
-function FindingLinks({ findings, onOpenFinding }: { findings: FindingLink[]; onOpenFinding: (id: string) => void }) {
-  return findings.length > 0 ? <ul className="review-stage-findings">{findings.map(finding => <li key={finding.id}>
-    <span>{finding.aspect}: </span><button type="button" className="btn-link" onClick={() => onOpenFinding(finding.id)} aria-label={`View finding: ${finding.label}`}>{finding.label}</button>
-  </li>)}</ul> : null;
+function FindingLinks({ findings, occurrences, onOpenFinding, active }: { findings: FindingLink[]; occurrences: Map<string, Finding>; onOpenFinding: (id: string) => void; active?: boolean }) {
+  return findings.length > 0 ? <div className="review-stage-finding-tables">{findings.map(finding => {
+    const members = (finding.memberIds ?? [finding.id]).flatMap(id => {
+      const occurrence = occurrences.get(id);
+      return occurrence ? [occurrence] : [];
+    });
+    const files = rankFindingEvidence(members, false)[0]?.files ?? [];
+    return <section className="finding-feature-evidence review-stage-finding-table" key={finding.id}>
+      <header><div><h4>{finding.label}</h4><p>{finding.aspect} · {files.length} affected {files.length === 1 ? 'file' : 'files'}</p></div>
+        {!active && <button type="button" className="command-icon-button" onClick={() => onOpenFinding(finding.id)} aria-label={`View finding: ${finding.label}`}><Eye size={17} aria-hidden="true" /></button>}
+      </header>
+      {files.length > 0 && <table aria-label={`${finding.label} evidence`}><tbody>{files.map(file => <tr key={file.path}>
+        <td><EvidenceFileControl path={file.path} findings={file.findings} onOpen={active ? undefined : occurrence => onOpenFinding(occurrence.id)} /></td>
+        <td>{file.lines > 0 ? `${file.lines} ${file.lines === 1 ? 'line' : 'lines'} highlighted` : 'No lines recorded'}</td>
+      </tr>)}</tbody></table>}
+    </section>;
+  })}</div> : null;
 }
-export function ReviewNarrativeTimeline({ narrative, loading, error, onOpenFinding }: { narrative: ReviewNarrative; loading: boolean; error: string | null; onOpenFinding: (id: string) => void }) {
+export function ReviewNarrativeTimeline({ narrative, findings = [], loading, error, onOpenFinding, resolveSource }: { narrative: ReviewNarrative; findings?: Finding[]; loading: boolean; error: string | null; onOpenFinding: (id: string) => void; resolveSource?: (path: string) => { path: string; href?: string } }) {
+  const visibleStages = narrative.stages.filter(stage => !['Not started', 'Not reached', 'Not recorded'].includes(stage.state) || stage.findings.length > 0);
+  const occurrences = new Map(findings.map(finding => [finding.id, finding]));
+  const fileLabel = (path: string, line?: number) => <EvidenceFileLabel key={path} {...(resolveSource?.(path) ?? { path })} line={line} focusable />;
   return <div className="review-narrative">
-    <div className="review-activity-intro"><p>Review time: <strong>{narrative.timing.duration}</strong></p></div>
-    <hr className="review-reasoning-divider" />
     {loading && <p role="status">Loading the saved activity…</p>}
     {error && <p role="status">{error}</p>}
-    {!loading && !error && narrative.retryUpdate && <p role="status">{narrative.retryUpdate}</p>}
-    {!loading && !narrative.detailedHistoryAvailable && <p>{narrative.active ? 'This review is waiting to start. Its activity will appear here step by step.' : 'The detailed activity wasn’t saved for this review. You can still inspect its findings below.'}</p>}
-    {narrative.stages.length > 0 && <ol className="review-activity-timeline" aria-label="Review stages">{narrative.stages.map(stage => <li key={stage.id} className="review-narrative-stage">
-      <div className="review-stage-heading"><h3>{stage.title}</h3><span>{stage.state} · {stage.duration}</span></div>
-      {stage.outcome && <p>{stage.outcome}</p>}
-      <FindingLinks findings={stage.findings} onOpenFinding={onOpenFinding} />
+    {!loading && !narrative.detailedHistoryAvailable && <p>{narrative.active && !narrative.stages.length ? 'This review is waiting to start. Its activity will appear here step by step.' : 'Detailed activity is unavailable. Any recorded stage progress appears below.'}</p>}
+    {visibleStages.length > 0 && <ol className="review-activity-timeline" aria-label="Review stages">{visibleStages.map(stage => <li key={stage.id} className="review-narrative-stage" aria-current={stage.state === 'In progress' ? 'step' : undefined}>
+      <div className="review-stage-heading"><h3>{stage.title}</h3>{stage.state !== 'In progress' && stage.duration !== 'Not recorded' && <span>{stage.duration}</span>}</div>
+      {stage.state === 'In progress' ? <>
+        {stage.focus && <p className="review-stage-recap">{stage.focus} {stage.goal}</p>}
+        {stage.checks?.map(check => <p className="review-stage-check" key={check}>{check}</p>)}
+        {stage.features?.map(feature => <div className="review-stage-check" key={feature.id}>
+          <p>{feature.summary}</p>
+          {feature.path && fileLabel(feature.path, feature.line)}
+        </div>)}
+        {stage.outcome && <p>{stage.outcome}</p>}
+      </> : <p className="review-stage-recap">{stage.recap ?? (stage.outcome || stage.checks?.at(-1) || stage.next)}</p>}
+      {stage.files && stage.files.length > 0 && <StageFiles files={stage.files} renderFile={fileLabel} />}
+      <FindingLinks findings={stage.findings} occurrences={occurrences} onOpenFinding={onOpenFinding} active={narrative.active} />
+      {stage.state === 'In progress' && <p className="review-stage-processing" role="status"><LoaderCircle size={16} aria-hidden="true" /> Processing this stage…</p>}
     </li>)}</ol>}
-    {narrative.unassignedFindings.length > 0 && <section aria-labelledby="review-unassigned-findings"><h3 id="review-unassigned-findings">Other saved findings</h3><p>These findings have no saved stage information.</p><FindingLinks findings={narrative.unassignedFindings} onOpenFinding={onOpenFinding} /></section>}
+    {narrative.unassignedFindings.length > 0 && <section aria-labelledby="review-unassigned-findings"><h3 id="review-unassigned-findings">Other saved findings</h3><p>These findings have no saved stage information.</p><FindingLinks findings={narrative.unassignedFindings} occurrences={occurrences} onOpenFinding={onOpenFinding} active={narrative.active} /></section>}
   </div>;
 }

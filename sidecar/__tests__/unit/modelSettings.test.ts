@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { listModelProviderSettings, mapModelProviderSetting, resolveSavedEmbeddingConfiguration, resolveSavedEmbeddingProvider, saveModelProviderSetting, validateModelProviderUpdate } from '../../src/modelSettings.js';
+import { listModelProviderSettings, mapModelProviderSetting, resolveSavedEmbeddingConfiguration, resolveSavedEmbeddingProvider, saveModelProviderSetting, saveSharedModelProvider, validateModelProviderUpdate } from '../../src/modelSettings.js';
 import { encryptSecret } from '../../src/tokenVault.js';
 import { VOYAGE_EMBEDDING_BASE_URL } from '../../src/embeddingSettings.js';
 
@@ -22,6 +22,32 @@ function singleRowClient(row: Record<string, unknown> | null) {
 }
 
 describe('Supabase Model Provider settings', () => {
+  it('updates both workflow roles together and guards reuse of the saved API key', async () => {
+    const input = { provider: 'custom', apiFormat: 'openai-compatible', apiKey: '', baseUrl: 'https://api.example.test/v1', model: 'shared-model' } as const;
+    const saved = { provider: input.provider, api_format: input.apiFormat, base_url: input.baseUrl, secret_ciphertext: 'saved-ciphertext' };
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const from = () => {
+      let role = '';
+      const query = {
+        select: () => query, is: () => query, order: () => query, limit: () => query,
+        eq: (field: string, value: string) => { if (field === 'purpose') role = value; return query; },
+        maybeSingle: async () => ({ data: { ...saved, id: role }, error: null }),
+        upsert,
+      };
+      return query;
+    };
+    const client = { from } as unknown as SupabaseClient;
+    await saveSharedModelProvider(client, 'owner', input);
+    expect(upsert).toHaveBeenCalledExactlyOnceWith(['static_review', 'vision'].map(purpose => expect.objectContaining({
+      id: purpose, purpose, owner_id: 'owner', model: 'shared-model', secret_ciphertext: 'saved-ciphertext',
+    })), { onConflict: 'id' });
+    await expect(saveSharedModelProvider(client, 'owner', { ...input, baseUrl: 'https://other.example.test/v1' })).rejects.toThrow('Enter a new API key');
+    expect(upsert).toHaveBeenCalledTimes(1);
+    await saveSharedModelProvider(client, 'owner', { ...input, provider: 'codex', apiFormat: 'codex-app-server', baseUrl: '', codexScreenshots: false });
+    expect(upsert).toHaveBeenLastCalledWith(['static_review', 'vision'].map(purpose => expect.objectContaining({
+      purpose, metadata: expect.objectContaining({ codexScreenshots: false }),
+    })), { onConflict: 'id' });
+  });
   it('accepts Codex without secrets for text and vision but excludes embeddings and mismatched formats', () => {
     const input = { provider: 'codex' as const, apiFormat: 'codex-app-server' as const, apiKey: '', baseUrl: '', model: 'account-model' };
     expect(() => validateModelProviderUpdate(input, null, 'text')).not.toThrow();
@@ -31,6 +57,7 @@ describe('Supabase Model Provider settings', () => {
     expect(() => validateModelProviderUpdate({ ...input, apiFormat: 'openai-compatible' }, null)).toThrow();
     expect(() => validateModelProviderUpdate({ ...input, fallbackEnabled: true, fallbackProvider: 'codex' }, null)).toThrow(/fallback/);
     expect(mapModelProviderSetting('text', { provider: 'codex', api_format: 'codex-app-server', model: 'account-model' })).toMatchObject({ provider: 'codex', hasApiKey: false });
+    expect(mapModelProviderSetting('vision', { provider: 'codex', metadata: { codexScreenshots: false } })).toHaveProperty('codexScreenshots', false);
   });
 
   it('removes API secrets and legacy fallback metadata when switching to Codex', async () => {

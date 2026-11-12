@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Centinel Review prototypes</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f5f5f4; --surface: #fff; --subtle: #fafaf9; --border: #e7e5e4;
+    --text: #1c1917; --muted: #57534e; --primary: #166534; --selected: #f0fdf4;
+    --info: #0f766e; --info-bg: #f0fdfa; --warning: #92400e; --warning-bg: #fffbeb;
+    --danger: #b91c1c; --danger-bg: #fef2f2;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--canvas); color: var(--text); font: 15px/1.5 "IBM Plex Sans", "Segoe UI", sans-serif; }
+  .bar { background: var(--surface); border-bottom: 1px solid var(--border); }
+  .wrap { max-width: 1280px; margin: auto; padding-inline: 32px; }
+  .bar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; flex-wrap: wrap; }
+  main { padding-block: 24px 48px; }
+  nav, .tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  nav a, .jump { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; border-radius: 8px; }
+  nav a[aria-current="page"] { background: var(--selected); }
+  a { color: var(--primary); font-weight: 600; text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+  .muted, small, dt { color: var(--muted); }
+  h1, h2, h3, p, dl { margin: 0; }
+  h1 { font-size: 24px; line-height: 32px; }
+  h2 { font-size: 18px; line-height: 26px; }
+  h3 { font-size: 15px; line-height: 22px; }
+  .hero { margin: 16px 0; }
+  .hero p { margin-top: 8px; max-width: 65ch; }
+  .finding-header { margin-bottom: 16px; }
+  .finding-header h1 { margin: 4px 0; }
+  .finding-header .facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 12px; }
+  .finding-header .facts > div { border: 0; padding: 0; }
+  .finding-section + .finding-section { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+  .tags { margin-block: 8px; }
+  .tag { border-radius: 999px; padding: 3px 10px; background: var(--canvas); font-size: 13px; font-weight: 600; }
+  .running { background: var(--info-bg); color: var(--info); }
+  .done { background: var(--selected); color: var(--primary); }
+  .warning { background: var(--warning-bg); color: var(--warning); }
+  .danger { background: var(--danger-bg); color: var(--danger); }
+  .layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; min-width: 0; }
+  .panel + .panel { margin-top: 16px; }
+  .rows { list-style: none; margin: 12px 0 0; padding: 0; }
+  .rows > li, dl > div { padding: 12px 0; border-top: 1px solid var(--border); }
+  .rows p, dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+  .stages { counter-reset: stage; }
+  .stages > li { display: grid; grid-template-columns: 30px minmax(0,1fr); gap: 8px; padding: 14px 8px; border-top: 0; counter-increment: stage; }
+  .stages > li::before { content: counter(stage); font-weight: 600; color: var(--muted); text-align: center; }
+  .stages > li[aria-current="step"] { background: var(--info-bg); border-radius: 8px; }
+  .stage-evidence { color: var(--muted); font-size: 13px; }
+  .stage-items { width: calc(100% * 5 / 12); margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .stage-items table { width: 100%; border-collapse: collapse; text-align: left; }
+  .stage-items td { padding: 8px 10px; }
+  .stage-items tr + tr td { border-top: 1px solid var(--border); }
+  .stage-item-label { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; }
+  .stage-item-label .tag { font-size: 12px; }
+  .source-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; }
+  .source-label { position: relative; display: inline-block; margin: 4px 4px 0 0; }
+  .source-label > :is(button, a) { display: inline-flex; align-items: center; gap: 4px; font: 12px/1.4 "JetBrains Mono", Consolas, monospace; border: 1px solid var(--border); background: var(--subtle); color: var(--primary); border-radius: 4px; padding: 1px 5px; cursor: pointer; }
+  .source-icon { font-size: 10px; font-weight: 650; }
+  .source-icon svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.5; fill: none; vertical-align: middle; }
+  .source-tip { display: none; position: absolute; z-index: 2; inset-block-start: 100%; inset-inline-start: 0; width: max-content; max-width: min(68vw, 320px); padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+  .source-label:hover .source-tip, .source-label:focus-within .source-tip { display: block; }
+  .processing { display: flex; align-items: center; gap: 8px; color: var(--info); margin: 12px 0 0 16px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-inline-end-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  .stage-row-link { display: flex; justify-content: space-between; align-items: center; gap: 8px; text-decoration: none; }
+  .stage-row-link small { display: block; font-weight: 400; }
+  .stage-items td:has(.stage-row-link) { padding: 0; }
+  .stage-row-link { padding: 8px 10px; }
+  .stage-row-link:hover { background: var(--selected); }
+  .detail-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+  .icon-control { display: inline-grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--primary); cursor: pointer; }
+  .icon-control svg, .stage-row-link svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+  .detail-heading p { margin-top: 8px; }
+  .threats { padding-inline-start: 24px; }
+  .threats li + li { margin-top: 12px; }
+  .threats p, .finding-section > p + p { margin-top: 6px; }
+  .feature-evidence-card { margin: 8px 0 16px; border: 1px solid var(--border); border-radius: 8px; }
+  .feature-evidence-card > header { padding: 8px 14px; border-radius: 8px 8px 0 0; background: var(--subtle); }
+  .feature-evidence-card > button { display: block; margin: 8px 14px; }
+  .feature-evidence { width: 100%; border-collapse: collapse; text-align: left; }
+  .feature-evidence td { padding: 8px 14px; border-top: 1px solid var(--border); }
+  .feature-evidence td:last-child { text-align: right; font-size: 13px; }
+  .line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; justify-content: space-between; }
+  .facts dt { font-size: 13px; }
+  .facts dd { font-weight: 600; }
+  summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 600; }
+  details p { margin-bottom: 8px; }
+  code { font: 13px/1.6 "JetBrains Mono", Consolas, monospace; overflow-wrap: anywhere; }
+  pre { padding: 12px; background: var(--subtle); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  @media (max-width: 780px) { .wrap { padding-inline: 16px; } .layout { grid-template-columns: minmax(0, 1fr); } .stage-items { width: 100%; } }
+</style>
+<header class="bar"><div class="wrap">
+  <strong>Centinel · Design prototype</strong>
+  <nav aria-label="Prototype screens">
+    <a href="#activity" data-view="activity" aria-current="page">Review Activity</a>
+    <a href="#finding" data-view="finding">Finding Detail</a>
+  </nav>
+</div></header>
+<main class="wrap">
+  <section id="activity" aria-labelledby="activity-title">
+    <small>S2 Sample Shop Review · Prototype with illustrative timing and Git metadata</small>
+    <header class="hero">
+      <h1 id="activity-title" tabindex="-1">Order quantity validation</h1>
+      <p>Check whether checkout rejects quantities outside the allowed range.</p>
+      <div class="source-meta"><span>Branch <code>review/checkout</code></span><span>Commit <code title="8c4d21fa906a9d278e03d65848822b9e610f1ac6">8c4d21f</code> · Check checkout quantity handling</span></div>
+      <details><summary>Preview a source without Git</summary><p>Local import · Source snapshot <code>v3</code></p></details>
+      <label for="run-state">Prototype state</label>
+      <select id="run-state"><option value="running">In progress</option><option value="finished">Completed</option></select>
+    </header>
+    <section class="panel" aria-label="Review workflow">
+      <ol class="rows stages">
+        <li><div>
+          <div class="line"><h3>Check the documents</h3><span class="tag done">Completed · 3s</span></div>
+          <p>I checked the selected files to establish what this Review could cover. I found a checkout requirement in the repository. Its link is unconfirmed, so confirm it before relying on formal coverage.</p>
+          <span class="source-label"><button type="button" aria-describedby="req-tip">requirements.md</button><span class="source-tip" role="tooltip" id="req-tip"><code>docs/requirements.md:19</code></span></span>
+        </div></li>
+        <li><div>
+          <div class="line"><h3>Understand the change</h3><span class="tag done">Completed · 8s</span></div>
+          <p>I inspected order creation and sign-in to establish where checkout receives quantities and identifies the user. I located the request handler, session check, and order calculation. The behaviour check can now follow the quantity through those steps.</p>
+          <span class="source-label"><button type="button" aria-describedby="server-tip">server.js</button><span class="source-tip" role="tooltip" id="server-tip"><code>server.js:35–69</code></span></span>
+          <span class="source-label"><button type="button" aria-describedby="orders-tip">orders.js</button><span class="source-tip" role="tooltip" id="orders-tip"><code>src/orders.js:21–34</code></span></span>
+        </div></li>
+        <li><div>
+          <div class="line"><h3>Check for common issues</h3><span class="tag done">Completed · 2s</span></div>
+          <p>I ran the built-in checks to identify code that warrants inspection. The behaviour check will examine whether these observations affect checkout.</p>
+        </div></li>
+        <li id="active-stage" aria-current="step"><div>
+          <div class="line"><h3>Review the behaviour</h3><span class="tag running" id="behaviour-status">In progress</span></div>
+          <div data-run="running">
+            <p>I inspected the checkout handler to find where the submitted quantity is checked. The handler converts the quantity to a number before passing it to order creation.</p>
+            <p>I followed the quantity into order creation to see whether the permitted range is enforced there. The order calculation uses the quantity directly.</p>
+            <p>I’m checking both locations against the documented range so the saved finding can point to the missing check.</p>
+            <span class="source-label"><button type="button" aria-describedby="active-tip">server.js</button><span class="source-tip" role="tooltip" id="active-tip"><code>server.js:56–69</code></span></span>
+            <div class="processing" role="status"><span class="spinner" aria-hidden="true"></span> Checking quantity validation…</div>
+          </div>
+          <div data-run="finished" hidden>
+            <p>I traced how checkout handles quantities to verify that the server enforces the documented range. The request handler and order creation both lack that check. Inspect the finding to see the affected code and how to verify a fix.</p>
+            <div class="stage-items"><table aria-label="Behaviour findings"><tbody>
+              <tr><td><a class="stage-row-link" href="#finding"><span><strong>Checkout accepts invalid quantities</strong><small>Business rules</small></span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></a></td></tr>
+            </tbody></table></div>
+          </div>
+        </div></li>
+        <li data-run="finished" hidden><div>
+          <div class="line"><h3>Prepare the findings</h3><span class="tag done">Completed · 4s</span></div>
+          <p>I checked the finding’s source references so you can inspect the same lines. The cited locations were saved with the Review. Open the finding to decide what to address.</p>
+        </div></li>
+      </ol>
+    </section>
+  </section>
+  <section id="findings" aria-labelledby="findings-title" hidden>
+    <a class="jump" href="#activity">← Review Activity</a>
+    <div class="panel">
+      <h1 id="findings-title" tabindex="-1">Findings</h1>
+      <ul class="rows"><li><a href="#finding">Checkout accepts invalid quantities</a></li></ul>
+    </div>
+  </section>
+  <section id="finding" aria-labelledby="finding-title" hidden>
+    <header class="panel finding-header detail-heading">
+      <a class="icon-control" href="#findings" aria-label="Back to findings" title="Back to findings"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6M8 12h13"/></svg></a>
+      <div id="finding-copy-header">
+        <h1 id="finding-title" tabindex="-1">Checkout accepts invalid quantities</h1>
+        <p class="muted">Business rules</p>
+        <p>The server accepts orders with quantities outside the allowed range.</p>
+        <div class="tags"><span class="tag danger">Risk High</span><span class="tag warning">Priority Medium</span><span class="tag">Open</span></div>
+      </div>
+      <div><button class="icon-control" type="button" id="copy-finding" aria-label="Copy finding as Markdown" title="Copy finding as Markdown"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button><span id="copy-status" role="status"></span></div>
+    </header>
+    <div class="panel" id="finding-copy-body">
+      <section class="finding-section" aria-labelledby="overview-title">
+        <h2 id="overview-title">Overview</h2>
+        <h3>Possible Threats</h3>
+        <ol class="threats">
+          <li id="threat-quantity"><h4>Invalid order quantities</h4><p>Checkout accepts quantities that the business rule excludes. This can create orders that cannot be fulfilled as requested.</p></li>
+          <li id="threat-totals"><h4>Incorrect order totals</h4><p>Order creation multiplies the submitted quantity by the unit price. A quantity outside the permitted range can produce an incorrect total.</p></li>
+        </ol>
+      </section>
+      <section class="finding-section" id="source-evidence">
+        <h2>Evidence</h2>
+        <div class="feature-evidence-card">
+        <header><h3>Create Order</h3><small>2 affected files</small></header>
+        <table class="feature-evidence" aria-label="Create Order evidence"><tbody>
+          <tr><td><span class="source-label"><a href="#source-handler" aria-describedby="code-handler">server.js</a><span class="source-tip" role="tooltip" id="code-handler"><code>server.js:65<br><span data-excerpt="handler"></span></code></span></span></td><td><a href="#threat-quantity">Invalid order quantities</a></td></tr>
+          <tr><td><span class="source-label"><a href="#source-order" aria-describedby="code-order">orders.js</a><span class="source-tip" role="tooltip" id="code-order"><code>src/orders.js:22<br><span data-excerpt="order"></span></code></span></span></td><td><a href="#threat-totals">Incorrect order totals</a></td></tr>
+        </tbody></table>
+        </div>
+      </section>
+      <section class="finding-section">
+        <h2>Recommended Action</h2>
+        <p>Validate each quantity on the server before creating the order. Accept whole numbers from 1 to 10.</p>
+        <p>Verify that checkout rejects missing values, fractions, and values outside the range. Check that quantities 1 and 10 still succeed and produce the expected totals.</p>
+      </section>
+    </div>
+  </section>
+  <section id="source-handler" hidden><a class="jump" href="#source-evidence">← Back to evidence</a><div class="panel"><h1 id="source-handler-title" tabindex="-1">server.js:65</h1><pre><code data-excerpt="handler"></code></pre></div></section>
+  <section id="source-order" hidden><a class="jump" href="#source-evidence">← Back to evidence</a><div class="panel"><h1 id="source-order-title" tabindex="-1">src/orders.js:22</h1><pre><code data-excerpt="order"></code></pre></div></section>
+</main>
+<script>
+  const excerpts = {
+    handler: 'lines.push({ productId: product.id, name: product.name, price: product.price, quantity: Number(item.quantity) });',
+    order: 'const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);',
+  };
+  for (const element of document.querySelectorAll('[data-excerpt]')) element.textContent = excerpts[element.dataset.excerpt];
+  for (const label of document.querySelectorAll('.source-label > :is(button, a)')) {
+    const name = label.textContent.trim();
+    const icon = document.createElement('span');
+    icon.className = 'source-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    if (/\.pdf$/i.test(name)) icon.textContent = 'PDF';
+    else if (/\.(?:[cm]?[jt]sx?|json|html|css|py|rs|go|sql)$/i.test(name)) icon.textContent = '<>';
+    else icon.innerHTML = '<svg viewBox="0 0 16 16"><path d="M4 2h5l3 3v9H4zM9 2v4h3"/></svg>';
+    label.prepend(icon);
+  }
+  for (const table of document.querySelectorAll('.feature-evidence')) {
+    const extraRows = Array.from(table.tBodies[0].rows).slice(3);
+    if (!extraRows.length) continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    function showExtraFiles(expanded) {
+      for (const row of extraRows) row.hidden = !expanded;
+      button.setAttribute('aria-expanded', String(expanded));
+      button.textContent = expanded ? 'Show fewer files' : 'Show ' + extraRows.length + ' more ' + (extraRows.length === 1 ? 'file' : 'files');
+    }
+    showExtraFiles(false);
+    button.addEventListener('click', () => showExtraFiles(button.getAttribute('aria-expanded') !== 'true'));
+    table.after(button);
+  }
+  document.getElementById('run-state').addEventListener('change', event => {
+    const state = event.target.value;
+    for (const element of document.querySelectorAll('[data-run]')) element.hidden = element.dataset.run !== state;
+    const running = state === 'running';
+    const status = document.getElementById('behaviour-status');
+    status.textContent = running ? 'In progress' : 'Completed · 2m 15s';
+    status.className = running ? 'tag running' : 'tag done';
+    const stage = document.getElementById('active-stage');
+    if (running) stage.setAttribute('aria-current', 'step');
+    else stage.removeAttribute('aria-current');
+  });
+  function findingMarkdown() {
+    const header = document.getElementById('finding-copy-header');
+    const body = document.getElementById('finding-copy-body');
+    const text = element => element.textContent.trim();
+    const lines = ['# ' + text(header.querySelector('h1')), ...Array.from(header.querySelectorAll('p'), text),
+      Array.from(header.querySelectorAll('.tag'), text).join(' · '), '## Overview', '### Possible Threats'];
+    for (const [index, threat] of Array.from(body.querySelectorAll('.threats > li')).entries()) {
+      lines.push('#### ' + (index + 1) + '. ' + text(threat.querySelector('h4')), text(threat.querySelector('p')));
+    }
+    lines.push('## Evidence', '### Create Order');
+    for (const row of body.querySelectorAll('.feature-evidence tr')) {
+      const excerpt = row.querySelector('[data-excerpt]');
+      const location = excerpt.parentElement.firstChild.textContent.trim();
+      lines.push('#### ' + location + ' · ' + text(row.cells[1]), '```js\n' + text(excerpt) + '\n```');
+    }
+    lines.push('## Recommended Action', ...Array.from(body.querySelectorAll('.finding-section:last-child > p'), text));
+    return lines.join('\n\n');
+  }
+  document.getElementById('copy-finding').addEventListener('click', async () => {
+    const status = document.getElementById('copy-status');
+    try {
+      await navigator.clipboard.writeText(findingMarkdown());
+      status.textContent = 'Copied';
+    } catch {
+      status.textContent = 'Clipboard unavailable';
+    }
+  });
+  function showView(moveFocus) {
+    const route = location.hash.slice(1);
+    const pages = ['activity', 'finding', 'findings', 'source-handler', 'source-order'];
+    const active = pages.includes(route) ? route : /^(source-evidence|threat-)/.test(route) ? 'finding' : 'activity';
+    document.querySelector('.bar').hidden = active !== 'activity';
+    for (const id of pages) {
+      document.getElementById(id).hidden = id !== active;
+      const link = document.querySelector('[data-view="' + id + '"]');
+      if (!link) continue;
+      if (id === active) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    }
+    if (moveFocus && active === route) document.getElementById(active + '-title').focus();
+  }
+  showView(false);
+  addEventListener('hashchange', () => showView(true));
+</script>
+</html>

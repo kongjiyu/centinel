@@ -275,7 +275,7 @@ export function groupStatus(group: FindingGroup): string {
 export function findingSourceReferences(finding: Finding): FindingSourceReference[] {
   const refs: FindingSourceReference[] = [...(finding.relatedSources ?? [])];
   for (const ref of finding.location?.relatedLocations ?? []) refs.push({ artifactId: ref.artifactId, filePath: ref.filePath, lineNumber: ref.lineNumber, sourceVersion: ref.sourceVersion, excerpt: ref.evidence, relation: 'code' });
-  if (finding.filePath && !refs.some(ref => ref.filePath === finding.filePath && ref.artifactId === finding.artifactId)) refs.unshift({
+  if (finding.filePath && !refs.some(ref => ref.filePath === finding.filePath && ref.artifactId === finding.artifactId && ref.lineNumber === finding.lineNumber)) refs.unshift({
     artifactId: finding.artifactId, filePath: finding.filePath, lineNumber: finding.lineNumber,
     sourceVersion: finding.artifactVersionId || finding.location?.sourceVersion, excerpt: finding.evidenceText,
     relation: finding.evidenceGap ? 'document' : 'code',

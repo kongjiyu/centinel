@@ -5,6 +5,8 @@ import { ConnectedSourceHttpError } from '../http.js';
 type GitHubOptions = { http?: SourceHttpClient; env?: NodeJS.ProcessEnv; maxFileBytes?: number; pageSize?: number };
 type GitHubRepo = { id: number; full_name: string; name: string; html_url: string; default_branch: string; private: boolean; description?: string | null; pushed_at?: string };
 type GitHubBranch = { name: string; commit: { sha: string } };
+type GitHubCommit = { sha: string; commit: { message: string } };
+const pinnedRepository = /^(?<repository>[\w.-]+\/[\w.-]+)@(?<sha>[a-f0-9]{40})$/i;
 type GitHubTreeEntry = { path: string; type: string; mode: string; sha: string; size?: number; url: string };
 
 function isStrictUtf8Text(bytes: Uint8Array): boolean {
@@ -92,6 +94,13 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
     const perPage = Math.max(1, Math.min(100, options.pageSize ?? 100));
     if (options.remoteId) {
       const remote = repoPath(options.remoteId);
+      if (options.branch) {
+        const rows = await requestJson<GitHubCommit[]>(this.http, urlWithQuery(`https://api.github.com/repos/${remote}/commits`, { sha: options.branch, per_page: perPage, page }), { headers: this.headers(credentials.accessToken) }, 'GitHub commits');
+        return {
+          items: rows.map(row => ({ id: row.sha, name: row.commit.message.split(/\r?\n/, 1)[0].trim(), kind: 'commit', revision: row.sha })),
+          nextCursor: rows.length >= perPage ? String(page + 1) : null,
+        };
+      }
       const rows = await requestJson<GitHubBranch[]>(this.http, urlWithQuery(`https://api.github.com/repos/${remote}/branches`, { per_page: perPage, page }), { headers: this.headers(credentials.accessToken) }, 'GitHub branches');
       return {
         items: rows.map(branch => ({ id: branch.name, name: branch.name, kind: 'branch', revision: branch.commit.sha, metadata: { repository: options.remoteId } })),
@@ -111,13 +120,17 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
   }
 
   async prepareSync(credentials: IntegrationCredential, source: ConnectedSource): Promise<SyncSnapshot> {
-    const remote = repoPath(source.remoteId);
+    const pinned = pinnedRepository.exec(source.remoteId)?.groups;
+    const remote = repoPath(pinned?.repository ?? source.remoteId);
     const pullRequest = Number(source.selectedScope.pullRequestNumber);
+    let branch = typeof source.selectedScope.branch === 'string' ? source.selectedScope.branch.trim() : '';
     let revisionUrl: string;
-    if (Number.isInteger(pullRequest) && pullRequest > 0) {
+    if (pinned) {
+      branch = '';
+      revisionUrl = `https://api.github.com/repos/${remote}/commits/${pinned.sha}`;
+    } else if (Number.isInteger(pullRequest) && pullRequest > 0) {
       revisionUrl = `https://api.github.com/repos/${remote}/pulls/${pullRequest}`;
     } else {
-      let branch = typeof source.selectedScope.branch === 'string' ? source.selectedScope.branch.trim() : '';
       if (!branch) {
         const repository = await requestJson<Pick<GitHubRepo, 'default_branch'>>(
           this.http,
@@ -130,12 +143,12 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
       if (!branch) throw new ConnectedSourceHttpError('GitHub did not return a default branch.', { code: 'missing_default_branch' });
       revisionUrl = `https://api.github.com/repos/${remote}/commits/${encodeURIComponent(branch)}`;
     }
-    const revision = await requestJson<{ sha?: string; head?: { sha?: string } }>(this.http, revisionUrl, { headers: this.headers(credentials.accessToken) }, 'GitHub revision lookup');
+    const revision = await requestJson<{ sha?: string; head?: { sha?: string; ref?: string } }>(this.http, revisionUrl, { headers: this.headers(credentials.accessToken) }, 'GitHub revision lookup');
     const commitSha = revision.head?.sha ?? revision.sha;
-    if (!commitSha) throw new ConnectedSourceHttpError('GitHub did not return a source revision.', { code: 'missing_revision' });
+    if (!commitSha || (pinned && commitSha !== pinned.sha)) throw new ConnectedSourceHttpError('GitHub did not return the requested source revision.', { code: 'missing_revision' });
     // Resolve only the remote head here. Content lookup begins after the
     // importer has decided whether this completed revision is already current.
-    return { remoteRevision: commitSha, cursor: { commitSha, offset: 0 } };
+    return { remoteRevision: commitSha, cursor: { commitSha, offset: 0, branch: revision.head?.ref ?? branch } };
   }
 
   isSourceRevisionUnchanged(source: ConnectedSource, snapshot: SyncSnapshot): boolean {
@@ -144,15 +157,19 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
   }
 
   async listItems(credentials: IntegrationCredential, source: ConnectedSource, snapshot: SyncSnapshot, cursor: Record<string, unknown> | null): Promise<RemoteSyncPage> {
-    const remote = repoPath(source.remoteId);
+    const repository = pinnedRepository.exec(source.remoteId)?.groups?.repository ?? source.remoteId;
+    const remote = repoPath(repository);
     let treeSha = String(cursor?.treeSha ?? snapshot.cursor?.treeSha ?? '');
+    const branch = cursor?.branch ?? snapshot.cursor?.branch ?? source.selectedScope.branch ?? null;
+    let commitSubject = typeof cursor?.commitSubject === 'string' ? cursor.commitSubject : '';
     const offset = Number(cursor?.offset ?? 0);
     if (!Number.isInteger(offset) || offset < 0) throw new Error('GitHub sync cursor is invalid.');
     if (!treeSha) {
       const commitSha = snapshot.remoteRevision;
       if (!commitSha) throw new Error('GitHub sync cursor is invalid.');
-      const commit = await requestJson<{ tree?: { sha?: string } }>(this.http, `https://api.github.com/repos/${remote}/git/commits/${encodeURIComponent(commitSha)}`, { headers: this.headers(credentials.accessToken) }, 'GitHub tree lookup');
+      const commit = await requestJson<{ tree?: { sha?: string }; message?: string }>(this.http, `https://api.github.com/repos/${remote}/git/commits/${encodeURIComponent(commitSha)}`, { headers: this.headers(credentials.accessToken) }, 'GitHub tree lookup');
       treeSha = commit.tree?.sha ?? '';
+      commitSubject = commit.message?.split(/\r?\n/, 1)[0]?.trim().slice(0, 500) ?? '';
       if (!treeSha) throw new ConnectedSourceHttpError('GitHub did not return a repository tree.', { code: 'missing_tree' });
     }
     const cacheKey = `${source.remoteId}:${treeSha}`;
@@ -172,7 +189,7 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
       const unsupported = (error: string, size: number | null): RemoteContent => ({
         remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path,
         mimeType: 'application/octet-stream', revision: file.sha, content: new Uint8Array(), status: 'unsupported', error,
-        metadata: { repository: source.remoteId, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size },
+        metadata: { repository, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size },
       });
       if ((file.size ?? 0) > this.maxFileBytes) {
         return unsupported(`File exceeds the ${this.maxFileBytes} byte import limit.`, file.size ?? null);
@@ -198,12 +215,12 @@ export class GitHubConnectedSourceAdapter implements ConnectedSourceProviderAdap
       return {
         remoteId: file.path, path: file.path, name: file.path.split('/').pop() ?? file.path, mimeType,
         revision: file.sha, content: bytes,
-        metadata: { repository: source.remoteId, branch: source.selectedScope.branch ?? null, commitSha: snapshot.remoteRevision, remotePath: file.path, blobSha: file.sha, size: file.size ?? bytes.byteLength, pullRequestNumber: source.selectedScope.pullRequestNumber ?? null },
+        metadata: { repository, branch, commitSha: snapshot.remoteRevision, commitSubject, remotePath: file.path, blobSha: file.sha, size: file.size ?? bytes.byteLength, pullRequestNumber: source.selectedScope.pullRequestNumber ?? null },
       } satisfies RemoteContent;
     }));
     const nextOffset = offset + page.length;
     const done = nextOffset >= files.length;
-    return { items, nextCursor: done ? null : { treeSha, offset: nextOffset }, done, completeSnapshot: done };
+    return { items, nextCursor: done ? null : { treeSha, offset: nextOffset, branch, commitSubject }, done, completeSnapshot: done };
   }
 
   private async readTree(credentials: IntegrationCredential, remote: string, treeSha: string, prefix = '', depth = 0): Promise<GitHubTreeEntry[]> {

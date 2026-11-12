@@ -275,9 +275,10 @@ describe('SupabaseStaticReviewRepository', () => {
     const db = new FakeDb();
     const repo = repository(db);
     const review = await repo.createReview(input);
-    const manifest = await repo.saveSourceManifest(review.id, review.projectId, [artifact], 'capture');
+    const gitArtifact = { ...artifact, git: { repository: 'sample-shop', commit: 'a'.repeat(40), branch: 'main', subject: 'Check quantity validation' } };
+    const manifest = await repo.saveSourceManifest(review.id, review.projectId, [gitArtifact], 'capture');
     const frozen = await repo.loadSourceManifestArtifacts(manifest.id);
-    expect(frozen).toEqual([artifact]);
+    expect(frozen).toEqual([gitArtifact]);
 
     const [candidate] = await repo.saveRequirementCandidates([{
       projectId: review.projectId,

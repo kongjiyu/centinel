@@ -148,7 +148,7 @@ function mapArtifact(artifact: Artifact): Record<string, unknown> {
     path: artifact.filePath,
     name: artifact.fileName,
     kind: artifact.type,
-    metadata: { source: artifact.source, originalPath: artifact.originalPath, contentHash: artifact.contentHash },
+    metadata: { source: artifact.source, originalPath: artifact.originalPath, contentHash: artifact.contentHash, ...(artifact.git ? { git: artifact.git } : {}) },
     created_at: artifact.createdAt,
   };
 }
@@ -156,12 +156,19 @@ function mapArtifact(artifact: Artifact): Record<string, unknown> {
 function mapSnapshotArtifact(value: unknown): Artifact {
   const row = asRow(value);
   const metadata = objectValue(row.metadata);
+  const git = objectValue(metadata.git);
   const type = text(row, 'kind', 'other');
   const source = text(metadata, 'source', 'documents');
   const artifactTypes: Artifact['type'][] = ['requirement', 'design', 'source_code', 'coding_standard', 'other'];
   const artifactSources: Artifact['source'][] = ['documents', 'repository', 'directory', 'drive'];
   return {
     versionId: text(row, 'version_id') || undefined,
+    ...(typeof git.repository === 'string' && typeof git.commit === 'string' ? { git: {
+      repository: git.repository,
+      commit: git.commit,
+      branch: typeof git.branch === 'string' ? git.branch : undefined,
+      subject: typeof git.subject === 'string' ? git.subject : undefined,
+    } } : {}),
     id: text(row, 'id'),
     projectId: text(row, 'project_id'),
     type: artifactTypes.includes(type as Artifact['type']) ? type as Artifact['type'] : 'other',

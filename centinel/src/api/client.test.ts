@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, waitForSidecar } from './client';
 import { refreshSupabaseSession } from '../auth/supabaseAuth';
+import { invoke } from '@tauri-apps/api/tauri';
 
 vi.mock('../auth/supabaseAuth', () => ({ refreshSupabaseSession: vi.fn().mockResolvedValue(null) }));
+vi.mock('@tauri-apps/api/tauri', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
 const unauthenticated = () => new Response(JSON.stringify({
   error: 'Your session is missing or expired. Sign in again.',
@@ -14,6 +16,33 @@ describe('sidecar authentication response handling', () => {
     sessionStorage.clear();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it('shares desktop recovery across failed reads and retries each read once', async () => {
+    vi.stubGlobal('__TAURI_IPC__', vi.fn());
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(new Response('{"status":"ok"}'))
+      .mockImplementation(async () => new Response('[]'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(Promise.all([api.projects(), api.project('project-1')])).resolves.toEqual([[], []]);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('ensure_sidecar');
+    expect(fetchMock.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+      '/projects', '/projects/project-1', '/health', '/projects', '/projects/project-1',
+    ]);
+  });
+
+  it('never replays a Review action after a transport failure', async () => {
+    vi.mocked(invoke).mockClear();
+    vi.stubGlobal('__TAURI_IPC__', vi.fn());
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.cancelStaticSession('project-1', 'review-1')).rejects.toThrow('Failed to fetch');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it('does not expire the local session for a Supabase time-validation error', async () => {

@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
-import { CentinelApplicationRepository } from '../applicationRepository.js';
+import { ApplicationRepositoryError, CentinelApplicationRepository } from '../applicationRepository.js';
 import { readClientArtifactContent, readClientArtifactBytes } from '../applicationApi.js';
 import { resolveSavedEmbeddingConfiguration } from '../modelSettings.js';
 import { SupabaseCentinelStore } from '../store/supabase.js';
@@ -51,21 +51,24 @@ function stagePath(artifact: Artifact): string {
 async function describe(clientSource: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal, cacheRoot = CACHE_ROOT) {
   const client = currentClient(clientSource);
   await new CentinelApplicationRepository(client, ownerId).requireProjectMember(projectId, signal);
-  throwIfAborted(signal);
-  const storageContract = await client.rpc('repository_index_storage_ready');
-  if (storageContract.error || storageContract.data !== 1) throw new Error('Apply the repository-index retention migration before building or sharing source indexes. No embedding request was made.');
   if (!/^[a-f\d-]{36}$/i.test(ownerId)) throw new Error('An authenticated owner UUID is required for the local index.');
-  const configuration = await resolveSavedEmbeddingConfiguration(client, ownerId, signal);
   const sources: SourceMetadata[] = [];
   const usedPaths = new Set<string>();
   for (const artifact of artifacts) {
     throwIfAborted(signal);
-    if (artifact.projectId !== projectId || !artifact.versionId || !validHash(artifact.contentHash)) throw new Error('Repository indexing requires exact frozen project versions.');
+    if (artifact.projectId !== projectId || !artifact.versionId || !validHash(artifact.contentHash)) {
+      throw new ApplicationRepositoryError('Source search is waiting for verified project versions. Check that source import completed.',
+        'repository_index_versions_unavailable', 409);
+    }
     const relativePath = stagePath(artifact);
     if (usedPaths.has(relativePath.toLowerCase())) throw new Error('Selected sources have ambiguous repository paths.');
     usedPaths.add(relativePath.toLowerCase());
     sources.push({ relativePath, artifact });
   }
+  throwIfAborted(signal);
+  const storageContract = await client.rpc('repository_index_storage_ready');
+  if (storageContract.error || storageContract.data !== 1) throw new Error('Apply the repository-index retention migration before building or sharing source indexes. No embedding request was made.');
+  const configuration = await resolveSavedEmbeddingConfiguration(client, ownerId, signal);
   const identity = repositoryIndexIdentity({ projectId,
     embedding: { provider: configuration?.embeddingProvider ?? 'none', model: configuration?.model ?? 'structural-only',
       dimensions: configuration?.dimensions ?? 0, endpointHash: hash(configuration?.baseUrl ?? 'none') },

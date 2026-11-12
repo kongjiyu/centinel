@@ -107,7 +107,8 @@ export async function handleConnectedSourceRoute(
       const query = url.searchParams.get('query') ?? undefined;
       return {
         statusCode: 200,
-        body: await dependencies.createImporter(auth).browse(auth.userId, provider, { remoteId, cursor, query, pageSize }),
+        body: await dependencies.createImporter(auth).browse(auth.userId, provider, { remoteId, cursor, query, pageSize,
+          ...(url.searchParams.get('branch') ? { branch: url.searchParams.get('branch')! } : {}) }),
       };
     }
 

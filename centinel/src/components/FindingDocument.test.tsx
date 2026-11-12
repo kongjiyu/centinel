@@ -25,19 +25,34 @@ describe('finding detail', () => {
     return <FindingDocument group={group} selectedId={id} onSelect={setId} onBack={vi.fn()} actions={() => null} />;
   }
 
+  it('previews the frozen file and highlights the recorded lines from grouped occurrences', async () => {
+    const first = make('a', 'Use an atomic claim.');
+    const repeated = { ...first, id: 'repeat', lineNumber: 2, evidenceText: 'second observation' };
+    vi.mocked(api.getReviewArtifactContent).mockResolvedValue({
+      versionId: 'saved-version', contentHash: 'saved-hash',
+      content: btoa('line one\nsecond observation\nline three\nline four\nawait insert();'), mimeType: 'text/typescript',
+    });
+    render(<StatefulFindingDocument group={groupFindings([first, repeated])[0]} />);
+    await userEvent.hover(screen.getByRole('button', { name: 'src/a.ts' }));
+    const preview = await screen.findByRole('region', { name: 'Reviewed source preview src/a.ts' });
+    expect(preview.querySelector('[data-line="2"]')).toHaveClass('is-highlighted');
+    expect(preview.querySelector('[data-line="5"]')).toHaveClass('is-highlighted');
+    expect(api.getReviewArtifactContent).toHaveBeenCalledWith('p', 'review', 'artifact-a');
+  });
+
   it('keeps the shared action visible and renders only one selected occurrence', () => {
     const group = groupFindings([make('a', 'Enforce atomic uniqueness.'), make('b', 'Enforce atomic uniqueness.')])[0];
     render(<StatefulFindingDocument group={group} />);
 
     expect(screen.getByRole('heading', { name: 'Race Condition Risk' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'What to do' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Recommended changes' })).toBeInTheDocument();
     expect(screen.getByText('Enforce atomic uniqueness.')).toBeInTheDocument();
     expect(screen.getAllByRole('region', { name: /Selected occurrence/ })).toHaveLength(1);
     expect(screen.getByRole('heading', { name: 'src/a.ts:5' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'src/b.ts:5' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Location' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'How to verify resolution' })).toHaveTextContent('No verification steps or completion criteria were recorded');
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Evidence without a recorded feature' })).toBeInTheDocument();
   });
 
   it('keeps distinct remedies attached to the selected occurrence', async () => {
@@ -50,6 +65,48 @@ describe('finding detail', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Location' }), 'b');
     expect(screen.getByText('Deduplicate the callback key.')).toBeInTheDocument();
     expect(screen.queryByText('Use an atomic claim.')).not.toBeInTheDocument();
+  });
+
+  it('ranks recorded features by unique highlighted lines and opens the selected file', async () => {
+    const user = userEvent.setup();
+    const evidence = (id: string, featureId: string, excerpt: string) => ({
+      ...make(id, 'Use an atomic claim.'),
+      evidenceText: excerpt,
+      location: { ...make(id, '').location, sourceLocator: { analysis: { featureId, pathId: 'path', domain: 'technical' } } },
+    });
+    const high = evidence('a', 'feature-large', 'line one\nline two\nline three');
+    const group = groupFindings([high, { ...high, id: 'a-repeat' }, evidence('b', 'feature-other', 'line one'),
+      evidence('c', 'feature-third', 'line one'), evidence('d', 'feature-fourth', 'line one')])[0];
+    render(<StatefulFindingDocument group={group} />);
+    const ranked = screen.getByLabelText('Ranked evidence');
+    expect(within(ranked).getAllByRole('heading')).toHaveLength(3);
+    expect(within(ranked).getAllByRole('heading')[0].parentElement).toHaveTextContent('1 affected file');
+    expect(within(ranked).getByText('3 lines highlighted')).toBeInTheDocument();
+    await user.click(within(ranked).getByRole('button', { name: 'Show all evidence' }));
+    expect(within(ranked).getAllByRole('heading')).toHaveLength(4);
+    await user.click(within(ranked).getByRole('button', { name: 'src/b.ts' }));
+    expect(screen.getByLabelText('Saved excerpt from src/b.ts')).toHaveTextContent('line one');
+    expect(screen.getByRole('button', { name: 'Preview reviewed source src/b.ts:5' })).toBeInTheDocument();
+  });
+
+  it('expands each feature independently and shows the number of hidden files', async () => {
+    const user = userEvent.setup();
+    const group = groupFindings(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'].map((id, index) => {
+      const finding = make(id, 'Use an atomic claim.');
+      return { ...finding, location: { ...finding.location, sourceLocator: {
+        analysis: { featureId: index < 5 ? 'feature-one' : 'feature-two', pathId: 'path', domain: 'technical' as const },
+      } } };
+    }))[0];
+    render(<StatefulFindingDocument group={group} />);
+    const ranked = within(screen.getByLabelText('Ranked evidence'));
+    expect(ranked.getByText('5 affected files')).toBeInTheDocument();
+    expect(ranked.queryByRole('button', { name: 'src/d.ts' })).not.toBeInTheDocument();
+    expect(ranked.queryByRole('button', { name: 'src/i.ts' })).not.toBeInTheDocument();
+    await user.click(ranked.getByRole('button', { name: 'Show 2 more files' }));
+    expect(ranked.getByRole('button', { name: 'src/d.ts' })).toBeInTheDocument();
+    expect(ranked.queryByRole('button', { name: 'src/i.ts' })).not.toBeInTheDocument();
+    await user.click(ranked.getByRole('button', { name: 'Show fewer files' }));
+    expect(ranked.queryByRole('button', { name: 'src/d.ts' })).not.toBeInTheDocument();
   });
 
   it('opens the selected saved version in the in-detail reader and returns to the same occurrence', async () => {
@@ -71,7 +128,7 @@ describe('finding detail', () => {
     await user.click(screen.getByRole('button', { name: 'Back to finding' }));
     await waitFor(() => expect(screen.getByRole('article', { name: 'Finding details' })).toBeInTheDocument());
     expect(screen.getByRole('heading', { name: 'src/b.ts:5' })).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: /Selected occurrence/ })).getByText('Deduplicate the callback key.')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Recommended Action' })).getByText('Deduplicate the callback key.')).toBeInTheDocument();
   });
 
   it('carries candidate uncertainty into the full reviewed-source reader', async () => {

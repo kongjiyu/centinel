@@ -25,6 +25,15 @@ export function userFacingError(error: unknown, fallback = 'Something went wrong
   if (/http\s*429|rate[_ -]?limit|token plan|usage limit|too many requests/.test(lower)) {
     return 'The AI service is temporarily rate-limited. Wait a moment or review your usage in Settings before trying again.';
   }
+  if (/\bstatement timeout\b/.test(lower)) {
+    return 'The workspace database took too long to respond. Try again in a moment.';
+  }
+  if (/\bsupabase\b/.test(lower) && /timed? out|timeout|failed to fetch|fetch failed|network/.test(lower)) {
+    return 'The local service could not complete a request to the workspace database. Try again in a moment.';
+  }
+  if (/^the request timed out\b/.test(lower)) {
+    return 'Centinel did not receive a response in time. Try again.';
+  }
   if (/failed to fetch|fetch failed|network|econnrefused|etimedout|timeout|connection refused/.test(lower)) {
     return 'Centinel could not reach the local service. Check that it is running, then try again.';
   }

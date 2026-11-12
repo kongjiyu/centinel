@@ -89,7 +89,6 @@ describe('EmbeddingProviderForm', () => {
   it('offers all published Voyage models, saves the selection, and retains save feedback after refresh', async () => {
     const user = userEvent.setup();
     const { rerender } = renderForm();
-    expect(screen.getByText('Save a model and API key before testing.')).toBeInTheDocument();
     await waitForVoyageModels();
 
     await choose(user, 'Embedding model', 'Voyage 4 Large');
@@ -214,22 +213,10 @@ describe('EmbeddingProviderForm', () => {
     })));
   });
 
-  it('shows model-specific partial usage and leaves the account balance unknown', async () => {
-    vi.mocked(api.embeddingModels).mockResolvedValue(catalog({
-      usage: [{ model: 'voyage-4-lite', knownTokens: 1234, calls: 5, unknownCalls: 2 }],
-    }));
-    renderForm(savedVoyageSetting());
-    await waitForVoyageModels();
-
-    const usage = screen.getByRole('region', { name: 'Recorded usage' });
-    expect(within(usage).getByText('voyage-4-lite')).toBeInTheDocument();
-    expect(within(usage).getByText('At least 1,234')).toBeInTheDocument();
-    expect(within(usage).getByText('5')).toBeInTheDocument();
-    expect(within(usage).getByText('2 of 5 calls have unknown token counts.')).toBeInTheDocument();
-    expect(within(usage).getByText('Remaining usage: Not reported')).toBeInTheDocument();
-    expect(within(usage).getByText(/does not report remaining account balance through a public API/)).toBeInTheDocument();
-    expect(within(usage).getByRole('link', { name: 'Voyage dashboard' })).toHaveAttribute('href', 'https://dashboard.voyageai.com/');
-    expect(within(usage).queryByText('200,000,000')).not.toBeInTheDocument();
+  it('keeps recorded embedding usage out of the provider form', async () => {
+    render(<EmbeddingProviderForm setting={setting()} onRefresh={vi.fn()} />);
+    await screen.findByRole('combobox', { name: 'Embedding model' });
+    expect(screen.queryByRole('region', { name: 'Recorded usage' })).not.toBeInTheDocument();
   });
 
   it('preserves legacy custom provider settings and reports unavailable usage as unknown', async () => {
@@ -247,9 +234,6 @@ describe('EmbeddingProviderForm', () => {
     expect(await screen.findByRole('combobox', { name: 'Provider' })).toHaveTextContent('Custom (OpenAI-compatible)');
     expect(screen.getByLabelText('Embedding model')).toHaveValue('legacy-embed-v1');
     expect(screen.getByLabelText('Base URL')).toHaveValue('https://legacy.example.com/v1');
-    expect(screen.getByText('768 dimensions. Keep existing custom model names unchanged unless you intend to configure a different model.')).toBeInTheDocument();
-    expect(screen.getAllByText('Unknown')).toHaveLength(2);
-    expect(screen.getByText('Centinel usage data is unavailable.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Test saved connection' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -270,8 +254,7 @@ describe('EmbeddingProviderForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Published Voyage model catalog is unavailable.');
     expect(screen.getByRole('combobox', { name: 'Embedding model' })).toBeDisabled();
-    expect(screen.getAllByText('Unknown')).toHaveLength(2);
-    await user.click(screen.getByRole('button', { name: 'Refresh usage' }));
+    await user.click(screen.getByRole('button', { name: 'Retry model catalog' }));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Embedding model' })).toBeEnabled());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await choose(user, 'Embedding model', 'Voyage 4 Large');
@@ -300,75 +283,19 @@ describe('EmbeddingProviderForm', () => {
     expect(screen.getByRole('combobox', { name: 'Embedding model' })).toHaveTextContent('Voyage 4 Lite');
   });
 
-  it('clears the usage refresh spinner after a test-triggered catalog load supersedes manual refresh', async () => {
+
+  it('ignores a test result after saved settings change', async () => {
     const user = userEvent.setup();
-    let resolveManualCatalog!: (result: EmbeddingSettingsCatalog) => void;
-    let resolveTestCatalog!: (result: EmbeddingSettingsCatalog) => void;
-    vi.mocked(api.embeddingModels)
-      .mockResolvedValueOnce(catalog())
-      .mockImplementationOnce(() => new Promise(resolve => { resolveManualCatalog = resolve; }))
-      .mockImplementationOnce(() => new Promise(resolve => { resolveTestCatalog = resolve; }));
-    renderForm(savedVoyageSetting());
-    await waitForVoyageModels();
-
-    await user.click(screen.getByRole('button', { name: 'Refresh usage' }));
-    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Test saved connection' }));
-    await waitFor(() => expect(api.embeddingModels).toHaveBeenCalledTimes(3));
-
-    await act(async () => resolveManualCatalog(catalog()));
-    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
-    await act(async () => resolveTestCatalog(catalog({
-      usage: [{ model: 'voyage-4-lite', knownTokens: 10, calls: 1, unknownCalls: 0 }],
-    })));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh usage' })).toBeEnabled());
-    expect(screen.getByText('10')).toBeInTheDocument();
-  });
-
-  it('ignores stale test and catalog responses after saved model settings change', async () => {
-    const user = userEvent.setup();
-    let resolveInitialCatalog!: (result: EmbeddingSettingsCatalog) => void;
-    let resolveChangedSettingCatalog!: (result: EmbeddingSettingsCatalog) => void;
-    let resolveManualCatalog!: (result: EmbeddingSettingsCatalog) => void;
     let resolveTest!: (result: { status: string; message: string }) => void;
-    vi.mocked(api.embeddingModels)
-      .mockImplementationOnce(() => new Promise(resolve => { resolveInitialCatalog = resolve; }))
-      .mockImplementationOnce(() => new Promise(resolve => { resolveChangedSettingCatalog = resolve; }))
-      .mockImplementationOnce(() => new Promise(resolve => { resolveManualCatalog = resolve; }))
-      .mockResolvedValueOnce(catalog({
-        usage: [{ model: 'voyage-4', knownTokens: 50, calls: 1, unknownCalls: 0 }],
-      }));
     vi.mocked(api.testAiProvider).mockReturnValue(new Promise(resolve => { resolveTest = resolve; }));
-    const firstSetting = savedVoyageSetting();
-    const { rerender } = renderForm(firstSetting);
-
-    await waitFor(() => expect(api.embeddingModels).toHaveBeenCalledOnce());
+    const { rerender } = renderForm(savedVoyageSetting());
     await user.click(screen.getByRole('button', { name: 'Test saved connection' }));
-    expect(await screen.findByRole('button', { name: 'Testing saved connection…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Testing saved connection…' })).toBeDisabled();
     rerender(<EmbeddingProviderForm setting={savedVoyageSetting({
-      model: 'voyage-4',
-      updatedAt: '2026-10-26T10:01:00.000Z',
+      model: 'voyage-4', updatedAt: '2026-10-26T10:01:00.000Z',
     })} onRefresh={refresh} />);
-    await waitFor(() => expect(api.embeddingModels).toHaveBeenCalledTimes(2));
-
-    await user.click(screen.getByRole('button', { name: 'Refresh usage' }));
-    await waitFor(() => expect(api.embeddingModels).toHaveBeenCalledTimes(3));
-    await act(async () => resolveManualCatalog(catalog({
-      usage: [{ model: 'voyage-4', knownTokens: 50, calls: 1, unknownCalls: 0 }],
-    })));
-    expect(screen.getByText('50')).toBeInTheDocument();
-
-    await act(async () => resolveInitialCatalog(catalog({
-      usage: [{ model: 'voyage-4', knownTokens: 7, calls: 1, unknownCalls: 0 }],
-    })));
-    await act(async () => resolveChangedSettingCatalog(catalog({
-      usage: [{ model: 'voyage-4', knownTokens: 7, calls: 1, unknownCalls: 0 }],
-    })));
     await act(async () => resolveTest({ status: 'pass', message: 'Earlier model test completed.' }));
-    await waitFor(() => expect(api.embeddingModels).toHaveBeenCalledTimes(4));
-    expect(screen.queryByText('Connection successful')).not.toBeInTheDocument();
-    expect(screen.queryByText('Tested the saved voyage-4-lite settings for Voyage AI.')).not.toBeInTheDocument();
-    expect(screen.getByText('50')).toBeInTheDocument();
-    expect(screen.queryByText('7')).not.toBeInTheDocument();
+    expect(screen.queryByText('Earlier model test completed.')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Embedding model' })).toHaveTextContent('Voyage 4');
   });
 });

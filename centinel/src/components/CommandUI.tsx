@@ -69,7 +69,7 @@ export function IconButton({ icon: Icon, label, tone = 'neutral', onClick, disab
   disabled?: boolean;
 }) {
   return (
-    <button className={`command-icon-button ${tone === 'danger' ? 'danger' : ''}`} onClick={onClick} disabled={disabled} aria-label={label} title={label}>
+    <button type="button" className={`command-icon-button ${tone === 'danger' ? 'danger' : ''}`} onClick={onClick} disabled={disabled} aria-label={label} title={label}>
       <Icon size={15} />
     </button>
   );

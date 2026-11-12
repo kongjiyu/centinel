@@ -2,6 +2,8 @@ import { boundedSourceRead } from './review/abort.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CentinelApplicationRepository } from './applicationRepository.js';
 import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType, type SourceCurrency } from './artifacts.js';
@@ -12,6 +14,31 @@ const MAX_IMPORT_FILES = 2_000;
 const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_LOCAL_INVENTORY_ENTRIES = 20_000;
 const MAX_LOCAL_INVENTORY_SOURCE_BYTES = 128 * 1024 * 1024;
+const runGit = promisify(execFile);
+
+async function readLocalGitSnapshot(root: string) {
+  const git = async (...args: string[]) => (await runGit('git', ['-C', root, ...args], {
+    timeout: 3000, maxBuffer: 2 * 1024 * 1024, windowsHide: true, encoding: 'utf8',
+  })).stdout;
+  try {
+    const top = (await git('rev-parse', '--show-toplevel')).trim();
+    if (path.relative(root, top)) return null;
+    const [commit, subject] = (await git('show', '-s', '--format=%H%n%s', 'HEAD')).trim().split(/\r?\n/);
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit)) return null;
+    const ref = (await git('symbolic-ref', '--quiet', 'HEAD').catch(() => '')).trim();
+    const branch = ref.startsWith('refs/heads/') && (await git('rev-parse', '--verify', ref).catch(() => '')).trim() === commit
+      ? ref.slice('refs/heads/'.length) : '';
+    const tree = await git('ls-tree', '-rz', commit);
+    const blobs = new Map<string, string>();
+    for (const entry of tree.split('\0')) {
+      const match = /^(?:100644|100755) blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
+      if (match) blobs.set(match[2], match[1]);
+    }
+    return { commit, subject, branch, blobs };
+  } catch {
+    return null;
+  }
+}
 
 export type LocalRepositoryInventory = {
   root: string;
@@ -42,7 +69,7 @@ function isImportableLocalFile(fileName: string): boolean {
     || LOCAL_OTHER_NAMES.has(fileName);
 }
 
-function localRootHash(root: string): string {
+export function localRootHash(root: string): string {
   return sha256(root.toLowerCase());
 }
 
@@ -153,11 +180,22 @@ function clientArtifact(artifact: StoreArtifact, latest?: StoreArtifactVersion):
   const type = validArtifactType(artifact.kind)
     ? artifact.kind
     : validArtifactType(artifact.metadata.type) ? artifact.metadata.type : detectArtifactType(artifact.name);
+  const metadata = latest?.metadata;
+  const commit = metadata?.commitSha;
+  const repository = metadata?.repository;
+  const git = (metadata?.provider === 'github' || metadata?.provider === 'local-git') && typeof repository === 'string' && typeof commit === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit)
+    ? {
+      repository, commit,
+      ...(typeof metadata.branch === 'string' && metadata.branch ? { branch: metadata.branch } : {}),
+      ...(typeof metadata.commitSubject === 'string' && metadata.commitSubject ? { subject: metadata.commitSubject } : {}),
+    } : undefined;
   return {
     id: artifact.id,
     projectId: artifact.projectId,
     sourceId: artifact.sourceId,
     versionId: latest?.id,
+    ...(git ? { git } : {}),
+    ...(typeof artifact.metadata.localRepositoryName === 'string' ? { localRepositoryName: artifact.metadata.localRepositoryName } : {}),
     type,
     source: displaySource(artifact),
     fileName: artifact.name,
@@ -233,19 +271,24 @@ export async function readClientArtifactContent(client: SupabaseClient, userId: 
 
 export async function uploadClientArtifact(
   repository: CentinelApplicationRepository,
-  input: { projectId: string; fileName: string; content: Buffer; type?: ArtifactType; path?: string; source?: ArtifactSource; originalPath?: string | null },
+  input: { projectId: string; fileName: string; content: Buffer; type?: ArtifactType; path?: string; source?: ArtifactSource; sourceId?: string; originalPath?: string | null; git?: Artifact['git']; localRepositoryName?: string },
 ): Promise<Artifact> {
   const type = input.type ?? detectArtifactType(input.fileName);
   const artifact = await repository.saveArtifact({
     projectId: input.projectId,
-    sourceId: null,
+    sourceId: input.sourceId ?? null,
     path: input.path ?? `uploads/${crypto.randomUUID()}-${input.fileName}`,
     name: input.fileName,
     kind: type,
     mimeType: 'application/octet-stream',
-    metadata: { source: input.source ?? 'documents', originalPath: input.originalPath ?? null, type },
+    metadata: { source: input.source ?? 'documents', originalPath: input.originalPath ?? null, type,
+      ...(input.localRepositoryName ? { localRepositoryName: input.localRepositoryName } : {}) },
   });
-  await repository.uploadArtifactVersion({ projectId: input.projectId, artifactId: artifact.id, content: input.content });
+  await repository.uploadArtifactVersion({ projectId: input.projectId, artifactId: artifact.id, content: input.content,
+    ...(input.git ? { sourceRevision: input.git.commit, metadata: {
+      provider: 'local-git', repository: input.git.repository, commitSha: input.git.commit, branch: input.git.branch, commitSubject: input.git.subject,
+    } } : {}),
+  });
   return toClientArtifact(repository, artifact);
 }
 
@@ -255,13 +298,14 @@ export async function importLocalRepositoryArtifacts(
   repository: CentinelApplicationRepository,
   projectId: string,
   repoPath: string,
-  options: { observedInventory?: LocalRepositoryInventory; priorCoverage?: LocalImportCoverage; pruneArtifactIds?: string[] } = {},
+  options: { observedInventory?: LocalRepositoryInventory; priorCoverage?: LocalImportCoverage; pruneArtifactIds?: string[]; sourceId?: string } = {},
 ): Promise<{ imported: Artifact[]; skipped: string[]; complete: boolean }> {
   if (typeof repoPath !== 'string' || !repoPath.trim()) throw new Error('Path is not a valid directory');
   const root = path.resolve(repoPath);
   const stat = await fs.stat(root).catch(() => null);
   if (!stat?.isDirectory()) throw new Error('Path is not a valid directory');
   const observedInventory = options.observedInventory ?? await inspectLocalRepository(root);
+  const gitSnapshot = await readLocalGitSnapshot(root);
   if (observedInventory && (observedInventory.root !== root || observedInventory.rootHash !== localRootHash(root))) {
     throw new Error('Local repository inventory does not match the selected root.');
   }
@@ -288,9 +332,14 @@ export async function importLocalRepositoryArtifacts(
       if (fileStat.size > MAX_IMPORT_FILE_BYTES) { skipped.push(relativePath); completeContentInventory = false; continue; }
       try {
         const content = await fs.readFile(fullPath);
+        const blob = gitSnapshot?.blobs.get(relativePath);
+        const git = gitSnapshot && blob && crypto.createHash(gitSnapshot.commit.length === 64 ? 'sha256' : 'sha1')
+          .update(`blob ${content.length}\0`).update(content).digest('hex') === blob
+          ? { repository: path.basename(root), commit: gitSnapshot.commit, branch: gitSnapshot.branch, subject: gitSnapshot.subject } : undefined;
         imported.push(await uploadClientArtifact(repository, {
-          projectId, fileName: entry.name, content, path: relativePath,
-          source: 'repository', originalPath: fullPath,
+          projectId, fileName: entry.name, content, path: options.sourceId ? `local-repositories/${options.sourceId}/${relativePath}` : relativePath,
+          source: 'repository', sourceId: options.sourceId, originalPath: fullPath, git,
+          ...(options.sourceId ? { localRepositoryName: path.basename(root) } : {}),
         }));
       } catch {
         skipped.push(relativePath);

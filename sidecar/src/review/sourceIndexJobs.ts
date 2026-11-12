@@ -3,6 +3,7 @@ import type { Artifact } from '../artifacts.js';
 import type { AuthenticatedRequest } from '../auth/gateway.js';
 import { RefreshableSupabaseRuntime } from '../runtime/supabaseRuntime.js';
 import { providerPause } from './providerPause.js';
+import { isAssessmentHeld } from './assessmentHold.js';
 import type { RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
 
 export type SourceIndexJob = {
@@ -38,8 +39,7 @@ export class SourceIndexStopped extends Error {
   constructor(readonly code: string) { super(`Source indexing stopped: ${code}.`); }
 }
 export function assertSourceIndexProviderAllowed(projectId: string): void {
-  const allowed = process.env.CENTINEL_AI_ASSESSMENT_PROJECT_ALLOWLIST?.split(',').map(id => id.trim()).filter(Boolean);
-  if (process.env.CENTINEL_AI_ASSESSMENT_PAUSED === '1' || allowed && !allowed.includes(projectId))
+  if (isAssessmentHeld(projectId))
     throw new SourceIndexStopped('assessment_paused');
 }
 

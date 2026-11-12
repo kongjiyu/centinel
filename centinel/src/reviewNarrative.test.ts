@@ -15,19 +15,6 @@ const trace = (events: HarnessEvent[], modelStatus = 'succeeded'): ReviewHarness
   workflow: { version: 'v1', reference: '', stages: [] }, review: { id: session.id, name: session.name, status: session.status, modelStatus, progress: { stage: 'complete', completedStages: [] }, updatedAt: '' }, events,
 });
 describe('review narrative', () => {
-  it('shows bounded retry waits without provider payloads or a false active retry after termination', () => {
-    const retry: HarnessEvent = { reviewId: session.id, event: 'review_retry_scheduled', createdAt: '2026-10-18T00:00:00Z',
-      detail: { kind: 'ai', attempt: 2, maxAttempts: 5, delayMs: 3000, nextAttemptAt: '2026-10-18T00:00:03Z', service: 'PRIVATE PAYLOAD' } };
-    const running = { ...session, status: 'running' } as StaticSession;
-    const input = { session: running, findings: [], trace: trace([retry]), now: Date.parse('2026-10-18T00:00:01Z') };
-    expect(buildReviewNarrative(input).retryUpdate).toBe('AI request: waiting to retry attempt 2 of 5 in 2s.');
-    expect(buildReviewNarrative({ ...input, session }).retryUpdate).toBe('AI request: retry attempt 2 of 5 was scheduled after a 3s wait.');
-    expect(buildReviewNarrative({ ...input, trace: trace([{ ...retry, detail: { ...retry.detail, kind: 'external', maxAttempts: 3 } }]) }).retryUpdate)
-      .toContain('Service request: waiting to retry attempt 2 of 3');
-    for (const invalid of [{ ...retry, reviewId: 'another-review' }, { ...retry, detail: { ...retry.detail, attempt: 6 } }, { ...retry, detail: { ...retry.detail, delayMs: -1 } }]) {
-      expect(buildReviewNarrative({ ...input, trace: trace([invalid]) }).retryUpdate).toBeNull();
-    }
-  });
   it('summarizes recorded project comparison outcomes without inventing verification for older reviews', () => {
     const result = buildReviewNarrative({ session, findings: [], trace: trace([event('correlate_findings', 'completed', '2026-10-18T00:01:00Z',
       { output: { checkedProjectHistory: true, counts: { new: 1, recurring: 2, regressed: 0, resolved: 3, carried_over: 1 }, ambiguousCount: 1 } }, 'persisting_evidence')]) });
@@ -48,11 +35,25 @@ describe('review narrative', () => {
   });
   it('uses stage-specific finding links and excludes full descriptions and raw metadata', () => {
     const events = [event('run_model', 'completed', '2026-10-18T00:01:00Z', { input: { prompt: 'PRIVATE PROMPT' }, output: { reasoning: 'PRIVATE THOUGHT' }, durationMs: 2000 }, 'model_analysis')];
-    const result = buildReviewNarrative({ session, trace: trace(events), findings: [finding, { ...finding, id: 'old', verifier: undefined }] });
-    expect(result.stages[3].findings).toEqual([{ id: finding.id, label: plainReviewText(finding.title), aspect: 'Business rules' }]);
+    const result = buildReviewNarrative({ session, trace: trace(events), findings: [finding, { ...finding, id: 'old', title: 'Separate historic issue', verifier: undefined }] });
+    expect(result.stages[3].findings).toEqual([{ id: finding.id, label: plainReviewText(finding.title), aspect: 'Business rules', filePath: 'parser.ts', lineNumber: 31 }]);
     expect(result.stages[0].findings).toEqual([]);
     expect(result.unassignedFindings.map(item => item.id)).toEqual(['old']);
     expect(JSON.stringify(result)).not.toMatch(/PRIVATE|FULL PRIVATE FINDING DETAIL/);
+  });
+  it('describes paths in the submitted batch while their assessments are pending', () => {
+    const activity = trace([event('run_model', 'started', '2026-10-18T00:00:00Z',
+      { input: { featureIds: ['checkout'], reasoning: 'PRIVATE THOUGHT' } }, 'model_analysis')]);
+    activity.analysisMap = {
+      schemaVersion: 1, status: 'unverified',
+      coverage: { sourceArtifacts: 1, parsedArtifacts: 1, exhaustive: false, unresolvedEdgeCount: 0, limitations: [], unsupportedArtifacts: [] },
+      features: [{ id: 'checkout', label: 'Checkout', provisional: true, entryPoints: [], assessments: [], unresolved: [],
+        paths: [{ id: 'stock', label: 'Check stock', kind: 'branch', status: 'unverified', evidence: [] }] }],
+    };
+    const result = buildReviewNarrative({ session: { ...session, status: 'running' }, trace: activity, findings: [] });
+    expect(result.stages[3].features?.[0].summary).toContain('Check stock');
+    expect(result.stages[3].features?.[0].summary).toContain('pending validation');
+    expect(JSON.stringify(result)).not.toContain('PRIVATE THOUGHT');
   });
   it('computes elapsed wall time without adding overlapping and nested steps', () => {
     const events = [
@@ -86,7 +87,11 @@ describe('review narrative', () => {
     expect(live.timing.duration).toBe('12s');
     expect(live.timing.endedAt).toBeNull();
     expect(live.stages[0].state).toBe('In progress');
-    expect(live.stages[0].purpose).toContain('I’ll start');
+    expect(live.stages[0]).toMatchObject({
+      focus: 'Selected file versions and confirmed requirements.',
+      goal: 'Record what this Review can assess and where evidence is missing.',
+      next: 'No action needed while the Review runs.',
+    });
     expect(live.stages[1].state).toBe('Not started');
     const failed = buildReviewNarrative({ session: { ...session, status: 'failed' }, trace: trace(events), findings: [] });
     expect(failed.stages[0].state).toBe('Interrupted');
@@ -100,6 +105,18 @@ describe('review narrative', () => {
     expect(result.summary.blockers.join(' ')).toContain('activity history is unavailable');
     const wrong = trace([event('read_source', 'completed', '2026-10-18T00:00:00Z')]); wrong.review.id = 'other';
     expect(buildReviewNarrative({ session, trace: wrong, findings: [] }).detailedHistoryAvailable).toBe(false);
+  });
+  it('explains the recorded active stage while detailed history is unavailable', () => {
+    const running = { ...session, status: 'running' as const, progressJson: JSON.stringify({
+      stage: 'model_analysis', completedStages: ['freezing_sources'],
+    }) };
+    const result = buildReviewNarrative({ session: running, findings: [] });
+    expect(result.stages[3]).toMatchObject({
+      state: 'In progress', duration: 'Not recorded', outcome: '',
+      goal: 'Identify behaviour gaps and record what remains unverified.',
+    });
+    expect(result.stages[0].state).toBe('Completed');
+    expect(result.stages[4].state).toBe('Not started');
   });
   it('keeps incomplete analysis, missing findings and human decisions distinct', () => {
     const result = buildReviewNarrative({ session, trace: trace([], 'partial'), findings: [], findingsError: 'offline' });

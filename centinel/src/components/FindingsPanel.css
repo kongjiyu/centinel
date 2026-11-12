@@ -1,13 +1,139 @@
-.project-findings-table.project-findings-table-project {
+.findings-panel-project .project-findings-table-region {
   min-width: 0;
+  overflow-x: auto;
 }
 
-.command-project-detail .findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(1) { width: 10%; }
-.command-project-detail .findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(2) { width: 56%; }
-.command-project-detail .findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(3) { width: 17%; }
-.command-project-detail .findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(4) { width: 17%; }
+.findings-panel-project .project-findings-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  overflow: hidden;
+}
 
-.command-project-detail .project-findings-project-only .project-finding-priority {
+.findings-panel-project .project-findings-table th {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--workspace-border);
+  background: var(--workspace-surface-subtle);
+  color: var(--workspace-text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: 650;
+  text-align: left;
+}
+
+.findings-panel-project .project-findings-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--workspace-border);
+  color: var(--workspace-text);
+  font-size: var(--font-size-support);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.findings-panel-project .project-findings-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.findings-panel-project .project-findings-table tbody tr {
+  outline: none;
+  cursor: pointer;
+  transition: background-color var(--workspace-standard) var(--workspace-ease), box-shadow var(--workspace-standard) var(--workspace-ease);
+}
+
+.findings-panel-project .project-findings-table tbody tr:hover,
+.findings-panel-project .project-findings-table tbody tr:focus-visible,
+.findings-panel-project .project-findings-table tbody tr.selected {
+  background: var(--workspace-surface-hover);
+}
+
+.findings-panel-project .project-findings-table tbody tr:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--workspace-focus);
+}
+
+.findings-panel-project .project-finding-description {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.findings-panel-project .project-finding-description strong {
+  overflow: hidden;
+  color: var(--workspace-text);
+  font-size: var(--font-size-support);
+  font-weight: 600;
+  line-height: 19px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.findings-panel-project .project-finding-description small {
+  overflow: hidden;
+  color: var(--workspace-text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-meta);
+  line-height: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.findings-panel-project .project-finding-description .finding-see-more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-primary);
+  font: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: 650;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.findings-panel-project .project-finding-description .finding-see-more:hover,
+.findings-panel-project .project-finding-description .finding-see-more:focus-visible {
+  text-decoration: underline;
+}
+
+.findings-panel-project .project-finding-risk {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 3px 7px;
+  border: 1px solid currentColor;
+  border-radius: var(--workspace-radius-pill);
+  font-size: var(--font-size-meta);
+  font-weight: 650;
+  line-height: 16px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.project-finding-risk.project-risk-level-critical { color: var(--color-level-critical); }
+.project-finding-risk.project-risk-level-high { color: var(--color-level-high); }
+.project-finding-risk.project-risk-level-medium { color: var(--color-level-medium); }
+.project-finding-risk.project-risk-level-low { color: var(--color-level-low); }
+
+.findings-panel-project .project-risk-level-unclassified {
+  border-color: var(--workspace-border-strong);
+  color: var(--workspace-text-muted);
+  text-transform: none;
+}
+
+.findings-panel-project .project-findings-table-region > .findings-pagination {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(3) { width: 17%; }
+.findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(4) { width: 17%; }
+
+.findings-panel-project .project-finding-priority {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
@@ -23,31 +149,31 @@
   white-space: nowrap;
 }
 
-.command-project-detail .project-findings-project-only .project-priority-level-critical {
+.findings-panel-project .project-priority-level-critical {
   border-color: var(--color-level-critical);
   background: var(--color-level-critical-subtle);
   color: var(--color-level-critical);
 }
 
-.command-project-detail .project-findings-project-only .project-priority-level-high {
+.findings-panel-project .project-priority-level-high {
   border-color: var(--color-level-high);
   background: var(--color-level-high-subtle);
   color: var(--color-level-high);
 }
 
-.command-project-detail .project-findings-project-only .project-priority-level-medium {
+.findings-panel-project .project-priority-level-medium {
   border-color: var(--color-level-medium);
   background: var(--color-level-medium-subtle);
   color: var(--color-level-medium);
 }
 
-.command-project-detail .project-findings-project-only .project-priority-level-low {
+.findings-panel-project .project-priority-level-low {
   border-color: var(--color-level-low);
   background: var(--color-level-low-subtle);
   color: var(--color-level-low);
 }
 
-.command-project-detail .project-findings-project-only .project-priority-level-unclassified {
+.findings-panel-project .project-priority-level-unclassified {
   border-color: var(--workspace-border-strong, var(--color-border-strong));
   background: var(--workspace-surface-subtle, var(--color-surface-subtle));
   color: var(--workspace-text-muted, var(--color-text-muted));
@@ -60,18 +186,57 @@
   font-size: var(--font-size-meta);
 }
 
-@media (max-width: 720px) {
-  .workspace-mode .findings-table-only.project-findings-project-only .project-findings-table {
-    min-width: 0;
-    table-layout: fixed;
-  }
+.findings-table-scroll-hint { display: none; }
 
-  .workspace-mode .findings-table-only.project-findings-project-only .project-findings-table :is(th, td):nth-child(1) { width: 14%; }
-  .workspace-mode .findings-table-only.project-findings-project-only .project-findings-table :is(th, td):nth-child(2) { width: 42%; }
-  .workspace-mode .findings-table-only.project-findings-project-only .project-findings-table :is(th, td):nth-child(3) { width: 22%; }
-  .workspace-mode .findings-table-only.project-findings-project-only .project-findings-table :is(th, td):nth-child(4) { width: 22%; }
-  .workspace-mode .findings-table-only.project-findings-project-only .project-findings-table :is(th, td) { display: table-cell; }
-  .workspace-mode .findings-table-only.project-findings-project-only .project-finding-description strong { white-space: normal; overflow-wrap: anywhere; }
-  .workspace-mode .findings-table-only.project-findings-project-only .project-finding-priority,
-  .workspace-mode .findings-table-only.project-findings-project-only .project-finding-risk { padding-inline: 4px; font-size: var(--font-size-meta); }
+@media (max-width: 720px) {
+  .findings-table-scroll-hint { display: block; margin: 0 0 8px; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
+  .findings-panel-project .project-findings-table { min-width: 440px; }
+  .findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(3) { width: 22%; }
+  .findings-panel-project .project-findings-table.project-findings-table-project :is(th, td):nth-child(4) { width: 20%; }
+  .findings-panel-project .finding-see-more { min-height: 44px; }
+}
+
+.findings-count-label {
+  margin-block-start: 12px;
+  color: var(--workspace-text-muted);
+  font-size: var(--font-size-support);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keep IDs aligned across the evidence tables, including when Traceability opens its detail panel. */
+:is(.project-findings-table.project-findings-table-project, .review-traceability-table) :is(th, td):first-child {
+  width: 112px;
+}
+
+.finding-feature-summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.finding-feature-preview {
+  position: fixed;
+  z-index: 100;
+  width: min(272px, calc(100vw - 24px));
+  max-height: 156px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--workspace-radius-panel, 12px);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(23, 32, 51, .12);
+  color: var(--color-text);
+  font-size: var(--font-size-support);
+  overflow-wrap: anywhere;
+}
+.finding-feature-preview.is-above { transform: translateY(-100%); }
+.finding-feature-preview ul { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.finding-feature-preview .btn-link { margin-top: 8px; }
+
+@media (max-width: 720px) {
+  :is(.project-findings-table.project-findings-table-project, .review-traceability-table) :is(th, td):first-child {
+    width: 76px;
+  }
 }

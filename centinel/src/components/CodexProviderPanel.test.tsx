@@ -7,7 +7,7 @@ import { openExternalUrl } from '../utils/openExternalUrl';
 import type { AiProviderSetting } from '../types';
 
 vi.mock('../api/client', () => ({ api: {
-  codexStatus: vi.fn(), codexModels: vi.fn(), codexLogin: vi.fn(), codexLogout: vi.fn(), codexCancelLogin: vi.fn(), testCodex: vi.fn(), updateAiSetting: vi.fn(),
+  codexStatus: vi.fn(), codexSubscriptionUsage: vi.fn(), codexModels: vi.fn(), codexLogin: vi.fn(), codexLogout: vi.fn(), codexCancelLogin: vi.fn(), testCodex: vi.fn(), updateSharedAiSetting: vi.fn(),
 } }));
 vi.mock('../utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 const connected = { available: true, connected: true, accountLabel: 'tester@example.test', message: 'Connected' };
@@ -36,6 +36,7 @@ function setting(id: 'text' | 'vision', provider: AiProviderSetting['provider'],
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.codexStatus).mockResolvedValue(connected);
+  vi.mocked(api.codexSubscriptionUsage).mockResolvedValue({ fiveHour: null, weekly: null });
   vi.mocked(api.codexModels).mockResolvedValue(catalog);
   vi.mocked(api.testCodex).mockResolvedValue({ status: 'pass', message: 'Codex test passed.' });
   vi.mocked(api.codexLogin).mockResolvedValue({ loginId: 'login-1', authUrl: 'https://auth.openai.com/oauth/authorize?state=test' });
@@ -48,171 +49,104 @@ async function chooseModel(user: ReturnType<typeof userEvent.setup>, label: stri
 }
 
 describe('Codex provider settings', () => {
-  it('discloses limited catalog freshness while retaining real installed CLI choices', async () => {
-    vi.mocked(api.codexModels).mockResolvedValue(catalog.map(model=>({...model,catalogSource:'codex',catalogWarning:'account_catalog_unavailable'})));
+  it('shows all catalog models and tests a text-only selection without screenshots', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.codexModels).mockResolvedValue([...catalog.map(model => ({ ...model, catalogSource: 'codex' as const })),
+      { id: 'unknown', label: 'Unknown vision', supportsImages: true, imageSupportKnown: false, isDefault: false } as TestModel]);
     render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    expect(await screen.findByText(/Showing models reported by the installed Codex CLI/)).toBeVisible();
-    expect(screen.getByRole('combobox',{name:'Review model'})).toBeEnabled();
-    expect(api.updateAiSetting).not.toHaveBeenCalled();
+    expect(await screen.findByText('Installed CLI catalog')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    expect(screen.getByRole('option', { name: 'Vision Model' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Unknown vision (screenshot support unverified)' })).toBeVisible();
+    await user.click(screen.getByRole('option', { name: 'Model One (text only)' }));
+    expect(screen.getByText(/Dynamic Testing requires confirmed screenshot support/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Test connection' }));
+    expect(api.testCodex).toHaveBeenCalledWith('model-1', false);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.updateSharedAiSetting).toHaveBeenCalledWith(expect.objectContaining({ model: 'model-1' }));
   });
-  it('loads real account models without preselecting the catalog default and saves separate role choices explicitly', async () => {
+
+  it('tests and saves one model for both workflows', async () => {
     const user = userEvent.setup();
     render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-
-    await screen.findByText('Connected as tester@example.test');
-    expect(await screen.findByRole('combobox', { name: 'Review model' })).toHaveTextContent('Choose an available model');
-    expect(screen.getByRole('combobox', { name: 'Dynamic testing model' })).toHaveTextContent('Choose an available model');
-    expect(screen.getByRole('button', { name: 'Use for Review' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Use for Dynamic' })).toBeDisabled();
-    expect(api.codexModels).toHaveBeenCalledOnce();
-
-    await chooseModel(user, 'Review model', 'Model One');
-    await chooseModel(user, 'Dynamic testing model', 'Vision Model');
-    await user.click(screen.getByRole('button', { name: 'Use for Review' }));
-    await waitFor(() => expect(api.updateAiSetting).toHaveBeenCalledWith('text', {
-      provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: 'model-1', fallbackEnabled: false,
-    }));
-    await user.click(screen.getByRole('button', { name: 'Use for Dynamic' }));
-    expect(api.updateAiSetting).toHaveBeenLastCalledWith('vision', expect.objectContaining({ model: 'vision-model' }));
-    expect(refresh).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps model selection operable from the keyboard', async () => {
-    const user = userEvent.setup();
-    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    const review = await screen.findByRole('combobox', { name: 'Review model' });
-
-    review.focus();
-    await user.keyboard('{Enter}{Home}{Enter}');
-
-    expect(review).toHaveFocus();
-    expect(review).toHaveTextContent('Model One');
-    expect(screen.getByRole('button', { name: 'Use for Review' })).toBeEnabled();
-  });
-
-  it('announces account catalog loading and keeps model choices disabled until it completes', async () => {
-    let resolveCatalog!: (models: Awaited<ReturnType<typeof api.codexModels>>) => void;
-    vi.mocked(api.codexModels).mockImplementation(() => new Promise(resolve => { resolveCatalog = resolve; }));
-    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-
-    await screen.findByText('Connected as tester@example.test');
-    expect(screen.getByRole('status')).toHaveTextContent('Loading available Codex models…');
-    const review = screen.getByRole('combobox', { name: 'Review model' });
-    expect(review).toBeDisabled();
-
-    await act(async () => resolveCatalog(catalog));
-    await waitFor(() => expect(review).toBeEnabled());
-    expect(review).toHaveTextContent('Choose an available model');
-  });
-
-  it('shows persisted Review and Dynamic models and does not silently replace a model missing from the account list', async () => {
-    const user = userEvent.setup();
-    render(<CodexProviderPanel settings={[
-      setting('text', 'codex', 'saved-old-review'),
-      setting('vision', 'codex', 'vision-model'),
-    ]} onRefresh={refresh} />);
-
-    await screen.findByText('Connected as tester@example.test');
-    expect(screen.getByText('Codex · saved-old-review')).toBeInTheDocument();
-    expect(screen.getByText('Codex · vision-model')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('is not in this account’s current list.'));
-    expect(screen.getByRole('combobox', { name: 'Review model' })).toHaveTextContent('Choose an available model');
-    expect(screen.getByRole('button', { name: 'Use for Review' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Dynamic testing model' })).toHaveTextContent('Vision Model');
-
-    await chooseModel(user, 'Review model', 'Model One');
-    expect(screen.getByText('Codex · saved-old-review')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Use for Review' }));
-    await waitFor(() => expect(api.updateAiSetting).toHaveBeenCalledWith('text', expect.objectContaining({ model: 'model-1' })));
-  });
-
-  it('guards Dynamic testing and screenshot tests with the selected model image capability', async () => {
-    const user = userEvent.setup();
-    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    await screen.findByRole('combobox', { name: 'Dynamic testing model' });
-
-    await chooseModel(user, 'Dynamic testing model', 'Model One');
-    expect(screen.getByText('This model supports text only. Dynamic testing requires screenshot support.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Test screenshot' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Use for Dynamic' })).toBeDisabled();
-
-    await chooseModel(user, 'Dynamic testing model', 'Vision Model');
-    expect(screen.getByRole('button', { name: 'Test screenshot' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Use for Dynamic' })).toBeEnabled();
-    await user.click(screen.getByRole('button', { name: 'Test screenshot' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Model' })).toBeEnabled());
+    await chooseModel(user, 'Model', 'Vision Model');
+    await user.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(api.testCodex).toHaveBeenCalledWith('vision-model', true);
+    expect(await screen.findByText('Codex test passed.')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.updateSharedAiSetting).toHaveBeenCalledWith({ provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: 'vision-model' });
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
-  it('keeps Dynamic disabled when the account catalog cannot confirm screenshot support', async () => {
-    vi.mocked(api.codexModels).mockResolvedValueOnce([
-      { id: 'unknown-images', label: 'Image support not confirmed', supportsImages: false, isDefault: true, imageSupportKnown: false },
-    ] as TestModel[]);
+  it('keeps model selection keyboard accessible', async () => {
     const user = userEvent.setup();
     render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    await screen.findByRole('combobox', { name: 'Dynamic testing model' });
-    await chooseModel(user, 'Dynamic testing model', 'Image support not confirmed');
-
-    expect(screen.getByText(/Screenshot support could not be confirmed/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Test screenshot' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Use for Dynamic' })).toBeDisabled();
+    const select = await screen.findByRole('combobox', { name: 'Model' });
+    await waitFor(() => expect(select).toBeEnabled());
+    select.focus();
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(select).toHaveTextContent('Model One (text only)');
   });
 
-  it('tests the selected Review model and displays failures honestly', async () => {
+  it('retains the saved model when it cannot be selected and allows catalog recovery', async () => {
     const user = userEvent.setup();
-    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    await screen.findByRole('combobox', { name: 'Review model' });
-    await chooseModel(user, 'Review model', 'Vision Model');
-    await user.click(screen.getByRole('button', { name: 'Test text' }));
-    expect(api.testCodex).toHaveBeenCalledWith('vision-model');
-
-    vi.mocked(api.testCodex).mockResolvedValue({ status: 'fail', message: 'Unexpected text response.' });
-    await user.click(screen.getByRole('button', { name: 'Test text' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Unexpected text response.');
+    vi.mocked(api.codexModels).mockRejectedValueOnce(new Error('Catalog unavailable'));
+    render(<CodexProviderPanel settings={[setting('text', 'codex', 'old-model')]} onRefresh={refresh} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Catalog unavailable');
+    await user.click(screen.getByRole('button', { name: 'Refresh Codex connection' }));
+    expect(await screen.findByText('Saved model unavailable: old-model')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
   });
 
-  it('provides a retry after account model loading fails and handles an empty catalog explicitly', async () => {
-    vi.mocked(api.codexModels).mockRejectedValueOnce(new Error('Account catalog is temporarily unavailable.'));
+  it('announces pending and empty model catalogs', async () => {
+    let resolve!: (models: TestModel[]) => void;
+    vi.mocked(api.codexModels).mockImplementationOnce(() => new Promise(result => { resolve = result; }));
+    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
+    expect(await screen.findByText('Loading models…')).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeDisabled();
+    await act(async () => resolve([]));
+    expect(await screen.findByText('No Codex models are available.')).toBeVisible();
+  });
+
+  it('reports provider test failures', async () => {
     const user = userEvent.setup();
-    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Account catalog is temporarily unavailable.');
-
-    vi.mocked(api.codexModels).mockResolvedValueOnce([]);
-    await user.click(screen.getByRole('button', { name: 'Refresh models' }));
-    expect(await screen.findByText('No Codex models are available for this account.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Use for Review' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Use for Dynamic' })).toBeDisabled();
+    vi.mocked(api.testCodex).mockResolvedValue({ status: 'fail', message: 'Provider failed.' });
+    render(<CodexProviderPanel settings={[setting('text', 'codex', 'vision-model')]} onRefresh={refresh} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Test connection' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Provider failed.');
   });
 
-  it('opens browser sign-in, allows explicit cancellation, and refreshes connection', async () => {
+  it('opens browser sign-in and allows explicit cancellation', async () => {
+    const user = userEvent.setup();
     vi.mocked(api.codexStatus).mockResolvedValue(disconnected);
-    const user = userEvent.setup(); render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    await user.click(await screen.findByRole('button', { name: 'Connect ChatGPT' }));
+    render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
+    const connect = await screen.findByRole('button', { name: 'Connect Codex' });
+    await waitFor(() => expect(connect).toBeEnabled());
+    await user.click(connect);
     expect(openExternalUrl).toHaveBeenCalledWith('https://auth.openai.com/oauth/authorize?state=test');
-    await user.click(await screen.findByRole('button', { name: 'Cancel sign-in' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
     expect(api.codexCancelLogin).toHaveBeenCalledWith('login-1');
-    vi.mocked(api.codexStatus).mockResolvedValue(connected);
-    await user.click(screen.getByRole('button', { name: 'Refresh connection' }));
-    expect(await screen.findByText('Connected as tester@example.test')).toBeInTheDocument();
   });
 
-  it('disconnects only the local integration and keeps saved Codex model names visible', async () => {
+  it('disconnects locally without changing saved settings', async () => {
     const user = userEvent.setup();
-    render(<CodexProviderPanel settings={[setting('text', 'codex', 'model-1')]} onRefresh={refresh} />);
-    await screen.findByRole('combobox', { name: 'Review model' });
-    vi.mocked(api.codexStatus).mockResolvedValue(disconnected);
-    await user.click(screen.getByRole('button', { name: 'Disconnect ChatGPT' }));
+    vi.mocked(api.codexStatus).mockResolvedValueOnce(connected).mockResolvedValue(disconnected);
+    render(<CodexProviderPanel settings={[setting('text', 'codex', 'vision-model')]} onRefresh={refresh} />);
+    await user.click(await screen.findByRole('button', { name: 'Disconnect' }));
     expect(api.codexLogout).toHaveBeenCalledOnce();
-    expect(api.updateAiSetting).not.toHaveBeenCalled();
-    expect(await screen.findByRole('button', { name: 'Connect ChatGPT' })).toBeEnabled();
-    expect(screen.queryByRole('combobox', { name: 'Review model' })).not.toBeInTheDocument();
-    expect(screen.getByText('Codex · model-1')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Connect Codex' })).toBeEnabled();
+    expect(api.updateSharedAiSetting).not.toHaveBeenCalled();
   });
 
-  it('shows a recoverable missing CLI state', async () => {
-    vi.mocked(api.codexStatus).mockResolvedValue({ ...disconnected, available: false, message: 'Install Codex CLI or configure CENTINEL_CODEX_BIN.' });
+  it('shows when the local CLI is unavailable', async () => {
+    vi.mocked(api.codexStatus).mockResolvedValue({ ...disconnected, available: false });
     render(<CodexProviderPanel settings={[]} onRefresh={refresh} />);
-    expect(await screen.findByText(/Install Codex CLI/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect ChatGPT' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Refresh connection' })).toBeEnabled();
+    await waitFor(() => expect(screen.getAllByText('Unavailable').length).toBeGreaterThan(2));
+    expect(screen.getByRole('button', { name: 'Connect Codex' })).toBeDisabled();
   });
+
 });

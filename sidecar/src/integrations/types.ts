@@ -92,6 +92,7 @@ export type IntegrationCredential = OAuthTokens;
 
 export type BrowseOptions = {
   remoteId?: string;
+  branch?: string;
   cursor?: string | null;
   query?: string;
   pageSize?: number;
@@ -100,7 +101,7 @@ export type BrowseOptions = {
 export type BrowseEntry = {
   id: string;
   name: string;
-  kind: 'repository' | 'branch' | 'folder' | 'file' | 'workspace' | 'channel';
+  kind: 'repository' | 'branch' | 'commit' | 'folder' | 'file' | 'workspace' | 'channel';
   mimeType?: string | null;
   remoteUrl?: string | null;
   revision?: string | null;

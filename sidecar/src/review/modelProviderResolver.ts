@@ -5,6 +5,7 @@ import { createSupabaseClient } from '../supabase.js';
 import type { AiApiFormat, AiProvider } from '../settings.js';
 import { ConfiguredTextModelProvider, type ModelSettingResolver } from './modelProvider.js';
 import type { ModelProviderSettings, StaticAnalysisModelProvider } from './types.js';
+import { GEMINI_OAUTH_BASE_URL, isGeminiOAuthModelId } from '../model/geminiOAuth.js';
 
 /**
  * The model configuration row deliberately contains no plaintext key.  The
@@ -148,11 +149,18 @@ function resolveSettings(record: ModelConfigurationRecord): { primary: ModelProv
   if ((provider === 'codex') !== (apiFormat === 'codex-app-server')) throw new ModelConfigurationError('Codex provider and format must be selected together.', 'invalid_configuration');
   const baseUrl = record.baseUrl?.trim() ?? '';
   const model = record.model.trim();
+  const oauthProject = record.metadata?.geminiOAuthProject;
+  if (oauthProject != null && (typeof oauthProject !== 'string' || !oauthProject || provider !== 'gemini'
+    || apiFormat !== 'google-native' || baseUrl !== GEMINI_OAUTH_BASE_URL || !isGeminiOAuthModelId(model))) {
+    throw new ModelConfigurationError('Gemini OAuth configuration is invalid.', 'invalid_configuration');
+  }
   if ((provider !== 'codex' && !baseUrl) || !model) throw new ModelConfigurationError('Primary Model Provider configuration is incomplete.', 'invalid_configuration');
   const primary: ModelProviderSettings = {
     provider,
     apiFormat,
-    apiKey: provider === 'codex' ? '' : unwrapSecret(record.secretCiphertext, 'Primary'),
+    apiKey: provider === 'codex' || oauthProject ? '' : unwrapSecret(record.secretCiphertext, 'Primary'),
+    ...(typeof oauthProject === 'string' ? { geminiOAuthProject: oauthProject } : {}),
+    ...(provider === 'codex' && typeof record.metadata?.codexScreenshots === 'boolean' ? { codexScreenshots: record.metadata.codexScreenshots } : {}),
     baseUrl,
     model,
   };
@@ -205,7 +213,7 @@ export async function resolveModelProviderChain(
     configurationId: record.id ?? null,
     configurationFingerprint: crypto.createHash('sha256').update(JSON.stringify({
       version: 1, ownerId: scope.ownerId, configurationId: record.id ?? null,
-      primary: { provider: settings.primary.provider, apiFormat: settings.primary.apiFormat, model: settings.primary.model, baseUrl: settings.primary.baseUrl },
+      primary: { provider: settings.primary.provider, apiFormat: settings.primary.apiFormat, model: settings.primary.model, baseUrl: settings.primary.baseUrl, geminiOAuthProject: settings.primary.geminiOAuthProject },
       fallback: settings.fallback ? { provider: settings.fallback.provider, apiFormat: settings.fallback.apiFormat, model: settings.fallback.model, baseUrl: settings.fallback.baseUrl } : null,
       maxOutputTokens: options.maxOutputTokens ?? 8192, codexParameters: 'isolated_home_provider_defaults',
     })).digest('hex'),

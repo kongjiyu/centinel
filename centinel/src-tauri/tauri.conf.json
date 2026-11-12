@@ -95,6 +95,7 @@
     "windows": [
       {
         "decorations": true,
+        "fileDropEnabled": false,
         "fullscreen": false,
         "height": 800,
         "center": true,

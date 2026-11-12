@@ -16,7 +16,16 @@ const SIDECAR_PORT: u16 = 37701;
 struct PendingAuthCallback(Mutex<Option<String>>);
 
 /// The local service (sidecar) started by this app, if any.
-struct SidecarProcess(Mutex<Option<Child>>);
+#[derive(Default)]
+struct SidecarProcess {
+    process: Mutex<SidecarState>,
+}
+
+#[derive(Default)]
+struct SidecarState {
+    child: Option<Child>,
+    stopping: bool,
+}
 
 #[tauri::command]
 fn app_data_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
@@ -42,10 +51,11 @@ fn take_auth_callback(state: tauri::State<'_, PendingAuthCallback>) -> Result<Op
 #[tauri::command]
 fn stop_sidecar(state: tauri::State<'_, SidecarProcess>) -> Result<(), String> {
     let mut slot = state
-        .0
+        .process
         .lock()
         .map_err(|_| "Could not stop the local service.".to_string())?;
-    if let Some(mut child) = slot.take() {
+    slot.stopping = true;
+    if let Some(mut child) = slot.child.take() {
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -91,7 +101,7 @@ fn tool_path() -> String {
 
 /// Start the bundled sidecar in packaged builds. Development builds and
 /// machines that already run a sidecar keep using the existing one.
-fn start_sidecar(app: &tauri::App) -> Result<Option<Child>, String> {
+fn start_sidecar(app: &tauri::AppHandle) -> Result<Option<Child>, String> {
     if cfg!(debug_assertions) || sidecar_already_running() {
         return Ok(None);
     }
@@ -118,7 +128,11 @@ fn start_sidecar(app: &tauri::App) -> Result<Option<Child>, String> {
         .filter(|path| path.join("server.js").exists());
     let home = resolver.app_data_dir().ok_or("Could not resolve the app data directory.")?;
     std::fs::create_dir_all(home.join("logs")).map_err(|error| error.to_string())?;
-    let log = std::fs::File::create(home.join("logs/sidecar.log")).map_err(|error| error.to_string())?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(home.join("logs/sidecar.log"))
+        .map_err(|error| error.to_string())?;
     let errors = log.try_clone().map_err(|error| error.to_string())?;
 
     let mut command = Command::new(node);
@@ -143,22 +157,37 @@ fn start_sidecar(app: &tauri::App) -> Result<Option<Child>, String> {
     Ok(Some(child))
 }
 
+#[tauri::command]
+async fn ensure_sidecar(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<SidecarProcess>();
+    let mut slot = state.process.lock().map_err(|_| "Could not check the local service.".to_string())?;
+    if slot.stopping {
+        return Ok(());
+    }
+    if let Some(child) = slot.child.as_mut() {
+        if child.try_wait().map_err(|error| error.to_string())?.is_none() {
+            return Ok(());
+        }
+        slot.child = None;
+    }
+    slot.child = start_sidecar(&app)?;
+    Ok(())
+}
+
 fn main() {
     // On Windows, a second process is launched for centinel:// URLs. Prepare
     // forwards that URL to this primary process before it exits.
     tauri_plugin_deep_link::prepare("com.centinel.app");
     let app = tauri::Builder::default()
         .manage(PendingAuthCallback(Mutex::new(None)))
-        .manage(SidecarProcess(Mutex::new(None)))
+        .manage(SidecarProcess::default())
         .setup(|app| {
-            match start_sidecar(app) {
-                Ok(child) => {
-                    if let Ok(mut slot) = app.state::<SidecarProcess>().0.lock() {
-                        *slot = child;
-                    }
+            let startup_handle = app.handle();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = ensure_sidecar(startup_handle).await {
+                    eprintln!("[centinel] {error}");
                 }
-                Err(error) => eprintln!("[centinel] {error}"),
-            }
+            });
             let app_handle = app.handle();
             tauri_plugin_deep_link::register("centinel", move |url| {
                 if url.starts_with(AUTH_CALLBACK_EVENT) {
@@ -174,18 +203,23 @@ fn main() {
             })?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![app_data_dir, take_auth_callback, stop_sidecar])
+        .on_window_event(|event| {
+            if matches!(event.event(), tauri::WindowEvent::Focused(true)) {
+                let app = event.window().app_handle();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = ensure_sidecar(app).await {
+                        eprintln!("[centinel] {error}");
+                    }
+                });
+            }
+        })
+        .invoke_handler(tauri::generate_handler![app_data_dir, take_auth_callback, stop_sidecar, ensure_sidecar])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
-            if let Ok(mut slot) = app_handle.state::<SidecarProcess>().0.lock() {
-                if let Some(mut child) = slot.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-            }
+            let _ = stop_sidecar(app_handle.state::<SidecarProcess>());
         }
     });
 }
