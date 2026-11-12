@@ -64,6 +64,7 @@ export type TokenUsageGroup = {
   totalCacheRead: number;
   totalCacheCreation: number;
   totalCalls: number;
+  lastExecutedAt?: string;
   /** Optional for compatibility with report snapshots and legacy local stores. */
   totalTokens?: number;
   providerReportedTotalTokens?: number;

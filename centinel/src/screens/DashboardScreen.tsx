@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { api } from '../api/client';
 import { isWorkflowProviderConfigured } from '../providerReadiness';
 import {
@@ -209,8 +210,8 @@ export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, o
             </div>
           </div>
 
-          {loading && summaries.length === 0 ? (
-            <div className="home-message" role="status">Loading required actions…</div>
+          {loading && visibleActions.length === 0 ? (
+            <LoadingSkeleton variant="cards" rows={3} label="Loading required actions" />
           ) : visibleActions.length > 0 ? (
             <>
               <div className="action-required-list">
@@ -345,7 +346,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, o
         </div>
 
         {loading && summaries.length === 0 ? (
-          <div className="home-message" role="status">Loading projects…</div>
+          <LoadingSkeleton variant="rows" rows={4} label="Loading recent projects" />
         ) : recentProjects.length > 0 ? (
           <ProjectSummaryTable summaries={recentProjects} onNavigate={onNavigate} variant="dashboard" ariaLabel="Recent projects" />
         ) : unavailable ? (

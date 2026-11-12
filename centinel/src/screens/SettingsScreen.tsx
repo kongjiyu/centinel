@@ -1,12 +1,13 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { setVisibleInterval } from '../hooks/usePageVisible';
-import { ArrowDownUp, Save, Check, Eye, EyeOff, Stethoscope, ScanEye, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, Stethoscope, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus, AlertTriangle } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { checkForAppUpdate, installUpdateAndRestart } from '../utils/appUpdate';
-import type { AiProviderSetting, AiProvider, AiApiFormat, AiTestResult } from '../types';
+import type { AiProviderSetting, AiProvider, AiApiFormat } from '../types';
 import { ApiError, api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 import { CodexProviderPanel } from '../components/CodexProviderPanel';
+import { GeminiOAuthPanel } from '../components/GeminiOAuthPanel';
 import { EmbeddingProviderForm } from '../components/EmbeddingProviderForm';
 import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
@@ -28,6 +29,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'mimo-pro-openai', label: 'MiMo Pro (OpenAI-compatible)', provider: 'mimo', apiFormat: 'openai-compatible', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions', model: 'mimo-v2.5-pro' },
   { id: 'mimo-pro-anthropic', label: 'MiMo Pro (Anthropic-compatible)', provider: 'mimo', apiFormat: 'anthropic-compatible', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/anthropic', model: 'mimo-v2.5-pro' },
   { id: 'gemini', label: 'Google Gemini', provider: 'gemini', apiFormat: 'google-native', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-2.5-flash' },
+  { id: 'claude', label: 'Claude', provider: 'custom', apiFormat: 'anthropic-compatible', baseUrl: 'https://api.anthropic.com/v1/messages', model: '' },
   { id: 'custom-openai', label: 'Custom (OpenAI-compatible)', provider: 'custom', apiFormat: 'openai-compatible', baseUrl: '', model: '' },
   { id: 'custom-anthropic', label: 'Custom (Anthropic-compatible)', provider: 'custom', apiFormat: 'anthropic-compatible', baseUrl: '', model: '' },
 ];
@@ -96,10 +98,6 @@ export async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetc
 
 export async function openReleasePage(url: string): Promise<boolean> {
   return openExternalUrl(url);
-}
-
-function findPresetForValues(provider: AiProvider | null | undefined, apiFormat: AiApiFormat | null | undefined, baseUrl: string, model: string): ProviderPreset | null {
-  return PROVIDER_PRESETS.find(p => p.provider === provider && p.apiFormat === apiFormat && p.baseUrl === baseUrl && p.model === model) || null;
 }
 
 function AppVersionSection() {
@@ -198,253 +196,88 @@ function AppVersionSection() {
 }
 
 function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
-  const matchingPreset = findMatchingPreset(setting);
-  const [selectedPresetId, setSelectedPresetId] = useState(matchingPreset?.id || 'custom-openai');
-  const [showApiProviderConfig, setShowApiProviderConfig] = useState(setting.provider !== 'codex');
+  const match = findMatchingPreset(setting);
+  const [presetId, setPresetId] = useState(match?.id ?? 'custom-openai');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [baseUrl, setBaseUrl] = useState(setting.provider === 'codex' ? '' : setting.baseUrl);
-  const [model, setModel] = useState(setting.provider === 'codex' ? '' : setting.model);
-  const initialFallbackPreset = findPresetForValues(setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl ?? '', setting.fallbackModel ?? '');
-  const [fallbackEnabled, setFallbackEnabled] = useState(Boolean(setting.fallbackEnabled));
-  const [fallbackPresetId, setFallbackPresetId] = useState(initialFallbackPreset?.id ?? (setting.fallbackApiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
-  const [fallbackApiKey, setFallbackApiKey] = useState('');
-  const [showFallbackKey, setShowFallbackKey] = useState(false);
-  const [fallbackBaseUrl, setFallbackBaseUrl] = useState(setting.fallbackBaseUrl ?? '');
-  const [fallbackModel, setFallbackModel] = useState(setting.fallbackModel ?? '');
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<AiTestResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(setting.connectionMethod === 'oauth' ? '' : setting.baseUrl);
+  const [model, setModel] = useState(setting.provider === 'codex' || setting.connectionMethod === 'oauth' ? '' : setting.model);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const preset = PROVIDER_PRESETS.find(item => item.id === presetId)!;
+  const sameDestination = setting.provider === preset.provider && setting.apiFormat === preset.apiFormat
+    && setting.baseUrl.trim().replace(/\/+$/, '') === baseUrl.trim().replace(/\/+$/, '');
+  const ready = Boolean((apiKey.trim() || sameDestination && setting.hasApiKey) && baseUrl.trim() && model.trim());
 
-  // Re-sync local form state whenever the persisted setting changes (e.g. after save + onRefresh).
-  // Without this, selectedPresetId is pinned to its initial value on first mount and the API Format
-  // input can revert to "openai-compatible" even when the persisted apiFormat is anthropic-compatible.
-  // User edits made during the current session still win until the next render with a new setting prop.
-  useEffect(() => {
-    setBaseUrl(setting.provider === 'codex' ? '' : setting.baseUrl);
-    setModel(setting.provider === 'codex' ? '' : setting.model);
-    setShowApiProviderConfig(setting.provider !== 'codex');
-    const match = findMatchingPreset(setting);
-    setSelectedPresetId(match?.id ?? (setting.apiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
-    setFallbackEnabled(Boolean(setting.fallbackEnabled));
-    setFallbackBaseUrl(setting.fallbackBaseUrl ?? '');
-    setFallbackModel(setting.fallbackModel ?? '');
-    const fallbackMatch = findPresetForValues(setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl ?? '', setting.fallbackModel ?? '');
-    setFallbackPresetId(fallbackMatch?.id ?? (setting.fallbackApiFormat === 'anthropic-compatible' ? 'custom-anthropic' : 'custom-openai'));
-  }, [setting.id, setting.baseUrl, setting.model, setting.apiFormat, setting.provider, setting.fallbackEnabled, setting.fallbackProvider, setting.fallbackApiFormat, setting.fallbackBaseUrl, setting.fallbackModel]);
-
-  const selectedPreset = PROVIDER_PRESETS.find(p => p.id === selectedPresetId);
-  const isCustom = selectedPresetId.startsWith('custom-');
-  const isConfigured = setting.hasApiKey;
-  const fallbackPreset = PROVIDER_PRESETS.find(p => p.id === fallbackPresetId);
-  const fallbackIsCustom = fallbackPresetId.startsWith('custom-');
-
-  const handlePresetChange = (presetId: string) => {
-    setSelectedPresetId(presetId);
-    const preset = PROVIDER_PRESETS.find(p => p.id === presetId);
-    if (preset && !presetId.startsWith('custom-')) {
-      setBaseUrl(preset.baseUrl);
-      setModel(preset.model);
-    }
+  const changePreset = (id: string) => {
+    const next = PROVIDER_PRESETS.find(item => item.id === id);
+    if (!next) return;
+    setPresetId(id); setBaseUrl(next.baseUrl); setModel(next.model); setApiKey(''); setResult(null);
   };
 
-  const handleFallbackPresetChange = (presetId: string) => {
-    setFallbackPresetId(presetId);
-    const preset = PROVIDER_PRESETS.find(p => p.id === presetId);
-    if (preset && !presetId.startsWith('custom-')) {
-      setFallbackBaseUrl(preset.baseUrl);
-      setFallbackModel(preset.model);
-    }
-  };
-
-  const handleSave = async () => {
-    setError(null); setSaved(false);
-    if (!apiKey && !isConfigured) { setError('API key is required'); return; }
-    if (!baseUrl.trim()) { setError('Base URL is required'); return; }
-    if (!model.trim()) { setError('Model is required'); return; }
-    if (fallbackEnabled && !fallbackApiKey && !setting.fallbackHasApiKey) { setError('Fallback API key is required'); return; }
-    if (fallbackEnabled && !fallbackBaseUrl.trim()) { setError('Fallback Base URL is required'); return; }
-    if (fallbackEnabled && !fallbackModel.trim()) { setError('Fallback model is required'); return; }
-    setSaving(true);
+  const submit = async (save: boolean) => {
+    setBusy(true); setResult(null);
+    const input = { provider: preset.provider, apiFormat: preset.apiFormat, apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), model: model.trim() };
     try {
-      await api.updateAiSetting(setting.id, {
-        provider: selectedPreset?.provider || 'custom',
-        apiFormat: selectedPreset?.apiFormat || 'openai-compatible',
-        apiKey: apiKey || '',
-        baseUrl: baseUrl.trim(),
-        model: model.trim(),
-        fallbackEnabled,
-        fallbackProvider: fallbackEnabled ? fallbackPreset?.provider ?? 'custom' : null,
-        fallbackApiFormat: fallbackEnabled ? fallbackPreset?.apiFormat ?? 'openai-compatible' : null,
-        fallbackApiKey: fallbackApiKey || '',
-        fallbackBaseUrl: fallbackEnabled ? fallbackBaseUrl.trim() : '',
-        fallbackModel: fallbackEnabled ? fallbackModel.trim() : '',
-      });
-      setApiKey(''); setFallbackApiKey(''); setSaved(true); await onRefresh();
-    } catch (e) { setError(userFacingError(e, 'The provider settings could not be saved. Try again.')); }
-    finally { setSaving(false); }
+      if (save) {
+        await api.updateSharedAiSetting(input);
+        setApiKey('');
+        await onRefresh();
+        setResult({ ok: true, message: 'Settings saved.' });
+      } else {
+        // Use the same credential and destination for the screenshot check.
+        const test = await api.testAiProvider('text', { ...input, testVision: true });
+        const ok = test.status === 'pass';
+        setResult({ ok, message: [test.message ?? (ok ? 'Connection successful.' : 'Connection failed.'), !ok && test.hint].filter(Boolean).join(' ') });
+      }
+    } catch (cause) {
+      setResult({ ok: false, message: userFacingError(cause, save ? 'Settings could not be saved.' : 'Connection failed.') });
+    } finally { setBusy(false); }
   };
 
-  const handleTest = async () => {
-    setTesting(true); setTestResult(null);
-    try {
-      // Test against what the user has on screen, not just what's persisted.
-      // Empty form fields fall back to the saved value (e.g. apiKey when not retyped).
-      const result = await api.testAiProvider(setting.id, {
-        provider: selectedPreset?.provider,
-        apiFormat: selectedPreset?.apiFormat,
-        apiKey: apiKey || undefined,
-        baseUrl: baseUrl.trim() || undefined,
-        model: model.trim() || undefined,
-      });
-      setTestResult(result);
-    }
-    catch (e) { setTestResult({ status: 'fail', message: userFacingError(e, 'The provider could not be reached. Check the settings and try again.') }); }
-    finally { setTesting(false); }
-  };
-
-  return (
-    <div className="provider-form">
-      <div className="provider-form-header">
-        <h4>{setting.provider === 'codex' ? 'API provider' : 'Custom Model Provider'}</h4>
-        <StatusBadge label={setting.provider === 'codex' ? 'Codex selected' : isConfigured ? 'Configured' : 'Setup required'} tone={setting.provider === 'codex' || isConfigured ? 'success' : 'warning'} />
+  return <form className="provider-form shared-provider-form" onSubmit={event => { event.preventDefault(); if (ready && !busy) void submit(true); }}>
+    <fieldset disabled={busy}>
+      <div className="form-field"><label htmlFor="shared-api-provider">Provider</label><Select id="shared-api-provider" value={presetId} onChange={changePreset} options={PROVIDER_PRESETS.map(item => ({ value: item.id, label: item.label }))} /></div>
+      <div className="form-field"><label htmlFor="shared-api-key">API key</label><div className="api-key-field">
+        <input id="shared-api-key" type={showKey ? 'text' : 'password'} autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={sameDestination && setting.hasApiKey ? 'Saved key' : undefined} />
+        <IconButton icon={showKey ? EyeOff : Eye} label={showKey ? 'Hide API key' : 'Show API key'} onClick={() => setShowKey(value => !value)} />
+      </div></div>
+      <div className="provider-endpoint-fields">
+        <div className="form-field"><label htmlFor="shared-api-endpoint">Base URL</label><input id="shared-api-endpoint" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} /></div>
+        <div className="form-field"><label htmlFor="shared-api-model">Model</label><input id="shared-api-model" value={model} onChange={event => setModel(event.target.value)} /></div>
       </div>
+    </fieldset>
+    {result && <p className={result.ok ? 'form-success' : 'form-error'} role={result.ok ? 'status' : 'alert'}>{result.message}</p>}
+    <div className="form-actions"><IconButton icon={Stethoscope} label="Test connection" onClick={() => void submit(false)} disabled={!ready || busy} /><button type="submit" className="btn-primary" disabled={!ready || busy}>Save</button></div>
+  </form>;
+}
 
-      {setting.provider === 'codex' && !showApiProviderConfig ? (
-        <div className="codex-api-provider-summary">
-          <p className="form-hint">Review uses Codex. Configure and save an API provider here to switch Review away from Codex.</p>
-          <button type="button" className="btn-secondary" onClick={() => setShowApiProviderConfig(true)}>Configure API provider</button>
-        </div>
-      ) : <>
-      {setting.provider === 'codex' && <p className="form-hint">Review will keep using Codex until an API provider is saved.</p>}
-      <div className="form-field">
-        <label htmlFor={`provider-${setting.id}`}>Provider</label>
-        <Select
-          id={`provider-${setting.id}`}
-          value={selectedPresetId}
-          onChange={handlePresetChange}
-          groups={[
-            { label: 'MiMo', options: PROVIDER_PRESETS.filter(p => p.provider === 'mimo').map(p => ({ value: p.id, label: p.label })) },
-            { label: 'Google', options: PROVIDER_PRESETS.filter(p => p.provider === 'gemini').map(p => ({ value: p.id, label: p.label })) },
-            { label: 'Custom', options: PROVIDER_PRESETS.filter(p => p.provider === 'custom').map(p => ({ value: p.id, label: p.label })) },
-          ]}
-        />
+function SharedModelProvider({ settings, onRefresh }: Props) {
+  const setting = settings.find(item => item.id === 'text');
+  const [selectedMode, setMode] = useState<'api' | 'oauth' | null>(null);
+  const mode = selectedMode ?? (setting?.provider !== 'codex' && setting?.connectionMethod !== 'oauth' && (setting?.hasApiKey || setting?.model) ? 'api' : 'oauth');
+  const embedding = settings.find(item => item.id === 'embedding');
+  return <section className="settings-section settings-provider-section" aria-labelledby="model-provider-title">
+    <div className="settings-section-heading model-provider-heading">
+      <h2 id="model-provider-title"><SectionTitleIcon Icon={Bot} />Model Provider</h2>
+      <div className="settings-segmented" role="group" aria-label="Model Provider connection method">
+        <button type="button" aria-pressed={mode === 'oauth'} onClick={() => setMode('oauth')}>OAuth</button>
+        <button type="button" aria-pressed={mode === 'api'} onClick={() => setMode('api')}>API provider</button>
       </div>
-
-      <div className="form-field">
-        <label htmlFor={`api-key-${setting.id}`}>API Key</label>
-        <div className="api-key-field">
-          <input
-            id={`api-key-${setting.id}`}
-            type={showKey ? 'text' : 'password'}
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder={isConfigured ? `Current: ${setting.apiKeyPreview}` : 'Enter API key'}
-          />
-          <IconButton
-            icon={showKey ? EyeOff : Eye}
-            label={showKey ? 'Hide API key' : 'Show API key'}
-            onClick={() => setShowKey(!showKey)}
-          />
-        </div>
-      </div>
-
-      <div className={`provider-endpoint-fields ${isCustom ? 'is-custom' : ''}`}>
-        <div className="form-field">
-          <label htmlFor={`base-url-${setting.id}`}>Base URL</label>
-          <input id={`base-url-${setting.id}`} value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1/messages" disabled={!isCustom} />
-        </div>
-
-        <div className="form-field">
-          <label htmlFor={`model-${setting.id}`}>Model</label>
-          <input id={`model-${setting.id}`} value={model} onChange={e => setModel(e.target.value)} placeholder="model-name" disabled={!isCustom} />
-        </div>
-      </div>
-
-      <div className="form-field">
-        <label htmlFor={`api-format-${setting.id}`}>API Format</label>
-        <input id={`api-format-${setting.id}`} value={selectedPreset?.apiFormat || 'openai-compatible'} disabled className="readonly-field" />
-      </div>
-
-      <section className="fallback-provider-config" aria-labelledby={`fallback-provider-heading-${setting.id}`}>
-        <div className="fallback-provider-heading">
-          <div>
-            <h5 id={`fallback-provider-heading-${setting.id}`}>Fallback provider</h5>
-            <p>Used only when the primary provider cannot complete the Review. Primary and fallback share a maximum of five total attempts.</p>
-          </div>
-          <label className="fallback-provider-toggle"><input type="checkbox" checked={fallbackEnabled} onChange={event => setFallbackEnabled(event.target.checked)} /> Enable fallback</label>
-        </div>
-        {fallbackEnabled && <div className="fallback-provider-fields">
-          <div className="form-field">
-            <label htmlFor={`fallback-provider-${setting.id}`}>Fallback provider</label>
-            <Select
-              id={`fallback-provider-${setting.id}`}
-              value={fallbackPresetId}
-              onChange={handleFallbackPresetChange}
-              groups={[
-                { label: 'MiMo', options: PROVIDER_PRESETS.filter(p => p.provider === 'mimo').map(p => ({ value: p.id, label: p.label })) },
-                { label: 'Google', options: PROVIDER_PRESETS.filter(p => p.provider === 'gemini').map(p => ({ value: p.id, label: p.label })) },
-                { label: 'Custom', options: PROVIDER_PRESETS.filter(p => p.provider === 'custom').map(p => ({ value: p.id, label: p.label })) },
-              ]}
-            />
-          </div>
-          <div className="form-field">
-            <label htmlFor={`fallback-api-key-${setting.id}`}>Fallback API Key</label>
-            <div className="api-key-field">
-              <input id={`fallback-api-key-${setting.id}`} type={showFallbackKey ? 'text' : 'password'} value={fallbackApiKey} onChange={event => setFallbackApiKey(event.target.value)} placeholder={setting.fallbackHasApiKey ? `Current: ${setting.fallbackApiKeyPreview}` : 'Enter fallback API key'} />
-              <IconButton icon={showFallbackKey ? EyeOff : Eye} label={showFallbackKey ? 'Hide fallback API key' : 'Show fallback API key'} onClick={() => setShowFallbackKey(value => !value)} />
-            </div>
-          </div>
-          <div className={`provider-endpoint-fields ${fallbackIsCustom ? 'is-custom' : ''}`}>
-            <div className="form-field"><label htmlFor={`fallback-base-url-${setting.id}`}>Fallback Base URL</label><input id={`fallback-base-url-${setting.id}`} value={fallbackBaseUrl} onChange={event => setFallbackBaseUrl(event.target.value)} disabled={!fallbackIsCustom} /></div>
-            <div className="form-field"><label htmlFor={`fallback-model-${setting.id}`}>Fallback model</label><input id={`fallback-model-${setting.id}`} value={fallbackModel} onChange={event => setFallbackModel(event.target.value)} disabled={!fallbackIsCustom} /></div>
-          </div>
-          <div className="form-field"><label htmlFor={`fallback-api-format-${setting.id}`}>Fallback API Format</label><input id={`fallback-api-format-${setting.id}`} value={fallbackPreset?.apiFormat ?? 'openai-compatible'} disabled className="readonly-field" /></div>
-        </div>}
-      </section>
-
-      {error && <p className="form-error">{error}</p>}
-      {saved && <p className="form-success"><Check size={14} /> Settings saved</p>}
-
-      <div className="form-actions">
-        <button className="btn-secondary provider-connectivity-button" type="button" onClick={handleTest} disabled={testing || (!apiKey && !isConfigured)}>
-          <Stethoscope size={16} aria-hidden="true" /> {testing ? 'Testing connection…' : 'Test connection'}
-        </button>
-        <button className="btn-primary" type="button" onClick={handleSave} disabled={saving}>
-          <Save size={14} aria-hidden="true" /> {saving ? 'Saving...' : 'Save'}
-        </button>
-      </div>
-
-      {testResult && (
-        <div className={`test-result provider-test-status ${testResult.status}`} role={testResult.status === 'pass' ? 'status' : 'alert'}>
-          {testResult.status === 'pass' ? <Check size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
-          <div><strong>{testResult.status === 'pass' ? 'Connection successful' : 'Connection failed'}</strong>
-          <span className="provider-test-scope">Tested with the current form settings. Save any edits before using them in reviews.</span>
-          {testResult.message && <p className="provider-test-message">{testResult.message}</p>}
-          {testResult.hint && (
-            <p className="test-result-hint">{testResult.hint}</p>
-          )}
-          </div>
-        </div>
-      )}
-      </>}
     </div>
-  );
+    <div className="settings-provider-forms">
+      {mode === 'oauth' ? <div className="oauth-connection-grid" aria-label="OAuth connections">
+        <CodexProviderPanel settings={settings} onRefresh={onRefresh} />
+        <GeminiOAuthPanel setting={setting} onRefresh={onRefresh} />
+      </div> : setting && <ProviderForm setting={setting} onRefresh={onRefresh} />}
+      {embedding && <EmbeddingProviderForm setting={embedding} onRefresh={onRefresh} />}
+    </div>
+  </section>;
 }
 
 // ── Token Usage Dashboard ─────────────────────────────────────────────────
 //
-// Renders aggregated token usage grouped by (provider, apiFormat, model).
-// Reads from /settings/ai/usage which returns:
-//   - totals: { input, output, cacheRead, cacheCreation, calls }
-//   - byGroup: per-(provider,apiFormat,model) subtotals
-//   - recent: last 50 call rows
-//
-// The panel is intentionally compact: a 3-up totals strip, a per-group
-// table, and a collapsible recent-calls list. All numbers are formatted
-// with thousands separators so the user can scan them at a glance.
+// Usage groups include embedding calls and show the latest recorded execution in each group.
 
 type UsageResponse = Awaited<ReturnType<typeof api.getAiUsage>>;
 type UsageSummary = Omit<UsageResponse, 'totals' | 'byGroup'> & {
@@ -461,23 +294,12 @@ type UsageSummary = Omit<UsageResponse, 'totals' | 'byGroup'> & {
     unknownTotalCalls: number;
   }>>;
 };
-type UsageCallKind = 'review' | 'test' | 'dynamic';
-type RecentCall = UsageSummary['recent'][number];
-type RecentSortKey = 'time' | 'kind' | 'stage' | 'model' | 'input' | 'output' | 'cache';
-
-const CALL_KIND_LABEL: Record<UsageCallKind, string> = {
-  review: 'Review',
-  test: 'Provider test',
-  dynamic: 'Dynamic Testing activity',
-};
-
 function formatTokenCount(n: number | null | undefined): string {
   return typeof n === 'number' && Number.isFinite(n) ? formatUsageNumber(n) : '—';
 }
 
 function GroupUsageCount({ value, unknown, calls }: { value: number; unknown?: number; calls: number }) {
-  return <>{formatTokenCount(calls > 0 && (unknown === calls || unknown == null && value === 0) ? null : value)}
-    {unknown != null && unknown > 0 ? <small> · {unknown} calls unknown</small> : unknown == null ? <small> · Unknown-call count unavailable</small> : null}</>;
+  return <>{formatTokenCount(calls > 0 && (unknown === calls || unknown == null && value === 0) ? null : value)}</>;
 }
 
 function formatWholeNumber(n: number): string {
@@ -511,29 +333,21 @@ function totalTokensForGroup(group: UsageSummary['byGroup'][number]): number | n
     : null;
 }
 
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
+const usageDate = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 function TokenUsagePanel() {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showRecent, setShowRecent] = useState(false);
-  const [recentPage, setRecentPage] = useState(0);
-  const [recentSort, setRecentSort] = useState<{ key: RecentSortKey; direction: 'asc' | 'desc' }>({ key: 'time', direction: 'desc' });
-  const recentPageSize = 5;
+  const [page, setPage] = useState(0);
+  const pageSize = 5;
 
   const load = async () => {
     setLoading(true); setError(null);
     try {
       const data = await api.getAiUsage();
       setSummary(data);
-      setRecentPage(0);
+      setPage(0);
     } catch (e) {
       setError(userFacingError(e, 'Usage data could not be loaded. Try again.'));
     } finally {
@@ -546,42 +360,9 @@ function TokenUsagePanel() {
   // numbers rather than relying on a session cache.
   useEffect(() => { void load(); }, []);
 
-  const sortedRecentCalls = useMemo(() => {
-    const records = [...(summary?.recent ?? [])];
-    const valueFor = (record: RecentCall): string | number => {
-      switch (recentSort.key) {
-        case 'time': return Date.parse(record.createdAt) || 0;
-        case 'kind': return CALL_KIND_LABEL[record.callKind];
-        case 'stage': return `${record.stage ?? ''}:${record.roundNumber ?? ''}`;
-        case 'model': return record.model;
-        case 'input': return record.inputTokens ?? -Infinity;
-        case 'output': return record.outputTokens ?? -Infinity;
-        case 'cache': return record.cacheReadTokens == null || record.cacheCreationTokens == null ? -Infinity : record.cacheReadTokens + record.cacheCreationTokens;
-      }
-    };
-    return records.sort((a, b) => {
-      const left = valueFor(a);
-      const right = valueFor(b);
-      const comparison = typeof left === 'number' && typeof right === 'number'
-        ? left - right
-        : String(left).localeCompare(String(right));
-      return recentSort.direction === 'asc' ? comparison : -comparison;
-    });
-  }, [recentSort, summary]);
-  const recentPageCount = Math.max(1, Math.ceil(sortedRecentCalls.length / recentPageSize));
-  const recentCalls = sortedRecentCalls.slice(recentPage * recentPageSize, (recentPage + 1) * recentPageSize);
-  const toggleRecentSort = (key: RecentSortKey) => {
-    setRecentSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }));
-    setRecentPage(0);
-  };
-  const recentHeader = (label: string, key: RecentSortKey, numeric = false) => {
-    const active = recentSort.key === key;
-    return <th scope="col" className={numeric ? 'usage-num' : undefined} aria-sort={active ? (recentSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button type="button" className="usage-sort-button" onClick={() => toggleRecentSort(key)}>
-        {label}<ArrowDownUp size={13} aria-hidden="true" />
-      </button>
-    </th>;
-  };
+  const groups = summary?.byGroup ?? [];
+  const pageCount = Math.max(1, Math.ceil(groups.length / pageSize));
+  const visibleGroups = groups.slice(page * pageSize, (page + 1) * pageSize);
 
   return (
     <div className="settings-usage-panel">
@@ -604,11 +385,7 @@ function TokenUsagePanel() {
               <strong className="usage-total-value">
                 {formatCanonicalTotal(summary.totals.calls > 0 && summary.totals.unknownTotalCalls === summary.totals.calls ? undefined : summary.totals.totalTokens)}
               </strong>
-              {summary.totals.totalTokens === undefined
-                ? <span className="usage-total-note">A provider-aware total is not available from this service.</span>
-                : (summary.totals.unknownTotalCalls ?? 0) > 0
-                  ? <span className="usage-total-note">{formatWholeNumber(summary.totals.unknownTotalCalls ?? 0)} call total{summary.totals.unknownTotalCalls === 1 ? '' : 's'} unavailable.</span>
-                  : null}
+
             </div>
             <div className="usage-request-summary">
               <span className="usage-stat-label">Total requests</span>
@@ -616,7 +393,6 @@ function TokenUsagePanel() {
             </div>
           </div>
 
-          {(summary.totals.assumedZeroNoResponseCalls ?? 0) > 0 && <p className="usage-total-note">No-response accounting: {summary.totals.assumedZeroNoResponseCalls} failed {summary.totals.assumedZeroNoResponseCalls === 1 ? 'call counted' : 'calls counted'} as 0 tokens. This is an assumption; actual provider consumption remains unknown.</p>}
 
           <dl className="usage-metric-strip" aria-label="Token metrics">
             <div className="usage-metric">
@@ -637,126 +413,44 @@ function TokenUsagePanel() {
             </div>
           </dl>
 
-          {summary.byGroup.length === 0 ? (
-            <p className="card-empty">No usage recorded yet. Run a Review, Dynamic Testing activity, or provider test to populate this dashboard.</p>
-          ) : (
-            <section className="usage-overview" aria-labelledby="usage-overview-title">
-              <div className="usage-table-heading">
-                <h4 id="usage-overview-title">Usage overview</h4>
-              </div>
-              <div className="usage-table-scroll">
-                <table className="usage-table" aria-label="Usage overview by provider">
-                  <thead>
-                    <tr>
-                      <th scope="col">Provider</th>
-                      <th scope="col">Format</th>
-                      <th scope="col">Model</th>
-                      <th scope="col" className="usage-num">Requests</th>
-                      <th scope="col" className="usage-num">Input</th>
-                      <th scope="col" className="usage-num">Output</th>
-                      <th scope="col" className="usage-num">Cache</th>
-                      <th scope="col" className="usage-num">Total tokens</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.byGroup.map((g, idx) => {
-                      const groupTotal = totalTokensForGroup(g);
-                      return <tr key={`${g.provider}-${g.apiFormat}-${g.model}-${idx}`}>
-                        <td>{g.provider}</td>
-                        <td><code>{g.apiFormat}</code></td>
-                        <td><code>{g.model}</code></td>
-                        <td className="usage-num">{formatWholeNumber(g.totalCalls)}</td>
-                        <td className="usage-num"><GroupUsageCount value={g.totalInput} unknown={g.unknownInputCalls} calls={g.totalCalls} /></td>
-                        <td className="usage-num"><GroupUsageCount value={g.totalOutput} unknown={g.unknownOutputCalls} calls={g.totalCalls} /></td>
-                        <td className="usage-num">{formatTokenCount(g.totalCacheRead + g.totalCacheCreation === 0 && (g.unknownCacheReadCalls !== 0 || g.unknownCacheCreationCalls !== 0) ? null : g.totalCacheRead + g.totalCacheCreation)}
-                          {(g.unknownCacheReadCalls !== 0 || g.unknownCacheCreationCalls !== 0) && <small> · Some cache counts unavailable</small>}</td>
-                        <td className="usage-num">{groupTotal === null ? '—' : formatWholeNumber(groupTotal)}</td>
-                      </tr>;
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          <section className="usage-recent" aria-label="AI call log">
-            <div className="usage-recent-header">
-              {showRecent && <h4 id="usage-recent-title">Recent calls</h4>}
-              <button
-                type="button"
-                className="btn-link"
-                onClick={() => setShowRecent(v => !v)}
-                aria-expanded={showRecent}
-                aria-controls="usage-recent-log"
-              >
-                {showRecent ? 'Hide' : 'Show'} log ({summary.recent.length})
-              </button>
+          {groups.length > 0 && <section className="usage-overview" aria-labelledby="usage-overview-title">
+            <h4 id="usage-overview-title">Usage overview</h4>
+            <div className="usage-table-wrap">
+              <table className="usage-table" aria-label="Usage overview by provider">
+                <thead><tr>{['Provider', 'Model', 'Requests', 'Input', 'Output', 'Cache', 'Total tokens', 'Executed At'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+                <tbody>{visibleGroups.map(group => <tr key={`${group.provider}:${group.apiFormat}:${group.model}`}>
+                  <td>{group.provider}</td><td><code>{group.model}</code></td><td className="usage-num">{formatWholeNumber(group.totalCalls)}</td>
+                  <td className="usage-num"><GroupUsageCount value={group.totalInput} unknown={group.unknownInputCalls} calls={group.totalCalls} /></td>
+                  <td className="usage-num"><GroupUsageCount value={group.totalOutput} unknown={group.unknownOutputCalls} calls={group.totalCalls} /></td>
+                  <td className="usage-num">{formatTokenCount(group.totalCacheRead + group.totalCacheCreation === 0 && (group.unknownCacheReadCalls !== 0 || group.unknownCacheCreationCalls !== 0) ? null : group.totalCacheRead + group.totalCacheCreation)}</td>
+                  <td className="usage-num">{formatTokenCount(totalTokensForGroup(group))}</td>
+                  <td>{group.lastExecutedAt && Number.isFinite(Date.parse(group.lastExecutedAt)) ? <time dateTime={group.lastExecutedAt}>{usageDate.format(Date.parse(group.lastExecutedAt)).replace(',', '')}</time> : '—'}</td>
+                </tr>)}</tbody>
+              </table>
             </div>
-            {summary.recent.length === 0 ? (
-              <p className="usage-recent-empty">No recent calls recorded.</p>
-            ) : showRecent ? (
-              <>
-                <div className="usage-table-scroll" id="usage-recent-log">
-                <table className="usage-table usage-recent-table" aria-label="Recent AI calls">
-                  <thead>
-                    <tr>
-                      {recentHeader('Time', 'time')}
-                      {recentHeader('Kind', 'kind')}
-                      {recentHeader('Stage', 'stage')}
-                      {recentHeader('Model', 'model')}
-                      {recentHeader('Input', 'input', true)}
-                      {recentHeader('Output', 'output', true)}
-                      {recentHeader('Cache', 'cache', true)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentCalls.map(r => (
-                      <tr key={r.id}>
-                        <td>{formatTimestamp(r.createdAt)}</td>
-                        <td>{CALL_KIND_LABEL[r.callKind]}</td>
-                        <td>{r.stage ?? '—'}{r.roundNumber !== null ? ` (r${r.roundNumber})` : ''}</td>
-                        <td><code>{r.model}</code></td>
-                        <td className="usage-num">{formatTokenCount(r.inputTokens)}</td>
-                        <td className="usage-num">{formatTokenCount(r.outputTokens)}</td>
-                        <td className="usage-num">{formatTokenCount(r.cacheReadTokens == null || r.cacheCreationTokens == null || r.usageObservation?.missingCounters?.some(counter => counter === 'cacheReadTokens' || counter === 'cacheCreationTokens') ? null : r.cacheReadTokens + r.cacheCreationTokens)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-                {summary.recent.length > recentPageSize && (
-                <nav className="usage-pagination" aria-label="Recent calls pagination">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => setRecentPage(page => Math.max(0, page - 1))}
-                    disabled={recentPage === 0}
-                  >
-                    Previous
-                  </button>
-                  <span aria-live="polite">Page {recentPage + 1} of {recentPageCount}</span>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => setRecentPage(page => Math.min(recentPageCount - 1, page + 1))}
-                    disabled={recentPage >= recentPageCount - 1}
-                  >
-                    Next
-                  </button>
-                </nav>
-                )}
-              </>
-            ) : null}
-          </section>
+            {pageCount > 1 && <nav className="usage-pagination" aria-label="Usage overview pagination">
+              <button type="button" className="btn-secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+              <span>Page {page + 1} of {pageCount}</span>
+              <button type="button" className="btn-secondary" disabled={page + 1 >= pageCount} onClick={() => setPage(page + 1)}>Next</button>
+            </nav>}
+          </section>}
+
         </>
       ) : null}
     </div>
   );
 }
 
-export function SettingsScreen({ settings, onRefresh }: Props) {
-  const textSetting = settings.find(s => s.id === 'text');
-  const embeddingSetting = settings.find(s => s.id === 'embedding');
+export function SettingsScreen({ settings, onRefresh, initialSection }: Props & { initialSection?: 'connections' }) {
+  useEffect(() => {
+    if (initialSection !== 'connections') return;
+    const frame = requestAnimationFrame(() => {
+      const heading = document.getElementById('settings-connections-title');
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView?.({ block: 'start' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialSection]);
   const [connectionDialog, setConnectionDialog] = useState<ConnectionDefinition | null>(null);
   const [managedConnection, setManagedConnection] = useState<ConnectionDefinition | null>(null);
   const [githubStatus, setGithubStatus] = useState<{ connected: boolean; login: string | null; message: string } | null>(null);
@@ -908,7 +602,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
 
         <section className="settings-section settings-connectors" aria-labelledby="settings-connections-title">
           <div className="settings-section-heading">
-            <h2 id="settings-connections-title"><SectionTitleIcon Icon={Cable} />Connections</h2>
+            <h2 id="settings-connections-title" tabIndex={-1}><SectionTitleIcon Icon={Cable} />Connections</h2>
           </div>
           {(connectionStatusUnavailable || !hasConnectionSnapshot) && (
             <div className={`connection-dialog-security connection-status-message${connectionStatusUnavailable ? ' is-unavailable' : ''}`} role="status" aria-live="polite">
@@ -922,19 +616,7 @@ export function SettingsScreen({ settings, onRefresh }: Props) {
           <ConnectionsList onConnect={(connection) => { setConnectionMessage(null); setConnectionDialog(connection); }} onManage={(connection) => { setConnectionMessage(null); setManagedConnection(connection); }} connectionState={connectionState} isConnected={isConnected} />
         </section>
 
-        <section className="settings-section settings-provider-section" aria-labelledby="model-provider-title">
-          <div className="settings-section-heading">
-            <h2 id="model-provider-title"><SectionTitleIcon Icon={Bot} />Model Provider</h2>
-          </div>
-          <div className="settings-provider-forms">
-            <CodexProviderPanel settings={settings} onRefresh={onRefresh} />
-            {textSetting && <ProviderForm setting={textSetting} onRefresh={onRefresh} />}
-            {embeddingSetting && <EmbeddingProviderForm setting={embeddingSetting} onRefresh={onRefresh} />}
-            {!textSetting && (
-              <p className="card-empty">No model service providers are available in this build.</p>
-            )}
-          </div>
-        </section>
+        <SharedModelProvider settings={settings} onRefresh={onRefresh} />
 
         <section className="settings-section settings-usage-section" aria-labelledby="settings-usage-title">
           <TokenUsagePanel />

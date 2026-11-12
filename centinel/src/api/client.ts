@@ -5,8 +5,10 @@ import type { Project, CollaborationStatus, CollaboratorSearchResult, Collaborat
 
 import { SIDECAR_BASE_URL } from './transport';
 import type { AutoTestSession } from '../autotest/types';
+import { invoke } from '@tauri-apps/api/tauri';
 import { refreshSupabaseSession } from '../auth/supabaseAuth';
 import type { EmbeddingSettingsCatalog } from '../types';
+import type { ProjectCreationResult, ProjectRepositoryInput } from '../types';
 const BASE = SIDECAR_BASE_URL;
 const GET_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -67,9 +69,47 @@ export async function waitForSidecar(timeoutMs = 45_000, sleep = (ms: number) =>
   }
 }
 
-async function sendRequest<T>(path: string, init?: RequestInit): Promise<T> {
+let sidecarRecovery: Promise<boolean> | null = null;
+
+function usesDesktopSidecar(): boolean {
+  return BASE === 'http://localhost:37701'
+    && typeof window !== 'undefined' && '__TAURI_IPC__' in window;
+}
+
+export function prepareWorkspaceSidecar(): Promise<boolean> {
+  return usesDesktopSidecar() ? recoverSidecar() : waitForSidecar();
+}
+
+function recoverSidecar(): Promise<boolean> {
+  sidecarRecovery ??= invoke('ensure_sidecar')
+    .catch(() => undefined)
+    .then(() => waitForSidecar(5_000))
+    .catch(() => false)
+    .finally(() => { sidecarRecovery = null; });
+  return sidecarRecovery;
+}
+
+async function sendWithRecovery<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = globalThis.sessionStorage?.getItem('centinel:supabase-access-token');
+  const userId = globalThis.sessionStorage?.getItem('centinel:supabase-user-id');
   try {
     return await sendOnce<T>(path, init);
+  } catch (error) {
+    if (!(error instanceof TypeError)
+      || init?.signal?.aborted
+      || (init?.method ?? 'GET').trim().toUpperCase() !== 'GET'
+      || !usesDesktopSidecar()) throw error;
+    if (!(await recoverSidecar())
+      || init?.signal?.aborted
+      || userId !== globalThis.sessionStorage?.getItem('centinel:supabase-user-id')
+      || (token && !globalThis.sessionStorage?.getItem('centinel:supabase-access-token'))) throw error;
+    return sendOnce<T>(path, init);
+  }
+}
+
+async function sendRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await sendWithRecovery<T>(path, init);
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 401 || error.code !== 'unauthenticated') throw error;
     const renewed = await refreshSupabaseSession();
@@ -187,8 +227,12 @@ function normalizePreparedReview(value: Record<string, unknown>): StaticSession 
 export type CreateStaticSessionPayload = {
   name: string;
   instructions: string;
-  /** Kept for transport compatibility; Review no longer exposes review-type choices. */
+  /** Legacy comparison metadata. */
   reviewMode?: 'regular' | 'pull-request' | 'changed-files';
+  scopeMode?: 'full' | 'focused';
+  repositorySourceId?: string;
+  repositoryRevision?: string;
+  repositoryBranch?: string;
   reviewer?: string;
   pullRequest?: string;
   baseRef?: string;
@@ -280,10 +324,10 @@ export const api = {
   // Projects
   projects: () => request<Project[]>('/projects'),
   project: (id: string) => request<Project>(`/projects/${id}`),
-  createProject: (name: string, description: string, workspacePath: string, source?: { type: 'local-repository' } | { type: 'github'; repoUrl: string }) =>
-    request<Project>('/projects', {
+  createProject: (name: string, description: string, workspacePath: string, source?: { type: 'local-repository' } | { type: 'github'; repoUrl: string } | ProjectRepositoryInput[]) =>
+    request<ProjectCreationResult>('/projects', {
       method: 'POST',
-      body: JSON.stringify({ name, description, workspacePath, source }),
+      body: JSON.stringify({ name, description, workspacePath, ...(Array.isArray(source) ? { sources: source } : { source }) }),
     }),
   deleteProject: (id: string) =>
     request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
@@ -296,10 +340,19 @@ export const api = {
     request<CollaborationStatus>(`/projects/${id}/collaborators/status`),
   getProjectCollaborators: (id: string) =>
     request<GithubCollaboratorSnapshot>(`/projects/${id}/collaborators`),
-  syncGithubCollaborators: (id: string) =>
-    request<GithubCollaboratorSnapshot>(`/projects/${id}/collaborators/sync`, { method: 'POST' }),
+  syncGithubCollaborators: (id: string, syncProjectMembers = false) =>
+    request<GithubCollaboratorSnapshot>(`/projects/${id}/collaborators/sync${syncProjectMembers ? '?projectMembers=true' : ''}`, { method: 'POST' }),
   searchCollaborators: (id: string, email: string) =>
     request<CollaboratorSearchResult>(`/projects/${id}/collaborators/search?email=${encodeURIComponent(email)}`),
+  searchProjectCollaborators: (id: string, query: string) =>
+    request<{ matches: import('../types').ProjectCollaboratorMatch[]; githubUnavailable: boolean }>(`/projects/${id}/collaborators/search?q=${encodeURIComponent(query)}`),
+  addProjectCollaborator: (projectId: string, { id, provider }: import('../types').ProjectCollaboratorMatch) =>
+    request<{ state: 'joined' | 'pending' }>(`/projects/${projectId}/collaborators`, {
+      method: 'POST',
+      body: JSON.stringify({ id, provider }),
+    }),
+  cancelPendingCollaborator: (projectId: string, githubId: string) =>
+    request<{ cancelled: true }>(`/projects/${projectId}/collaborators/pending/${encodeURIComponent(githubId)}`, { method: 'DELETE' }),
   inviteCollaborator: (id: string, username: string) =>
     request<CollaboratorInviteResult>(`/projects/${id}/collaborators/invite`, {
       method: 'POST',
@@ -319,9 +372,10 @@ export const api = {
     request<{ ok: boolean }>(`/integrations/${provider}`, { method: 'DELETE' }),
   getConnectedSourceStatus: (provider: IntegrationProvider, projectId: string) =>
     request<ConnectedSourceStatusResult>(`/integrations/${provider}/source-status?projectId=${encodeURIComponent(projectId)}`),
-  browseConnectedSources: (provider: IntegrationProvider, options: { remoteId?: string; cursor?: string; query?: string; pageSize?: number } = {}) => {
+  browseConnectedSources: (provider: IntegrationProvider, options: { remoteId?: string; branch?: string; cursor?: string; query?: string; pageSize?: number } = {}) => {
     const params = new URLSearchParams();
     if (options.remoteId) params.set('remoteId', options.remoteId);
+    if (options.branch) params.set('branch', options.branch);
     if (options.cursor) params.set('cursor', options.cursor);
     if (options.query) params.set('query', options.query);
     if (options.pageSize) params.set('pageSize', String(options.pageSize));
@@ -354,6 +408,11 @@ export const api = {
   /** Copies the bundled Sample Shop into the Centinel home folder and runs it on port 4100. */
   prepareSampleShop: () => request<{ path: string; url: string; server: 'started' | 'running' | 'port_in_use' }>('/samples/sample-shop', { method: 'POST', body: '{}' }),
   codexStatus: () => request<{ available: boolean; connected: boolean; accountLabel: string | null; message: string }>('/settings/codex'),
+  codexSubscriptionUsage: () => request<{
+    fiveHour: { usedPercent: number; resetsAt: number | null } | null;
+    weekly: { usedPercent: number; resetsAt: number | null } | null;
+  }>('/settings/codex/usage'),
+  geminiOAuthStatus: () => request<{ available: boolean; connected: boolean; models: Array<{ id: string; label: string }> }>('/settings/gemini/oauth'),
   codexLogin: () => request<{ loginId: string; authUrl: string }>('/settings/codex/login', { method: 'POST' }),
   codexCancelLogin: (loginId: string) => request<{ ok: boolean }>('/settings/codex/login/cancel', { method: 'POST', body: JSON.stringify({ loginId }) }),
   codexLogout: () => request<{ ok: boolean }>('/settings/codex/logout', { method: 'POST' }),
@@ -361,6 +420,8 @@ export const api = {
   testCodex: (model: string, vision = false) => request<{ status: 'pass' | 'fail'; message: string }>('/settings/codex/test', { method: 'POST', body: JSON.stringify({ model, vision }) }),
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
   embeddingModels: () => request<EmbeddingSettingsCatalog>('/settings/ai/embedding/models'),
+  updateSharedAiSetting: (data: { provider: AiProvider; apiFormat: AiApiFormat; apiKey: string; baseUrl: string; model: string; geminiOAuth?: boolean }) =>
+    request<{ ok: boolean }>('/settings/ai/shared', { method: 'PUT', body: JSON.stringify(data) }),
   updateAiSetting: (id: 'text' | 'vision' | 'embedding', data: {
     provider: AiProvider;
     apiFormat: AiApiFormat;
@@ -380,6 +441,8 @@ export const api = {
       body: JSON.stringify(data),
     }),
   testAiProvider: (id: 'text' | 'vision' | 'embedding', overrides?: {
+    geminiOAuth?: boolean;
+    testVision?: boolean;
     provider?: AiProvider;
     apiFormat?: AiApiFormat;
     apiKey?: string;
@@ -416,6 +479,7 @@ export const api = {
         totalCacheRead: number;
         totalCacheCreation: number;
         totalCalls: number;
+        lastExecutedAt?: string;
         unknownInputCalls?: number; unknownOutputCalls?: number; unknownCacheReadCalls?: number; unknownCacheCreationCalls?: number;
       }>;
       recent: Array<{
@@ -548,6 +612,8 @@ export const api = {
   // Artifacts
   getSourceIndexStatus: (projectId: string, signal?: AbortSignal) =>
     request<import('../types').SourceIndexStatus>(`/projects/${encodeURIComponent(projectId)}/repository-index/build`, { signal }),
+  ensureSourceIndex: (projectId: string, signal?: AbortSignal) =>
+    request<import('../types').SourceIndexStatus>(`/projects/${encodeURIComponent(projectId)}/repository-index/build?mode=ensure`, { method: 'POST', signal }),
   resumeSourceIndex: (projectId: string) =>
     request<import('../types').SourceIndexStatus>(`/projects/${encodeURIComponent(projectId)}/repository-index/build`, { method: 'POST', body: '{}' }),
   listArtifacts: (projectId: string) =>
@@ -564,7 +630,7 @@ export const api = {
     }),
   getArtifactContent: (projectId: string, artifactId: string, versionId?: string) =>
     request<{ versionId: string; content: string; contentHash: string; mimeType: string | null; textContent?: string; textExtraction?: { policy: string; pageCount: number; limitations: string[] } }>(`/projects/${projectId}/artifacts/${artifactId}/content${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`),
-  uploadArtifact: (projectId: string, data: { fileName: string; content: string; type?: string }) =>
+  uploadArtifact: (projectId: string, data: { fileName: string; content: string; type?: string; reviewReference?: true }) =>
     request<Artifact>(`/projects/${projectId}/artifacts`, {
       method: 'POST',
       body: JSON.stringify(data),

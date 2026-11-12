@@ -332,6 +332,9 @@ export async function getSupabaseModelUsageSummary(
     group.totalCacheRead += cacheReadTokens;
     group.totalCacheCreation += cacheCreationTokens;
     group.totalCalls++;
+    if (Number.isFinite(Date.parse(row.created_at)) && (!group.lastExecutedAt || Date.parse(row.created_at) > Date.parse(group.lastExecutedAt))) {
+      group.lastExecutedAt = row.created_at;
+    }
     if (nonNegativeInteger(row.input_tokens) === null) {
       group.unknownInputCalls = (group.unknownInputCalls ?? 0) + 1;
       totals.unknownInputCalls++;

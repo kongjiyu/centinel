@@ -1,7 +1,7 @@
 import './LoadingSkeleton.css';
 
 export type LoadingSkeletonProps = {
-  variant?: 'panel' | 'rows';
+  variant?: 'panel' | 'rows' | 'cards';
   rows?: number;
   label: string;
   className?: string;
@@ -16,7 +16,15 @@ export function LoadingSkeleton({ variant = 'panel', rows = 3, label, className 
     <div className={classes} role="status" aria-label={label} aria-busy="true">
       <span className="loading-skeleton-label">{label}</span>
       <div className="loading-skeleton-visual" aria-hidden="true">
-        {variant === 'rows'
+        {variant === 'cards'
+          ? Array.from({ length: safeRows }, (_, index) => (
+            <div className="loading-skeleton-panel-body" key={index}>
+              <span className="loading-skeleton-bar loading-skeleton-heading-primary" />
+              <span className="loading-skeleton-bar loading-skeleton-body-primary" />
+              <span className="loading-skeleton-bar loading-skeleton-body-secondary" />
+            </div>
+          ))
+          : variant === 'rows'
           ? Array.from({ length: safeRows }, (_, index) => (
             <div className="loading-skeleton-row" key={index}>
               <span className="loading-skeleton-bar loading-skeleton-row-primary" />

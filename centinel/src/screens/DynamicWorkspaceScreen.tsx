@@ -40,6 +40,8 @@ type Props = {
   projects: Project[];
   initialProjectId?: string;
   initialRunId?: string;
+  initialMissionId?: string;
+  listing?: boolean;
   initialDraft?: DynamicTestDraft;
   onNavigate(screen: Screen): void;
 };
@@ -98,7 +100,9 @@ export function DynamicWorkspaceScreen({
   projects,
   initialProjectId,
   initialRunId,
+  initialMissionId,
   initialDraft,
+  listing = false,
   onNavigate,
   incomingContextSource = createStaticContextStub,
 }: Props) {
@@ -261,9 +265,9 @@ export function DynamicWorkspaceScreen({
     return () => cancelAnimationFrame(frame);
   }, [selectedRunId, Boolean(selectedRun)]);
 
-  const edit = (revision: MissionRevision) => {
+  const edit = (revision: MissionRevision, navigate = true) => {
     setSelectedRunId('');
-    onNavigate({ name: 'dynamic-testing', projectId });
+    if (navigate) onNavigate({ name: 'dynamic-testing', projectId });
     setMissionId(revision.missionId);
     setUsability(revision.usability ? structuredClone(revision.usability) : undefined);
     setMode(revision.mode ?? 'guided');
@@ -289,6 +293,15 @@ export function DynamicWorkspaceScreen({
     setFeedback(`Loaded revision ${revision.revision}. Saving edits creates a new revision.`);
     setError(null);
   };
+  const openedMission = useRef('');
+  const requestedRevision = savedTests.find(test => test.mission.id === initialMissionId)?.revision;
+  useEffect(() => {
+    if (!initialMissionId) { openedMission.current = ''; return; }
+    const key = `${projectId}:${initialMissionId}`;
+    if (projectId !== initialProjectId || !requestedRevision || openedMission.current === key) return;
+    openedMission.current = key;
+    edit(requestedRevision, false);
+  }, [initialMissionId, initialProjectId, projectId, requestedRevision]);
   const loadContext = async (scenario: StubScenario) => {
     const generation = loadGeneration.current;
     const sequence = ++contextSequence.current;
@@ -493,13 +506,18 @@ export function DynamicWorkspaceScreen({
   };
 
   return (
-    <div className="dynamic-workspace-screen">
+    <div className={`dynamic-workspace-screen${listing ? " dw-listing" : ""}`}>
       <header className="command-page-header">
         <div>
           <span className="dw-eyebrow">Browser validation</span>
           <h1>Dynamic testing</h1>
-          <p>Save a test, run it again, and inspect the evidence behind each result.</p>
+          {!listing && <p>Save a test, run it again, and inspect the evidence behind each result.</p>}
         </div>
+        {listing && <button type="button" className="btn-primary" disabled={!projectId} onClick={() => {
+          resetDraft();
+          setSelectedRunId('');
+          onNavigate({ name: 'dynamic-testing', projectId });
+        }}><Plus size={16} aria-hidden="true" /> Start Dynamic Test</button>}
       </header>
       <div className="dw-toolbar">
         <div>
@@ -512,7 +530,7 @@ export function DynamicWorkspaceScreen({
             onChange={(value) => {
               requestKey.current = null;
               setProjectId(value);
-              onNavigate({ name: 'dynamic-testing', projectId: value });
+              onNavigate({ name: 'dynamic-testing', projectId: value, ...(listing ? { listing: true } : {}) });
             }}
           />
         </div>
@@ -542,7 +560,7 @@ export function DynamicWorkspaceScreen({
         <p className="dw-empty">Create or select a project to save your first browser test.</p>
       ) : (
         <>
-          <AutoTestPanel
+          {!listing && <AutoTestPanel
             projectId={projectId}
             defaultFolder={projects.find((project) => project.id === projectId)?.workspacePath || undefined}
             onOpenRun={(runId) => {
@@ -550,8 +568,8 @@ export function DynamicWorkspaceScreen({
               void load({ fresh: true }).catch(() => undefined);
               requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
             }}
-          />
-          <DynamicEnvironmentPanel
+          />}
+          {!listing && <DynamicEnvironmentPanel
             projectId={projectId}
             value={environmentId}
             disabled={busy}
@@ -560,9 +578,9 @@ export function DynamicWorkspaceScreen({
               requestKey.current = null;
               setEnvironmentId(id);
             }}
-          />
+          />}
           <div className="dw-grid">
-            <section className="dw-editor" aria-labelledby="dw-editor-title">
+            {!listing && <section className="dw-editor" aria-labelledby="dw-editor-title">
               <div className="dw-section-heading">
                 <div>
                   <h2 id="dw-editor-title">{missionId ? 'Edit saved test' : 'New test'}</h2>
@@ -932,7 +950,7 @@ export function DynamicWorkspaceScreen({
                   )}
                 </fieldset>
               </form>
-            </section>
+            </section>}
             <aside className="dw-history" aria-labelledby="dw-history-title">
               <div className="dw-section-heading">
                 <h2 id="dw-history-title">

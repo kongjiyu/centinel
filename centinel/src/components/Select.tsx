@@ -6,6 +6,7 @@ import './Select.css';
 export type SelectOption = {
   value: string;
   label: string;
+  description?: string;
   disabled?: boolean;
 };
 
@@ -101,8 +102,10 @@ export function Select({
 
 function SelectItem({ option }: { option: SelectOption }) {
   return (
-    <RadixSelect.Item className="select-item" value={option.value} disabled={option.disabled}>
-      <RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+    <RadixSelect.Item className="select-item" value={option.value} disabled={option.disabled} textValue={option.label}>
+      <span className="select-item-copy"><RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+        {option.description && <small className="select-item-description">{option.description}</small>}
+      </span>
       <RadixSelect.ItemIndicator className="select-item-indicator">
         <Check size={15} strokeWidth={2} aria-hidden="true" />
       </RadixSelect.ItemIndicator>

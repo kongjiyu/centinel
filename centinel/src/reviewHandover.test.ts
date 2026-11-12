@@ -43,5 +43,8 @@ describe('saved-evidence handover', () => {
     expect(reviewHandover({ ...verified, state: 'Completed', executionStatus: 'failed' }).recommendation).toBe('Insufficient evidence');
     expect(reviewHandover({ ...verified, evidenceReady: false }).recommendation).toBe('Insufficient evidence');
     expect(reviewHandover({ ...verified, modelStatus: 'partial' }).recommendation).toBe('Insufficient evidence');
+    const codeOnly = { ...verified, traceability: null, assessment: { ...verified.assessment!, confirmedRequirementCount: 0 } };
+    expect(reviewHandover(codeOnly).recommendation).toBe('Ready within scope');
+    expect(reviewHandover({ ...codeOnly, modelStatus: 'partial' }).recommendation).toBe('Insufficient evidence');
   });
 });

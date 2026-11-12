@@ -33,12 +33,12 @@ describe('Project creation', () => {
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
     await user.type(screen.getByLabelText(/Description/), 'Payment verification');
     expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Choose repository' }));
+    await user.click(screen.getByRole('button', { name: 'Add local folders' }));
     await user.click(screen.getByRole('button', { name: 'Create project' }));
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Banking', 'Payment verification', 'C:\\Projects\\banking', { type: 'local-repository' }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Banking', 'Payment verification', [{ type: 'local-repository', path: 'C:\\Projects\\banking' }]));
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage unavailable');
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
-    expect(screen.getByLabelText('Local repository *')).toHaveValue('C:\\Projects\\banking');
+    expect(screen.getByText('C:\\Projects\\banking')).toBeInTheDocument();
   });
 
   it('reports folder-picker failures without discarding the project name', async () => {
@@ -47,7 +47,7 @@ describe('Project creation', () => {
     render(<ProjectsScreen projects={[]} onCreate={vi.fn()} onDelete={vi.fn()} onNavigate={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'New project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
-    await user.click(screen.getByRole('button', { name: 'Choose repository' }));
+    await user.click(screen.getByRole('button', { name: 'Add local folders' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('folder picker could not open');
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
   });
@@ -59,15 +59,37 @@ describe('Project creation', () => {
 
     await user.click(screen.getByRole('button', { name: 'New project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Remote project');
-    await user.click(screen.getByRole('radio', { name: /GitHub/ }));
-    await user.type(screen.getByLabelText('GitHub repository URL *'), 'https://github.com/example/remote-project');
+    await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
+    await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/remote-project');
     await user.click(screen.getByRole('button', { name: 'Create project' }));
 
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Remote project', '', '', {
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Remote project', '', [{
       type: 'github',
       repoUrl: 'https://github.com/example/remote-project',
-    }));
+    }]));
     expect(folderPicker).not.toHaveBeenCalled();
+  });
+
+  it('submits several local folders and GitHub links in one project', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    folderPicker.mockResolvedValue(['C:\\Projects\\api', 'C:\\Projects\\web']);
+    render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'New project' }));
+    await user.type(screen.getByLabelText('Project name *'), 'Mixed');
+    await user.click(screen.getByRole('button', { name: 'Add local folders' }));
+    expect(folderPicker).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }));
+    await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
+    await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/first.git');
+    await user.click(screen.getByRole('button', { name: 'Add link' }));
+    await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/second');
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Mixed', '', [
+      { type: 'local-repository', path: 'C:\\Projects\\api' },
+      { type: 'local-repository', path: 'C:\\Projects\\web' },
+      { type: 'github', repoUrl: 'https://github.com/example/first' },
+      { type: 'github', repoUrl: 'https://github.com/example/second' },
+    ]));
   });
 });
 
@@ -140,6 +162,18 @@ describe('Project directory', () => {
     vi.mocked(api.listStaticSessions).mockImplementation(async projectId => projectId === 'review-project' ? [review] : []);
     vi.mocked(api.listDynamicSessions).mockImplementation(async projectId => projectId === 'dynamic-project' ? [test] : []);
     vi.mocked(api.getSourcePresence).mockResolvedValue({ hasSources: true });
+  });
+
+  it('shows activity skeletons inside the rows while projects stay openable', async () => {
+    vi.mocked(api.listStaticSessions).mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    render(<ProjectsScreen projects={projects} onCreate={vi.fn()} onDelete={vi.fn()} onNavigate={onNavigate} />);
+    const row = await screen.findByRole('row', { name: 'Open Release review overview' });
+    expect(within(row).getByRole('status', { name: 'Loading activity for Release review' })).toBeInTheDocument();
+    expect(screen.queryByText(/Updating project activity/)).not.toBeInTheDocument();
+    await user.click(row);
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'project-detail', projectId: 'review-project' });
   });
 
   it('uses the shared table and honors carried state and activity filters', async () => {

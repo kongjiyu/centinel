@@ -19,13 +19,13 @@ import { userFacingError } from '../utils/userFacingError';
 import { formatEntityId } from '../utils/entityId';
 import { deriveRiskLevel, priorityRank, riskLevelRank, RISK_MATRIX_ROWS } from '../riskPolicy';
 import { projectReadinessFindings } from '../readinessFindings';
-import { reviewEvidenceFindings } from '../reviewEvidenceFindings';
+import { reviewEvidenceFindings, reviewTraceabilityFindings } from '../reviewEvidenceFindings';
 import { assessReviewSourceCurrency, latestSuccessfulReview } from '../reviewCurrency';
 import { effectiveFindingStatus } from '../findingStatus';
-import { distinctFindingIssues } from '../findingGroups';
+import { distinctFindingIssues, groupFindings } from '../findingGroups';
 import { createRecheckIdempotencyKey, findingRecheckPlan } from '../findingRecheck';
 import { dynamicActivityScreen, latestPerSavedTest, loadDynamicActivity } from '../dynamic/runActivity';
-import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, CollaboratorMatch, GithubCollaboratorSnapshot, ReviewSourceManifest } from '../types';
+import type { Project, DynamicSession, StaticSession, Artifact, Screen, Finding, ProjectAssessment, CollaborationStatus, ProjectCollaboratorMatch, ReviewSourceManifest } from '../types';
 import type { ProjectReadinessStatus } from '../types';
 import './ProjectDetailScreen.css';
 
@@ -34,7 +34,10 @@ type Props = {
   onNavigate: (screen: Screen) => void;
   onProjectUpdated?: (project: Project) => void;
   initialAction?: 'static' | 'dynamic';
-  initialSection?: 'source';
+  initialSection?: 'source' | 'findings';
+  findingsReviewId?: string;
+  findingId?: string;
+  sourceArtifactId?: string;
   initialStaticSessionId?: string;
 };
 
@@ -46,6 +49,10 @@ type AttentionItem = {
   detail: string;
   action: 'source' | 'findings' | 'activity' | 'actions' | 'review' | 'requirements';
   actionLabel: string;
+  rank?: number;
+  risk?: string;
+  findingId?: string;
+  target?: Screen;
   comparisonParentReviewId?: string;
   filter?: { category?: string; search?: string };
 };
@@ -84,7 +91,8 @@ function attentionPreview(detail: string): string {
   return (boundary > ATTENTION_PREVIEW_LIMIT - 30 ? preview.slice(0, boundary) : preview).trimEnd();
 }
 
-export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialSection, initialStaticSessionId: _initialStaticSessionId }: Props) {
+export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, initialAction, initialSection, sourceArtifactId, findingsReviewId, findingId, initialStaticSessionId: _initialStaticSessionId }: Props) {
+  const showCollaborators = import.meta.env.VITE_ENABLE_PROJECT_COLLABORATORS === 'true';
   const [currentProject, setCurrentProject] = useState(project);
   const [dynamicSessions, setDynamicSessions] = useState<DynamicSession[]>([]);
   const [staticSessions, setStaticSessions] = useState<StaticSession[]>([]);
@@ -107,8 +115,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [showReportHistory, setShowReportHistory] = useState(false);
   const [reportLinks, setReportLinks] = useState<Record<string, ProjectReportDownloadLinks>>({});
   const [renewingReportId, setRenewingReportId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState(initialSection === 'source' ? 'project-source' : 'project-overview');
-  useEffect(() => { setActiveSection(initialSection === 'source' ? 'project-source' : 'project-overview'); }, [project.id, initialSection]);
+  const [activeSection, setActiveSection] = useState(initialSection === 'source' ? 'project-source' : initialSection === 'findings' ? 'project-findings' : 'project-overview');
+  useEffect(() => { setActiveSection(initialSection === 'source' ? 'project-source' : initialSection === 'findings' ? 'project-findings' : 'project-overview'); }, [project.id, initialSection, findingsReviewId, findingId]);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activityQuery, setActivityQuery] = useState('');
   const [activityType, setActivityType] = useState<'all' | 'review' | 'dynamic'>('all');
@@ -130,7 +138,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [latestTraceabilityReview, setLatestTraceabilityReview] = useState<StaticSession | null>(null);
   const [traceabilitySummaryLoading, setTraceabilitySummaryLoading] = useState(false);
   const [assessmentInfoPage, setAssessmentInfoPage] = useState<AssessmentInfoPage | null>(null);
-  const [attentionPage, setAttentionPage] = useState(0);
+  const [attentionFindingId, setAttentionFindingId] = useState<string | null>(null);
   const [settingsDraft, setSettingsDraft] = useState({ name: project.name, description: project.description, workspacePath: project.workspacePath });
   const [settingsEditing, setSettingsEditing] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -139,23 +147,22 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<CollaborationStatus | null>(null);
-  const [collaborationStatusLoading, setCollaborationStatusLoading] = useState(false);
   const [collaborationStatusError, setCollaborationStatusError] = useState<string | null>(null);
-  const [collaborationQuery, setCollaborationQuery] = useState('');
-  const [githubCollaborators, setGithubCollaborators] = useState<GithubCollaboratorSnapshot | null>(null);
+  const [syncingProjectCollaborators, setSyncingProjectCollaborators] = useState(false);
+  const [membershipRevision, setMembershipRevision] = useState(0);
+  const [collaboratorOwnerProject, setCollaboratorOwnerProject] = useState<string | null>(null);
   const [githubCollaboratorsLoading, setGithubCollaboratorsLoading] = useState(false);
-  const [githubCollaboratorsLoadedProjectId, setGithubCollaboratorsLoadedProjectId] = useState<string | null>(null);
   const [githubCollaboratorsError, setGithubCollaboratorsError] = useState<string | null>(null);
   const [showCollaboratorDialog, setShowCollaboratorDialog] = useState(false);
-  const [collaboratorEmail, setCollaboratorEmail] = useState('');
-  const [collaboratorMatches, setCollaboratorMatches] = useState<CollaboratorMatch[]>([]);
-  const [selectedCollaborator, setSelectedCollaborator] = useState<CollaboratorMatch | null>(null);
+  const [githubConnection, setGithubConnection] = useState<'checking' | 'connected' | 'disconnected' | 'unavailable'>('checking');
+  const [collaboratorQuery, setCollaboratorQuery] = useState('');
+  const [collaboratorFilter, setCollaboratorFilter] = useState('');
+  useEffect(() => { setCollaboratorFilter(''); }, [project.id]);
+  const [collaboratorMatches, setCollaboratorMatches] = useState<ProjectCollaboratorMatch[]>([]);
   const [collaboratorSearchLoading, setCollaboratorSearchLoading] = useState(false);
-  const [collaboratorInviteLoading, setCollaboratorInviteLoading] = useState(false);
+  const [collaboratorAddLoading, setCollaboratorAddLoading] = useState(false);
   const [collaboratorError, setCollaboratorError] = useState<string | null>(null);
   const [collaboratorNotice, setCollaboratorNotice] = useState<string | null>(null);
-  const [repositoryInfoOpen, setRepositoryInfoOpen] = useState(false);
-  const collaboratorSearchRequest = useRef(0);
   const collaboratorSyncAttempts = useRef(new Set<string>());
   const collaboratorLoads = useRef(new Map<string, Promise<void>>());
   const currentProjectId = useRef(project.id);
@@ -246,7 +253,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setSettingsError(null);
     setCurrentProject(project);
     setSettingsEditing(false);
-    setCollaborationQuery('');
   }, [project.description, project.id, project.name, project.workspacePath]);
 
   useEffect(() => {
@@ -256,9 +262,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setArtifactsError(null);
     setCollaborationStatus(null);
     setCollaborationStatusError(null);
-    setGithubCollaborators(null);
     setGithubCollaboratorsError(null);
-    setGithubCollaboratorsLoadedProjectId(null);
     setAssessmentData(null);
     setAssessmentLoadedProjectId(null);
   }, [project.id]);
@@ -558,19 +562,25 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         title: 'Sources could not be checked',
         detail: 'The source service is unavailable. Retry before starting a Review.',
         action: 'source',
-        actionLabel: 'Inspect',
+        actionLabel: 'Inspect sources',
+        rank: 0,
       });
     }
 
-    [...staticSessions, ...latestPerSavedTest(dynamicSessions)]
-      .filter(session => session.status === 'blocked' || session.status === 'failure')
+    const superseded = new Set(staticSessions.map(session => session.parentSessionId).filter(Boolean));
+    [...staticSessions.filter(session => !superseded.has(session.id)), ...latestPerSavedTest(dynamicSessions)]
+      .filter(session => ['blocked', 'failure', 'failed'].includes(session.status))
       .sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt))
       .forEach(session => items.push({
         id: `session-${session.id}`,
         title: `${session.name} needs attention`,
         detail: userFacingError(session.failureReason, 'The activity did not complete. Inspect the activity details before retrying.'),
         action: 'activity',
-        actionLabel: 'Inspect',
+        actionLabel: 'Open failed run',
+        rank: 1,
+        target: 'type' in session && session.type === 'dynamic'
+          ? dynamicActivityScreen(project.id, session)
+          : { name: 'review-activity', projectId: project.id, sessionId: session.id, reviewName: session.name },
       }));
 
     recurringPatterns.forEach(pattern => items.push({
@@ -578,7 +588,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       title: `Recurring Finding Patterns · ${pattern.label}`,
       detail: `${pattern.sessions.size} completed Review session${pattern.sessions.size === 1 ? '' : 's'} contain this pattern.`,
       action: 'findings',
-      actionLabel: 'Review',
+      actionLabel: 'View pattern',
       filter: pattern.filter,
     }));
 
@@ -592,7 +602,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           ? `${sourceCount} ${sourceNoun} changed or were removed since “${lastSuccessfulReview.name}”. Start a Review to assess the current versions.`
           : `At least ${sourceCount} ${sourceNoun} changed or were removed since “${lastSuccessfulReview.name}”; source currency could not be fully verified. Start a Review to assess the current versions.`,
         action: 'review',
-        actionLabel: 'Start Review',
+        actionLabel: 'Review changed sources',
         comparisonParentReviewId: lastSuccessfulReview.id,
       });
     }
@@ -605,7 +615,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         title: 'New sources need review',
         detail: `${sourceCount} ${addedSourceNoun} ${sourceCount === 1 ? 'was' : 'were'} imported after “${lastSuccessfulReview.name}” and may not be covered by that Review.${reviewSourceCurrency.fullyVerified ? '' : ' Source currency could not be fully verified.'} Start a Review to assess them.`,
         action: 'review',
-        actionLabel: 'Start Review',
+        actionLabel: 'Review new sources',
         comparisonParentReviewId: lastSuccessfulReview.id,
       });
     }
@@ -616,20 +626,31 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         title: 'Review needs checking',
         detail: 'Source currency cannot be verified from the saved Review evidence. Start a Review to establish a current source snapshot.',
         action: 'review',
-        actionLabel: 'Start Review',
+        actionLabel: 'Check source coverage',
         comparisonParentReviewId: lastSuccessfulReview.id,
       });
     }
 
     // One item per distinct issue: repeated detections of the same issue
     // across Reviews are counted once. Stored rows and risk inputs are unchanged.
-    distinctFindingIssues(unresolvedFindings).forEach(({ representative: finding, occurrences }) => items.push({
-      id: `finding-${finding.id}`,
-      title: finding.title,
-      detail: `${finding.severity} finding from ${finding.source === 'static' ? 'Review' : 'Dynamic Testing'}.${occurrences.length > 1 ? ` Found ${occurrences.length} times.` : ''}`,
-      action: 'findings',
-      actionLabel: 'Review',
-    }));
+    distinctFindingIssues(unresolvedFindings).forEach(({ representative: finding, occurrences }) => {
+      const severity = finding.severity.toLowerCase();
+      if (severity === 'info' || severity === 'informational') return;
+      const risk = finding.riskLevel ?? deriveRiskLevel(finding.severity, finding.priority);
+      const urgency = risk ?? severity;
+      const rank = urgency === 'critical' ? 0 : urgency === 'high' ? 2 : urgency === 'medium' ? 4 : 7;
+      const description = finding.description.trim().match(/^.*?[.!?](?=\s|$)/)?.[0] || finding.description.trim();
+      items.push({
+        id: `finding-${finding.id}`,
+        title: groupFindings([finding])[0].title,
+        detail: `${description || 'Open the finding to see what was reported.'}${occurrences.length > 1 ? ` Found ${occurrences.length} times.` : ''}`,
+        action: 'findings',
+        actionLabel: 'Inspect finding',
+        risk: urgency,
+        rank,
+        findingId: finding.id,
+      });
+    });
 
     if (!artifactsError && artifacts.length === 0) {
       items.push({
@@ -637,7 +658,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         title: 'Add sources to this project',
         detail: 'Upload a document or import a repository before starting a Review.',
         action: 'source',
-        actionLabel: 'Set up',
+        actionLabel: 'Add sources',
       });
     }
 
@@ -657,28 +678,43 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         title: 'Start the first Review',
         detail: 'The project has sources ready for its first file review.',
         action: 'actions',
-        actionLabel: 'Start',
+        actionLabel: 'Start Review',
       });
     }
 
-    return items;
-  }, [artifactsError, artifacts.length, confirmedRequirementCount, dynamicSessions, lastSuccessfulReview, needsFirstReview, recurringPatterns, reviewSourceCurrency, staticSessions, unresolvedFindings]);
+    return items.sort((a, b) => (a.rank ?? 5) - (b.rank ?? 5));
+  }, [project.id, artifactsError, artifacts.length, confirmedRequirementCount, dynamicSessions, lastSuccessfulReview, needsFirstReview, recurringPatterns, reviewSourceCurrency, staticSessions, unresolvedFindings]);
 
   const readinessFindings = useMemo(() => projectReadinessFindings(readinessStatus), [readinessStatus]);
   const latestSavedReview = useMemo(() => [...staticSessions].filter(review => !['queued', 'prepared', 'running'].includes(review.status)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id))[0], [staticSessions]);
   useEffect(() => {
-    if (activeSection !== 'project-findings' || !latestSavedReview) return;
+    if (activeSection !== 'project-findings' || !latestSavedReview || findingsReviewId) return;
     let disposed = false;
     const identity = { projectId: project.id, reviewId: latestSavedReview.id };
     setReviewGapState({ ...identity, findings: [], message: 'Loading the latest Review’s document findings…' });
     if (typeof api.getReviewEvidenceSufficiency !== 'function') {
       setReviewGapState({ ...identity, findings: [], message: 'The latest Review’s saved document assessment is unavailable.' }); return;
     }
-    void api.getReviewEvidenceSufficiency(project.id, latestSavedReview.id).then(assessment => {
-      if (!disposed) setReviewGapState({ ...identity, findings: reviewEvidenceFindings(latestSavedReview, assessment), message: assessment ? null : 'The latest Review has no saved document assessment.' });
-    }).catch(() => { if (!disposed) setReviewGapState({ ...identity, findings: [], message: 'The latest Review’s document findings could not be loaded. Reopen Findings to retry.' }); });
+    void Promise.allSettled([
+      api.getReviewEvidenceSufficiency(project.id, latestSavedReview.id),
+      Promise.resolve().then(() => api.getReviewTraceability(project.id, latestSavedReview.id)),
+      Promise.resolve().then(() => api.getReviewHarness(project.id, latestSavedReview.id)),
+      Promise.resolve().then(() => api.listStaticFindings(project.id, latestSavedReview.id)),
+    ]).then(([assessment, snapshot, harness, findings]) => {
+      if (disposed) return;
+      setReviewGapState({
+        ...identity,
+        findings: [
+          ...reviewEvidenceFindings(latestSavedReview, assessment.status === 'fulfilled' ? assessment.value : null),
+          ...reviewTraceabilityFindings(latestSavedReview, snapshot.status === 'fulfilled' ? snapshot.value : null,
+            harness.status === 'fulfilled' && harness.value && isExecutedReviewStatus(harness.value.review.status) ? harness.value.analysisMap : null, findings.status === 'fulfilled' ? findings.value : []),
+        ],
+        message: assessment.status === 'rejected' ? 'The latest Review’s document findings could not be loaded. Reopen Findings to retry.'
+          : !assessment.value ? 'The latest Review has no saved document assessment.' : null,
+      });
+    });
     return () => { disposed = true; };
-  }, [activeSection, project.id, latestSavedReview?.id, latestSavedReview?.updatedAt]);
+  }, [activeSection, project.id, findingsReviewId, latestSavedReview?.id, latestSavedReview?.updatedAt]);
   const currentReviewGaps = reviewGapState?.projectId === project.id && reviewGapState.reviewId === latestSavedReview?.id ? reviewGapState : null;
   const supplementalProjectFindings = useMemo(() => [...readinessFindings, ...(currentReviewGaps?.findings ?? [])], [readinessFindings, currentReviewGaps?.findings]);
 
@@ -742,8 +778,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     };
   }, [notFoundAgain, onNavigate, project.id, staticSessions]);
 
-  const attentionPageCount = Math.max(1, Math.ceil(attentionItems.length / 3));
-  const visibleAttentionItems = attentionItems.slice(attentionPage * 3, attentionPage * 3 + 3);
+  const visibleAttentionItems = attentionItems.slice(0, 3);
 
   const riskSummary = useMemo(() => {
     const counts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -759,11 +794,8 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     } : counts;
   }, [assessmentData, hasReconciledFindings, riskLevelFindings]);
 
-  useEffect(() => {
-    setAttentionPage(page => Math.min(page, attentionPageCount - 1));
-  }, [attentionPageCount]);
-
   const handleAttentionAction = (item: AttentionItem) => {
+    if (item.target) { onNavigate(item.target); return; }
     if (item.action === 'actions') {
       setActionsOpen(true);
       return;
@@ -782,7 +814,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       requestAnimationFrame(() => document.getElementById('project-recent-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
       return;
     }
-    if (item.action === 'findings') setFindingsFilter(item.filter ?? null);
+    if (item.action === 'findings') {
+      setAttentionFindingId(item.findingId ?? null);
+      setFindingsFilter(item.filter ?? null);
+    }
     moveToSection(item.action === 'source' ? 'project-source' : 'project-findings');
   };
 
@@ -851,7 +886,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   };
 
   const loadCollaborationStatus = useCallback(async (): Promise<CollaborationStatus> => {
-    setCollaborationStatusLoading(true);
     setCollaborationStatusError(null);
     try {
       const status = await api.getCollaborationStatus(project.id);
@@ -869,8 +903,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         setCollaborationStatusError(message);
       }
       return unavailable;
-    } finally {
-      if (currentProjectId.current === project.id) setCollaborationStatusLoading(false);
     }
   }, [project.id]);
 
@@ -882,25 +914,14 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setGithubCollaboratorsLoading(true);
     if (!collaboratorSyncAttempts.current.has(projectId)) setGithubCollaboratorsError(null);
     const load = Promise.resolve().then(async () => {
-      const [statusResult, savedResult] = await Promise.allSettled([
-        loadCollaborationStatus(),
-        api.getProjectCollaborators(projectId),
-      ]);
+      const status = await loadCollaborationStatus();
       if (currentProjectId.current !== projectId) return;
-
-      const status = statusResult.status === 'fulfilled' ? statusResult.value : null;
-      if (savedResult.status === 'fulfilled') {
-        setGithubCollaborators(savedResult.value);
-      } else {
-        setGithubCollaboratorsError(userFacingError(savedResult.reason, 'Saved collaborators could not be loaded.'));
-      }
 
       if (status?.available && !collaboratorSyncAttempts.current.has(projectId)) {
         collaboratorSyncAttempts.current.add(projectId);
         try {
-          const snapshot = await api.syncGithubCollaborators(projectId);
+          await api.syncGithubCollaborators(projectId);
           if (currentProjectId.current === projectId) {
-            setGithubCollaborators(snapshot);
             setGithubCollaboratorsError(null);
           }
         } catch (cause) {
@@ -910,7 +931,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
         }
       }
 
-      if (currentProjectId.current === projectId) setGithubCollaboratorsLoadedProjectId(projectId);
     }).finally(() => {
       if (currentProjectId.current === projectId) setGithubCollaboratorsLoading(false);
       if (collaboratorLoads.current.get(projectId) === load) collaboratorLoads.current.delete(projectId);
@@ -920,86 +940,91 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   }, [loadCollaborationStatus, project.id]);
 
   useEffect(() => {
-    if (activeSection !== 'project-collaborations') return;
+    if (!showCollaborators || activeSection !== 'project-collaborations') return;
     void loadCollaboratorData();
   }, [activeSection, loadCollaboratorData]);
 
-  const openCollaboratorDialog = () => {
-    setCollaboratorEmail('');
-    setCollaboratorMatches([]);
-    setSelectedCollaborator(null);
-    setCollaboratorError(null);
-    setCollaboratorNotice(null);
-    setRepositoryInfoOpen(false);
-    setShowCollaboratorDialog(true);
-    if (!collaborationStatus && !collaborationStatusLoading && !collaboratorLoads.current.has(project.id)) void loadCollaborationStatus();
-  };
+  useEffect(() => {
+    if (!showCollaboratorDialog) return;
+    let current = true;
+    setGithubConnection('checking');
+    void api.githubStatus().then(status => {
+      if (current) setGithubConnection(status.connected ? 'connected' : 'disconnected');
+    }).catch(() => { if (current) setGithubConnection('unavailable'); });
+    return () => { current = false; };
+  }, [showCollaboratorDialog, project.id]);
 
-  const searchForCollaborator = useCallback(async (email = collaboratorEmail.trim()) => {
-    const normalizedEmail = email.trim();
-    const requestId = ++collaboratorSearchRequest.current;
-    if (!normalizedEmail) {
-      setCollaboratorMatches([]);
-      setCollaboratorSearchLoading(false);
-      setCollaboratorError(null);
-      return;
-    }
-    if (!collaborationStatus?.repository) {
-      setCollaboratorMatches([]);
-      setCollaboratorSearchLoading(false);
-      return;
-    }
-    setCollaboratorSearchLoading(true);
+  const openCollaboratorDialog = () => {
+    setCollaboratorQuery('');
+    setCollaboratorMatches([]);
     setCollaboratorError(null);
     setCollaboratorNotice(null);
-    setSelectedCollaborator(null);
-    try {
-      const result = await api.searchCollaborators(project.id, normalizedEmail);
-      if (requestId !== collaboratorSearchRequest.current) return;
-      setCollaboratorMatches(result.matches);
-    } catch (cause) {
-      if (requestId !== collaboratorSearchRequest.current) return;
-      setCollaboratorMatches([]);
-      setCollaboratorError('GitHub search is unavailable right now. Try again later.');
-    } finally {
-      if (requestId === collaboratorSearchRequest.current) setCollaboratorSearchLoading(false);
-    }
-  }, [collaboratorEmail, collaborationStatus?.repository, project.id]);
+    setShowCollaboratorDialog(true);
+  };
 
   useEffect(() => {
     if (!showCollaboratorDialog) return;
-    const normalizedEmail = collaboratorEmail.trim();
-    if (!normalizedEmail || !collaborationStatus?.repository) {
-      setCollaboratorMatches([]);
-      setCollaboratorSearchLoading(false);
-      if (!normalizedEmail) setCollaboratorError(null);
-      return;
+    const query = collaboratorQuery.trim();
+    let current = true;
+    setCollaboratorMatches([]);
+    setCollaboratorError(null);
+    setCollaboratorSearchLoading(query.length >= 2);
+    if (query.length < 2) return;
+    const timer = window.setTimeout(() => {
+      void api.searchProjectCollaborators(project.id, query).then(result => {
+        if (!current) return;
+        setCollaboratorMatches(result.matches);
+      }).catch(cause => {
+        if (current) setCollaboratorError(userFacingError(cause, 'Collaborator search is unavailable.'));
+      }).finally(() => {
+        if (current) setCollaboratorSearchLoading(false);
+      });
+    }, 350);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [collaboratorQuery, project.id, showCollaboratorDialog]);
+
+  const syncProjectCollaborators = async () => {
+    const projectId = project.id;
+    setSyncingProjectCollaborators(true);
+    setGithubCollaboratorsError(null);
+    setCollaboratorNotice(null);
+    try {
+      const result = await api.syncGithubCollaborators(projectId, true);
+      if (currentProjectId.current !== projectId) return;
+      setMembershipRevision(revision => revision + 1);
+      const added = result.projectMembersAdded ?? 0;
+      setCollaboratorNotice(added === 1 ? 'Added 1 new project viewer.' : `Added ${added} new project viewers.`);
+    } catch (cause) {
+      if (currentProjectId.current === projectId) setGithubCollaboratorsError(userFacingError(cause, 'Project collaborators could not be synced.'));
+    } finally {
+      setSyncingProjectCollaborators(false);
     }
-    const timer = window.setTimeout(() => { void searchForCollaborator(normalizedEmail); }, 350);
-    return () => window.clearTimeout(timer);
-  }, [collaboratorEmail, collaborationStatus?.repository, searchForCollaborator, showCollaboratorDialog]);
+  };
 
-  const visibleGithubCollaborators = (githubCollaborators?.collaborators ?? []).filter(collaborator =>
-    collaborator.login.toLowerCase().includes(collaborationQuery.trim().toLowerCase()),
-  );
-  const collaboratorsInitialReadLoading = githubCollaboratorsLoadedProjectId !== project.id;
-  const collaboratorsRefreshing = !collaboratorsInitialReadLoading && githubCollaboratorsLoading;
-
-  const inviteSelectedCollaborator = async () => {
-    if (!selectedCollaborator) return;
-    setCollaboratorInviteLoading(true);
+  const changeCollaboratorAccess = async (match: ProjectCollaboratorMatch) => {
+    const projectId = project.id;
+    if (match.state === 'joined' || collaboratorOwnerProject !== projectId || collaboratorAddLoading) return;
+    setCollaboratorAddLoading(true);
     setCollaboratorError(null);
     setCollaboratorNotice(null);
     try {
-      const result = await api.inviteCollaborator(project.id, selectedCollaborator.login);
-      setCollaboratorNotice(result.status === 'already_collaborator'
-        ? `@${result.username} already has access to ${result.repository.owner}/${result.repository.repo}.`
-        : `Invitation sent to @${result.username} for ${result.repository.owner}/${result.repository.repo}.`);
-      setSelectedCollaborator(null);
+      let state: ProjectCollaboratorMatch['state'] = 'available';
+      if (match.state === 'pending') await api.cancelPendingCollaborator(projectId, match.id);
+      else ({ state } = await api.addProjectCollaborator(projectId, match));
+      if (currentProjectId.current !== projectId) return;
+      setCollaboratorMatches(matches => matches.map(item => item.provider === match.provider && item.id === match.id
+        ? { ...item, state } : item));
+      if (state === 'joined') setMembershipRevision(revision => revision + 1);
+      setCollaboratorNotice(state === 'available' ? 'Pending Viewer access cancelled.'
+        : state === 'joined' ? `${match.name} has project Viewer access.`
+          : `@${match.name} has 30 days to link their GitHub account to Centinel and open Projects.`);
     } catch (cause) {
-      setCollaboratorError(userFacingError(cause, 'The collaborator could not be added. Try again.'));
+      if (currentProjectId.current === projectId) setCollaboratorError(userFacingError(cause, 'Collaborator access could not be updated.'));
     } finally {
-      setCollaboratorInviteLoading(false);
+      setCollaboratorAddLoading(false);
     }
   };
 
@@ -1043,9 +1068,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       <nav className="project-section-nav" aria-label="Project sections">
         <button className={activeSection === 'project-overview' ? 'active' : ''} aria-current={activeSection === 'project-overview' ? 'page' : undefined} onClick={() => moveToSection('project-overview')}>Overview</button>
         <button className={activeSection === 'project-assessment' ? 'active' : ''} aria-current={activeSection === 'project-assessment' ? 'page' : undefined} onClick={() => moveToSection('project-assessment')}>Assessment</button>
-        <button className={activeSection === 'project-findings' ? 'active' : ''} aria-current={activeSection === 'project-findings' ? 'page' : undefined} onClick={() => moveToSection('project-findings')}>Findings</button>
+        <button className={activeSection === 'project-findings' ? 'active' : ''} aria-current={activeSection === 'project-findings' ? 'page' : undefined} onClick={() => { setAttentionFindingId(null); moveToSection('project-findings'); }}>Findings</button>
         <button className={activeSection === 'project-source' ? 'active' : ''} aria-current={activeSection === 'project-source' ? 'page' : undefined} onClick={() => moveToSection('project-source')}>Source</button>
-        <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborators</button>
+        {showCollaborators && <button className={activeSection === 'project-collaborations' ? 'active' : ''} aria-current={activeSection === 'project-collaborations' ? 'page' : undefined} onClick={() => moveToSection('project-collaborations')}>Collaborators</button>}
         <button className={activeSection === 'project-settings' ? 'active' : ''} aria-current={activeSection === 'project-settings' ? 'page' : undefined} onClick={() => moveToSection('project-settings')}>Settings</button>
       </nav>
 
@@ -1061,11 +1086,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       <div className="detail-grid" id="project-overview">
         {/* Artifacts */}
         {activeSection === 'project-source' && <section className="card detail-card sources-card" id="project-source">
-          <div className="project-requirements-entry">
-            <div><strong>Requirements and coding standards</strong><span>Confirm the requirements a Review should trace, and enable the coding-standard rules it should check.</span></div>
-            <button type="button" className="btn-secondary" onClick={() => onNavigate({ name: 'requirements', projectId: project.id })}>Manage requirements</button>
-          </div>
-          <ArtifactsPanel projectId={project.id} initialView="repository" onOpenSettings={() => onNavigate({ name: 'settings' })} />
+          <ArtifactsPanel projectId={project.id} initialView="repository" sourceArtifactId={sourceArtifactId} onOpenSettings={() => onNavigate({ name: 'settings' })} />
         </section>}
 
         {showReportHistory && <Modal isOpen onClose={() => setShowReportHistory(false)} title="Report history" width={760}><section className="project-reports-card" aria-label="Project report history">
@@ -1121,7 +1142,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                        return (
                          <div key={item.id} className="project-attention-row">
                            <div className="project-attention-copy">
-                             <strong>{item.title}</strong>
+                             <div className="project-attention-title">
+                               <strong data-risk={item.risk}>{item.title}{item.risk && <span className="visually-hidden"> · {item.risk} risk</span>}</strong>
+                             </div>
                              <p>
                                <span>{attentionPreview(item.detail)}</span>
                                {needsDisclosure && <button
@@ -1142,15 +1165,6 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                   <div className="project-overview-empty"><ShieldAlert size={22} aria-hidden="true" /><p>No items need attention right now.</p></div>
                 )}
               </>}
-              {!overviewInitialReadLoading && attentionItems.length > 3 && (
-                 <div className="project-pagination-footer">
-                 <div className="project-pagination" aria-label="Need attention pages">
-                   <span className="project-pagination-slot project-pagination-slot-start"><button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.max(0, page - 1))} disabled={attentionPage === 0}>Previous</button></span>
-                   <span className="project-pagination-label">Page {attentionPage + 1} of {attentionPageCount}</span>
-                   <span className="project-pagination-slot project-pagination-slot-end"><button type="button" className="btn-secondary" onClick={() => setAttentionPage(page => Math.min(attentionPageCount - 1, page + 1))} disabled={attentionPage >= attentionPageCount - 1}>Next</button></span>
-                 </div>
-                 </div>
-               )}
             </section>
 
             <ProjectReadinessCard projectId={project.id} onStatusChange={setReadinessStatus} />
@@ -1164,8 +1178,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                  <button type="button" className={activityType === 'dynamic' ? 'active' : ''} aria-pressed={activityType === 'dynamic'} onClick={() => setActivityType('dynamic')}><MonitorPlay size={16} aria-hidden="true" /><span>Dynamic Testing</span></button>
                </div></div>
                 <span className="project-activity-header-end">
-                  <span className="panel-count">{activityInitialReadLoading ? 'Loading…' : activityLoadError && projectActivities.length === 0 ? 'Unavailable' : `${Math.min(5, projectActivities.length)} of ${projectActivities.length}`}</span>
-                  <button type="button" className="project-activity-all-reviews" onClick={() => onNavigate({ name: 'reviews', projectId: project.id })}>All Reviews</button>
+                  {!activityInitialReadLoading && <span className="panel-count">{activityLoadError && projectActivities.length === 0 ? 'Unavailable' : `${Math.min(5, projectActivities.length)} of ${projectActivities.length}`}</span>}
                 </span>
              </div>
              <div className="project-activity-filters" aria-label="Filter recent activity">
@@ -1173,8 +1186,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
                <label htmlFor="project-activity-datetime">Datetime<input id="project-activity-datetime" type="datetime-local" value={activityDateTime} onChange={event => setActivityDateTime(event.target.value)} /></label>
                <label htmlFor="project-activity-state">State<Select id="project-activity-state" value={activityState} onChange={value => setActivityState(value as ActivityState)} options={[{ value: 'all', label: 'All states' }, { value: 'queued', label: 'Queued' }, { value: 'running', label: 'In progress' }, { value: 'needs_approval', label: 'Need Approval' }, { value: 'success', label: 'Completed' }, { value: 'needs_attention', label: 'Needs attention' }, { value: 'cancelled', label: 'Cancelled' }]} /></label>
              </div>
-             {activityInitialReadLoading ? <LoadingSkeleton variant="rows" rows={4} label="Loading recent activity" /> : <>
-               {activityRefreshing && <p className="project-collaboration-status" role="status">Updating recent activity…</p>}
+             {activityInitialReadLoading || (activityRefreshing && projectActivities.length === 0) ? <LoadingSkeleton variant="rows" rows={5} label="Loading recent activity" /> : <>
                {activityLoadError && <p className="project-collaboration-status" role="status">Some recent activity could not be loaded.</p>}
                {visibleProjectActivities.map(activity => (
                  <button key={`${activity.kind}-${activity.id}`} type="button" className="project-activity-row" onClick={() => activity.kind === 'Review' ? onNavigate({ name: 'review-activity', projectId: project.id, sessionId: activity.id, reviewName: activity.name }) : onNavigate(dynamicActivityScreen(project.id, activity))}>
@@ -1226,6 +1238,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
              supplementalFindings={supplementalProjectFindings}
              supplementalUnavailableMessage={[readinessStatus?.stale && readinessStatus.snapshot ? 'Readiness findings describe previous sources and are hidden until a current assessment is available.' : null, currentReviewGaps?.message].filter(Boolean).join(' ') || null}
              presentation="project"
+             focusFindingId={initialSection === 'findings' ? findingId : attentionFindingId}
+             initialReviewFilter={findingsReviewId}
+             readOnly={Boolean(findingsReviewId && !staticSessions.some(review =>
+               review.id === findingsReviewId && review.status !== 'queued' && review.status !== 'running'))}
              onVerifyWithDynamic={finding => onNavigate({ name: 'dynamic-testing', projectId: project.id, draft: findingToDynamicDraft(finding) })}
              recheckFor={recheckFor}
              onOpenReview={reviewId => {
@@ -1242,36 +1258,24 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
            />
         </div>}
 
-        {activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
-          <ProjectMembersPanel projectId={project.id} />
+        {showCollaborators && activeSection === 'project-collaborations' && <section className="card detail-card project-collaboration-card" id="project-collaborations">
           <div className="panel-header project-collaboration-header">
-            <div><h2><Users size={19} /> GitHub collaborators</h2></div>
+            <h2><Users size={19} aria-hidden="true" /> Project Collaborators</h2>
             <div className="project-collaboration-actions">
-              <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>
+              {collaborationStatus?.available && collaboratorOwnerProject === project.id && <button type="button" className="btn-secondary" onClick={() => void syncProjectCollaborators()} disabled={githubCollaboratorsLoading || syncingProjectCollaborators}>{syncingProjectCollaborators ? 'Syncing…' : 'Sync GitHub collaborators'}</button>}
             </div>
           </div>
-          <div className="project-collaboration-search-row">
-            <label className="project-collaboration-search" htmlFor="project-collaboration-search"><span className="visually-hidden">Search collaborators</span><span className="project-collaboration-search-control"><Search size={15} aria-hidden="true" /><input id="project-collaboration-search" type="search" value={collaborationQuery} onChange={event => setCollaborationQuery(event.target.value)} placeholder="GitHub username" /></span></label>
+          <div className={`project-collaboration-search-row${collaboratorOwnerProject === project.id ? ' with-add-action' : ''}`}>
+            <div role="search" aria-label="Project collaborator search">
+              <label className="project-collaboration-search-control"><Search size={16} aria-hidden="true" /><span className="visually-hidden">Search project collaborators</span><input type="search" value={collaboratorFilter} onChange={event => setCollaboratorFilter(event.target.value)} placeholder="Search by email" /></label>
+            </div>
+            {(collaboratorOwnerProject === project.id) && <button type="button" className="btn-secondary" onClick={openCollaboratorDialog}><UserPlus size={16} aria-hidden="true" /> Add collaborator</button>}
           </div>
+          <ProjectMembersPanel key={`${project.id}:${membershipRevision}`} projectId={project.id} inline search={collaboratorFilter} onOwnerProjectChange={setCollaboratorOwnerProject} />
           {collaborationStatusError && <p className="command-inline-alert" role="alert">{collaborationStatusError}</p>}
           {githubCollaboratorsError && <p className="command-inline-alert" role="alert">{githubCollaboratorsError}</p>}
           {collaboratorNotice && <p className="collaborator-dialog-notice" role="status">{collaboratorNotice}</p>}
-          {collaboratorsInitialReadLoading && <LoadingSkeleton variant="rows" rows={4} label="Loading collaborators" />}
-          {collaboratorsRefreshing && <p className="project-collaboration-status" role="status">Refreshing saved collaborator information…</p>}
-          {!collaboratorsInitialReadLoading && !collaborationStatus?.available && !collaborationStatusError && collaborationStatus?.message && visibleGithubCollaborators.length > 0 && <p className="project-collaboration-status" role="status">{collaborationStatus.message}</p>}
-          {!collaboratorsInitialReadLoading && (!githubCollaboratorsLoading || githubCollaboratorsLoadedProjectId === project.id) && visibleGithubCollaborators.length > 0 && <div className="project-collaborator-list" role="list" aria-label="GitHub collaborators">
-            {visibleGithubCollaborators.map(collaborator => <div className="project-collaborator-row" role="listitem" key={collaborator.id}>
-              {collaborator.avatarUrl ? <img src={collaborator.avatarUrl} alt="" /> : <span className="collaborator-avatar" aria-hidden="true"><Users size={16} /></span>}
-              <span><strong>@{collaborator.login}</strong><small>{collaborator.permission} access</small></span>
-            </div>)}
-          </div>}
-          {!collaboratorsInitialReadLoading && !githubCollaboratorsLoading && !githubCollaboratorsError && !collaborationStatusError && visibleGithubCollaborators.length === 0 && (
-            <div className="project-collaboration-empty" role="status">
-              <Users size={24} aria-hidden="true" />
-              <strong>{collaborationQuery.trim() ? 'Collaborator not found' : githubCollaborators?.syncedAt ? 'No repository collaborators' : 'No collaborators synced yet'}</strong>
-              <p>{collaborationQuery.trim() ? `No collaborator matches “${collaborationQuery.trim()}”.` : !collaborationStatus?.available ? collaborationStatus?.message ?? 'Connect a GitHub repository and account to view repository collaborators.' : githubCollaborators?.syncedAt ? 'The latest GitHub check found no collaborators with repository access.' : 'Centinel checks GitHub automatically when this section opens.'}</p>
-            </div>
-          )}
+
         </section>}
 
         {activeSection === 'project-settings' && <section className="card detail-card project-settings-card" id="project-settings">
@@ -1328,47 +1332,49 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       </Modal>
 
       <Modal
-        isOpen={showCollaboratorDialog}
-        onClose={collaboratorInviteLoading ? () => undefined : () => setShowCollaboratorDialog(false)}
+        isOpen={showCollaborators && showCollaboratorDialog}
+        onClose={collaboratorAddLoading ? () => undefined : () => setShowCollaboratorDialog(false)}
         title="Add collaborator"
         width={560}
       >
+        {(githubConnection === 'disconnected' || githubConnection === 'unavailable') &&
+          <div className="collaborator-connection-state" aria-label="GitHub connection">
+            <GitBranch size={16} aria-hidden="true" /><strong>GitHub</strong>
+            <StatusBadge label={githubConnection === 'disconnected' ? 'Disconnected' : 'Status unavailable'} tone="neutral" />
+            <button type="button" className="btn-secondary" disabled={collaboratorAddLoading} onClick={() => {
+              setShowCollaboratorDialog(false);
+              onNavigate({ name: 'settings', section: 'connections' });
+            }}>Open connections</button>
+          </div>}
         <div className="collaborator-dialog">
-          <div className="collaborator-repository-heading">
-            <p className="collaborator-repository"><GitBranch size={14} aria-hidden="true" /> {collaborationStatus?.repository ? `${collaborationStatus.repository.owner}/${collaborationStatus.repository.repo}` : 'No GitHub repository connected'}</p>
-            <span className="collaborator-repository-info" onMouseEnter={() => setRepositoryInfoOpen(true)} onMouseLeave={() => setRepositoryInfoOpen(false)}>
-              <button type="button" className="collaborator-info-button" aria-label="Repository information" aria-expanded={repositoryInfoOpen} aria-controls="collaborator-repository-info" onClick={() => setRepositoryInfoOpen(open => !open)}><Info size={16} aria-hidden="true" /></button>
-              {repositoryInfoOpen && <span id="collaborator-repository-info" className="collaborator-repository-tooltip" role="tooltip">GitHub only returns accounts whose email is publicly searchable.</span>}
+          <div className="collaborator-search-form">
+            <label htmlFor="collaborator-query">Find a collaborator</label>
+            <span className="collaborator-query-control">
+              <input id="collaborator-query" type="search" value={collaboratorQuery} maxLength={320}
+                onChange={event => { setCollaboratorQuery(event.target.value); setCollaboratorNotice(null); }}
+                placeholder={githubConnection === 'disconnected' || githubConnection === 'unavailable' ? 'Centinel email' : 'GitHub username, name, or Centinel email'}
+                disabled={collaboratorAddLoading} />
+              <Search size={16} aria-hidden="true" />
             </span>
           </div>
-          <p className="collaborator-dialog-intro">Search GitHub by email, then review the account and confirm before sending an invitation.</p>
-          <form className="collaborator-search-form" onSubmit={event => { event.preventDefault(); void searchForCollaborator(); }}>
-            <label htmlFor="collaborator-email">GitHub account email</label>
-            <span className="collaborator-email-control"><input id="collaborator-email" type="email" value={collaboratorEmail} onChange={event => setCollaboratorEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" disabled={collaborationStatusLoading || !collaborationStatus?.repository} aria-describedby="collaborator-email-status" /><Search size={16} aria-hidden="true" /></span>
-          </form>
-          <div id="collaborator-email-status" aria-live="polite">
-            {collaboratorSearchLoading && <p className="collaborator-dialog-status" role="status">Searching GitHub…</p>}
-            {!collaboratorSearchLoading && collaboratorEmail.trim() && !collaboratorError && collaborationStatus?.repository && collaboratorMatches.length === 0 && <p className="collaborator-dialog-status" role="status">Collaborator not found. Try another email address.</p>}
-          </div>
-          {collaboratorError && <p className="command-inline-alert" role="alert"><AlertCircle size={14} /> {collaboratorError}</p>}
-          {collaboratorNotice && <p className="collaborator-dialog-notice" role="status"><CheckCircle2 size={16} aria-hidden="true" /> {collaboratorNotice}</p>}
-          {collaboratorMatches.length > 0 && <div className="collaborator-results" aria-label="GitHub account matches">
-            <h4>Matching accounts</h4>
-            {collaboratorMatches.map(match => (
-              <button key={match.id} type="button" className={`collaborator-result ${selectedCollaborator?.id === match.id ? 'selected' : ''}`} onClick={() => { setSelectedCollaborator(match); setCollaboratorNotice(null); }} aria-pressed={selectedCollaborator?.id === match.id}>
+          {collaboratorSearchLoading && <p className="collaborator-dialog-status" role="status">Searching accounts…</p>}
+          {!collaboratorSearchLoading && collaboratorQuery.trim().length >= 2 && !collaboratorError && !collaboratorMatches.length
+            && <p className="collaborator-dialog-status" role="status">No matching accounts.</p>}
+          {collaboratorError && <p className="command-inline-alert" role="alert">{collaboratorError}</p>}
+          {collaboratorNotice && <p className="collaborator-dialog-notice" role="status">{collaboratorNotice}</p>}
+          {collaboratorMatches.length > 0 && <div className="collaborator-results" aria-label="Matching accounts">
+            {collaboratorMatches.map(match => <div className="collaborator-result-row" key={`${match.provider}:${match.id}`}>
+              <button type="button" className="collaborator-result"
+                disabled={match.state !== 'available' || collaboratorAddLoading} onClick={() => void changeCollaboratorAccess(match)}>
                 {match.avatarUrl ? <img src={match.avatarUrl} alt="" /> : <span className="collaborator-avatar" aria-hidden="true"><Users size={16} /></span>}
-                <span><strong>{match.login}</strong><small>{match.type} account</small></span>
-                {selectedCollaborator?.id === match.id && <CheckCircle2 size={18} aria-hidden="true" />}
+                <span className="collaborator-result-account"><strong>{match.name}</strong><small>{match.provider === 'github' ? 'GitHub' : 'Centinel'}</small></span>
+                {match.state === 'joined' && <StatusBadge label="Joined" tone="success" />}
+                {match.state === 'pending' && <StatusBadge label="Pending" tone="neutral" />}
+                {match.state === 'available' && <UserPlus size={16} aria-hidden="true" />}
               </button>
-            ))}
-          </div>}
-          {selectedCollaborator && <div className="collaborator-confirmation" role="group" aria-label="Confirm collaborator invitation">
-            <p>Invite <strong>@{selectedCollaborator.login}</strong> to <strong>{collaborationStatus?.repository?.owner}/{collaborationStatus?.repository?.repo}</strong>?</p>
-            <p className="collaborator-confirmation-warning">This sends an external GitHub invitation. Confirm only when you are ready.</p>
-            <div className="form-actions">
-              <button type="button" className="btn-secondary" onClick={() => setSelectedCollaborator(null)} disabled={collaboratorInviteLoading}>Choose another</button>
-              <button type="button" className="btn-primary" onClick={() => void inviteSelectedCollaborator()} disabled={collaboratorInviteLoading}>{collaboratorInviteLoading ? 'Sending…' : 'Send invitation'}</button>
-            </div>
+              {match.state === 'pending' && <button type="button" className="btn-secondary" disabled={collaboratorAddLoading}
+                aria-label={`Cancel pending access for ${match.name}`} onClick={() => void changeCollaboratorAccess(match)}>Cancel</button>}
+            </div>)}
           </div>}
         </div>
       </Modal>

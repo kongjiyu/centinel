@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { queueGitHubProjectImport } from '../../src/integrations/projectImport.js';
+import { queueGitHubProjectImport, queueGitHubRepositoryImport } from '../../src/integrations/projectImport.js';
 import type { ConnectedSource, ConnectedSourceSyncRun } from '../../src/integrations/types.js';
 
 const source: ConnectedSource = {
@@ -17,6 +17,15 @@ const run: ConnectedSourceSyncRun = {
 };
 
 describe('GitHub project creation import handoff (T-SRC-01)', () => {
+  it('queues different repositories against the same project with independent runs', async () => {
+    const queueSource = vi.fn().mockResolvedValueOnce(source).mockResolvedValueOnce({ ...source, id: 'source-2' });
+    const queueSync = vi.fn().mockResolvedValue(run);
+    const importer = { queueSource, queueSync };
+    await queueGitHubRepositoryImport(importer, 'owner-1', 'project-1', 'https://github.com/acme/quality', 'bootstrap:quality');
+    await queueGitHubRepositoryImport(importer, 'owner-1', 'project-1', 'https://github.com/acme/tools.git', 'bootstrap:tools');
+    expect(queueSource).toHaveBeenNthCalledWith(2, expect.objectContaining({ projectId: 'project-1', remoteId: 'acme/tools' }));
+    expect(queueSync).toHaveBeenNthCalledWith(2, expect.objectContaining({ projectId: 'project-1', sourceId: 'source-2', idempotencyKey: 'bootstrap:tools' }));
+  });
   it('returns only after project, source, and queued run are durable without awaiting provider work', async () => {
     const createProject = vi.fn(async () => ({ id: 'project-1', name: 'Quality' }));
     const queueSource = vi.fn(async () => source);

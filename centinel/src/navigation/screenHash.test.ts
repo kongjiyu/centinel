@@ -5,6 +5,8 @@ describe('screen hash routing', () => {
   it('round-trips pages with identifiers and drafts', () => {
     const review = { name: 'review-activity' as const, projectId: 'p-1', sessionId: 'r-1', reviewName: 'Todo review' };
     expect(hashToScreen(screenToHash(review))).toEqual(review);
+    const finding = { ...review, name: 'review-finding' as const, findingId: 'f-1' };
+    expect(hashToScreen(screenToHash(finding))).toEqual(finding);
     const dynamic = { name: 'dynamic-testing' as const, projectId: 'p-1', draft: { name: 'Verify fix', goal: 'Check & confirm', reviewId: 'r-1' } };
     expect(hashToScreen(screenToHash(dynamic))).toEqual(dynamic);
     const reviews = { name: 'reviews' as const, projectId: 'p-1', status: 'gaps' };
@@ -15,6 +17,7 @@ describe('screen hash routing', () => {
     expect(hashToScreen('#access_token=abc&type=recovery')).toBeNull();
     expect(hashToScreen('#review')).toBeNull();
     expect(hashToScreen('#/review-activity?projectId=p-1')).toBeNull();
+    expect(hashToScreen('#/review-finding?projectId=p-1&sessionId=r-1')).toBeNull();
     expect(hashToScreen('#/unknown')).toBeNull();
     expect(hashToScreen('#/reviews')).toBeNull();
   });

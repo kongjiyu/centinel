@@ -83,8 +83,7 @@
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px; gap: 16px; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-pathbar { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-main > .source-import-summary { border: 1px solid var(--workspace-border); border-radius: var(--source-control-radius); flex: 0 0 auto; }
-.workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; border: 1px solid var(--workspace-border); border-radius: var(--source-control-radius); overscroll-behavior: contain; }
-.workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader .source-preview-mode { position: sticky; top: 0; z-index: 2; width: 100%; max-width: none; margin: 0; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--workspace-border); border-radius: 0; background: var(--workspace-surface-subtle); }
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader { flex: 1; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--workspace-border); border-radius: var(--source-control-radius); overscroll-behavior: contain; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader .artifact-markdown-preview { max-height: none; overflow: visible; padding: 24px 32px; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .artifact-markdown-preview :is(h1,h2) { padding-bottom: 10px; border-bottom: 1px solid var(--workspace-border); }
 .workspace-mode:not(.dashboard-mode) .source-workspace .artifact-markdown-preview a { color: var(--source-link); }
@@ -92,8 +91,6 @@
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-code-grid { display: grid; grid-template-columns: 56px minmax(0, 1fr); min-width: max-content; white-space: pre; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-line-numbers { position: sticky; left: 0; padding-right: 16px; text-align: right; user-select: none; color: var(--workspace-text-subtle); background: var(--workspace-surface); font: inherit; font-variant-numeric: tabular-nums; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-code-grid code { padding-right: 20px; white-space: pre; }
-.workspace-mode:not(.dashboard-mode) .source-workspace .source-code-toolbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 20px; padding: 12px 16px; border-bottom: 1px solid var(--workspace-border); background: var(--workspace-surface-subtle); font-size: var(--font-size-meta); color: var(--workspace-text-muted); }
-.workspace-mode:not(.dashboard-mode) .source-workspace .source-file-line-count { align-self: center; margin-left: 12px; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader .source-preview-content { min-width: 100%; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-search-table { padding: 16px; border: 1px solid var(--workspace-border); border-radius: var(--source-control-radius); }
 
@@ -210,7 +207,6 @@
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-preview-mode button {
   min-height: 34px; padding: 6px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--workspace-text-muted); font: inherit; font-size: var(--font-size-support); cursor: pointer;
 }
-.workspace-mode:not(.dashboard-mode) .source-workspace .source-preview-mode button.active { background: var(--workspace-surface); color: var(--workspace-primary); }
 .workspace-mode:not(.dashboard-mode) .source-workspace :is(.source-preview-empty, .source-preview-unavailable, .source-empty-result) {
   padding: 32px 12px; margin: 0; color: var(--workspace-text-muted); text-align: center; font-size: var(--font-size-dense); line-height: 23px;
 }
@@ -286,7 +282,7 @@
 }
 /* One bounded content surface moves from sources to directories to files. */
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-browser-layout {
-  display: grid; grid-template-columns: minmax(0, 1fr); height: 640px; max-height: min(80vh, 720px); min-height: 360px;
+  display: grid; grid-template-columns: minmax(0, 1fr); max-height: min(80vh, 720px);
   border: 1px solid var(--workspace-border); border-radius: 6px; overflow: hidden; background: var(--workspace-surface);
 }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-content-area {
@@ -327,6 +323,7 @@
   border: 0; background: transparent; color: var(--workspace-text); font: inherit; text-align: left; cursor: pointer;
 }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-entry svg { flex: 0 0 auto; color: var(--workspace-text-muted); }
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-entry .source-row-updated { margin-inline-start: auto; flex: 0 1 auto; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-entry:hover { background: var(--workspace-surface-subtle); }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-entry:hover .source-directory-main strong { color: var(--source-link); text-decoration: underline; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-main { display: grid; min-width: 0; gap: 3px; }
@@ -347,7 +344,6 @@
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-main { min-height: 0; padding: 0; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-main > .source-import-summary { border: 1px solid var(--workspace-border); border-radius: var(--source-control-radius); }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader { height: 400px; max-height: 55vh; min-height: 280px; overflow: auto; }
-.workspace-mode:not(.dashboard-mode) .source-workspace .source-file-reader .source-preview-mode { position: sticky; top: 0; z-index: 2; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-loading-layout { display: block; padding: 20px; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-skeleton-list { display: grid; gap: 0; height: 100%; margin: 0; padding: 0; list-style: none; }
 .workspace-mode:not(.dashboard-mode) .source-workspace .source-skeleton-list li {
@@ -367,7 +363,7 @@
   .workspace-mode:not(.dashboard-mode) .source-workspace .source-skeleton-list li { gap: 12px; }
 }
 @media (max-width: 720px) {
-  .workspace-mode:not(.dashboard-mode) .source-workspace .source-browser-layout { height: min(620px, calc(100dvh - 220px)); max-height: none; min-height: 340px; }
+  .workspace-mode:not(.dashboard-mode) .source-workspace .source-browser-layout { max-height: min(620px, 72dvh); }
   .workspace-mode:not(.dashboard-mode) .source-workspace .source-content-area { padding: 12px; }
   .workspace-mode:not(.dashboard-mode) .source-workspace .source-explorer-toolbar { align-items: stretch; }
   .workspace-mode:not(.dashboard-mode) .source-workspace :is(.source-list-search,.source-go-to-file,.source-repo-actions) { width: 100%; }
@@ -390,3 +386,27 @@
 .source-currency-label { font-weight: 600; }
 .source-currency-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .source-currency-error { flex-basis: 100%; margin: 0; color: var(--workspace-danger); }
+
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-browser .source-repo-toolbar {
+  padding: 12px 16px;
+  background: var(--workspace-surface-subtle);
+  border-bottom: 1px solid var(--workspace-border);
+}
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-browser .source-directory {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-browser-repository { border: 0; }
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-browser-repository .source-content-area { padding: 0; scrollbar-gutter: auto; }
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-directory-browser .source-file-reader {
+  height: auto; min-height: 0; max-height: min(440px, 50dvh); border: 0; border-radius: 0;
+}
+.source-workspace .source-preview-controls {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: 12px; margin-inline-start: auto; color: var(--workspace-text-muted); font-size: var(--font-size-meta);
+}
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-preview-controls .source-preview-mode { margin: 0; padding: 2px; }
+.workspace-mode:not(.dashboard-mode) .source-workspace .source-preview-mode button[aria-pressed="true"] {
+  background: var(--workspace-surface); color: var(--workspace-primary);
+}

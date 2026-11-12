@@ -201,3 +201,5 @@
 .dynamic-workspace-screen details > summary:hover { color: var(--workspace-primary); }
 .dynamic-workspace-screen details > summary:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .dynamic-workspace-screen details > summary::before { transition: none; } }
+
+.dynamic-workspace-screen.dw-listing .dw-grid { grid-template-columns: minmax(0, 1fr); }

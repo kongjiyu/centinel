@@ -25,6 +25,7 @@ export type ReadinessDependencies = {
   jobTimeoutMs?: number;
   /** Safe hash of the current owner/project Model Provider configuration, or null when none is configured. */
   configurationRevision?(auth: AuthenticatedRequest, projectId: string): Promise<string | null>;
+  assessmentHeld?(projectId: string): boolean;
 };
 
 /** Failures whose explanation is invalidated by a later configuration change. */
@@ -135,6 +136,9 @@ export class ProjectReadinessCoordinator {
    */
   private async presentStoredJob(auth: AuthenticatedRequest, projectId: string, job: ReadinessJob, fingerprint: string): Promise<ReadinessStatus> {
     const presented: ReadinessJob = { ...job, stale: job.snapshot?.sourceFingerprint !== fingerprint };
+    if (this.deps.assessmentHeld && job.status === 'failed' && job.errorCode === 'assessment_paused') {
+      return { ...presented, status: 'idle', error: null, errorCode: null };
+    }
     if (job.status !== 'failed' || !job.errorCode || !CONFIGURATION_FAILURE_CODES.has(job.errorCode)) return presented;
     const current = await this.configurationRevision(auth, projectId);
     if (current === undefined) return presented;
@@ -166,6 +170,12 @@ export class ProjectReadinessCoordinator {
       const store = this.deps.store(context);
       let latest = await this.latest(store, projectId);
       if (latest && latest.projectId !== projectId) throw new Error('Readiness project mismatch');
+      // A runtime hold is a current condition, not a failed assessment or a
+      // provider capacity stop. Preserve the last result and avoid queueing.
+      if (this.deps.assessmentHeld?.(projectId)) {
+        return { ...(latest ?? emptyReadiness(projectId)), status: 'paused', assessmentHeld: true,
+          errorCode: 'assessment_paused', error: null, stale: latest?.snapshot?.sourceFingerprint !== index.fingerprint };
+      }
       // Older workers saved capacity stops as failed. Recover the explicit
       // pause without another assessment or replacing their saved snapshot.
       const legacyPause = latest?.status === 'failed' ? providerPause({ code: latest.errorCode }) : null;
@@ -220,6 +230,7 @@ export class ProjectReadinessCoordinator {
       let job: ReadinessJob | null;
       try { job = await this.latest(store, projectId); } catch { return; }
       if (!job || !['queued', 'running'].includes(job.status)) return;
+      if (this.deps.assessmentHeld?.(projectId)) return;
       const startedAt = job.startedAt ?? this.now();
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -263,7 +274,7 @@ export class ProjectReadinessCoordinator {
           if (latest && (latest.requestId === job.requestId || capacityStop && ['queued', 'running'].includes(latest.status))) {
             const configurationRevision = !capacityStop && CONFIGURATION_FAILURE_CODES.has(failure.code)
               ? await this.configurationRevision(this.context(original), projectId) : undefined;
-            await this.save(store, { ...latest, status: capacityStop ? 'paused' : 'failed', startedAt: latest.requestId === job.requestId ? startedAt : latest.startedAt, completedAt: this.now(), stale: true,
+            await this.save(store, { ...latest, status: capacityStop || failure.code === 'assessment_paused' ? 'paused' : 'failed', startedAt: latest.requestId === job.requestId ? startedAt : latest.startedAt, completedAt: this.now(), stale: true,
               error: failure.message, errorCode: failure.code, ...(configurationRevision !== undefined ? { configurationRevision } : {}) });
           }
         } catch { /* A failed persistence attempt cannot safely be recorded. */ }

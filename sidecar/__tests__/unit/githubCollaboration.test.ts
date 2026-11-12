@@ -63,6 +63,39 @@ describe('Supabase GitHub collaboration', () => {
     expect(persistence.replace).toHaveBeenCalledWith(project.id, [], result.syncedAt);
   });
 
+  it('prioritizes matches from the current repository roster and ignores the writable snapshot', async () => {
+    const persistence = { list: vi.fn(), replace: vi.fn() };
+    const fetchImpl = vi.fn().mockResolvedValue(Response.json([
+      { id: 12, login: 'devops', type: 'User' }, { id: 7, login: 'dev', type: 'User' },
+      { id: 8, login: 'dev-bot', type: 'Bot' },
+    ]));
+    const result = await service({ fetchImpl, collaboratorPersistence: persistence }).instance.searchProjectUsers(project.id, 'dev');
+    expect(result.map(user => user.id)).toEqual([7, 12]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(persistence.list).not.toHaveBeenCalled();
+    expect(persistence.replace).not.toHaveBeenCalled();
+  });
+
+  it('falls back to GitHub user search when the roster lacks the requested login', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json([{ id: 12, login: 'devops', type: 'User' }]))
+      .mockResolvedValueOnce(Response.json({ items: [{ id: 7, login: 'dev', type: 'User' }, { id: 9, login: 'dev-org', type: 'Organization' }] }));
+    const result = await service({ fetchImpl }).instance.searchProjectUsers(project.id, '@dev');
+    expect(result.map(user => user.id)).toEqual([7]);
+    const search = new URL(fetchImpl.mock.calls[1][0]);
+    expect(search.pathname).toBe('/search/users');
+    expect(search.searchParams.get('q')).toBe('user:dev type:user');
+    expect(await service({ token: null, fetchImpl }).instance.searchProjectUsers(project.id, 'dev')).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('searches GitHub profile names when there is no connected repository', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(Response.json({ items: [] }));
+    await service({ sources: [], fetchImpl }).instance.searchProjectUsers(project.id, 'Sample Name');
+    const search = new URL(fetchImpl.mock.calls[0][0]);
+    expect(search.searchParams.get('q')).toBe('Sample Name in:login,name type:user');
+  });
+
   it('preserves the previous snapshot when GitHub rejects access', async () => {
     const persistence = { list: vi.fn(), replace: vi.fn() };
     const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 403 })) as unknown as typeof fetch;

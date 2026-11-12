@@ -63,6 +63,7 @@ function setup(options: {
   debounceMs?: number;
   jobTimeoutMs?: number;
   configurationRevision?: () => Promise<string | null>;
+  assessmentHeld?: (projectId: string) => boolean;
 } = {}) {
   let currentIndex = options.initialIndex ?? index();
   const jobs = new Map<string, ReadinessJob>();
@@ -84,6 +85,7 @@ function setup(options: {
     debounceMs: options.debounceMs,
     jobTimeoutMs: options.jobTimeoutMs,
     configurationRevision: options.configurationRevision ? vi.fn(options.configurationRevision) : undefined,
+    assessmentHeld: options.assessmentHeld,
   });
   return {
     coordinator,
@@ -96,6 +98,22 @@ function setup(options: {
 }
 
 describe('ProjectReadinessCoordinator', () => {
+  it('shows a local hold before queueing and can run after the hold clears', async () => {
+    let held = true;
+    const initialJob = completedJob();
+    const assess = vi.fn(async (input: ReadinessInput) => assessment(input));
+    const { coordinator, saves } = setup({ initialJob, assess, assessmentHeld: () => held });
+    expect(await coordinator.request(auth(), projectId, 'manual', true)).toMatchObject({
+      status: 'paused', assessmentHeld: true, errorCode: 'assessment_paused', snapshot: initialJob.snapshot,
+    });
+    expect(saves).toHaveLength(0);
+    expect(assess).not.toHaveBeenCalled();
+    held = false;
+    expect(await coordinator.request(auth(), projectId, 'manual', true)).toMatchObject({ status: 'queued' });
+    await coordinator.waitForIdle();
+    expect(assess).toHaveBeenCalledOnce();
+    expect(await coordinator.status(auth(), projectId)).toMatchObject({ status: 'completed' });
+  });
   it('uses the refreshed owner session for persistence after an import wait', async () => {
     let current = index();
     let job: ReadinessJob | null = null;

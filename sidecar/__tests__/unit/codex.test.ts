@@ -125,19 +125,29 @@ function fixture(options: { generationTimeoutMs?: number; hold?: boolean; usageB
 const input = { model: 'model-1', prompt: 'Return JSON', systemPrompt: 'Analyze supplied content.' };
 
 describe('Codex CLI resolution', () => {
-  const exists = (file: string) => file === '/Applications/Centinel.app/Contents/MacOS/codex';
+  const exists = (file: string) => ['/Applications/Centinel.app/Contents/MacOS/codex', '/opt/codex'].includes(file);
   it('prefers the bundled binary, then CENTINEL_CODEX_BIN, then PATH', () => {
     expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/Applications/Centinel.app/Contents/MacOS/codex', CENTINEL_CODEX_BIN: '/opt/codex' }, exists)).toBe('/Applications/Centinel.app/Contents/MacOS/codex');
     expect(resolveCodexBinary({ CENTINEL_CODEX_BIN: ' /opt/codex ' }, exists)).toBe('/opt/codex');
-    expect(resolveCodexBinary({}, exists)).toBe('codex');
+    expect(resolveCodexBinary({}, exists, 'darwin')).toBe('codex');
   });
   it('skips a bundled path that is missing', () => {
     expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/missing/codex', CENTINEL_CODEX_BIN: '/opt/codex' }, exists)).toBe('/opt/codex');
-    expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/missing/codex' }, exists)).toBe('codex');
+    expect(resolveCodexBinary({ CENTINEL_BUNDLED_CODEX_BIN: '/missing/codex' }, exists, 'darwin')).toBe('codex');
+  });
+  it('uses the native Windows executable when the configured install was removed', () => {
+    expect(resolveCodexBinary({ CENTINEL_CODEX_BIN: 'C:/removed/codex.exe' }, exists, 'win32')).toBe('codex.exe');
   });
 });
 
 describe('isolated Codex app-server transport', () => {
+  it('reports only recognized subscription windows from the Codex bucket', async () => {
+    const { client } = fixture();
+    expect(await client.subscriptionUsage()).toEqual({
+      fiveHour: { usedPercent: 7, windowDurationMins: 300, resetsAt: 123 },
+      weekly: null,
+    });
+  });
   it('keeps a bounded generation deadline separate from the RPC deadline', async () => {
     const { client, calls, children } = fixture({ hold: true, generationTimeoutMs: 6000 });
     vi.useFakeTimers();

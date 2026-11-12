@@ -283,8 +283,9 @@ export async function runDynamicSession(
   });
 
   const visionSetting = providers.vision;
-  if (!visionSetting || (visionSetting.provider !== 'codex' && !visionSetting.apiKey)) {
-    const reason = 'Vision AI provider not configured';
+  const screenshotsUnavailable = visionSetting?.provider === 'codex' && visionSetting.codexScreenshots === false;
+  if (screenshotsUnavailable || !visionSetting || (visionSetting.provider !== 'codex' && !visionSetting.apiKey && !visionSetting.geminiOAuthProject)) {
+    const reason = screenshotsUnavailable ? 'Choose a Codex model with confirmed screenshot support for Dynamic Testing.' : 'Vision AI provider not configured';
     const category: DynamicFailureCategory = 'missing_vision_provider';
     const summary = terminalSummary('blocked', reason, 0, session.maxSteps, category);
     debugLog.log('error', 'session_start', reason);
@@ -753,7 +754,7 @@ ${rawText.slice(0, 2000)}`;
 
   // Use text setting for repair (cheaper than vision)
   const textSetting = setting;
-  if (!textSetting || (textSetting.provider !== 'codex' && !textSetting.apiKey)) {
+  if (!textSetting || (textSetting.provider !== 'codex' && !textSetting.apiKey && !textSetting.geminiOAuthProject)) {
     debugLog.log('warn', 'json_parse', 'No text provider for JSON repair', step);
     return { error: 'No text provider available for JSON repair' };
   }

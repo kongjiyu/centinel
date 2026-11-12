@@ -28,7 +28,9 @@ export function reviewHandover(input: {
     || input.manifest.artifacts.some(item => !item.artifactVersionId || !item.contentHash)) reasons.push('Exact saved source coverage is incomplete.');
   if (!input.assessment || input.assessment.readiness !== 'ready' || input.assessment.gaps.length || input.assessment.contradictions.length) reasons.push('Document and requirement evidence needs confirmation.');
   const trace = input.traceability;
-  if (trace?.status !== 'available' || !trace.records.length || trace.records.some(item => item.state !== 'complete' || item.evidenceStatus !== 'verified')) reasons.push('Requirement coverage is not fully verified.');
+  const noRequirementsInScope = input.assessment?.confirmedRequirementCount === 0
+    && input.assessment.readiness === 'ready' && !trace?.records.length;
+  if (!noRequirementsInScope && (trace?.status !== 'available' || !trace.records.length || trace.records.some(item => item.state !== 'complete' || item.evidenceStatus !== 'verified'))) reasons.push('Requirement coverage is not fully verified.');
   const map = input.map;
   if (!map || map.status !== 'assessed' || !map.features.length || map.coverage.unsupportedArtifacts.length
     || map.coverage.unresolvedEdgeCount || map.coverage.limitations.length

@@ -2,8 +2,7 @@ import fs from 'node:fs';
 import type { ModelRequest } from '../model/types.js';
 import { getCodexBackend, type CodexBackend } from '../model/codex.js';
 import {
-  buildRequestUrl,
-  getAuthHeaders,
+  modelRequestTarget,
   parseAnthropicToolTurn,
   parseGoogleToolTurn,
   parseOpenAIToolTurn,
@@ -13,6 +12,7 @@ import {
 } from '../aiClient.js';
 import { ModelProviderError } from './retry.js';
 import { responseProviderPause } from './providerPause.js';
+import { isAssessmentHeld } from './assessmentHold.js';
 import type {
   ModelProviderSettings,
   StaticAnalysisModelProvider,
@@ -140,9 +140,7 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
   }
 
   async analyze(request: ModelRequest): Promise<StaticModelResult> {
-    const allowedProjects = process.env.CENTINEL_AI_ASSESSMENT_PROJECT_ALLOWLIST?.split(',').map(id => id.trim()).filter(Boolean);
-    if (process.env.CENTINEL_AI_ASSESSMENT_PAUSED === '1'
-      || allowedProjects && !allowedProjects.includes(this.projectId ?? '')) {
+    if (isAssessmentHeld(this.projectId)) {
       throw new ModelProviderError('AI assessment is paused in local configuration. Source imports and static checks can continue.', {
         code: 'assessment_paused', retryable: false,
       });
@@ -166,7 +164,7 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
         settings: { provider: 'codex', apiFormat: 'codex-app-server', model: reply.model } };
     }
     if (settings.apiFormat === 'codex-app-server') throw new ModelProviderError('Codex format requires the Codex provider.', { code: 'invalid_configuration', retryable: false });
-    if (!settings.apiKey) {
+    if (!settings.apiKey && !settings.geminiOAuthProject) {
       throw new ModelProviderError('Text Model Provider API key is not configured', {
         code: 'invalid_credentials', retryable: false,
       });
@@ -179,11 +177,13 @@ export class ConfiguredTextModelProvider implements StaticAnalysisModelProvider 
     if (request.signal?.aborted) {
       throw new DOMException('The operation was aborted', 'AbortError');
     }
+    const target = await modelRequestTarget(settings, request.signal);
     let response: Response;
     try {
-      response = await this.fetchImpl(buildRequestUrl(settings), {
+      response = await this.fetchImpl(target.url, {
         method: 'POST',
-        headers: getAuthHeaders(settings),
+        headers: target.headers,
+        ...(settings.geminiOAuthProject ? { redirect: 'error' as const } : {}),
         body: JSON.stringify(buildRequestBody(settings, request, this.maxOutputTokens)),
         signal: request.signal,
       });

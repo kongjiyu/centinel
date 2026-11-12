@@ -59,7 +59,7 @@ export async function reconcileOneDueGitHubSource(
       return Math.max(attempts.get(`${projectId}:${item.id}`) ?? -Infinity, Number.isFinite(synced) ? synced : -Infinity);
     };
     const source = sources.filter(item => {
-      if (item.provider !== 'github' || item.kind !== 'github_repository' || item.status !== 'active' || item.syncStatus === 'syncing') return false;
+      if (item.provider !== 'github' || item.kind !== 'github_repository' || item.status !== 'active' || item.syncStatus === 'syncing' || item.selectedScope.reviewSnapshot === true) return false;
       // Listing sources lets the sidecar recover its durable worker first.
       const run = item.latestSyncRun;
       if (run && (['queued', 'running'].includes(run.status) || run.status === 'partial' && !run.errorCode && !run.retryable)) return false;

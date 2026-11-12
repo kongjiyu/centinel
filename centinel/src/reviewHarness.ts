@@ -17,7 +17,7 @@ export type ReviewHarnessTrace = {
 export type ReviewAnalysisMap = {
   schemaVersion: 1;
   status: 'unverified' | 'partial' | 'assessed';
-  coverage: { sourceArtifacts: number; parsedArtifacts: number; assessmentMode?: 'plain_text_context_fallback'; syntaxFeatureCount?: number; plainTextLogicArtifactCount?: number; plainTextLogicUnitCount?: number; exhaustive: false; unresolvedEdgeCount: number; limitations: string[]; unsupportedArtifacts: Array<{ artifactId: string; filePath: string; reason: string }> };
+  coverage: { sourceArtifacts: number; parsedArtifacts: number; assessmentMode?: 'plain_text_context_fallback'; syntaxFeatureCount?: number; plainTextLogicArtifactCount?: number; plainTextLogicUnitCount?: number; featureInventoryTruncated?: boolean; exhaustive: false; unresolvedEdgeCount: number; limitations: string[]; unsupportedArtifacts: Array<{ artifactId: string; filePath: string; reason: string }> };
   features: Array<{
     id: string; label: string; provisional: true; analysisKind?: 'plain_text_logic'; sourceRange?: { lineStart: number; lineEnd: number };
     entryPointStatus?: 'resolved' | 'unresolved' | 'external_boundary';

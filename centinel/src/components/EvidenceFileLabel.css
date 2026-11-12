@@ -1,0 +1,38 @@
+.evidence-file-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 5px;
+  border: 1px solid var(--workspace-border, var(--color-border));
+  border-radius: 4px;
+  background: var(--workspace-surface-subtle, var(--color-surface-subtle));
+  color: inherit;
+  font-family: var(--font-technical, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.evidence-file-label svg { align-self: center; flex: 0 0 auto; }
+.evidence-file-format { font-size: 9px; font-weight: 650; }
+.evidence-file-label { position: relative; }
+.evidence-file-tooltip {
+  display: none;
+  position: absolute;
+  inset: 100% auto auto 0;
+  z-index: 4;
+  width: max-content;
+  max-width: min(65vw, 440px);
+  padding: 8px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control);
+  background: var(--workspace-surface);
+  color: var(--workspace-text);
+  text-align: start;
+  white-space: pre-wrap;
+}
+.evidence-file-tooltip code { display: block; }
+.evidence-file-label:hover .evidence-file-tooltip,
+.evidence-file-label:focus-visible .evidence-file-tooltip,
+button:hover .evidence-file-tooltip,
+button:focus .evidence-file-tooltip { display: block; }

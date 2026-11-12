@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProjectDateTime, ProjectDetailScreen } from './ProjectDetailScreen';
 import { api } from '../api/client';
 import type { DynamicRun, MissionRevision } from '../dynamic/types';
@@ -13,6 +13,7 @@ vi.mock('../api/client', () => ({
     listDynamicSessions: vi.fn(),
     listProjectMembers: vi.fn().mockResolvedValue({ viewerUserId: 'owner-1', members: [{ userId: 'owner-1', email: 'owner@example.com', role: 'owner', addedAt: '' }] }),
     addProjectMember: vi.fn(),
+    githubStatus: vi.fn().mockResolvedValue({ connected: true, login: 'fixture', message: '' }),
     removeProjectMember: vi.fn(),
     dynamicRuns: vi.fn(),
     listStaticSessions: vi.fn(),
@@ -36,7 +37,9 @@ vi.mock('../api/client', () => ({
     startProjectReadiness: vi.fn(),
     getProjectCollaborators: vi.fn(),
     syncGithubCollaborators: vi.fn(),
-    searchCollaborators: vi.fn(),
+    searchProjectCollaborators: vi.fn(),
+    addProjectCollaborator: vi.fn(),
+    cancelPendingCollaborator: vi.fn(),
     inviteCollaborator: vi.fn(),
   },
 }));
@@ -129,9 +132,12 @@ function renderProject(
   return render(<ProjectDetailScreen project={project} onNavigate={onNavigate} onProjectUpdated={onProjectUpdated} />);
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
   vi.clearAllMocks();
   folderPicker.mockReset();
+  vi.mocked(api.githubStatus).mockResolvedValue({ connected: true, login: 'fixture', message: '' });
   vi.mocked(api.getReviewSourceManifest).mockImplementation(async (projectId, reviewId) => ({
     sessionId: reviewId, projectId, status: 'unavailable', sources: [], artifactCount: null,
   }));
@@ -211,21 +217,60 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByRole('button', { name: 'Remove project' })).toBeInTheDocument();
   });
 
-  it('shows the collaborator search and honest empty state without inventing users', async () => {
+  it('hides the Collaborators tab and does not sync collaborators by default', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', '');
+    render(<ProjectDetailScreen project={project} onNavigate={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Overview' });
+    expect(screen.queryByRole('button', { name: 'Collaborators' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Project Collaborators' })).not.toBeInTheDocument();
+    expect(api.syncGithubCollaborators).not.toHaveBeenCalled();
+  });
+
+  it('shows project members without a separate member form or invented GitHub users', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
-    renderProject();
+    const account = { provider: 'centinel', id: 'centinel-1', name: 'new@example.com', state: 'available' } as const;
+    vi.mocked(api.githubStatus).mockResolvedValue({ connected: false, login: null, message: '' });
+    vi.mocked(api.searchProjectCollaborators).mockResolvedValue({ matches: [account], githubUnavailable: false });
+    vi.mocked(api.addProjectCollaborator).mockResolvedValue({ state: 'joined' });
+    const navigate = vi.fn();
+    renderProject(navigate);
 
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
 
-    expect(screen.getByRole('heading', { name: 'GitHub collaborators' })).toBeInTheDocument();
-    expect(await screen.findByText('No collaborators synced yet')).toBeInTheDocument();
-    expect(screen.getByLabelText('Search collaborators')).toBeInTheDocument();
-    expect(screen.getByText('Collaboration data is not connected')).toBeInTheDocument();
-    expect(screen.queryByText('You · Admin')).not.toBeInTheDocument();
-    expect(screen.queryByText('Assigned reviewers')).not.toBeInTheDocument();
-    expect(screen.queryByText('Developers')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add collaborator' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Collaborators' })).toBeInTheDocument();
+    expect(await screen.findByText('owner@example.com')).toBeInTheDocument();
+    const search = screen.getByRole('searchbox', { name: 'Search project collaborators' });
+    await user.type(search, 'missing');
+    expect(screen.getByText('No collaborators match your search.')).toBeInTheDocument();
+    expect(screen.queryByText('owner@example.com')).not.toBeInTheDocument();
+    await user.clear(search);
+    expect(screen.getByText('owner@example.com')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add collaborator' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add collaborator' });
+    await user.type(within(dialog).getByLabelText('Find a collaborator'), 'new@example.com');
+    await user.click(await within(dialog).findByRole('button', { name: 'new@example.com Centinel' }));
+    expect(api.addProjectCollaborator).toHaveBeenCalledWith(project.id, account);
+    expect(await within(dialog).findByRole('button', { name: 'new@example.com Centinel Joined' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument();
     expect(api.syncGithubCollaborators).not.toHaveBeenCalled();
+    expect(within(dialog).getByText('Disconnected')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Open connections' }));
+    expect(navigate).toHaveBeenCalledWith({ name: 'settings', section: 'connections' });
+  });
+
+  it('syncs project viewer access only when the project owner requests it', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
+    const user = userEvent.setup();
+    vi.mocked(api.syncGithubCollaborators).mockResolvedValue({ repository: availableCollaboration.repository, collaborators: [], syncedAt: null, projectMembersAdded: 1 });
+    renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
+    await user.click(screen.getByRole('button', { name: 'Collaborators' }));
+    const sync = await screen.findByRole('button', { name: 'Sync GitHub collaborators' });
+    await waitFor(() => expect(sync).toBeEnabled());
+    expect(api.syncGithubCollaborators).not.toHaveBeenCalledWith(project.id, true);
+    await user.click(sync);
+    expect(await screen.findByText('Added 1 new project viewer.')).toBeInTheDocument();
+    expect(api.syncGithubCollaborators).toHaveBeenCalledWith(project.id, true);
   });
 
   it('shows overview skeletons instead of empty states during initial reads', async () => {
@@ -283,7 +328,8 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(settings.queryByRole('button', { name: 'Add severity' })).not.toBeInTheDocument();
   });
 
-  it('automatically syncs GitHub once on load and retains the explicit invite flow', async () => {
+  it('syncs GitHub once and distinguishes Joined, available and pending Viewer access', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
     const syncedSnapshot: GithubCollaboratorSnapshot = {
       repository: availableCollaboration.repository,
@@ -291,20 +337,18 @@ describe('ProjectDetailScreen refinement surfaces', () => {
       syncedAt: '2026-09-26T00:00:00.000Z',
     };
     vi.mocked(api.syncGithubCollaborators).mockResolvedValue(syncedSnapshot);
-    vi.mocked(api.searchCollaborators).mockResolvedValue({
-      email: 'dev@example.com',
-      repository: { owner: 'acme', repo: 'website', remoteUrl: 'https://github.com/acme/website.git' },
-      matches: [{ id: 7, login: 'dev', avatarUrl: '', htmlUrl: 'https://github.com/dev', type: 'User' }],
+    const dev = { provider: 'github', id: '7', name: 'dev', state: 'available' } as const;
+    vi.mocked(api.searchProjectCollaborators).mockResolvedValue({
+      matches: [{ provider: 'github', id: '8', name: 'dev-joined', state: 'joined' }, dev],
+      githubUnavailable: false,
     });
-    vi.mocked(api.inviteCollaborator).mockResolvedValue({
-      username: 'dev',
-      repository: { owner: 'acme', repo: 'website', remoteUrl: 'https://github.com/acme/website.git' },
-      status: 'invited',
-    });
+    vi.mocked(api.addProjectCollaborator).mockResolvedValue({ state: 'pending' });
+    vi.mocked(api.cancelPendingCollaborator).mockResolvedValue({ cancelled: true });
     renderProject(vi.fn(), [], undefined, [], [], [], availableCollaboration);
 
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
-    expect(await screen.findByText('@dev')).toBeInTheDocument();
+    expect(await screen.findByText('owner@example.com')).toBeInTheDocument();
+    await waitFor(() => expect(api.syncGithubCollaborators).toHaveBeenCalled());
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
     expect(api.syncGithubCollaborators).toHaveBeenCalledWith(project.id);
     expect(screen.queryByRole('button', { name: 'Sync from GitHub' })).not.toBeInTheDocument();
@@ -316,22 +360,25 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add collaborator' }));
     const dialog = screen.getByRole('dialog', { name: 'Add collaborator' });
-    expect(within(dialog).getByText('acme/website')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Repository information' })).toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: /sync/i })).not.toBeInTheDocument();
-    await user.type(within(dialog).getByLabelText('GitHub account email'), 'dev@example.com');
-    expect(await within(dialog).findByText('dev')).toBeInTheDocument();
-    expect(api.searchCollaborators).toHaveBeenCalledWith(project.id, 'dev@example.com');
-    expect(within(dialog).queryByRole('button', { name: 'Search' })).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('Find a collaborator'), 'dev');
+    const available = await within(dialog).findByRole('button', { name: 'dev GitHub' });
+    const joined = within(dialog).getByRole('button', { name: 'dev-joined GitHub Joined' });
+    expect(within(dialog).queryByLabelText('GitHub connection')).not.toBeInTheDocument();
+    expect(api.searchProjectCollaborators).toHaveBeenCalledWith(project.id, 'dev');
+    expect(joined).toBeDisabled();
+    await user.click(joined);
+    expect(api.addProjectCollaborator).not.toHaveBeenCalled();
+    await user.click(available);
+    expect(api.addProjectCollaborator).toHaveBeenCalledWith(project.id, dev);
+    expect(await within(dialog).findByRole('button', { name: 'dev GitHub Pending' })).toBeDisabled();
     expect(api.inviteCollaborator).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByRole('button', { name: /dev/ }));
-    expect(within(dialog).getByText(/This sends an external GitHub invitation/)).toBeInTheDocument();
-    expect(api.inviteCollaborator).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByRole('button', { name: 'Send invitation' }));
-    await waitFor(() => expect(api.inviteCollaborator).toHaveBeenCalledWith(project.id, 'dev'));
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel pending access for dev' }));
+    expect(api.cancelPendingCollaborator).toHaveBeenCalledWith(project.id, dev.id);
+    expect(await within(dialog).findByRole('button', { name: 'dev GitHub' })).toBeEnabled();
   });
 
-  it('keeps the last collaborator snapshot visible after sync failure without retrying automatically', async () => {
+  it('keeps project members visible after GitHub sync failure without retrying automatically', async () => {
+    vi.stubEnv('VITE_ENABLE_PROJECT_COLLABORATORS', 'true');
     const user = userEvent.setup();
     const savedSnapshot: GithubCollaboratorSnapshot = {
       repository: availableCollaboration.repository,
@@ -343,13 +390,13 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     vi.mocked(api.syncGithubCollaborators).mockRejectedValue(new Error(''));
 
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
-    expect(await screen.findByText('@saved')).toBeInTheDocument();
+    expect(await screen.findByText('owner@example.com')).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not be synced/i);
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Assessment' }));
     await user.click(screen.getByRole('button', { name: 'Collaborators' }));
-    expect(await screen.findByText('@saved')).toBeInTheDocument();
+    expect(await screen.findByText('owner@example.com')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent(/could not be synced/i);
     expect(api.syncGithubCollaborators).toHaveBeenCalledTimes(1);
   });
@@ -472,7 +519,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     expect(await screen.findByText('Sources changed')).toBeInTheDocument();
     expect(screen.getByText(/1 reviewed source version changed or were removed/)).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Start Review' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Review changed sources' }));
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-entry', projectId: project.id, comparisonParentReviewId: successfulReview.id });
   });
 
@@ -530,7 +577,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     expect(await screen.findByText('Review needs checking')).toBeInTheDocument();
     expect(screen.getByText(/Source currency cannot be verified from the saved Review evidence/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start Review' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check source coverage' })).toBeInTheDocument();
   });
 
   it('keeps the older successful source basis when a newer Review failed', async () => {
@@ -558,9 +605,11 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     expect(await screen.findByText(/Found 2 times\./)).toBeInTheDocument();
     expect(screen.getAllByText('Order Ownership Check Missing')).toHaveLength(1);
+    expect(screen.getByText('Order Ownership Check Missing')).toHaveAttribute('data-risk', 'critical');
+    expect(screen.queryByText('Critical · Unverified')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Findings' }));
-    expect(await screen.findByText('1 issue type · 1 flagged item · 2 occurrences')).toBeInTheDocument();
+    expect(await screen.findByText('1 issue group across the project')).toBeInTheDocument();
     await user.click(screen.getByRole('row', { name: /Order Ownership Check Missing/ }));
     const details = screen.getByRole('article', { name: 'Finding details' });
     await user.selectOptions(within(details).getByRole('combobox', { name: 'Location' }), 'f-2');
@@ -639,9 +688,11 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     const gapRow = await screen.findByRole('row', { name: /Clarify acceptance criteria/i });
     await user.click(within(gapRow).getByRole('button', { name: /See more about Clarify acceptance criteria/i }));
-    expect(screen.getByText(/Readiness · Document quality/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Clarify acceptance criteria' })).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Related sources' })).getByText('requirements.md')).toBeInTheDocument();
+    const detail = screen.getByRole('article', { name: 'Finding details' });
+    expect(within(detail).getByText('Readiness', { exact: true })).toBeInTheDocument();
+    expect(within(detail).getByText('Document quality', { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Clarify acceptance criteria', level: 2 })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Related sources' })).getAllByText('requirements.md').length).toBeGreaterThan(0);
     expect(screen.getByText(/immutable snapshot from Project Readiness/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Mark as resolved' })).not.toBeInTheDocument();
@@ -651,7 +702,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByText('No classified unresolved risk items.')).toBeInTheDocument();
   });
 
-  it('labels stale readiness as previous and hides old gaps while preserving Review findings', async () => {
+  it('flags changed readiness sources and hides old gaps while preserving Review findings', async () => {
     const user = userEvent.setup();
     const currentFinding: Finding = {
       id: 'finding-current', projectId: project.id, sessionId: 'review-1', source: 'static', verifier: 'deterministic',
@@ -678,8 +729,8 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     });
     renderProject(vi.fn(), [], undefined, [], [], [currentFinding]);
 
-    expect(await screen.findByText('Previous assessment — sources have changed')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Awaiting manual assessment.');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Sources have changed. Run Readiness again.');
+    expect(screen.queryByText('Awaiting manual assessment.')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Findings' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent('Readiness findings describe previous sources and are hidden until a current assessment is available.');
@@ -857,7 +908,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.click(seeMore);
     const dialog = screen.getByRole('dialog', { name: 'Long failure needs attention' });
     expect(dialog).toHaveTextContent(longFailure.trim());
-    expect(within(dialog).getByRole('button', { name: 'Inspect' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Open failed run' })).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: 'Long failure needs attention' })).not.toBeInTheDocument();
   });

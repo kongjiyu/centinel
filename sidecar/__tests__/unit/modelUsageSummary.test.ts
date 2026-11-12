@@ -104,7 +104,7 @@ describe('Supabase Model Provider usage summary', () => {
 
     expect(result.totals).toMatchObject({ input: 15, output: 6, cacheRead: 6, cacheCreation: 1,
       totalTokens: 18, providerReportedTotalTokens: 18, providerReportedCalls: 2, unknownTotalCalls: 1 });
-    expect(result.byGroup.find(group => group.provider === 'codex')).toMatchObject({ totalTokens: 7, totalCacheRead: 3 });
+    expect(result.byGroup.find(group => group.provider === 'codex')).toMatchObject({ totalTokens: 7, totalCacheRead: 3, lastExecutedAt: '2026-10-25T00:00:00Z' });
     expect(result.byGroup.find(group => group.provider === 'mimo')).toMatchObject({ totalTokens: 11, unknownTotalCalls: 1 });
     expect(result.recent.find(row => row.id === 'legacy-anthropic')).toMatchObject({ canonicalTotalTokens: null, totalTokensStatus: 'unavailable' });
   });

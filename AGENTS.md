@@ -6,6 +6,8 @@ Explicit Source Resume captures owner/project-scoped paused index revisions befo
 
 Readiness source fingerprints exclude healthy sync progress while retaining source access, remote revision, exact item/version availability and terminal causes. An unchanged import check at finalization waits within the existing job deadline without repeating completed model work; changed evidence retains queue/defer behavior. Reacquire the current owner session before persistence after that wait. The Readiness card admits one status GET per lifecycle so slower responses cannot be invalidated by every two-second poll. See `docs/project/READINESS_SYNC_STABILITY_2026-10-28.md` for verification and deployment state.
 
+Readiness reports the current local assessment hold before queueing or spending a provider request. The hold preserves the saved snapshot and does not overwrite the existing journal state. Keep this distinct from persisted provider capacity pauses and source-index status.
+
 ## Product and Sources of Truth
 
 Centinel is a local-first desktop quality-assurance platform with two product areas:
@@ -51,6 +53,8 @@ Prefer targeted tests while iterating, then run the smallest complete suite that
 The root development launcher reuses healthy listeners, checks Windows process ownership against this checkout, rejects unrelated occupied ports, and cleans up only processes it launched. A Vite listener alone does not mean the desktop window is open: if the workspace Vite server is healthy and this checkout's Tauri executable is not running, the launcher starts the native shell while reusing Vite. Reuse does not reload an older sidecar: restart the original dev terminal after backend changes.
 
 For PowerShell process lifecycle checks, use terminating errors before mutation and verify both command identity and recorded creation time. ConvertFrom-Json may already deserialize an ISO timestamp to DateTime: cast that value directly to DateTimeOffset for UTC comparison instead of parsing its localized string representation. A failed identity check must stop before terminating or restarting any process.
+
+The packaged Tauri shell checks its bundled sidecar on window focus and starts it when the prior child has exited and the port is free. Concurrent checks share the same child state. Development sidecars remain owned by the launcher. The desktop JSON client can wait for the default local sidecar and retry a failed GET once after a transport rejection. Keep this recovery separate from request timeouts, authentication renewal, and write requests. Review Activity refreshes its current Review and saved execution details on focus or restored visibility.
 
 Static Review's Playground observes the production orchestrator through `ReviewHarness` step events in the existing Supabase `audit_events` table. Its authenticated `/projects/:projectId/static-sessions/:reviewId/harness` endpoint enforces project membership and Review ownership. Do not log prompts, source bodies, provider secrets, or private model reasoning into harness metadata. See `docs/review/REVIEW_PLAYGROUND_HARNESS.md` for the workflow and reference mapping.
 
@@ -103,6 +107,10 @@ For frontend design changes:
 4. Run relevant frontend tests.
 
 ## Change Discipline
+
+Review retry from the app refreshes selected sources. For owner-local imports, verify the worktree by exact content and use the existing durable importer for changed material. For connected GitHub sources, wait for the bounded durable source sync and use its remote-revision comparison. Refreshed Reviews still validate the selected scope. Source search preparation checks durable state before creating a missing job, and an existing pause still requires explicit Resume. Project collaborator membership sync is an explicit owner action and uses linked GitHub account IDs to add viewers without replacing existing roles. Deploy the additive viewer-sync migration separately.
+
+Gemini API OAuth uses a Google Cloud quota project and a Google `authorized_user` Application Default Credentials file bound to one verified Centinel owner through the three `CENTINEL_GEMINI_OAUTH_*` runtime settings in `.env.example`. Enable the Generative Language API and use the scopes in the [Google OAuth quickstart](https://ai.google.dev/gemini-api/docs/oauth). Keep the credentials file outside version control. Bearer tokens remain in the sidecar and are sent only to the fixed Google endpoint. Shared settings apply to new activity while active Review and Dynamic runs retain the selected provider and context.
 
 - Keep changes scoped and preserve unrelated working-tree edits.
 - Add or update tests for behavior changes and bug fixes when practical.

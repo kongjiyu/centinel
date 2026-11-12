@@ -108,6 +108,19 @@ describe('connected source provider adapters', () => {
     expect(page.items[1]?.error).toContain('invalid blob encoding');
     expect(page.items.every(item => item.content.length === 0)).toBe(true);
   });
+  it('lists commits for the chosen branch and resolves a pinned revision by exact SHA', async () => {
+    const sha = 'a'.repeat(40);
+    const http = new FakeHttp([
+      json([{ sha, commit: { message: 'Fix checkout\n\nDetails' } }]),
+      json({ sha }),
+    ]);
+    const adapter = new GitHubConnectedSourceAdapter({ http });
+    await expect(adapter.browse(credentials, { remoteId: source.remoteId, branch: 'feature/checkout' })).resolves.toMatchObject({
+      items: [{ id: sha, kind: 'commit', name: 'Fix checkout' }],
+    });
+    await expect(adapter.prepareSync(credentials, { ...source, remoteId: `${source.remoteId}@${sha}` })).resolves.toMatchObject({ remoteRevision: sha });
+  });
+
   it('browses GitHub repositories and imports a text blob with commit and path provenance', async () => {
     const http = new FakeHttp([
       json([{ id: 1, full_name: 'acme/demo', name: 'demo', html_url: 'https://github.com/acme/demo', default_branch: 'main', private: true }]),
@@ -134,7 +147,7 @@ describe('connected source provider adapters', () => {
     ]);
     const adapter = new GitHubConnectedSourceAdapter({ http });
 
-    await expect(adapter.prepareSync(credentials, source)).resolves.toEqual({ remoteRevision: 'commit-a', cursor: { commitSha: 'commit-a', offset: 0 } });
+    await expect(adapter.prepareSync(credentials, source)).resolves.toEqual({ remoteRevision: 'commit-a', cursor: { commitSha: 'commit-a', offset: 0, branch: 'main' } });
     expect(http.calls.map(call => new URL(call.url).pathname)).toEqual(['/repos/acme/demo/commits/main']);
   });
 
@@ -147,7 +160,7 @@ describe('connected source provider adapters', () => {
 
   it('resumes an older pinned tree after restart without checking a moving head mid-import', async () => {
     const tree = [{ path: 'a.ts', type: 'blob', sha: 'blob-a' }, { path: 'b.ts', type: 'blob', sha: 'blob-b' }];
-    const http = new FakeHttp([json({ sha: 'old-head' }), json({ tree: { sha: 'old-tree' } }), json({ tree }), json({ content: 'a', encoding: 'utf8' })]);
+    const http = new FakeHttp([json({ sha: 'old-head' }), json({ tree: { sha: 'old-tree' }, message: 'Fix checkout\n\nLong description' }), json({ tree }), json({ content: 'a', encoding: 'utf8' })]);
     const adapter = new GitHubConnectedSourceAdapter({ http, pageSize: 1 });
     const snapshot = await adapter.prepareSync(credentials, source);
     const first = await adapter.listItems(credentials, source, snapshot, snapshot.cursor);
@@ -156,7 +169,7 @@ describe('connected source provider adapters', () => {
     const restarted = new GitHubConnectedSourceAdapter({ http: restartHttp, pageSize: 1 });
     const next = await restarted.listItems(credentials, source, snapshot, first.nextCursor);
     expect(next.done).toBe(true);
-    expect(next.items[0]).toMatchObject({ path: 'b.ts', metadata: { commitSha: 'old-head' } });
+    expect(next.items[0]).toMatchObject({ path: 'b.ts', metadata: { commitSha: 'old-head', branch: 'main', commitSubject: 'Fix checkout' } });
     expect(restartHttp.calls.map(call => new URL(call.url).pathname)).toEqual(['/repos/acme/demo/git/trees/old-tree', '/repos/acme/demo/git/blobs/blob-b']);
   });
 
@@ -169,7 +182,7 @@ describe('connected source provider adapters', () => {
     const adapter = new GitHubConnectedSourceAdapter({ http });
 
     await expect(adapter.prepareSync(credentials, { ...source, selectedScope: {} })).resolves.toEqual({
-      remoteRevision: 'commit-develop', cursor: { commitSha: 'commit-develop', offset: 0 },
+      remoteRevision: 'commit-develop', cursor: { commitSha: 'commit-develop', offset: 0, branch: 'develop' },
     });
     expect(new URL(http.calls[0]!.url).pathname).toBe('/repos/acme/demo');
     expect(new URL(http.calls[1]!.url).pathname).toBe('/repos/acme/demo/commits/develop');

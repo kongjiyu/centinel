@@ -13,6 +13,7 @@ import { RefreshableSupabaseRuntime } from '../../src/runtime/supabaseRuntime.js
 import { ConnectedSourceImporter } from '../../src/integrations/index.js';
 import { SourceIndexCoordinator } from '../../src/review/sourceIndexJobs.js';
 import { readZip } from '../../src/diagnostics/zip.js';
+import { SupabaseGithubCollaborationService } from '../../src/githubCollaboration.js';
 
 const ownerId = '11111111-1111-4111-8111-111111111111';
 const otherId = '22222222-2222-4222-8222-222222222222';
@@ -179,6 +180,16 @@ function bearerClient(accessToken: string): SupabaseClient {
     },
     rpc: async (name: string, input?: Record<string, unknown>) => {
       if (name === 'claim_review_lease') return { data: null, error: null };
+      if (name === 'search_project_collaborator_identities') {
+        return { data: input?.p_email === 'viewer@example.test'
+          ? [{ centinel_id: otherId, github_id: null, state: 'available' }]
+          : [{ centinel_id: null, github_id: '17', state: 'joined' }], error: null };
+      }
+      if (name === 'add_project_collaborator_viewer') {
+        return projects.find(project => project.id === input?.p_project_id)?.owner_id === actorId
+          ? { data: input?.p_github_id ? 'pending' : 'joined', error: null }
+          : { data: null, error: { code: '42501' } };
+      }
       if (name !== 'submit_review_decision' || !input) return { data: null, error: { message: `Unexpected RPC: ${name}` } };
       const projectId = String(input.p_project_id);
       const reviewId = String(input.p_review_id);
@@ -235,6 +246,44 @@ describe('active sidecar HTTP bearer contract', () => {
     return { status: response.status, body: await response.json() as Record<string, unknown> };
   }
 
+  it('keeps Centinel email local and combines GitHub identities with membership state for the owner', async () => {
+    const github = vi.spyOn(SupabaseGithubCollaborationService.prototype, 'searchProjectUsers')
+      .mockResolvedValue([{ id: 17, login: 'dev', avatarUrl: '', htmlUrl: '', type: 'User', permission: 'pull' }]);
+    try {
+      const search = `/projects/${ownerProject}/collaborators/search`;
+      expect((await get(`${search}?q=dev`, 'other-token', ownerId)).status).toBe(403);
+      expect(await get(`${search}?q=viewer%40example.test`, 'owner-token')).toEqual({
+        status: 200, body: { githubUnavailable: false, matches: [{ provider: 'centinel', id: otherId, name: 'viewer@example.test', state: 'available' }] },
+      });
+      expect(github).not.toHaveBeenCalled();
+      expect(await get(`${search}?q=dev`, 'owner-token')).toEqual({
+        status: 200, body: { githubUnavailable: false, matches: [{ provider: 'github', id: '17', name: 'dev', avatarUrl: '', state: 'joined' }] },
+      });
+      expect(github).toHaveBeenCalledExactlyOnceWith(ownerProject, 'dev');
+      const add = (token: string) => fetch(`${baseUrl}/projects/${ownerProject}/collaborators`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'github', id: '18' }),
+      });
+      expect((await add('other-token')).status).toBe(403);
+      expect(await (await add('owner-token')).json()).toEqual({ state: 'pending' });
+    } finally { github.mockRestore(); }
+  });
+
+  it('keeps Centinel email search usable after a GitHub search failure', async () => {
+    const github = vi.spyOn(SupabaseGithubCollaborationService.prototype, 'searchProjectUsers')
+      .mockRejectedValue(new Error('GitHub unavailable'));
+    try {
+      const search = `/projects/${ownerProject}/collaborators/search`;
+      expect(await get(`${search}?q=dev`, 'owner-token')).toEqual({
+        status: 200, body: { githubUnavailable: true, matches: [] },
+      });
+      expect(await get(`${search}?q=viewer%40example.test`, 'owner-token')).toEqual({
+        status: 200, body: { githubUnavailable: false, matches: [{ provider: 'centinel', id: otherId, name: 'viewer@example.test', state: 'available' }] },
+      });
+      expect(github).toHaveBeenCalledExactlyOnceWith(ownerProject, 'dev');
+    } finally { github.mockRestore(); }
+  });
+
   it.each(['success', 'partial'])('manual source Resume handles %s through the indexing/worker integration', async state => {
     const notify = vi.spyOn(SourceIndexCoordinator.prototype, 'notify').mockResolvedValue({ state: 'queued' } as any);
     const resume = vi.spyOn(ConnectedSourceImporter.prototype, 'resumeSync')
@@ -259,6 +308,23 @@ describe('active sidecar HTTP bearer contract', () => {
       const response = await fetch(`${baseUrl}/projects/${otherProject}/repository-index/build`, { method: 'POST', headers: { Authorization: 'Bearer owner-token' } });
       expect(response.status).toBe(403); expect(recover).not.toHaveBeenCalled(); expect(resume).not.toHaveBeenCalled();
     } finally { recover.mockRestore(); resume.mockRestore(); }
+  });
+
+  it('defers startup index sync when an artifact has no committed version', async () => {
+    const initialAuditEvents = auditEvents.length;
+    const log = vi.spyOn(console, 'error');
+    try {
+      const response = await fetch(`${baseUrl}/projects/${ownerSecondProject}/repository-index/sync`, {
+        method: 'POST', headers: { Authorization: 'Bearer owner-token' },
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'repository_index_versions_unavailable' });
+      expect(await get(`/projects/${ownerSecondProject}/repository-index/build`, 'owner-token')).toMatchObject({
+        status: 409, body: { code: 'repository_index_versions_unavailable' },
+      });
+      expect(auditEvents).toHaveLength(initialAuditEvents);
+      expect(log).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
   });
 
   it('adopts refreshed verified credentials on ordinary Review polling without a new Start request', async () => {
@@ -461,6 +527,20 @@ describe('active sidecar HTTP bearer contract', () => {
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: 'Select at least one artifact, requirement, or coding standard.' });
+    expect(reviews).toHaveLength(initialReviews);
+  });
+
+  it('rejects excess or out-of-scope Review references before queuing', async () => {
+    const initialReviews = reviews.length;
+    for (const supportiveDocuments of [[{ id: 'outside-scope' }], Array.from({ length: 6 }, () => ({ id: ownerArtifact }))]) {
+      const response = await fetch(`${baseUrl}/projects/${ownerProject}/static-sessions`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: { artifactIds: [ownerArtifact] }, supportiveDocuments }),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'invalid_review_references' });
+    }
     expect(reviews).toHaveLength(initialReviews);
   });
 

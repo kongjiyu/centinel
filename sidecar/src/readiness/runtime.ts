@@ -5,6 +5,7 @@ import { CentinelApplicationRepository } from '../applicationRepository.js';
 import { listClientArtifacts, readClientArtifactContent } from '../applicationApi.js';
 import { SupabaseConnectedSourceRepository } from '../integrations/supabaseRepository.js';
 import { createGroundingModelProvider } from '../review/groundingProvider.js';
+import { isAssessmentHeld } from '../review/assessmentHold.js';
 import { SupabaseModelConfigurationRepository } from '../review/modelProviderResolver.js';
 import { SupabaseReadinessStore } from './repository.js';
 import { ProjectReadinessCoordinator, type ReadinessIndex } from './service.js';
@@ -33,7 +34,7 @@ export async function readinessConfigurationRevision(auth: AuthenticatedRequest,
   const digest = (value: string | null | undefined) => value ? crypto.createHash('sha256').update(value).digest('hex') : null;
   return crypto.createHash('sha256').update(JSON.stringify({
     version: 1, id: record.id ?? null, provider: record.provider, apiFormat: record.apiFormat ?? null, model: record.model,
-    baseUrl: digest(record.baseUrl), secret: digest(record.secretCiphertext),
+    baseUrl: digest(record.baseUrl), secret: digest(record.secretCiphertext), geminiOAuthProject: record.metadata?.geminiOAuthProject,
     fallback: [record.fallbackProvider ?? null, record.fallbackApiFormat ?? null, record.fallbackModel ?? null,
       digest(record.fallbackBaseUrl), digest(record.fallbackSecretCiphertext)],
   })).digest('hex');
@@ -43,11 +44,14 @@ export async function inspectReadinessSources(auth: AuthenticatedRequest, projec
   const repository = new CentinelApplicationRepository(auth.client, auth.userId);
   const project = await repository.getProject(projectId);
   if (!project) throw new Error('Project is unavailable');
-  const [allArtifacts, sources, requirements, standards, localImports] = await Promise.all([
+  const [projectArtifacts, projectSources, requirements, standards, localImports] = await Promise.all([
     listClientArtifacts(repository, projectId), new SupabaseConnectedSourceRepository(auth.client).listSources(projectId),
     repository.listRequirements(projectId), repository.listStandards(projectId),
     auth.client.from('audit_events').select('payload').eq('project_id', projectId).eq('event_type', 'local_import_coverage').order('created_at', { ascending: false }),
   ]);
+  const snapshotIds = new Set(projectSources.filter(source => source.selectedScope.reviewSnapshot === true).map(source => source.id));
+  const sources = projectSources.filter(source => !snapshotIds.has(source.id));
+  const allArtifacts = projectArtifacts.filter(artifact => !artifact.sourceId || !snapshotIds.has(artifact.sourceId));
   if (localImports.error) throw new Error('Local source coverage is unavailable');
   const unavailable: ReadinessArtifact[] = [];
   const preloaded: ReadinessArtifact[] = [
@@ -114,6 +118,7 @@ export function createProjectReadinessCoordinator(options: { jobTimeoutMs?: numb
     inspect: inspectReadinessSources,
     read: readFrozenReadinessArtifact,
     provider: createReadinessModelProvider,
+    assessmentHeld: isAssessmentHeld,
     configurationRevision: readinessConfigurationRevision,
     jobTimeoutMs: options.jobTimeoutMs,
   });

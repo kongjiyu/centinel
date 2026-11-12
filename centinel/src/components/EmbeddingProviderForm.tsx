@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ExternalLink, Eye, EyeOff, RefreshCw, Save, ScanEye, Stethoscope } from 'lucide-react';
-import type { AiProviderSetting, AiTestResult, EmbeddingModelOption, EmbeddingModelUsage, EmbeddingSettingsCatalog } from '../types';
+import { Check, Eye, EyeOff, Save, ScanEye, Stethoscope } from 'lucide-react';
+import type { AiProviderSetting, AiTestResult, EmbeddingModelOption, EmbeddingSettingsCatalog } from '../types';
 import { api } from '../api/client';
 import { IconButton, StatusBadge } from './CommandUI';
 import { Select } from './Select';
-import { openExternalUrl } from '../utils/openExternalUrl';
 import { userFacingError } from '../utils/userFacingError';
 import './EmbeddingProviderForm.css';
 
@@ -32,38 +31,6 @@ function savedProvider(setting: AiProviderSetting): EmbeddingProvider {
 function initialModel(setting: AiProviderSetting, provider: EmbeddingProvider): string {
   if (setting.model.trim() && savedProvider(setting) === provider) return setting.model;
   return provider === 'voyage' ? DEFAULT_VOYAGE_MODEL : '';
-}
-
-function formatCount(value: number): string {
-  return new Intl.NumberFormat('en-US').format(value);
-}
-
-function modelUsage(catalog: EmbeddingSettingsCatalog | null, model: string): EmbeddingModelUsage | null {
-  if (!catalog || !catalog.usageAvailable) return null;
-  return catalog.usage.find(item => item.model === model) ?? null;
-}
-
-function usageText(catalog: EmbeddingSettingsCatalog | null, usage: EmbeddingModelUsage | null, model: string): {
-  tokens: string;
-  calls: string;
-  detail: string | null;
-} {
-  if (!catalog?.usageAvailable) return { tokens: 'Unknown', calls: 'Unknown', detail: 'Centinel usage data is unavailable.' };
-  if (!usage) return { tokens: 'No recorded usage', calls: '0', detail: null };
-  const tokens = usage.knownTokens === null
-    ? 'Unknown'
-    : usage.unknownCalls > 0
-      ? `At least ${formatCount(usage.knownTokens)}`
-      : formatCount(usage.knownTokens);
-  return {
-    tokens,
-    calls: formatCount(usage.calls),
-    detail: usage.unknownCalls > 0
-      ? `${formatCount(usage.unknownCalls)} of ${formatCount(usage.calls)} calls have unknown token counts.`
-      : usage.knownTokens === null
-        ? `Token usage for ${model || 'this model'} is unknown.`
-        : null,
-  };
 }
 
 function savedModelOptions(models: EmbeddingModelOption[], model: string): EmbeddingModelOption[] {
@@ -103,7 +70,6 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [refreshingUsage, setRefreshingUsage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<EmbeddingSettingsCatalog | null>(null);
@@ -117,15 +83,11 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
   const credentialDestinationMatches = provider === persistedProvider && (provider === 'voyage' || baseUrl.trim() === savedBaseUrl);
   const savedKeyCanBeReused = setting.hasApiKey && credentialDestinationMatches;
   const draftDirty = provider !== persistedProvider || model !== setting.model || (provider === 'custom' && baseUrl.trim() !== setting.baseUrl.trim()) || Boolean(apiKey.trim());
-  const selectedCatalogModel = catalog?.models.find(option => option.id === model) ?? null;
-  const usage = useMemo(() => modelUsage(catalog, model), [catalog, model]);
-  const usageSummary = useMemo(() => usageText(catalog, usage, model), [catalog, model, usage]);
   const options = useMemo(() => savedModelOptions(catalog?.models ?? [], model), [catalog?.models, model]);
 
-  const loadCatalog = useCallback(async (manual = false) => {
+  const loadCatalog = useCallback(async () => {
     const requestId = ++catalogRequestRef.current;
     const requestedSettingVersion = settingVersionRef.current;
-    if (manual) setRefreshingUsage(true);
     setCatalogError(null);
     try {
       const nextCatalog = await api.embeddingModels();
@@ -134,10 +96,6 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
     } catch (cause) {
       if (requestId === catalogRequestRef.current && requestedSettingVersion === settingVersionRef.current) {
         setCatalogError(userFacingError(cause, 'Embedding model and usage details could not be loaded.'));
-      }
-    } finally {
-      if (requestId === catalogRequestRef.current && requestedSettingVersion === settingVersionRef.current) {
-        setRefreshingUsage(false);
       }
     }
   }, []);
@@ -152,7 +110,6 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
     // Ignore diagnostics that finish against credentials/model settings that are no longer saved.
     testRequestRef.current += 1;
     setTesting(false);
-    setRefreshingUsage(false);
     setProvider(nextProvider);
     setVoyageModel(initialModel(setting, 'voyage'));
     setCustomModel(initialModel(setting, 'custom'));
@@ -256,21 +213,12 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
     }
   };
 
-  const providerLabel = provider === 'voyage' ? 'Voyage AI' : 'Custom OpenAI-compatible';
-  const savedModelLabel = setting.model || 'model not selected';
-  const usageUnavailable = !catalog || !catalog.usageAvailable;
 
   return <div className="provider-form embedding-provider-form" aria-labelledby="embedding-provider-heading">
     <div className="provider-form-header">
       <h4 id="embedding-provider-heading">Embedding model provider</h4>
       <StatusBadge label={setting.hasApiKey ? 'Configured' : 'Optional'} tone={setting.hasApiKey ? 'success' : 'neutral'} />
     </div>
-    <p className="embedding-provider-description">
-      {provider === 'voyage'
-        ? 'Choose an embedding model for local repository search. Compatible indexes are backed up to your project.'
-        : 'Configure the embedding provider for local repository search.'}
-    </p>
-
     <div className="form-field">
       <label htmlFor="embedding-provider">Provider</label>
       <Select
@@ -295,18 +243,11 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
         disabled={!catalog || Boolean(catalogError) || saving}
         required
       />
-      {catalogError && <p className="embedding-inline-error" role="alert">{catalogError}</p>}
-      {catalog && selectedCatalogModel && <p className="embedding-field-hint">
-        {selectedCatalogModel.dimensions} dimensions. {selectedCatalogModel.publishedFreeTokens === null
-          ? 'No published free allowance is listed for this model.'
-          : `Published free allowance: ${formatCount(selectedCatalogModel.publishedFreeTokens)} tokens.`}
-        {selectedCatalogModel.documentationUrl && <> <a href={selectedCatalogModel.documentationUrl} target="_blank" rel="noreferrer">Model details</a></>}
-      </p>}
+      {catalogError && <p className="embedding-inline-error" role="alert">{catalogError} <button type="button" className="btn-link" onClick={() => void loadCatalog()}>Retry model catalog</button></p>}
       {!catalog && !catalogError && <p className="embedding-field-hint" role="status">Loading published Voyage models…</p>}
     </div> : <div className="form-field">
       <label htmlFor="embedding-model">Embedding model</label>
       <input id="embedding-model" value={model} onChange={event => updateModel(event.target.value)} placeholder="embedding-model-name" disabled={saving} />
-      <p className="embedding-field-hint">{persistedProvider === 'custom' ? setting.embeddingDimensions ?? 1536 : 1536} dimensions. Keep existing custom model names unchanged unless you intend to configure a different model.</p>
     </div>}
 
     <div className="form-field">
@@ -323,7 +264,6 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
         />
         <IconButton icon={showKey ? EyeOff : Eye} label={showKey ? 'Hide embedding API key' : 'Show embedding API key'} onClick={() => setShowKey(value => !value)} disabled={saving} />
       </div>
-      <p className="embedding-field-hint">A blank key keeps the saved key only when the provider and endpoint stay the same.</p>
     </div>
 
     <details className="embedding-endpoint-details" open={endpointOpen} onToggle={event => setEndpointOpen(event.currentTarget.open)}>
@@ -331,51 +271,20 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
       {provider === 'voyage' ? <div className="form-field embedding-readonly-endpoint">
         <label htmlFor="embedding-voyage-endpoint">Base URL</label>
         <input id="embedding-voyage-endpoint" value={VOYAGE_BASE_URL} readOnly aria-readonly="true" disabled={saving} />
-        <p className="embedding-field-hint">Voyage uses its fixed API endpoint.</p>
       </div> : <div className="form-field">
         <label htmlFor="embedding-custom-endpoint">Base URL</label>
         <input id="embedding-custom-endpoint" value={baseUrl} onChange={event => { setCustomBaseUrl(event.target.value); setError(null); setSaved(false); setTestOutcome(null); }} placeholder="https://provider.example.com/v1" disabled={saving} />
-        <p className="embedding-field-hint">Changing a saved endpoint requires a new API key.</p>
       </div>}
     </details>
-
-    <section className="embedding-usage" aria-labelledby="embedding-usage-heading">
-      <div className="embedding-usage-heading">
-        <h5 id="embedding-usage-heading">Recorded usage</h5>
-        <button className="btn-secondary embedding-refresh-usage" type="button" onClick={() => void loadCatalog(true)} disabled={refreshingUsage}>
-          <RefreshCw size={14} aria-hidden="true" /> {refreshingUsage ? 'Refreshing…' : 'Refresh usage'}
-        </button>
-      </div>
-      <dl className="embedding-usage-grid">
-        <div><dt>Model</dt><dd>{model || 'Not selected'}</dd></div>
-        <div><dt>Known tokens</dt><dd>{usageSummary.tokens}</dd></div>
-        <div><dt>Calls</dt><dd>{usageSummary.calls}</dd></div>
-      </dl>
-      {usageSummary.detail && <p className="embedding-usage-note">{usageSummary.detail}</p>}
-      <p className="embedding-usage-note">Usage includes Centinel's recorded calls only; it may not include activity from other applications or account users.</p>
-      {provider === 'voyage' && catalog && <div className="embedding-balance-note">
-        <span>Remaining usage: {catalog.remaining.tokens === null ? 'Not reported' : formatCount(catalog.remaining.tokens)}</span>
-        <a href={catalog.remaining.dashboardUrl} onClick={event => { event.preventDefault(); void openExternalUrl(catalog.remaining.dashboardUrl); }}>
-          Voyage dashboard <ExternalLink size={13} aria-hidden="true" />
-        </a>
-        <p>{catalog.remaining.message} A published free allowance is pricing information, not your account balance.</p>
-      </div>}
-      {usageUnavailable && <p className="embedding-usage-note">Usage values are unknown until the catalog reports them.</p>}
-    </section>
 
     {error && <p className="form-error" role="alert">{error}</p>}
     {saved && <p className="form-success" role="status"><Check size={14} aria-hidden="true" /> Settings saved. The API key was cleared from this form.</p>}
     <div className="form-actions">
-      <button className="btn-secondary embedding-test-button" type="button" onClick={() => void test()} disabled={testing || saving || !setting.hasApiKey || draftDirty}>
-        <Stethoscope size={16} aria-hidden="true" /> {testing ? 'Testing saved connection…' : 'Test saved connection'}
-      </button>
+      <IconButton icon={Stethoscope} label={testing ? 'Testing saved connection…' : 'Test saved connection'} onClick={() => void test()} disabled={testing || saving || !setting.hasApiKey || draftDirty} />
       <button className="btn-primary" type="button" onClick={() => void save()} disabled={saving || testing}>
         <Save size={14} aria-hidden="true" /> {saving ? 'Saving…' : 'Save'}
       </button>
     </div>
-    <p className="embedding-test-scope">{setting.hasApiKey && setting.model.trim()
-      ? `Tests the saved ${savedModelLabel} settings for ${persistedProvider === 'voyage' ? 'Voyage AI' : 'the custom provider'}. Save changes before testing.`
-      : 'Save a model and API key before testing.'}</p>
     {testOutcome && <div className={`test-result provider-test-status ${testOutcome.result.status}`} role={testOutcome.result.status === 'pass' ? 'status' : 'alert'}>
       {testOutcome.result.status === 'pass' ? <Check size={16} aria-hidden="true" /> : <ScanEye size={16} aria-hidden="true" />}
       <div><strong>{testOutcome.result.status === 'pass' ? 'Connection successful' : 'Connection failed'}</strong>
@@ -384,7 +293,5 @@ export function EmbeddingProviderForm({ setting, onRefresh }: EmbeddingProviderF
         {testOutcome.result.hint && <p className="test-result-hint">{testOutcome.result.hint}</p>}
       </div>
     </div>}
-    {catalog && catalog.verifiedAt && <span className="embedding-catalog-source" aria-label="Model source">Model list from published Voyage documentation.</span>}
-    <span className="embedding-provider-scope" aria-live="polite">Current selection: {providerLabel}{provider === 'voyage' && selectedCatalogModel ? `, ${selectedCatalogModel.dimensions} dimensions` : ''}.</span>
   </div>;
 }

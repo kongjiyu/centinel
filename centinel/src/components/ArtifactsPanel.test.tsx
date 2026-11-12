@@ -51,6 +51,16 @@ const connectedSource: ConnectedSource = {
 };
 
 describe('ArtifactsPanel', () => {
+  it('opens the file selected by a Review activity source link', async () => {
+    vi.mocked(api.listArtifacts).mockResolvedValue(repositoryArtifacts);
+    vi.mocked(api.getArtifactContent).mockResolvedValue({
+      versionId: 'version-1', content: btoa('export const button = true;'), contentHash: 'b', mimeType: 'text/typescript',
+    });
+    render(<ArtifactsPanel projectId="p-1" initialView="repository" sourceArtifactId="a-2" />);
+    expect(await screen.findByText('export const button = true;')).toBeInTheDocument();
+    expect(api.getArtifactContent).toHaveBeenCalledWith('p-1', 'a-2', undefined);
+  });
+
   it('exposes an accessible busy skeleton during the initial source read', async () => {
     let resolveArtifacts!: (items: Artifact[]) => void;
     vi.mocked(api.listArtifacts).mockReturnValue(new Promise(resolve => { resolveArtifacts = resolve; }));
@@ -66,7 +76,7 @@ describe('ArtifactsPanel', () => {
     expect(screen.queryByRole('region', { name: 'Project sources' })).not.toBeInTheDocument();
   });
 
-  it('uses source rows without column headers and never presents added time as updated time', async () => {
+  it('uses source rows without column headers and shows the saved modification or import date', async () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-29T12:00:00.000Z'));
     const user = userEvent.setup();
     const recentlyUpdated = { ...connectedSource, lastSyncedAt: '2026-10-29T11:55:00.000Z' };
@@ -76,8 +86,8 @@ describe('ArtifactsPanel', () => {
 
     const sources = await screen.findByRole('list', { name: 'Project sources' });
     expect(within(sources).queryByRole('columnheader')).not.toBeInTheDocument();
-    expect(within(sources).getByText('Updated 5 minutes ago')).toBeInTheDocument();
-    expect(within(sources).getAllByText('Updated time unavailable').length).toBeGreaterThan(0);
+    expect(sources.querySelector('time[datetime="2026-10-21T02:00:00Z"]')).toHaveTextContent(/21 Oct 2026 \d{2}:\d{2}/);
+    expect(sources.querySelectorAll('time').length).toBeGreaterThan(1);
     expect(within(sources).queryByText(/Added/)).not.toBeInTheDocument();
     expect(within(sources).getByRole('button', { name: 'Sync Connected repository' })).toBeVisible();
     expect(within(sources).getByRole('button', { name: 'History for Connected repository' })).toBeVisible();
@@ -115,9 +125,11 @@ describe('ArtifactsPanel', () => {
       .mockResolvedValueOnce({ versionId: 'v2', content: btoa('new response'), contentHash: 'new', mimeType: 'text/plain' });
     render(<ArtifactsPanel projectId="p-1" />);
     await user.click(await screen.findByRole('button', { name: 'View requirements.md' }));
+    expect(screen.getByRole('status', { name: 'Loading file preview' })).toHaveAttribute('aria-busy', 'true');
     await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
     await user.click(screen.getByRole('button', { name: 'View requirements.md' }));
     await screen.findByText('new response');
+    expect(screen.queryByRole('status', { name: 'Loading file preview' })).not.toBeInTheDocument();
     await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
     screen.getByRole('main', { name: 'Source content' }).scrollTop = 170;
     await act(async () => resolveOld({ versionId: 'v1', content: btoa('old response'), contentHash: 'old', mimeType: 'text/plain' }));
@@ -307,8 +319,8 @@ describe('ArtifactsPanel', () => {
 
     expect(await screen.findByRole('button', { name: 'View Imported repository' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^View / }));
-    await user.click(screen.getByText('Source details'));
-    expect(screen.getByText('Repository location unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Source details')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add file' })).not.toBeInTheDocument();
   });
 
   it('shows unsupported preview text and opens a real external/local location only when present', async () => {
@@ -375,7 +387,7 @@ describe('ArtifactsPanel', () => {
     expect(screen.queryByRole('button', { name: 'View repo' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'View requirements.md' }));
     expect(screen.getByRole('heading', { name: 'requirements.md' })).toHaveFocus();
-    expect(screen.getByText('Source details').closest('details')).not.toHaveAttribute('open');
+    expect(screen.queryByText('Source details')).not.toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'Sources' }));
     expect(screen.getByRole('searchbox', { name: 'Find a source' })).toHaveValue('requirements');
     await waitFor(() => expect(screen.getByRole('button', { name: 'View requirements.md' })).toHaveFocus());
@@ -476,7 +488,6 @@ describe('ArtifactsPanel', () => {
     vi.mocked(api.listArtifacts).mockResolvedValue([documentArtifact]);
     render(<ArtifactsPanel projectId="p-1" />);
     await user.click(await screen.findByRole('button', { name: 'View requirements.md' }));
-    await user.click(screen.getByText('Source details'));
     await user.click(screen.getByRole('button', { name: 'Remove source' }));
     const dialog = screen.getByRole('dialog', { name: 'Remove source?' });
     expect(within(dialog).getByText(/Remove requirements.md from this project/)).toBeInTheDocument();
@@ -578,12 +589,14 @@ describe('ArtifactsPanel', () => {
     await user.click(screen.getByRole('button', { name: 'auth.ts' }));
     expect(await screen.findByText('Preview content')).toBeInTheDocument();
     expect(api.getArtifactContent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('searchbox', { name: 'Find a file' })).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Source location' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Project source navigation' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Hide files' })).not.toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Source location' })).getByRole('button', { name: 'src' }));
     expect(screen.getByRole('list', { name: 'Repository files' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'File viewer' })).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Find a file' })).toBeInTheDocument();
   });
 
   it('uses breadcrumbs to switch files without losing source context', async () => {

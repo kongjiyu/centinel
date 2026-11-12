@@ -24,6 +24,7 @@ import {
 import { api } from '../api/client';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
+import { LoadingSkeleton } from './LoadingSkeleton';
 import { StatusBadge } from './CommandUI';
 import './ArtifactsPanel.css';
 import type { Artifact, ArtifactSource, ConnectedSource, ConnectedSourceBrowseEntry, ConnectedSourceStatusResult, ConnectedSourceSyncRun, IntegrationProvider } from '../types';
@@ -99,6 +100,7 @@ type Props = {
   /** Route the user to the global OAuth connection settings. */
   onOpenSettings?: () => void;
   initialView?: 'sources' | 'repository';
+  sourceArtifactId?: string;
 };
 
 type DeleteTarget =
@@ -178,31 +180,13 @@ function artifactKind(fileName: string): PreviewKind | null {
   return null;
 }
 
-function relativeUpdatedAt(value: string | null | undefined): { label: string; dateTime: string } | null {
-  const timestamp = Date.parse(value ?? '');
-  if (!Number.isFinite(timestamp)) return null;
-
-  const elapsed = timestamp - Date.now();
-  if (Math.abs(elapsed) < 60_000) return { label: 'Updated just now', dateTime: new Date(timestamp).toISOString() };
-  const units: Array<{ unit: Intl.RelativeTimeFormatUnit; duration: number }> = [
-    { unit: 'year', duration: 365 * 24 * 60 * 60 * 1000 },
-    { unit: 'month', duration: 30 * 24 * 60 * 60 * 1000 },
-    { unit: 'week', duration: 7 * 24 * 60 * 60 * 1000 },
-    { unit: 'day', duration: 24 * 60 * 60 * 1000 },
-    { unit: 'hour', duration: 60 * 60 * 1000 },
-    { unit: 'minute', duration: 60 * 1000 },
-  ];
-  const { unit, duration } = units.find(candidate => Math.abs(elapsed) >= candidate.duration) ?? units[units.length - 1];
-  const amount = Math.round(elapsed / duration);
-  return {
-    label: `Updated ${new Intl.RelativeTimeFormat(undefined, { numeric: 'always' }).format(amount, unit)}`,
-    dateTime: new Date(timestamp).toISOString(),
-  };
-}
+const sourceDate = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
 
 function artifactUpdatedAt(artifact: Artifact): string | null {
   const value = (artifact as Artifact & { updatedAt?: string | null }).updatedAt;
-  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : artifact.createdAt;
 }
 
 function mimeType(fileName: string): string {
@@ -318,19 +302,44 @@ function countFiles(node: TreeNode): number {
   return (node.children || []).reduce((total, child) => total + countFiles(child), 0);
 }
 
+function treeUpdatedAt(node: TreeNode): string | null {
+  if (node.artifact) return artifactUpdatedAt(node.artifact);
+  return (node.children ?? []).map(treeUpdatedAt).filter((date): date is string => Boolean(date))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+}
+
+function FilePreviewControls({ fileName, content, mode, onChange }: {
+  fileName: string;
+  content: string | null | undefined;
+  mode: MarkdownMode;
+  onChange: (mode: MarkdownMode) => void;
+}) {
+  const extension = extensionOf(fileName);
+  return <div className="source-preview-controls">
+    {extension === 'md' && <div className="source-preview-mode" role="group" aria-label="Markdown preview mode">
+      <button type="button" aria-pressed={mode === 'preview'} onClick={() => onChange('preview')}>Preview</button>
+      <button type="button" aria-pressed={mode === 'original'} onClick={() => onChange('original')}>Code</button>
+    </div>}
+    <strong>{extension.toUpperCase() || 'Text'}</strong>
+    {content != null && <span>{content ? content.split('\n').length : 0} lines</span>}
+  </div>;
+}
+
 function PreviewPane({
   preview,
   markdownMode,
   onMarkdownModeChange,
   onRetry,
+  controlsInHeader = false,
 }: {
   preview: PreviewState | null;
   markdownMode: MarkdownMode;
   onMarkdownModeChange: (mode: MarkdownMode) => void;
   onRetry: () => void;
+  controlsInHeader?: boolean;
 }) {
   if (!preview) return <p className="source-preview-empty">Select a file to preview it.</p>;
-  if (preview.loading) return <div className="panel-loading" role="status">Loading preview…</div>;
+  if (preview.loading) return <LoadingSkeleton variant="rows" rows={6} label="Loading file preview" />;
   if (preview.error) return <div className="source-preview-feedback"><p className="form-error" role="alert">{preview.error}</p><button type="button" className="btn-secondary" onClick={onRetry}>Retry preview</button></div>;
   if (!preview.kind) return <p className="source-preview-unavailable">Preview not available</p>;
   if (preview.content === null) return <p className="source-preview-empty">Preview not available.</p>;
@@ -339,18 +348,12 @@ function PreviewPane({
   const isMarkdown = extensionOf(preview.artifact.fileName) === 'md';
   return (
     <div className="source-preview-content">
-      {isMarkdown && (
-        <div className="source-preview-mode" role="group" aria-label="Markdown preview mode">
-          <button type="button" className={markdownMode === 'preview' ? 'active' : ''} aria-pressed={markdownMode === 'preview'} onClick={() => onMarkdownModeChange('preview')}>Preview</button>
-          <button type="button" className={markdownMode === 'original' ? 'active' : ''} aria-pressed={markdownMode === 'original'} onClick={() => onMarkdownModeChange('original')}>Code</button>
-          <span className="source-file-line-count">{preview.content.split('\n').length} lines</span>
-        </div>
-      )}
+      {!controlsInHeader && preview.kind === 'text' && <FilePreviewControls fileName={preview.artifact.fileName} content={preview.content} mode={markdownMode} onChange={onMarkdownModeChange} />}
       {preview.kind === 'text' && isMarkdown && markdownMode === 'preview' && (
         <article className="artifact-markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.content}</ReactMarkdown></article>
       )}
       {preview.kind === 'text' && (!isMarkdown || markdownMode === 'original') && (
-        <><div className="source-code-toolbar"><strong>Code</strong><span>{preview.content.split('\n').length} lines</span></div><pre className="artifact-text-preview" tabIndex={0} aria-label="File code"><span className="source-code-grid"><span className="source-line-numbers" aria-hidden="true">{preview.content.split('\n').map((_, index) => index + 1).join('\n')}</span><code>{preview.content}</code></span></pre></>
+        <pre className="artifact-text-preview" tabIndex={0} aria-label="File code"><span className="source-code-grid"><span className="source-line-numbers" aria-hidden="true">{preview.content.split('\n').map((_, index) => index + 1).join('\n')}</span><code>{preview.content}</code></span></pre>
       )}
       {preview.kind === 'image' && <div className="artifact-image-preview"><img src={preview.content} alt={`Preview of ${preview.artifact.fileName}`} /></div>}
       {preview.kind === 'pdf' && <iframe className="artifact-pdf-preview" src={preview.content} title={`Preview of ${preview.artifact.fileName}`} />}
@@ -358,7 +361,8 @@ function PreviewPane({
   );
 }
 
-export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sources' }: Props) {
+export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sources', sourceArtifactId }: Props) {
+  const openedSourceLink = useRef<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [connectedSources, setConnectedSources] = useState<ConnectedSource[]>([]);
   const [sourceStatusStale, setSourceStatusStale] = useState(false);
@@ -519,7 +523,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
     groups.push(...[...bySource].map(([sourceId, files]) => {
       const rootPath = commonRepositoryRoot(files);
       const parts = pathParts(rootPath);
-      return { repoName: parts[parts.length - 1] || 'Imported repository', repoPath: `local:${sourceId ?? rootPath}`, rootPath, sourceId, provider: null, kindLabel: 'Local repository', artifacts: files };
+      return { repoName: files[0]?.localRepositoryName || parts[parts.length - 1] || 'Imported repository', repoPath: `local:${sourceId ?? rootPath}`, rootPath, sourceId, provider: null, kindLabel: 'Local repository', artifacts: files };
     }));
     return { docArtifacts: docs, repoGroups: groups, driveArtifacts: drive };
   }, [artifacts, connectedSources, projectId]);
@@ -901,10 +905,10 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
   );
 
   const renderUpdated = (value: string | null | undefined) => {
-    const updated = relativeUpdatedAt(value);
-    return updated
-      ? <time className="source-row-updated" dateTime={updated.dateTime} title={new Date(updated.dateTime).toLocaleString()}>{updated.label}</time>
-      : <span className="source-row-updated is-unavailable">Updated time unavailable</span>;
+    const timestamp = Date.parse(value ?? '');
+    return Number.isFinite(timestamp)
+      ? <time className="source-row-updated" dateTime={value ?? undefined}>{sourceDate.format(timestamp).replace(',', '')}</time>
+      : <span className="source-row-updated is-unavailable">Date unavailable</span>;
   };
 
   const openConnectedSource = (source: ConnectedSource, event?: React.MouseEvent<HTMLButtonElement>) => {
@@ -970,7 +974,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
             {renderConnectedSourceActions(source, sourceViewState)}
           </div>}
         </div>
-        {renderUpdated(source?.lastSyncedAt ?? source?.updatedAt ?? latestRepositoryUpdate(group))}
+        {renderUpdated(latestRepositoryUpdate(group) ?? source?.createdAt)}
       </div>
     </li>;
   };
@@ -1019,7 +1023,16 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
     repositoryNavigationRef.current.set(repositoryMemoryKey(group), { directory, search: '', selectedArtifactId: artifact.id });
     void openPreview(artifact);
   };
-  const renderPreview = () => <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} onRetry={() => { if (preview) void openPreview(preview.artifact); }} />;
+  const renderPreview = (controlsInHeader = false) => <PreviewPane preview={preview} markdownMode={markdownMode} onMarkdownModeChange={setMarkdownMode} controlsInHeader={controlsInHeader} onRetry={() => { if (preview) void openPreview(preview.artifact); }} />;
+  useEffect(() => {
+    if (!sourceArtifactId || openedSourceLink.current === sourceArtifactId) return;
+    const artifact = artifacts.find(item => item.id === sourceArtifactId);
+    if (!artifact) return;
+    openedSourceLink.current = sourceArtifactId;
+    const group = repoGroups.find(repo => repo.artifacts.some(item => item.id === artifact.id));
+    if (group) selectFile(artifact, group);
+    else openDocument(artifact);
+  });
   const matchesSource = (text: string) => text.toLowerCase().includes(sourceQuery.trim().toLowerCase());
   const visibleDocuments = [...docArtifacts, ...driveArtifacts].filter(artifact => sourceCategory !== 'repositories' && (sourceCategory === 'all' || (sourceCategory === 'images' ? artifactKind(artifact.fileName) === 'image' : artifactKind(artifact.fileName) !== 'image')) && matchesSource(`${artifact.fileName} ${displayLocation(artifact)} ${SOURCE_LABELS[artifact.source]} ${CATEGORY_LABELS[artifact.type]}`));
   const visibleRepositories = repoGroups.filter(group => (sourceCategory === 'all' || sourceCategory === 'repositories')
@@ -1091,21 +1104,24 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
         onClick={() => node.isDir ? navigateDirectory(nodePath) : selectFile(node.artifact!, group)}>
         {node.isDir ? <Folder size={18} aria-hidden="true" /> : <File size={18} aria-hidden="true" />}
         <span className="source-directory-main"><strong>{name}</strong><small>{node.isDir ? `${itemCount} file${itemCount === 1 ? '' : 's'}` : CATEGORY_LABELS[node.artifact!.type]}</small></span>
+        {renderUpdated(treeUpdatedAt(node))}
       </button></li>;
     };
     return <div className="source-detail-view source-repository-detail">
-      {selectedRepoArtifact ? <>
-        {renderBreadcrumbs()}
-        {selectedArtifactNotice && <p role="status" className="source-file-change-notice">{selectedArtifactNotice}</p>}
-        <section className="source-file-main source-selected-file" aria-label="File viewer"><div className="source-import-summary"><File size={16} aria-hidden="true" /><span>Saved source</span><time dateTime={selectedRepoArtifact.createdAt}>Added {new Date(selectedRepoArtifact.createdAt).toLocaleDateString()}</time></div><div ref={fileReaderRef} className="source-file-reader" tabIndex={0} aria-label="Scrollable file content"><h4 id="source-preview-heading" className="visually-hidden" tabIndex={-1}>{selectedRepoArtifact.fileName}</h4>{renderPreview()}</div></section>
-      </> : <>
-        <div className="source-repo-toolbar">{renderBreadcrumbs()}<div className="source-repo-actions">{renderFileSearch()}{!group.sourceId && <button type="button" className="btn-secondary" onClick={() => setShowImportDialog(true)}><Plus size={16} aria-hidden="true" /> Add file</button>}</div></div>
-        {results ? <div className="source-search-table">{renderMatches()}</div> : <div className="source-table-shell">
-          {repositoryNodes.length ? <ul className="source-directory" aria-label="Repository files">{repositoryNodes.map(renderDirectoryEntry)}</ul>
-            : <p className="source-preview-empty">This directory is empty.</p>}
-        </div>}
-      </>}
-      <details className="source-disclosure"><summary>Source details</summary><dl className="source-metadata"><div><dt>Location</dt><dd>{group.location || group.rootPath || 'Repository location unavailable'}</dd></div></dl>{!group.sourceId && <button type="button" className="btn-secondary source-remove" onClick={() => setDeleteTarget({ kind: 'repository', group })}><Trash2 size={15} aria-hidden="true" /> Remove repository</button>}</details>
+      <div className="source-table-shell source-directory-browser">
+        <header className="source-repo-toolbar">{renderBreadcrumbs()}{!selectedRepoArtifact && renderFileSearch()}
+          {selectedRepoArtifact && <FilePreviewControls fileName={selectedRepoArtifact.fileName}
+            content={preview?.kind === 'text' && preview.artifact.id === selectedRepoArtifact.id ? preview.content : null}
+            mode={markdownMode} onChange={setMarkdownMode} />}
+        </header>
+        {results ? <div className="source-search-table">{renderMatches()}</div>
+          : selectedRepoArtifact ? <>
+            {selectedArtifactNotice && <p role="status" className="source-file-change-notice">{selectedArtifactNotice}</p>}
+            <section className="source-file-main source-selected-file" aria-label="File viewer"><div ref={fileReaderRef} className="source-file-reader" tabIndex={0} aria-label="Scrollable file content"><h4 id="source-preview-heading" className="visually-hidden" tabIndex={-1}>{selectedRepoArtifact.fileName}</h4>{renderPreview(true)}</div></section>
+          </>
+          : repositoryNodes.length ? <ul className="source-directory" aria-label="Repository files">{repositoryNodes.map(renderDirectoryEntry)}</ul>
+          : <p className="source-preview-empty">This directory is empty.</p>}
+      </div>
     </div>;
   };
 
@@ -1143,6 +1159,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
         <div><h3 ref={detailHeadingRef} tabIndex={-1}>{artifact.fileName}</h3><p>{SOURCE_LABELS[artifact.source]} · {CATEGORY_LABELS[artifact.type]}</p></div>
         <div className="source-detail-actions">
           {validLocation(artifact) && <button type="button" className="btn-secondary" onClick={() => void handleOpenWith(artifact)}><ExternalLink size={15} aria-hidden="true" /> Open original</button>}
+          <button type="button" className="btn-secondary source-remove" onClick={() => setDeleteTarget({ kind: 'artifact', artifact })}><Trash2 size={15} aria-hidden="true" /> Remove source</button>
         </div>
       </header>
       {renderCurrency(artifact)}
@@ -1151,7 +1168,6 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
         <div className="visually-hidden"><h4 id="source-preview-heading">Preview</h4></div>
         {renderPreview()}
       </section>
-      <details className="source-disclosure"><summary>Source details</summary><dl className="source-metadata"><div><dt>Category</dt><dd>{CATEGORY_LABELS[artifact.type]}</dd></div><div><dt>Location</dt><dd>{displayLocation(artifact)}</dd></div><div><dt>Added</dt><dd>{new Date(artifact.createdAt).toLocaleString()}</dd></div></dl><button type="button" className="btn-secondary source-remove" onClick={() => setDeleteTarget({ kind: 'artifact', artifact })}><Trash2 size={15} aria-hidden="true" /> Remove source</button></details>
     </div>
   );
 
@@ -1174,7 +1190,7 @@ export function ArtifactsPanel({ projectId, onOpenSettings, initialView = 'sourc
       {error && !showImportDialog && <div className="source-preview-feedback"><p className="form-error" role="alert">{error}</p><button type="button" className="btn-secondary" onClick={() => void loadArtifacts()}>Retry loading sources</button></div>}
       {sourceStatusStale && <p role="status">Source status could not be refreshed. Showing the last saved progress; checking again shortly.</p>}
       {uploadProgress && <p role="status">Uploading {uploadProgress.current} of {uploadProgress.total} files…</p>}
-      <div className="source-browser-layout">
+      <div className={`source-browser-layout${sourceView?.kind === 'repository' ? ' source-browser-repository' : ''}`}>
         <main ref={sourceContentRef} className="source-content-area" aria-label="Source content">
           {sourceView?.kind === 'document' ? renderDocumentDetail(sourceView.artifact)
             : sourceView?.kind === 'repository' ? renderRepositoryDetail(currentRepository ?? sourceView.group)

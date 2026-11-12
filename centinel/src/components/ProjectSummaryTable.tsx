@@ -7,6 +7,7 @@ import {
 import type { DynamicSession, Screen } from '../types';
 import { dynamicActivityScreen } from '../dynamic/runActivity';
 import { formatEntityId } from '../utils/entityId';
+import './LoadingSkeleton.css';
 import './ProjectSummaryTable.css';
 
 type Props = {
@@ -71,6 +72,7 @@ export function ProjectSummaryTable({
             {summaries.map(summary => {
               const activity = summary.latestActivity;
               const state = getProjectState(summary);
+              const loadingActivity = showsDirectoryControls && summary.loading && !activity;
               const isDynamic = activity?.kind === 'dynamic';
               const ActivityIcon = isDynamic ? MonitorPlay : FileCheck2;
               const actionLabel = activity
@@ -116,8 +118,9 @@ export function ProjectSummaryTable({
                       {showWorkspacePath && <code>{summary.project.workspacePath}</code>}
                     </div>
                   </td>
-                  <td data-label="Latest activity">
-                    {activity ? (
+                  <td data-label="Latest activity" aria-busy={loadingActivity || undefined}>
+                    {loadingActivity ? <span role="status" aria-label={`Loading activity for ${summary.project.name}`} className="loading-skeleton-bar project-summary-activity-placeholder" />
+                      : activity ? (
                       <div className={`project-activity-stack project-activity-${activity.kind}`}>
                         <strong title={activity.session.name}>{activity.session.name} <span className="project-activity-id">{formatEntityId(activity.session.id)}</span></strong>
                         <div className="project-activity-meta">
@@ -134,7 +137,8 @@ export function ProjectSummaryTable({
                     )}
                   </td>
                   <td data-label="Current state">
-                    <span className={`project-state-tag project-state-${state.tone}`}>{state.label}</span>
+                    {loadingActivity ? <span aria-hidden="true" className="loading-skeleton-bar project-summary-state-placeholder" />
+                      : <span className={`project-state-tag project-state-${state.tone}`}>{state.label}</span>}
                   </td>
                   {showsDirectoryControls && (
                     <td className="project-summary-actions">

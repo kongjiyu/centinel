@@ -9,10 +9,10 @@ import './workspace.css';
 import './screens/ProfileScreen.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
-import type { ProjectCreateSource } from './components/ProjectCreateModal';
+import type { ProjectRepositoryInput } from './types';
 import { restartOnboarding } from './components/OnboardingWizard';
 import { AuthScreen } from './screens/AuthScreen';
-import { api, waitForSidecar } from './api/client';
+import { api, prepareWorkspaceSidecar } from './api/client';
 import { startConnectedSourceReconciliation } from './integrations/connectedSourceReconciliation';
 import { startRepositoryIndexSync } from './integrations/repositoryIndexSync';
 import type { Project, AiProviderSetting, Screen } from './types';
@@ -29,6 +29,7 @@ const ProjectsScreen = lazy(() => import('./screens/ProjectsScreen').then(module
 const ProjectDetailScreen = lazy(() => import('./screens/ProjectDetailScreen').then(module => ({ default: module.ProjectDetailScreen })));
 const DynamicWorkspaceScreen = lazy(() => import('./screens/DynamicWorkspaceScreen').then(module => ({ default: module.DynamicWorkspaceScreen })));
 const DynamicSessionScreen = lazy(() => import('./screens/DynamicSessionScreen').then(module => ({ default: module.DynamicSessionScreen })));
+const ActivityDirectoryScreen = lazy(() => import('./screens/ActivityDirectoryScreen').then(module => ({ default: module.ActivityDirectoryScreen })));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then(module => ({ default: module.SettingsScreen })));
 const ProfileScreen = lazy(() => import('./screens/ProfileScreen').then(module => ({ default: module.ProfileScreen })));
 const RequirementsScreen = lazy(() => import('./screens/RequirementsScreen').then(module => ({ default: module.RequirementsScreen })));
@@ -106,7 +107,7 @@ function App() {
   const loadData = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setSettingsLoading(true);
-    await waitForSidecar();
+    await prepareWorkspaceSidecar();
     if (generation !== loadGeneration.current) return;
     void api.aiSettings().then(settingsData => {
       if (generation !== loadGeneration.current) return;
@@ -271,10 +272,9 @@ function App() {
     }} onBackToWorkspace={switchingAccount ? () => { setSwitchingAccount(false); setEntryMode('workspace'); } : undefined} />;
   }
 
-  const handleCreateProject = async (name: string, description: string, workspacePath: string, source: ProjectCreateSource, navigateAfter = true) => {
-    const project = await api.createProject(name, description, workspacePath, source);
+  const handleCreateProject = async (name: string, description: string, sources: ProjectRepositoryInput[]) => {
+    const project = await api.createProject(name, description, '', sources);
     setProjects(prev => [project, ...prev]);
-    if (navigateAfter) setScreen({ name: 'project-detail', projectId: project.id, initialSection: source.type === 'github' ? 'source' : undefined });
     return project;
   };
 
@@ -314,7 +314,7 @@ function App() {
     : null;
 
   return (
-    <ActiveReviewProvider>
+    <ActiveReviewProvider key={accountUserId ?? 'local'} accountId={accountUserId}>
       <AppShell
         screen={screen}
         onNavigate={navigate}
@@ -343,7 +343,7 @@ function App() {
             initialStateFilter={screen.stateFilter}
             initialCreate={screen.initialCreate}
             onNavigate={navigate}
-            onCreate={async (name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source)}
+            onCreate={handleCreateProject}
             onDelete={handleDeleteProject}
           />
         )}
@@ -352,12 +352,18 @@ function App() {
             project={currentProject}
             initialAction={screen.initialAction}
             initialSection={screen.initialSection}
+            sourceArtifactId={screen.sourceArtifactId}
+            findingsReviewId={screen.findingsReviewId}
+            findingId={screen.findingId}
             initialStaticSessionId={screen.initialStaticSessionId}
             onNavigate={navigate}
             onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}
           />
         )}
-        {screen.name === 'dynamic-testing' && <DynamicWorkspaceScreen projects={projects} initialProjectId={screen.projectId} initialRunId={screen.runId} initialDraft={screen.draft} onNavigate={navigate} />}
+        {(screen.name === 'review-directory' || screen.name === 'dynamic-directory') && (
+          <ActivityDirectoryScreen key={screen.name} kind={screen.name === 'review-directory' ? 'review' : 'dynamic'} projects={projects} onNavigate={navigate} />
+        )}
+        {screen.name === 'dynamic-testing' && <DynamicWorkspaceScreen projects={projects} initialProjectId={screen.projectId} initialRunId={screen.runId} initialMissionId={screen.missionId} initialDraft={screen.draft} listing={screen.listing} onNavigate={navigate} />}
         {screen.name === 'dynamic-session' && (
           <DynamicSessionScreen
             projectId={screen.projectId}
@@ -365,10 +371,14 @@ function App() {
             onNavigate={navigate}
           />
         )}
-        {screen.name === 'review-activity' && (
+        {(screen.name === 'review-activity' || screen.name === 'review-finding') && (
           <ReviewActivityScreen
+            key={`${screen.name}:${screen.projectId}:${screen.sessionId}:${screen.name === 'review-finding' ? screen.findingId : screen.initialTab ?? ''}`}
+            accountId={accountUserId}
             projectId={screen.projectId}
             sessionId={screen.sessionId}
+            findingId={screen.name === 'review-finding' ? screen.findingId : undefined}
+            initialTab={screen.name === 'review-activity' ? screen.initialTab : undefined}
             onNavigate={navigate}
           />
         )}
@@ -378,7 +388,7 @@ function App() {
             initialProjectId={screen.projectId}
             comparisonParentReviewId={screen.comparisonParentReviewId}
             onNavigate={target => navigate(screen.returnToPlayground && target.name === 'review-activity' ? { name: 'review-playground', projectId: target.projectId, sessionId: target.sessionId } : target)}
-            onCreateProject={(name, description, workspacePath, source) => handleCreateProject(name, description, workspacePath, source, false)}
+            onCreateProject={handleCreateProject}
           />
         )}
         {screen.name === 'evidence-browser' && (
@@ -396,7 +406,7 @@ function App() {
         {screen.name === 'settings' && <>
           {settingsLoading && <p role="status">Loading Model Provider settings…</p>}
           {settingsError && <div className="command-inline-alert" role="status"><span>{settingsError}</span><button type="button" className="btn-secondary" onClick={() => void loadData()}>Retry settings</button></div>}
-          <SettingsScreen settings={aiSettings} onRefresh={loadData} />
+          <SettingsScreen settings={aiSettings} onRefresh={loadData} initialSection={screen.section} />
         </>}
         {screen.name === 'help' && <HelpScreen onOpenSetupGuide={accountUserId ? () => { restartOnboarding(accountUserId); setScreen({ name: 'dashboard' }); } : undefined} />}
         {screen.name === 'review-playground' && (
@@ -416,7 +426,7 @@ function App() {
       {/* Global overlays render outside the shell; this box-less wrapper gives
           them the same light workspace primitives (buttons, dialogs). */}
       <div className="workspace-mode global-overlays">
-        <ReviewToast />
+        <ReviewToast onOpenReview={(projectId, sessionId, reviewName) => navigate({ name: 'review-activity', projectId, sessionId, reviewName })} />
         <UpdatePrompt />
         <GithubConnectionPrompt isOpen={githubConnectionPromptOpen} onClose={() => setGithubConnectionPromptOpen(false)} />
       </div>

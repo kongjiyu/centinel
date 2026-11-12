@@ -43,28 +43,33 @@ export async function queueGitHubProjectImport<TProject extends { id: string }>(
   createProject: (project: Omit<GitHubProjectImportInput, 'repoUrl'>) => Promise<TProject>;
   importer: GitHubProjectImporter;
 }): Promise<GitHubProjectImportHandoff<TProject>> {
-  const repoUrl = new URL(options.project.repoUrl);
-  const remoteId = repoUrl.pathname.replace(/^\//, '').replace(/\/$/, '').replace(/\.git$/i, '');
   const project = await options.createProject({
     name: options.project.name,
     description: options.project.description,
     workspacePath: options.project.workspacePath,
   });
-  const runKey = `project-bootstrap:${project.id}`;
-  const source = await options.importer.queueSource({
-    ownerId: options.ownerId,
-    projectId: project.id,
+  const handoff = await queueGitHubRepositoryImport(options.importer, options.ownerId, project.id, options.project.repoUrl,
+    `project-bootstrap:${project.id}`);
+  return { project, ...handoff };
+}
+
+export async function queueGitHubRepositoryImport(importer: GitHubProjectImporter, ownerId: string, projectId: string, url: string, idempotencyKey: string) {
+  const repoUrl = new URL(url);
+  const remoteId = repoUrl.pathname.replace(/^\//, '').replace(/\/$/, '').replace(/\.git$/i, '');
+  const source = await importer.queueSource({
+    ownerId,
+    projectId,
     provider: 'github',
     kind: 'github_repository',
     remoteId,
     remoteUrl: repoUrl.toString().replace(/\/$/, ''),
-    name: remoteId.split('/')[1] || options.project.name,
+    name: remoteId.split('/')[1] || remoteId,
   });
-  const run = await options.importer.queueSync({
-    ownerId: options.ownerId,
-    projectId: project.id,
+  const run = await importer.queueSync({
+    ownerId,
+    projectId,
     sourceId: source.id,
-    idempotencyKey: runKey,
+    idempotencyKey,
   });
-  return { project, source, run };
+  return { source, run };
 }

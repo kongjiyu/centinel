@@ -1,28 +1,66 @@
 import { harnessStepState, type HarnessEvent, type ReviewHarnessTrace } from './reviewHarness';
 import { normalizeReviewStages, parseReviewProgress, reviewLifecycleState, reviewObjective } from './reviewViewModel';
 import { reviewFailureMessage } from './utils/userFacingError';
+import { featureDisplayName } from './reviewFeatures';
+import { groupFindings } from './findingGroups';
 import type { EvidenceSufficiencyAssessment, Finding, ReviewDecisionRecord, ReviewTraceabilitySnapshot, StaticSession } from './types';
 
 export type ReviewAspect = 'Security' | 'Business rules' | 'Technical' | 'Human error';
-export type FindingLink = { id: string; label: string; aspect: ReviewAspect };
-export type NarrativeStage = { id: string; title: string; state: string; purpose: string; outcome: string; duration: string; findings: FindingLink[] };
+export type FindingLink = { id: string; label: string; aspect: ReviewAspect; filePath?: string; lineNumber?: number; memberIds?: string[] };
+export type NarrativeStage = { id: string; title: string; state: string; focus?: string; goal?: string; next: string; outcome: string; recap?: string; duration: string; findings: FindingLink[]; checks?: string[]; files?: string[]; features?: Array<{ id: string; summary: string; path?: string; line?: number }> };
 export type ReviewNarrative = {
   objectives: string[]; stages: NarrativeStage[]; unassignedFindings: FindingLink[];
   summary: { outcome: string; blockers: string[]; next: string };
   timing: { duration: string; endedAt: string | null };
   detailedHistoryAvailable: boolean;
-  retryUpdate: string | null;
+  reviewedSourceCount?: number;
   /** Queued or running: missing history means not started yet, not lost. */
   active?: boolean;
 };
 
-const STAGES = [
-  { id: 'freezing_sources', title: 'Check the documents', plan: 'I’ll start with the files and business requirements, so I know what this review can cover.', past: 'I started with the files and business requirements to establish what this review could cover.' },
-  { id: 'indexing_context', title: 'Understand the change', plan: 'Next, I’ll bring together the relevant parts of the files and the agreed rules.', past: 'I brought together the relevant parts of the files and the agreed rules before checking the implementation.' },
-  { id: 'deterministic_analysis', title: 'Check for common issues', plan: 'I’ll look for common security and code quality issues first.', past: 'I checked for common security and code quality issues first.' },
-  { id: 'model_analysis', title: 'Review the behaviour', plan: 'Then I’ll compare the implementation with the available requirements and look for behaviour that may need attention.', past: 'I compared the implementation with the available requirements and looked for behaviour that may need attention.' },
-  { id: 'persisting_evidence', title: 'Prepare the findings', plan: 'Finally, I’ll compare these findings with the project’s earlier issues, reuse confident matches, and check which old issues are resolved.', past: 'I checked the references and brought the findings together for your review.' },
+export const REVIEW_WORKFLOW_STAGES = [
+  { id: 'freezing_sources', title: 'Check the documents', focus: 'Selected file versions and confirmed requirements.', goal: 'Record what this Review can assess and where evidence is missing.' },
+  { id: 'indexing_context', title: 'Understand the change', focus: 'Relevant code, its dependencies, and the agreed rules.', goal: 'Gather the context needed to check the selected implementation.' },
+  { id: 'deterministic_analysis', title: 'Check for common issues', focus: 'Known security and code quality patterns.', goal: 'Record potential issues with supporting locations.' },
+  { id: 'model_analysis', title: 'Review the behaviour', focus: 'How the selected code behaves against the available requirements and rules.', goal: 'Identify behaviour gaps and record what remains unverified.' },
+  { id: 'persisting_evidence', title: 'Prepare the findings', focus: 'Finding references, coverage, and related earlier issues.', goal: 'Save the results and evidence for human review.' },
 ];
+
+const publicChecks: Record<string, { focus: string; result: string }> = {
+  select_sources: { focus: 'Select the files within the Review scope.', result: 'The source selection was recorded.' },
+  freeze_manifest: { focus: 'Freeze the selected inputs so evidence can be reopened later.', result: 'The source snapshot was saved.' },
+  read_source: { focus: 'Read the selected files from the saved source.', result: 'Source content was read.' },
+  load_grounding: { focus: 'Load confirmed requirements and coding rules for comparison.', result: 'The available rules and requirements were loaded.' },
+  index_sources: { focus: 'Prepare source search for the selected files.', result: 'Source search preparation finished.' },
+  retrieve_context: { focus: 'Gather relevant source and rules for the behaviour checks.', result: 'The context search finished.' },
+  run_rules: { focus: 'Check the code against built-in rules.', result: 'The rule checks finished.' },
+  map_feature_paths: { focus: 'Identify supported paths through the selected features.', result: 'The feature path map was prepared.' },
+  run_model: { focus: 'Assess a batch of selected behaviour or source files.', result: 'The batch returned an assessment for validation.' },
+  validate_response: { focus: 'Check the assessment against the expected format.', result: 'The response format check finished.' },
+  validate_source_evidence: { focus: 'Compare cited locations against the frozen source.', result: 'The source reference check finished.' },
+  challenge_support: { focus: 'Check whether the cited evidence supports a proposed finding.', result: 'The evidence support check finished.' },
+  save_findings: { focus: 'Save findings with their reviewed evidence.', result: 'The findings write finished.' },
+  correlate_findings: { focus: 'Compare current findings against earlier project observations.', result: 'The comparison finished.' },
+};
+
+function describeChecks(events: HarnessEvent[], steps: string[], terminal: boolean) {
+  return steps.flatMap(step => {
+    const description = publicChecks[step];
+    if (!description) return [];
+    const status = harnessStepState(events, step, terminal);
+    const result = status === 'Completed' ? description.result
+      : status === 'In progress' ? 'This check is in progress.' : 'This check did not complete.';
+    return [`${description.focus} ${result}`];
+  });
+}
+
+function stageNext(state: string, hasFindings: boolean, missingRequirements = false): string {
+  if (missingRequirements && state === 'Completed') return 'Confirm the relevant requirements before a follow-up Review.';
+  if (hasFindings) return 'Inspect the saved findings below.';
+  if (state === 'In progress' || state === 'Not started') return 'No action needed while the Review runs.';
+  if (state === 'Completed') return 'No action needed for this stage.';
+  return 'Check the Review status above for the next step.';
+}
 
 export function objectivePoints(value: string | null): string[] {
   if (!value?.trim()) return [];
@@ -104,7 +142,11 @@ function findingLink(finding: Finding): FindingLink {
   const label = finding.evidenceGap ? finding.title
     : /^\[cq-deep-nesting\]/.test(finding.title) ? 'Code is difficult to follow'
       : /^\[secrets-/.test(finding.title) ? 'Possible exposed credential' : plainReviewText(finding.title);
-  return { id: finding.id, label, aspect: reviewAspect(finding.category) };
+  return {
+    id: finding.id, label, aspect: reviewAspect(finding.category),
+    ...(finding.filePath ? { filePath: finding.filePath } : {}),
+    ...(typeof finding.lineNumber === 'number' && finding.lineNumber > 0 ? { lineNumber: finding.lineNumber } : {}),
+  };
 }
 export function buildReviewNarrative(input: {
   session: StaticSession; trace?: ReviewHarnessTrace | null; findings: Finding[];
@@ -118,22 +160,6 @@ export function buildReviewNarrative(input: {
   const active = state === 'Queued' || state === 'In progress';
   const now = input.now ?? Date.now();
   const events = trace?.events.filter(event => event.reviewId === session.id) ?? [];
-  // Show bounded operational facts only, never raw provider/service payloads.
-  const retry = [...events].filter(event => {
-    const detail = event.detail;
-    const cap = detail?.kind === 'ai' ? 5 : detail?.kind === 'external' ? 3 : 0;
-    return event.event === 'review_retry_scheduled' && timestamp(event.createdAt) != null
-      && Number.isInteger(detail?.attempt) && Number.isInteger(detail?.maxAttempts)
-      && Number(detail?.attempt) >= 2 && Number(detail?.attempt) <= Number(detail?.maxAttempts)
-      && Number(detail?.maxAttempts) <= cap && typeof detail?.delayMs === 'number'
-      && Number.isFinite(detail.delayMs) && detail.delayMs >= 0;
-  }).sort((a, b) => timestamp(a.createdAt)! - timestamp(b.createdAt)!).at(-1);
-  const retryDetail = retry?.detail;
-  const retryWaitUntil = timestamp(retryDetail?.nextAttemptAt);
-  const retryLabel = retryDetail?.kind === 'ai' ? 'AI request' : 'Service request';
-  const retryUpdate = retryDetail ? active && retryWaitUntil != null && retryWaitUntil > now
-    ? `${retryLabel}: waiting to retry attempt ${retryDetail.attempt} of ${retryDetail.maxAttempts} in ${formatReviewDuration(retryWaitUntil - now)}.`
-    : `${retryLabel}: retry attempt ${retryDetail.attempt} of ${retryDetail.maxAttempts} was scheduled after a ${formatReviewDuration(Number(retryDetail.delayMs))} wait.` : null;
   const detailedHistoryAvailable = events.some(event => event.event.startsWith('harness_step_'));
   const progress = parseReviewProgress(session.progressJson);
   const grounding = events.find(event => event.event === 'harness_step_completed' && event.detail?.step === 'load_grounding');
@@ -158,45 +184,106 @@ export function buildReviewNarrative(input: {
     if (finding.verifier === 'model') return 'model_analysis';
     return null;
   };
-  const stages: NarrativeStage[] = detailedHistoryAvailable ? STAGES.map(stage => {
+  const groupedFindings = groupFindings(findings).map(group => {
+    const finding = group.representative;
+    const link = findingLink(finding);
+    return {
+      stage: stageOf(finding),
+      link: {
+        ...link,
+        label: group.title === finding.title ? link.label : group.title,
+        ...(group.members.length > 1 ? { memberIds: group.members.map(member => member.id) } : {}),
+      },
+    };
+  });
+  const stages: NarrativeStage[] = detailedHistoryAvailable ? REVIEW_WORKFLOW_STAGES.map(stage => {
     const related = events.filter(event => event.stage === stage.id);
     const steps = unique(related.map(event => text(event.detail?.step)));
     const outcomes = steps.map(step => harnessStepState(related, step, !active));
     let status = outcomes.includes('Failed') ? 'Failed' : outcomes.includes('Cancelled') ? 'Cancelled'
       : outcomes.includes('Interrupted') ? 'Interrupted' : outcomes.includes('In progress') ? 'In progress'
         : outcomes.length ? 'Completed' : findings.some(finding => stageOf(finding) === stage.id) ? 'Not recorded' : active ? 'Not started' : 'Not reached';
+    if (active && status === 'Completed' && progress?.stage === stage.id && !progress.completedStages?.includes(stage.id)) status = 'In progress';
     if (active && stage.id === 'freezing_sources' && status === 'Completed' && !related.some(event => event.event === 'harness_step_completed' && event.detail?.step === 'save_assessment')) status = 'In progress';
     if (stage.id === 'model_analysis' && incompleteModel && status === 'Completed') status = 'Incomplete';
     const completed = status === 'Completed';
-    let outcome = completed ? '' : status === 'In progress' ? 'I’m working through this part now.'
+    let outcome = completed || status === 'In progress' || status === 'Not started' ? ''
       : status === 'Not recorded' ? 'Saved findings are available, but the checks for this part were not recorded.'
-        : status === 'Not started' ? 'This part is waiting for the earlier checks.' : status === 'Not reached' ? 'The review ended before this part was reached.'
+        : status === 'Not reached' ? 'The review ended before this part was reached.'
         : 'I couldn’t finish this part. The review needs attention before continuing.';
     if (stage.id === 'freezing_sources') {
       const reads = new Map<string, HarnessEvent>();
       for (const event of related.filter(event => event.event === 'harness_step_completed' && event.detail?.step === 'read_source')) reads.set(text(event.detail?.executionId) || event.createdAt, event);
       if (completed && reads.size) outcome = `I could read ${reads.size} selected file${reads.size === 1 ? '' : 's'}.`;
-      if (requirementCount === 0) outcome += ' I couldn’t confirm the business requirements, so that part of the review is limited.';
+      if (completed && requirementCount === 0) outcome = `${outcome} I couldn’t confirm the business requirements, so that part of the review is limited.`.trim();
     }
-    if (active && stage.id === 'freezing_sources' && status === 'Completed' && !related.some(event => event.event === 'harness_step_completed' && event.detail?.step === 'save_assessment')) status = 'In progress';
     if (stage.id === 'model_analysis' && incompleteModel) outcome = 'The behaviour review is incomplete. The earlier checks are still available, but they don’t replace this part.';
+    const batchStarts = related.filter(event => event.event === 'harness_step_started' && event.detail?.step === 'run_model');
+    const submittedFeatureIds = new Set(batchStarts.flatMap(event => {
+      const input = event.detail?.input as { featureIds?: unknown } | undefined;
+      return Array.isArray(input?.featureIds) ? input.featureIds.filter(id => typeof id === 'string') : [];
+    }));
+    const features = stage.id === 'model_analysis' && trace?.review.id === session.id
+      ? (trace.analysisMap?.features ?? []).flatMap(feature => {
+        const assessed = feature.assessments.filter(item => item.status === 'assessed');
+        const location = feature.entryPoints[0];
+        const name = featureDisplayName(feature.label);
+        if (!assessed.length) {
+          if (!submittedFeatureIds.has(feature.id)) return [];
+          const paths = feature.paths.map(path => ({
+            id: path.id, path: path.evidence[0]?.filePath, line: path.evidence[0]?.lineNumber,
+            summary: `The behaviour check for ${name} includes “${path.label}”. Its assessment is pending validation.`,
+          }));
+          return paths.length ? paths : [{ id: feature.id, path: location?.filePath, line: location?.lineNumber,
+            summary: `The behaviour check for ${name} has started. Its assessment is pending validation.` }];
+        }
+        return assessed.map(assessment => ({
+          id: `${feature.id}:${assessment.domain}`, path: location?.filePath, line: location?.lineNumber,
+          summary: `${name} · ${reviewAspect(assessment.domain)}. ${plainReviewText(assessment.summary)}`,
+        }));
+      }) : [];
+    if (completed && features.length && !outcome) outcome = `Recorded ${features.length} domain assessments across the selected features. The results and their supporting evidence went to the findings stage.`;
     if (stage.id === 'persisting_evidence' && completed) outcome = comparisonSummary || 'The findings are ready for you to inspect in Findings.';
-    return { id: stage.id, title: stage.title, state: status, purpose: completed ? stage.past : ['In progress', 'Not started'].includes(status) ? stage.plan : '', outcome,
-      duration: formatReviewDuration(executionTiming(related, status === 'In progress', now).ms), findings: findings.filter(finding => stageOf(finding) === stage.id).map(findingLink) };
-  }) : normalizeReviewStages(progress).filter(stage => stage.id !== 'legacy').map(stage => ({
-    id: stage.id, title: stage.label, state: stage.status === 'done' ? 'Completed' : stage.status === 'active' ? 'In progress' : stage.status === 'failed' ? 'Failed' : 'Not started',
-    purpose: '', outcome: stage.summary ? plainReviewText(stage.summary) : 'The saved review has no further explanation for this part.', duration: 'Not recorded', findings: [],
-  }));
+    const stageFindings = groupedFindings.filter(finding => finding.stage === stage.id).map(finding => finding.link);
+    const files = stage.id === 'freezing_sources' ? unique(related.filter(event => event.detail?.step === 'read_source')
+      .map(event => {
+        const input = event.detail?.input as { filePath?: unknown; fileName?: unknown } | undefined;
+        return text(input?.filePath) || text(input?.fileName);
+      })) : [];
+    const completedRecap: Record<string, string> = {
+      freezing_sources: 'The source check established which files and requirements could support the Review.',
+      indexing_context: 'Using the selected sources, the Review gathered the code and rules needed for the checks that followed.',
+      deterministic_analysis: `The built-in checks recorded ${stageFindings.length} potential issue${stageFindings.length === 1 ? '' : 's'}. The behaviour review then examined the selected code paths.`,
+      model_analysis: 'The behaviour review assessed the selected paths against the available requirements and rules.',
+      persisting_evidence: 'The final stage gathered the recorded evidence and prepared the findings for review.',
+    };
+    const next = stageNext(status, stageFindings.length > 0, stage.id === 'freezing_sources' && requirementCount === 0);
+    const recap = completed ? [completedRecap[stage.id], outcome, stageFindings.length > 0 || (stage.id === 'freezing_sources' && requirementCount === 0) ? next : ''].filter(Boolean).join(' ') : outcome || next;
+    return { ...stage, state: status, outcome, recap, next,
+      checks: describeChecks(related, steps, !active), files, features,
+      duration: formatReviewDuration(executionTiming(related, status === 'In progress', now).ms), findings: stageFindings };
+  }) : REVIEW_WORKFLOW_STAGES.some(stage => stage.id === progress?.stage || progress?.completedStages?.includes(stage.id))
+    ? REVIEW_WORKFLOW_STAGES.map(stage => {
+      const state = progress?.completedStages?.includes(stage.id) ? 'Completed'
+        : active ? stage.id === progress?.stage ? 'In progress' : 'Not started' : 'Not recorded';
+      return { ...stage, state, next: stageNext(state, false, stage.id === 'freezing_sources' && requirementCount === 0), outcome: '', duration: 'Not recorded', findings: [] };
+    })
+    : normalizeReviewStages(progress).filter(stage => stage.id !== 'legacy').map(stage => {
+      const state = stage.status === 'done' ? 'Completed' : stage.status === 'active' ? 'In progress' : stage.status === 'failed' ? 'Failed' : 'Not started';
+      return {
+        id: stage.id, title: stage.label, state, next: stageNext(state, false),
+        outcome: stage.summary ? plainReviewText(stage.summary) : 'The saved review has no further explanation for this part.', duration: 'Not recorded', findings: [],
+      };
+    });
 
   const blockers: string[] = [];
   if (session.failureReason) blockers.push(reviewFailureMessage(session.failureReason));
   if (incompleteModel) blockers.push('The behaviour review could not be completed.');
   const analysis = trace?.analysisMap;
-  if (analysis && analysis.status !== 'assessed') blockers.push('Some feature checks across security, business rules, technical behaviour, and human error are unverified. Open Activity to see the coverage.');
+  if (analysis && analysis.status !== 'assessed') blockers.push('Some checks across security, business rules, technical behaviour, and human error are unverified.');
   if (analysis && (analysis.coverage.unsupportedArtifacts.length || analysis.coverage.unresolvedEdgeCount)) blockers.push('Some source formats or runtime paths are outside the recorded code map. Verify the relevant flows before relying on full coverage.');
   if (findingsError) blockers.push('I couldn’t load the findings. Reopen this review before making a decision.');
   if (assessment) blockers.push(...assessment.gaps.map(gap => plainReviewText(`${gap.title}. ${gap.remediation}`)));
-  if (requirementCount === 0) blockers.push(findings.some(finding => finding.evidenceGap) ? 'The business requirements need confirmation. This is listed in Findings.' : 'The business requirements need confirmation before their behaviour can be checked.');
   if (!detailedHistoryAvailable) blockers.push('The detailed activity history is unavailable, so I can’t confirm every check that ran.');
   const open = findings.filter(finding => !['dismissed', 'fixed'].includes(finding.status)).length;
   const totals = findingsError ? 'The finding count is unavailable.' : input.findingsLoading ? 'The findings are still loading.' : `There ${findings.length === 1 ? 'is' : 'are'} ${findings.length} finding${findings.length === 1 ? '' : 's'} for this review; ${open} still need${open === 1 ? 's' : ''} attention.`;
@@ -211,14 +298,16 @@ export function buildReviewNarrative(input: {
       : state === 'Cancelled' ? 'Check what you want reviewed, then retry when you’re ready.'
         : state === 'Completed' ? 'Follow up on any open findings. Approving a review does not fix them.'
           : decision?.decision === 'changes_requested' ? 'Address the requested changes, then start the revised review.'
-            : 'Open the findings, check the concerns and document gaps, then approve the review or request changes.';
+            : 'Check the findings and document gaps before deciding whether to approve the Review.';
   const timing = executionTiming(events, active && state !== 'Queued', now);
   const legacyStart = timestamp(progress?.startedAt);
   const legacyEnd = active ? now : timestamp(progress?.updatedAt);
   const durationMs = timing.ms ?? (legacyStart != null && legacyEnd != null && legacyEnd >= legacyStart ? legacyEnd - legacyStart : null);
   return {
-    objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable, retryUpdate, active,
-    unassignedFindings: findings.filter(finding => !detailedHistoryAvailable || !stageOf(finding)).map(findingLink),
+    objectives: objectivePoints(reviewObjective(session)).map(plainReviewText), stages, detailedHistoryAvailable, active,
+    reviewedSourceCount: detailedHistoryAvailable ? new Set(events.filter(event => event.event === 'harness_step_completed' && event.detail?.step === 'read_source')
+      .map(event => text((event.detail?.input as { artifactId?: unknown } | undefined)?.artifactId) || text(event.detail?.executionId) || event.createdAt)).size : undefined,
+    unassignedFindings: groupedFindings.filter(finding => !detailedHistoryAvailable || !finding.stage).map(finding => finding.link),
     timing: { duration: formatReviewDuration(durationMs), endedAt: active ? null : timing.end ?? (legacyStart != null ? progress?.updatedAt ?? null : null) },
     summary: { outcome: comparisonSummary ? `${outcome} ${comparisonSummary}` : outcome, blockers: unique(blockers), next },
   };

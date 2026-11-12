@@ -13,11 +13,14 @@ import { centinelHome } from '../paths.js';
 type ObjectValue = Record<string, any>;
 export type ExternalChatgptTokens = { accessToken: string; chatgptAccountId: string; chatgptPlanType?: string | null };
 export type CodexStatus = { available: boolean; connected: boolean; accountLabel: string | null; message: string };
+type QuotaWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
+export type CodexSubscriptionUsage = { fiveHour: QuotaWindow | null; weekly: QuotaWindow | null };
 export type CodexModel = { id: string; label: string; supportsImages: boolean; isDefault: boolean; imageSupportKnown?: boolean; catalogSource?: 'account' | 'codex'; catalogWarning?: 'account_catalog_unavailable' };
 export type CodexGeneration = { text: string; usage?: TokenUsage; model: string };
 export type CodexRequest = { model: string; prompt: string; systemPrompt: string; imagePaths?: string[]; signal?: AbortSignal; outputSchema?: Record<string, unknown> };
 export interface CodexBackend {
   status(): Promise<CodexStatus>;
+  subscriptionUsage?(): Promise<CodexSubscriptionUsage>;
   login(): Promise<{ loginId: string; authUrl: string }>;
   cancelLogin(loginId: string): Promise<void>;
   logout(): Promise<void>;
@@ -29,15 +32,19 @@ export interface CodexBackend {
 /**
  * Which Codex CLI to start, in order: the official binary bundled with the
  * desktop app (path set by the Tauri shell), an explicit CENTINEL_CODEX_BIN
- * override, then `codex` on PATH. A bundled path that no longer exists is
- * skipped so a damaged install still falls back to a user-installed CLI.
+ * override, then the executable on PATH. Skip stale paths so an uninstall or
+ * upgrade of a local CLI does not block discovery of another installation.
  */
-export function resolveCodexBinary(env: NodeJS.ProcessEnv = process.env, exists: (file: string) => boolean = fs.existsSync): string {
+export function resolveCodexBinary(
+  env: NodeJS.ProcessEnv = process.env,
+  isFile: (file: string) => boolean = file => fs.statSync(file, { throwIfNoEntry: false })?.isFile() ?? false,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const bundled = env.CENTINEL_BUNDLED_CODEX_BIN?.trim();
-  if (bundled && exists(bundled)) return bundled;
+  if (bundled && isFile(bundled)) return bundled;
   const configured = env.CENTINEL_CODEX_BIN?.trim();
-  if (configured) return configured;
-  return 'codex';
+  if (configured && isFile(configured)) return configured;
+  return platform === 'win32' ? 'codex.exe' : 'codex';
 }
 
 export const CODEX_ARGS = ['app-server', '--listen', 'stdio://', '--disable', 'shell_tool', '--disable', 'unified_exec', '-c', 'web_search="disabled"', '-c', 'tools.view_image=false', '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"'];
@@ -183,7 +190,7 @@ export class CodexAppServer implements CodexBackend {
     for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TMP', 'TEMP']) {
       if (process.env[key]) env[key] = process.env[key];
     }
-    const child = this.launch(resolveCodexBinary(), CODEX_ARGS, { cwd: this.workspace, env, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;
+    const child = this.launch(resolveCodexBinary(), CODEX_ARGS, { cwd: this.workspace, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as ChildProcessWithoutNullStreams;
     this.child = child;
     this.buffer = '';
     child.stdout.setEncoding('utf8');
@@ -363,7 +370,7 @@ export class CodexAppServer implements CodexBackend {
       const model = (await this.models()).find(item => item.id === request.model);
       if (request.signal?.aborted) throw abortError();
       if (!model) throw failure('The selected Codex model is unavailable. Refresh models in Settings.', 'codex_model_unavailable');
-      if (request.imagePaths?.length && !model.supportsImages) throw failure(model.imageSupportKnown===false
+      if (request.imagePaths?.length && (!model.supportsImages || model.imageSupportKnown === false)) throw failure(model.imageSupportKnown===false
         ? 'Screenshot support has not been confirmed for this Codex model.' : 'This Codex model does not support screenshots.', 'codex_vision_unsupported');
       const thread = await this.rpc('thread/start', { model: request.model, cwd: this.workspace, sandbox: 'read-only', approvalPolicy: 'never', ephemeral: true,
         baseInstructions: 'You are a model provider for Centinel. Analyze only the supplied content. Never use tools, read files, run commands, or change data. Return only the requested JSON.',
@@ -436,10 +443,12 @@ export class CodexAppServer implements CodexBackend {
 
   /** Read-only capacity diagnostics; never infer account exhaustion from a 429.
    * Omit auth, account IDs and opaque reset-credit details from this response. */
-  async capacity() {
+  async capacity(codexOnly = false) {
     await this.ready();
     const result = await this.rpc('account/rateLimits/read', {});
-    const rows = result?.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object'
+    const rows = codexOnly
+      ? [result?.rateLimitsByLimitId?.codex ?? (result?.rateLimits?.limitId === 'codex' || result?.rateLimits?.limitId == null ? result?.rateLimits : null)]
+      : result?.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object'
       ? Object.values(result.rateLimitsByLimitId) : result?.rateLimits ? [result.rateLimits] : [];
     const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
     const window = (value: any) => value && finite(value.usedPercent) !== null
@@ -449,6 +458,14 @@ export class CodexAppServer implements CodexBackend {
       hasCredits: typeof row.credits?.hasCredits === 'boolean' ? row.credits.hasCredits : null,
       limitReached: typeof row.rateLimitReachedType === 'string' ? true : row.rateLimitReachedType === null ? false : null,
     }));
+  }
+
+  async subscriptionUsage(): Promise<CodexSubscriptionUsage> {
+    const [bucket] = await this.capacity(true);
+    const windows = [bucket?.primary, bucket?.secondary];
+    const match = (minutes: number) => windows.find(window =>
+      window?.windowDurationMins === minutes && window.usedPercent >= 0 && window.usedPercent <= 100) ?? null;
+    return { fiveHour: match(300), weekly: match(10080) };
   }
 
   close(error: Error = failure('Codex connection ended. Reconnect and try again.')) {

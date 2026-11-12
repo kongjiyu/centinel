@@ -1,5 +1,7 @@
 import fs from 'fs';
 import type { AiProvider, AiApiFormat } from './settings.js';
+import { CONNECTION_TEST_IMAGE } from './model/codexTest.js';
+import { GEMINI_OAUTH_BASE_URL, geminiOAuthHeaders, isGeminiOAuthModelId } from './model/geminiOAuth.js';
 
 type TestResult = {
   status: string;
@@ -12,6 +14,8 @@ type TestResult = {
 };
 
 type SettingLike = {
+  ownerId?: string;
+  geminiOAuthProject?: string;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -318,6 +322,17 @@ export function buildRequestUrl(setting: SettingLike): string {
   return setting.baseUrl;
 }
 
+export async function modelRequestTarget(setting: SettingLike, signal?: AbortSignal) {
+  if (!setting.geminiOAuthProject) return { url: buildRequestUrl(setting), headers: getAuthHeaders(setting) };
+  if (setting.provider !== 'gemini' || setting.apiFormat !== 'google-native' || !isGeminiOAuthModelId(setting.model)) {
+    throw new Error('Invalid Gemini OAuth model configuration.');
+  }
+  return {
+    url: `${GEMINI_OAUTH_BASE_URL}/${setting.model}:generateContent`,
+    headers: await geminiOAuthHeaders(setting.ownerId, setting.geminiOAuthProject, signal),
+  };
+}
+
 export async function testTextProvider(setting: SettingLike): Promise<TestResult> {
   const prompt = 'Reply with exactly this JSON: {"status":"ok"}';
 
@@ -354,22 +369,24 @@ export async function testTextProvider(setting: SettingLike): Promise<TestResult
   return doFetch(fetchUrl, headers, body, { apiFormat: setting.apiFormat });
 }
 
-export async function testVisionProvider(setting: SettingLike, imagePath?: string): Promise<TestResult> {
-  let base64 = '';
-  if (imagePath && fs.existsSync(imagePath)) {
+export async function testVisionProvider(setting: SettingLike, imagePath?: string, synthetic = false): Promise<TestResult> {
+  let base64 = synthetic ? CONNECTION_TEST_IMAGE : '';
+  if (!synthetic && imagePath && fs.existsSync(imagePath)) {
     const buf = fs.readFileSync(imagePath);
     base64 = buf.toString('base64');
   }
 
-  const prompt = 'Describe this image briefly. Return JSON: {"status":"ok","description":"..."}';
+  const prompt = synthetic ? 'Reply with only the lowercase name of the dominant color in this image.'
+    : 'Describe this image briefly. Return JSON: {"status":"ok","description":"..."}';
 
   let body: string;
   let headers: Record<string, string>;
-  const fetchUrl = buildRequestUrl(setting);
+  const target = await modelRequestTarget(setting);
+  const fetchUrl = target.url;
 
   if (setting.apiFormat === 'google-native') {
     // Google Gemini API format
-    headers = { 'Content-Type': 'application/json' };
+    headers = setting.geminiOAuthProject ? target.headers : { 'Content-Type': 'application/json' };
     const parts: unknown[] = [];
     if (base64) {
       parts.push({ inlineData: { mimeType: 'image/png', data: base64 } });
@@ -414,13 +431,21 @@ export async function testVisionProvider(setting: SettingLike, imagePath?: strin
     });
   }
 
-  return doFetch(fetchUrl, headers, body, { apiFormat: setting.apiFormat });
+  const result = await doFetch(fetchUrl, headers, body, { apiFormat: setting.apiFormat, preventRedirect: Boolean(setting.geminiOAuthProject) });
+  if (!synthetic || result.status !== 'pass') return result;
+  const response: unknown = JSON.parse(result.raw ?? '{}');
+  const parseTurn = setting.apiFormat === 'google-native' ? parseGoogleToolTurn
+    : setting.apiFormat === 'anthropic-compatible' ? parseAnthropicToolTurn : parseOpenAIToolTurn;
+  const answer = parseTurn(response).content;
+  return answer && /^red\.?$/i.test(answer.trim())
+    ? { ...result, message: 'Image connection test passed.' }
+    : { ...result, status: 'fail', message: 'The model did not recognize the connection test image.' };
 }
 
-async function doFetch(url: string, headers: Record<string, string>, body: string, ctx: { apiFormat: AiApiFormat }): Promise<TestResult> {
+async function doFetch(url: string, headers: Record<string, string>, body: string, ctx: { apiFormat: AiApiFormat; preventRedirect?: boolean }): Promise<TestResult> {
   let responseReceived = false;
   try {
-    const res = await fetch(url, { method: 'POST', headers, body });
+    const res = await fetch(url, { method: 'POST', headers, body, ...(ctx.preventRedirect ? { redirect: 'error' as const } : {}) });
     responseReceived = true;
     if (!res.ok) {
       const text = await res.text();

@@ -1,7 +1,7 @@
 import { CheckCircle2, ChevronDown, Circle, Loader } from 'lucide-react';
 import type { ActiveReviewSnapshot } from '../context/ActiveReviewContext';
 import { api } from '../api/client';
-import { REVIEW_TOAST_STAGES, reviewToastStageLabel, reviewToastStageStatus } from './reviewToastStages';
+import { reviewToastStages, reviewToastStageStatus } from './reviewToastStages';
 
 export function ReviewToastExpanded({ snapshot, onCancel }: {
   snapshot: ActiveReviewSnapshot;
@@ -20,15 +20,14 @@ export function ReviewToastExpanded({ snapshot, onCancel }: {
         <ChevronDown size={16} className="review-toast-chevron" aria-hidden="true" />
       </button>
       <ol className="review-toast-stages">
-        {REVIEW_TOAST_STAGES.map(stageId => {
-          const stage = snapshot.progress.stages.find(s => s.id === stageId);
-          const status = stage?.status ?? 'pending';
+        {reviewToastStages(snapshot.progress).map(stage => {
+          const { id, label, status } = stage;
           const Icon = status === 'done' ? CheckCircle2 : status === 'active' ? Loader : Circle;
           return (
-            <li key={stageId} className={`review-toast-stage stage-${status}`}>
+            <li key={id} className={`review-toast-stage stage-${status}`}>
               <div className="review-toast-stage-header">
                 <Icon size={16} className={status === 'active' ? 'review-toast-spin' : undefined} aria-hidden="true" />
-                <span className="review-toast-stage-label">{reviewToastStageLabel(stageId)}</span>
+                <span className="review-toast-stage-label">{label}</span>
                 <span className="review-toast-stage-status">{reviewToastStageStatus(status)}</span>
               </div>
               {stage && stage.thoughts.length > 0 && (

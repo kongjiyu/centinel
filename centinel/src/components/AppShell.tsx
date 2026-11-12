@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CircleHelp, CircleUserRound, FileCheck2, FlaskConical, FolderOpen, GitBranch, House, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Repeat2, Settings } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleHelp, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Repeat2, Settings } from 'lucide-react';
 import type { Project, Screen } from '../types';
-import { Modal } from './Modal';
-import { Select } from './Select';
 import { PageBreadcrumbs } from './PageBreadcrumbs';
 import { WindowHeader } from './WindowHeader';
 import { usePinnedProjects } from '../hooks/usePinnedProjects';
-
-type ModuleAction = 'static' | 'dynamic';
 
 type Props = {
   screen: Screen;
@@ -47,8 +43,6 @@ function accountUsername(githubLogin: string | null, accountEmail: string | null
 
 export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, authProvider = null, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
-  const [pendingModuleAction, setPendingModuleAction] = useState<ModuleAction | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(readPinsExpanded);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -67,12 +61,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         : authProvider === 'github' ? 'GitHub account' : 'Account';
 
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
-  useEffect(() => {
-    if (pendingModuleAction && !projects.some(project => project.id === selectedProjectId)) {
-      setSelectedProjectId(projects[0]?.id ?? '');
-    }
-  }, [pendingModuleAction, projects, selectedProjectId]);
-
   useEffect(() => {
     try {
       window.localStorage.setItem(PINS_EXPANDED_STORAGE_KEY, String(pinsExpanded));
@@ -124,40 +112,9 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
     };
   }, [accountMenuOpen]);
 
-  const openModule = (initialAction: 'static' | 'dynamic') => {
-    const contextualProject = 'projectId' in screen
-      ? projects.find(project => project.id === screen.projectId)
-      : undefined;
-    if (initialAction === 'static') {
-      onNavigate(contextualProject
-        ? { name: 'review-entry', projectId: contextualProject.id }
-        : { name: 'review-entry' });
-      return;
-    }
-    if (contextualProject) {
-      onNavigate({ name: 'project-detail', projectId: contextualProject.id, initialAction });
-      return;
-    }
-    if (projects.length === 0) {
-      nav('projects');
-      return;
-    }
-    setSelectedProjectId(projects[0].id);
-    setPendingModuleAction(initialAction);
-  };
-
-  const handleProjectSelectionContinue = () => {
-    if (!pendingModuleAction) return;
-    const selectedProject = projects.find(project => project.id === selectedProjectId);
-    if (!selectedProject) return;
-    const initialAction = pendingModuleAction;
-    setPendingModuleAction(null);
-    onNavigate({ name: 'project-detail', projectId: selectedProject.id, initialAction });
-  };
-
-  const staticActive = screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-entry' || screen.name === 'reviews' ||
+  const staticActive = screen.name === 'review-directory' || screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-finding' || screen.name === 'review-entry' || screen.name === 'reviews' ||
     (screen.name === 'project-detail' && screen.initialAction === 'static');
-  const dynamicActive = screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' ||
+  const dynamicActive = screen.name === 'dynamic-directory' || screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' ||
     (screen.name === 'project-detail' && screen.initialAction === 'dynamic');
   const projectsActive = screen.name === 'projects' || screen.name === 'evidence-browser' ||
     (screen.name === 'project-detail' && !screen.initialAction);
@@ -216,7 +173,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <button
                 className={`nav-item ${staticActive ? 'active' : ''}`}
                 aria-current={staticActive ? 'page' : undefined}
-                onClick={() => openModule('static')}
+                onClick={() => nav('review-directory')}
                 aria-label="Review"
                 title="Review"
               >
@@ -226,7 +183,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <button
                 className={`nav-item ${dynamicActive ? 'active' : ''}`}
                 aria-current={dynamicActive ? 'page' : undefined}
-                onClick={() => openModule('dynamic')}
+                onClick={() => nav('dynamic-directory')}
                 aria-label="Dynamic Testing"
                 title="Dynamic Testing"
               >
@@ -234,10 +191,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 <span>Dynamic Testing</span>
               </button>
               {/* Developer harness: hidden from the product navigation outside development builds (DESIGN.md navigation). */}
-              {import.meta.env.DEV && <button className={`nav-item ${isActive(['review-playground']) ? 'active' : ''}`} aria-current={isActive(['review-playground']) ? 'page' : undefined} onClick={() => onNavigate({ name: 'review-playground', ...('projectId' in screen ? { projectId: screen.projectId } : {}) })} aria-label="Playground" title="Playground">
-                <FlaskConical size={18} aria-hidden="true" />
-                <span>Playground</span>
-              </button>}
             </div>
 
             <div className="sidebar-nav-group">
@@ -350,45 +303,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         </section>
       </div>
 
-      {pendingModuleAction !== null && (
-        <div className="workspace-project-launch">
-          <Modal
-            isOpen
-            onClose={() => setPendingModuleAction(null)}
-            title={pendingModuleAction === 'dynamic' ? 'Start Dynamic Testing' : 'Start a review'}
-            descriptionId="project-selection-description"
-            width={560}
-          >
-            <p className="modal-intro" id="project-selection-description">
-              Choose a project before the setup form opens. Your selection will determine where this work is saved.
-            </p>
-            <div className="form-field">
-              <label htmlFor="project-selection">Project</label>
-              <Select
-                id="project-selection"
-                data-autofocus
-                value={selectedProjectId}
-                onChange={setSelectedProjectId}
-                options={projects.map(project => ({ value: project.id, label: project.name }))}
-                aria-label="Project"
-              />
-            </div>
-            {projects.find(project => project.id === selectedProjectId) && (
-              <div className="project-selection-summary">
-                <strong>{projects.find(project => project.id === selectedProjectId)?.name}</strong>
-                {projects.find(project => project.id === selectedProjectId)?.description && (
-                  <p>{projects.find(project => project.id === selectedProjectId)?.description}</p>
-                )}
-                <span>{projects.find(project => project.id === selectedProjectId)?.workspacePath}</span>
-              </div>
-            )}
-            <div className="form-actions">
-              <button type="button" className="btn-secondary" onClick={() => setPendingModuleAction(null)}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={handleProjectSelectionContinue} disabled={!selectedProjectId}>Continue</button>
-            </div>
-          </Modal>
-        </div>
-      )}
     </div>
   );
 }

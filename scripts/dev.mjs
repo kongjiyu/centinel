@@ -17,10 +17,26 @@ async function belongsToWorkspace(port) {
   if (process.platform !== 'win32') return true;
   try {
     // Read-only ownership check: never stop an existing listener, including a
-    // healthy Centinel from another checkout. Ports come from the fixed list.
-    const command = `$owners = Get-NetTCPConnection -LocalPort ${Number(port)} -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess -Unique; foreach ($owner in $owners) { (Get-CimInstance Win32_Process -Filter "ProcessId = $owner").CommandLine }`;
+    // healthy Centinel from another checkout. Some Windows installations report
+    // a listening socket's state as 0. After the HTTP probe succeeds, include
+    // those rows if they have no remote endpoint and can serve localhost.
+    const command = `
+      $ErrorActionPreference = 'Stop'
+      $owners = Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetTCPConnection -Filter 'LocalPort = ${Number(port)} AND RemotePort = 0' |
+        Where-Object { $_.LocalAddress -in '127.0.0.1', '::1', '0.0.0.0', '::' -and
+          $_.RemoteAddress -in '0.0.0.0', '::' -and [int]$_.State -in 0, 2 } |
+        Select-Object -ExpandProperty OwningProcess -Unique
+      $commandLines = @(foreach ($owner in $owners) {
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $owner"
+        if (-not $process.CommandLine) { throw 'Could not identify the listener process.' }
+        $process.CommandLine
+      })
+      ConvertTo-Json -InputObject $commandLines -Compress
+    `;
     const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 10000, windowsHide: true });
-    return stdout.toLowerCase().includes(`${root.toLowerCase()}${path.sep}`);
+    const commandLines = JSON.parse(stdout);
+    const workspacePath = `${root.toLowerCase()}${path.sep}`;
+    return commandLines.length > 0 && commandLines.every(line => line.toLowerCase().includes(workspacePath));
   } catch { return false; }
 }
 
@@ -53,10 +69,12 @@ export function resolveAppAction(frontendState, desktopRunning) {
 }
 
 export function getServiceArgs(service, reuseFrontend = false) {
-  if (service.name !== 'app' || !reuseFrontend) return service.args;
-  // The Tauri CLI normally starts beforeDevCommand (Vite). If Vite is already
-  // running, reuse it and launch only the native shell.
-  return [...service.args, '--config', JSON.stringify({ build: { beforeDevCommand: null } })];
+  if (service.name !== 'app') return service.args;
+  // Development uses the running sidecar. Only packaged builds need generated
+  // binaries and resources. Skip Vite startup when it is already running.
+  const config = { tauri: { bundle: { externalBin: [], resources: [] } } };
+  if (reuseFrontend) config.build = { beforeDevCommand: null };
+  return [...service.args, '--config', JSON.stringify(config)];
 }
 
 export async function probeService(service) {

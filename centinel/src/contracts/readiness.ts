@@ -146,6 +146,7 @@ export type ReadinessStatus = {
   completedAt: string | null;
   error: string | null;
   errorCode?: ReadinessFailureCode | null;
+  assessmentHeld?: boolean;
   snapshot: ReadinessAssessment | null;
   stale: boolean;
 };

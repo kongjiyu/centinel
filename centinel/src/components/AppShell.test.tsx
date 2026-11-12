@@ -52,6 +52,16 @@ describe('AppShell module launch', () => {
     expect(within(nav).getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current');
   });
 
+  it('keeps workspace navigation and a Findings breadcrumb on standalone finding pages', async () => {
+    const navigate = vi.fn();
+    renderShell({ name: 'review-finding', projectId: 'project-1', sessionId: 'review-1', findingId: 'finding-1' }, navigate);
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+    expect(within(nav).getByRole('button', { name: 'Review' })).toHaveAttribute('aria-current', 'page');
+    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    await userEvent.click(within(breadcrumb).getByRole('link', { name: 'Findings' }));
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ name: 'review-activity', sessionId: 'review-1', initialTab: 'Findings' }));
+  });
+
   it('uses operating-system window chrome inside Tauri', () => {
     Object.defineProperty(window, '__TAURI_IPC__', {
       configurable: true,
@@ -72,7 +82,7 @@ describe('AppShell module launch', () => {
     expect(screen.getByRole('button', { name: 'Minimize window' })).toBeInTheDocument();
   });
 
-  it('opens the dedicated Review entry flow from global navigation', async () => {
+  it('opens the workspace Review directory', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
@@ -80,7 +90,7 @@ describe('AppShell module launch', () => {
     const reviewButton = screen.getByRole('button', { name: 'Review' });
     await user.click(reviewButton);
 
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-entry' });
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-directory' });
   });
 
   it('opens Help from the Settings navigation category', async () => {
@@ -95,43 +105,35 @@ describe('AppShell module launch', () => {
     expect(onNavigate).toHaveBeenCalledWith({ name: 'help' });
   });
 
-  it('keeps Dynamic Testing in the same selection dialog and restores focus on cancel', async () => {
+  it('opens the workspace Dynamic Testing directory', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
     const dynamicButton = screen.getByRole('button', { name: 'Dynamic Testing' });
     await user.click(dynamicButton);
-    expect(await screen.findByRole('dialog', { name: 'Start Dynamic Testing' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
-
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(dynamicButton).toHaveFocus());
-    expect(onNavigate).not.toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-directory' });
   });
 
-  it('launches directly when the current screen has a real project context', async () => {
+  it('keeps sidebar navigation global inside a project', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderShell({ name: 'project-detail', projectId: 'project-2' }, onNavigate);
 
     await user.click(screen.getByRole('button', { name: 'Review' }));
 
-    expect(onNavigate).toHaveBeenCalledWith({
-      name: 'review-entry',
-      projectId: 'project-2',
-    });
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-directory' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('routes to Projects when a global module has no available project', async () => {
+  it('opens the empty directory when there are no projects', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate, []);
 
     await user.click(screen.getByRole('button', { name: 'Dynamic Testing' }));
 
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'projects' });
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-directory' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

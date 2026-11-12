@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FindingEvidence, SourceCode } from './FindingEvidence';
+import { EvidenceFileControl, FindingEvidence, SourceCode } from './FindingEvidence';
 import { api } from '../api/client';
 import type { Finding } from '../types';
 
@@ -63,6 +63,19 @@ describe('finding source version integrity', () => {
   });
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
+
+  it('keeps the hover preview loading until the numbered highlight is ready', async () => {
+    vi.mocked(api.getReviewArtifactContent).mockResolvedValue({
+      versionId: 'version', contentHash: 'expected-hash', content: btoa('saved excerpt\nnext line'), mimeType: 'text/typescript',
+    });
+    render(<EvidenceFileControl path={finding.filePath} findings={[finding]} />);
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'pay.ts' }));
+    expect(screen.getByRole('status', { name: 'Loading highlighted source' })).toBeInTheDocument();
+    expect(screen.queryByText('saved excerpt')).not.toBeInTheDocument();
+    const line = await screen.findByText('saved excerpt');
+    expect(line.closest('.finding-source-line')).toHaveClass('is-highlighted');
+    expect(screen.queryByRole('status', { name: 'Loading highlighted source' })).not.toBeInTheDocument();
+  });
 
   it('rejects a different saved version without substituting source content', async () => {
     vi.mocked(api.getReviewArtifactContent).mockResolvedValue({ versionId: 'other-version', contentHash: 'other-hash', content: btoa('wrong body'), mimeType: 'text/typescript' });

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { GEMINI_OAUTH_BASE_URL, geminiOAuthProject, isGeminiOAuthModelId } from './model/geminiOAuth.js';
 import { decryptSecret, encryptSecret } from './tokenVault.js';
 import type { AiApiFormat, AiProvider } from './settings.js';
 import type { EmbeddingProviderId } from './embeddingSettingsTypes.js';
@@ -8,6 +9,8 @@ import { EMBEDDING_DIMENSIONS, type EmbeddingProviderConfiguration } from './rev
 export type ModelProviderSettingId = 'text' | 'vision' | 'embedding';
 
 export type ModelProviderSettingView = {
+  connectionMethod?: 'oauth';
+  codexScreenshots?: boolean;
   id: ModelProviderSettingId;
   label: string;
   provider: AiProvider;
@@ -29,6 +32,8 @@ export type ModelProviderSettingView = {
 };
 
 export type UpdateModelProviderSetting = {
+  geminiOAuth?: boolean;
+  codexScreenshots?: boolean;
   provider: AiProvider;
   apiFormat: AiApiFormat;
   apiKey: string;
@@ -118,6 +123,8 @@ export function mapModelProviderSetting(id: ModelProviderSettingId, row: ModelRo
     label: label(id),
     provider: (row && asProvider(row.provider)) || 'custom',
     apiFormat: (row && asFormat(row.api_format ?? meta.apiFormat)) || 'openai-compatible',
+    ...(typeof meta.geminiOAuthProject === 'string' ? { connectionMethod: 'oauth' as const } : {}),
+    ...(row?.provider === 'codex' && typeof meta.codexScreenshots === 'boolean' ? { codexScreenshots: meta.codexScreenshots } : {}),
     hasApiKey: Boolean(secret),
     apiKeyPreview: masked(secret),
     baseUrl: row ? text(row, 'base_url') : '',
@@ -157,6 +164,13 @@ export class SupabaseMigrationRequiredError extends Error {
 export function validateModelProviderUpdate(input: UpdateModelProviderSetting, existing?: ModelRow | null, id: ModelProviderSettingId = 'text'): void {
   if (!providerValues.has(input.provider)) throw new Error('provider must be mimo, gemini, custom, or codex');
   if (!formatValues.has(input.apiFormat)) throw new Error('apiFormat is invalid');
+  if (input.geminiOAuth) {
+    if (input.provider !== 'gemini' || input.apiFormat !== 'google-native' || input.baseUrl !== GEMINI_OAUTH_BASE_URL
+      || id === 'embedding' || input.apiKey.trim() || input.fallbackEnabled || !isGeminiOAuthModelId(input.model.trim())) {
+      throw new Error('Select a valid Gemini OAuth model.');
+    }
+    return;
+  }
   let embeddingProvider: EmbeddingProviderId | null = null;
   if (id === 'embedding' && (input.provider !== 'custom' || input.apiFormat !== 'openai-compatible' || input.fallbackEnabled)) {
     throw new Error('Source indexing requires one custom OpenAI-compatible embedding provider without fallback.');
@@ -217,23 +231,21 @@ export async function listModelProviderSettings(client: SupabaseClient, userId: 
   return [mapModelProviderSetting('text', textRow), mapModelProviderSetting('vision', visionRow), mapModelProviderSetting('embedding', embeddingRow)];
 }
 
-export async function saveModelProviderSetting(
-  client: SupabaseClient,
-  userId: string,
-  id: ModelProviderSettingId,
-  input: UpdateModelProviderSetting,
-): Promise<ModelProviderSettingView> {
-  const existing = await findRow(client, userId, id);
+function modelSettingPayload(userId: string, id: ModelProviderSettingId, input: UpdateModelProviderSetting, existing: ModelRow | null) {
   validateModelProviderUpdate(input, existing, id);
   const meta = metadata(existing ?? {});
-  const primarySecret = input.provider === 'codex' ? null : input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
+  const quotaProject = input.geminiOAuth ? geminiOAuthProject(userId) : null;
+  if (input.geminiOAuth && !quotaProject) throw new Error('Configure Gemini OAuth for this Centinel account first.');
+  const primarySecret = input.provider === 'codex' || quotaProject ? null : input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
   const previousFallbackSecret = text(existing ?? {}, 'fallback_secret_ciphertext') || text(meta, 'fallbackSecretCiphertext');
   const fallbackSecret = input.fallbackEnabled
     ? (input.fallbackApiKey?.trim() ? encryptSecret(input.fallbackApiKey.trim()) : previousFallbackSecret)
     : null;
   const cleanMetadata = { ...meta };
+  delete cleanMetadata.geminiOAuthProject;
+  delete cleanMetadata.codexScreenshots;
   for (const key of ['fallbackProvider', 'fallbackApiFormat', 'fallbackModel', 'fallbackBaseUrl', 'fallbackSecretCiphertext']) delete cleanMetadata[key];
-  const payload = {
+  return {
     owner_id: userId,
     project_id: null,
     purpose: purpose(id),
@@ -252,6 +264,8 @@ export async function saveModelProviderSetting(
     metadata: {
       ...cleanMetadata,
       apiFormat: input.apiFormat,
+      ...(quotaProject ? { geminiOAuthProject: quotaProject } : {}),
+      ...(input.provider === 'codex' && input.codexScreenshots !== undefined ? { codexScreenshots: input.codexScreenshots } : {}),
       ...(id === 'embedding' ? {
         embeddingProvider: input.embeddingProvider ?? (existing ? savedEmbeddingProvider(existing) : 'custom') ?? 'custom',
         embeddingProtocol: embeddingProtocol(input.embeddingProvider ?? (existing ? savedEmbeddingProvider(existing) : 'custom') ?? 'custom'),
@@ -260,6 +274,16 @@ export async function saveModelProviderSetting(
     },
     updated_at: new Date().toISOString(),
   };
+}
+
+export async function saveModelProviderSetting(
+  client: SupabaseClient,
+  userId: string,
+  id: ModelProviderSettingId,
+  input: UpdateModelProviderSetting,
+): Promise<ModelProviderSettingView> {
+  const existing = await findRow(client, userId, id);
+  const payload = modelSettingPayload(userId, id, input, existing);
   const query = existing?.id
     ? client.from('model_configurations').update(payload).eq('id', String(existing.id)).select('*').single()
     : client.from('model_configurations').insert(payload).select('*').single();
@@ -268,13 +292,36 @@ export async function saveModelProviderSetting(
   return mapModelProviderSetting(id, result.data as ModelRow);
 }
 
+/** Apply one owner-level model to both workflows in a single database statement. */
+export async function saveSharedModelProvider(client: SupabaseClient, userId: string, input: UpdateModelProviderSetting): Promise<void> {
+  const [textRow, visionRow] = await Promise.all([findRow(client, userId, 'text'), findRow(client, userId, 'vision')]);
+  if (input.provider !== 'codex' && !input.geminiOAuth && !input.apiKey.trim() && (!textRow || text(textRow, 'provider') !== input.provider
+    || text(textRow, 'api_format') !== input.apiFormat || normalizedEndpoint(text(textRow, 'base_url')) !== normalizedEndpoint(input.baseUrl))) {
+    throw new Error('Enter a new API key when changing provider or endpoint.');
+  }
+  const textPayload = modelSettingPayload(userId, 'text', input, textRow);
+  const visionPayload = modelSettingPayload(userId, 'vision', input, { ...visionRow, secret_ciphertext: textPayload.secret_ciphertext });
+  const { error } = await client.from('model_configurations').upsert([
+    { ...textPayload, id: textRow?.id ?? crypto.randomUUID() },
+    { ...visionPayload, id: visionRow?.id ?? crypto.randomUUID() },
+  ], { onConflict: 'id' });
+  if (error) throw new Error(`Model Provider save failed: ${errorMessage(error)}`);
+}
+
 export async function resolveSavedProviderForTest(
   client: SupabaseClient,
   userId: string,
   id: 'text' | 'vision',
   input: Partial<UpdateModelProviderSetting> = {},
   useFallback = false,
-): Promise<{ provider: AiProvider; apiFormat: AiApiFormat; apiKey: string; baseUrl: string; model: string }> {
+): Promise<{ provider: AiProvider; apiFormat: AiApiFormat; apiKey: string; baseUrl: string; model: string; ownerId?: string; geminiOAuthProject?: string }> {
+  if (input.geminiOAuth && !useFallback) {
+    const project = geminiOAuthProject(userId);
+    const model = input.model?.trim();
+    if (!project || typeof model !== 'string' || !isGeminiOAuthModelId(model)) throw new Error('Configure Gemini OAuth and select a model first.');
+    return { provider: 'gemini', apiFormat: 'google-native', apiKey: '', baseUrl: GEMINI_OAUTH_BASE_URL,
+      model, ownerId: userId, geminiOAuthProject: project };
+  }
   const row = await findRow(client, userId, id);
   const selectedProvider = useFallback ? input.fallbackProvider ?? row?.fallback_provider : input.provider ?? row?.provider;
   if (selectedProvider === 'codex') {
@@ -283,6 +330,12 @@ export async function resolveSavedProviderForTest(
     return { provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model };
   }
   if (!row && !input.apiKey) throw new Error('The Model Provider is not configured.');
+  if (!useFallback && !input.apiKey?.trim() && row && (
+    input.provider != null && input.provider !== row.provider
+    || input.apiFormat != null && input.apiFormat !== row.api_format
+    || input.baseUrl != null && normalizedEndpoint(input.baseUrl) !== normalizedEndpoint(text(row, 'base_url'))
+  )) throw new Error('Enter a new API key before testing a different provider or endpoint.');
+
   const meta = metadata(row ?? {});
   const fallback = useFallback;
   const secret = fallback

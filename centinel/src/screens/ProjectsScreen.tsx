@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react';
 import { CommandEmptyState, CommandPageHeader } from '../components/CommandUI';
-import { ProjectCreateModal, type ProjectCreateSource } from '../components/ProjectCreateModal';
+import { ProjectCreateModal } from '../components/ProjectCreateModal';
+import type { ProjectCreationResult, ProjectRepositoryInput } from '../types';
 import { ProjectSummaryTable } from '../components/ProjectSummaryTable';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { Select } from '../components/Select';
 import { usePinnedProjects } from '../hooks/usePinnedProjects';
 import {
@@ -17,7 +19,7 @@ import './ProjectsScreen.css';
 type Props = {
   projects: Project[];
   onNavigate: (screen: Screen) => void;
-  onCreate: (name: string, description: string, workspacePath: string, source: ProjectCreateSource) => Promise<Project | void>;
+  onCreate: (name: string, description: string, sources: ProjectRepositoryInput[]) => Promise<ProjectCreationResult | void>;
   onDelete: (id: string) => Promise<void>;
   initialSearch?: string;
   initialStateFilter?: ProjectStateFilter;
@@ -120,10 +122,9 @@ export function ProjectsScreen({
               <button type="button" onClick={reload}><RefreshCw size={14} aria-hidden="true" /> Retry</button>
             </div>
           )}
-          {summariesLoading && summaries.length > 0 && <p className="projects-directory-message" role="status">Updating project activity… You can open a project now.</p>}
 
-          {summariesLoading && summaries.length === 0 ? (
-            <div className="projects-directory-message" role="status">Loading projects…</div>
+          {summariesLoading && pageSummaries.length === 0 ? (
+            <LoadingSkeleton variant="rows" rows={PROJECTS_PER_PAGE} label="Loading projects" />
           ) : filteredSummaries.length > 0 ? (
             <>
               <ProjectSummaryTable
@@ -172,7 +173,7 @@ export function ProjectsScreen({
         isOpen={showForm}
         onClose={() => setShowForm(false)}
         onCreate={onCreate}
-        onCreated={() => { setShowForm(false); void reload(); }}
+        onCreated={project => { setShowForm(false); onNavigate({ name: 'project-detail', projectId: project.id, initialSection: 'source' }); }}
       />
 
     </div>

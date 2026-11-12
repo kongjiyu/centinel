@@ -14,18 +14,10 @@
 .finding-related-sources .finding-source-preview { white-space: pre; overflow-wrap: normal; max-width: 100%; }
 .finding-group-count { display: block; margin-top: 4px; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
 .workspace-mode .project-findings-layout.findings-table-only { display: block; }
-.workspace-mode .findings-table-only .project-findings-table { width: 100%; min-width: 850px; table-layout: fixed; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(1) { width: 8%; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(2) { width: 12%; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(3) { width: 9%; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(4) { width: 9%; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(5) { width: 10%; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(6) { width: 14%; }
-.workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(7) { width: 38%; }
 .workspace-mode .findings-table-only .project-findings-table-region { max-width: 100%; overflow-x: auto; }
 .workspace-mode .findings-table-only .project-finding-description { min-height: 0; }
 .workspace-mode .finding-document { width: 100%; max-width: 1440px; margin-inline: auto; padding: 28px 40px; color: var(--workspace-text); overflow-wrap: anywhere; }
-.finding-document > .finding-document-heading, .finding-document > .finding-source-reader-heading { padding-block: 24px; border-bottom: 1px solid var(--workspace-border); }
+.finding-document > .finding-document-heading, .finding-document > .finding-source-reader-heading { padding-block: 12px 20px; border-bottom: 1px solid var(--workspace-border); }
 .finding-document h2 { font-size: var(--font-size-page); line-height: 1.3; margin: 8px 0 16px; }
 .finding-document h3 { font-size: var(--font-size-section); line-height: 1.5; margin: 0 0 12px; }
 .finding-document h4, .finding-document h5 { font-size: var(--font-size-body); margin: 0 0 10px; }
@@ -125,11 +117,6 @@
   .finding-source-reader-body { height: 65vh; }
 }
 @media(max-width:720px) {
-  .workspace-mode .findings-table-only .project-findings-table { min-width: 0; }
-  .workspace-mode .findings-table-only .project-findings-table :is(th,td):is(:nth-child(1),:nth-child(3),:nth-child(4),:nth-child(5)) { display: none; }
-  .workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(2) { width: 24%; }
-  .workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(6) { width: 25%; }
-  .workspace-mode .findings-table-only .project-findings-table :is(th,td):nth-child(7) { width: 51%; }
   .workspace-mode .findings-table-only .project-finding-description strong { white-space: normal; overflow-wrap: anywhere; }
   .workspace-mode .findings-table-only .project-finding-description .finding-see-more { min-height: 44px; font-size: var(--font-size-meta); }
   .workspace-mode .findings-table-only .findings-project-header { flex-wrap: wrap; gap: 10px; }
@@ -152,3 +139,127 @@
 .finding-merged-observations li:first-child { padding-top: 0; border-top: 0; }
 .finding-merged-observations li p { margin: 0 0 6px; overflow-wrap: anywhere; }
 .finding-merged-observations li pre { max-height: 200px; }
+.finding-document .finding-detail-part {
+  padding-block: 20px;
+  border-bottom: 1px solid var(--workspace-border);
+}
+.finding-document .finding-detail-part:last-child { border-bottom: 0; }
+.finding-document .finding-detail-part > h3 { margin: 0 0 12px; }
+.finding-detail-part > .finding-document-section { padding-block: 14px; }
+.finding-detail-part > .finding-document-section:last-child { padding-bottom: 0; border-bottom: 0; }
+.finding-detail-part > .finding-document-section > p { margin-block: 0 8px; }
+.finding-detail-part > .finding-document-section > p:last-child { margin-bottom: 0; }
+.finding-document .finding-header-kicker { margin: 0; color: var(--workspace-text-muted); font-size: var(--font-size-meta); }
+.finding-header-title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-block: 4px 8px; }
+.finding-header-title-row h2 { margin: 0; }
+.finding-document-summary { margin: 0 0 10px; }
+.finding-document .finding-header-badges {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+}
+.finding-risk-badge {
+  border: 1px solid currentColor; border-radius: var(--workspace-radius-pill);
+  padding: 3px 8px; color: var(--workspace-text-muted); font-size: var(--font-size-meta);
+  font-weight: 650; text-transform: capitalize;
+}
+.finding-risk-badge[data-level="critical"] { color: var(--color-level-critical); }
+.finding-risk-badge[data-level="high"] { color: var(--color-level-high); }
+.finding-risk-badge[data-level="medium"] { color: var(--color-level-medium); }
+.finding-risk-badge[data-level="low"] { color: var(--color-level-low); }
+.finding-document .finding-header-id,
+.finding-document .finding-header-metadata,
+.finding-document .finding-document-heading details > summary {
+  color: var(--workspace-text-muted); font-size: var(--font-size-meta);
+}
+.finding-header-metadata { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.workspace-mode .finding-document.finding-detail-page {
+  display: grid;
+  gap: 16px;
+  padding: 0;
+}
+
+.finding-detail-page > .finding-document-heading,
+.finding-detail-page > .finding-detail-body {
+  min-width: 0;
+  margin: 0;
+  padding: 20px clamp(16px, 3vw, 40px);
+}
+
+.command-project-detail .finding-detail-page > .finding-document-heading { min-height: 0; }
+.finding-detail-page > .finding-document-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+.finding-document-back, .finding-copy-control > button { display: grid; place-items: center; width: 44px; min-height: 44px; padding: 0; }
+.finding-copy-control { position: relative; }
+.finding-copy-control [role="status"]:not(:empty) {
+  position: absolute; inset: 100% 0 auto auto; width: max-content; padding: 4px 8px;
+  border-radius: var(--workspace-radius-control); background: var(--workspace-surface-subtle);
+}
+.finding-threats { padding-inline-start: 20px; }
+.finding-threats li + li { margin-top: 12px; }
+.finding-threats h5, .finding-threats p { margin: 0; }
+
+.finding-detail-body > .finding-detail-part:first-child { padding-block-start: 0; }
+.finding-detail-body > .finding-detail-part:last-child { padding-block-end: 0; }
+
+.finding-header-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 14px 0 0;
+}
+
+.finding-header-facts dt {
+  color: var(--workspace-text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.finding-header-facts dd { margin: 0; font-weight: 600; }
+.finding-document .finding-document-heading details { margin-block: 6px; }
+.finding-document-heading details > summary { gap: 6px; }
+.finding-document-heading details[open] > summary svg { transform: rotate(90deg); }
+.finding-evidence-ranked { display: grid; gap: 12px; margin-block: 14px; }
+.finding-feature-evidence {
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-control); min-width: 0;
+}
+.finding-feature-evidence > :is(header, footer) { padding: 8px 16px; background: var(--workspace-surface-subtle); }
+.finding-feature-evidence > header { border-radius: var(--workspace-radius-control) var(--workspace-radius-control) 0 0; }
+.finding-feature-evidence > footer { border-top: 1px solid var(--workspace-border); border-radius: 0 0 var(--workspace-radius-control) var(--workspace-radius-control); }
+.finding-feature-evidence > footer button { min-height: 32px; }
+.finding-evidence-ranked h4, .finding-evidence-ranked p { margin: 0; }
+.finding-evidence-ranked p, .finding-feature-evidence td:last-child {
+  color: var(--workspace-text-muted); font-size: var(--font-size-meta);
+}
+.finding-feature-evidence table { width: 100%; border-collapse: collapse; }
+.finding-feature-evidence td {
+  padding: 6px 16px; border-top: 1px solid var(--workspace-border);
+}
+.finding-feature-evidence td:last-child { text-align: end; }
+.finding-feature-evidence td button { min-height: 32px; text-align: start; overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+.finding-feature-evidence td button[aria-pressed="true"] { font-weight: 650; }
+.finding-feature-evidence > header h4 { color: var(--workspace-text, var(--color-text)); margin: 0; overflow-wrap: anywhere; }
+.finding-feature-evidence .finding-evidence-file-control { color: var(--workspace-text, var(--color-text)); font-family: var(--font-technical, monospace); white-space: normal; }
+.finding-evidence-file-control > span { color: var(--workspace-text-muted, var(--color-text-muted)); }
+.finding-evidence-hover {
+  position: fixed; z-index: 1200; pointer-events: none;
+  width: min(680px, calc(100vw - 24px)); max-height: 285px; overflow: hidden;
+  border: 1px solid var(--workspace-border, var(--color-border)); border-radius: var(--workspace-radius-panel, 12px);
+  background: var(--workspace-surface, var(--color-surface)); color: var(--workspace-text, var(--color-text));
+  box-shadow: var(--workspace-shadow-panel);
+}
+.finding-evidence-hover header { padding: 10px 14px; border-bottom: 1px solid var(--workspace-border, var(--color-border)); overflow-wrap: anywhere; }
+.finding-evidence-hover header small { display: block; color: var(--workspace-text-muted, var(--color-text-muted)); }
+.finding-evidence-hover > pre { max-height: 220px !important; margin: 0; padding: 10px 14px; overflow: hidden; }
+.finding-evidence-hover > p { margin: 8px 14px; }
+.finding-threat-link { display: inline-block; margin-inline-end: 8px; }
+.finding-evidence-ranked > button { justify-self: start; }
+
+.finding-evidence-loading { display: grid; min-height: 220px; place-items: center; }
+.finding-evidence-loading svg { animation: finding-evidence-spin 900ms linear infinite; }
+@keyframes finding-evidence-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .finding-evidence-loading svg { animation: none; }
+}

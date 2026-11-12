@@ -11,10 +11,6 @@
   text-wrap: pretty;
 }
 
-.embedding-provider-form > .form-field {
-  max-width: 720px;
-}
-
 .embedding-field-hint,
 .embedding-inline-error,
 .embedding-usage-note,
@@ -41,7 +37,6 @@
 }
 
 .embedding-endpoint-details {
-  max-width: 720px;
   margin: 0 0 20px;
   border-top: 1px solid var(--shell-border, var(--panel-border));
   border-bottom: 1px solid var(--shell-border, var(--panel-border));

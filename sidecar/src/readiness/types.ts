@@ -80,7 +80,7 @@ export type ReadinessValidationDiagnostics = {
   }>;
 };
 export type ReadinessAssessment = { id: string; projectId: string; sourceFingerprint: string; assessedAt: string; categories: ReadinessCategoryResult[]; findings: ReadinessGap[]; policyVersion?: string; validationDiagnostics?: ReadinessValidationDiagnostics };
-export type ReadinessStatus = { projectId: string; requestId: string | null; status: 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'paused'; trigger: string | null; requestedAt: string | null; startedAt: string | null; completedAt: string | null; error: string | null; errorCode?: ReadinessFailureCode | null; snapshot: ReadinessAssessment | null; stale: boolean };
+export type ReadinessStatus = { projectId: string; requestId: string | null; status: 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'paused'; trigger: string | null; requestedAt: string | null; startedAt: string | null; completedAt: string | null; error: string | null; errorCode?: ReadinessFailureCode | null; assessmentHeld?: boolean; snapshot: ReadinessAssessment | null; stale: boolean };
 export type ReadinessSourceIssue = 'authorization_required' | 'sync_failed' | 'partial_import' | 'unsupported_format' | 'content_unavailable' | 'content_changed' | 'version_missing';
 export type ReadinessArtifact = { artifact: Artifact; content: string | null; error?: string; unavailableReason?: ReadinessSourceIssue };
 export type ReadinessInput = { projectId: string; description: string; artifacts: ReadinessArtifact[]; sourceFingerprint: string };

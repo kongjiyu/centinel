@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
-import { inspectLocalRepository, type LocalImportCoverage } from '../../src/applicationApi.js';
+import { importLocalRepositoryArtifacts, inspectLocalRepository, type LocalImportCoverage } from '../../src/applicationApi.js';
+import type { CentinelApplicationRepository } from '../../src/applicationRepository.js';
 import type { AuthenticatedRequest } from '../../src/auth/gateway.js';
 import { LocalRepositoryReconciliationCoordinator } from '../../src/integrations/localRepositoryReconciliation.js';
 import type { StoreProject, StoreProjectSource } from '../../src/store/types.js';
@@ -23,6 +24,21 @@ async function tempRepo(): Promise<string> {
 }
 
 afterEach(async () => { for (const directory of roots.splice(0)) await fs.rm(directory, { recursive: true, force: true }); });
+
+it('keeps identical relative paths distinct across local repositories in one project', async () => {
+  const primary = await tempRepo();
+  const secondary = await tempRepo();
+  const saveArtifact = vi.fn(async (input: { path: string }) => ({ ...input, id: input.path, createdAt: '' }));
+  const repository = {
+    saveArtifact, uploadArtifactVersion: vi.fn().mockResolvedValue(undefined), listArtifactVersions: vi.fn().mockResolvedValue([]),
+    client: { from: () => ({ insert: async () => ({ error: null }) }) },
+  } as unknown as CentinelApplicationRepository;
+  const first = await importLocalRepositoryArtifacts(repository, root, primary);
+  const second = await importLocalRepositoryArtifacts(repository, root, secondary, { sourceId: 'second-source' });
+  expect(first.imported[0]).toMatchObject({ filePath: 'src/index.ts', sourceId: null });
+  expect(second.imported[0]).toMatchObject({ filePath: 'local-repositories/second-source/src/index.ts', sourceId: 'second-source', localRepositoryName: path.basename(secondary) });
+  expect(second.imported[0].id).not.toBe(first.imported[0].id);
+});
 
 function project(workspacePath: string): StoreProject {
   return { id: root, ownerId: owner, name: 'Local', description: '', workspacePath, createdAt: '', updatedAt: '' };
@@ -74,6 +90,21 @@ function setup(options: {
 }
 
 describe('local repository source polling', () => {
+  it('verifies bytes on explicit Review refresh and imports only if they differ', async () => {
+    const repo = await tempRepo();
+    const content = 'export const value = 1;\n';
+    const initial = await inspectLocalRepository(repo, true);
+    const state = setup({ repo, prior: coverage(initial!), artifacts: [localArtifact(repo, content)] });
+
+    await state.coordinator.refreshForReview(auth, project(repo));
+    expect(state.inspect).toHaveBeenCalledWith(repo, true);
+    expect(state.importRepository).not.toHaveBeenCalled();
+
+    await fs.writeFile(path.join(repo, 'src', 'index.ts'), 'export const value = 2;\n');
+    await state.coordinator.refreshForReview(auth, project(repo));
+    expect(state.importRepository).toHaveBeenCalledOnce();
+    expect(state.onChanged).toHaveBeenCalledOnce();
+  });
   it('uses metadata as a change gate, then reimports and queues only after exact source content changes', async () => {
     const repo = await tempRepo();
     const content = 'export const value = 1;\n';

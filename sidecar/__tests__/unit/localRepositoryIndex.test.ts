@@ -8,7 +8,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../../src/artifacts.js';
 
 const mocks = vi.hoisted(() => ({ member: vi.fn(), resolve: vi.fn(), index: vi.fn(), open: vi.fn() }));
-vi.mock('../../src/applicationRepository.js', () => ({ CentinelApplicationRepository: class { requireProjectMember = mocks.member; } }));
+vi.mock('../../src/applicationRepository.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../src/applicationRepository.js')>(),
+  CentinelApplicationRepository: class { requireProjectMember = mocks.member; },
+}));
 vi.mock('../../src/modelSettings.js', () => ({ resolveSavedEmbeddingConfiguration: mocks.resolve }));
 vi.mock('../../src/review/openCodebaseIndex.js', () => ({
   INDEX_RELATIVE_DIRECTORY: '.codebase-index/index',
@@ -81,6 +84,16 @@ beforeEach(() => {
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
 
 describe('frozen local repository index integration', () => {
+  it.each([{ versionId: undefined }, { contentHash: 'invalid' }, { projectId: 'other-project' }])(
+    'requires exact project versions before resolving settings or opening the index (%j)', async invalid => {
+      const storage = client();
+      const reader = vi.fn(async () => content);
+      await expect(indexFrozenArtifacts(storage.client, owner, project, [{ ...artifact, ...invalid }], undefined, 'review', reader))
+        .rejects.toMatchObject({ code: 'repository_index_versions_unavailable' });
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect(reader).not.toHaveBeenCalled();
+      expect(mocks.open).not.toHaveBeenCalled();
+    });
   it('stages an issued frozen PDF extraction without downloading the original again', async () => {
     const bytes = await new Promise<Buffer>(resolve => {
       const pdf = new PDFDocument(); const chunks: Buffer[] = [];

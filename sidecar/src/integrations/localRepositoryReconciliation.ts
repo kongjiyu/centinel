@@ -93,45 +93,73 @@ export class LocalRepositoryReconciliationCoordinator {
       const auth = this.auth(ownerId);
       const sources = await this.deps.sources(auth, project.id);
       if (!sources.some(source => source.projectId === project.id && source.kind === 'local_repository')) continue;
-      const workspacePath = project.workspacePath.trim();
-      const metadata = await this.deps.inspect(workspacePath, false);
-      if (!metadata?.complete || !metadata.inventoryFingerprint) continue;
-      const previous = await this.deps.coverage(auth, project.id, metadata.rootHash);
-      if (previous?.inventoryFingerprint === metadata.inventoryFingerprint) continue;
-      if (contentScans >= MAX_CONTENT_SCANS_PER_PASS) continue;
-      contentScans++;
-      this.cursors.set(ownerId, (start + offset + 1) % candidates.length);
-      const observed = await this.deps.inspect(workspacePath, true);
-      if (!observed?.complete || observed.rootHash !== metadata.rootHash || !observed.inventoryFingerprint || !observed.contentFingerprint || !observed.sourceFiles) continue;
-
-      const currentProject = await this.deps.project(this.auth(ownerId), project.id);
-      if (!currentProject || currentProject.ownerId !== ownerId || currentProject.workspacePath.trim() !== workspacePath) continue;
-      const currentSources = await this.deps.sources(this.auth(ownerId), project.id);
-      if (!currentSources.some(source => source.projectId === project.id && source.kind === 'local_repository')) continue;
-
-      const artifacts = await this.deps.artifacts(this.auth(ownerId), project.id);
-      // Coverage artifact IDs are the durable ownership record for artifacts
-      // created by this local importer. A separately uploaded artifact may
-      // also carry a repository path under the root, so path membership alone
-      // is not enough to authorize treating it as importer-owned or pruning it.
-      const trackedArtifactIds = new Set(previous?.artifactIds ?? []);
-      const localArtifacts = localArtifactPaths(artifacts, observed.root, trackedArtifactIds);
-      const expectedByArtifacts = expectedContentFingerprint(artifacts, observed.root, trackedArtifactIds);
-      const expectedFromFilesystem = localRepositoryContentFingerprint(observed.sourceFiles);
-      const artifactsMatch = expectedByArtifacts === expectedFromFilesystem;
-      if (previous?.contentFingerprint === observed.contentFingerprint && artifactsMatch || !previous && !localArtifacts.length && observed.sourceFiles.length === 0
-        || previous && !previous.contentFingerprint && artifactsMatch) {
-        if (previous) await this.deps.recordBaseline(this.auth(ownerId), project.id, previous, observed);
-        continue;
-      }
-
-      const sourcePaths = new Set(observed.sourceFiles.map(file => pathKey(file.filePath)));
-      const pruneArtifactIds = localArtifacts.filter(artifact => !sourcePaths.has(pathKey(artifact.filePath))).map(artifact => artifact.id);
-      const imported = await this.deps.importRepository(this.auth(ownerId), project.id, workspacePath, observed, previous, pruneArtifactIds);
-      if (!imported.complete) continue;
-      await this.deps.onChanged(this.auth(ownerId), project.id);
-      return;
+      if (await this.reconcileProject(ownerId, project, false, () => {
+        contentScans++;
+        this.cursors.set(ownerId, (start + offset + 1) % candidates.length);
+      })) return;
+      if (contentScans >= MAX_CONTENT_SCANS_PER_PASS) return;
     }
+  }
+
+  /** Verify the current worktree by content before capturing a refreshed Review. */
+  async refreshForReview(auth: AuthenticatedRequest, project: StoreProject): Promise<void> {
+    if (this.closed || project.ownerId !== auth.userId) throw new Error('Only the project owner can refresh this local repository.');
+    this.sessions.set(auth.userId, auth);
+    while (this.active.has(auth.userId)) await this.active.get(auth.userId);
+    const task = this.reconcileProject(auth.userId, project, true).then(() => undefined);
+    this.active.set(auth.userId, task);
+    try { await task; } finally { this.active.delete(auth.userId); }
+  }
+
+  private async reconcileProject(ownerId: string, project: StoreProject, requireContent: boolean, onContentScan?: () => void): Promise<boolean> {
+    const auth = this.auth(ownerId);
+    const unavailable = () => {
+      if (requireContent) throw new Error('The local repository could not be verified completely.');
+      return false;
+    };
+    const workspacePath = project.workspacePath.trim();
+    if (requireContent) {
+      const sources = await this.deps.sources(auth, project.id);
+      if ((!path.isAbsolute(workspacePath) && !path.win32.isAbsolute(workspacePath))
+        || !sources.some(source => source.projectId === project.id && source.kind === 'local_repository')) return unavailable();
+    }
+    const metadata = await this.deps.inspect(workspacePath, false);
+    if (!metadata?.complete || !metadata.inventoryFingerprint) return unavailable();
+    const previous = await this.deps.coverage(auth, project.id, metadata.rootHash);
+    if (!requireContent && previous?.inventoryFingerprint === metadata.inventoryFingerprint) return false;
+    onContentScan?.();
+    const observed = await this.deps.inspect(workspacePath, true);
+    if (!observed?.complete || observed.rootHash !== metadata.rootHash || !observed.inventoryFingerprint || !observed.contentFingerprint || !observed.sourceFiles) return unavailable();
+
+    const currentProject = await this.deps.project(this.auth(ownerId), project.id);
+    if (!currentProject || currentProject.ownerId !== ownerId || currentProject.workspacePath.trim() !== workspacePath) return unavailable();
+    const currentSources = await this.deps.sources(this.auth(ownerId), project.id);
+    if (!currentSources.some(source => source.projectId === project.id && source.kind === 'local_repository')) return unavailable();
+
+    const artifacts = await this.deps.artifacts(this.auth(ownerId), project.id);
+    // Coverage artifact IDs are the durable ownership record for artifacts
+    // created by this local importer. A separately uploaded artifact may
+    // also carry a repository path under the root, so path membership alone
+    // is not enough to authorize treating it as importer-owned or pruning it.
+    const trackedArtifactIds = new Set(previous?.artifactIds ?? []);
+    const localArtifacts = localArtifactPaths(artifacts, observed.root, trackedArtifactIds);
+    const expectedByArtifacts = expectedContentFingerprint(artifacts, observed.root, trackedArtifactIds);
+    const expectedFromFilesystem = localRepositoryContentFingerprint(observed.sourceFiles);
+    const artifactsMatch = expectedByArtifacts === expectedFromFilesystem;
+    if (previous?.contentFingerprint === observed.contentFingerprint && artifactsMatch || !previous && !localArtifacts.length && observed.sourceFiles.length === 0
+      || previous && !previous.contentFingerprint && artifactsMatch) {
+      if (previous && previous.inventoryFingerprint !== observed.inventoryFingerprint) {
+        await this.deps.recordBaseline(this.auth(ownerId), project.id, previous, observed);
+      }
+      return false;
+    }
+
+    const sourcePaths = new Set(observed.sourceFiles.map(file => pathKey(file.filePath)));
+    const pruneArtifactIds = localArtifacts.filter(artifact => !sourcePaths.has(pathKey(artifact.filePath))).map(artifact => artifact.id);
+    const imported = await this.deps.importRepository(this.auth(ownerId), project.id, workspacePath, observed, previous, pruneArtifactIds);
+    if (!imported.complete) return unavailable();
+    await this.deps.onChanged(this.auth(ownerId), project.id);
+    return true;
   }
 
   async waitForIdle(): Promise<void> { await Promise.all([...this.active.values()]); }
