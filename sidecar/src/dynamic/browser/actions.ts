@@ -5,6 +5,7 @@ import {executeApprovedUpload} from './uploads.js';
 import type {UploadGrant,UploadPayload} from './fileTypes.js';
 import type {ApprovedDownloads} from './downloads.js';
 import {executePrivateInput} from './privateInputs.js';
+import {beginLiveAction,liveBindingLabel,type LiveActionContext} from '../live/actionEvents.js';
 export type AgentAction=
  |{action:'type_secret';selector?:string;elementRef?:string;variable:string;reasoning:string}
  |{action:'download_file';selector?:string;elementRef?:string;reasoning:string}
@@ -28,7 +29,7 @@ export async function waitForBrowserAction(ms:number,signal?:AbortSignal){
 }
 /** One dispatch only. A failure after dispatch never becomes a second click,
  * coordinate fallback, fill, Enter or navigation request. */
-export async function executeBrowserAction(page:Page,action:AgentAction,options:{signal?:AbortSignal;bindings?:ReadonlyMap<string,ElementBinding>;hasScreenshot?:boolean;policy?:BrowserActionPolicy;origins?:readonly string[];ledger?:ActionLedger;resolveUpload?:(grant:UploadGrant)=>UploadPayload;onUploadPrivateValue?:(value:string)=>void;downloads?:ApprovedDownloads;resolvePrivateValue?:(name:string)=>string|undefined;onPrivateValue?:(value:string)=>void}={}):Promise<ActionReceipt>{
+export async function executeBrowserAction(page:Page,action:AgentAction,options:{signal?:AbortSignal;bindings?:ReadonlyMap<string,ElementBinding>;hasScreenshot?:boolean;policy?:BrowserActionPolicy;origins?:readonly string[];ledger?:ActionLedger;resolveUpload?:(grant:UploadGrant)=>UploadPayload;onUploadPrivateValue?:(value:string)=>void;downloads?:ApprovedDownloads;live?:LiveActionContext;resolvePrivateValue?:(name:string)=>string|undefined;onPrivateValue?:(value:string)=>void}={}):Promise<ActionReceipt>{
  stopped(options.signal);
  if(action.action==='type_secret')return executePrivateInput(page,action,options);
  if(action.action==='download_file'){if(!options.downloads)throw new BrowserActionUnavailable('Approved download capture is unavailable.');return {dispatch:'download',fileTransfer:await options.downloads.execute(page,action,options)};}
@@ -47,14 +48,15 @@ export async function executeBrowserAction(page:Page,action:AgentAction,options:
     stopped(options.signal);if(matches)return {dispatch:'observation',selector,alreadyMatched:true};
    }
    if(action.action==='click'&&authorization?.targetKey)options.ledger?.reserveClick(authorization.targetKey,authorization.repeatable);
-   try{if(action.action==='click')await target.click({timeout:5000});else if(action.action==='type')await target.fill(action.text,{timeout:5000});else if(action.action==='select_option')await target.selectOption(action.value,{timeout:5000});else await target.setChecked(action.checked,{timeout:5000});}catch{stopped(options.signal);throw new BrowserActionUncertain();}
+   const liveDone=options.live?await beginLiveAction(page,options.live,{action:action.action,label:'targetDescription' in action?action.targetDescription:liveBindingLabel(binding,action.action),target,...(action.action==='type'?{typing:{length:action.text.length}}:{})}):undefined;stopped(options.signal);
+   try{if(action.action==='click')await target.click({timeout:5000});else if(action.action==='type')await target.fill(action.text,{timeout:5000});else if(action.action==='select_option')await target.selectOption(action.value,{timeout:5000});else await target.setChecked(action.checked,{timeout:5000});}catch{stopped(options.signal);throw new BrowserActionUncertain();}finally{liveDone?.();}
    stopped(options.signal);return {dispatch:'locator',selector:typeof binding==='string'?binding:('role='+binding.role+' name='+binding.name)};
   }
   if(action.action==='select_option'||action.action==='set_checked')throw new BrowserActionUnavailable('This form action requires a stable locator from the current observation.');
   if(!options.hasScreenshot)throw new BrowserActionUnavailable('Coordinate fallback requires a protected screenshot from this observation.');
   const viewport=page.viewportSize()??await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
   if(action.x===undefined||action.y===undefined||action.x<0||action.y<0||action.x>=viewport.width||action.y>=viewport.height)throw new BrowserActionUnavailable('Coordinates are outside the observed browser viewport.');
-  stopped(options.signal);if(action.action==='click'&&authorization?.targetKey)options.ledger?.reserveClick(authorization.targetKey,authorization.repeatable);try{await page.mouse.click(action.x,action.y);if(action.action==='type')await page.keyboard.type(action.text);}catch{stopped(options.signal);throw new BrowserActionUncertain();}
+  stopped(options.signal);if(action.action==='click'&&authorization?.targetKey)options.ledger?.reserveClick(authorization.targetKey,authorization.repeatable);const liveDone=options.live?await beginLiveAction(page,options.live,{action:action.action,label:action.targetDescription,point:{x:action.x,y:action.y},...(action.action==='type'?{typing:{length:action.text.length}}:{})}):undefined;stopped(options.signal);try{await page.mouse.click(action.x,action.y);if(action.action==='type')await page.keyboard.type(action.text);}catch{stopped(options.signal);throw new BrowserActionUncertain();}finally{liveDone?.();}
   stopped(options.signal);return {dispatch:'coordinate',coordinateFallbackReason:action.fallbackReason?.trim()||'The proposal supplied coordinates without a stable locator.'};
  }
  switch(action.action){
