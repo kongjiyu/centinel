@@ -1,20 +1,22 @@
-import { REVIEW_WORKFLOW_STAGES } from '../reviewNarrative';
 import type { ReviewProgress } from '../types';
 
-const progressLabels: Record<string, string> = {
-  freezing_sources: 'Discover behaviors and paths',
-  indexing_context: 'Prepare source and requirement evidence',
-  deterministic_analysis: 'Run code checks',
-  model_analysis: 'Trace code paths and validate issues',
-  persisting_evidence: 'Save issues and compare with prior reviews',
-};
+const workflow = [
+  { id: 'freezing_sources', label: 'Discovering all possible behavior and paths' },
+  { id: 'deterministic_analysis', label: 'Checking For Documents' },
+  { id: 'model_analysis', label: 'Tracing Behaviors' },
+  { id: 'environment', label: 'Checking the Environment' },
+  { id: 'persisting_evidence', label: 'Updating the results' },
+];
 
 export function reviewToastStages(progress: ReviewProgress) {
   if (!progress.stage) return progress.stages;
-  return REVIEW_WORKFLOW_STAGES.map(({ id, title }) => ({
-    id,
-    label: progressLabels[id] ?? title,
-    status: progress.completedStages?.includes(id) ? 'done' : progress.stage === id ? 'active' : 'pending',
+  const active = progress.stage === 'indexing_context' ? 0
+    : progress.stage === 'model_analysis' ? progress.assessmentPhase === 'documents' ? 1 : progress.assessmentPhase === 'environment' ? 3 : 2
+      : workflow.findIndex(stage => stage.id === progress.stage);
+  return workflow.map(({ id, label }, index) => ({
+    id, label,
+    status: active >= 0 ? index < active ? 'done' : index === active ? 'active' : 'pending'
+      : progress.completedStages?.includes(id === 'environment' ? 'model_analysis' : id) ? 'done' : 'pending',
     thoughts: [],
   }));
 }

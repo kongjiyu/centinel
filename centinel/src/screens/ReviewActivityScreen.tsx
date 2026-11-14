@@ -8,7 +8,7 @@ import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { readReviewActivityPreview, rememberReviewActivity } from '../reviewActivityCache';
-import { ReviewIssues, shortReviewIssueTitle } from '../components/ReviewIssues';
+import { ReviewIssues, ReviewTableAction, reviewIssueCategory, shortReviewIssueTitle } from '../components/ReviewIssues';
 import { effectiveFindingStatus } from '../findingStatus';
 import { riskLevelRank } from '../riskPolicy';
 import { featureDisplayName } from '../reviewFeatures';
@@ -28,6 +28,7 @@ import {
   isExecutedReviewStatus,
   formatReviewTimestamp,
   parseReviewConfig,
+  parseReviewProgress,
   truncateReviewSourceName,
   type ReviewLifecycleState,
 } from '../reviewViewModel';
@@ -678,73 +679,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
         </section> : canRetry ? <button type="button" className="btn-primary" onClick={openRetryPanel}><RotateCcw size={16} aria-hidden="true" /> {state === 'Paused' ? 'Resume review' : 'Retry review'}</button> : undefined}
       />
 
-      {error && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {error}</div>}
-      {reportError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {reportError}</div>}
-      {coverageGaps && (
-        <section className="review-evidence-readiness is-ready_with_warnings review-coverage-gaps" aria-labelledby="review-coverage-gaps-heading" role="status">
-          <ShieldAlert size={18} aria-hidden="true" />
-          <div>
-            <h2 id="review-coverage-gaps-heading">Completed with gaps</h2>
-            <p>The verified checks and findings are ready to inspect. {coverageGaps.total} part{coverageGaps.total === 1 ? '' : 's'} of the code could not be verified, so {coverageGaps.total === 1 ? 'it has' : 'they have'} no clean result and cannot close earlier findings.</p>
-            {coverageGaps.parts.length > 0 && <ul aria-label="Parts that could not be verified">{coverageGaps.parts.map((part, index) => <li key={`${part.reason}-${index}`}>
-              <strong>{unverifiedPartLocation(part)}</strong>
-              <span>{unverifiedPartReason(part)}</span>
-            </li>)}</ul>}
-            {coverageGaps.total > coverageGaps.parts.length && <p>{coverageGaps.total - coverageGaps.parts.length} more part{coverageGaps.total - coverageGaps.parts.length === 1 ? ' is' : 's are'} listed in Activity.</p>}
-            <span className="review-evidence-remediation">Check the listed parts before approving the Review.</span>
-          </div>
-        </section>
-      )}
-      {awaitsReviewDecision(state) && !currentDecision && decisionEvidenceIssue && !approvalOpen && (
-        <section className={`review-evidence-decision-gate${evidenceReadFailed ? ' is-failed' : ''}`} role={evidenceReadFailed || sourceManifest?.status === 'incomplete' ? 'alert' : 'status'} aria-label="Decision evidence status">
-          <div><p>{decisionEvidenceIssue}</p></div>
-          {evidenceReadFailed && <button type="button" className="btn-secondary" onClick={() => void loadReviewEvidence()} disabled={evidenceReadPending}>{evidenceReadPending ? 'Retrying evidence…' : 'Retry evidence'}</button>}
-        </section>
-      )}
-      {evidenceAssessment?.readiness === 'blocked' && (
-        <section className="review-evidence-readiness is-blocked" aria-labelledby="review-evidence-readiness-heading" role="alert">
-          <ShieldAlert size={18} aria-hidden="true" />
-          <div>
-            <h2 id="review-evidence-readiness-heading">Evidence blocks this review</h2>
-            <p>{evidenceAssessment.availableArtifactCount} of {evidenceAssessment.artifactCount} artifacts are currently available.</p>
-            <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => group.gaps[0].code === 'traceability_mappings_incomplete' ? <li key={group.gaps[0].id} className="review-requirement-links-gap">
-              <strong>{group.title}</strong>
-              <span>{suggestedLinks > 0
-                ? `Centinel suggested ${suggestedLinks} link${suggestedLinks === 1 ? '' : 's'} from this review's evidence — confirm them so requirement coverage can be checked.`
-                : `${group.gaps.length} requirement${group.gaps.length === 1 ? ' is' : 's are'} not linked to code yet.`}</span>
-              <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'requirements', projectId })}>{suggestedLinks > 0 ? 'Confirm suggested links' : 'Link requirements to code'}</button>
-            </li> : <li key={group.gaps[0].id}>
-              <strong>{group.title}{group.gaps.length > 1 ? ` (${group.gaps.length})` : ''}</strong>
-              {group.gaps.length === 1 ? <span>{group.gaps[0].detail}</span> : <>
-                <ul className="review-evidence-gap-items">{group.gaps.slice(0, EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul>
-                {group.gaps.length > EVIDENCE_GAP_PREVIEW && <details className="review-evidence-gap-more"><summary>Show {group.gaps.length - EVIDENCE_GAP_PREVIEW} more</summary>
-                  <ul className="review-evidence-gap-items">{group.gaps.slice(EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul></details>}
-              </>}
-              <span className="review-evidence-remediation">Next: {group.remediation}</span></li>)}</ul>
-            {evidenceAssessment.contradictions.length > 0 && <div className="review-contradictions" aria-label="Conflicting evidence">
-              <p>{evidenceAssessment.contradictions.length} possible evidence conflict{evidenceAssessment.contradictions.length === 1 ? '' : 's'} require a reviewer decision.</p>
-              {evidenceAssessment.contradictions.map((conflict, index) => {
-                const draft = contradictionDrafts[conflict.id] ?? { decision: 'not_conflict' as const, rationale: '' };
-                return <div className="review-contradiction" key={conflict.id}>
-                  <h3>Conflict {index + 1}</h3>
-                  <blockquote><strong>Claim A</strong><p>{conflict.left.text}</p><small>{conflict.left.locator?.filePath ?? 'Source location unavailable'}{conflict.left.locator?.lineStart ? `:${conflict.left.locator.lineStart}` : ''}</small></blockquote>
-                  <blockquote><strong>Claim B</strong><p>{conflict.right.text}</p><small>{conflict.right.locator?.filePath ?? 'Source location unavailable'}{conflict.right.locator?.lineStart ? `:${conflict.right.locator.lineStart}` : ''}</small></blockquote>
-                  {conflict.disposition ? <p role="status"><strong>Resolved:</strong> {conflict.disposition.decision === 'authoritative_left' ? 'Claim A is authoritative' : conflict.disposition.decision === 'authoritative_right' ? 'Claim B is authoritative' : 'Not a conflict'}. {conflict.disposition.rationale}</p>
-                    : session.status === 'blocked' && <div className="review-contradiction-form">
-                      <fieldset><legend>How should this conflict be handled?</legend>
-                        {([['authoritative_left', 'Claim A is authoritative'], ['authoritative_right', 'Claim B is authoritative'], ['not_conflict', 'These claims are not conflicting']] as const).map(([value, label]) =>
-                          <label key={value}><input type="radio" name={`contradiction-${conflict.id}`} checked={draft.decision === value} onChange={() => setContradictionDrafts(previous => ({ ...previous, [conflict.id]: { ...draft, decision: value } }))} /> {label}</label>)}</fieldset>
-                      <label htmlFor={`contradiction-rationale-${conflict.id}`}>Reason for this decision</label>
-                      <textarea id={`contradiction-rationale-${conflict.id}`} value={draft.rationale} onChange={event => setContradictionDrafts(previous => ({ ...previous, [conflict.id]: { ...draft, rationale: event.target.value } }))} rows={3} maxLength={2000} />
-                      <button type="button" className="btn-primary" onClick={() => void saveContradiction(conflict.id)} disabled={savingContradiction === conflict.id}>{savingContradiction === conflict.id ? 'Saving…' : 'Save evidence decision'}</button>
-                    </div>}
-                </div>;
-              })}
-              {contradictionNotice && <p role="status">{contradictionNotice}</p>}
-            </div>}
-          </div>
-        </section>
-      )}
       {preparedChild && preparedChild.status === 'prepared' && (
         <section className="review-iteration-ready" role="status" aria-labelledby="review-iteration-ready-heading">
           <div><History size={17} aria-hidden="true" /><div><h2 id="review-iteration-ready-heading">Revised review prepared</h2><p>{preparedChild.name} will {preparedChild.parentSessionId ? 'preserve its parent lineage and ' : ''}run only when you start it.</p></div></div>
@@ -760,6 +694,71 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
         </div>
       </Modal>
           <ReviewActivityContent
+            stateDetails={<>
+              {error && <p role="alert">{error}</p>}
+              {reportError && <p role="alert">{reportError}</p>}
+              {coverageGaps && (
+                <details><summary>Coverage gaps</summary>
+                  <div>
+                    <p>The verified checks and findings are ready to inspect. {coverageGaps.total} part{coverageGaps.total === 1 ? '' : 's'} of the code could not be verified, so {coverageGaps.total === 1 ? 'it has' : 'they have'} no clean result and cannot close earlier findings.</p>
+                    {coverageGaps.parts.length > 0 && <ul aria-label="Parts that could not be verified">{coverageGaps.parts.map((part, index) => <li key={`${part.reason}-${index}`}>
+                      <strong>{unverifiedPartLocation(part)}</strong>
+                      <span>{unverifiedPartReason(part)}</span>
+                    </li>)}</ul>}
+                    {coverageGaps.total > coverageGaps.parts.length && <p>{coverageGaps.total - coverageGaps.parts.length} more part{coverageGaps.total - coverageGaps.parts.length === 1 ? ' is' : 's are'} listed in Activity.</p>}
+                    <span className="review-evidence-remediation">Check the listed parts before approving the Review.</span>
+                  </div>
+                </details>
+              )}
+              {awaitsReviewDecision(state) && !currentDecision && decisionEvidenceIssue && !evidenceReadPending && !approvalOpen && (
+                <details><summary>Approval evidence</summary>
+                  <div><p>{decisionEvidenceIssue}</p></div>
+                  {evidenceReadFailed && <button type="button" className="btn-secondary" onClick={() => void loadReviewEvidence()} disabled={evidenceReadPending}>{evidenceReadPending ? 'Retrying evidence…' : 'Retry evidence'}</button>}
+                </details>
+              )}
+              {evidenceAssessment?.readiness === 'blocked' && (
+                <details><summary>Blocking evidence</summary>
+                  <div>
+                    <p>{evidenceAssessment.availableArtifactCount} of {evidenceAssessment.artifactCount} artifacts are currently available.</p>
+                    <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => group.gaps[0].code === 'traceability_mappings_incomplete' ? <li key={group.gaps[0].id} className="review-requirement-links-gap">
+                      <strong>{group.title}</strong>
+                      <span>{suggestedLinks > 0
+                        ? `Centinel suggested ${suggestedLinks} link${suggestedLinks === 1 ? '' : 's'} from this review's evidence — confirm them so requirement coverage can be checked.`
+                        : `${group.gaps.length} requirement${group.gaps.length === 1 ? ' is' : 's are'} not linked to code yet.`}</span>
+                      <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'requirements', projectId })}>{suggestedLinks > 0 ? 'Confirm suggested links' : 'Link requirements to code'}</button>
+                    </li> : <li key={group.gaps[0].id}>
+                      <strong>{group.title}{group.gaps.length > 1 ? ` (${group.gaps.length})` : ''}</strong>
+                      {group.gaps.length === 1 ? <span>{group.gaps[0].detail}</span> : <>
+                        <ul className="review-evidence-gap-items">{group.gaps.slice(0, EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul>
+                        {group.gaps.length > EVIDENCE_GAP_PREVIEW && <details className="review-evidence-gap-more"><summary>Show {group.gaps.length - EVIDENCE_GAP_PREVIEW} more</summary>
+                          <ul className="review-evidence-gap-items">{group.gaps.slice(EVIDENCE_GAP_PREVIEW).map(gap => <li key={gap.id}>{gap.detail}</li>)}</ul></details>}
+                      </>}
+                      <span className="review-evidence-remediation">Next: {group.remediation}</span></li>)}</ul>
+                    {evidenceAssessment.contradictions.length > 0 && <div className="review-contradictions" aria-label="Conflicting evidence">
+                      <p>{evidenceAssessment.contradictions.length} possible evidence conflict{evidenceAssessment.contradictions.length === 1 ? '' : 's'} require a reviewer decision.</p>
+                      {evidenceAssessment.contradictions.map((conflict, index) => {
+                        const draft = contradictionDrafts[conflict.id] ?? { decision: 'not_conflict' as const, rationale: '' };
+                        return <div className="review-contradiction" key={conflict.id}>
+                          <h3>Conflict {index + 1}</h3>
+                          <blockquote><strong>Claim A</strong><p>{conflict.left.text}</p><small>{conflict.left.locator?.filePath ?? 'Source location unavailable'}{conflict.left.locator?.lineStart ? `:${conflict.left.locator.lineStart}` : ''}</small></blockquote>
+                          <blockquote><strong>Claim B</strong><p>{conflict.right.text}</p><small>{conflict.right.locator?.filePath ?? 'Source location unavailable'}{conflict.right.locator?.lineStart ? `:${conflict.right.locator.lineStart}` : ''}</small></blockquote>
+                          {conflict.disposition ? <p role="status"><strong>Resolved:</strong> {conflict.disposition.decision === 'authoritative_left' ? 'Claim A is authoritative' : conflict.disposition.decision === 'authoritative_right' ? 'Claim B is authoritative' : 'Not a conflict'}. {conflict.disposition.rationale}</p>
+                            : session.status === 'blocked' && <div className="review-contradiction-form">
+                              <fieldset><legend>How should this conflict be handled?</legend>
+                                {([['authoritative_left', 'Claim A is authoritative'], ['authoritative_right', 'Claim B is authoritative'], ['not_conflict', 'These claims are not conflicting']] as const).map(([value, label]) =>
+                                  <label key={value}><input type="radio" name={`contradiction-${conflict.id}`} checked={draft.decision === value} onChange={() => setContradictionDrafts(previous => ({ ...previous, [conflict.id]: { ...draft, decision: value } }))} /> {label}</label>)}</fieldset>
+                              <label htmlFor={`contradiction-rationale-${conflict.id}`}>Reason for this decision</label>
+                              <textarea id={`contradiction-rationale-${conflict.id}`} value={draft.rationale} onChange={event => setContradictionDrafts(previous => ({ ...previous, [conflict.id]: { ...draft, rationale: event.target.value } }))} rows={3} maxLength={2000} />
+                              <button type="button" className="btn-primary" onClick={() => void saveContradiction(conflict.id)} disabled={savingContradiction === conflict.id}>{savingContradiction === conflict.id ? 'Saving…' : 'Save evidence decision'}</button>
+                            </div>}
+                        </div>;
+                      })}
+                      {contradictionNotice && <p role="status">{contradictionNotice}</p>}
+                    </div>}
+                  </div>
+                </details>
+              )}
+            </>}
             onOpenSettings={() => onNavigate({ name: 'settings' })}
             liveEvents={harnessTrace?.events}
             onViewAll={() => onNavigate({ name: 'project-detail', projectId, initialSection: 'findings' })}
@@ -856,7 +855,9 @@ function ReviewActivityContent({
   onLoadOlderDecisions,
   currentDecision,
   onOpenSettings,
+  stateDetails,
 }: {
+  stateDetails: React.ReactNode;
   onOpenSettings: () => void;
   onOpenFinding: (id: string) => void;
   liveEvents?: ReviewHarnessTrace['events'];
@@ -906,8 +907,20 @@ function ReviewActivityContent({
   const goalText = objective ?? '';
   const shortGoal = goalText.length > 200 ? goalText.slice(0, 200).replace(/\s+\S*$/, '').trimEnd() + '…' : goalText;
   const config = parseReviewConfig(session);
-  const currentStage = narrative.stages.find(stage => stage.state === 'In progress')?.id;
-  const latestStep = liveEvents?.filter(event => event.stage === currentStage && event.event === 'harness_step_started').at(-1)?.detail?.step;
+  const currentStage = parseReviewProgress(session.progressJson)?.stage
+    ?? narrative.stages.find(stage => stage.state === 'In progress')?.id;
+  const stepEvent = liveEvents?.findLast(event => event.stage === currentStage && event.event === 'harness_step_started');
+  const latestStep = stepEvent?.detail?.step;
+  const executionId = stepEvent?.detail?.executionId;
+  const stepHasEnded = executionId != null && liveEvents?.some(event => event.detail?.executionId === executionId
+    && ['harness_step_completed', 'harness_step_failed', 'harness_step_cancelled'].includes(event.event));
+  const activeStepInput = stepHasEnded ? undefined : stepEvent?.detail?.input;
+  const focusDomain = activeStepInput && typeof activeStepInput === 'object' && 'focusDomain' in activeStepInput ? activeStepInput.focusDomain : undefined;
+  const focusedCategory = latestStep === 'challenge_support'
+    ? focusDomain === 'security' ? 'Security'
+      : focusDomain === 'document' ? 'Document'
+        : focusDomain === 'personnel' ? 'Human manual' : undefined
+    : undefined;
   const startedBatch = liveEvents?.filter(event => event.event === 'review_assessment_batch_started').at(-1)?.detail;
   const plannedBatches = liveEvents?.findLast(event => event.event === 'review_batches_planned')?.detail?.batches;
   const planned = Array.isArray(plannedBatches) ? plannedBatches : [];
@@ -919,35 +932,66 @@ function ReviewActivityContent({
     batchNumber: plannedIndex + 1, batchCount: planned.length, featureIds: selectedBatch.featureIds,
     filePath: sourceManifest?.artifacts?.find(artifact => artifact.id === selectedBatch.sources?.[0]?.artifactId)?.filePath,
   } : undefined);
-  const batchProgress = typeof batch?.batchNumber === 'number' && typeof batch.batchCount === 'number'
-    ? ` Batch ${batch.batchNumber} of ${batch.batchCount}.` : '';
-  const scopeNames = Array.isArray(batch?.featureIds) ? analysisMap?.features
-    .filter(feature => (batch.featureIds as unknown[]).includes(feature.id))
-    .map(feature => featureDisplayName(feature.label)) ?? [] : [];
-  const filePath = typeof batch?.filePath === 'string' ? batch.filePath : undefined;
-  const scope = scopeNames.slice(0, 2).join(' and ');
-  const scopeText = [scope, filePath].filter(Boolean).join(' · ');
+  const namesFor = (ids: unknown) => Array.isArray(ids) ? [...new Set(analysisMap?.features
+    .filter(feature => ids.includes(feature.id)).map(feature => featureDisplayName(feature.label)) ?? [])].slice(0, 4) : [];
+  const describeScope = (names: string[], path: unknown) => [
+    new Intl.ListFormat('en').format(names.map(name => '@{' + name.replace(/[{}]/g, '') + '}')),
+    typeof path === 'string' ? '`' + path.replaceAll('`', '') + '`' : '',
+  ].filter(Boolean).join(' in ');
+  const phase = parseReviewProgress(session.progressJson)?.assessmentPhase ?? startedBatch?.phase;
+  const scope = phase && startedBatch?.phase && phase !== startedBatch.phase ? '' : describeScope(namesFor(batch?.featureIds), batch?.filePath);
   const focus: Record<string, string> = {
-    freezing_sources: 'Discovering behaviors and paths in the selected sources.',
-    indexing_context: 'Preparing the selected source and requirement evidence.',
-    deterministic_analysis: 'Checking the selected code with built-in rules.',
-    model_analysis:
-      typeof latestStep === 'string' && /validate|support/.test(latestStep)
-        ? `Checking that saved code supports each reported issue and that linked requirements apply.${scopeText ? ` Current scope: ${scopeText}.` : ''}`
-        : scopeText ? `Tracing ${scopeText}. Checking how inputs reach the recorded paths and where the code enforces the requirements.`
-          : 'Tracing the selected behaviors from their entry points through the saved code and checking which requirements apply.',
-    persisting_evidence: latestStep === 'correlate_findings'
-      ? 'Comparing this review with existing project issues and checking which can be resolved.'
-      : 'Reconciling overlapping reports and saving the supported issues.',
+    freezing_sources: 'I’ll read the selected sources and requirements to discover behaviors and their paths.',
+    indexing_context: 'I’ll prepare the source and requirement evidence so related behaviors can be traced together.',
+    deterministic_analysis: 'I’ll check the requirements and run built-in checks on the selected code before tracing behaviors.',
+    model_analysis: phase === 'environment'
+      ? `I’ll check ${scope || 'the remaining selected sources'} for issues outside the behavior traces, including configuration where available.`
+      : phase === 'documents'
+        ? `I’ll check ${scope || 'the selected documents'} for requirement gaps and inconsistencies.`
+        : `I’ll trace ${scope || 'the selected behaviors'} to see how inputs are handled and which outcomes the code supports.`,
+    persisting_evidence: 'I’ll reconcile supported issues with previous results and save the evidence for approval.',
   };
   const current = narrative.active ? focus[currentStage ?? ''] ?? 'Waiting for review progress.' : undefined;
+  const events = liveEvents?.filter(event => event.reviewId === session.id) ?? [];
+  const history = events.flatMap((event, index) => {
+    const id = event.id ?? `${event.createdAt}:${index}`;
+    if (event.event === 'review_analysis_batch_saved' && Array.isArray(event.detail?.features)) {
+      if (event.detail.batchId && events.slice(index + 1).some(item =>
+        item.event === event.event && item.detail?.batchId === event.detail?.batchId)) return [];
+      const features = event.detail.features;
+      const scope = describeScope(namesFor(features.map(feature => feature?.id)), undefined);
+      const previous = events.slice(0, index).findLast(item => item.event === 'review_assessment_batch_started'
+        && (item.detail?.batchId == null || item.detail.batchId === event.detail?.batchId));
+      const finishedPhase = previous?.detail?.phase;
+      if (!features.length) {
+        const label = finishedPhase === 'documents' ? 'Checking the documents' : 'Checking additional sources';
+        return [{ id, label, message: `I reviewed ${describeScope([], previous?.detail?.filePath) || 'the selected files'} during this check.` }];
+      }
+      const target = scope || 'the selected behavior paths';
+      const summary = features.flatMap(feature => Array.isArray(feature?.assessments) ? feature.assessments : [])
+        .find(assessment => assessment?.status === 'assessed' && typeof assessment.summary === 'string')?.summary;
+      return [{ id, label: `${['Tracing', 'Checking', 'Reviewing'][index % 3]} ${target}`,
+        message: `I traced ${describeScope(namesFor(features.map(feature => feature?.id)), previous?.detail?.filePath) || target}. ${summary || 'I recorded the available checks for these paths.'}` }];
+    }
+    if (event.event !== 'harness_step_completed') return [];
+    const step = event.detail?.step;
+    if (step === 'load_grounding') return [{ id, label: 'Preparing requirement evidence', message: 'I loaded the confirmed requirements and enabled rules for this review.' }];
+    if (step === 'run_rules') return [{ id, label: 'Running code checks', message: 'I ran the built-in checks and collected candidates for source verification.' }];
+    if (step === 'correlate_findings') return [{ id, label: 'Updating the results', message: 'I compared the saved issues with the available project history.' }];
+    return [];
+  });
   const priorityIssue = [...findings].filter(finding => !['dismissed', 'fixed'].includes(effectiveFindingStatus(finding)))
     .sort((a, b) => riskLevelRank(findingRiskLevel(a)) - riskLevelRank(findingRiskLevel(b)))[0];
   const completed = state === 'Completed' || awaitsReviewDecision(state);
+  const categories = [...new Set(findings.map(reviewIssueCategory))];
+  const providerSummary = parseReviewProgress(session.progressJson)?.providerSummary;
   const completion = completed ? [
     narrative.reviewedSourceCount === undefined ? 'The review finished assessing the selected sources.'
       : `The review examined ${narrative.reviewedSourceCount} selected ${narrative.reviewedSourceCount === 1 ? 'file' : 'files'}.`,
-    analysisMap && analysisMap.status !== 'assessed' ? 'Some behavior checks remain unverified.' : '',
+    typeof providerSummary === 'string' ? providerSummary : '',
+    analysisMap?.status === 'assessed' ? 'It traced the recorded behaviors through the selected code.'
+      : analysisMap ? 'It traced the recorded behaviors, with some checks still unverified.' : '',
+    !findingsError && categories.length ? `It recorded issues in ${new Intl.ListFormat('en').format(categories.map(category => category.toLowerCase()))}.` : '',
     findingsError ? 'Reload the saved issues to see what needs attention.'
       : priorityIssue ? `Start with ${shortReviewIssueTitle(priorityIssue.title).replace(/[.!?]+$/, '')}.` : '',
   ].filter(Boolean).join(' ') : undefined;
@@ -955,15 +999,15 @@ function ReviewActivityContent({
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
         <ReviewIssues key={`issues-${session.id}`} findings={findings} storedIds={storedIds} map={analysisMap} traceability={traceability}
-          progress={current ? current + (currentStage === 'model_analysis' ? batchProgress : '') : undefined}
+          progress={current}
+          history={history}
+          duration={narrative.timing.duration}
+          focusedCategory={currentStage === 'model_analysis' ? focusedCategory : undefined}
           completion={completion}
           liveIssues={uniqueLiveIssues}
           coverageInterrupted={['Failed', 'Blocked', 'Cancelled', 'Paused'].includes(state)} issuesUnavailable={Boolean(findingsError)}
           onView={onOpenFinding} onStatus={onIssueStatus} onReply={onIssueReply} />
         {harnessError && !harnessLoading && <p role="status">{harnessError}</p>}
-        {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
-        {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p>{/model provider|provider unavailable|no model/i.test(session.failureReason ?? '') && <button type="button" className="btn-secondary" onClick={onOpenSettings}>Open Settings</button>}</div></div>}
-        {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
         {currentDecision && (
           <div className="review-decision-recorded" role="status">
             <History size={15} aria-hidden="true" />
@@ -975,7 +1019,13 @@ function ReviewActivityContent({
         {findingsError && <p className="review-history-unavailable" role="status">Findings could not be loaded. Decisions are disabled until the evidence can be reloaded.</p>}
       </section>
       <aside className="review-activity-metadata" aria-label="Review details">
-        <section className="review-metadata-state"><h3>State</h3><StatusBadge label={state} tone={reviewLifecycleTone(state)} /></section>
+        <section className="review-metadata-state">
+          <div><h3>State</h3><StatusBadge label={state} tone={reviewLifecycleTone(state)} /></div>
+          {['Blocked', 'Paused', 'Failed'].includes(state) && <p>{reviewFailureMessage(session.failureReason)}</p>}
+          {state === 'Failed' && /model provider|provider unavailable|no model/i.test(session.failureReason ?? '') && <button type="button" className="btn-link" onClick={onOpenSettings}>Open Settings</button>}
+          {state === 'Cancelled' && <p>The activity stopped before a completed result was recorded.</p>}
+          {stateDetails}
+        </section>
         <section><h3>Version</h3>
           {sourceManifest?.gitRefs?.length ? sourceManifest.gitRefs.map(ref => {
               const branch = ref.commit === config.repositoryRevision && typeof config.repositoryBranch === 'string' ? config.repositoryBranch : ref.branch;
@@ -1000,6 +1050,8 @@ function ReviewActivityContent({
               <tbody>{recentFindings.map(({ key, title, findingId, evidence }) => (
                 <tr key={key}><th scope="row"><button type="button" className="review-sidebar-finding-jump" onClick={() => {
                   const target = document.getElementById(`review-finding-${findingId ?? key}`);
+                  const category = target?.closest<HTMLDetailsElement>('.review-issue-category');
+                  if (category) category.open = true;
                   target?.focus({ preventScroll: true });
                   target?.scrollIntoView?.({ block: 'center' });
                 }}>{shortReviewIssueTitle(title)}</button></th><td>
@@ -1013,12 +1065,12 @@ function ReviewActivityContent({
                     title="Open issue detail" onClick={() => onOpenFinding(findingId)}><ExternalLink size={16} aria-hidden="true" /></button>}
                 </td></tr>
               ))}</tbody>
-              {moreIssues > 0 && <tfoot><tr><td colSpan={2}><button type="button" className="btn-link" onClick={onViewAll}>{moreIssues} more {moreIssues === 1 ? 'issue' : 'issues'}</button></td></tr></tfoot>}
+              {moreIssues > 0 && <tfoot className="review-sidebar-issue-footer"><tr><td colSpan={2}><ReviewTableAction onClick={onViewAll}>{moreIssues} more {moreIssues === 1 ? 'issue' : 'issues'}</ReviewTableAction></td></tr></tfoot>}
             </table> : <p>{findingsError ? 'Issues unavailable' : 'No issues recorded yet'}</p>}
           </div>
         </section>
         <section><h3>Risk</h3><dl>
-          {['Critical', 'High', 'Medium', 'Low'].map(level => <div key={level}><dt>{level}</dt><dd>{findingsError ? '—' : findings.filter(finding => findingRiskLevel(finding)?.toLowerCase() === level.toLowerCase()).length}</dd></div>)}
+          {['Critical', 'High', 'Medium', 'Low'].map(level => <div key={level}><dt className="review-risk-label" data-risk={level.toLowerCase()}>{level}</dt><dd>{findingsError ? '—' : findings.filter(finding => findingRiskLevel(finding)?.toLowerCase() === level.toLowerCase()).length}</dd></div>)}
         </dl></section>
         <section><h3>Review</h3><dl>
           <div><dt>Review scope</dt><dd>{config.scopeMode === 'focused' ? 'Focused Review' : 'Full Review'}</dd></div>

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { Ban, Eye, RotateCcw, Send } from 'lucide-react';
+import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
+import { Ban, Bot, ChevronRight, Eye, RotateCcw, Send } from 'lucide-react';
 import { EvidenceFileControl, loadFindingSavedSource } from './FindingEvidence';
 import { StatusBadge } from './CommandUI';
 import { findingRiskLevel } from './FindingsPanel';
 import { findingSourceReferences, groupFindings } from '../findingGroups';
 import { rankFindingEvidence } from '../findingEvidenceRanking';
+import { riskLevelRank } from '../riskPolicy';
 import { effectiveFindingStatus } from '../findingStatus';
 import { featureDisplayName, groupReviewFeatures } from '../reviewFeatures';
 import { plainReviewText } from '../reviewNarrative';
@@ -22,16 +23,16 @@ function codeProse(value: string) {
   });
 }
 
-export const REVIEW_ISSUE_CATEGORIES = ['Document', 'Security', 'Technical', 'Human manual', 'System'] as const;
+export const REVIEW_ISSUE_CATEGORIES = ['Document', 'Security', 'Behavior', 'Human manual', 'System'] as const;
 export type ReviewIssueCategory = typeof REVIEW_ISSUE_CATEGORIES[number];
 
-export function reviewIssueCategory(finding: Pick<Finding, 'title' | 'category' | 'location' | 'evidenceGap'>): ReviewIssueCategory {
+export function reviewIssueCategory(finding: Pick<Finding, 'title' | 'category' | 'location' | 'evidenceGap' | 'requirementId'>): ReviewIssueCategory {
   const labels = [finding.category, finding.location?.issueType, finding.location?.ruleId, finding.title].filter(Boolean).join(' ').replace(/[_-]/g, ' ');
-  if (finding.evidenceGap || /\b(document|traceability|requirement mismatch|requirement conflict|requirement violation|nonconformance)\b/i.test(labels)) return 'Document';
+  if (finding.evidenceGap || (finding.requirementId && finding.location?.domain === 'business') || /\b(document|traceability|requirement mismatch|requirement conflict|requirement violation|requirements? (?:coverage )?gap|implementation (?:coverage )?gap|nonconformance)\b/i.test(labels)) return 'Document';
   if (finding.location?.domain === 'security' || /\b(security|auth(?:entication|orization)?|ownership check|credential|secret|validation|unsafe html|outdated dependenc)\w*/i.test(labels)) return 'Security';
   if (finding.location?.domain === 'personnel' || /\b(human manual|usability|confirmation|undo|UI|UX)\b/i.test(labels)) return 'Human manual';
-  if (/\b(system|maintainab\w*|architecture|modular\w*|memory leak|resource leak|deep nesting|long function)\b/i.test(labels)) return 'System';
-  return 'Technical';
+  if (/\b(system|maintainab\w*|architecture|modular\w*|deep nesting|long function)\b/i.test(labels)) return 'System';
+  return 'Behavior';
 }
 
 export function shortReviewIssueTitle(title: string) {
@@ -92,7 +93,7 @@ function IssueSourceContext({ projectId, reviewId, referencesJson }: {
   </div>;
 }
 
-export function ReviewIssues({ findings, storedIds, map, traceability, coverageInterrupted, issuesUnavailable, progress, completion, liveIssues = [], onView, onStatus, onReply }: {
+export function ReviewIssues({ findings, storedIds, map, traceability, coverageInterrupted, issuesUnavailable, progress, history, duration, focusedCategory, completion, liveIssues = [], onView, onStatus, onReply }: {
   findings: Finding[];
   storedIds: ReadonlySet<string>;
   map?: ReviewAnalysisMap | null;
@@ -100,12 +101,16 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
   coverageInterrupted: boolean;
   issuesUnavailable: boolean;
   progress?: string;
+  history: { id: string; label: string; message: string }[];
+  duration: string;
+  focusedCategory?: ReviewIssueCategory;
   completion?: string;
   liveIssues?: ReadonlyArray<{ key: string; title: string }>;
   onView: (id: string) => void;
   onStatus?: (id: string, status: 'dismissed' | 'new') => Promise<void>;
   onReply?: (finding: Finding, reply: string) => Promise<void>;
 }) {
+  const [coverageOpen, setCoverageOpen] = useState(false);
   const groups = map ? groupReviewFeatures(map, findings, traceability) : [];
   const names = new Map<string, string>();
   const coverage = groups.map(({ feature, operations }) => {
@@ -113,13 +118,9 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
     operations.forEach(operation => names.set(operation.id, name));
     const assessments = operations.flatMap(operation => operation.assessments);
     const checked = assessments.some(assessment => assessment.status === 'assessed');
-    const complete = operations.every(operation =>
-      new Set(operation.assessments.filter(assessment => assessment.status === 'assessed').map(assessment => assessment.domain)).size === 4
-      && !operation.unresolved.length && operation.entryPointStatus !== 'unresolved'
-      && operation.entryPointStatus !== 'external_boundary' && operation.analysisKind !== 'plain_text_logic');
-    return { id: feature.id, name, state: checked ? complete ? 'Checked' : 'Partial' : 'Not checked' };
+    return { id: feature.id, name, state: checked ? 'Checked' : 'Not checked' };
   });
-  const counts = ['Checked', 'Partial', 'Not checked'].map(state => ({ state, count: coverage.filter(item => item.state === state).length }));
+  const counts = ['Checked', 'Not checked'].map(state => ({ state, count: coverage.filter(item => item.state === state).length }));
   const orderedIssues = [...findings].sort((a, b) => Number(storedIds.has(b.id)) - Number(storedIds.has(a.id)));
   const behaviorName = (finding: Finding) => {
     const named = names.get(finding.location?.sourceLocator?.analysis?.featureId ?? '') ?? finding.affectedFeature;
@@ -139,7 +140,7 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
     grouped={grouped}
     initiallyExpanded={initiallyExpanded}
     behavior={behaviorName(finding)}
-    expectation={traceability?.status === 'available' ? traceability.records.find(record => record.requirementId === finding.requirementId && record.evidenceStatus !== 'stale' && record.evidenceStatus !== 'unavailable')?.title : undefined}
+    requirement={traceability?.status === 'available' ? traceability.records.find(record => record.requirementId === finding.requirementId && record.evidenceStatus !== 'stale' && record.evidenceStatus !== 'unavailable') : undefined}
     onView={onView} onStatus={storedIds.has(finding.id) ? onStatus : undefined} onReply={onReply} />;
   const renderGroup = ({ key, title, members, representative }: ReturnType<typeof groupFindings>[number], crossCutting = false) => {
     if (members.length === 1) return renderIssue(members[0], crossCutting);
@@ -158,28 +159,48 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
     <section className="review-behavior-coverage" aria-label="Review coverage">
       <h2>Review coverage</h2>
       {coverage.length ? <>
-        <div className="review-coverage-bar" aria-hidden="true">{counts.filter(item => item.count).map(({ state, count }) =>
-          <span key={state} data-state={state} style={{ flexGrow: count }} />)}</div>
+        <div className="review-coverage-preview" onPointerEnter={event => { if (event.pointerType === 'mouse') setCoverageOpen(true); }} onPointerLeave={event => { if (event.pointerType === 'mouse') setCoverageOpen(false); }}
+          onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setCoverageOpen(false); }}
+          onKeyDown={event => { if (event.key === 'Escape') setCoverageOpen(false); }}>
+          <button type="button" className="review-coverage-trigger" aria-expanded={coverageOpen}
+            onClick={event => setCoverageOpen(value => event.detail === 0 ? !value : true)}>
+            <span>View all {coverage.length} behaviors <ChevronRight size={14} aria-hidden="true" /></span>
+            <span className="review-coverage-bar" aria-hidden="true">{counts.filter(item => item.count).map(({ state, count }) =>
+              <span key={state} data-state={state} style={{ flexGrow: count }} />)}</span>
+          </button>
+          {coverageOpen && <div className="review-coverage-popup" role="region" aria-label="All discovered behaviors" tabIndex={0}>
+            <table className="review-sidebar-findings review-coverage-table" aria-label="Behavior coverage">
+              <thead><tr><th scope="col">Behavior</th><th scope="col">Status</th></tr></thead>
+              <tbody>{coverage.map(item => <tr key={item.id}><th scope="row">{item.name}</th><td>{item.state}</td></tr>)}</tbody>
+            </table>
+          </div>}
+        </div>
         <p className="review-coverage-legend" aria-live="polite">
           {counts.map(({ state, count }) => <span key={state}><i data-state={state} aria-hidden="true" />{count} {state.toLowerCase()}</span>)}</p>
-        {coverageInterrupted && counts[2].count > 0 && <p>The review stopped before it could assess every discovered behavior.</p>}
+        {coverageInterrupted && counts[1].count > 0 && <p>The review stopped before it could assess every discovered behavior.</p>}
         {map?.coverage.featureInventoryTruncated && <p>Behavior inventory is incomplete.</p>}
-        <details><summary>See all behaviors ({coverage.length})</summary>
-          <table className="review-sidebar-findings review-coverage-table" aria-label="Behavior coverage">
-            <thead><tr><th scope="col">Behavior</th><th scope="col">Status</th></tr></thead>
-            <tbody>{coverage.map(item => <tr key={item.id}><th scope="row">{item.name}</th><td>{item.state}</td></tr>)}</tbody>
-          </table>
-        </details>
       </> : <p>Behavior coverage has not been recorded.</p>}
     </section>
+    {history.length > 0 && <details className="review-agent-history">
+      <ReviewDisclosureSummary>{completion ? `Reviewed for ${duration}` : 'Review activity'}</ReviewDisclosureSummary>
+      <ol>{history.map(item => <li key={item.id}><small>{agentProse(item.label)}</small><p>{agentProse(item.message)}</p></li>)}</ol>
+    </details>}
+    {(progress || completion) && <div className="review-agent-update" role="status">
+      {progress && <ReviewAgentAvatar />}
+      <div className="review-agent-message">
+        <div className="review-agent-message-heading">{progress ? 'Review agent' : 'Review summary'}
+          {progress && <span className="review-agent-typing" aria-hidden="true"><i /><i /><i /></span>}
+        </div>
+        <p>{progress ? agentProse(progress) : codeProse(completion ?? '')}</p>
+      </div>
+    </div>}
     <section className="review-issues" aria-label="Issues">
-      <h3>Issues</h3>
       {REVIEW_ISSUE_CATEGORIES.map(category => {
         const groupsInCategory = groupFindings(orderedIssues.filter(finding => reviewIssueCategory(finding) === category));
         const categoryLiveIssues = liveIssues.filter(issue => reviewIssueCategory({ title: issue.title, category: '' }) === category);
         if (!groupsInCategory.length && !categoryLiveIssues.length) return null;
-        return <section key={category} className="review-issue-category" aria-label={category}>
-          <h4>{progress && <span className="review-focus-light" data-active={categoryLiveIssues.length > 0} aria-label={categoryLiveIssues.length > 0 ? 'Issues reported during this review' : undefined} />}{category}</h4>
+        return <details open key={category} className="review-issue-category" aria-label={`${category} Issues`}>
+          <ReviewDisclosureSummary><h3>{category} Issues</h3>{progress && focusedCategory === category && <ReviewAgentAvatar />}</ReviewDisclosureSummary>
           {groupsInCategory.map(group => renderGroup(group, category === 'System'))}
           {categoryLiveIssues.length > 0 && <table className="review-sidebar-findings review-coverage-table" aria-label={`Live ${category} issues`}>
             <thead><tr><th scope="col">Issue</th><th scope="col">Status</th></tr></thead>
@@ -187,13 +208,34 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
               <th scope="row">{shortReviewIssueTitle(issue.title)}</th><td>Awaiting final review</td>
             </tr>)}</tbody>
           </table>}
-        </section>;
+        </details>;
       })}
       {!findings.length && !liveIssues.length && <p>{issuesUnavailable ? 'Saved issues are unavailable.' : 'No issues recorded yet.'}</p>}
-      {progress && <p className="review-issue-progress" role="status"><span className="review-focus-light" data-active="true" aria-hidden="true" />{progress}</p>}
-      {completion && <p className="review-issue-progress">{completion}</p>}
     </section>
   </>;
+}
+
+export function ReviewTableAction({ children, ...props }: ComponentPropsWithoutRef<'button'>) {
+  return <button {...props} type="button" className="review-more-issues">{children}</button>;
+}
+
+function ReviewDisclosureSummary({ children }: { children: React.ReactNode }) {
+  return <summary className="review-disclosure-summary"><ChevronRight size={16} aria-hidden="true" />{children}</summary>;
+}
+
+function agentProse(message: string) {
+  return message.split(/(@\{[^}]+\}|`[^`]+`)/g).map((part, index) =>
+    part.startsWith('@{') ? <mark key={index}>@{part.slice(2, -1)}</mark>
+      : <span key={index}>{codeProse(part)}</span>);
+}
+
+function ReviewAgentAvatar() {
+  return <span className="review-agent-avatar" role="img" aria-label="Review agent"><Bot size={18} aria-hidden="true" /></span>;
+}
+
+function IssueRisk({ findings }: { findings: Finding[] }) {
+  const risk = findings.map(findingRiskLevel).filter(Boolean).sort((a, b) => riskLevelRank(a) - riskLevelRank(b))[0];
+  return risk && <span className="review-risk-label review-issue-risk" data-risk={risk.toLowerCase()}>{risk} risk</span>;
 }
 
 function IssueSourceCount({ findings }: { findings: Finding[] }) {
@@ -237,6 +279,7 @@ function IssueGroupHeader({ title, members, onView, editableIds, onStatus }: {
 
   return <>
     <header className="review-issue-group-header"><div className="review-issue-title"><h4 title={title}>{shortReviewIssueTitle(title)}</h4><IssueSourceCount findings={members} /></div><div>
+      <IssueRisk findings={members} />
       <StatusBadge label={label} tone={label === 'Resolved' ? 'success' : 'neutral'} />
       <button type="button" className="command-icon-button" aria-label={`View issue: ${title}`} title="View issue" onClick={onView}><Eye size={16} aria-hidden="true" /></button>
       {onStatus && targets.length > 0 && <button type="button" className="command-icon-button" aria-label={action} title={action} disabled={pending} onClick={() => void update()}>
@@ -252,13 +295,13 @@ function issueStatusLabel(finding: Finding) {
   return status === 'fixed' ? 'Resolved' : status === 'dismissed' ? 'Ignored' : 'Open';
 }
 
-function ReviewIssue({ finding, crossCutting, grouped, initiallyExpanded, behavior, expectation, onView, onStatus, onReply }: {
+function ReviewIssue({ finding, crossCutting, grouped, initiallyExpanded, behavior, requirement, onView, onStatus, onReply }: {
   finding: Finding;
   crossCutting: boolean;
   grouped: boolean;
   initiallyExpanded: boolean;
   behavior?: string;
-  expectation?: string;
+  requirement?: ReviewTraceabilitySnapshot['records'][number];
   onView: (id: string) => void;
   onStatus?: (id: string, status: 'dismissed' | 'new') => Promise<void>;
   onReply?: (finding: Finding, reply: string) => Promise<void>;
@@ -286,7 +329,7 @@ function ReviewIssue({ finding, crossCutting, grouped, initiallyExpanded, behavi
   const verification = sentences.find(sentence => /^(?:to verify|verify|confirm|check)\b/i.test(sentence));
   const observations = sentences.filter(sentence => sentence !== verification);
   const codeNames = /\b(?:[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+|[a-z]+[A-Z][\w$]*|[A-Za-z_$][\w$]*(?=\())\b/g;
-  for (const step of [...flow, ...observations]) {
+  for (const step of flow) {
     const normalized = step.replaceAll('\\', '/');
     const matches = [...files.keys()].filter(path => {
       const offset = normalized.indexOf(path);
@@ -297,18 +340,17 @@ function ReviewIssue({ finding, crossCutting, grouped, initiallyExpanded, behavi
       for (const [path, refs] of files) {
         if (names.some(name => refs.some(ref => ref.excerpt?.match(codeNames)?.includes(name)))) matches.push(path);
       }
-      if (!matches.length && files.size === 1) matches.push(...files.keys());
     }
     if (matches.length !== 1) continue;
     const path = matches[0];
     const note = step.replace(/^\s*[^\s]+:\d+\s*[:–—-]?\s*/, '');
+    if (/\b(?:unvalidated|unchecked|insecure|unconstrained|unsafe|vulnerab\w*|without|does not|fails to|bypass\w*)\b/i.test(note)) continue;
     const previous = fileNotes.get(path);
     if (note && (!previous || note.length < previous.length)) fileNotes.set(path, note);
   }
   const impact = observations.slice(1).find(sentence => /\b(?:consequently|results? in|leads? to|can|could|may)\b/i.test(sentence));
   const summary = [observations[0], impact].filter(Boolean).join(' ');
   const uncertain = finding.location?.sourceLocator?.citationEvidence?.verification === 'needs_verification';
-  const risk = findingRiskLevel(finding);
   const run = async (action: 'status' | 'reply', operation: () => Promise<void>) => {
     if (busy.current) return;
     busy.current = true;
@@ -329,6 +371,7 @@ function ReviewIssue({ finding, crossCutting, grouped, initiallyExpanded, behavi
   };
   return <article className="review-issue" id={`review-finding-${finding.id}`} tabIndex={-1}>
     {!grouped && <header><div className="review-issue-title"><h4 title={finding.title}>{shortReviewIssueTitle(finding.title)}</h4><IssueSourceCount findings={[finding]} /></div><div>
+      <IssueRisk findings={[finding]} />
       <StatusBadge label={label} tone={label === 'Resolved' ? 'success' : 'neutral'} />
       <button type="button" className="command-icon-button" aria-label={`View issue: ${finding.title}`} title="View issue" onClick={() => onView(finding.id)}><Eye size={16} aria-hidden="true" /></button>
       {onStatus && status !== 'fixed' && <button type="button" className="command-icon-button" aria-label={statusAction} title={statusAction} disabled={pending !== null}
@@ -337,10 +380,16 @@ function ReviewIssue({ finding, crossCutting, grouped, initiallyExpanded, behavi
       </button>}
     </div></header>}
     <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
-      <summary><span className="review-issue-row"><strong>{behavior || (finding.filePath ? finding.filePath.split(/[\\/]/).at(-1) : 'Behavior not recorded')}</strong>
-        <span className="review-issue-count">{files.size} {files.size === 1 ? 'file' : 'files'}</span></span></summary>
-      {expectation && <p>{codeProse(expectation)}</p>}
-      {(risk || uncertain || finding.verifier === 'deterministic') && <p>{risk && <StatusBadge label={`${risk} risk`} />}{' '}
+      <ReviewDisclosureSummary><span className="review-issue-row"><strong>{behavior || (finding.filePath ? finding.filePath.split(/[\\/]/).at(-1) : 'Behavior not recorded')}</strong>
+        <span className="review-issue-count">{files.size} {files.size === 1 ? 'file' : 'files'}</span></span></ReviewDisclosureSummary>
+      {reviewIssueCategory(finding) === 'Document' ? (
+        <div className="review-issue-requirement">
+          {requirement ? <><strong>{requirement.title}</strong>
+            {requirement.description && requirement.description !== requirement.title && <p><mark>{requirement.description}</mark></p>}
+          </> : <p>{finding.requirementId ? 'Saved requirement evidence unavailable.' : 'No requirement was recorded for this behavior.'}</p>}
+        </div>
+      ) : requirement && <p>{codeProse(requirement.title)}</p>}
+      {(uncertain || finding.verifier === 'deterministic') && <p>
         {uncertain ? 'Source references need verification.' : finding.verifier === 'deterministic' ? 'Rule check · Confirm the behavior before treating this as a defect.' : ''}</p>}
       {[...files].map(([path, refs]) => <section key={path} className="review-issue-file">
         <h5><EvidenceFileControl path={path} findings={[finding]} tooltip />

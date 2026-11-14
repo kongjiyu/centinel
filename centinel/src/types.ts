@@ -772,6 +772,8 @@ export type ReviewProgress = {
   pauseCode?: string;
   completedStages?: string[];
   /** Completed with gaps: some parts could not be verified. */
+  assessmentPhase?: 'documents' | 'behaviors' | 'environment';
+  providerSummary?: string;
   coverage?: 'partial';
   currentStage: ReviewStageId;
   stages: ReviewStageProgress[];

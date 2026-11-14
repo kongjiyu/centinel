@@ -303,7 +303,12 @@ export function createReviewActivityViewModel(
 export function formatReviewTimestamp(value: string | undefined): string | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : null;
+  if (!Number.isFinite(timestamp)) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(timestamp);
+  const fields = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${fields.day} ${fields.month} ${fields.year} ${fields.hour}:${fields.minute}`;
 }
 
 export function truncateReviewSourceName(value: string, maxLength = 15): string {

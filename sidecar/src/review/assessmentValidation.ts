@@ -17,6 +17,7 @@ function closedObject(properties: Record<string, unknown>) {
   return { type: 'object', additionalProperties: false, properties, required: Object.keys(properties) };
 }
 export const STATIC_ASSESSMENT_SCHEMA = closedObject({
+  scopeSummary: { type: ['string', 'null'], maxLength: 360 },
   findings: { type: 'array', items: closedObject({
     title: { type: 'string' }, description: { type: 'string' }, category: { type: 'string' },
     severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },

@@ -14,7 +14,8 @@ import {
   type EvidencePacketSelectionPlan,
 } from './evidencePacketSelection.js';
 
-export const REVIEW_FEATURE_BATCH_SIZE = 8;
+export const REVIEW_FEATURE_BATCH_SIZE = 4;
+const REVIEW_FILE_BATCH_SIZE = 8;
 export const REVIEW_SOURCE_BATCH_CHARACTERS = 64_000;
 const SOURCE_SEGMENT_CHARACTERS = 24_000;
 export const MAX_ASSESSMENT_BATCHES = 256;
@@ -298,7 +299,7 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
       if (!sourceIds.has(reference.artifactId) || !sources.some(source => source.artifact.id === reference.artifactId
         && reference.lineNumber >= source.lineStart && reference.lineNumber <= source.lineEnd)) throw contextLimit();
     }
-    if (sourceSize(sources) > REVIEW_SOURCE_BATCH_CHARACTERS) {
+    if (sourceSize(sources) > REVIEW_SOURCE_BATCH_CHARACTERS || (sourceIds.size > REVIEW_FILE_BATCH_SIZE && features.length > 1)) {
       if (features.length <= 1) throw contextLimit();
       const middle = Math.ceil(features.length / 2);
       addFeatureGroup(features.slice(0, middle));
@@ -320,7 +321,8 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
         optional.lineStart <= range.lineStart && optional.lineEnd >= range.lineEnd));
     });
     const optionalFits = containsRequiredRanges && optionalCharacters <= MAX_OPTIONAL_PACKET_CHARACTERS
-      && sourceSize(optionalSources) <= REVIEW_SOURCE_BATCH_CHARACTERS;
+      && sourceSize(optionalSources) <= REVIEW_SOURCE_BATCH_CHARACTERS
+      && new Set(optionalSources.map(source => source.artifact.id)).size <= REVIEW_FILE_BATCH_SIZE;
     if (optionalFits) {
       selection = optionalSelection;
       sources = optionalSources;
@@ -331,8 +333,15 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
     }
     add(features, sources, packetDiagnostics(selection, omittedCallerCount, omittedRetrievedCount));
   };
-  for (let index = 0; index < map.features.length; index += REVIEW_FEATURE_BATCH_SIZE) {
-    const group = map.features.slice(index, index + REVIEW_FEATURE_BATCH_SIZE);
+  const relatedFeatures = new Map<string, ReviewAnalysisFeature[]>();
+  for (const feature of map.features) {
+    const key = feature.entryPoints[0]?.artifactId ?? feature.id;
+    const group = relatedFeatures.get(key) ?? [];
+    group.push(feature);
+    relatedFeatures.set(key, group);
+  }
+  for (const features of relatedFeatures.values()) for (let index = 0; index < features.length; index += REVIEW_FEATURE_BATCH_SIZE) {
+    const group = features.slice(index, index + REVIEW_FEATURE_BATCH_SIZE);
     const parsedFeatures = group.filter(feature => feature.analysisKind !== 'plain_text_logic');
     if (parsedFeatures.length) addFeatureGroup(parsedFeatures);
     // Text-logic units have no AST boundaries. Retain the whole exact segment,
@@ -367,20 +376,23 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
     sweep.push(source);
   }
   add([], sweep);
-  // Keep non-code documents available to an independent sweep if no feature
-  // batch already included them as bounded shared context.
-  sweep = [];
-  for (const source of all.filter(source => source.artifact.type !== 'source_code' && !textLogicIds.has(source.artifact.id) && !covered.has(sourceKey(source)))) {
-    if (sweep.length && sourceSize([...sweep, source]) > REVIEW_SOURCE_BATCH_CHARACTERS) { add([], sweep); sweep = []; }
-    sweep.push(source);
+  const isDocument = (source: AssessmentSourceSegment) => /\.(?:md|pdf|docx?|txt|rst)$/i.test(source.artifact.filePath);
+  const remaining = all.filter(source => source.artifact.type !== 'source_code' && !textLogicIds.has(source.artifact.id) && (isDocument(source) || !covered.has(sourceKey(source))));
+  for (const sources of [remaining.filter(isDocument), remaining.filter(source => !isDocument(source))]) {
+    sweep = [];
+    for (const source of sources) {
+      if (sweep.length && sourceSize([...sweep, source]) > REVIEW_SOURCE_BATCH_CHARACTERS) { add([], sweep); sweep = []; }
+      sweep.push(source);
+    }
+    add([], sweep);
   }
-  add([], sweep);
   // Add original documents as shared context when they fit; remaining documents still have their own sweep.
   const documents = all.filter(source => source.artifact.type !== 'source_code' && !textLogicIds.has(source.artifact.id));
   for (const batch of batches.filter(batch => batch.features.length)) {
     for (const document of documents) {
       if (batch.sources.some(source => sourceKey(source) === sourceKey(document))) continue;
-      if (sourceSize([...batch.sources, document]) <= REVIEW_SOURCE_BATCH_CHARACTERS) batch.sources.push(document);
+      if (new Set([...batch.sources, document].map(source => source.artifact.id)).size <= REVIEW_FILE_BATCH_SIZE
+        && sourceSize([...batch.sources, document]) <= REVIEW_SOURCE_BATCH_CHARACTERS) batch.sources.push(document);
     }
   }
   // Append bounded, complete one-hop CommonJS dependency modules only after

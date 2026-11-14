@@ -138,9 +138,9 @@ describe('bounded Review assessment batches', () => {
   });
   it('retains the explicit 256 batch ceiling and keeps executable long lines fail-closed', () => {
     const input = item('src/cap.ts', 'x');
-    const features = Array.from({ length: 2_040 }, (_, index) => mappedFeature(`cap-${index}`, input, 1));
+    const features = Array.from({ length: (MAX_ASSESSMENT_BATCHES - 1) * REVIEW_FEATURE_BATCH_SIZE }, (_, index) => mappedFeature(`cap-${index}`, input, 1));
     expect(planAssessmentBatches(mapFor(features), [input])).toHaveLength(MAX_ASSESSMENT_BATCHES);
-    expect(() => planAssessmentBatches(mapFor([...features, ...features.slice(0, 8)]), [input]))
+    expect(() => planAssessmentBatches(mapFor([...features, ...features.slice(0, REVIEW_FEATURE_BATCH_SIZE)]), [input]))
       .toThrow(expect.objectContaining({ code: 'context_limit' }));
 
     const executable = item('src/oversized.ts', 'x'.repeat(REVIEW_SOURCE_BATCH_CHARACTERS + 1));
@@ -311,9 +311,9 @@ describe('bounded Review assessment batches', () => {
       modelProvider:{analyze:async request=>{ requests.push(request); return {result:response(request),settings:{provider:'custom',apiFormat:'openai-compatible',model:'offline'}};}}});
     const run=await runner.start({projectId:'p',reviewType:'code_review',artifacts:[input.artifact]});
     expect((await run.completion).status).toBe('pending_approval');
-    expect(requests).toHaveLength(3);
-    expect(new Set(repository.attempts.map(attempt=>attempt.stage)).size).toBe(3);
-    expect(repository.attempts.map(attempt=>attempt.attempt)).toEqual([1,1,1]);
+    expect(requests).toHaveLength(4);
+    expect(new Set(repository.attempts.map(attempt=>attempt.stage)).size).toBe(4);
+    expect(repository.attempts.map(attempt=>attempt.attempt)).toEqual([1,1,1,1]);
     expect(repository.audits.filter(event=>event.event==='review_assessment_validated')).toHaveLength(1);
     expect(reader).toHaveBeenCalledOnce();
   });
@@ -352,7 +352,7 @@ describe('bounded Review assessment batches', () => {
     expect(repository.audits.some(event=>event.event==='review_assessment_validated')).toBe(false);
     const map=analysisMapFromEvents(repository.audits)!;
     expect(map.status).toBe('partial');
-    expect(map.features.filter(feature=>feature.assessments.every(row=>row.status==='assessed'))).toHaveLength(8);
+    expect(map.features.filter(feature=>feature.assessments.every(row=>row.status==='assessed'))).toHaveLength(REVIEW_FEATURE_BATCH_SIZE);
   });
   it('rejects evidence extending beyond the segment supplied to that request', () => {
     const source={...item('api.ts','line two\nline three'),lineStart:2,lineEnd:3};

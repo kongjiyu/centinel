@@ -319,7 +319,7 @@ describe('ReviewActivityScreen', () => {
     expect(issue.querySelector('details')).not.toHaveAttribute('open');
     await user.click(issue.querySelector('summary')!);
     expect(within(issue).getByRole('button', { name: 'src/second.ts' })).toBeInTheDocument();
-    expect(within(issue).getByText(finding.description)).toBeVisible();
+    expect(issue.querySelector('.review-issue-overview')).toHaveTextContent(finding.description);
     expect(screen.queryByText('Check details (1)')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'complete' })).not.toBeInTheDocument();
     expect(api.getReviewHarness).toHaveBeenCalledWith(project.id, baseSession.id);
@@ -418,7 +418,7 @@ describe('ReviewActivityScreen', () => {
     await screen.findByRole('heading', { name: 'Review coverage' });
     expect(await screen.findByText(/Saved execution details could not be loaded/)).toBeInTheDocument();
     const issue = document.getElementById(`review-finding-${finding.id}`)!;
-    expect(within(issue).getByText(finding.description)).toBeVisible();
+    expect(issue.querySelector('.review-issue-overview')).toHaveTextContent(finding.description);
     await user.click(screen.getByRole('button', { name: `View issue: ${finding.title}` }));
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ name: 'project-detail', initialSection: 'findings', findingsReviewId: baseSession.id, findingId: finding.id }));
   });
@@ -632,7 +632,9 @@ describe('ReviewActivityScreen', () => {
     });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Evidence blocks this review');
+    expect(await screen.findByText('Blocking evidence')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('Blocking evidence'));
     expect(screen.getByText(/Next: Reconnect GitHub and refresh the source/i)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Changes since parent review' })).not.toBeInTheDocument();
     expect(api.getReviewCorrelations).not.toHaveBeenCalled();
@@ -644,11 +646,14 @@ describe('ReviewActivityScreen', () => {
     setup(gaps);
     render(<ReviewActivityScreen projectId={project.id} sessionId={gaps.id} onNavigate={vi.fn()} />);
 
-    const panel = await screen.findByRole('status', { name: 'Completed with gaps' });
+    const summary = await screen.findByText('Coverage gaps');
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    await userEvent.click(summary);
+    const panel = summary.closest('details')!;
     expect(within(panel).getByRole('list', { name: 'Parts that could not be verified' })).toHaveTextContent('src/cart.ts');
     expect(panel).toHaveTextContent('The conclusions could not be backed up with evidence from the code.');
     expect(panel).toHaveTextContent('cannot close earlier findings');
-    expect(screen.getAllByText('Completed with gaps').length).toBeGreaterThan(1);
+    expect(screen.getByText('Completed with gaps')).toBeVisible();
     expect(screen.getByTestId('review-decision-approve')).toBeInTheDocument();
   });
 
@@ -772,7 +777,8 @@ describe('ReviewActivityScreen', () => {
 
     const approve = await screen.findByRole('button', { name: 'Approve review' });
     expect(approve).toBeDisabled();
-    expect(screen.getByRole('alert', { name: 'Decision evidence status' })).toHaveTextContent('could not be loaded');
+    await user.click(await screen.findByText('Approval evidence'));
+    expect(screen.getByText(/Required Review evidence could not be loaded/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Retry evidence' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve review' })).toBeEnabled());
@@ -798,7 +804,8 @@ describe('ReviewActivityScreen', () => {
     vi.mocked(api.getReviewSourceManifest).mockResolvedValueOnce(availableManifest('another-review'));
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
 
-    expect(await screen.findByRole('alert', { name: 'Decision evidence status' })).toHaveTextContent('could not be loaded');
+    await userEvent.click(await screen.findByText('Approval evidence'));
+    expect(screen.getByText(/Required Review evidence could not be loaded/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Approve review' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Retry evidence' })).toBeInTheDocument();
   });
@@ -844,7 +851,8 @@ describe('ReviewActivityScreen', () => {
     setup({ ...baseSession, id: 'review-explicit-scope', modelStatus: 'succeeded', scope: { artifactIds: ['artifact-1'], requirementIds: [], standardIds: [] } });
     const view = render(<ReviewActivityScreen projectId={project.id} sessionId="review-explicit-scope" onNavigate={vi.fn()} />);
     expect(await screen.findByRole('button', { name: 'Approve review' })).toBeDisabled();
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Decision evidence status' })).toHaveTextContent('explicit artifact selection'));
+    await userEvent.click(await screen.findByText('Approval evidence'));
+    expect(screen.getByText(/explicit artifact selection/)).toBeVisible();
     view.unmount();
   });
 

@@ -64,6 +64,8 @@ export type ReviewProgressState = {
   message?: string;
   updatedAt: string;
   /** Completed with gaps: some independent parts could not be verified. */
+  assessmentPhase?: 'documents' | 'behaviors' | 'environment';
+  providerSummary?: string;
   coverage?: 'partial';
   unverifiedParts?: import('./coverageGaps.js').ReviewUnverifiedPart[];
   unverifiedPartCount?: number;

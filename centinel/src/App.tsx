@@ -427,7 +427,7 @@ function App() {
           them the same light workspace primitives (buttons, dialogs). */}
       <div className="workspace-mode global-overlays">
         <ReviewToast onOpenReview={(projectId, sessionId, reviewName) => navigate({ name: 'review-activity', projectId, sessionId, reviewName })} />
-        <UpdatePrompt />
+        {screen.name !== 'review-activity' && <UpdatePrompt />}
         <GithubConnectionPrompt isOpen={githubConnectionPromptOpen} onClose={() => setGithubConnectionPromptOpen(false)} />
       </div>
     </ActiveReviewProvider>
