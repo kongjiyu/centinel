@@ -262,9 +262,11 @@ export function sleepWithCancellation(delayMs: number, signal?: AbortSignal): Pr
 function externalErrorClassification(error: unknown, signal?: AbortSignal): RetryClassification {
   if (signal?.aborted || isAbortError(error)) return { kind: 'cancelled', code: 'cancelled' };
 
-  const value = error as { code?: unknown; retryable?: unknown };
+  const value = error as { code?: unknown; message?: unknown; retryable?: unknown };
   const code = typeof value?.code === 'string' ? value.code : undefined;
-  const message = errorMessage(error).toLowerCase();
+  // PostgREST returns transport failures as plain objects, including timeouts
+  // raised by the Supabase fetch wrapper.
+  const message = (typeof value?.message === 'string' ? value.message : errorMessage(error)).toLowerCase();
   const statusCode = errorStatus(error);
   const retryAfterMs = parseRetryAfter(error);
 
@@ -292,7 +294,7 @@ function externalErrorClassification(error: unknown, signal?: AbortSignal): Retr
   if (value?.retryable === false) return { kind: 'permanent', code: code ?? 'external_error' };
   if (value?.retryable === true) return { kind: 'retryable', code: code ?? 'external_error', retryAfterMs };
   if (error instanceof TypeError || /network|timed? out|timeout|econn|enotfound|socket|temporar|connection reset|rate limit|overloaded/.test(message)) {
-    return { kind: 'retryable', code: code ?? 'transient_network_error', retryAfterMs };
+    return { kind: 'retryable', code: code || 'transient_network_error', retryAfterMs };
   }
   return { kind: 'permanent', code: code ?? 'external_error' };
 }

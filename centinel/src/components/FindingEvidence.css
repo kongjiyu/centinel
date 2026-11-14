@@ -244,15 +244,15 @@
 .finding-feature-evidence .finding-evidence-file-control { color: var(--workspace-text, var(--color-text)); font-family: var(--font-technical, monospace); white-space: normal; }
 .finding-evidence-file-control > span { color: var(--workspace-text-muted, var(--color-text-muted)); }
 .finding-evidence-hover {
-  position: fixed; z-index: 1200; pointer-events: none;
-  width: min(680px, calc(100vw - 24px)); max-height: 285px; overflow: hidden;
+  position: fixed; z-index: 1200;
+  width: min(680px, calc(100vw - 24px)); max-height: min(285px, 75vh); overflow: auto;
   border: 1px solid var(--workspace-border, var(--color-border)); border-radius: var(--workspace-radius-panel, 12px);
   background: var(--workspace-surface, var(--color-surface)); color: var(--workspace-text, var(--color-text));
   box-shadow: var(--workspace-shadow-panel);
 }
 .finding-evidence-hover header { padding: 10px 14px; border-bottom: 1px solid var(--workspace-border, var(--color-border)); overflow-wrap: anywhere; }
 .finding-evidence-hover header small { display: block; color: var(--workspace-text-muted, var(--color-text-muted)); }
-.finding-evidence-hover > pre { max-height: 220px !important; margin: 0; padding: 10px 14px; overflow: hidden; }
+.finding-evidence-hover > pre { max-height: 220px !important; margin: 0; padding: 10px 14px; overflow: auto; }
 .finding-evidence-hover > p { margin: 8px 14px; }
 .finding-threat-link { display: inline-block; margin-inline-end: 8px; }
 .finding-evidence-ranked > button { justify-self: start; }

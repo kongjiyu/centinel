@@ -48,6 +48,10 @@ function describeChecks(events: HarnessEvent[], steps: string[], terminal: boole
     const description = publicChecks[step];
     if (!description) return [];
     const status = harnessStepState(events, step, terminal);
+    if (step === 'index_sources' && events.some(event => event.event === 'harness_step_completed'
+      && event.detail?.step === step && (event.detail.output as { indexUnavailable?: boolean } | undefined)?.indexUnavailable)) {
+      return ['Source search was unavailable. The Review continued using the saved files.'];
+    }
     const result = status === 'Completed' ? description.result
       : status === 'In progress' ? 'This check is in progress.' : 'This check did not complete.';
     return [`${description.focus} ${result}`];
@@ -211,6 +215,9 @@ export function buildReviewNarrative(input: {
       : status === 'Not recorded' ? 'Saved findings are available, but the checks for this part were not recorded.'
         : status === 'Not reached' ? 'The review ended before this part was reached.'
         : 'I couldn’t finish this part. The review needs attention before continuing.';
+    const checks = describeChecks(related, steps, !active);
+    if (stage.id === 'indexing_context' && completed && related.some(event => event.detail?.step === 'index_sources'
+      && (event.detail.output as { indexUnavailable?: boolean } | undefined)?.indexUnavailable)) outcome = checks[0] ?? '';
     if (stage.id === 'freezing_sources') {
       const reads = new Map<string, HarnessEvent>();
       for (const event of related.filter(event => event.event === 'harness_step_completed' && event.detail?.step === 'read_source')) reads.set(text(event.detail?.executionId) || event.createdAt, event);
@@ -260,7 +267,7 @@ export function buildReviewNarrative(input: {
     const next = stageNext(status, stageFindings.length > 0, stage.id === 'freezing_sources' && requirementCount === 0);
     const recap = completed ? [completedRecap[stage.id], outcome, stageFindings.length > 0 || (stage.id === 'freezing_sources' && requirementCount === 0) ? next : ''].filter(Boolean).join(' ') : outcome || next;
     return { ...stage, state: status, outcome, recap, next,
-      checks: describeChecks(related, steps, !active), files, features,
+      checks, files, features,
       duration: formatReviewDuration(executionTiming(related, status === 'In progress', now).ms), findings: stageFindings };
   }) : REVIEW_WORKFLOW_STAGES.some(stage => stage.id === progress?.stage || progress?.completedStages?.includes(stage.id))
     ? REVIEW_WORKFLOW_STAGES.map(stage => {

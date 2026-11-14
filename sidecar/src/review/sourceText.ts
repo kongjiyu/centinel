@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type { Artifact } from '../artifacts.js';
+import { centinelHome } from '../paths.js';
 
 export const PDF_TEXT_POLICY = 'pdfjs-6.4.299-text-v1';
 export const isPdfSource = (artifact: Pick<Artifact, 'fileName'>) => /\.pdf$/i.test(artifact.fileName);
@@ -42,14 +45,14 @@ export function verifiedTextForReader(reader: TextReader | undefined, artifact: 
 }
 
 /** Hash original bytes first. Extracted text never substitutes for original evidence. */
-export async function verifiedSourceText(artifact: Pick<Artifact, 'fileName' | 'contentHash'>, bytes: Uint8Array, signal?: AbortSignal): Promise<VerifiedSourceText> {
+export async function verifiedSourceText(artifact: Pick<Artifact, 'fileName' | 'contentHash'> & Partial<Pick<Artifact, 'projectId' | 'versionId'>>, bytes: Uint8Array, signal?: AbortSignal): Promise<VerifiedSourceText> {
   if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   const expected = artifact.contentHash.replace(/^sha256:/i, '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(expected) || sourceByteHash(bytes) !== expected) throw new Error('Original source bytes do not match the frozen source-manifest hash.');
   if (!isPdfSource(artifact)) return issueText(artifact, { text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) });
   if (bytes.byteLength > 100 * 1024 * 1024 || new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') throw new Error('PDF text extraction requires a valid PDF within the 100 MiB limit.');
   const copy = Uint8Array.from(bytes);
-  return new Promise((resolve, reject) => {
+  const result = await new Promise<VerifiedSourceText>((resolve, reject) => {
     const worker = new Worker(new URL('./pdfTextWorker.mjs', import.meta.url), { workerData: copy, transferList: [copy.buffer], env: {}, resourceLimits: { maxOldGenerationSizeMb: 512 } });
     let settled = false;
     const finish = (error?: Error, value?: { text: string; pageCount: number }) => {
@@ -67,4 +70,19 @@ export async function verifiedSourceText(artifact: Pick<Artifact, 'fileName' | '
     worker.once('error', () => finish(new Error('PDF text extraction failed.')));
     worker.once('exit', () => { if (!settled) finish(new Error('PDF text extraction stopped.')); });
   });
+  signal?.throwIfAborted();
+  if (artifact.projectId && artifact.versionId) {
+    const cacheKey = crypto.createHash('sha256').update(JSON.stringify([artifact.projectId, artifact.versionId, expected, PDF_TEXT_POLICY])).digest('hex');
+    const directory = path.join(centinelHome(), 'data', 'cache', 'pdf');
+    const temporary = path.join(directory, `${cacheKey}.${crypto.randomUUID()}.tmp`);
+    try {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await writeFile(temporary, JSON.stringify(result), { mode: 0o600, flag: 'wx', signal });
+      await rename(temporary, path.join(directory, `${cacheKey}.json`));
+    } catch {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+    signal?.throwIfAborted();
+  }
+  return result;
 }

@@ -608,7 +608,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByText('Order Ownership Check Missing')).toHaveAttribute('data-risk', 'critical');
     expect(screen.queryByText('Critical · Unverified')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    await user.click(screen.getByRole('button', { name: 'Issues' }));
     expect(await screen.findByText('1 issue group across the project')).toBeInTheDocument();
     await user.click(screen.getByRole('row', { name: /Order Ownership Check Missing/ }));
     const details = screen.getByRole('article', { name: 'Finding details' });
@@ -634,7 +634,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
       correlations: [{ id: 'c', parentFindingId: 'f-1', childFindingId: null, classification: 'carried_over', method: 'unmatched', score: 0, stableFingerprint: 'x' }] });
     renderProject(vi.fn(), [], undefined, [sourceCurrencyReview(), comparison], [], [finding]);
 
-    await user.click(await screen.findByRole('button', { name: 'Findings' }));
+    await user.click(await screen.findByRole('button', { name: 'Issues' }));
     await user.click(await screen.findByRole('row', { name: /Missing Order Ownership Check/ }));
     expect(await screen.findByText(/Not found in “Pre-release review” \(.+\)\. Centinel couldn't prove it is fixed, so it stays open\./)).toBeInTheDocument();
     expect(api.getReviewCorrelations).toHaveBeenCalledWith(project.id, 'review-2');
@@ -652,7 +652,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     } as never);
     renderProject(vi.fn(), [], undefined, [review]);
     expect(api.getReviewEvidenceSufficiency).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    await user.click(screen.getByRole('button', { name: 'Issues' }));
     expect(await screen.findByRole('row', { name: /Incomplete Requirement Coverage/ })).toBeInTheDocument();
     expect(api.getReviewEvidenceSufficiency).toHaveBeenCalledWith(project.id, review.id);
   });
@@ -684,7 +684,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     const readinessCard = screen.getByRole('heading', { name: 'Readiness' }).closest('section');
     expect(readinessCard).not.toBeNull();
     await within(readinessCard as HTMLElement).findByText('Incomplete');
-    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    await user.click(screen.getByRole('button', { name: 'Issues' }));
 
     const gapRow = await screen.findByRole('row', { name: /Clarify acceptance criteria/i });
     await user.click(within(gapRow).getByRole('button', { name: /See more about Clarify acceptance criteria/i }));
@@ -731,7 +731,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Sources have changed. Run Readiness again.');
     expect(screen.queryByText('Awaiting manual assessment.')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    await user.click(screen.getByRole('button', { name: 'Issues' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent('Readiness findings describe previous sources and are hidden until a current assessment is available.');
     expect(await screen.findByRole('row', { name: /Current Review finding/ })).toBeInTheDocument();
@@ -863,7 +863,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     };
     renderProject(onNavigate, [], undefined, [reReview], [], [finding]);
 
-    await user.click(screen.getByRole('button', { name: 'Findings' }));
+    await user.click(screen.getByRole('button', { name: 'Issues' }));
     await user.click(await screen.findByRole('button', { name: /See more about Not reproduced after source update/i }));
     await user.click(screen.getByRole('button', { name: 'Open review Re-review' }));
 

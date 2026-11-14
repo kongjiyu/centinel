@@ -8,6 +8,7 @@ import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
 import { createStaticReviewOrchestrator as createRawStaticReviewOrchestrator, ReviewLifecycleConflictError, STATIC_REVIEW_MODEL_POLICY_VERSION } from '../../src/review/orchestrator.js';
 import { InMemoryReviewLeaseRepository, ReviewLeaseCoordinator } from '../../src/review/lease.js';
 import { ModelProviderError } from '../../src/review/retry.js';
+import { SourceIndexStopped } from '../../src/review/sourceIndexJobs.js';
 import { resolveModelProviderChain } from '../../src/review/modelProviderResolver.js';
 import { InMemoryGroundingRepository } from '../../src/review/grounding.js';
 import { encryptSecret } from '../../src/tokenVault.js';
@@ -78,6 +79,30 @@ function baseDependencies(repository: InMemoryStaticReviewRepository) {
 }
 
 describe('Provider capacity lifecycle', () => {
+  it('waits for source indexing and uses frozen sources when the native index cannot finish', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const context = vi.fn();
+    const deps = baseDependencies(repository);
+    const deterministic = vi.fn(deps.deterministic);
+    let markIndexStarted!: () => void;
+    let finishIndex!: () => void;
+    const indexingStarted = new Promise<void>(resolve => { markIndexStarted = resolve; });
+    const indexing = new Promise<void>(resolve => { finishIndex = resolve; });
+    const orchestrator = createStaticReviewOrchestrator({ ...deps, context, deterministic, index: async () => {
+      markIndexStarted();
+      await indexing;
+      throw new SourceIndexStopped('native_index_unavailable');
+    } });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact] });
+    await indexingStarted;
+    expect(await repository.getReview(started.review.id)).toMatchObject({ status: 'running', progress: { stage: 'indexing_context' } });
+    expect(deterministic).not.toHaveBeenCalled();
+    finishIndex();
+    expect(await started.completion).toMatchObject({ status: 'pending_approval' });
+    expect(context).not.toHaveBeenCalled();
+    expect(deterministic).toHaveBeenCalledOnce();
+  });
+
   it('pauses after transient model retries and permits an explicit saved-source linked retry', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const analyze = vi.fn<StaticAnalysisModelProvider['analyze']>(async () => {
@@ -371,10 +396,10 @@ describe('StaticReviewOrchestrator', () => {
     expect(finished.status).toBe('pending_approval');
     expect(finished.lineage.parentReviewId).toBeNull();
     expect(finished.sourceManifestId).toBeTruthy();
-    expect(finished.deterministicFindingCount).toBe(1);
+    expect(finished.deterministicFindingCount).toBe(0);
     expect(finished.modelFindingCount).toBe(1);
     expect(repository.manifests.get(finished.id)?.artifacts).toHaveLength(1);
-    expect(repository.findings).toHaveLength(2);
+    expect(repository.findings).toHaveLength(1);
     expect(repository.audits.some(event => event.event === 'model_attempt')).toBe(true);
     const steps = repository.audits.filter(event => event.event === 'harness_step_completed').map(event => event.detail?.step);
     expect(steps).toEqual(expect.arrayContaining(['select_sources', 'freeze_manifest', 'read_source', 'assess_evidence', 'run_rules', 'build_request', 'run_model', 'validate_grounding', 'validate_locations', 'deduplicate_findings', 'save_traceability', 'save_findings', 'correlate_findings']));
@@ -393,7 +418,7 @@ describe('StaticReviewOrchestrator', () => {
     const finished = await second.completion;
     expect(finished.lineage.parentReviewId).toBeNull();
     const snapshot = repository.findingCorrelations.get(finished.id);
-    expect(snapshot?.counts.recurring).toBe(gone ? 1 : 2);
+    expect(snapshot?.counts.recurring).toBe(gone ? 0 : 1);
     expect(snapshot?.counts.resolved).toBe(0); // The old comment location is outside the inspected feature references.
     expect(finished.summary).toContain('Existing findings:');
   });

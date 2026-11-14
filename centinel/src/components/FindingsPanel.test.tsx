@@ -90,7 +90,7 @@ describe('FindingsPanel', () => {
   it('renders the empty state when there are no findings', async () => {
     vi.mocked(api.listFindings).mockResolvedValue([]);
     render(<FindingsPanel projectId="p-1" />);
-    await waitFor(() => expect(screen.getByText(/no findings yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/no issues yet/i)).toBeInTheDocument());
   });
 
   it('renders a finding row with title, severity badge, source badge, and Unresolved status', async () => {
@@ -219,7 +219,7 @@ describe('FindingsPanel', () => {
     const user = userEvent.setup();
     render(<FindingsPanel projectId="p-1" presentation="project" pageSize={5} />);
     const table = await screen.findByRole('table', { name: 'Project findings' });
-    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Findings', 'Risk', 'Priority']);
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Issue', 'Risk', 'Priority']);
     expect(screen.getByText('#f-1')).toBeInTheDocument();
     const row = within(table).getByRole('row', { name: /Keyboard-selectable finding/i });
     expect(within(row).getByText('Critical')).toHaveClass('project-finding-risk', 'project-risk-level-critical');
@@ -282,7 +282,7 @@ describe('FindingsPanel', () => {
     vi.mocked(api.listStaticFindings).mockResolvedValue([baseFinding]);
     render(<FindingsPanel projectId="p-1" sessionId="s-1" presentation="project" />);
     const table = await screen.findByRole('table', { name: 'Review findings' });
-    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Findings', 'Risk', 'Priority']);
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['ID', 'Issue', 'Risk', 'Priority']);
   });
 
   it('shows the first affected feature and previews three with a detail action', async () => {

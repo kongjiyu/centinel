@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { analysisMapFromEvents } from './assessmentBatches.js';
 import { RECOVERY_JOURNAL_EVENTS } from './batchCacheValidation.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -534,6 +535,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       || text(row, 'event_type') === 'review_analysis_map_saved'
       || text(row, 'event_type') === 'review_analysis_batch_saved'
       || text(row, 'event_type') === 'review_live_finding_titles'
+      || text(row, 'event_type') === 'review_assessment_batch_started'
       || text(row, 'event_type') === 'review_analysis_batch_unverified'
       || text(row, 'event_type') === 'review_assessment_validated'
       || text(row, 'event_type') === 'review_retry_scheduled'
@@ -551,7 +553,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       || text(row, 'event_type') === 'review_batches_planned')
       .map(row => {
         const payload = objectValue(row.payload);
-        return { id: text(row, 'id'), projectId, reviewId, event: text(row, 'event_type'), stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: objectValue(payload.detail), createdAt: text(row, 'created_at') };
+        return { id: text(row, 'id'), projectId, reviewId, event: text(row, 'event_type'), stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: readReviewAuditDetail(payload), createdAt: text(row, 'created_at') };
       });
   }
 
@@ -1421,9 +1423,39 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
   async recordAudits(events: ReviewAuditEvent[]): Promise<void> {
     if (events.length > 256) throw new Error('Review audit write exceeds its bounded batch.');
     if (!events.length) return;
-    const rows = events.map(event => ({ id: event.id ?? stableUuid(`${event.reviewId}\u0000${event.event}\u0000${event.stage ?? ''}\u0000${event.createdAt}\u0000${JSON.stringify(event.detail ?? {})}`), project_id: event.projectId, actor_id: this.actorId ?? null, event_type: event.event, entity_type: 'review', entity_id: event.reviewId, payload: { stage: event.stage ?? null, detail: event.detail ?? {} }, created_at: event.createdAt }));
+    const rows = events.map(event => {
+      const detail = event.detail ?? {};
+      const detailJson = JSON.stringify(detail);
+      return {
+        id: event.id ?? stableUuid(`${event.reviewId}\u0000${event.event}\u0000${event.stage ?? ''}\u0000${event.createdAt}\u0000${detailJson}`),
+        project_id: event.projectId, actor_id: this.actorId ?? null, event_type: event.event, entity_type: 'review', entity_id: event.reviewId,
+        payload: { stage: event.stage ?? null, ...encodeReviewAuditDetail(event.event, detail, detailJson) },
+        created_at: event.createdAt,
+      };
+    });
     await this.externalRequest('review audit save', () => this.from('audit_events').upsert(rows, { onConflict: 'id' }));
   }
+}
+
+const MAX_COMPRESSED_AUDIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+function encodeReviewAuditDetail(eventType: string, detail: NonNullable<ReviewAuditEvent['detail']>, json: string) {
+  if (eventType === 'review_analysis_map_saved' || eventType === 'review_syntax_map_saved') {
+    const bytes = Buffer.byteLength(json);
+    if (bytes >= 64 * 1024 && bytes <= MAX_COMPRESSED_AUDIT_OUTPUT_BYTES) {
+      const detailGzipBase64 = gzipSync(json).toString('base64');
+      if (detailGzipBase64.length < bytes) return { detailGzipBase64 };
+    }
+  }
+  return { detail };
+}
+
+function readReviewAuditDetail(payload: Record<string, unknown>) {
+  if (typeof payload.detailGzipBase64 !== 'string') return objectValue(payload.detail);
+  const decoded: unknown = JSON.parse(gunzipSync(Buffer.from(payload.detailGzipBase64, 'base64'), {
+    maxOutputLength: MAX_COMPRESSED_AUDIT_OUTPUT_BYTES,
+  }).toString('utf8'));
+  return objectValue(decoded);
 }
 
 export default SupabaseStaticReviewRepository;

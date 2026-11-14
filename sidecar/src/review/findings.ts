@@ -400,3 +400,8 @@ export function normalizeAndDeduplicateFindings(
     mergedObservationCount,
   };
 }
+
+export function retainCorroboratedRuleFindings(rules: StaticFindingInput[], assessed: StaticFindingInput[]) {
+  return rules.filter(rule => assessed.some(finding =>
+    duplicates(rule, finding) || sameReviewIssue(rule, finding) !== null));
+}

@@ -8,9 +8,14 @@ import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { readReviewActivityPreview, rememberReviewActivity } from '../reviewActivityCache';
-import { ReviewNarrativeTimeline, ReviewObjectiveList } from '../components/ReviewNarrative';
+import { ReviewIssues, shortReviewIssueTitle } from '../components/ReviewIssues';
+import { effectiveFindingStatus } from '../findingStatus';
+import { riskLevelRank } from '../riskPolicy';
+import { featureDisplayName } from '../reviewFeatures';
 import { buildReviewNarrative, type ReviewNarrative } from '../reviewNarrative';
 import { mergeReviewFindings, reviewEvidenceFindings, reviewTraceabilityFindings } from '../reviewEvidenceFindings';
+import { groupFindings } from '../findingGroups';
+import { rankFindingEvidence } from '../findingEvidenceRanking';
 import type { ReviewHarnessTrace } from '../reviewHarness';
 import { findingRiskLevel } from '../components/FindingsPanel';
 import { Modal } from '../components/Modal';
@@ -26,9 +31,8 @@ import {
   truncateReviewSourceName,
   type ReviewLifecycleState,
 } from '../reviewViewModel';
-import type { Artifact, EvidenceSufficiencyAssessment, Finding, Project, RequirementMapping, ReviewDecisionRecord, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
+import type { EvidenceSufficiencyAssessment, Finding, Project, RequirementMapping, ReviewDecisionRecord, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
 import { formatEntityId } from '../utils/entityId';
-import { screenToHash } from '../navigation/screenHash';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 import './ReviewActivityScreen.css';
 
@@ -136,7 +140,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   const evidenceRequestSequence = useRef(0);
   const screenRequestSequence = useRef(0);
   const activeScreenRead = useRef<{ identity: string; requestId: number } | null>(null);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [requirementMappings, setRequirementMappings] = useState<Record<string, RequirementMapping[]>>({});
   const [sourceManifest, setSourceManifest] = useState<ReviewSourceManifest | null>(null);
   const [traceabilitySnapshot, setTraceabilitySnapshot] = useState<ReviewTraceabilitySnapshot | null>(null);
@@ -166,7 +169,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   const [startingIteration, setStartingIteration] = useState(false);
   const [preparedChild, setPreparedChild] = useState<StaticSession | null>(null);
   const [evidenceAssessment, setEvidenceAssessment] = useState<EvidenceSufficiencyAssessment | null>(null);
-  const evidenceFindings = useMemo(() => session ? reviewEvidenceFindings(session, evidenceAssessment) : [], [session, evidenceAssessment]);
+  const evidenceFindings = useMemo(() => session ? reviewEvidenceFindings(session, evidenceAssessment, sourceManifest?.artifacts) : [], [session, evidenceAssessment, sourceManifest]);
   const [contradictionDrafts, setContradictionDrafts] = useState<Record<string, { decision: 'authoritative_left' | 'authoritative_right' | 'not_conflict'; rationale: string }>>({});
   const [savingContradiction, setSavingContradiction] = useState<string | null>(null);
   const [contradictionNotice, setContradictionNotice] = useState<string | null>(null);
@@ -317,11 +320,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
           const nextRequirements = typeof api.listRequirements === 'function'
             ? await api.listRequirements(projectId)
             : [];
-          const nextArtifacts = typeof api.listArtifacts === 'function'
-            ? await api.listArtifacts(projectId)
-            : [];
           if (!isCurrentLoad()) return;
-          setArtifacts(nextArtifacts);
           if (typeof api.listRequirementMappings === 'function') {
             const mappingEntries = await Promise.all(nextRequirements.map(async requirement => {
               try {
@@ -337,7 +336,6 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
           }
         } catch {
           if (!isCurrentLoad()) return;
-          setArtifacts([]);
           setRequirementMappings({});
         }
       }
@@ -699,15 +697,15 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
       )}
       {awaitsReviewDecision(state) && !currentDecision && decisionEvidenceIssue && !approvalOpen && (
         <section className={`review-evidence-decision-gate${evidenceReadFailed ? ' is-failed' : ''}`} role={evidenceReadFailed || sourceManifest?.status === 'incomplete' ? 'alert' : 'status'} aria-label="Decision evidence status">
-          <div><strong>{evidenceReadFailed ? 'Decision evidence needs attention' : 'Decision evidence is unavailable'}</strong><p>{decisionEvidenceIssue}</p></div>
+          <div><p>{decisionEvidenceIssue}</p></div>
           {evidenceReadFailed && <button type="button" className="btn-secondary" onClick={() => void loadReviewEvidence()} disabled={evidenceReadPending}>{evidenceReadPending ? 'Retrying evidence…' : 'Retry evidence'}</button>}
         </section>
       )}
-      {evidenceAssessment && evidenceAssessment.readiness !== 'ready' && (
-        <section className={`review-evidence-readiness is-${evidenceAssessment.readiness}`} aria-labelledby="review-evidence-readiness-heading" role={evidenceAssessment.readiness === 'blocked' ? 'alert' : 'status'}>
+      {evidenceAssessment?.readiness === 'blocked' && (
+        <section className="review-evidence-readiness is-blocked" aria-labelledby="review-evidence-readiness-heading" role="alert">
           <ShieldAlert size={18} aria-hidden="true" />
           <div>
-            <h2 id="review-evidence-readiness-heading">{evidenceAssessment.readiness === 'blocked' ? 'Evidence blocks this review' : 'Evidence needs attention'}</h2>
+            <h2 id="review-evidence-readiness-heading">Evidence blocks this review</h2>
             <p>{evidenceAssessment.availableArtifactCount} of {evidenceAssessment.artifactCount} artifacts are currently available.</p>
             <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => group.gaps[0].code === 'traceability_mappings_incomplete' ? <li key={group.gaps[0].id} className="review-requirement-links-gap">
               <strong>{group.title}</strong>
@@ -764,15 +762,29 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
           <ReviewActivityContent
             onOpenSettings={() => onNavigate({ name: 'settings' })}
             liveEvents={harnessTrace?.events}
-            onViewAll={() => onNavigate(findingsTarget())}
+            onViewAll={() => onNavigate({ name: 'project-detail', projectId, initialSection: 'findings' })}
             onCancel={session.status === 'queued' || session.status === 'running' ? () => void cancelReview() : undefined}
             cancelling={cancelling}
             objective={objective}
             supportiveDocuments={objectiveDocuments}
             narrative={narrative!}
             sourceManifest={sourceManifest}
-            projectArtifacts={artifacts}
             findings={findings}
+            storedIds={new Set(storedFindings.map(finding => finding.id))}
+            analysisMap={harnessTrace?.analysisMap}
+            traceability={traceabilitySnapshot}
+            onIssueStatus={session.status !== 'running' && session.status !== 'queued' ? async (id, status) => {
+              await api.updateFinding(projectId, id, status);
+              setFindings(previous => previous.map(item => item.id === id ? { ...item, status } : item));
+              await load({ silent: true });
+            } : undefined}
+            onIssueReply={session.status !== 'running' && session.status !== 'queued' ? async (finding, reply) => {
+              await api.submitReviewDecision(projectId, session.id, {
+                decision: 'commented',
+                comment: `Issue: ${finding.title} (#${finding.id})\n\n${reply}`,
+              });
+              await load({ silent: true });
+            } : undefined}
             onOpenFinding={openFinding}
             harnessLoading={harnessLoading}
             harnessError={harnessError}
@@ -829,8 +841,8 @@ function ReviewActivityContent({
   onOpenFinding, liveEvents, onViewAll, onCancel, cancelling, objective, supportiveDocuments,
   narrative,
   sourceManifest,
-  projectArtifacts,
   findings,
+  storedIds, analysisMap, traceability, onIssueStatus, onIssueReply,
   harnessLoading,
   harnessError,
   session,
@@ -855,8 +867,12 @@ function ReviewActivityContent({
   supportiveDocuments: SupportiveDocument[];
   narrative: ReviewNarrative;
   sourceManifest: ReviewSourceManifest | null;
-  projectArtifacts: Artifact[];
   findings: Finding[];
+  storedIds: ReadonlySet<string>;
+  analysisMap?: ReviewHarnessTrace['analysisMap'];
+  traceability: ReviewTraceabilitySnapshot | null;
+  onIssueStatus: React.ComponentProps<typeof ReviewIssues>['onStatus'];
+  onIssueReply: React.ComponentProps<typeof ReviewIssues>['onReply'];
   harnessLoading: boolean;
   harnessError: string | null;
   session: StaticSession;
@@ -873,32 +889,78 @@ function ReviewActivityContent({
   const savedTitles = new Set(findings.map(finding => finding.title));
   const liveFindings = session.status === 'running' ? (liveEvents ?? []).flatMap(event =>
     event.reviewId === session.id && event.event === 'review_live_finding_titles' && Array.isArray(event.detail?.titles)
-      ? event.detail.titles.slice(0, 5).reverse().flatMap((title, index) => typeof title === 'string' && title.length <= 160 && !savedTitles.has(title)
+      ? [...event.detail.titles].reverse().flatMap((title, index) => typeof title === 'string' && title.length <= 160 && !savedTitles.has(title)
         ? [{ key: `${event.id ?? event.createdAt}:${index}`, title, time: event.createdAt, findingId: undefined }]
         : [])
       : []) : [];
-  const recentFindings = [...findings.map(finding => ({
-    key: finding.id, title: finding.title, time: finding.createdAt, findingId: finding.id,
-  })), ...new Map(liveFindings.map(finding => [finding.title, finding])).values()]
-    .sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5);
-  const reviewedTime = state === 'Completed' ? narrative.timing.endedAt : null;
+  const uniqueLiveIssues = [...new Map(liveFindings.map(issue => [issue.title, issue])).values()];
+  const sidebarIssues = [...groupFindings(findings).map(group => ({
+    key: group.key, title: group.title, time: group.members.reduce((latest, finding) => finding.createdAt > latest ? finding.createdAt : latest, ''),
+    findingId: group.representative.id, evidence: rankFindingEvidence(group.members, false)[0],
+  })), ...uniqueLiveIssues.map(finding => ({ ...finding, evidence: undefined }))]
+    .sort((a, b) => b.time.localeCompare(a.time));
+  const recentFindings = sidebarIssues.slice(0, 5);
+  const moreIssues = sidebarIssues.length - recentFindings.length;
+  const [goalOpen, setGoalOpen] = useState(false);
+  const reviewedTime = state === 'Completed' || awaitsReviewDecision(state) ? narrative.timing.endedAt : null;
+  const goalText = objective ?? '';
+  const shortGoal = goalText.length > 200 ? goalText.slice(0, 200).replace(/\s+\S*$/, '').trimEnd() + '…' : goalText;
   const config = parseReviewConfig(session);
-  const knownSources = sourceManifest?.artifacts?.length ? sourceManifest.artifacts : projectArtifacts;
-  const resolveSource = (path: string) => {
-    const normalized = path.replaceAll('\\', '/');
-    const exact = knownSources.filter(file => file.filePath.replaceAll('\\', '/') === normalized);
-    const matches = exact.length || normalized.includes('/') ? exact : knownSources.filter(file => file.fileName === normalized);
-    const file = matches.length === 1 ? matches[0] : undefined;
-    return file ? { path: file.filePath, href: screenToHash({ name: 'project-detail', projectId: session.projectId, initialSection: 'source', sourceArtifactId: file.id }) } : { path };
+  const currentStage = narrative.stages.find(stage => stage.state === 'In progress')?.id;
+  const latestStep = liveEvents?.filter(event => event.stage === currentStage && event.event === 'harness_step_started').at(-1)?.detail?.step;
+  const startedBatch = liveEvents?.filter(event => event.event === 'review_assessment_batch_started').at(-1)?.detail;
+  const plannedBatches = liveEvents?.findLast(event => event.event === 'review_batches_planned')?.detail?.batches;
+  const planned = Array.isArray(plannedBatches) ? plannedBatches : [];
+  const batchInput = liveEvents?.findLast(event => event.event === 'harness_step_started' && event.detail?.step === 'build_request')?.detail?.input;
+  const batchId = batchInput && typeof batchInput === 'object' && 'batchId' in batchInput ? batchInput.batchId : undefined;
+  const plannedIndex = typeof batchId === 'string' ? planned.findIndex(item => item?.id === batchId) : -1;
+  const selectedBatch = planned[plannedIndex];
+  const batch = startedBatch ?? (selectedBatch ? {
+    batchNumber: plannedIndex + 1, batchCount: planned.length, featureIds: selectedBatch.featureIds,
+    filePath: sourceManifest?.artifacts?.find(artifact => artifact.id === selectedBatch.sources?.[0]?.artifactId)?.filePath,
+  } : undefined);
+  const batchProgress = typeof batch?.batchNumber === 'number' && typeof batch.batchCount === 'number'
+    ? ` Batch ${batch.batchNumber} of ${batch.batchCount}.` : '';
+  const scopeNames = Array.isArray(batch?.featureIds) ? analysisMap?.features
+    .filter(feature => (batch.featureIds as unknown[]).includes(feature.id))
+    .map(feature => featureDisplayName(feature.label)) ?? [] : [];
+  const filePath = typeof batch?.filePath === 'string' ? batch.filePath : undefined;
+  const scope = scopeNames.slice(0, 2).join(' and ');
+  const scopeText = [scope, filePath].filter(Boolean).join(' · ');
+  const focus: Record<string, string> = {
+    freezing_sources: 'Discovering behaviors and paths in the selected sources.',
+    indexing_context: 'Preparing the selected source and requirement evidence.',
+    deterministic_analysis: 'Checking the selected code with built-in rules.',
+    model_analysis:
+      typeof latestStep === 'string' && /validate|support/.test(latestStep)
+        ? `Checking that saved code supports each reported issue and that linked requirements apply.${scopeText ? ` Current scope: ${scopeText}.` : ''}`
+        : scopeText ? `Tracing ${scopeText}. Checking how inputs reach the recorded paths and where the code enforces the requirements.`
+          : 'Tracing the selected behaviors from their entry points through the saved code and checking which requirements apply.',
+    persisting_evidence: latestStep === 'correlate_findings'
+      ? 'Comparing this review with existing project issues and checking which can be resolved.'
+      : 'Reconciling overlapping reports and saving the supported issues.',
   };
+  const current = narrative.active ? focus[currentStage ?? ''] ?? 'Waiting for review progress.' : undefined;
+  const priorityIssue = [...findings].filter(finding => !['dismissed', 'fixed'].includes(effectiveFindingStatus(finding)))
+    .sort((a, b) => riskLevelRank(findingRiskLevel(a)) - riskLevelRank(findingRiskLevel(b)))[0];
+  const completed = state === 'Completed' || awaitsReviewDecision(state);
+  const completion = completed ? [
+    narrative.reviewedSourceCount === undefined ? 'The review finished assessing the selected sources.'
+      : `The review examined ${narrative.reviewedSourceCount} selected ${narrative.reviewedSourceCount === 1 ? 'file' : 'files'}.`,
+    analysisMap && analysisMap.status !== 'assessed' ? 'Some behavior checks remain unverified.' : '',
+    findingsError ? 'Reload the saved issues to see what needs attention.'
+      : priorityIssue ? `Start with ${shortReviewIssueTitle(priorityIssue.title).replace(/[.!?]+$/, '')}.` : '',
+  ].filter(Boolean).join(' ') : undefined;
   return (
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
-        <div className="review-activity-surface-heading">
-          <h2>Overview</h2>
-
-        </div>
-        <ReviewNarrativeTimeline key={session.id} narrative={narrative} findings={findings} loading={harnessLoading} error={harnessError} onOpenFinding={onOpenFinding} resolveSource={resolveSource} liveFindings={liveFindings} />
+        <ReviewIssues key={`issues-${session.id}`} findings={findings} storedIds={storedIds} map={analysisMap} traceability={traceability}
+          progress={current ? current + (currentStage === 'model_analysis' ? batchProgress : '') : undefined}
+          completion={completion}
+          liveIssues={uniqueLiveIssues}
+          coverageInterrupted={['Failed', 'Blocked', 'Cancelled', 'Paused'].includes(state)} issuesUnavailable={Boolean(findingsError)}
+          onView={onOpenFinding} onStatus={onIssueStatus} onReply={onIssueReply} />
+        {harnessError && !harnessLoading && <p role="status">{harnessError}</p>}
         {(state === 'Blocked' || state === 'Paused') && <div className="review-blocked-message" role="alert"><ShieldAlert size={17} aria-hidden="true" /><div><strong>{state === 'Paused' ? 'Review paused' : 'Review needs attention'}</strong><p>{reviewFailureMessage(session.failureReason)}</p></div></div>}
         {state === 'Failed' && <div className="review-failed-message" role="alert"><AlertCircle size={17} aria-hidden="true" /><div><strong>Review failed</strong><p>{reviewFailureMessage(session.failureReason)}</p>{/model provider|provider unavailable|no model/i.test(session.failureReason ?? '') && <button type="button" className="btn-secondary" onClick={onOpenSettings}>Open Settings</button>}</div></div>}
         {state === 'Cancelled' && <div className="review-cancelled-message" role="status"><X size={17} aria-hidden="true" /><div><strong>Review cancelled</strong><p>The activity stopped before a completed result was recorded.</p></div></div>}
@@ -913,32 +975,47 @@ function ReviewActivityContent({
         {findingsError && <p className="review-history-unavailable" role="status">Findings could not be loaded. Decisions are disabled until the evidence can be reloaded.</p>}
       </section>
       <aside className="review-activity-metadata" aria-label="Review details">
+        <section className="review-metadata-state"><h3>State</h3><StatusBadge label={state} tone={reviewLifecycleTone(state)} /></section>
         <section><h3>Version</h3>
-            {sourceManifest?.gitRefs?.map(ref => {
+          {sourceManifest?.gitRefs?.length ? sourceManifest.gitRefs.map(ref => {
               const branch = ref.commit === config.repositoryRevision && typeof config.repositoryBranch === 'string' ? config.repositoryBranch : ref.branch;
-              return <div key={JSON.stringify([ref.repository, ref.commit, ref.branch])}>
-                <span>{ref.repository}</span>{branch && <code>{branch}</code>} <code title={ref.commit}>{ref.commit.slice(0, 12)}</code>{ref.subject && <span>{ref.subject}</span>}
-              </div>;
-            })}
-            {sourceManifest?.snapshotId && (!sourceManifest.gitRefs?.length || Boolean(sourceManifest.snapshotOnlyFileCount)) && <div>Snapshot <code>{sourceManifest.snapshotId}</code></div>}
-            {!sourceManifest?.snapshotId && !sourceManifest?.gitRefs?.length && 'Unavailable'}
+              const tooltip = [ref.commit, ref.subject].filter(Boolean).join('\n');
+              return <dl className="review-metadata-version" key={JSON.stringify([ref.repository, ref.commit, ref.branch])}>
+                <div><dt>Repository</dt><dd>{ref.repository}</dd></div>
+                <div><dt>Branch</dt><dd>{branch ? <code title={tooltip}>{branch}</code> : 'Unavailable'}</dd></div>
+                <div><dt>Commit</dt><dd><code title={tooltip}>{ref.commit.slice(0, 12)}</code></dd></div>
+              </dl>;
+          }) : <dl><div><dt>Snapshot</dt><dd>{sourceManifest?.snapshotId ? <code>{sourceManifest.snapshotId}</code> : 'Unavailable'}</dd></div></dl>}
         </section>
-        <section><h3>State</h3>{state === 'Need Approval' ? <span>{state}</span> : <StatusBadge label={state} tone={reviewLifecycleTone(state)} />}</section>
-        <section><h3>Findings</h3>
-          <div aria-live="polite">
-            {recentFindings.length > 0 ? <ul aria-label="Recent findings">{recentFindings.map(({ key, title, findingId }) => (
-              <li key={key} className="review-sidebar-finding">
-                <button type="button" className="review-sidebar-finding-jump" onClick={() => {
-                  const target = document.getElementById(`review-finding-${key}`);
+        <section>
+          <div className="review-sidebar-findings-heading">
+            <h3>Issues</h3>
+            <button type="button" className="review-sidebar-findings-all" aria-label="All issues" title="All issues" onClick={onViewAll}>
+              <List size={16} aria-hidden="true" />
+            </button>
+          </div>
+          <div className={recentFindings.length > 0 ? 'review-sidebar-findings-frame' : undefined} aria-live="polite">
+            {recentFindings.length > 0 ? <table className="review-sidebar-findings" aria-label="Recent issues">
+              <thead><tr><th scope="col">Found</th><th scope="col">Source Affected</th></tr></thead>
+              <tbody>{recentFindings.map(({ key, title, findingId, evidence }) => (
+                <tr key={key}><th scope="row"><button type="button" className="review-sidebar-finding-jump" onClick={() => {
+                  const target = document.getElementById(`review-finding-${findingId ?? key}`);
                   target?.focus({ preventScroll: true });
                   target?.scrollIntoView?.({ block: 'center' });
-                }}>{title}</button>
-                {findingId && <button type="button" className="command-icon-button" aria-label={`Open finding detail: ${title}`}
-                  title="Open finding detail" onClick={() => onOpenFinding(findingId)}><ExternalLink size={16} aria-hidden="true" /></button>}
-              </li>
-            ))}</ul> : <p>{findingsError ? 'Findings unavailable' : 'No findings recorded yet'}</p>}
+                }}>{shortReviewIssueTitle(title)}</button></th><td>
+                  <span className="review-sidebar-source">
+                    {evidence?.lines ? <>
+                      <strong>{evidence.lines} {evidence.lines === 1 ? 'line' : 'lines'}</strong>
+                      <span>Across {evidence.highlightedFiles} {evidence.highlightedFiles === 1 ? 'file' : 'files'}</span>
+                    </> : evidence?.files.length ? <strong>{evidence.files.length} {evidence.files.length === 1 ? 'file' : 'files'}</strong> : <strong>0</strong>}
+                  </span>
+                  {findingId && <button type="button" className="review-sidebar-finding-open" aria-label={`Open issue detail: ${title}`}
+                    title="Open issue detail" onClick={() => onOpenFinding(findingId)}><ExternalLink size={16} aria-hidden="true" /></button>}
+                </td></tr>
+              ))}</tbody>
+              {moreIssues > 0 && <tfoot><tr><td colSpan={2}><button type="button" className="btn-link" onClick={onViewAll}>{moreIssues} more {moreIssues === 1 ? 'issue' : 'issues'}</button></td></tr></tfoot>}
+            </table> : <p>{findingsError ? 'Issues unavailable' : 'No issues recorded yet'}</p>}
           </div>
-          <button type="button" className="btn-secondary" onClick={onViewAll}><List size={16} aria-hidden="true" /> All Findings</button>
         </section>
         <section><h3>Risk</h3><dl>
           {['Critical', 'High', 'Medium', 'Low'].map(level => <div key={level}><dt>{level}</dt><dd>{findingsError ? '—' : findings.filter(finding => findingRiskLevel(finding)?.toLowerCase() === level.toLowerCase()).length}</dd></div>)}
@@ -946,11 +1023,18 @@ function ReviewActivityContent({
         <section><h3>Review</h3><dl>
           <div><dt>Review scope</dt><dd>{config.scopeMode === 'focused' ? 'Focused Review' : 'Full Review'}</dd></div>
           <div><dt>Duration</dt><dd>{narrative.timing.duration}</dd></div>
-          <div><dt>Source files reviewed</dt><dd>{narrative.reviewedSourceCount ?? '—'}</dd></div>
-          <div><dt>Reviewed time</dt><dd>{reviewedTime ? formatReviewTimestamp(reviewedTime) : ''}</dd></div>
+          <div><dt>Source reviewed</dt><dd>{narrative.reviewedSourceCount ?? '—'}</dd></div>
+          <div><dt>Reviewed time</dt><dd>{reviewedTime ? formatReviewTimestamp(reviewedTime) : state === 'Completed' || awaitsReviewDecision(state) ? 'Unavailable' : 'Review incomplete'}</dd></div>
         </dl>
           {objective && <section className="review-overview-objective" aria-label="Goal">
-            <h3>Goal</h3><ReviewObjectiveList points={narrative.objectives} />
+            <div className="review-goal-heading">
+              <h3>Goal</h3>
+              {shortGoal !== goalText && <button type="button" className="btn-link" onClick={() => setGoalOpen(true)}>Expand</button>}
+            </div>
+            <p className="review-goal-text">{shortGoal}</p>
+            <Modal isOpen={goalOpen} title="Review goal" width={640} onClose={() => setGoalOpen(false)}>
+              <p className="review-goal-text">{goalText}</p>
+            </Modal>
             {supportiveDocuments.length > 0 && <div className="review-source-tags" aria-label="References">{supportiveDocuments.map(document => <span key={document.id} className="review-source-tag" title={document.name}>{document.name}</span>)}</div>}
           </section>}
         </section>
@@ -971,8 +1055,24 @@ function FeedbackComposer({ value, files, submitting, notice, onChange, onFilesC
   inputRef: React.RefObject<HTMLTextAreaElement>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const composerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const composer = composerRef.current;
+    const surface = composer?.closest('.review-activity-screen')?.querySelector('.review-activity-surface');
+    if (!composer || !surface) return;
+    const align = () => {
+      const { left, width } = surface.getBoundingClientRect();
+      composer.style.setProperty('--review-composer-center', `${left + width / 2}px`);
+      composer.style.setProperty('--review-composer-width', `${Math.max(0, width - 24)}px`);
+    };
+    align();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(align);
+    observer?.observe(surface);
+    window.addEventListener('resize', align);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', align); };
+  }, []);
   return (
-    <aside className={`review-feedback-composer${expanded ? ' is-expanded' : ''}`} aria-label="Review feedback">
+    <aside ref={composerRef} className={`review-feedback-composer${expanded ? ' is-expanded' : ''}`} aria-label="Review feedback">
       <form onSubmit={event => { event.preventDefault(); onSubmit(); }}>
         <label className="visually-hidden" htmlFor="review-feedback-message">Write feedback about this review</label>
         <div className="review-feedback-entry"><textarea ref={inputRef} id="review-feedback-message" rows={expanded ? 3 : 1} value={value} onFocus={() => setExpanded(true)} onBlur={() => { if (!value.trim() && files.length === 0) setExpanded(false); }} onChange={event => onChange(event.target.value)} placeholder="Write feedback…" />

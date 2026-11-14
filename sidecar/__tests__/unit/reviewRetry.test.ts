@@ -76,6 +76,20 @@ describe('static-review retry policy', () => {
     expect(calls).toBe(1);
   });
 
+  it('retries a Supabase fetch timeout returned as a PostgREST error object', async () => {
+    const request = vi.fn()
+      .mockRejectedValueOnce({ code: '', message: 'Error: Supabase request timed out.' })
+      .mockResolvedValueOnce('saved');
+    const onRetry = vi.fn();
+    const sleep = vi.fn(async () => undefined);
+    await expect(runExternalOperation(request, {
+      service: 'Supabase', operation: 'review audit save', onRetry, sleep,
+    })).resolves.toBe('saved');
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 'transient_network_error', attempt: 2 }));
+    expect(sleep).toHaveBeenCalledWith(1_000, undefined);
+  });
+
   it('pauses neutrally after five transient AI attempts and emits the fixed waits before each retry', async () => {
     const calls: number[] = [];
     const attempts: string[] = [];

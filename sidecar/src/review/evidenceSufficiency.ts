@@ -367,7 +367,9 @@ export function assessEvidenceSufficiency(input: EvidenceSufficiencyInput): Evid
   for (const item of usable.filter(source => /\.pdf$/i.test(source.artifact.fileName) && source.content?.startsWith('PDF extracted text.'))) {
     gaps.push(gap({ code: 'pdf_visual_content_unverified', severity: 'warning', title: 'PDF visual content remains unverified',
       detail: `${item.artifact.fileName} was assessed from extracted text. Diagrams, image-only content and layout were not assessed.`,
-      remediation: 'Provide separate diagram or image evidence for visual verification.', affectedStages: ['model_analysis'], artifactId: item.artifact.id }));
+      remediation: 'Provide separate diagram or image evidence for visual verification.', affectedStages: ['model_analysis'], artifactId: item.artifact.id,
+      references: [{ artifactId: item.artifact.id, filePath: item.artifact.filePath || item.artifact.fileName,
+        sourceVersion: item.artifact.contentHash, relation: 'document' }] }));
   }
 
   for (const type of requiredKinds(input)) {

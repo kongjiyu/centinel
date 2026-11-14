@@ -77,6 +77,28 @@ describe('finding source version integrity', () => {
     expect(screen.queryByRole('status', { name: 'Loading highlighted source' })).not.toBeInTheDocument();
   });
 
+  it('keeps the preview open across the pointer gap and replaces it on the next file', async () => {
+    vi.useFakeTimers();
+    try {
+      const second = { ...finding, filePath: 'other.ts' };
+      render(<>
+        <EvidenceFileControl path={finding.filePath} findings={[finding]} />
+        <EvidenceFileControl path={second.filePath} findings={[second]} />
+      </>);
+      const firstButton = screen.getByRole('button', { name: 'pay.ts' });
+      fireEvent.mouseEnter(firstButton);
+      fireEvent.mouseLeave(firstButton);
+      const preview = document.querySelector('.finding-evidence-hover')!;
+      fireEvent.mouseEnter(preview);
+      expect(preview).toHaveTextContent('pay.ts');
+      fireEvent.mouseEnter(screen.getByRole('button', { name: 'other.ts' }));
+      expect(preview).not.toBeInTheDocument();
+      expect(document.querySelector('.finding-evidence-hover')).toHaveTextContent('other.ts');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects a different saved version without substituting source content', async () => {
     vi.mocked(api.getReviewArtifactContent).mockResolvedValue({ versionId: 'other-version', contentHash: 'other-hash', content: btoa('wrong body'), mimeType: 'text/typescript' });
     render(<FindingEvidence finding={finding} />);

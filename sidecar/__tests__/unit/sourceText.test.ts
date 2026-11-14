@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import PDFDocument from 'pdfkit';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import { verifiedSourceText, registerVerifiedSourceTexts, verifiedTextForReader } from '../../src/review/sourceText.js';
 const hash = (bytes: Buffer) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -8,6 +11,21 @@ async function pdf(text: string): Promise<Buffer> {
   return new Promise(resolve => { const doc = new PDFDocument({ compress: false }); const chunks: Buffer[] = []; doc.on('data', chunk => chunks.push(chunk)); doc.on('end', () => resolve(Buffer.concat(chunks))); doc.text(text); doc.end(); });
 }
 describe('binary-safe frozen source text', () => {
+  it('keeps the extracted page text in the application cache', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'centinel-pdf-'));
+    vi.stubEnv('CENTINEL_HOME', root);
+    try {
+      const bytes = await pdf('Cached page');
+      const result = await verifiedSourceText({ fileName: 'report.pdf', contentHash: hash(bytes), projectId: 'project', versionId: 'version' }, bytes);
+      const directory = path.join(root, 'data', 'cache', 'pdf');
+      const entries = await readdir(directory);
+      expect(entries).toHaveLength(1);
+      expect(JSON.parse(await readFile(path.join(directory, entries[0]!), 'utf8'))).toEqual(result);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('verifies original PDF bytes then extracts bounded page-labelled text', async () => {
     const bytes = await pdf('CargoChain requirement one');
     const result = await verifiedSourceText({ fileName: 'report.pdf', contentHash: hash(bytes) }, bytes);

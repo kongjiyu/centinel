@@ -15,7 +15,7 @@ import { openRepositoryEmbeddingBridge } from './repositoryEmbeddingBridge.js';
 import { downloadRepositorySnapshot, encodeRepositorySnapshot, repositoryIndexIdentity, restoreRepositorySnapshot,
   DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, type RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
 import { publishRepositoryIndex, readPreparedRepositorySnapshot } from './repositoryIndexSync.js';
-import { assertSourceIndexProviderAllowed } from './sourceIndexJobs.js';
+import { assertSourceIndexProviderAllowed, SourceIndexStopped } from './sourceIndexJobs.js';
 
 export { DEFAULT_REPOSITORY_INDEX_CACHE_ROOT } from './repositoryIndexSnapshot.js';
 const CACHE_ROOT = DEFAULT_REPOSITORY_INDEX_CACHE_ROOT;
@@ -258,7 +258,7 @@ export async function indexFrozenArtifacts(client: ClientSource, ownerId: string
     try {
       const result = restored ? await opened.engine.status() : await opened.engine.index();
       if (opened.bridge?.failure()) throw opened.bridge.failure();
-      if (!result.ready) throw new Error('The local repository index did not finish successfully.');
+      if (!result.ready) throw new SourceIndexStopped('native_index_unavailable', 'The local repository index did not finish successfully.');
     } catch (cause) { if (opened.bridge?.failure()) throw opened.bridge.failure(); throw cause; }
     finally { await opened.close(); }
     const names = await receipt(root, prepared.identity);

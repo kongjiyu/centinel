@@ -261,7 +261,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
       onLoadStateChange?.(combined, null);
     } catch (cause) {
       if (request !== findingsRequest.current) return;
-      const message = userFacingError(cause, 'Findings could not be loaded.');
+      const message = userFacingError(cause, 'Issues could not be loaded.');
       if (!loadedFindingsRef.current.loaded) setFindings([]);
       setLoadError(message);
       onLoadStateChange?.(loadedFindingsRef.current.findings, message);
@@ -538,7 +538,7 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
 
   if (loading && isProjectFindings && !loadedFindingsRef.current.loaded) return (
     <section className="card detail-card findings-card findings-panel findings-panel-project" aria-label={sessionId ? 'Review findings' : 'Project findings'}>
-      <div className="panel-header findings-project-header"><h3>Findings</h3></div>
+      <div className="panel-header findings-project-header"><h3>Issues</h3></div>
       {loadError && <div className="command-inline-alert" role="alert">{loadError}</div>}
       <LoadingSkeleton variant="rows" rows={5} label="Loading findings" />
     </section>
@@ -557,17 +557,17 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
     return (
       <div className="project-findings-layout findings-table-only project-findings-project-only">
         <section className="card detail-card findings-card findings-panel findings-panel-project" aria-labelledby="project-findings-heading">
-          <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Findings</h3></div>
-          {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void (reviewRead?.refresh ?? loadFindings)()}>Retry</button></div>}
+          <div className="panel-header findings-project-header"><h3 id="project-findings-heading"><FileSearch size={18} aria-hidden="true" /> Issues</h3></div>
+          {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Issues could not be loaded. <button type="button" className="btn-link" onClick={() => void (reviewRead?.refresh ?? loadFindings)()}>Retry</button></div>}
           {supplementalUnavailableMessage && <p className="findings-supplemental-context" role="status">{supplementalUnavailableMessage}</p>}
           {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
           {filterToolbar(!sessionId)}
           {sorted.length > 0 && <p className="findings-table-scroll-hint">Scroll the table to see all columns.</p>}
-          {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 && supplementalUnavailableMessage ? 'No current findings are available in this view. Some document evidence is unavailable; see the message above.' : findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : (
+          {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 && supplementalUnavailableMessage ? 'No current issues are available in this view. Some document evidence is unavailable; see the message above.' : findings.length === 0 ? 'No issues yet.' : 'No issues match the current filters.'}</p></div> : (
             <section className="project-findings-table-region" aria-label="Findings table" tabIndex={0}>
               <table className="project-findings-table project-findings-table-project" aria-label={sessionId ? 'Review findings' : 'Project findings'}><thead><tr>
                 <th scope="col">ID</th>
-                <th scope="col">Findings</th><th scope="col">Risk</th><th scope="col">Priority</th>
+                <th scope="col">Issue</th><th scope="col">Risk</th><th scope="col">Priority</th>
               </tr></thead><tbody>
                 {visibleGroups.map(group => {
                   const finding = { ...group.representative, title: group.title };
@@ -627,11 +627,11 @@ export function FindingsPanel({ supplementalFindings, supplementalUnavailableMes
 
   return (
     <div className="findings-panel">
-      <div className="panel-header"><div><h3>Findings</h3><p className="panel-description">Triage issues from Review and Dynamic Testing in one list.</p></div><span className="findings-total-count">{findingCountSummary(findings)}</span></div>
-      {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Findings could not be loaded. <button type="button" className="btn-link" onClick={() => void (reviewRead?.refresh ?? loadFindings)()}>Retry</button></div>}
+      <div className="panel-header"><div><h3>Issues</h3><p className="panel-description">Triage issues from Review and Dynamic Testing in one list.</p></div><span className="findings-total-count">{findingCountSummary(findings)}</span></div>
+      {loadError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> Issues could not be loaded. <button type="button" className="btn-link" onClick={() => void (reviewRead?.refresh ?? loadFindings)()}>Retry</button></div>}
       {actionError && <div className="command-inline-alert" role="alert"><AlertCircle size={15} aria-hidden="true" /> {actionError}</div>}
       {findings.length > 0 && filterToolbar(true)}
-      {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 ? 'No findings yet. Run a Review or Dynamic Testing activity to generate findings.' : 'No findings match the current filters.'}</p></div> : <>
+      {sorted.length === 0 ? <div className="findings-empty-state"><p className="card-empty">{findings.length === 0 ? 'No issues yet.' : 'No issues match the current filters.'}</p></div> : <>
         <div className="findings-list">
           {visibleGroups.map(group => {
             const row = group.representative;

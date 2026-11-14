@@ -49,8 +49,8 @@ describe('ReviewToast', () => {
     const openReview = vi.fn();
     const controls = renderToast({ session: snapshot() }, openReview);
     expect(screen.getByRole('region', { name: 'Review progress' })).toBeInTheDocument();
-    expect(screen.getByText('Step 4 of 5 · Review the behaviour')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Checkout review: Review the behaviour, step 4 of 5');
+    expect(screen.getByText('Step 4 of 5 · Trace code paths and validate issues')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Checkout review: Trace code paths and validate issues, step 4 of 5');
     fireEvent.click(screen.getByRole('button', { name: 'Open review progress for Checkout review' }));
     expect(controls.setExpanded).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
@@ -59,7 +59,7 @@ describe('ReviewToast', () => {
 
   it('lists every stage with a readable status and can collapse again', () => {
     const controls = renderToast({ session: snapshot(), expanded: true });
-    expect(screen.getByText('Check the documents')).toBeInTheDocument();
+    expect(screen.getByText('Discover behaviors and paths')).toBeInTheDocument();
     expect(screen.getByText('In progress')).toBeInTheDocument();
     expect(screen.getAllByText('Not started')).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Cancel review' })).toBeInTheDocument();

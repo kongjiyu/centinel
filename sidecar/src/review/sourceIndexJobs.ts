@@ -36,7 +36,7 @@ export function sourceIndexJobId(projectId: string, fingerprint: string): string
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 export class SourceIndexStopped extends Error {
-  constructor(readonly code: string) { super(`Source indexing stopped: ${code}.`); }
+  constructor(readonly code: string, message = `Source indexing stopped: ${code}.`) { super(message); }
 }
 export function assertSourceIndexProviderAllowed(projectId: string): void {
   if (isAssessmentHeld(projectId))
@@ -116,10 +116,8 @@ export class SourceIndexCoordinator {
     reader?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>): Promise<void> {
     this.adoptSession(auth);
     const identity = await this.deps.describe(this.auth(auth.userId), projectId, artifacts, signal);
-    const deadline = Date.now() + 600_000;
     for (;;) {
       signal?.throwIfAborted();
-      if (Date.now() >= deadline) throw new SourceIndexStopped('index_wait_timeout');
       const job = await this.queue(auth.userId, projectId, identity, 'review');
       // Review never silently resumes a capacity-paused source build.
       if (job.state === 'paused') throw new SourceIndexStopped(job.errorCode ?? 'index_paused');

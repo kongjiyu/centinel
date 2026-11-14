@@ -234,7 +234,7 @@ export async function loadFindingSavedSource(projectId: string, reviewId: string
     if (ref.sourceVersion && normalized(ref.sourceVersion) !== normalized(result.versionId) && normalized(ref.sourceVersion) !== normalized(result.contentHash)) {
       return { text: '', error: 'The saved reference version does not match this Review’s source version. Only the recorded excerpt can be shown.' };
     }
-    if (result.mimeType && !result.mimeType.startsWith('text/') && !/json|xml|javascript/.test(result.mimeType) && !/\.(md|txt|js|ts|jsx|tsx|mjs|cjs|cs|py|java|go|rb|rs|php|json|ya?ml|xml|html|css|toml|ini)$/i.test(ref.filePath)) {
+    if (result.textContent == null && result.mimeType && !result.mimeType.startsWith('text/') && !/json|xml|javascript/.test(result.mimeType) && !/\.(md|txt|js|ts|jsx|tsx|mjs|cjs|cs|py|java|go|rb|rs|php|json|ya?ml|xml|html|css|toml|ini)$/i.test(ref.filePath)) {
       return { text: '', error: 'This file format has no text preview. The saved evidence above remains available.' };
     }
     const text = result.textContent ?? new TextDecoder().decode(Uint8Array.from(atob(result.content), char => char.charCodeAt(0)));
@@ -244,15 +244,31 @@ export async function loadFindingSavedSource(projectId: string, reviewId: string
   }
 }
 
-export function EvidenceFileControl({ path, findings, selectedId, pressed, onOpen }: {
-  path: string; findings: Finding[]; selectedId?: string; pressed?: boolean;
+let closeActiveEvidencePreview: (() => void) | undefined;
+
+export function EvidenceFileControl({ path, findings, selectedId, pressed, onOpen, tooltip, reference }: {
+  path: string; findings: Finding[]; selectedId?: string; pressed?: boolean; tooltip?: boolean; reference?: FindingSourceReference;
   onOpen?: (finding: Finding, ref?: FindingSourceReference, additionalRefs?: FindingSourceReference[]) => void;
 }) {
   const [anchor, setAnchor] = useState<{ left: number; top: number; above: boolean } | null>(null);
   const [source, setSource] = useState<SavedSource | null>(null);
+  const closeTimer = useRef<number | undefined>(undefined);
+  const clearClose = () => window.clearTimeout(closeTimer.current);
+  const close = useCallback(() => {
+    window.clearTimeout(closeTimer.current);
+    setAnchor(null);
+  }, []);
+  const deferClose = () => {
+    clearClose();
+    closeTimer.current = window.setTimeout(close, 250);
+  };
+  useEffect(() => () => {
+    window.clearTimeout(closeTimer.current);
+    if (closeActiveEvidencePreview === close) closeActiveEvidencePreview = undefined;
+  }, [close]);
   const finding = findings.find(item => item.id === selectedId) ?? findings[0];
   const references = findingSourceReferences(finding).filter(ref => ref.filePath.replace(/\\/g, '/') === path);
-  const ref = references[0];
+  const ref = reference ?? references[0];
   const reviewId = finding.latestOccurrence?.reviewId || finding.sessionId;
   const additionalRefs = ref ? findings.filter(item => (item.latestOccurrence?.reviewId || item.sessionId) === reviewId)
     .flatMap(findingSourceReferences).filter(item => item.filePath.replace(/\\/g, '/') === path && item.artifactId === ref.artifactId
@@ -269,6 +285,10 @@ export function EvidenceFileControl({ path, findings, selectedId, pressed, onOpe
     return () => { active = false; window.clearTimeout(timer); };
   }, [anchor, finding.projectId, reviewId, ref?.artifactId, ref?.sourceVersion, ref?.filePath]);
   const reveal = (element: HTMLButtonElement) => {
+    clearClose();
+    if (closeActiveEvidencePreview !== close) closeActiveEvidencePreview?.();
+    closeActiveEvidencePreview = close;
+    if (anchor) return;
     const bounds = element.getBoundingClientRect();
     const width = Math.min(680, window.innerWidth - 24);
     const above = window.innerHeight - bounds.bottom < 310 && bounds.top > window.innerHeight - bounds.bottom;
@@ -276,18 +296,19 @@ export function EvidenceFileControl({ path, findings, selectedId, pressed, onOpe
     setAnchor({ left: Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12)), top: above ? bounds.top - 6 : bounds.bottom + 6, above });
   };
   return <>
-    <button type="button" className="btn-link finding-evidence-file-control" aria-label={shownPath} aria-pressed={pressed}
-      onMouseEnter={event => reveal(event.currentTarget)} onMouseLeave={() => setAnchor(null)}
-      onFocus={event => reveal(event.currentTarget)} onBlur={() => setAnchor(null)}
-      onKeyDown={event => { if (event.key === 'Escape') setAnchor(null); }}
+    <button type="button" className="btn-link finding-evidence-file-control" aria-label={reference?.lineNumber ? `${shownPath}:${reference.lineNumber}` : shownPath} aria-pressed={pressed}
+      onMouseEnter={event => reveal(event.currentTarget)} onMouseLeave={deferClose}
+      onFocus={event => reveal(event.currentTarget)} onBlur={deferClose}
+      onKeyDown={event => { if (event.key === 'Escape') close(); }}
       onClick={event => {
         if (!onOpen) { reveal(event.currentTarget); return; }
-        setAnchor(null);
+        close();
         onOpen(finding, ref, additionalRefs);
       }}>
-      {separator >= 0 && <span>{shownPath.slice(0, separator + 1)}</span>}<strong>{shownPath.slice(separator + 1)}</strong>
+      {reference?.lineNumber ? <code>{shownPath}:{reference.lineNumber}</code> : <>{separator >= 0 && <span>{shownPath.slice(0, separator + 1)}</span>}<strong>{shownPath.slice(separator + 1)}</strong></>}
     </button>
-    {anchor && ref && createPortal(<div className="finding-evidence-hover" style={{ left: anchor.left, top: anchor.top, transform: anchor.above ? 'translateY(-100%)' : undefined }}>
+    {anchor && ref && createPortal(<div className="finding-evidence-hover" role={tooltip ? 'tooltip' : undefined} onMouseEnter={clearClose} onMouseLeave={deferClose}
+      style={{ left: anchor.left, top: anchor.top, transform: anchor.above ? 'translateY(-100%)' : undefined }}>
       <header><strong>{shownPath}</strong><small>{ref.lineNumber ? `Line ${ref.lineNumber} · ` : ''}{source?.error && ref.excerpt ? 'Recorded excerpt' : 'Saved Review source'}</small></header>
       {!source ? <div className="finding-evidence-loading" role="status" aria-label="Loading highlighted source"><LoaderCircle size={24} aria-hidden="true" /></div> : source.text ? <SourceCode text={source.text} sourceRef={ref} additionalRefs={additionalRefs} uncertain={uncertain} preview /> :
         ref.excerpt ? <pre>{ref.excerpt}</pre> : <p>{source.error || 'Saved source is unavailable.'}</p>}

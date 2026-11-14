@@ -126,6 +126,29 @@ const input: NewStaticReview = {
 const artifact: Artifact = { id: 'artifact-1', projectId: 'project-1', type: 'source_code', source: 'repository', fileName: 'auth.ts', filePath: 'src/auth.ts', originalPath: null, contentHash: 'hash', createdAt: '2026-09-21T00:00:00.000Z' };
 
 describe('SupabaseStaticReviewRepository', () => {
+  it('stores large analysis maps compactly and reads them alongside legacy audit rows', async () => {
+    const db = new FakeDb();
+    const repo = repository(db);
+    const event = {
+      projectId: 'project-1', reviewId: 'review-1', event: 'review_analysis_map_saved',
+      stage: 'freezing_sources', createdAt: '2026-10-24T10:00:00.000Z',
+      detail: { phase: 'prepared', analysisMap: { features: Array.from({ length: 700 }, (_, id) => ({
+        id, references: [{ filePath: 'src/操作.ts', lineNumber: id + 1, sourceVersion: 'frozen-version' }],
+      })) } },
+    };
+    await repo.recordAudit(event);
+    await repo.recordAudit(event);
+    const rows = db.rows.get('audit_events')!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload.detail).toBeUndefined();
+    expect(Buffer.byteLength(JSON.stringify(rows[0].payload))).toBeLessThan(Buffer.byteLength(JSON.stringify(event.detail)) / 2);
+    expect(await repo.getHarnessEvents('project-1', 'review-1')).toMatchObject([event]);
+    const legacy = { ...event, detail: { phase: 'assessed' }, createdAt: '2026-10-24T11:00:00.000Z' };
+    await repo.recordAudit(legacy);
+    expect(rows[1].payload.detail).toEqual(legacy.detail);
+    expect(await repo.getHarnessEvents('project-1', 'review-1')).toMatchObject([event, legacy]);
+  });
+
   it('exposes unverified harness deltas only for the requested project and Review', async () => {
     const db = new FakeDb();
     const partialDetail = { batchId: 'batch-1', features: [{ id: 'feature-1', assessments: [

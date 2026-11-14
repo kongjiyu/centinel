@@ -283,6 +283,7 @@
 }
 .review-toast-open {
   display: block;
-  margin: 0 16px 12px auto;
-  min-height: 36px;
+  margin: 0 0 0 auto;
+  min-height: 30px;
 }
+.review-toast { box-sizing: border-box; }
