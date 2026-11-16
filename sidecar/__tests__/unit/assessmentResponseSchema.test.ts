@@ -11,7 +11,7 @@ const artifact: Artifact = { id: 'one', projectId: 'project', type: 'source_code
 const content = 'export function one() { return true; }';
 const original = deriveReviewAnalysisMap([{ artifact, content }]);
 function response(map: ReviewAnalysisMap, status: 'assessed' | 'unverified' = 'assessed') {
-  return { findings: [], featureAssessments: map.features.map(feature => ({ featureId: feature.id,
+  return { scopeSummary: null, findings: [], featureAssessments: map.features.map(feature => ({ featureId: feature.id,
     assessments: ['security', 'business', 'technical', 'personnel'].map(domain => ({ domain, status,
       outcome: status === 'assessed' ? 'no_issue_identified' : 'unverified', summary: 'Bounded public conclusion.',
       evidence: status === 'assessed' ? [...feature.entryPoints] : [] })),
