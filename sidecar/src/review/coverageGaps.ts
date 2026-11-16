@@ -4,8 +4,8 @@ import type { InvalidModelAssessmentError } from './assessmentValidation.js';
 /**
  * "Completed with gaps" (user-approved amendment, 5 November 2026).
  *
- * A Review whose independent batches produced validated findings or validated
- * assessments, but where some other batches could not be verified, finishes in
+ * A Review with a structured assessment, validated findings, or exhausted
+ * response-format repairs can retain unverified checks in
  * the normal approval lifecycle instead of `failed`. The unverified parts are
  * recorded here as a bounded list of safe descriptions (reason enums, file
  * paths and operation labels only; never model text or source bodies).
@@ -37,7 +37,7 @@ const MAX_PART_FEATURES = 5;
 const MAX_LABEL = 120;
 
 const REASONS = new Set<ReviewUnverifiedReason>([
-  'response_shape', 'finding_shape', 'domain_coverage', 'source_evidence', 'semantic_support', 'uncertain_citation',
+  'response_shape', 'finding_shape', 'domain_coverage', 'source_evidence', 'semantic_support', 'uncertain_citation', 'model_timeout',
 ]);
 
 function clip(value: string): string {

@@ -138,8 +138,8 @@ export class SourceIndexCoordinator {
   private async queue(ownerId: string, projectId: string, identity: RepositoryIndexIdentity, trigger: SourceIndexJob['trigger'], force = false): Promise<SourceIndexJob> {
     const store = this.store(ownerId); const id = sourceIndexJobId(projectId, identity.fingerprint);
     const existing = await store.get(id);
-    const previous = await store.latest(projectId, ownerId);
     const hold = await store.hold(projectId, ownerId);
+    const previous = !hold || force ? await store.latest(projectId, ownerId) : null;
     const held = !force && (hold ? hold.code !== null : previous?.state === 'paused');
     const holdCode = hold?.code ?? previous?.errorCode ?? 'index_paused';
     if (held && existing?.ownerId !== ownerId && existing) throw new SourceIndexStopped(holdCode);

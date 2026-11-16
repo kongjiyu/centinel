@@ -419,8 +419,12 @@ export const api = {
   codexModels: () => request<{ id: string; label: string; supportsImages: boolean; isDefault: boolean; imageSupportKnown?: boolean; catalogSource?: 'account' | 'codex'; catalogWarning?: 'account_catalog_unavailable' }[]>('/settings/codex/models'),
   testCodex: (model: string, vision = false) => request<{ status: 'pass' | 'fail'; message: string }>('/settings/codex/test', { method: 'POST', body: JSON.stringify({ model, vision }) }),
   aiSettings: () => request<AiProviderSetting[]>('/settings/ai'),
+  apiProviderModels: (data: { provider: string; apiFormat: string; apiKey: string; baseUrl: string }, signal?: AbortSignal) =>
+    request<{ id: string; label: string }[]>('/settings/ai/models', { method: 'POST', body: JSON.stringify(data), signal }),
   embeddingModels: () => request<EmbeddingSettingsCatalog>('/settings/ai/embedding/models'),
-  updateSharedAiSetting: (data: { provider: AiProvider; apiFormat: AiApiFormat; apiKey: string; baseUrl: string; model: string; geminiOAuth?: boolean }) =>
+  useSavedAiProvider: (slot: 'api' | 'codex' | 'gemini', model: string) =>
+    request<{ ok: boolean }>('/settings/ai/shared/use', { method: 'POST', body: JSON.stringify({ slot, model }) }),
+  updateSharedAiSetting: (data: { provider: AiProvider; apiFormat: AiApiFormat; apiKey: string; baseUrl: string; model: string; geminiOAuth?: boolean; saveOnly?: boolean }) =>
     request<{ ok: boolean }>('/settings/ai/shared', { method: 'PUT', body: JSON.stringify(data) }),
   updateAiSetting: (id: 'text' | 'vision' | 'embedding', data: {
     provider: AiProvider;

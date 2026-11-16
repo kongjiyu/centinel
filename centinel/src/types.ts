@@ -159,6 +159,7 @@ export type AiProvider = 'mimo' | 'gemini' | 'custom' | 'codex';
 export type AiApiFormat = 'openai-compatible' | 'anthropic-compatible' | 'google-native' | 'codex-app-server';
 
 export type AiProviderSetting = {
+  savedProviders?: { api?: AiProviderSetting; codex?: AiProviderSetting; gemini?: AiProviderSetting };
   connectionMethod?: 'oauth';
   codexScreenshots?: boolean;
   id: 'text' | 'vision' | 'embedding';

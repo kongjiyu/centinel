@@ -5,13 +5,22 @@ import { sourceIndexJobId } from './sourceIndexJobs.js';
 
 const ENTITY = 'source_index';
 const EVENT = 'source_index_job';
+export class SourceIndexJournalError extends Error {
+  readonly transient: boolean;
+  constructor(message: string, operation: string, status: number, code: unknown) {
+    const safeCode = typeof code === 'string' && /^(?:[A-Z0-9]{5}|PGRST[0-9]{3})$/.test(code) ? code : 'unknown';
+    super(`${message} [${operation}; HTTP ${status}; ${safeCode}]`);
+    this.transient = status === 0 || status === 502 || status === 503 || status === 504
+      || safeCode === '57014' || safeCode === 'PGRST003';
+  }
+}
 /** Existing audit journal and project-member RLS; no service role or local fallback. */
 export class SupabaseSourceIndexJobStore implements SourceIndexJobStore {
   constructor(private client: SupabaseClient, private userId: string) {}
   async hold(projectId: string, ownerId: string): Promise<SourceIndexHold | null> {
     const result = await this.client.from('audit_events').select('payload').eq('id', holdId(projectId, ownerId))
       .eq('project_id', projectId).eq('entity_type', 'source_index_hold').eq('event_type', 'source_index_hold').maybeSingle();
-    if (result.error) throw new Error('Source index capacity status is unavailable.');
+    if (result.error) throw new SourceIndexJournalError('Source index capacity status is unavailable.', 'hold', result.status, result.error.code);
     if (!result.data) return null;
     const payload = result.data.payload as SourceIndexHold & { ownerId: string; version: number };
     if (payload.version !== 1 || payload.ownerId !== ownerId || !Number.isSafeInteger(payload.revision) || payload.revision < 0
@@ -33,14 +42,19 @@ export class SupabaseSourceIndexJobStore implements SourceIndexJobStore {
   async get(id: string): Promise<SourceIndexJob | null> {
     const result = await this.client.from('audit_events').select('payload').eq('id', id)
       .eq('entity_type', ENTITY).eq('event_type', EVENT).maybeSingle();
-    if (result.error) throw new Error('Source index progress is unavailable.');
+    if (result.error) throw new SourceIndexJournalError('Source index progress is unavailable.', 'get', result.status, result.error.code);
     return decode(result.data?.payload, id);
   }
   async latest(projectId: string, ownerId: string): Promise<SourceIndexJob | null> {
-    const result = await this.client.from('audit_events').select('id,payload').eq('project_id', projectId)
+    const read = () => this.client.from('audit_events').select('id,payload').eq('project_id', projectId)
       .eq('entity_type', ENTITY).eq('event_type', EVENT).eq('payload->>ownerId', ownerId)
       .order('payload->>updatedAt', { ascending: false }).order('id', { ascending: false }).limit(1);
-    if (result.error) throw new Error('Source index progress is unavailable.');
+    let result = await read();
+    if (result.error && new SourceIndexJournalError('', 'latest', result.status, result.error.code).transient) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      result = await read();
+    }
+    if (result.error) throw new SourceIndexJournalError('Source index progress is unavailable.', 'latest', result.status, result.error.code);
     const row = result.data?.[0];
     const job = row ? decode(row.payload, row.id) : null;
     if (job && (job.projectId !== projectId || job.ownerId !== ownerId)) throw new Error('Source index job scope mismatch.');
@@ -72,7 +86,7 @@ export class SupabaseSourceIndexJobStore implements SourceIndexJobStore {
       entity_type: ENTITY, entity_id: job.projectId, event_type: EVENT, idempotency_key: `source-index:${job.id}`,
       created_at: job.updatedAt, payload: { version: 1, ...job } });
     if (result.error?.code === '23505') return false;
-    if (result.error) throw new Error('Source index event could not be saved.');
+    if (result.error) throw new SourceIndexJournalError('Source index event could not be saved.', 'insert', result.status, result.error.code);
     return true;
   }
   async compareAndSet(previous: SourceIndexJob, next: SourceIndexJob): Promise<boolean> {
@@ -81,7 +95,7 @@ export class SupabaseSourceIndexJobStore implements SourceIndexJobStore {
     const result = await this.client.from('audit_events').update({ payload: { version: 1, ...next } })
       .eq('id', previous.id).eq('project_id', previous.projectId).eq('entity_type', ENTITY).eq('event_type', EVENT)
       .eq('payload->>revision', String(previous.revision)).select('id');
-    if (result.error) throw new Error('Source index progress could not be saved.');
+    if (result.error) throw new SourceIndexJournalError('Source index progress could not be saved.', 'compareAndSet', result.status, result.error.code);
     return result.data?.length === 1;
   }
 }

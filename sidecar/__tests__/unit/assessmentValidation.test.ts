@@ -33,6 +33,18 @@ function service(repository: InMemoryStaticReviewRepository, modelProvider: Stat
 }
 
 describe('Assessment acceptance boundary', () => {
+  it('asks the review provider for an Activity outcome and saves it with the assessed batch', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const scopeSummary = 'The account helper returns a constant. The caller was outside the inspected scope.';
+    const run = await service(repository, provider(request => {
+      expect(request.systemPrompt).toContain('write one or two short sentences for the review Activity');
+      return { findings: [], featureAssessments: assessments(request), scopeSummary };
+    })).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded' });
+    const assessed = repository.audits.find(event => event.event === 'review_analysis_batch_saved'
+      && Array.isArray(event.detail?.features) && event.detail.features.length > 0);
+    expect(assessed?.detail?.scopeSummary).toBe(scopeSummary);
+  });
   it('never grants text-logic absence proof when the diagnostic inventory is truncated', () => {
     const python = { ...artifact, id: 'python', fileName: 'worker.py', filePath: 'worker.py' };
     const initial = deriveReviewAnalysisMap([{ artifact: python, content: 'def calculate(value):\n    return value + 1\n' }]);
@@ -83,23 +95,42 @@ describe('Assessment acceptance boundary', () => {
     expect(domainRows.items.properties.summary).toMatchObject({ minLength: 1 });
     expect(domainRows.items.properties.status.enum).toContain('unverified');
   });
-  it.each([null, [], {}, { message: 'cannot finish' }, { findings: [] }, { findings: 'none', featureAssessments: [] }])('fails invalid shape without clean success or correlations (%j)', async result => {
+  it.each([null, [], {}, { message: 'cannot finish' }, { findings: [] }, { findings: 'none', featureAssessments: [] }])('retains invalid response shape as a gap without clean success (%j)', async result => {
     const repository = new InMemoryStaticReviewRepository();
     const runner = service(repository, provider(() => result));
     const run = await runner.start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial' });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial',
+      progress: { coverage: 'partial', unverifiedParts: expect.arrayContaining([expect.objectContaining({ reason: 'response_shape' })]) } });
     expect(repository.findings).toHaveLength(0);
     expect(repository.findingCorrelations.size).toBe(0);
-    expect(repository.audits.find(event => event.event === 'review_assessment_rejected')?.detail).toMatchObject({ reason: 'response_shape' });
+    expect(repository.audits.some(event => event.event === 'review_assessment_validated')).toBe(false);
   });
   it('does not resolve a prior issue after malformed changed-source output', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const first = await service(repository, provider(request => ({ findings: [issue], featureAssessments: assessments(request) }))).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'first' });
     expect((await first.completion).status).toBe('pending_approval');
     const second = await service(repository, provider(() => ({ message: 'cannot finish' }))).start({ projectId: 'project', reviewType: 'code_review', artifacts: [{ ...artifact, contentHash: 'version-2' }], idempotencyKey: 'second' });
-    expect((await second.completion).status).toBe('failed');
-    expect(repository.findingCorrelations.has(second.review.id)).toBe(false);
+    expect(await second.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial' });
+    expect(repository.findingCorrelations.get(second.review.id)?.counts.resolved ?? 0).toBe(0);
     expect(repository.findings).toHaveLength(1);
+  });
+  it('requests a repair for duplicate domains and accepts the corrected batch', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    let duplicated = false;
+    const run = await service(repository, provider(request => {
+      const rows = assessments(request);
+      if (!duplicated && rows.length) {
+        duplicated = true;
+        const row = rows[0];
+        return { findings: [], featureAssessments: [{ ...row, assessments: [
+          row.assessments[0], row.assessments[0], ...row.assessments.slice(2),
+        ] }, ...rows.slice(1)] };
+      }
+      return { findings: [], featureAssessments: rows };
+    })).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded' });
+    expect(repository.audits.filter(event => event.event === 'review_assessment_repair_scheduled'))
+      .toEqual([expect.objectContaining({ detail: expect.objectContaining({ reason: 'domain_coverage' }) })]);
   });
   it.each([{ filePath: 'missing.ts', lineNumber: 999 }, { evidence: 'invented source text' }, { sourceVersion: 'wrong-version' }, { artifactId: 'wrong-artifact' }])('retains unsupported observations only with explicit verification flags (%j)', async overrides => {
     const repository = new InMemoryStaticReviewRepository();
@@ -166,16 +197,16 @@ describe('Assessment acceptance boundary', () => {
       retry: { sleep: async () => undefined },
     });
     const run = await runner.start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect((await run.completion).status).toBe('failed');
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
     expect(calls).toBe(4); // two bounded malformed attempts in each independent batch
     expect(new Set(repository.attempts.map(attempt => attempt.stage)).size).toBe(2);
     expect(fallbackCalls).toBe(0);
     expect(JSON.stringify(repository.audits)).not.toContain('private payload');
   });
-  it('keeps explicitly unverified domain coverage out of approval and resolution', async () => {
+  it('keeps explicitly unverified domain coverage as gaps without resolution', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const run = await service(repository, provider(request => ({ findings: [], featureAssessments: assessments(request).map((row: any) => ({ ...row, assessments: row.assessments.map((item: any) => ({ ...item, status: 'unverified', outcome: 'unverified', evidence: [] })) })) }))).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial' });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
     expect(repository.findingCorrelations.size).toBe(0);
   });
   it('marks a batch that exceeds the AI time limit as unverified and still runs the other batches', async () => {
@@ -217,10 +248,11 @@ describe('Assessment acceptance boundary', () => {
       }),
     });
     const run = await runner.start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'failed', modelStatus: 'partial' });
-    expect(stages).toHaveLength(7); // three attempts in each feature batch, then one independent sweep
-    expect(new Set(stages).size).toBe(3);
-    expect(repository.audits.filter(event => event.event === 'review_batch_needs_verification')).toHaveLength(2);
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
+    const deferred = repository.audits.filter(event => event.event === 'review_batch_needs_verification');
+    expect(deferred.length).toBeGreaterThan(1);
+    expect(stages).toHaveLength(deferred.length * 3 + 1); // bounded repairs, then an independent sweep
+    expect(new Set(stages).size).toBe(deferred.length + 1);
     const saved = repository.audits.filter(event => event.event === 'review_analysis_batch_saved');
     expect(saved).toHaveLength(1);
     expect(saved[0].detail?.features).toEqual([]); // the independent source sweep completed
@@ -412,16 +444,41 @@ describe('Assessment acceptance boundary', () => {
       return { settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' }, result: { findings: [{ ...issue, domain: 'security' }], featureAssessments: assessments(request) } };
     } };
     const run = await service(repository, model).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded', modelFindingCount: 1 });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded', modelFindingCount: 0 });
     expect(generationCalls).toBe(2);
     expect(supportCalls).toBe(2);
     const map = analysisMapFromEvents(repository.audits);
     expect(map?.status).toBe('assessed');
-    expect(map?.features[0].assessments.find(item => item.domain === 'security')).toMatchObject({ status: 'assessed', outcome: 'potential_gap' });
+    expect(map?.features[0].assessments.find(item => item.domain === 'security')).toMatchObject({ status: 'assessed', summary: 'Local inspected branch assessed.' });
     expect(repository.audits.find(event => event.event === 'review_candidate_support_limited')?.detail).toMatchObject({ limitationCode: 'selected_call_path_unavailable' });
     expect(repository.audits.find(event => event.event === 'review_assessment_validated')?.detail).toMatchObject({ coverageStatus: 'assessed', assessedArtifactIds: [] });
-    expect(repository.findings).toHaveLength(1);
-    expect(repository.findings[0].sourceLocator?.citationEvidence).toMatchObject({ verification: 'needs_verification', reason: 'support_unverified' });
+    expect(repository.findings).toHaveLength(0);
+  });
+  it('checks additional frozen source before reporting a claim that depends on a caller', async () => {
+    const repository = new InMemoryStaticReviewRepository();
+    const caller = { ...artifact, id: 'caller', fileName: 'caller.ts', filePath: 'src/caller.ts' };
+    const callerText = 'export function handle(account: () => boolean) { return account(); }';
+    let followups = 0;
+    const model: StaticAnalysisModelProvider = { analyze: async request => {
+      const settings = { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' };
+      if (isCandidateSupportRequest(request)) {
+        const expanded = request.prompt.includes(callerText);
+        const result = candidateSupportResult(request, { disposition: expanded ? 'supported' : 'insufficient', boundary: 'selected_call_path' });
+        if (expanded) {
+          followups++;
+          result.candidates[0]!.references[0] = { role: 'entry', artifactId: caller.id, filePath: caller.filePath,
+            sourceVersion: caller.contentHash, lineNumber: 1, evidence: callerText };
+        }
+        return { settings, result };
+      }
+      return { settings, result: { findings: request.prompt.includes(content) && !request.prompt.includes(callerText) ? [issue] : [],
+        featureAssessments: assessments(request) } };
+    } };
+    const run = await service(repository, model, async item => item.id === caller.id ? callerText : content)
+      .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact, caller] });
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded', modelFindingCount: 1 });
+    expect(followups).toBeGreaterThan(0);
+    expect(repository.findings[0]?.relatedLocations).toEqual(expect.arrayContaining([expect.objectContaining({ artifactId: caller.id })]));
   });
   it('excludes every related artifact in an insufficient runtime claim from absence proof', async () => {
     const repository = new InMemoryStaticReviewRepository();
@@ -515,7 +572,7 @@ describe('Assessment acceptance boundary', () => {
       return { settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' }, result: { findings: [{ ...issue, domain: 'security' }, sibling], featureAssessments: assessments(request) } };
     } };
     const run = await service(repository, model).start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
-    expect((await run.completion).status).toBe('failed');
+    expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
     expect(supportCalls).toBe(4); // bounded repair in both independent packets
     expect(repository.findings.filter(finding => finding.source === 'model').every(finding =>
       (finding.sourceLocator?.citationEvidence as any)?.verification === 'needs_verification')).toBe(true);
@@ -792,14 +849,14 @@ describe('Assessment acceptance boundary', () => {
     expect(repository.findingCorrelations.get(second.review.id)?.counts.resolved ?? 0).toBe(0);
     expect(repository.audits.some(event => event.reviewId === second.review.id && event.event === 'review_assessment_validated')).toBe(false);
   });
-  it('still fails when no part of the model assessment could be verified', async () => {
+  it('retains gaps when structured checks cannot verify any behavior', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const run = await service(repository, provider(request => ({ findings: [{ ...issue, filePath: 'missing.ts', lineNumber: 999 }],
       featureAssessments: assessments(request).map((row: any) => ({ ...row, assessments: row.assessments.map((item: any) => ({ ...item, status: 'unverified', outcome: 'unverified', evidence: [] })) })) })))
       .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact] });
     const finished = await run.completion;
-    expect(finished).toMatchObject({ status: 'failed', modelStatus: 'partial' });
-    expect(finished.progress?.coverage).toBeUndefined();
+    expect(finished).toMatchObject({ status: 'pending_approval', modelStatus: 'partial', progress: { coverage: 'partial' } });
+    expect(finished.progress?.unverifiedParts).toEqual(expect.arrayContaining([expect.objectContaining({ reason: 'domain_coverage' })]));
   });
   it('reports bounded field-specific repair codes without retaining rejected source text', () => {
     const invalid = { ...issue, source: 'model' as const, evidence: 'private rejected payload' };

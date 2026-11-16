@@ -1,5 +1,5 @@
+import { plainReviewText } from '../reviewNarrative';
 import { reviewHandover } from '../reviewHandover';
-import { setVisibleInterval, setVisibleTimeout } from '../hooks/usePageVisible';
 import { save } from '@tauri-apps/api/dialog';
 import { writeTextFile } from '@tauri-apps/api/fs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -8,18 +8,18 @@ import { api } from '../api/client';
 import { CommandPageHeader, StatusBadge } from '../components/CommandUI';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { readReviewActivityPreview, rememberReviewActivity } from '../reviewActivityCache';
-import { ReviewIssues, ReviewTableAction, reviewIssueCategory, shortReviewIssueTitle } from '../components/ReviewIssues';
+import { ReviewIssues, ReviewTableAction, reviewIssueCategory, shortReviewIssueTitle, type LiveReviewIssue } from '../components/ReviewIssues';
 import { effectiveFindingStatus } from '../findingStatus';
 import { riskLevelRank } from '../riskPolicy';
 import { featureDisplayName } from '../reviewFeatures';
-import { buildReviewNarrative, type ReviewNarrative } from '../reviewNarrative';
+import { buildReviewNarrative, formatReviewDuration, type ReviewNarrative } from '../reviewNarrative';
 import { mergeReviewFindings, reviewEvidenceFindings, reviewTraceabilityFindings } from '../reviewEvidenceFindings';
 import { groupFindings } from '../findingGroups';
 import { rankFindingEvidence } from '../findingEvidenceRanking';
 import type { ReviewHarnessTrace } from '../reviewHarness';
 import { findingRiskLevel } from '../components/FindingsPanel';
 import { Modal } from '../components/Modal';
-import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason } from '../reviewCoverage';
+import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason, type ReviewUnverifiedReason } from '../reviewCoverage';
 import { suggestedLinkCount } from '../requirementLinks';
 import {
   awaitsReviewDecision,
@@ -374,7 +374,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   useEffect(() => {
     let disposed = false;
     let reading = false;
-    let cancelTimer: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setHarnessTrace(null);
     setHarnessError(null);
     setHarnessLoading(false);
@@ -383,18 +383,18 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     const refresh = async () => {
       if (reading) return;
       reading = true;
-      cancelTimer?.();
+      clearTimeout(timer);
       try {
         const trace = await api.getReviewHarness(projectId, sessionId);
         if (disposed) return;
         if (trace.review.id !== sessionId) throw new Error('Review history mismatch');
         setHarnessTrace(trace);
         setHarnessError(null);
-        if (trace.review.status === 'queued' || trace.review.status === 'running') cancelTimer = setVisibleTimeout(() => void refresh(), 1500);
+        if (trace.review.status === 'queued' || trace.review.status === 'running') timer = setTimeout(() => void refresh(), 1500);
       } catch {
         if (!disposed) {
           setHarnessError('Saved execution details could not be loaded. Reopen the review to try again; finding evidence remains available.');
-          if (session?.status === 'queued' || session?.status === 'running') cancelTimer = setVisibleTimeout(() => void refresh(), 3000);
+          if (session?.status === 'queued' || session?.status === 'running') timer = setTimeout(() => void refresh(), 3000);
         }
       } finally {
         reading = false;
@@ -409,7 +409,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     document.addEventListener('visibilitychange', refreshOnReturn);
     return () => {
       disposed = true;
-      cancelTimer?.();
+      clearTimeout(timer);
       window.removeEventListener('focus', refreshOnReturn);
       document.removeEventListener('visibilitychange', refreshOnReturn);
     };
@@ -417,7 +417,8 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
 
   useEffect(() => {
     if (!session || (session.status !== 'queued' && session.status !== 'running')) return undefined;
-    return setVisibleInterval(() => { void load({ silent: true }); }, 1500);
+    const timer = setInterval(() => { void load({ silent: true }); }, 3000);
+    return () => clearInterval(timer);
   }, [load, session?.status]);
 
   const loadOlderDecisions = async () => {
@@ -761,6 +762,8 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
             </>}
             onOpenSettings={() => onNavigate({ name: 'settings' })}
             liveEvents={harnessTrace?.events}
+            liveProgress={harnessTrace?.review.progress}
+            liveUpdatesDelayed={Boolean(harnessError)}
             onViewAll={() => onNavigate({ name: 'project-detail', projectId, initialSection: 'findings' })}
             onCancel={session.status === 'queued' || session.status === 'running' ? () => void cancelReview() : undefined}
             cancelling={cancelling}
@@ -837,7 +840,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
 }
 
 function ReviewActivityContent({
-  onOpenFinding, liveEvents, onViewAll, onCancel, cancelling, objective, supportiveDocuments,
+  onOpenFinding, liveEvents, liveProgress, liveUpdatesDelayed, onViewAll, onCancel, cancelling, objective, supportiveDocuments,
   narrative,
   sourceManifest,
   findings,
@@ -861,6 +864,8 @@ function ReviewActivityContent({
   onOpenSettings: () => void;
   onOpenFinding: (id: string) => void;
   liveEvents?: ReviewHarnessTrace['events'];
+  liveProgress?: ReviewHarnessTrace['review']['progress'];
+  liveUpdatesDelayed: boolean;
   onViewAll: () => void;
   onCancel?: () => void;
   cancelling: boolean;
@@ -888,13 +893,29 @@ function ReviewActivityContent({
   currentDecision: ReviewDecisionRecord | null;
 }) {
   const savedTitles = new Set(findings.map(finding => finding.title));
-  const liveFindings = session.status === 'running' ? (liveEvents ?? []).flatMap(event =>
-    event.reviewId === session.id && event.event === 'review_live_finding_titles' && Array.isArray(event.detail?.titles)
-      ? [...event.detail.titles].reverse().flatMap((title, index) => typeof title === 'string' && title.length <= 160 && !savedTitles.has(title)
-        ? [{ key: `${event.id ?? event.createdAt}:${index}`, title, time: event.createdAt, findingId: undefined }]
-        : [])
-      : []) : [];
-  const uniqueLiveIssues = [...new Map(liveFindings.map(issue => [issue.title, issue])).values()];
+  const lastPreviewByBatch = new Map((liveEvents ?? []).filter(event => event.reviewId === session.id
+    && ['review_live_finding_titles', 'review_batch_needs_verification'].includes(event.event)
+    && typeof event.detail?.batchId === 'string').map(event => [event.detail!.batchId, event]));
+  const liveFindings = session.status === 'running' ? (liveEvents ?? []).flatMap(event => {
+    if (event.reviewId !== session.id || event.event !== 'review_live_finding_titles'
+      || typeof event.detail?.batchId === 'string' && lastPreviewByBatch.get(event.detail.batchId) !== event) return [];
+    const rows: Record<string, unknown>[] = Array.isArray(event.detail?.issues) ? event.detail.issues
+      : Array.isArray(event.detail?.titles) ? [...event.detail.titles].reverse().map(title => ({ title })) : [];
+    return rows.flatMap((row, index): (LiveReviewIssue & { time: string; findingId: undefined })[] => {
+      if (!row || typeof row.title !== 'string' || row.title.length > 160 || savedTitles.has(row.title)) return [];
+      const filePath = typeof row.filePath === 'string' ? row.filePath : undefined;
+      const lineNumber = typeof row.lineNumber === 'number' && Number.isSafeInteger(row.lineNumber) && row.lineNumber > 0 ? row.lineNumber : undefined;
+      const domain = row.domain === 'security' || row.domain === 'business' || row.domain === 'technical' || row.domain === 'personnel' ? row.domain : undefined;
+      const issueType = typeof row.issueType === 'string' ? row.issueType : undefined;
+      return [{
+        key: typeof row.key === 'string' ? row.key : `${event.detail?.batchId ?? event.id ?? event.createdAt}:${index}`,
+        title: row.title, provisional: event.detail?.provisional === true, filePath, lineNumber,
+        category: reviewIssueCategory({ title: row.title, category: typeof row.category === 'string' ? row.category : '', location: { domain, issueType } }),
+        time: event.createdAt, findingId: undefined,
+      }];
+    });
+  }) : [];
+  const uniqueLiveIssues = [...new Map(liveFindings.map(issue => [JSON.stringify([issue.category, issue.title, issue.filePath, issue.lineNumber]), issue])).values()];
   const sidebarIssues = [...groupFindings(findings).map(group => ({
     key: group.key, title: group.title, time: group.members.reduce((latest, finding) => finding.createdAt > latest ? finding.createdAt : latest, ''),
     findingId: group.representative.id, evidence: rankFindingEvidence(group.members, false)[0],
@@ -907,7 +928,7 @@ function ReviewActivityContent({
   const goalText = objective ?? '';
   const shortGoal = goalText.length > 200 ? goalText.slice(0, 200).replace(/\s+\S*$/, '').trimEnd() + '…' : goalText;
   const config = parseReviewConfig(session);
-  const currentStage = parseReviewProgress(session.progressJson)?.stage
+  const currentStage = (narrative.active ? liveProgress?.stage : undefined) ?? parseReviewProgress(session.progressJson)?.stage
     ?? narrative.stages.find(stage => stage.state === 'In progress')?.id;
   const stepEvent = liveEvents?.findLast(event => event.stage === currentStage && event.event === 'harness_step_started');
   const latestStep = stepEvent?.detail?.step;
@@ -938,8 +959,9 @@ function ReviewActivityContent({
     new Intl.ListFormat('en').format(names.map(name => '@{' + name.replace(/[{}]/g, '') + '}')),
     typeof path === 'string' ? '`' + path.replaceAll('`', '') + '`' : '',
   ].filter(Boolean).join(' in ');
-  const phase = parseReviewProgress(session.progressJson)?.assessmentPhase ?? startedBatch?.phase;
-  const scope = phase && startedBatch?.phase && phase !== startedBatch.phase ? '' : describeScope(namesFor(batch?.featureIds), batch?.filePath);
+  const phase = liveProgress?.assessmentPhase ?? startedBatch?.phase ?? parseReviewProgress(session.progressJson)?.assessmentPhase;
+  const phaseMatchesBatch = !phase || !startedBatch?.phase || phase === startedBatch.phase;
+  const scope = phaseMatchesBatch ? describeScope(namesFor(batch?.featureIds), batch?.filePath) : '';
   const focus: Record<string, string> = {
     freezing_sources: 'I’ll read the selected sources and requirements to discover behaviors and their paths.',
     indexing_context: 'I’ll prepare the source and requirement evidence so related behaviors can be traced together.',
@@ -951,63 +973,185 @@ function ReviewActivityContent({
         : `I’ll trace ${scope || 'the selected behaviors'} to see how inputs are handled and which outcomes the code supports.`,
     persisting_evidence: 'I’ll reconcile supported issues with previous results and save the evidence for approval.',
   };
-  const current = narrative.active ? focus[currentStage ?? ''] ?? 'Waiting for review progress.' : undefined;
   const events = liveEvents?.filter(event => event.reviewId === session.id) ?? [];
+  const resultEvents = ['review_analysis_batch_saved', 'review_analysis_batch_unverified', 'review_batch_needs_verification'];
+  const rejection = events.findLast(event => event.event === 'review_assessment_rejected')?.detail;
+  const batchReason = (reason: unknown) => typeof reason === 'string'
+    && ['response_shape', 'finding_shape', 'domain_coverage', 'source_evidence', 'semantic_support', 'uncertain_citation', 'model_timeout'].includes(reason)
+    ? unverifiedPartReason({ reason: reason as ReviewUnverifiedReason, files: [], features: [] }) : undefined;
+  const recordedCount = (value: unknown, singular: string, plural = singular + 's') =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      ? `${value} ${value === 1 ? singular : plural}` : undefined;
+  const conciseObservation = (value: string) => {
+    const line = value.replace(/\s+/g, ' ').trim();
+    if (line.length <= 260) return line;
+    let preview = line.slice(0, 259).replace(/\s+\S*$/, '');
+    if ((preview.match(/`/g)?.length ?? 0) % 2) preview = preview.slice(0, preview.lastIndexOf('`'));
+    return preview.trimEnd() + '…';
+  };
   const history = events.flatMap((event, index) => {
     const id = event.id ?? `${event.createdAt}:${index}`;
-    if (event.event === 'review_analysis_batch_saved' && Array.isArray(event.detail?.features)) {
-      if (event.detail.batchId && events.slice(index + 1).some(item =>
-        item.event === event.event && item.detail?.batchId === event.detail?.batchId)) return [];
-      const features = event.detail.features;
-      const scope = describeScope(namesFor(features.map(feature => feature?.id)), undefined);
+    if (event.event === 'review_candidate_support_saved') {
+      const counts = [
+        [event.detail?.supportedCount, 'supported by the saved source'],
+        [event.detail?.contradictedCount, 'contradicted by the saved source'],
+        [event.detail?.insufficientCount, 'still missing enough evidence'],
+      ] as const;
+      const outcomes = counts.flatMap(([count, description]) => typeof count === 'number' && Number.isSafeInteger(count) && count > 0
+        ? [`${count} ${count === 1 ? 'candidate' : 'candidates'} ${description}`] : []);
+      return outcomes.length ? [{
+        id, label: 'Verify reported issues', plan: 'I checked the reported issues against the saved source.',
+        result: `The verification found ${new Intl.ListFormat('en').format(outcomes)}.`,
+      }] : [];
+    }
+    if (resultEvents.includes(event.event)) {
+      if (event.detail?.batchId && events.slice(index + 1).some(item =>
+        resultEvents.includes(item.event) && item.detail?.batchId === event.detail?.batchId)) return [];
       const previous = events.slice(0, index).findLast(item => item.event === 'review_assessment_batch_started'
         && (item.detail?.batchId == null || item.detail.batchId === event.detail?.batchId));
+      const batchEvents = event.detail?.batchId == null ? [event] : events.slice(0, index + 1).filter(item =>
+        resultEvents.includes(item.event) && item.detail?.batchId === event.detail?.batchId);
+      const latestFeatures = new Map(batchEvents.flatMap(item => Array.isArray(item.detail?.features) ? item.detail.features : [])
+        .map(feature => [feature.id, feature]));
+      const featureIds = previous?.detail?.featureIds ?? [...latestFeatures.keys()];
+      const names = namesFor(featureIds);
+      const scope = describeScope(names, undefined);
       const finishedPhase = previous?.detail?.phase;
-      if (!features.length) {
-        const label = finishedPhase === 'documents' ? 'Checking the documents' : 'Checking additional sources';
-        return [{ id, label, message: `I reviewed ${describeScope([], previous?.detail?.filePath) || 'the selected files'} during this check.` }];
+      const observation = [...latestFeatures.values()].flatMap(feature =>
+        Array.isArray(feature.assessments) ? feature.assessments : [])
+        .filter(assessment => typeof assessment?.summary === 'string' && assessment.summary.trim())
+        .sort((a, b) => Number(b.status === 'assessed') - Number(a.status === 'assessed'))[0]?.summary;
+      const limitation = batchReason(event.detail?.reason);
+      const latestRepair = event.detail?.reason === 'domain_coverage' ? events.slice(0, index).findLast(item =>
+        item.event === 'review_assessment_repair_scheduled' && item.detail?.batchId === event.detail?.batchId
+        && item.detail?.reason === 'domain_coverage') : undefined;
+      const domainLabels: Record<string, string> = { security: 'security', business: 'business rules', technical: 'technical behavior', personnel: 'human error' };
+      const missingDomains = [...new Set((Array.isArray(latestRepair?.detail?.coverageFeedback) ? latestRepair.detail.coverageFeedback : [])
+        .flatMap(item => item && typeof item.domain === 'string' && Object.hasOwn(domainLabels, item.domain) ? [domainLabels[item.domain]] : []))];
+      const coverageLimitation = missingDomains.length
+        ? `I could not verify every required check for ${new Intl.ListFormat('en').format(missingDomains)}.`
+        : limitation;
+      const scopeSummary = batchEvents.findLast(item => typeof item.detail?.scopeSummary === 'string')?.detail?.scopeSummary;
+      const savedObservation = typeof scopeSummary === 'string' && scopeSummary.trim() ? scopeSummary : observation ?? '';
+      const result = [conciseObservation(savedObservation), coverageLimitation].filter(Boolean).join(' ');
+      if (!names.length && !latestFeatures.size) {
+        const label = finishedPhase === 'documents' ? 'Check documents' : 'Check additional sources';
+        return [{ id, label, plan: `I’ll review ${describeScope([], previous?.detail?.filePath) || 'the selected files'}.`,
+          result: result || 'I finished this check. No outcome summary was saved.' }];
       }
       const target = scope || 'the selected behavior paths';
-      const summary = features.flatMap(feature => Array.isArray(feature?.assessments) ? feature.assessments : [])
-        .find(assessment => assessment?.status === 'assessed' && typeof assessment.summary === 'string')?.summary;
-      return [{ id, label: `${['Tracing', 'Checking', 'Reviewing'][index % 3]} ${target}`,
-        message: `I traced ${describeScope(namesFor(features.map(feature => feature?.id)), previous?.detail?.filePath) || target}. ${summary || 'I recorded the available checks for these paths.'}` }];
+      return [{ id, label: `Check ${target}`,
+        plan: `I’ll trace ${describeScope(names, previous?.detail?.filePath) || target} now.`,
+        result: result || 'The check finished without a saved explanation for these behaviors.' }];
     }
     if (event.event !== 'harness_step_completed') return [];
     const step = event.detail?.step;
-    if (step === 'load_grounding') return [{ id, label: 'Preparing requirement evidence', message: 'I loaded the confirmed requirements and enabled rules for this review.' }];
-    if (step === 'run_rules') return [{ id, label: 'Running code checks', message: 'I ran the built-in checks and collected candidates for source verification.' }];
-    if (step === 'correlate_findings') return [{ id, label: 'Updating the results', message: 'I compared the saved issues with the available project history.' }];
+    const output = event.detail?.output as Record<string, unknown> | undefined;
+    if (step === 'load_grounding') {
+      const loaded = [recordedCount(output?.confirmedRequirements, 'confirmed requirement'), recordedCount(output?.enabledRules, 'enabled rule')].filter(Boolean);
+      return [{ id, label: 'Prepare requirement evidence', plan: 'I’ll load the confirmed requirements and enable the rules for this review.',
+        result: loaded.length ? `I found ${loaded.join(' and ')} for this review.` : 'I finished preparing requirement evidence.' }];
+    }
+    if (step === 'run_rules') {
+      const candidates = recordedCount(output?.findingCount, 'candidate');
+      return [{ id, label: 'Run code checks', plan: 'I’ll run the built-in code checks and collect candidates for source verification.',
+        result: candidates ? `The built-in checks reported ${candidates} for source verification.` : 'The built-in checks finished.' }];
+    }
+    if (step === 'correlate_findings') return [{ id, label: 'Update the results', plan: 'I’ll compare the saved issues with the available project history.',
+      result: output?.checkedProjectHistory === true ? 'I checked the saved issues against the available project history.' : 'The comparison step finished.' }];
     return [];
   });
-  const priorityIssue = [...findings].filter(finding => !['dismissed', 'fixed'].includes(effectiveFindingStatus(finding)))
-    .sort((a, b) => riskLevelRank(findingRiskLevel(a)) - riskLevelRank(findingRiskLevel(b)))[0];
+  const currentBatch = currentStage === 'model_analysis' && phaseMatchesBatch && startedBatch?.batchId
+    ? events.findLast(event => resultEvents.includes(event.event) && event.detail?.batchId === startedBatch.batchId)
+    : undefined;
+  const currentResultId = currentBatch && (currentBatch.id ?? `${currentBatch.createdAt}:${events.indexOf(currentBatch)}`);
+  const waitingForEvidence = !stepHasEnded && ['index_sources', 'run_model', 'challenge_support'].includes(String(latestStep));
+  const waitStartedAt = stepEvent ? Date.parse(stepEvent.createdAt) : NaN;
+  const waitSeconds = Number.isFinite(waitStartedAt) ? Date.now() - waitStartedAt : 0;
+  const waitDuration = waitingForEvidence && waitSeconds >= 1000 ? ` · ${formatReviewDuration(waitSeconds)}` : '';
+  const currentResult = currentResultId && !waitingForEvidence ? history.find(entry => entry.id === currentResultId) : undefined;
+  const labels: Record<string, string> = {
+    freezing_sources: latestStep === 'load_grounding' ? 'Prepare requirement evidence' : 'Discover behaviors and paths',
+    indexing_context: 'Prepare source evidence',
+    deterministic_analysis: 'Run code checks',
+    model_analysis: phase === 'documents' ? 'Check documents' : phase === 'environment' ? 'Check the environment'
+      : `Check ${(phaseMatchesBatch && describeScope(namesFor(batch?.featureIds), undefined)) || 'selected behaviors'}`,
+    persisting_evidence: 'Update the results',
+  };
+  const current = narrative.active ? currentResult ?? {
+    plan: waitingForEvidence && latestStep === 'challenge_support'
+      ? `I’m checking whether the saved source supports the reported issues${scope ? ` for ${scope}` : ''}.`
+      : currentStage === 'freezing_sources' && latestStep === 'load_grounding'
+      ? 'I’ll load the confirmed requirements and enable the rules for this review.'
+      : focus[currentStage ?? ''] ?? 'Waiting for review progress.',
+    label: !stepHasEnded && latestStep === 'index_sources' ? `Preparing the source index${waitDuration}`
+      : !stepHasEnded && latestStep === 'run_model' ? `Waiting for the model${waitDuration}`
+        : !stepHasEnded && latestStep === 'challenge_support' ? `Verifying reported issues${waitDuration}`
+          : labels[currentStage ?? ''] ?? 'Start review',
+  } : undefined;
+  const visibleHistory = currentResult ? history.filter(entry => entry.id !== currentResult.id) : history;
+  const openIssues = findings.filter(finding => !['dismissed', 'fixed'].includes(effectiveFindingStatus(finding)));
+  const evidenceVerified = (finding: Finding) => finding.location?.sourceLocator?.citationEvidence?.verification === 'verified';
+  const priorityIssue = [...openIssues].filter(finding => !finding.evidenceGap)
+    .sort((a, b) => Number(evidenceVerified(b)) - Number(evidenceVerified(a))
+      || riskLevelRank(findingRiskLevel(a)) - riskLevelRank(findingRiskLevel(b)))[0];
   const completed = state === 'Completed' || awaitsReviewDecision(state);
-  const categories = [...new Set(findings.map(reviewIssueCategory))];
-  const providerSummary = parseReviewProgress(session.progressJson)?.providerSummary;
+  const domainChecks = analysisMap?.features.flatMap(feature => feature.assessments) ?? [];
+  const passedChecks = domainChecks.filter(check => check.status === 'assessed' && check.outcome === 'no_issue_identified');
+  const assessedCount = domainChecks.filter(check => check.status === 'assessed').length;
+  const positiveResult = passedChecks[0]?.summary;
+  const gaps = reviewCoverageGaps(session);
+  const revision = sourceManifest?.gitRefs?.length
+    ? sourceManifest.gitRefs.map(ref => `${ref.repository} at \`${ref.commit.slice(0, 12)}\``).join(', ')
+    : sourceManifest?.snapshotId ? `snapshot \`${sourceManifest.snapshotId}\`` : 'revision unavailable';
+  const prose = (value: string, limit = 240) => {
+    const line = plainReviewText(value).replace(/\s+/g, ' ').trim();
+    return line.length > limit ? line.slice(0, limit).replace(/\s+\S*$/, '').replace(/[,:;]$/, '') + '…' : line;
+  };
+  const sentence = (value: string) => /[.!?…]$/.test(value) ? value : value + '.';
+  const priorityTitle = priorityIssue ? shortReviewIssueTitle(priorityIssue.title).replace(/[.!?]+$/, '') : '';
+  const priorityDescription = priorityIssue ? prose(priorityIssue.description) : '';
+  const priorityDetail = priorityTitle && priorityDescription.toLowerCase().startsWith(sentence(priorityTitle).toLowerCase())
+    ? priorityDescription.slice(sentence(priorityTitle).length).trim()
+    : priorityDescription.toLowerCase() === priorityTitle.toLowerCase() ? '' : priorityDescription;
+  const nextStep = priorityIssue && evidenceVerified(priorityIssue) ? prose(priorityIssue.recommendation) : '';
+  const hasLimitations = Boolean(gaps || !analysisMap || analysisMap.status !== 'assessed'
+    || analysisMap.coverage.unresolvedEdgeCount || analysisMap.coverage.limitations.length);
   const completion = completed ? [
-    narrative.reviewedSourceCount === undefined ? 'The review finished assessing the selected sources.'
-      : `The review examined ${narrative.reviewedSourceCount} selected ${narrative.reviewedSourceCount === 1 ? 'file' : 'files'}.`,
-    typeof providerSummary === 'string' ? providerSummary : '',
-    analysisMap?.status === 'assessed' ? 'It traced the recorded behaviors through the selected code.'
-      : analysisMap ? 'It traced the recorded behaviors, with some checks still unverified.' : '',
-    !findingsError && categories.length ? `It recorded issues in ${new Intl.ListFormat('en').format(categories.map(category => category.toLowerCase()))}.` : '',
-    findingsError ? 'Reload the saved issues to see what needs attention.'
-      : priorityIssue ? `Start with ${shortReviewIssueTitle(priorityIssue.title).replace(/[.!?]+$/, '')}.` : '',
+    findingsError ? 'Verdict: issue evidence is unavailable.'
+      : openIssues.length ? 'Verdict: issues need attention.'
+        : hasLimitations ? 'Verdict: verification is incomplete.'
+          : 'Verdict: no open issues were recorded in the reviewed scope.',
+    `The ${config.scopeMode === 'focused' ? 'focused' : 'full'} Static Review covered ${narrative.reviewedSourceCount === undefined
+      ? 'the selected sources' : `${narrative.reviewedSourceCount} selected ${narrative.reviewedSourceCount === 1 ? 'file' : 'files'}`} (${revision}).`,
+    assessedCount ? `Evidence was recorded for ${assessedCount} of ${domainChecks.length} static checks, with ${passedChecks.length} reporting no issue in the inspected code.`
+      : 'No completed behavior checks were recorded.',
+    positiveResult?.trim() ? sentence(`One check found that ${prose(positiveResult).replace(/^[A-Z](?=[a-z])/, letter => letter.toLowerCase())}`) : '',
+    priorityIssue && !findingsError
+      ? sentence(`${evidenceVerified(priorityIssue) ? 'Top finding with verified source evidence' : 'Top reported issue'}: ${priorityTitle}`)
+        + (priorityDetail ? ' ' + sentence(priorityDetail) : '') : '',
+    gaps ? `${gaps.total} ${gaps.total === 1 ? 'part remains' : 'parts remain'} unverified.`
+      : hasLimitations ? 'Some paths or checks remain unverified.' : '',
+    'Runtime behavior was outside this Static Review.',
+    findingsError ? 'Next, reload the saved issues.'
+      : nextStep ? sentence(`Next: ${nextStep}`)
+      : priorityIssue ? `Next, verify the evidence for ${priorityTitle}.`
+      : hasLimitations || openIssues.length ? 'Next, verify the remaining evidence gaps.' : '',
   ].filter(Boolean).join(' ') : undefined;
   return (
     <div className="review-activity-body">
       <section className="review-activity-surface" aria-label="Review activity conversation">
         <ReviewIssues key={`issues-${session.id}`} findings={findings} storedIds={storedIds} map={analysisMap} traceability={traceability}
           progress={current}
-          history={history}
+          history={visibleHistory}
           duration={narrative.timing.duration}
           focusedCategory={currentStage === 'model_analysis' ? focusedCategory : undefined}
           completion={completion}
           liveIssues={uniqueLiveIssues}
           coverageInterrupted={['Failed', 'Blocked', 'Cancelled', 'Paused'].includes(state)} issuesUnavailable={Boolean(findingsError)}
           onView={onOpenFinding} onStatus={onIssueStatus} onReply={onIssueReply} />
-        {harnessError && !harnessLoading && <p role="status">{harnessError}</p>}
+        {harnessError && !harnessLoading && <p role="status">{narrative.active && liveUpdatesDelayed
+          ? 'Live updates delayed. Showing the last saved activity while Centinel reconnects.' : harnessError}</p>}
         {currentDecision && (
           <div className="review-decision-recorded" role="status">
             <History size={15} aria-hidden="true" />
@@ -1022,6 +1166,7 @@ function ReviewActivityContent({
         <section className="review-metadata-state">
           <div><h3>State</h3><StatusBadge label={state} tone={reviewLifecycleTone(state)} /></div>
           {['Blocked', 'Paused', 'Failed'].includes(state) && <p>{reviewFailureMessage(session.failureReason)}</p>}
+          {state === 'Failed' && batchReason(rejection?.reason) && <p>{batchReason(rejection?.reason)}</p>}
           {state === 'Failed' && /model provider|provider unavailable|no model/i.test(session.failureReason ?? '') && <button type="button" className="btn-link" onClick={onOpenSettings}>Open Settings</button>}
           {state === 'Cancelled' && <p>The activity stopped before a completed result was recorded.</p>}
           {stateDetails}
@@ -1047,7 +1192,7 @@ function ReviewActivityContent({
           <div className={recentFindings.length > 0 ? 'review-sidebar-findings-frame' : undefined} aria-live="polite">
             {recentFindings.length > 0 ? <table className="review-sidebar-findings" aria-label="Recent issues">
               <thead><tr><th scope="col">Found</th><th scope="col">Source Affected</th></tr></thead>
-              <tbody>{recentFindings.map(({ key, title, findingId, evidence }) => (
+              <tbody>{recentFindings.map(({ key, title, findingId, evidence, ...preview }) => (
                 <tr key={key}><th scope="row"><button type="button" className="review-sidebar-finding-jump" onClick={() => {
                   const target = document.getElementById(`review-finding-${findingId ?? key}`);
                   const category = target?.closest<HTMLDetailsElement>('.review-issue-category');
@@ -1059,7 +1204,8 @@ function ReviewActivityContent({
                     {evidence?.lines ? <>
                       <strong>{evidence.lines} {evidence.lines === 1 ? 'line' : 'lines'}</strong>
                       <span>Across {evidence.highlightedFiles} {evidence.highlightedFiles === 1 ? 'file' : 'files'}</span>
-                    </> : evidence?.files.length ? <strong>{evidence.files.length} {evidence.files.length === 1 ? 'file' : 'files'}</strong> : <strong>0</strong>}
+                    </> : evidence?.files.length ? <strong>{evidence.files.length} {evidence.files.length === 1 ? 'file' : 'files'}</strong>
+                      : 'filePath' in preview && preview.filePath ? <strong>{'lineNumber' in preview && preview.lineNumber ? '1 line · ' : ''}1 file</strong> : <strong>0</strong>}
                   </span>
                   {findingId && <button type="button" className="review-sidebar-finding-open" aria-label={`Open issue detail: ${title}`}
                     title="Open issue detail" onClick={() => onOpenFinding(findingId)}><ExternalLink size={16} aria-hidden="true" /></button>}

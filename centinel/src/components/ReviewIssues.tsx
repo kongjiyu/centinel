@@ -25,6 +25,14 @@ function codeProse(value: string) {
 
 export const REVIEW_ISSUE_CATEGORIES = ['Document', 'Security', 'Behavior', 'Human manual', 'System'] as const;
 export type ReviewIssueCategory = typeof REVIEW_ISSUE_CATEGORIES[number];
+export type LiveReviewIssue = {
+  key: string;
+  title: string;
+  category: ReviewIssueCategory;
+  provisional: boolean;
+  filePath?: string;
+  lineNumber?: number;
+};
 
 export function reviewIssueCategory(finding: Pick<Finding, 'title' | 'category' | 'location' | 'evidenceGap' | 'requirementId'>): ReviewIssueCategory {
   const labels = [finding.category, finding.location?.issueType, finding.location?.ruleId, finding.title].filter(Boolean).join(' ').replace(/[_-]/g, ' ');
@@ -100,12 +108,12 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
   traceability?: ReviewTraceabilitySnapshot | null;
   coverageInterrupted: boolean;
   issuesUnavailable: boolean;
-  progress?: string;
-  history: { id: string; label: string; message: string }[];
+  progress?: { label: string; plan: string; result?: string };
+  history: { id: string; label: string; plan: string; result?: string }[];
   duration: string;
   focusedCategory?: ReviewIssueCategory;
   completion?: string;
-  liveIssues?: ReadonlyArray<{ key: string; title: string }>;
+  liveIssues?: ReadonlyArray<LiveReviewIssue>;
   onView: (id: string) => void;
   onStatus?: (id: string, status: 'dismissed' | 'new') => Promise<void>;
   onReply?: (finding: Finding, reply: string) => Promise<void>;
@@ -156,6 +164,7 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
   };
 
   return <>
+    {completion && <p className="review-issue-prose review-session-summary" aria-label="Review summary">{codeProse(completion)}</p>}
     <section className="review-behavior-coverage" aria-label="Review coverage">
       <h2>Review coverage</h2>
       {coverage.length ? <>
@@ -182,22 +191,24 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
       </> : <p>Behavior coverage has not been recorded.</p>}
     </section>
     {history.length > 0 && <details className="review-agent-history">
-      <ReviewDisclosureSummary>{completion ? `Reviewed for ${duration}` : 'Review activity'}</ReviewDisclosureSummary>
-      <ol>{history.map(item => <li key={item.id}><small>{agentProse(item.label)}</small><p>{agentProse(item.message)}</p></li>)}</ol>
+      <ReviewDisclosureSummary trailing>{completion ? `Reviewed for ${duration}` : 'Review activity'}</ReviewDisclosureSummary>
+      <ul>{history.map(item => <li key={item.id}>
+        <ReviewAgentEntry {...item} />
+      </li>)}</ul>
     </details>}
-    {(progress || completion) && <div className="review-agent-update" role="status">
+    {progress && <div className="review-agent-update" role="status">
       {progress && <ReviewAgentAvatar />}
       <div className="review-agent-message">
-        <div className="review-agent-message-heading">{progress ? 'Review agent' : 'Review summary'}
-          {progress && <span className="review-agent-typing" aria-hidden="true"><i /><i /><i /></span>}
-        </div>
-        <p>{progress ? agentProse(progress) : codeProse(completion ?? '')}</p>
+        {progress && <div className="review-agent-message-heading">Review agent
+          <span className="review-agent-typing" aria-hidden="true"><i /><i /><i /></span>
+        </div>}
+        <ReviewAgentEntry {...progress} />
       </div>
     </div>}
     <section className="review-issues" aria-label="Issues">
       {REVIEW_ISSUE_CATEGORIES.map(category => {
         const groupsInCategory = groupFindings(orderedIssues.filter(finding => reviewIssueCategory(finding) === category));
-        const categoryLiveIssues = liveIssues.filter(issue => reviewIssueCategory({ title: issue.title, category: '' }) === category);
+        const categoryLiveIssues = liveIssues.filter(issue => issue.category === category);
         if (!groupsInCategory.length && !categoryLiveIssues.length) return null;
         return <details open key={category} className="review-issue-category" aria-label={`${category} Issues`}>
           <ReviewDisclosureSummary><h3>{category} Issues</h3>{progress && focusedCategory === category && <ReviewAgentAvatar />}</ReviewDisclosureSummary>
@@ -205,7 +216,9 @@ export function ReviewIssues({ findings, storedIds, map, traceability, coverageI
           {categoryLiveIssues.length > 0 && <table className="review-sidebar-findings review-coverage-table" aria-label={`Live ${category} issues`}>
             <thead><tr><th scope="col">Issue</th><th scope="col">Status</th></tr></thead>
             <tbody>{categoryLiveIssues.map(issue => <tr key={issue.key} id={`review-finding-${issue.key}`} tabIndex={-1}>
-              <th scope="row">{shortReviewIssueTitle(issue.title)}</th><td>Awaiting final review</td>
+              <th scope="row">{shortReviewIssueTitle(issue.title)}
+                {issue.filePath && <div><code>{issue.filePath}{issue.lineNumber ? `:${issue.lineNumber}` : ''}</code></div>}
+              </th><td>{issue.provisional ? 'Verifying' : 'Verified · saving later'}</td>
             </tr>)}</tbody>
           </table>}
         </details>;
@@ -219,8 +232,17 @@ export function ReviewTableAction({ children, ...props }: ComponentPropsWithoutR
   return <button {...props} type="button" className="review-more-issues">{children}</button>;
 }
 
-function ReviewDisclosureSummary({ children }: { children: React.ReactNode }) {
-  return <summary className="review-disclosure-summary"><ChevronRight size={16} aria-hidden="true" />{children}</summary>;
+function ReviewDisclosureSummary({ children, trailing = false }: { children: React.ReactNode; trailing?: boolean }) {
+  const chevron = <ChevronRight size={16} aria-hidden="true" />;
+  return <summary className="review-disclosure-summary">{!trailing && chevron}{children}{trailing && chevron}</summary>;
+}
+
+function ReviewAgentEntry({ plan, label, result }: { plan: string; label: string; result?: string }) {
+  return <>
+    <p className="review-issue-prose">{agentProse(plan)}</p>
+    <small className="review-agent-check">{agentProse(label)}</small>
+    {result && <p className="review-issue-prose">{agentProse(result)}</p>}
+  </>;
 }
 
 function agentProse(message: string) {

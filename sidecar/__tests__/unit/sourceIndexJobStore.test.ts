@@ -59,6 +59,16 @@ describe('source index durable journal', () => {
     expect(params.get('project_id')).toBe(`eq.${project}`); expect(params.get('payload->>ownerId')).toBe(`eq.${owner}`);
     expect(params.get('order')).toBe('payload->>updatedAt.desc,id.desc'); expect(params.get('limit')).toBe('1');
   });
+  it('retries a transient latest lookup and keeps database diagnostics safe', async () => {
+    const s = setup([{ id: job.id, payload: { version: 1, ...job } }]);
+    s.send.mockResolvedValueOnce(new Response(JSON.stringify({ code: '57014', message: 'private database details' }), { status: 500 }));
+    expect(await s.store.latest(project, owner)).toMatchObject(job);
+    expect(s.send).toHaveBeenCalledTimes(2);
+
+    const denied = setup({ code: '42501', message: 'private database details' }, 403);
+    await expect(denied.store.latest(project, owner)).rejects.toThrow('latest; HTTP 403; 42501');
+    expect(denied.send).toHaveBeenCalledTimes(1);
+  });
   it('treats an insert conflict as an existing shared claim and fails closed on persistence errors', async () => {
     expect(await setup({ code: '23505' }, 409).store.insert(job)).toBe(false);
     await expect(setup({ code: '42501' }, 403).store.insert(job)).rejects.toThrow('could not be saved');

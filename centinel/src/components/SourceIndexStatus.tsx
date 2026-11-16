@@ -24,8 +24,8 @@ export function SourceIndexStatus({ projectId, sourceVersionKey }: { projectId: 
       try {
         let next = await api.getSourceIndexStatus(projectId, controller.signal);
         if (!controller.signal.aborted && next.state === 'none' && !requestedPreparation && typeof api.ensureSourceIndex === 'function') {
-          requestedPreparation = true;
           next = await api.ensureSourceIndex(projectId, controller.signal);
+          requestedPreparation = true;
         }
         if (!controller.signal.aborted) { setStatus(next); setError(false); }
       } catch { if (!controller.signal.aborted) setError(true); }
