@@ -1,49 +1,102 @@
 /*
  * Centinel design tokens — the single source of reusable visual values.
- * Values mirror DESIGN.md §7: IBM Plex Sans, warm Stone neutrals and a
- * Forest green primary. Screen layers alias these instead of redefining hex.
+ * Values mirror DESIGN.md §8: the Aurora palette, Onest and the spacing,
+ * shape and icon rules. Screen layers alias these instead of redefining hex.
  */
 
 :root {
-  --color-canvas: #f5f5f4;
+  --color-canvas: #fbfaf7;
   --color-surface: #ffffff;
-  --color-surface-subtle: #fafaf9;
-  --color-surface-hover: #f5f5f4;
-  --color-surface-selected: #f0fdf4;
+  --color-surface-subtle: #f4f2ee;
+  --color-surface-hover: #f4f2ee;
+  --color-surface-selected: #efecf5;
 
-  --color-border: #e7e5e4;
-  --color-border-strong: #d6d3d1;
+  --color-border: #e9e5de;
+  --color-border-strong: #d9d4cb;
 
-  --color-text: #1c1917;
-  --color-text-muted: #57534e;
-  --color-text-subtle: #78716c;
+  --color-text: #1b1722;
+  --color-text-muted: #6f6a78;
+  --color-text-subtle: #6f6a78;
 
-  --color-primary: #166534;
-  --color-primary-hover: #14532d;
-  --color-primary-subtle: #dcfce7;
+  --color-primary: #1b1722;
+  --color-primary-hover: #2c2636;
+  --color-primary-subtle: #f4f2ee;
+  --color-on-primary: #ffffff;
+
+  --color-browser: #2563eb;
+  --color-browser-subtle: #eaf0ff;
 
   --color-success: #15803d;
   --color-success-subtle: #f0fdf4;
   --color-warning: #b45309;
   --color-warning-subtle: #fffbeb;
-  --color-danger: #b91c1c;
-  --color-danger-hover: #991b1b;
-  --color-danger-subtle: #fef2f2;
-  --color-info: #0f766e;
-  --color-info-subtle: #f0fdfa;
+  --color-danger: #d6304a;
+  --color-danger-hover: #b8243c;
+  --color-danger-subtle: #fdecef;
+  --color-info: #2563eb;
+  --color-info-subtle: #eaf0ff;
 
-  --color-focus: #166534;
-  --focus-ring: 0 0 0 3px rgba(22, 101, 52, 0.24);
+  --color-focus: #2563eb;
+  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.3);
 
-  /* Finding risk/priority levels: ordered red → orange → yellow → neutral. */
-  --color-level-critical: #b91c1c;
-  --color-level-critical-subtle: #fef2f2;
+  /* Finding risk/priority levels: ordered red → orange → yellow-brown → grey. */
+  --color-level-critical: #d6304a;
+  --color-level-critical-subtle: #fdecef;
   --color-level-high: #c2410c;
   --color-level-high-subtle: #fff7ed;
   --color-level-medium: #a16207;
   --color-level-medium-subtle: #fefce8;
-  --color-level-low: #57534e;
-  --color-level-low-subtle: #fafaf9;
+  --color-level-low: #6f6a78;
+  --color-level-low-subtle: #f4f2ee;
+
+  /* Browser lanes: only to match a tile to the problem it proves; always with a number. */
+  --color-lane-1: #2563eb;
+  --color-lane-2: #b45309;
+  --color-lane-3: #0f766e;
+  --color-lane-4: #be185d;
+
+  /* Live stage: light browser windows on a translucent surface. */
+  --color-stage: rgba(255, 255, 255, 0.5);
+  --color-stage-bar: #f3f1f6;
+  --color-stage-border: rgba(255, 255, 255, 0.9);
+
+  /* The one glow (DESIGN.md §7). */
+  --glow-blue: rgba(72, 120, 255, 0.55);
+  --glow-pink: rgba(255, 86, 150, 0.55);
+  --glow-orange: rgba(255, 150, 70, 0.5);
+
+  /* Spacing scale (DESIGN.md §8 Spacing): every margin, padding and gap. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Motion (DESIGN.md §9). */
+  --duration-fast: 100ms;
+  --duration-standard: 150ms;
+  --duration-slow: 220ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Shape (DESIGN.md §8 Shape). */
+  --radius-inner: 14px;
+  --radius-card: 18px;
+  --radius-panel: 22px;
+  --radius-input-hero: 26px;
+  --radius-tile: 10px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgba(30, 20, 60, 0.04);
+  --shadow-input-hero: 0 24px 60px -18px rgba(60, 40, 120, 0.28), 0 2px 6px rgba(30, 20, 60, 0.06);
+  --shadow-tile: 0 14px 34px -14px rgba(60, 40, 120, 0.3);
+
+  /* Icon optical alignment for Onest (DESIGN.md §8 Icons). */
+  --icon-nudge: 0.0265em;
 
   /* Type scale (DESIGN.md §7 Typography) — the only font sizes in use. */
   --font-size-page: 24px;
@@ -54,6 +107,6 @@
   --font-size-support: 13px;
   --font-size-meta: 12px;
 
-  --font-ui: 'IBM Plex Sans Variable', 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-ui: 'Onest Variable', 'Onest', 'Segoe UI', system-ui, sans-serif;
   --font-technical: 'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
 }

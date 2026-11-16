@@ -7,7 +7,7 @@ import type { Screen } from '../types';
  */
 
 const SCREEN_NAMES = new Set<Screen['name']>([
-  'dashboard', 'projects', 'project-detail', 'review-entry', 'review-activity', 'reviews', 'review-directory', 'dynamic-directory', 'dynamic-testing',
+  'new-check', 'check', 'project', 'dashboard', 'projects', 'project-detail', 'review-entry', 'review-activity', 'reviews', 'review-directory', 'dynamic-directory', 'dynamic-testing',
   'dynamic-session', 'evidence-browser', 'requirements', 'review-playground', 'review-finding', 'settings', 'help', 'profile',
 ]);
 
@@ -41,9 +41,10 @@ export function hashToScreen(hash: string): Screen | null {
       try { screen[key] = JSON.parse(raw); } catch { return null; }
     } else screen[key] = raw;
   }
-  const needsProject = ['project-detail', 'review-activity', 'review-finding', 'reviews', 'dynamic-session', 'evidence-browser', 'requirements'].includes(name);
+  const needsProject = ['project', 'project-detail', 'review-activity', 'review-finding', 'reviews', 'dynamic-session', 'evidence-browser', 'requirements'].includes(name);
   if (needsProject && typeof screen.projectId !== 'string') return null;
   if ((name === 'review-activity' || name === 'review-finding' || name === 'dynamic-session') && typeof screen.sessionId !== 'string') return null;
+  if (name === 'check' && typeof screen.checkId !== 'string') return null;
   if (name === 'review-finding' && (typeof screen.findingId !== 'string' || !screen.findingId)) return null;
   return screen as Screen;
 }

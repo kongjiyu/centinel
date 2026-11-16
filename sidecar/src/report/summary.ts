@@ -33,7 +33,8 @@ export type ReportSummary = {
   codeReview: { label: string; tone: SummaryTone; detail: string };
   /** Plain-language unverified parts when the latest code review completed with gaps. */
   unverifiedParts: string[];
-  browserTest: { label: string; tone: SummaryTone; detail: string };
+  /** source says which record the line describes: the latest full Auto test or an older manual browser test. */
+  browserTest: { label: string; tone: SummaryTone; detail: string; source?: 'auto' | 'manual' | null; failingTest?: string | null };
   requirements: null | { complete: number; incomplete: number; missing: number };
   topIssues: SummaryIssue[];
   remainingIssues: number;
@@ -164,14 +165,31 @@ function codeReviewStatus(snapshot: ProjectReportSnapshot): ReportSummary['codeR
   }
 }
 
+/**
+ * The summary describes the latest full browser check (Auto test) whenever one exists, matching the
+ * project panel. Single tests run later from the conversation or the old page stay in Part 2.
+ */
+export function usesAutoBrowserTests(snapshot: ProjectReportSnapshot): boolean {
+  return !!snapshot.browserTests;
+}
+
 function browserTestStatus(snapshot: ProjectReportSnapshot): ReportSummary['browserTest'] {
+  if (usesAutoBrowserTests(snapshot)) {
+    const auto = snapshot.browserTests!;
+    const total = auto.tests.length;
+    const failing = auto.tests.filter(test => test.result === 'failed');
+    const base = { source: 'auto' as const, failingTest: failing[0]?.name ?? null };
+    if (failing.length) return { ...base, label: failing.length + ' of ' + total + ' failed', tone: 'critical', detail: 'Failed: ' + failing.slice(0, 3).map(test => '"' + clip(test.name, 70) + '"').join(', ') + (failing.length > 3 ? ' and ' + (failing.length - 3) + ' more' : '') + '. Pass and fail come from Centinel\'s own checks on the page.' };
+    if (auto.unclear || auto.notRun) return { ...base, label: auto.passed + ' of ' + total + ' passed', tone: 'warning', detail: plural(auto.unclear + auto.notRun, 'test') + ' could not give a clear result.' };
+    return { ...base, label: 'Passed', tone: 'good', detail: 'All ' + plural(total, 'browser test') + ' passed.' };
+  }
   const test = snapshot.latestDynamicTest;
   if (!test) return { label: 'Not run', tone: 'neutral', detail: 'No browser test has finished for this project yet.' };
   const steps = test.actionTrace.length;
   const failed = test.actionTrace.filter(step => /fail/i.test(step.result)).length;
   const counted = steps ? ' Recorded ' + plural(steps, 'step') + (failed ? ', ' + failed + ' failed.' : '.') : '';
   switch (test.session.status) {
-    case 'success': return { label: 'Passed', tone: 'good', detail: 'The website did what the test expected.' + counted };
+    case 'success': return { source: 'manual', label: 'Passed', tone: 'good', detail: 'The website did what the test expected.' + counted };
     case 'failure': return { label: 'Failed', tone: 'critical', detail: (clip(test.failureReason, 160) ?? 'The website did not behave as expected.') + counted };
     case 'blocked': return { label: 'Could not finish', tone: 'warning', detail: (clip(test.failureReason, 160) ?? 'The browser test stopped before reaching a result.') + counted };
     case 'cancelled': return { label: 'Cancelled', tone: 'neutral', detail: 'The latest browser test was cancelled.' };
@@ -208,7 +226,7 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
   let tone: SummaryTone;
   let headline: string;
   let explanation: string;
-  const nothingRan = !snapshot.latestReview && !snapshot.latestDynamicTest;
+  const nothingRan = !snapshot.latestReview && !snapshot.latestDynamicTest && !snapshot.browserTests;
   if (seriousIssues > 0) {
     tone = 'critical';
     headline = 'Fix before release';
@@ -222,7 +240,7 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     headline = 'Needs attention';
     const reasons: string[] = [];
     if (sorted.length) reasons.push('There ' + (sorted.length === 1 ? 'is ' : 'are ') + plural(sorted.length, 'open issue') + ' to look at.');
-    if (browserTest.tone === 'critical') reasons.push('The latest browser test failed.');
+    if (browserTest.tone === 'critical') reasons.push(browserTest.source === 'auto' ? 'Some browser tests failed.' : 'The latest browser test failed.');
     else if (browserTest.tone === 'warning') reasons.push('The latest browser test could not finish.');
     if (codeReview.tone === 'critical') reasons.push('The latest code review failed.');
     else if (codeReview.label === COMPLETED_WITH_GAPS_LABEL) reasons.push('The latest code review completed with gaps.');
@@ -239,11 +257,11 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     nextSteps.push('Fix "' + clip(issue.title, 90) + '"' + (issue.howToFix ? ': ' + clip(issue.howToFix, 150) : '.'));
   }
   if (browserTest.tone === 'critical' || browserTest.tone === 'warning') {
-    nextSteps.push('Look at why the browser test "' + clip(snapshot.latestDynamicTest?.session.name, 70) + '" did not pass, fix it, then run it again.');
+    nextSteps.push('Look at why the browser test "' + clip(browserTest.source === 'auto' ? browserTest.failingTest : snapshot.latestDynamicTest?.session.name, 70) + '" did not pass, fix it, then run it again.');
   }
   if (codeReview.tone === 'critical') nextSteps.push('Run the code review again after checking why it failed.');
   if (!snapshot.latestReview) nextSteps.push('Run a code review so Centinel can check your source files.');
-  if (!snapshot.latestDynamicTest) nextSteps.push('Run a browser test so Centinel can check your website in a real browser.');
+  if (!snapshot.latestDynamicTest && !snapshot.browserTests) nextSteps.push('Run a browser test so Centinel can check your website in a real browser.');
   if (['success', 'pending_approval'].includes(snapshot.latestReview?.session.status ?? '') && !snapshot.latestReview?.decision) nextSteps.push('Open the latest code review and approve it or request changes.');
   if (requirements && requirements.missing > 0) nextSteps.push('Link ' + plural(requirements.missing, 'requirement') + ' to the code that implements ' + (requirements.missing === 1 ? 'it' : 'them') + ', so Centinel can check coverage.');
   if (nextSteps.length < 3 && sorted.length > seriousIssues) nextSteps.push('Work through the ' + plural(sorted.length - seriousIssues, 'remaining medium or low issue') + ' listed below.');

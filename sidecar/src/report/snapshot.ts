@@ -11,7 +11,7 @@ import { isConfirmedMappingStatus } from '../review/requirementLinkSuggestions.j
 import { readCoverageProgress } from '../review/coverageGaps.js';
 import type { Finding, StaticSession } from '../staticDomainTypes.js';
 import { canonicalJson, deepFreeze } from './canonical.js';
-import { usageForReport, type ProjectReportFinding, type ProjectReportSnapshot, type ReportActionTrace, type ReportArtifact, type ReportCurrentFinding, type ReportCurrentFindings, type ReportDynamicEvidence, type ReportFindingCorrelation, type ReportProjectAssessment, type ReportRequirement, type ReportStandard, type SnapshotContext } from './types.js';
+import { usageForReport, type ProjectReportFinding, type ProjectReportSnapshot, type ReportActionTrace, type ReportArtifact, type ReportBrowserTest, type ReportCurrentFinding, type ReportCurrentFindings, type ReportDynamicEvidence, type ReportFindingCorrelation, type ReportProjectAssessment, type ReportRequirement, type ReportStandard, type SnapshotContext } from './types.js';
 import type { TokenUsageSummary } from '../tokenUsage.js';
 
 /** The report input seam; production supplies the bearer-scoped Supabase source. */
@@ -35,9 +35,11 @@ export type ReportSnapshotSource = {
   getTokenUsageSummary(projectId: string, reviewId?: string): Promise<TokenUsageSummary>;
   listStandards?(projectId: string): Promise<ReportStandard[]>;
   getCorrelations?(projectId: string, reviewId: string): Promise<ReportFindingCorrelation[]>;
+  /** Saved Auto test sessions (audit journal); optional for older sources. */
+  listAutoTests?(projectId: string): Promise<import('../dynamic/autonomous/orchestrator.js').AutoTestSession[]>;
 };
 
-export const REPORT_GENERATOR_VERSION = 'project-report-v4';
+export const REPORT_GENERATOR_VERSION = 'project-report-v5';
 const REPORT_TERMINAL_STATUSES = new Set([
   'success', 'failure', 'failed', 'blocked', 'cancelled',
   'completed', 'approved', 'pending_approval', 'changes_requested',
@@ -62,6 +64,48 @@ function redactCredentials(value: unknown): string {
     .replace(/([?&](?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|api[_-]?key|client[_-]?secret|secret|password|authorization|auth|signature|sig|jwt|code)=)[^&#\s]*/gi, '$1[redacted]')
     .replace(/\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password)\s*([:=])\s*(?:Bearer\s+)?("[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1$2[redacted]')
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]');
+}
+
+type AutoTestSessionRecord = import('../dynamic/autonomous/orchestrator.js').AutoTestSession;
+
+/** The latest finished full Auto test (not a conversation request or rerun), in report form. */
+export function reportBrowserTests(sessions: AutoTestSessionRecord[]): ProjectReportSnapshot['browserTests'] {
+  const session = [...sessions]
+    .filter(item => !item.request && item.planning !== false && item.stage === 'completed' && item.tests.length > 0)
+    .sort((a, b) => reportDate(b.createdAt) - reportDate(a.createdAt))[0];
+  if (!session) return null;
+  const result = (state: string): ReportBrowserTest['result'] => state === 'passed' ? 'passed' : state === 'failed' ? 'failed' : state === 'uncertain' ? 'unclear' : 'not_run';
+  const text = (value: unknown) => {
+    if (value === undefined || value === null || value === '') return null;
+    return redactCredentials(typeof value === 'string' ? value : JSON.stringify(value)).slice(0, 1000);
+  };
+  const tests: ReportBrowserTest[] = session.tests.map(test => ({
+    name: redactCredentials(test.name),
+    result: result(test.state),
+    goal: redactCredentials(test.goal).slice(0, 2000),
+    requirementRef: test.requirementRef,
+    sourceRefs: test.sourceRefs.map(ref => `${ref.path}:${ref.line}`),
+    runId: test.runId ?? null,
+    reason: test.state === 'passed' ? null : text(test.reason),
+    checks: test.checks.map(check => {
+      const outcome = test.checkResults?.find(item => item.checkId === check.id);
+      const observed = outcome?.observed ?? null;
+      return {
+        description: redactCredentials(check.description),
+        expected: text('expected' in check ? check.expected : null),
+        verdict: outcome?.verdict ?? 'not_tested',
+        // The runner's internal note is replaced with plain words, never presented as page text.
+        observed: observed && /^expected .* absent\.?$/i.test(observed.trim()) ? 'Not shown on the page.' : text(observed),
+      };
+    }),
+  }));
+  const count = (value: ReportBrowserTest['result']) => tests.filter(test => test.result === value).length;
+  return {
+    status: 'available', sessionId: session.id, createdAt: session.createdAt, finishedAt: session.updatedAt,
+    appUrl: session.launch?.url ?? null, startedWith: session.launch?.label ? redactCredentials(session.launch.label) : null,
+    passed: count('passed'), failed: count('failed'), unclear: count('unclear'), notRun: count('not_run'),
+    tests, limitations: (session.summary?.limitations ?? []).map(item => redactCredentials(item)),
+  };
 }
 
 function latestTerminal<T extends { status: string; updatedAt: string; createdAt: string }>(items: T[]): T | null {
@@ -342,6 +386,8 @@ export async function buildProjectReportSnapshot(
     };
   }
 
+  const browserTests = source.listAutoTests ? reportBrowserTests(await source.listAutoTests(projectId).catch(() => [])) : null;
+
   const snapshot: ProjectReportSnapshot = {
     metadata: {
       schemaVersion: 'centinel-project-report-v1',
@@ -376,6 +422,7 @@ export async function buildProjectReportSnapshot(
     latestReview,
     modelUsage: usageForReport(projectUsage, null),
     latestDynamicTest,
+    browserTests,
   };
 
   return deepFreeze(snapshot);

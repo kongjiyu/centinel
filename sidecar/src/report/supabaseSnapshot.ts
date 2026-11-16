@@ -1,3 +1,4 @@
+import { SupabaseAutoTestStore } from '../dynamic/autonomous/store.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact, ArtifactSource, ArtifactType } from '../artifacts.js';
 import type { DynamicEvidence, DynamicSession } from '../dynamicSessions.js';
@@ -349,6 +350,11 @@ function runReportSession(run: DynamicRun): DynamicSession {
 
 export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
   constructor(readonly client: SupabaseClient, readonly userId: string) {}
+
+  /** Auto test sessions are stored in the project-member RLS audit journal. */
+  async listAutoTests(projectId: string) {
+    return new SupabaseAutoTestStore(this.client, this.userId).list(projectId, 30);
+  }
   /** Shared Runs read during this snapshot, by ID, so evidence/action reads stay consistent. */
   private readonly runs = new Map<string, DynamicRun>();
 

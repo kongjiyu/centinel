@@ -39,6 +39,8 @@ export async function observeBrowserPage(page:Page,options:{secrets?:readonly st
      }
     }
    }
+   // Same positional fallback as control discovery, so repeated unnamed controls (one "Add to cart" per row) bind to the exact approved selector.
+   if(!selector){const parts:string[]=[];let node:Element|null=el;for(let depth=0;node&&depth<6;depth++){if(depth>0&&node.id){const candidate='#'+CSS.escape(node.id)+' > '+parts.join(' > ');try{const matches=document.querySelectorAll(candidate);if(matches.length===1&&matches[0]===el)selector=candidate;}catch{}break;}const parent:Element|null=node.parentElement;if(!parent)break;const same=Array.from(parent.children).filter(child=>child.tagName===node!.tagName);parts.unshift(node.tagName.toLowerCase()+(same.length>1?':nth-of-type('+(same.indexOf(node)+1)+')':''));node=parent;}}
    if(!selector&&document.querySelectorAll(tag).length===1)selector=tag;
    if(name.length>10000)return {oversized:true} as const;
    const type=el.getAttribute('type')?.toLowerCase();

@@ -58,7 +58,7 @@
   --text-faint: var(--workspace-text-subtle);
   --accent: var(--workspace-primary);
   --accent-hover: var(--workspace-primary-hover);
-  --accent-muted: rgba(22, 101, 52, 0.12);
+  --accent-muted: rgba(37, 99, 235, 0.12);
   --primary: var(--workspace-primary);
   --success: var(--workspace-success);
   --warning: var(--workspace-warning);
@@ -709,7 +709,7 @@
 .workspace-mode:not(.dashboard-mode) .form-field .select-trigger:focus {
   outline: none;
   border-color: var(--workspace-focus);
-  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.2);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
 
 .workspace-mode:not(.dashboard-mode) button:focus-visible,
@@ -1624,7 +1624,7 @@
 .workspace-project-launch .form-field .select-trigger:focus {
   outline: none;
   border-color: var(--color-focus);
-  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.24);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.24);
 }
 
 .workspace-project-launch .project-selection-summary {
@@ -3039,7 +3039,7 @@ div.app-shell.has-window-chrome .nav-item.active,
 }
 
 .app-shell.has-window-chrome .modal-close:focus-visible {
-  outline: 3px solid rgba(22, 101, 52, 0.24);
+  outline: 3px solid rgba(37, 99, 235, 0.24);
   outline-offset: 2px;
 }
 
@@ -3768,7 +3768,7 @@ div.app-shell.has-window-chrome .page-content-container > .main-content {
 .app-shell.has-window-chrome .provider-form .form-field input:focus,
 .app-shell.has-window-chrome .provider-form .form-field .select-trigger:focus {
   border-color: var(--shell-primary);
-  box-shadow: var(--focus-ring, 0 0 0 3px rgba(22, 101, 52, 0.24));
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(37, 99, 235, 0.24));
   outline: none;
 }
 
@@ -4481,7 +4481,7 @@ div.app-shell.has-window-chrome .sidebar {
 
 .app-shell.has-window-chrome .usage-sync-button:focus-visible {
   border-color: var(--shell-primary);
-  box-shadow: var(--focus-ring, 0 0 0 3px rgba(22, 101, 52, 0.24));
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(37, 99, 235, 0.24));
   outline: none;
 }
 
@@ -4630,7 +4630,7 @@ div.app-shell.has-window-chrome .sidebar {
 
 .app-shell.has-window-chrome .connection-action:focus-visible {
   border-color: var(--shell-primary);
-  box-shadow: var(--focus-ring, 0 0 0 3px rgba(22, 101, 52, 0.24));
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(37, 99, 235, 0.24));
   outline: none;
 }
 
@@ -4785,7 +4785,7 @@ div.app-shell.has-window-chrome .sidebar {
 
 .connection-primary-button:focus-visible,
 .connection-secondary-button:focus-visible {
-  outline: 3px solid rgba(22, 101, 52, 0.24);
+  outline: 3px solid rgba(37, 99, 235, 0.24);
   outline-offset: 2px;
 }
 

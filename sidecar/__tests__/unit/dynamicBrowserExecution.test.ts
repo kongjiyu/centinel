@@ -34,3 +34,17 @@ it('binds repeated buttons to unique rows and rejects newly ambiguous rows befor
   await expect(authorizeBrowserAction(page,action,options)).rejects.toThrow('unique');
  }finally{await page.close();}
 });
+
+describe('repeated unnamed controls', () => {
+  it('binds each row button to the same positional selector control discovery approves', async () => {
+    const page = await browser.newPage();
+    try {
+      await page.setContent('<ul id="products"><li><span>Mug</span><button type="button" onclick="document.body.dataset.added=\'mug\'">Add to cart</button></li><li><span>Notebook</span><button type="button" onclick="document.body.dataset.added=\'notebook\'">Add to cart</button></li></ul>');
+      const { observation, bindings } = await observeBrowserPage(page);
+      const second = observation.controls.find(item => item.selector === '#products > li:nth-of-type(2) > button');
+      expect(second).toBeTruthy();
+      const policy = { schemaVersion: 1 as const, interactions: [{ selector: '#products > li:nth-of-type(2) > button', actions: ['click' as const] }], allowCoordinates: false };
+      await expect(authorizeBrowserAction(page, { action: 'click', targetDescription: 'Add Notebook', elementRef: second!.ref, reasoning: 'Add to cart' }, { policy, origins: [], bindings })).resolves.toMatchObject({ targetKey: expect.any(String) });
+    } finally { await page.close(); }
+  });
+});

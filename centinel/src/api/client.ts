@@ -553,7 +553,7 @@ export const api = {
   // `fresh` skips joining an in-flight identical read (which may predate a Run start or stop) and the HTTP cache.
   autoTests: (projectId: string) => request<AutoTestSession[]>(`/projects/${projectId}/dynamic/autonomous`, { cache: 'no-store' }),
   autoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}`, { cache: 'no-store' }),
-  startAutoTest: (projectId: string, input: { folder?: string; lanes?: number }) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous`, { method: 'POST', body: JSON.stringify(input) }),
+  startAutoTest: (projectId: string, input: { folder?: string; lanes?: number; request?: string; base?: import('../autotest/types').AutoTestRef; rerun?: import('../autotest/types').AutoTestRef[]; pinned?: import('../autotest/types').AutoTestRef[] }) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous`, { method: 'POST', body: JSON.stringify(input) }),
   cancelAutoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}/cancel`, { method: 'POST', body: '{}' }),
   dynamicRuns: (projectId: string, options?: { fresh?: boolean }) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`, options?.fresh ? { cache: 'no-store' } : undefined),
   startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string, environmentId?: string, baselineRunId?:string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey, ...(environmentId ? {environmentId} : {}),...(baselineRunId?{baselineRunId}:{}) }) }),

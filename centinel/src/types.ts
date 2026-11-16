@@ -874,6 +874,12 @@ export type ProjectAssessment = {
 };
 
 export type Screen =
+  /** Start: give Centinel a project and documents (DESIGN.md §4.1). */
+  | { name: 'new-check' }
+  /** Live while a check runs, then its Result (DESIGN.md §4.2, §4.3). */
+  | { name: 'check'; checkId: string }
+  /** A project as a conversation with Centinel (DESIGN.md §4.4). */
+  | { name: 'project'; projectId: string }
   | { name: 'dashboard' }
   | {
       name: 'projects';
@@ -892,6 +898,8 @@ export type Screen =
       sourceArtifactId?: string;
       initialAction?: 'static' | 'dynamic';
       initialStaticSessionId?: string;
+      /** Open the older project tabs (Details) instead of the conversation. */
+      details?: boolean;
     }
   | { name: 'review-entry'; projectId?: string; comparisonParentReviewId?: string; returnToPlayground?: boolean }
   | { name: 'review-activity'; projectId: string; sessionId: string; reviewName?: string; initialTab?: 'Findings' }

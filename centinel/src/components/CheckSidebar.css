@@ -1,0 +1,70 @@
+/* Sidebar: New check, Search and recent checks (DESIGN.md §6). */
+div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 500;
+}
+div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check svg,
+div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check:hover svg,
+div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active svg { color: var(--color-on-primary); }
+div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check:hover,
+div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+.sidebar-check-search { padding: var(--space-1) 0 var(--space-2); }
+.sidebar-check-search input {
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: 400 13px var(--font-ui);
+}
+.sidebar-check-search input:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.sidebar-check-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.sidebar-check {
+  display: grid;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius-control, 8px);
+  background: transparent;
+  color: var(--color-text);
+  font: 400 14px/1.3 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-check:hover { background: var(--color-surface-subtle); }
+.sidebar-check.active { background: var(--color-surface-selected); border-color: var(--color-border-strong); }
+.sidebar-check:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.sidebar-check-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-check-outcome {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.sidebar-check-outcome.is-bad { color: var(--color-danger); }
+.sidebar-check-outcome.is-running { color: var(--color-browser); }
+
+div.app-shell.sidebar-collapsed .sidebar-checks,
+div.app-shell.sidebar-collapsed .sidebar-check-search { display: none; }
+
+/* Start, Live and Result paint their own canvas and glow. */
+div.app-shell.has-window-chrome.check-mode .page-content-container > .main-content,
+div.app-shell.check-mode .main-content { padding: 0; background: var(--color-canvas); }
+
+/* The icon rail at 720 px and below (workspace.css) has room for icons only. */
+@media (max-width: 720px) {
+  div.app-shell .sidebar-checks,
+  div.app-shell .sidebar-check-search { display: none; }
+}

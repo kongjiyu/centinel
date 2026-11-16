@@ -11,6 +11,7 @@ let origin = '';
 beforeAll(async () => {
   server = http.createServer((request, response) => {
     if (request.url === '/private') { response.writeHead(302, { Location: '/signin' }); response.end(); return; }
+    if (request.url === '/shop') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<ul id="products"><li><span>Ceramic Mug</span><button type="button">Add to cart</button></li><li><span>Notebook</span><button type="button">Add to cart</button></li></ul>'); return; }
     if (request.url === '/signin') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<button data-test="signin-submit">Sign In</button>'); return; }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(html);
   });
@@ -38,6 +39,14 @@ describe('read-only control discovery', () => {
     expect(result.pages[1].finalUrl).toMatch(/\/signin$/);
     expect(result.controls.find(control => control.selector === '[data-test="signin-submit"]')).toMatchObject({ actions: ['click'], page: '/signin' });
     await expect(discoverControls(new URL(`${origin}/`), { paths: ['https://example.com/x'] })).rejects.toThrow(/same website/);
+  }, 30_000);
+
+  it('names repeated unnamed buttons by their position and row text', async () => {
+    const { controls } = await discoverControls(new URL(`${origin}/shop`));
+    expect(controls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ selector: '#products > li:nth-of-type(1) > button', label: 'Add to cart — Ceramic Mug', actions: ['click'] }),
+      expect.objectContaining({ selector: '#products > li:nth-of-type(2) > button', label: 'Add to cart — Notebook' }),
+    ]));
   }, 30_000);
 
   it('rejects non-web addresses and embedded credentials', () => {

@@ -69,3 +69,21 @@ Sessions are journalled in the existing `audit_events` table (`dynamic_autonomou
   - RWA (Vite plus Express with a seeded database).
   - Python recipes against real apps.
   - The narrow-viewport layout in the signed-in app.
+
+
+## Project conversation (13 November 2026)
+
+The user asked for browser tests to be added and changed by talking to Centinel instead of editing forms (DESIGN.md §4.4–4.5). This reuses the Auto test pipeline:
+
+- `POST /projects/:p/dynamic/autonomous` accepts `request` (up to 2,000 characters), `base` (a saved test to revise), `rerun` (saved tests to run without new planning) and `pinned` (saved tests added to a full check). Conversation sessions default to one lane. Earlier requests in the project (up to ten) are passed to the planner so test data given before is reused.
+- The plan schema has a `reply` field. A request the browser cannot test finishes with a reply and no tests. A request is limited to three tests, or one when revising a test.
+- Each planned test keeps its allowed `controls`, so it can be run again later. `presetToTest` rebuilds and revalidates a saved test against the app's current address.
+- Controls may be marked `repeatable` only when they are clickable and a step uses them more than once; the existing one-use default stays for everything else.
+- Control discovery and the agent's page observation gained the same positional selector fallback (`#list > li:nth-of-type(2) > button`) for repeated unnamed controls. Discovery labels such controls with their row text.
+- Test accounts typed in the conversation may be used as test data on the local app (user decision, 13 November 2026). The frontend adds a one-time reminder that the AI sees them.
+
+Verified live on 13 November 2026 against the Sample Shop: "Test that adding the Ceramic Mug twice makes the cart total $24.00" started the app, wrote one test, clicked Add to cart twice in the live view and failed on the independent check, with an AI explanation. Not verified live: revising a test with Change it, and a full check that includes saved tests.
+
+## Browser tests in the project report (14 November 2026)
+
+Report generator `project-report-v5` adds an optional `browserTests` section to the snapshot JSON (older saved reports stay valid). It holds the latest finished full Auto test only; conversation requests and reruns are excluded. Each test keeps its name, steps, requirement, related code, Run ID and, per check, the expected value, verdict and what the page showed (the runner's "Expected visible text absent." note becomes "Not shown on the page."). AI explanations are not included. Part 1 of the report summarises this full check whenever it exists ("1 of 3 failed"); a single test run later still appears in Part 2 under the existing Dynamic Test section. Verified by generating a report for the Sample Shop project against local Supabase.

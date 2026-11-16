@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DynamicContractError } from '../types.js';
-import { newAutoTestSession, runAutoTest, MAX_LANES, type AutoTestDeps, type AutoTestSession } from './orchestrator.js';
+import { newAutoTestSession, presetFromEntry, runAutoTest, MAX_LANES, type AutoTestDeps, type AutoTestSession } from './orchestrator.js';
+import { MAX_REQUEST_CHARS, type AutoTestPreset, type AutoTestRequest } from './planner.js';
 import type { AutoTestStore } from './store.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
@@ -33,6 +34,22 @@ export type AutoTestRouteDeps = {
   /** Builds the side effects for one session (auth-bound clients, model provider, run starter). */
   createDeps(projectId: string, session: AutoTestSession): Promise<AutoTestDeps>;
 };
+
+const HISTORY_SESSIONS = 30;
+const HISTORY_REQUESTS = 10;
+const MAX_RERUN = 10;
+
+type TestRef = { sessionId: string; testId: string };
+function testRefs(value: unknown, field: string): TestRef[] {
+  if (value === undefined || value === null) return [];
+  const list = Array.isArray(value) ? value : [value];
+  if (list.length > MAX_RERUN) throw new DynamicContractError(400, `Choose at most ${MAX_RERUN} saved tests.`);
+  return list.map(item => {
+    const ref = item as Partial<TestRef> | null;
+    if (!ref || typeof ref.sessionId !== 'string' || !/^[a-f0-9-]{36}$/.test(ref.sessionId) || typeof ref.testId !== 'string' || !/^[a-f0-9-]{36}$/.test(ref.testId)) throw new DynamicContractError(400, `${field} must name a saved test.`);
+    return { sessionId: ref.sessionId, testId: ref.testId };
+  });
+}
 
 export type AutoTestRouteResult = { status: number; body: unknown } | { live: { projectId: string; sessionId: string } };
 
@@ -69,7 +86,7 @@ export async function handleAutoTestRoute(request: { method: string; pathname: s
   };
   try {
     if (!id && !action && request.method === 'GET') {
-      const sessions = await deps.store.list(projectId, 10);
+      const sessions = await deps.store.list(projectId, HISTORY_SESSIONS);
       return { status: 200, body: await Promise.all(sessions.map(reconcile)) };
     }
     if (!id && !action && request.method === 'POST') {
@@ -78,7 +95,30 @@ export async function handleAutoTestRoute(request: { method: string; pathname: s
       const lanes = body.lanes === undefined ? undefined : Number(body.lanes);
       if (lanes !== undefined && (!Number.isInteger(lanes) || lanes < 1 || lanes > MAX_LANES)) throw new DynamicContractError(400, `Run between 1 and ${MAX_LANES} tests at once.`);
       if (runtime.activeFor(projectId)) throw new DynamicContractError(409, 'An Auto test is already running for this project. Wait for it or cancel it first.');
-      const session = newAutoTestSession({ id: crypto.randomUUID(), projectId, ownerId: deps.ownerId, folder, lanes });
+      // Project conversation (13 Nov 2026): a typed request, an existing test to change, or saved tests to run again.
+      const text = body.request === undefined || body.request === null ? null : typeof body.request === 'string' ? body.request.trim() : '';
+      if (text !== null && (!text || text.length > MAX_REQUEST_CHARS)) throw new DynamicContractError(400, `Write a request of up to ${MAX_REQUEST_CHARS} characters.`);
+      const [baseRef] = testRefs(body.base, 'base');
+      const rerun = testRefs(body.rerun, 'rerun');
+      const pinned = testRefs(body.pinned, 'pinned');
+      if (baseRef && text === null) throw new DynamicContractError(400, 'Say how the test should change.');
+      if (rerun.length && text !== null) throw new DynamicContractError(400, 'Run saved tests or send a request, not both.');
+      const loadPreset = async (ref: TestRef): Promise<AutoTestPreset> => {
+        const source = await deps.store.get(projectId, ref.sessionId);
+        const entry = source?.tests.find(test => test.id === ref.testId);
+        const preset = entry ? presetFromEntry(entry) : null;
+        if (!preset) throw new DynamicContractError(404, 'That saved test is no longer available. Ask for it again.');
+        return preset;
+      };
+      let typed: AutoTestRequest | null = null;
+      if (text !== null) {
+        const earlier = await deps.store.list(projectId, HISTORY_SESSIONS).catch(() => [] as AutoTestSession[]);
+        const history = earlier.map(item => item.request?.text).filter((value): value is string => !!value).slice(0, HISTORY_REQUESTS).reverse();
+        typed = { text, base: baseRef ? await loadPreset(baseRef) : null, history };
+      }
+      const presets = await Promise.all([...rerun, ...pinned].map(loadPreset));
+      const conversational = typed !== null || rerun.length > 0;
+      const session = newAutoTestSession({ id: crypto.randomUUID(), projectId, ownerId: deps.ownerId, folder, lanes: lanes ?? (conversational ? 1 : undefined), request: typed, presets, planning: rerun.length ? false : undefined });
       await deps.store.save(session);
       const sideEffects = await deps.createDeps(projectId, session);
       void runtime.start(session, sideEffects).catch(() => undefined);

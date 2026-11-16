@@ -288,9 +288,9 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
             ],
           },
           {
-            title: 'Browser test',
+            title: summary.browserTest.source === 'auto' ? 'Browser tests' : 'Browser test',
             status: summary.browserTest,
-            lines: snapshot.latestDynamicTest
+            lines: summary.browserTest.source === 'manual' && snapshot.latestDynamicTest
               ? ['"' + snapshot.latestDynamicTest.session.name + '". ' + summary.browserTest.detail, 'Website: ' + snapshot.latestDynamicTest.session.targetUrl]
               : [summary.browserTest.detail],
           },
@@ -406,8 +406,29 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
         doc.y += 6;
       }
 
-      // Browser test result.
-      if (snapshot.latestDynamicTest) {
+      // Browser test results from the latest full Auto test: one row per test, failures with what the page showed.
+      if (summary.browserTest.source === 'auto' && snapshot.browserTests) {
+        const auto = snapshot.browserTests;
+        ensure(80);
+        sectionTitle('Browser test results', auto.passed + ' passed, ' + auto.failed + ' failed' + (auto.unclear + auto.notRun ? ', ' + (auto.unclear + auto.notRun) + ' without a clear result' : '') + '. Pass and fail come from Centinel\'s own checks on the page.');
+        const label: Record<string, string> = { passed: 'Passed', failed: 'Failed', unclear: 'Unclear', not_run: 'Did not run' };
+        const toneFor: Record<string, keyof typeof TONES> = { passed: 'good', failed: 'critical', unclear: 'warning', not_run: 'neutral' };
+        auto.tests.forEach(test => {
+          const failedChecks = test.result === 'failed' ? test.checks.filter(check => check.verdict === 'failed') : [];
+          const detail = failedChecks.map(check => 'Expected: ' + (check.expected ?? check.description) + '. The page showed: ' + (check.observed ?? 'Not shown on the page.'));
+          const textW = W - 32 - 110;
+          const height = 16 + measure(test.name, fonts.bold, 10.5, textW, 2) + detail.reduce((sum, text) => sum + measure(text, fonts.regular, 9, W - 32, 2) + 4, 0) + 14;
+          ensure(height + 8);
+          const top = doc.y;
+          doc.lineWidth(0.8).roundedRect(X, top, W, height, 10).fillAndStroke(C.surface, C.line);
+          write(test.name, X + 16, top + 12, { font: fonts.bold, size: 10.5, width: textW });
+          pill(label[test.result], X + W - 16 - pillWidth(label[test.result]), top + 11, TONES[toneFor[test.result]]);
+          let y = top + 14 + measure(test.name, fonts.bold, 10.5, textW, 2) + 4;
+          detail.forEach(text => { y = write(text, X + 16, y, { size: 9, color: C.muted, width: W - 32, lineGap: 2 }) + 4; });
+          doc.y = top + height + 8;
+        });
+        doc.y += 4;
+      } else if (snapshot.latestDynamicTest) {
         const test = snapshot.latestDynamicTest;
         const rows: Array<[string, string]> = [
           ['What it checked', clip(test.session.goal, 420)],
@@ -660,6 +681,29 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
 
         subheading('Review model usage');
         appendUsage(review.modelUsage);
+      }
+
+      heading('Browser tests');
+      if (!snapshot.browserTests) {
+        muted('Unavailable: no full browser test (Auto test) has finished for this project.');
+      } else {
+        const auto = snapshot.browserTests;
+        keyValues([
+          ['Run', auto.sessionId],
+          ['Started / finished', isoDate(auto.createdAt) + ' / ' + isoDate(auto.finishedAt)],
+          ['App started with', auto.startedWith ?? 'Unavailable'],
+          ['Result', auto.passed + ' passed, ' + auto.failed + ' failed, ' + auto.unclear + ' unclear, ' + auto.notRun + ' did not run'],
+        ]);
+        auto.tests.forEach((test, index) => {
+          subheading((index + 1) + '. ' + test.name + ' - ' + ({ passed: 'Passed', failed: 'Failed', unclear: 'Unclear', not_run: 'Did not run' } as Record<string, string>)[test.result]);
+          if (test.requirementRef) line('Requirement: ' + test.requirementRef, { size: 8.5 });
+          line('Steps: ' + test.goal, { size: 8.5, color: C.muted, after: 4 });
+          test.checks.forEach(check => bullet(check.description + ' - expected: ' + (check.expected ?? 'n/a') + ' - result: ' + check.verdict + ' - the page showed: ' + (check.observed ?? 'n/a')));
+          if (test.reason && test.result !== 'passed') line('Note: ' + test.reason, { size: 8.5, color: C.warning });
+          if (test.sourceRefs.length) line('Related code: ' + test.sourceRefs.join(', '), { size: 8.5, color: C.muted });
+          if (test.runId) muted('Run ID ' + test.runId + '. Screenshots and the action trace are kept with this Run in Centinel.');
+        });
+        auto.limitations.forEach(item => muted(item));
       }
 
       heading('Latest existing Dynamic Test');

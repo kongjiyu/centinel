@@ -188,6 +188,33 @@ export type ReportDynamicEvidence = Pick<DynamicEvidence, 'id' | 'type' | 'summa
   path: string | null;
 };
 
+/** One browser test from the latest full Auto test (12 Nov 2026 flow). Pass and fail come only from the Run's own checks. */
+export type ReportBrowserTest = {
+  name: string;
+  result: 'passed' | 'failed' | 'unclear' | 'not_run';
+  goal: string;
+  requirementRef: string | null;
+  sourceRefs: string[];
+  runId: string | null;
+  reason: string | null;
+  checks: Array<{ description: string; expected: string | null; verdict: string; observed: string | null }>;
+};
+
+export type ReportBrowserTests = {
+  status: 'available';
+  sessionId: string;
+  createdAt: string;
+  finishedAt: string;
+  appUrl: string | null;
+  startedWith: string | null;
+  passed: number;
+  failed: number;
+  unclear: number;
+  notRun: number;
+  tests: ReportBrowserTest[];
+  limitations: string[];
+};
+
 export type ProjectReportSnapshot = {
   metadata: ReportMetadata;
   project: Project;
@@ -243,6 +270,8 @@ export type ProjectReportSnapshot = {
     evidence: ReportDynamicEvidence[];
     actionTrace: ReportActionTrace[];
   };
+  /** Latest full Auto test; absent in report JSON saved before 14 Nov 2026. */
+  browserTests?: ReportBrowserTests | null;
 };
 
 export type ProjectReportRenderings = {

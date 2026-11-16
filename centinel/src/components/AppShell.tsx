@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CircleHelp, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Pin, Repeat2, Settings } from 'lucide-react';
+import { Check, CircleHelp, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, LoaderCircle, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Plus, Repeat2, Search, Settings, TriangleAlert } from 'lucide-react';
 import type { Project, Screen } from '../types';
 import { PageBreadcrumbs } from './PageBreadcrumbs';
 import { WindowHeader } from './WindowHeader';
-import { usePinnedProjects } from '../hooks/usePinnedProjects';
+import { useChecks } from '../check/store';
+import { useBackgroundCheckSync } from '../check/sync';
+import type { CheckRecord } from '../check/types';
+import { Icon } from './Icon';
+import './CheckSidebar.css';
 
 type Props = {
   screen: Screen;
@@ -18,17 +22,16 @@ type Props = {
   children: React.ReactNode;
 };
 
-const PINS_EXPANDED_STORAGE_KEY = 'centinel:pins-expanded';
-const PINS_CONTENT_ID = 'sidebar-pins-content';
-
-function readPinsExpanded(): boolean {
-  if (typeof window === 'undefined') return true;
-  try {
-    const value = window.localStorage.getItem(PINS_EXPANDED_STORAGE_KEY);
-    return value === null ? true : value === 'true';
-  } catch {
-    return true;
+/** A recent check's outcome in a few words (DESIGN.md §6). */
+function CheckOutcome({ check }: { check: CheckRecord }) {
+  if (check.phase === 'preparing' || check.phase === 'running') {
+    return <span className="sidebar-check-outcome is-running"><Icon icon={LoaderCircle} className="ci-spin" /><span>Checking…</span></span>;
   }
+  if (check.phase === 'failed') return <span className="sidebar-check-outcome is-bad"><Icon icon={TriangleAlert} shape="triangle" /><span>Did not start</span></span>;
+  const count = check.problemCount ?? 0;
+  return count
+    ? <span className="sidebar-check-outcome is-bad"><Icon icon={TriangleAlert} shape="triangle" /><span>{count} problem{count === 1 ? '' : 's'}</span></span>
+    : <span className="sidebar-check-outcome"><Icon icon={Check} /><span>No problems</span></span>;
 }
 
 function isTauriRuntime(): boolean {
@@ -44,12 +47,15 @@ function accountUsername(githubLogin: string | null, accountEmail: string | null
 export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, authProvider = null, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [pinsExpanded, setPinsExpanded] = useState(readPinsExpanded);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const checks = useChecks();
+  useBackgroundCheckSync(true);
+  const visibleChecks = checks.filter(check => !search.trim() || check.projectName.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 20);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const accountTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const { pinnedProjects } = usePinnedProjects(projects);
   const screenKey = JSON.stringify(screen);
   const nativeWindowChrome = isTauriRuntime();
   const accountLogin = authProvider === 'github' ? accountGithubLogin ?? githubLogin
@@ -61,14 +67,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         : authProvider === 'github' ? 'GitHub account' : 'Account';
 
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PINS_EXPANDED_STORAGE_KEY, String(pinsExpanded));
-    } catch {
-      // A restricted browser or private webview may not allow preferences.
-    }
-  }, [pinsExpanded]);
-
   useEffect(() => {
     if (!mainContentRef.current) return;
     mainContentRef.current.scrollTop = 0;
@@ -116,11 +114,11 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
     (screen.name === 'project-detail' && screen.initialAction === 'static');
   const dynamicActive = screen.name === 'dynamic-directory' || screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' ||
     (screen.name === 'project-detail' && screen.initialAction === 'dynamic');
-  const projectsActive = screen.name === 'projects' || screen.name === 'evidence-browser' ||
+  const projectsActive = screen.name === 'projects' || screen.name === 'project' || screen.name === 'evidence-browser' ||
     (screen.name === 'project-detail' && !screen.initialAction);
 
   return (
-    <div className={`app-shell has-window-chrome command-mode workspace-mode ${nativeWindowChrome ? 'native-window-chrome' : 'browser-window-chrome'} ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${accountMenuOpen ? 'account-menu-open' : ''}`}>
+    <div className={`app-shell has-window-chrome command-mode workspace-mode ${nativeWindowChrome ? 'native-window-chrome' : 'browser-window-chrome'} ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${screen.name === 'new-check' || screen.name === 'check' || screen.name === 'project' ? 'check-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${accountMenuOpen ? 'account-menu-open' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
       {!nativeWindowChrome && <WindowHeader />}
       <div className="app-shell-workspace">
@@ -145,16 +143,73 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
             </header>
             <nav className="sidebar-nav" aria-label="Primary navigation">
             <div className="sidebar-nav-group">
-              <div className="sidebar-category">Dashboard</div>
+              <button
+                className={`nav-item nav-new-check ${isActive(['new-check']) ? 'active' : ''}`}
+                aria-current={isActive(['new-check']) ? 'page' : undefined}
+                onClick={() => nav('new-check')}
+                aria-label="New check"
+                title="New check"
+              >
+                <Plus size={18} aria-hidden="true" />
+                <span>New check</span>
+              </button>
+              <button
+                className={`nav-item ${searchOpen ? 'active' : ''}`}
+                aria-expanded={searchOpen}
+                aria-controls="sidebar-check-search"
+                onClick={() => { setSearchOpen(value => !value); if (sidebarCollapsed) setSidebarCollapsed(false); }}
+                aria-label="Search checks"
+                title="Search checks"
+              >
+                <Search size={18} aria-hidden="true" />
+                <span>Search</span>
+              </button>
+              {searchOpen && !sidebarCollapsed && (
+                <div className="sidebar-check-search" id="sidebar-check-search">
+                  <label className="sr-only" htmlFor="sidebar-check-search-input">Search checks by project name</label>
+                  <input id="sidebar-check-search-input" autoFocus value={search} onChange={event => setSearch(event.target.value)} placeholder="Project name" onKeyDown={event => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />
+                </div>
+              )}
+            </div>
+
+            <div className="sidebar-nav-group sidebar-checks">
+              <div className="sidebar-category">Recent checks</div>
+              {visibleChecks.length ? (
+                <ul className="sidebar-check-list">
+                  {visibleChecks.map(check => {
+                    const current = screen.name === 'check' && screen.checkId === check.id;
+                    return (
+                      <li key={check.id}>
+                        <button
+                          type="button"
+                          className={`sidebar-check ${current ? 'active' : ''}`}
+                          aria-current={current ? 'page' : undefined}
+                          onClick={() => onNavigate({ name: 'check', checkId: check.id })}
+                          title={check.projectName}
+                        >
+                          <span className="sidebar-check-name">{check.projectName}</span>
+                          <CheckOutcome check={check} />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="sidebar-pins-empty"><span>{search ? 'No matching checks' : 'No checks yet'}</span></div>
+              )}
+            </div>
+
+            <div className="sidebar-nav-group">
+              <div className="sidebar-category">Details</div>
               <button
                 className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
                 aria-current={isActive(['dashboard']) ? 'page' : undefined}
                 onClick={() => nav('dashboard')}
-                aria-label="Home"
-                title="Home"
+                aria-label="Overview"
+                title="Overview"
               >
                 <House size={18} aria-hidden="true" />
-                <span>Home</span>
+                <span>Overview</span>
               </button>
               <button
                 className={`nav-item ${projectsActive ? 'active' : ''}`}
@@ -166,35 +221,29 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 <FolderOpen size={18} aria-hidden="true" />
                 <span>Projects</span>
               </button>
-            </div>
-
-            <div className="sidebar-nav-group">
-              <div className="sidebar-category">Activities</div>
               <button
                 className={`nav-item ${staticActive ? 'active' : ''}`}
                 aria-current={staticActive ? 'page' : undefined}
                 onClick={() => nav('review-directory')}
-                aria-label="Review"
-                title="Review"
+                aria-label="Code reviews"
+                title="Code reviews"
               >
                 <FileCheck2 size={18} aria-hidden="true" />
-                <span>Review</span>
+                <span>Code reviews</span>
               </button>
               <button
                 className={`nav-item ${dynamicActive ? 'active' : ''}`}
                 aria-current={dynamicActive ? 'page' : undefined}
                 onClick={() => nav('dynamic-directory')}
-                aria-label="Dynamic Testing"
-                title="Dynamic Testing"
+                aria-label="Browser tests"
+                title="Browser tests"
               >
                 <MonitorPlay size={18} aria-hidden="true" />
-                <span>Dynamic Testing</span>
+                <span>Browser tests</span>
               </button>
-              {/* Developer harness: hidden from the product navigation outside development builds (DESIGN.md navigation). */}
             </div>
 
-            <div className="sidebar-nav-group">
-              <div className="sidebar-category">Settings</div>
+            <div className="sidebar-nav-group sidebar-settings-group">
               <button
                 className={`nav-item ${isActive(['settings']) ? 'active' : ''}`}
                 aria-current={isActive(['settings']) ? 'page' : undefined}
@@ -215,44 +264,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 <CircleHelp size={18} aria-hidden="true" />
                 <span>Help</span>
               </button>
-            </div>
-
-            <div className="sidebar-nav-group sidebar-pins-group">
-              <button
-                type="button"
-                className="sidebar-pins-toggle"
-                aria-expanded={pinsExpanded}
-                aria-controls={PINS_CONTENT_ID}
-                aria-label={pinsExpanded ? 'Collapse Pinned' : 'Expand Pinned'}
-                title={pinsExpanded ? 'Collapse Pinned' : 'Expand Pinned'}
-                onClick={() => setPinsExpanded(value => !value)}
-              >
-                <span className="sidebar-pinned-collapsed-icon" aria-hidden="true">
-                  <Pin size={18} strokeWidth={1.7} />
-                </span>
-                <span>Pinned</span>
-                {pinsExpanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
-              </button>
-              <div id={PINS_CONTENT_ID} className="sidebar-pins-content" hidden={!pinsExpanded}>
-                {pinnedProjects.length > 0 ? pinnedProjects.map(project => (
-                  <button
-                    key={project.id}
-                    type="button"
-                    className={`nav-item sidebar-pin-item ${screen.name === 'project-detail' && screen.projectId === project.id ? 'active' : ''}`}
-                    aria-current={screen.name === 'project-detail' && screen.projectId === project.id ? 'page' : undefined}
-                    onClick={() => onNavigate({ name: 'project-detail', projectId: project.id })}
-                    aria-label={`Open ${project.name} overview`}
-                    title={project.name}
-                  >
-                    <FolderOpen size={17} aria-hidden="true" />
-                    <span>{project.name}</span>
-                  </button>
-                )) : (
-                  <div className="sidebar-pins-empty">
-                    <span>No pinned projects</span>
-                  </div>
-                )}
-              </div>
             </div>
             </nav>
             <div className="sidebar-profile">

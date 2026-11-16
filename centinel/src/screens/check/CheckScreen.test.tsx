@@ -1,0 +1,104 @@
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../../api/client';
+import { resetCheckStore, saveCheck, getCheck } from '../../check/store';
+import type { CheckRecord } from '../../check/types';
+import { CheckScreen, formatDuration, formatElapsed } from './CheckScreen';
+
+vi.mock('../../api/client', () => ({
+  api: {
+    getStaticSession: vi.fn(), listStaticFindings: vi.fn(), getReviewHarness: vi.fn(), autoTest: vi.fn(), listRequirements: vi.fn(),
+    cancelStaticSession: vi.fn(), cancelAutoTest: vi.fn(), exportProjectReport: vi.fn(),
+  },
+}));
+vi.mock('../../autotest/liveStream', () => ({ openLiveStream: vi.fn() }));
+
+const record = (patch: Partial<CheckRecord> = {}): CheckRecord => ({
+  id: 'c1', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:00:00.000Z', projectId: 'p1', projectName: 'sample-shop',
+  documents: [], focus: '', mode: 'both', phase: 'running', reviewId: 'r1', autoTestId: 'a1', notes: [], ...patch,
+});
+
+const reviewSession = (status: string, progress: Record<string, unknown> = {}) => ({ id: 'r1', projectId: 'p1', status, progressJson: JSON.stringify(progress), updatedAt: '2026-11-12T10:05:40.000Z', failureReason: '' });
+const failedTest = {
+  id: 't1', name: 'Unknown email uses the generic sign-in error', goal: '', rationale: '', requirementRef: 'REQ-1', sourceRefs: [{ path: 'docs/requirements.md', line: 7 }],
+  checks: [{ id: 'k1', criterionId: 'REQ-1', description: 'The same generic message is shown.', required: true, kind: 'visible_text' }], startPath: '/', state: 'failed', runId: 'run-1',
+  checkResults: [{ checkId: 'k1', criterionId: 'REQ-1', verdict: 'failed', observed: 'Expected visible text absent.', reason: '', evidenceIds: [] }], explanation: 'The `server.js` handler returns a specific message.',
+};
+const autoSession = (stage: string, tests: unknown[] = [failedTest]) => ({ schemaVersion: 1, id: 'a1', projectId: 'p1', stage, error: null, lanes: [], tests, summary: { passed: 0, failed: 1, uncertain: 0, blocked: 0, notTested: 0, limitations: [] }, launch: null, laneNote: null, updatedAt: '' });
+const finding = { id: 'f1', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'high', priority: 'high', riskLevel: 'critical', title: 'Orders open without sign-in', description: 'The route never checks the user.', status: 'new', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 76 };
+
+describe('Check screen', () => {
+  beforeEach(() => {
+    resetCheckStore();
+    vi.mocked(api.listRequirements).mockResolvedValue([]);
+    vi.mocked(api.getReviewHarness).mockResolvedValue(null as never);
+  });
+
+  it('formats elapsed and finished durations', () => {
+    expect(formatElapsed(185_000)).toBe('3:05');
+    expect(formatElapsed(3_725_000)).toBe('1:02:05');
+    expect(formatDuration(340_000)).toBe('5 min 40 s');
+    expect(formatDuration(9_000)).toBe('9 s');
+  });
+
+  it('shows Live while a part runs, with validated titles appearing in the code column', async () => {
+    saveCheck(record());
+    vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('running', { stage: 'model_analysis' }) as never);
+    vi.mocked(api.getReviewHarness).mockResolvedValue({ events: [{ reviewId: 'r1', event: 'review_live_finding_titles', detail: { titles: ['Order Ownership Bypass'] }, createdAt: '' }], analysisMap: null } as never);
+    vi.mocked(api.autoTest).mockResolvedValue(autoSession('testing', []) as never);
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: /Checking sample-shop/ })).toBeInTheDocument();
+    expect(await screen.findByText('Order Ownership Bypass')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Progress' })).toHaveTextContent('Find and prove problems');
+  });
+
+  it('stops both running parts', async () => {
+    saveCheck(record());
+    vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('running') as never);
+    vi.mocked(api.autoTest).mockResolvedValue(autoSession('testing', []) as never);
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    expect(api.cancelStaticSession).toHaveBeenCalledWith('p1', 'r1');
+    expect(api.cancelAutoTest).toHaveBeenCalledWith('p1', 'a1');
+  });
+
+  it('switches to Result when both parts finish, opens the top problem and records the outcome', async () => {
+    saveCheck(record());
+    vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('completed') as never);
+    vi.mocked(api.listStaticFindings).mockResolvedValue([finding] as never);
+    vi.mocked(api.autoTest).mockResolvedValue(autoSession('completed') as never);
+    const onNavigate = vi.fn();
+    render(<CheckScreen checkId="c1" onNavigate={onNavigate} />);
+
+    expect(await screen.findByRole('heading', { name: '2 problems found. 1 proven in the browser.' })).toBeInTheDocument();
+    const proven = screen.getByRole('region', { name: 'Proven in the browser' });
+    expect(within(proven).getByText('This was not shown on the page.')).toBeInTheDocument();
+    expect(within(proven).getByText('server.js', { selector: 'code' })).toBeInTheDocument();
+    expect(within(proven).getByText('AI explanation')).toBeInTheDocument();
+    await userEvent.click(within(proven).getByRole('button', { name: 'Replay the test' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-testing', projectId: 'p1', runId: 'run-1' });
+
+    const code = screen.getByRole('region', { name: 'Found in code' });
+    expect(within(code).getByText('Critical')).toBeInTheDocument();
+    expect(within(code).queryByText('Browser')).not.toBeInTheDocument();
+    expect(getCheck('c1')).toMatchObject({ phase: 'done', problemCount: 2 });
+  });
+
+  it('explains a check that could not start and offers a new one', async () => {
+    saveCheck(record({ phase: 'failed', reviewId: undefined, autoTestId: undefined, error: 'No readable files were found in the project, so nothing could be reviewed.' }));
+    const onNavigate = vi.fn();
+    render(<CheckScreen checkId="c1" onNavigate={onNavigate} />);
+    expect(screen.getByRole('heading', { name: 'The check could not start.' })).toBeInTheDocument();
+    expect(screen.getByText('No readable files were found in the project, so nothing could be reviewed.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Start a new check' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'new-check' });
+  });
+
+  it('says when the check is not on this device', () => {
+    render(<CheckScreen checkId="missing" onNavigate={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'This check is not on this device' })).toBeInTheDocument();
+  });
+});

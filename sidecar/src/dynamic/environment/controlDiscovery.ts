@@ -43,7 +43,24 @@ const COLLECT_CONTROLS = String.raw`(limit) => {
       element.getAttribute('name') ? tag + '[name="' + quote(element.getAttribute('name')) + '"]' : '',
       element.getAttribute('aria-label') ? tag + '[aria-label="' + quote(element.getAttribute('aria-label')) + '"]' : '',
     ].filter(Boolean);
-    const selector = options.find(unique);
+    // Fallback for repeated controls without names (e.g. one "Add to cart" per row): a
+    // positional path from the nearest ancestor with an id, still a plain unique CSS selector.
+    const structural = () => {
+      const parts = [];
+      let node = element;
+      for (let depth = 0; node && depth < 6; depth++) {
+        if (depth > 0 && node.id) return '#' + CSS.escape(node.id) + ' > ' + parts.join(' > ');
+        const parent = node.parentElement;
+        if (!parent) return '';
+        const same = Array.from(parent.children).filter(child => child.tagName === node.tagName);
+        parts.unshift(node.tagName.toLowerCase() + (same.length > 1 ? ':nth-of-type(' + (same.indexOf(node) + 1) + ')' : ''));
+        node = parent;
+      }
+      return '';
+    };
+    let selector = options.find(unique);
+    let positional = false;
+    if (!selector) { const path = structural(); if (path && unique(path)) { selector = path; positional = true; } }
     if (!selector || seen.has(selector)) continue;
     seen.add(selector);
     const label = (element.getAttribute('aria-label')
@@ -51,7 +68,8 @@ const COLLECT_CONTROLS = String.raw`(limit) => {
       || element.getAttribute('placeholder')
       || (tag === 'input' || tag === 'textarea' || tag === 'select' ? '' : element.textContent)
       || element.getAttribute('title')
-      || selector).replace(/\s+/g, ' ').trim().slice(0, 80);
+      || selector).replace(/\s+/g, ' ').trim().slice(0, 80)
+      + (positional && element.parentElement ? ' — ' + (element.parentElement.textContent || '').replace(element.textContent || '', '').replace(/\s+/g, ' ').trim().slice(0, 40) : '');
     const textField = tag === 'textarea' || (tag === 'input' && ['', 'text', 'email', 'password', 'search', 'number', 'tel', 'url'].includes(type));
     const toggle = (tag === 'input' && ['checkbox', 'radio'].includes(type)) || element.getAttribute('role') === 'checkbox';
     const actions = textField ? ['type'] : toggle ? ['set_checked'] : tag === 'select' ? ['select_option'] : ['click'];

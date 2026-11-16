@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from './AppShell';
 import type { Project, Screen } from '../types';
+import { resetCheckStore } from '../check/store';
 
 const projects: Project[] = [
   {
@@ -41,6 +42,7 @@ function renderShell(screenState: Screen, onNavigate: (screen: Screen) => void, 
 
 describe('AppShell module launch', () => {
   beforeEach(() => {
+    resetCheckStore();
     window.localStorage.clear();
     Reflect.deleteProperty(window, '__TAURI_IPC__');
   });
@@ -49,14 +51,14 @@ describe('AppShell module launch', () => {
     renderShell({ name: 'settings' }, vi.fn());
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
     expect(within(nav).getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
-    expect(within(nav).getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current');
+    expect(within(nav).getByRole('button', { name: 'Overview' })).not.toHaveAttribute('aria-current');
   });
 
   it('keeps workspace navigation and a Findings breadcrumb on standalone finding pages', async () => {
     const navigate = vi.fn();
     renderShell({ name: 'review-finding', projectId: 'project-1', sessionId: 'review-1', findingId: 'finding-1' }, navigate);
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(within(nav).getByRole('button', { name: 'Review' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'Code reviews' })).toHaveAttribute('aria-current', 'page');
     const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
     await userEvent.click(within(breadcrumb).getByRole('link', { name: 'Findings' }));
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ name: 'review-activity', sessionId: 'review-1', initialTab: 'Findings' }));
@@ -87,7 +89,7 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    const reviewButton = screen.getByRole('button', { name: 'Review' });
+    const reviewButton = screen.getByRole('button', { name: 'Code reviews' });
     await user.click(reviewButton);
 
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-directory' });
@@ -98,7 +100,6 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    expect(screen.getAllByText('Settings').length).toBeGreaterThanOrEqual(2);
     const helpButton = within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('button', { name: 'Help' });
     expect(helpButton.querySelector('svg')).toHaveClass('lucide-circle-question-mark');
     await user.click(helpButton);
@@ -110,7 +111,7 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    const dynamicButton = screen.getByRole('button', { name: 'Dynamic Testing' });
+    const dynamicButton = screen.getByRole('button', { name: 'Browser tests' });
     await user.click(dynamicButton);
     expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-directory' });
   });
@@ -120,7 +121,7 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'project-detail', projectId: 'project-2' }, onNavigate);
 
-    await user.click(screen.getByRole('button', { name: 'Review' }));
+    await user.click(screen.getByRole('button', { name: 'Code reviews' }));
 
     expect(onNavigate).toHaveBeenCalledWith({ name: 'review-directory' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -131,46 +132,50 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate, []);
 
-    await user.click(screen.getByRole('button', { name: 'Dynamic Testing' }));
+    await user.click(screen.getByRole('button', { name: 'Browser tests' }));
 
     expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-directory' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('renders the grouped navigation without a sidebar brand or service footer', () => {
+  it('renders New check, recent checks and the Details group without a brand or service footer', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    expect(screen.getAllByText('Product').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole('button', { name: 'Projects' })).toBeInTheDocument();
-    expect(screen.getByText('Activities')).toBeInTheDocument();
-    expect(screen.getAllByText('Settings').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('Pinned')).toBeInTheDocument();
+    const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
+    expect(nav.getByRole('button', { name: 'New check' })).toBeInTheDocument();
+    expect(nav.getByRole('button', { name: 'Search checks' })).toBeInTheDocument();
+    expect(nav.getByText('Recent checks')).toBeInTheDocument();
+    expect(nav.getByText('No checks yet')).toBeInTheDocument();
+    expect(nav.getByText('Details')).toBeInTheDocument();
+    expect(nav.getByRole('button', { name: 'Projects' })).toBeInTheDocument();
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Collapse Pinned' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Collapse Pinned' }).querySelector('svg')?.getAttribute('data-lucide')).not.toBe('chevron-up');
-    expect(screen.queryByText('Pinned projects')).not.toBeInTheDocument();
     expect(screen.queryByText('Services ready')).not.toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /centinel/i })).not.toBeInTheDocument();
   });
 
-  it('persists an accessible Pinned disclosure and opens pinned project overviews', async () => {
+  it('lists recent checks with their outcome, opens one, and filters them by project name', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    window.localStorage.setItem('centinel:pinned-project-ids', JSON.stringify(['project-2', 'stale-project']));
-    renderShell({ name: 'dashboard' }, onNavigate);
+    window.localStorage.setItem('centinel:checks:local', JSON.stringify([
+      { id: 'c2', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:05:00.000Z', projectName: 'sample-shop', documents: [], focus: '', mode: 'both', phase: 'done', problemCount: 5, notes: [] },
+      { id: 'c1', createdAt: '2026-11-11T10:00:00.000Z', updatedAt: '2026-11-11T10:05:00.000Z', projectName: 'portfolio-site', documents: [], focus: '', mode: 'code', phase: 'done', problemCount: 0, notes: [] },
+    ]));
+    renderShell({ name: 'new-check' }, onNavigate);
 
-    const pinsToggle = screen.getByRole('button', { name: 'Collapse Pinned' });
-    expect(pinsToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Open Banking portal overview' })).toBeInTheDocument();
-    expect(screen.queryByText('stale-project')).not.toBeInTheDocument();
+    const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
+    expect(nav.getByRole('button', { name: 'New check' })).toHaveAttribute('aria-current', 'page');
+    expect(nav.getByText('5 problems')).toBeInTheDocument();
+    expect(nav.getByText('No problems')).toBeInTheDocument();
+    await user.click(nav.getByRole('button', { name: /sample-shop/ }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'check', checkId: 'c2' });
 
-    await user.click(pinsToggle);
-    expect(pinsToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: 'Expand Pinned' })).toHaveAttribute('aria-controls', 'sidebar-pins-content');
-    expect(screen.getByRole('button', { name: 'Expand Pinned' }).querySelector('svg')?.getAttribute('data-lucide')).not.toBe('chevron-down');
-    expect(window.localStorage.getItem('centinel:pins-expanded')).toBe('false');
+    await user.click(nav.getByRole('button', { name: 'Search checks' }));
+    await user.type(screen.getByLabelText('Search checks by project name'), 'portfolio');
+    expect(nav.queryByText('sample-shop')).not.toBeInTheDocument();
+    expect(nav.getByText('portfolio-site')).toBeInTheDocument();
   });
 
   it('moves the shell toggle into the navigation panel header', async () => {
@@ -320,6 +325,6 @@ describe('sidebar active item', () => {
     renderShell({ name: 'help' }, () => {});
     const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
     expect(nav.getByRole('button', { name: 'Help' }).className).toContain('active');
-    expect(nav.getByRole('button', { name: 'Home' }).className).not.toContain('active');
+    expect(nav.getByRole('button', { name: 'Overview' }).className).not.toContain('active');
   });
 });

@@ -5,11 +5,11 @@ export function ReviewIllustration({ className }: IllustrationProps) {
     <svg className={className} viewBox="0 0 180 120" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
       <path d="M25 38.5h47l10 10h68v45H25v-55Z" fill="#F0FDF4" stroke="#A8A29E" strokeWidth="2" strokeLinejoin="round" />
       <path d="M25 38.5h47l10 10H25v-10Z" fill="#E7E5E4" stroke="#A8A29E" strokeWidth="2" strokeLinejoin="round" />
-      <rect x="78" y="19" width="68" height="68" rx="5" fill="#fff" stroke="#166534" strokeWidth="2" />
+      <rect x="78" y="19" width="68" height="68" rx="5" fill="#fff" stroke="currentColor" strokeWidth="2" />
       <path d="M91 34h29M91 45h39M91 56h31" stroke="#D6D3D1" strokeWidth="3" strokeLinecap="round" />
       <path d="m91 70 4 4 8-9" stroke="#15803D" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M111 71h19" stroke="#D6D3D1" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="149" cy="26" r="10" fill="#166534" />
+      <circle cx="149" cy="26" r="10" fill="currentColor" />
       <path d="m144.5 26 3 3 5.5-6" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -20,7 +20,7 @@ export function StaticTestingIllustration({ className }: IllustrationProps) {
     <svg className={className} viewBox="0 0 144 104" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
       <rect x="27" y="22" width="69" height="64" rx="5" fill="#FAFAF9" stroke="#A8A29E" strokeWidth="2" />
       <rect x="19" y="30" width="69" height="64" rx="5" fill="#F0FDF4" stroke="#A8A29E" strokeWidth="2" />
-      <rect x="35" y="14" width="69" height="64" rx="5" fill="#fff" stroke="#166534" strokeWidth="2" />
+      <rect x="35" y="14" width="69" height="64" rx="5" fill="#fff" stroke="currentColor" strokeWidth="2" />
       <path d="M48 29h26M48 39h38M48 49h28" stroke="#D6D3D1" strokeWidth="3" strokeLinecap="round" />
       <circle cx="53" cy="63" r="7" fill="#DCFCE7" stroke="#15803D" strokeWidth="2" />
       <path d="m49.5 63 2.5 2.5 4.5-5" stroke="#15803D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
