@@ -92,10 +92,15 @@ Embedding Settings supports published Voyage 4 Lite/4/4 Large choices and the ex
 
 ## Frontend and Design
 
-Before changing UI, CSS, branding, icons, animation, responsive behavior, or user-facing layout, read and follow [`DESIGN.md`](./DESIGN.md). It is authoritative even when an older screen has not yet been migrated.
+Before changing UI, CSS, branding, icons, animation, responsive behavior, or user-facing layout, read and follow [`DESIGN.md`](./DESIGN.md). It is authoritative for new work.
 
-- Migrate complete screens toward the command-center system without changing product behavior unless requested.
-- Do not copy outdated light or monochrome styles into new work.
+Design direction (12 November 2026, user-approved): `DESIGN.md` was rewritten around three screens — Start (give a folder and documents), Live (watch the code review and browser tests in real time) and Result (one page of problems). The earlier guide is frozen at [`docs/design/DESIGN_LEGACY_2026-11-12.md`](./docs/design/DESIGN_LEGACY_2026-11-12.md) and still governs screens that have not migrated (see `DESIGN.md` §14); where the two disagree, `DESIGN.md` wins. Record new design decisions in the relevant section and its decision log (§16), not as dated amendment sections.
+
+- Build new screens to `DESIGN.md`. Older screens stay reachable under Details until they migrate or are retired; do not copy their layouts into new work.
+- Problems carry evidence marks: **Code** (found by the code review) and **Browser** (a saved browser run's independent check failed). A problem tested in the browser that does not show is not listed as a problem, but its stored record is kept; never delete or rewrite findings or Review history to produce that view. Handing code-review problems to browser tests is a design target and is not built yet; until it is, show problems as Found in code only.
+- Motion on the Live screen must be driven by real events from the check. Decorative effects, fake progress and looping animation remain banned.
+- The three screens live in `centinel/src/screens/check/` with their model in `centinel/src/check/` (13 November 2026). A Check is a device-local record of IDs (`check/store.ts`); `check/runner.ts` finds or creates the project, uploads documents, then starts the existing full-scope Review and Auto test; `check/result.ts` builds the Result only from the saved Review, its open findings, the Auto test session and project requirements. `check/live.ts` reads the Review's harness journal (`review_batches_planned`, finished-batch events, `review_live_finding_titles`) for the current file and live titles. Start is the default screen; older screens are under the sidebar's Details group. Use `components/Icon.tsx` for icons on these screens.
+- Project conversation (13 November 2026, DESIGN.md §4.4–4.5): opening a project shows `screens/project/ProjectConversationScreen.tsx`. A message is an Auto test session with `request` (text, optional `base` test to revise, last ten earlier requests as `history`); `rerun`/`pinned` refs rebuild saved tests from stored `controls` without new planning (`presetToTest` revalidates them). The model may return a plain `reply` and no tests; it never decides pass or fail. Planned controls carry `repeatable` only when a step reuses a clickable control. Control discovery and the agent observation share one positional selector fallback for repeated unnamed controls; keep the two implementations identical. Permission mode, saved tests and conversation notes are device-local (`check/projectPrefs.ts`).
 - Use real application data; do not invent operational metrics.
 - Any intentional deviation from `DESIGN.md` requires explicit user approval.
 

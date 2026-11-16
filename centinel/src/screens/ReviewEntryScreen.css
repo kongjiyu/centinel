@@ -117,7 +117,7 @@
 .review-entry-form input:not([type='checkbox'], [type='radio'], [type='file']) { min-height: 40px; padding: 8px 11px; }
 .review-entry-form textarea { min-height: 100px; padding: 11px; resize: vertical; line-height: 22px; }
 .review-entry-form input:not([type='checkbox'], [type='radio'], [type='file']):focus-visible,
-.review-entry-form textarea:focus-visible { border-color: var(--workspace-focus); outline: none; box-shadow: var(--workspace-focus-ring, 0 0 0 3px rgba(22, 101, 52, .24)); }
+.review-entry-form textarea:focus-visible { border-color: var(--workspace-focus); outline: none; box-shadow: var(--workspace-focus-ring, 0 0 0 3px rgba(37, 99, 235, .24)); }
 .review-entry-form input::placeholder,
 .review-entry-form textarea::placeholder { color: var(--workspace-text-subtle); }
 .review-entry-form .field-required { color: var(--workspace-danger); }

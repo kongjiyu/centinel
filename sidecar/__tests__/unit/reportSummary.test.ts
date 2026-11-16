@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderProjectReportMarkdown } from '../../src/report/markdown.js';
 import { renderProjectReportPdf } from '../../src/report/pdf.js';
 import { friendlyDate, summarizeReport } from '../../src/report/summary.js';
+import { reportBrowserTests } from '../../src/report/snapshot.js';
 import type { ProjectReportFinding, ProjectReportSnapshot, ReportCurrentFinding } from '../../src/report/types.js';
 
 function finding(id: string, riskLevel: ProjectReportFinding['riskLevel'], overrides: Partial<ProjectReportFinding> = {}): ProjectReportFinding {
@@ -159,5 +160,52 @@ describe('plain-language report summary', () => {
     expect(markdown.slice(technicalAt)).toContain('**Project ID:** `p`');
     const pdf = await renderProjectReportPdf(report);
     expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  });
+});
+
+describe('browser tests from Auto test in the report', () => {
+  const autoSession = (overrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 1, id: 'auto-1', projectId: 'p', ownerId: 'u', folder: '/x', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:08:00.000Z', stage: 'completed',
+    error: null, repository: null, launch: { recipeId: 'r', label: 'node server.js', framework: 'node', url: 'http://localhost:4101', portHonored: true, installing: false, log: '' },
+    exploration: null, lanes: [], laneLimit: 3, laneNote: null, dropped: [], summary: { passed: 1, failed: 1, uncertain: 0, blocked: 0, notTested: 0, limitations: ['Only the journeys listed were tested; this is not a complete test of the app.'] },
+    tests: [
+      { id: 't1', name: 'Unknown email gets the generic error', goal: 'Type nobody@example.com and click Sign in.', rationale: '', requirementRef: 'REQ-1', sourceRefs: [{ path: 'server.js', line: 43 }], startPath: '/', state: 'failed', runId: 'run-1',
+        checks: [{ id: 'c1', criterionId: 'REQ-1', description: 'Generic error shown', required: true, kind: 'visible_text', expected: 'Email or password is incorrect.' }],
+        checkResults: [{ checkId: 'c1', criterionId: 'REQ-1', verdict: 'failed', observed: 'Expected visible text absent.', reason: '', evidenceIds: [] }], explanation: 'AI text that must not appear' },
+      { id: 't2', name: 'Checkout total', goal: 'Add a mug.', rationale: '', requirementRef: null, sourceRefs: [], startPath: '/', state: 'passed', runId: 'run-2', checks: [], checkResults: [] },
+    ],
+    ...overrides,
+  });
+
+  it('takes only the latest finished full Auto test, never conversation requests', () => {
+    const latest = reportBrowserTests([autoSession(), autoSession({ id: 'ask', createdAt: '2026-11-14T10:00:00.000Z', request: { text: 'x', base: null, history: [] } })] as never);
+    expect(latest).toMatchObject({ sessionId: 'auto-1', passed: 1, failed: 1, startedWith: 'node server.js' });
+    expect(latest?.tests[0].checks[0]).toEqual({ description: 'Generic error shown', expected: 'Email or password is incorrect.', verdict: 'failed', observed: 'Not shown on the page.' });
+    expect(JSON.stringify(latest)).not.toContain('AI text that must not appear');
+    expect(reportBrowserTests([autoSession({ stage: 'failed' })] as never)).toBeNull();
+  });
+
+  it('puts the browser results in the summary, the Markdown and the PDF', async () => {
+    const report = snapshot({ browserTests: reportBrowserTests([autoSession()] as never) });
+    const summary = summarizeReport(report);
+    expect(summary.browserTest).toMatchObject({ source: 'auto', label: '1 of 2 failed', tone: 'critical' });
+    expect(summary.nextSteps.join(' ')).toContain('"Unknown email gets the generic error" did not pass');
+    const markdown = renderProjectReportMarkdown(report);
+    expect(markdown).toContain('- **Browser tests — 1 of 2 failed.**');
+    expect(markdown).toContain('### 1. Unknown email gets the generic error — Failed');
+    expect(markdown).toContain('| Generic error shown | Email or password is incorrect. | failed | Not shown on the page. |');
+    expect(markdown).toContain('**Related code:** `server.js:43`');
+    expect((await renderProjectReportPdf(report)).subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  });
+
+  it('summarises the full check even when a single test ran later', () => {
+    const later = { status: 'available', session: { id: 'd', projectId: 'p', name: 'Single test', status: 'success', targetUrl: 'http://x', goal: 'g', missionType: 'guided', maxSteps: 5, createdAt: '2026-11-14T10:00:00.000Z', updatedAt: '2026-11-14T10:01:00.000Z' }, summary: null, failureReason: null, evidence: [], actionTrace: [] };
+    const summary = summarizeReport(snapshot({ browserTests: reportBrowserTests([autoSession()] as never), latestDynamicTest: later as never }));
+    expect(summary.browserTest).toMatchObject({ source: 'auto', label: '1 of 2 failed' });
+  });
+
+  it('keeps an older report without browser tests unchanged', () => {
+    expect(summarizeReport(snapshot()).browserTest.source ?? null).toBeNull();
+    expect(renderProjectReportMarkdown(snapshot())).toContain('*Unavailable: no full browser test (Auto test) has finished for this project.*');
   });
 });

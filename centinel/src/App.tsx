@@ -9,6 +9,8 @@ import './workspace.css';
 import './screens/ProfileScreen.css';
 import { AppShell } from './components/AppShell';
 import { DashboardScreen } from './screens/DashboardScreen';
+import { StartScreen } from './screens/check/StartScreen';
+import { setCheckAccount } from './check/store';
 import type { ProjectRepositoryInput } from './types';
 import { restartOnboarding } from './components/OnboardingWizard';
 import { AuthScreen } from './screens/AuthScreen';
@@ -38,6 +40,8 @@ const ReviewActivityScreen = lazy(() => import('./screens/ReviewActivityScreen')
 const ReviewEntryScreen = lazy(() => import('./screens/ReviewEntryScreen').then(module => ({ default: module.ReviewEntryScreen })));
 const ReviewPlaygroundScreen = lazy(() => import('./screens/ReviewPlaygroundScreen').then(module => ({ default: module.ReviewPlaygroundScreen })));
 const ReviewsListScreen = lazy(() => import('./screens/ReviewsListScreen').then(module => ({ default: module.ReviewsListScreen })));
+const CheckScreen = lazy(() => import('./screens/check/CheckScreen').then(module => ({ default: module.CheckScreen })));
+const ProjectConversationScreen = lazy(() => import('./screens/project/ProjectConversationScreen').then(module => ({ default: module.ProjectConversationScreen })));
 const HelpScreen = lazy(() => import('./screens/HelpScreen').then(module => ({ default: module.HelpScreen })));
 
 /** Shared placeholder while an on-demand screen downloads. */
@@ -77,8 +81,13 @@ function App() {
   const [githubPromptedForUserId, setGithubPromptedForUserId] = useState<string | null>(null);
   const [githubConnectionPromptOpen, setGithubConnectionPromptOpen] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
-  const [screen, setScreen] = useState<Screen>(() => (typeof window !== 'undefined' && hashToScreen(window.location.hash)) || { name: 'dashboard' });
-  const navigate = (next: Screen) => setScreen(next.name === 'project-detail' && next.initialAction === 'dynamic' ? { name: 'dynamic-testing', projectId: next.projectId } : next);
+  const [screen, setScreen] = useState<Screen>(() => (typeof window !== 'undefined' && hashToScreen(window.location.hash)) || { name: 'new-check' });
+  const navigate = (next: Screen) => {
+    if (next.name === 'project-detail' && next.initialAction === 'dynamic') return setScreen({ name: 'dynamic-testing', projectId: next.projectId });
+    // Opening a project shows its conversation (DESIGN.md §4.4); the older tabs stay under Details.
+    const plainOpen = next.name === 'project-detail' && !next.details && !next.initialSection && !next.initialAction && !next.findingId && !next.findingsReviewId && !next.sourceArtifactId && !next.initialStaticSessionId;
+    return setScreen(plainOpen ? { name: 'project', projectId: next.projectId } : next);
+  };
   // Keep the page in the URL hash so Back/Forward, reload and shared links work.
   useEffect(() => {
     const hash = screenToHash(screen);
@@ -243,7 +252,7 @@ function App() {
     setGithubAccountLogin(null);
     setGithubConnectionPromptOpen(false);
     setSwitchingAccount(false);
-    setScreen({ name: 'dashboard' });
+    setScreen({ name: 'new-check' });
     setEntryMode('auth');
   };
 
@@ -309,6 +318,7 @@ function App() {
     );
   }
 
+  setCheckAccount(accountUserId);
   const currentProject = screen.name === 'project-detail'
     ? projects.find(p => p.id === screen.projectId) ?? null
     : null;
@@ -327,6 +337,19 @@ function App() {
         onLogOut={returnToSignIn}
       >
         <Suspense fallback={<ScreenLoading />}>
+        {screen.name === 'new-check' && (
+          <StartScreen
+            projects={projects}
+            aiSettings={aiSettings}
+            onNavigate={navigate}
+            onProjectCreated={project => setProjects(prev => prev.some(item => item.id === project.id) ? prev : [project, ...prev])}
+          />
+        )}
+        {screen.name === 'check' && <CheckScreen key={screen.checkId} checkId={screen.checkId} onNavigate={navigate} />}
+        {screen.name === 'project' && (() => {
+          const project = projects.find(item => item.id === screen.projectId);
+          return project ? <ProjectConversationScreen key={project.id} project={project} projects={projects} onNavigate={navigate} /> : <ScreenLoading />;
+        })()}
         {screen.name === 'dashboard' && (
           <DashboardScreen
             projects={projects}
@@ -426,7 +449,7 @@ function App() {
       {/* Global overlays render outside the shell; this box-less wrapper gives
           them the same light workspace primitives (buttons, dialogs). */}
       <div className="workspace-mode global-overlays">
-        <ReviewToast onOpenReview={(projectId, sessionId, reviewName) => navigate({ name: 'review-activity', projectId, sessionId, reviewName })} />
+        <ReviewToast hidden={screen.name === 'check' || screen.name === 'new-check'} onOpenReview={(projectId, sessionId, reviewName) => navigate({ name: 'review-activity', projectId, sessionId, reviewName })} />
         {screen.name !== 'review-activity' && <UpdatePrompt />}
         <GithubConnectionPrompt isOpen={githubConnectionPromptOpen} onClose={() => setGithubConnectionPromptOpen(false)} />
       </div>

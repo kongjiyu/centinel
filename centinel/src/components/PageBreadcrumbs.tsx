@@ -17,6 +17,9 @@ function projectLabel(projects: Project[], projectId: string): string {
 
 function breadcrumbHref(screen: Screen): string {
   switch (screen.name) {
+    case 'new-check': return '#/new-check';
+    case 'project': return `#/project?projectId=${encodeURIComponent(screen.projectId)}`;
+    case 'check': return `#/check?checkId=${encodeURIComponent(screen.checkId)}`;
     case 'dashboard': return '#dashboard';
     case 'projects': return '#projects';
     case 'project-detail': return `#project-${encodeURIComponent(screen.projectId)}`;
@@ -39,12 +42,18 @@ function breadcrumbHref(screen: Screen): string {
 
 /** Build the shell's semantic route trail without coupling it to a router. */
 export function getBreadcrumbItems(screen: Screen, projects: Project[]): BreadcrumbItem[] {
-  const product: BreadcrumbItem = { label: 'Product', target: { name: 'dashboard' } };
+  const product: BreadcrumbItem = { label: 'Details', target: { name: 'dashboard' } };
   const projectsItem: BreadcrumbItem = { label: 'Projects', target: { name: 'projects' } };
 
   switch (screen.name) {
+    case 'new-check':
+      return [{ label: 'New check' }];
+    case 'project':
+      return [projectsItem, { label: projectLabel(projects, screen.projectId) }];
+    case 'check':
+      return [{ label: 'Checks', target: { name: 'new-check' } }, { label: 'Check' }];
     case 'dashboard':
-      return [product, { label: 'Home' }];
+      return [product, { label: 'Overview' }];
     case 'projects':
       return [product, { label: 'Projects' }];
     case 'project-detail': {

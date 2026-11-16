@@ -1,0 +1,671 @@
+# Centinel Design System (legacy, frozen 12 November 2026)
+
+> Status: frozen copy of the root `DESIGN.md` as it stood on 12 November 2026.
+>
+> It still applies to screens that have not moved to the new design: Home dashboard, Projects, the project workspace tabs, Review entry, Review Activity, Findings detail, Source, Dynamic testing setup, Settings and Help.
+>
+> For new work, and wherever the two documents disagree, the root [`DESIGN.md`](../../DESIGN.md) wins. Do not add amendments here; record new decisions in the root document.
+
+## Auto test live view amendment (12 November 2026)
+
+At the user's request, Dynamic testing has an **Auto test** panel above the environment and editor. It has an App folder field with Browse and a primary **Start Auto test** button, then a six-step stage timeline (Read the code, Start the app, Explore pages, Write tests, Run tests, Results).
+
+While tests run, a grid shows up to four live browser tiles (three columns at 1440, two below 1100, one on narrow widths). Each tile has its lane label, test name, state chip and a one-line caption ("Clicking **Sign in**"). Tiles can be enlarged one at a time (Esc returns).
+
+This is an approved exception to the no-decorative-motion rule, because the motion is evidence of what the browser is doing. A Centinel-drawn arrow cursor glides to each target. It has a click ripple, target outline and masked typing caret, and its label names the test. Each lane uses an existing token colour (forest, teal, amber, stone) and always has a text label. Reduced-motion users get instant jumps without ripples.
+
+Results lead with failures. Each failed test shows Expected/Actual rows, an **AI explanation** block that is visibly labelled as AI, source references in the technical face, and **Open run evidence**. Limitations are listed under "What this did not cover". All values come from real Run data.
+
+## Activity and overview refinements (11 November 2026)
+
+- Create project accepts local folders and GitHub links in one dialog. Two direct actions open the native folder picker or reveal the GitHub URL input. Each selected source has a remove action.
+- Review Activity pairs recorded stages with a rounded metadata card in a 9:3 grid on wide screens. The card pairs labels and values for source count, saved source reference, status, scope, and goal. Center the stages on a 90% rail and left-align their text. Show five file labels per stage and expand the rest on demand. File labels reveal their repository path and link to Project Source when the file identity is known. Dedicated Review Finding Detail uses an icon back action, Markdown copy, numbered threats, and feature evidence tables linked to saved source.
+- Review Activity explains each stage with its focus, goal, recorded result when available, and next action. Highlight the active stage and use spacing between steps.
+- Activity findings use one full-width evidence table per grouped issue, with the domain, file count, paths and highlighted-line counts. File rows preview saved source on hover or focus. Finding Detail uses the same file presentation within each feature.
+- Readiness gap previews open to the left where there is room and below the row on narrow screens. The gap disclosure sits before the category label. A red warning triangle beside the Readiness controls describes changed sources on hover or focus.
+- Review findings open a dedicated page within the workspace sidebar and breadcrumbs, with a return link to the Findings tab. The header shows the finding title, short description, risk, priority, domain and reported confidence. The body has separate Overview, Evidence and Recommended Action sections.
+- Give Review and Dynamic Testing activity rows a 9:1:2 layout for activity, state, and date on wide screens. Keep Playground out of the Activities sidebar.
+- Keep Need attention rows separated and Recent activity focused on its own results. Show per-row skeletons for pending project activity.
+- Show only Readiness gaps and unverified checks in a row preview. Hover previews the gap and the disclosure button keeps it open. Present the local hold on the disabled control and retain saved results.
+- In the approval confirmation, show the project and Review together above a separate warning for blockers that remain open.
+
+## Review and Project refinements (10 November 2026)
+
+- Review progress uses the same five named stages as Activity and links to the Review. Keep visible findings in place during refresh. Traceability uses one table with ID, Feature, and State. Use readable feature names and keep internal helpers and callbacks under their parent feature. Preserve independently identifiable business actions and explicitly linked requirement operations. Show saved requirement evidence and implementation paths on selection. File-level mappings alone leave feature coverage incomplete. Use cases, model usage and technical execution history stay outside Activity.
+- Retry uses a single confirmation and refreshes the selected sources. Requirements coverage is separate from code findings. When the Review records no confirmed requirements, show **Requirements not identified** without adding a synthetic finding or claiming requirement verification.
+- Project Findings shows one count of displayed finding groups and five groups per page. Project Source rows show the saved modification or import timestamp, and the file reader shows extension and line count. Add source remains the entry point for importing materials.
+- Project Collaborators shows actual project membership. An owner can explicitly sync GitHub collaborators with linked Centinel identities as viewers. Existing roles stay intact. Centinel email lookup remains independent of GitHub availability.
+- Review and Project Findings share the same table. Rows show the first recorded related feature, with a preview of up to three features and a link to finding details. Label single-Review and project-wide counts by their scope. Traceability uses the same search and pagination pattern and keeps requirement state and evidence links. Sources groups its shaded directory header and rows in one panel.
+- Model Provider has one selection for Review and Dynamic Testing, with API and Codex OAuth options. Embedding has its own connection test and save controls. Usage includes recorded embedding calls and shows the latest execution time for each provider/model group.
+- Sidebar Review and Dynamic Testing open workspace-wide activity directories. Both use the Projects table styling and match searches against project and activity names. Rows open activity details and show a plain activity title above a separate project link. Start actions open the existing setup flows.
+- Repository directories and file previews share the breadcrumb header. File search appears in directory views. The panel follows the height of its content up to its scroll limit. Markdown puts its Preview and Code toggle before the extension and line count. The Collaborators search and add action use a 10:2 split on wide screens and stack on narrow screens.
+- Need attention highlights three prioritized actions and routes directly to the relevant activity or finding. Finding titles use the risk color. Informational findings stay in Findings. Finding details use a Header, Overview, and Evidence. The compact header keeps the finding ID and optional history. Evidence ranks up to three recorded features by unique cited line coverage, then by the number of highlighted files. Keep unknown feature assignments explicit and allow access to the remaining saved evidence.
+- Model Provider places the OAuth and API provider toggle at the right of its heading, wrapping on narrow screens. OAuth shows Codex and Gemini cards with their own connection and model controls. Codex shows available 5-hour and weekly limits when the provider returns those windows. Gemini points to Google Cloud project quota data. Place connection actions before Test and Save in each OAuth card footer. Claude remains available in the API provider selector.
+
+## First-run guide and in-app update amendment (5 November 2026)
+
+At the user's request, Home shows a **Get started with the Sample Shop** panel above Action required for a new account, until the account skips or finishes it (remembered per account on this device). It is one panel with an ordered list of five steps — Connect ChatGPT, Create the Sample Shop project, Confirm its requirements, Start a Review and a browser test, Open the report — where only the current step expands with one primary action; finished steps show a one-line result. It uses the existing project, requirement-candidate, Review, Dynamic Testing and report APIs and real persisted data only. The Model Provider copy now says **Connect ChatGPT** and explains that it uses the user's ChatGPT plan through the bundled Codex CLI.
+
+The Tauri updater is active and signed. A non-blocking **Update available** prompt (bottom-left, so it never covers the Review progress toast) offers **Restart** and **Later**; nothing downloads until Restart. Settings → App Version shows **Restart to update** when a signed update is available and keeps **Open update** as the fallback. This supersedes the earlier statement that the updater is inactive.
+
+## Project report amendment (1 November 2026)
+
+At the user's request, exported project and Review reports (PDF and Markdown) have two parts. **Part 1: Summary** is written for non-technical readers: a verdict (Fix before release, Needs attention, Looking good or Not checked yet), the key counts, an open-issue chart by risk level, what was checked, up to three next steps, the top issues explained and a risk-level glossary. **Part 2: Technical details** keeps the complete record of IDs, versions, timestamps, history, evidence and usage. Every summary value comes from `sidecar/src/report/summary.ts` and the report snapshot; nothing is estimated. The PDF embeds IBM Plex Sans and uses the §7 tokens and level colours. In the app, report exports show one shared `ReportExportCard`: a primary Download PDF, with Markdown and JSON as secondary links and storage/checksum facts under Technical details.
+
+## Typography and color amendment (1 November 2026)
+
+The user selected IBM Plex Sans with warm Stone neutrals and a Forest green primary (IBM Carbon-like) to replace Plus Jakarta Sans and the sage-tinted neutrals. Tokens in §7 and `centinel/src/tokens.css` are authoritative; screen layers alias them instead of defining hex values. JetBrains Mono remains the technical face. Layout and behavior are unchanged.
+
+Font sizes use only the seven `--font-size-*` tokens in `tokens.css` (24, 18, 15, 15, 14, 13 and 12 px); nothing renders below 12 px. Finding risk, priority and severity levels use a dedicated ordered scale — Critical red `#b91c1c`, High orange `#c2410c`, Medium yellow `#a16207`, Low neutral `#57534e` — so green keeps its meaning of action, selection and success. Finding summaries use the UI face; the technical face stays limited to code, paths, refs, URLs and IDs.
+
+## Latest Project UX amendment (29 October 2026)
+
+The [Project UX and source-read specification](../project/PROJECT_UX_SOURCE_READ_SPEC_2026-10-29.md) records the user's later correction and supersedes conflicting source-tree and table presentation below. Project Sources uses one directory/file content surface with breadcrumbs and no left tree. Source rows place name/kind at 10/12 and relative update time at 2/12 without Name/Kind/Added columns. Project Findings shows ID, Findings, Risk, Priority with colored textual priority indicators. Collaborators syncs GitHub on load without explicit sync buttons; project pages use accessible skeleton loading.
+
+## Approved Review and Sources UX direction (29 October 2026)
+
+The user-approved workflow in [Review workflow UX specification](../review/REVIEW_WORKFLOW_UX_SPEC_2026-10-29.md) supersedes conflicting presentation requirements below. Frontend implementation and fixture-based verification are recorded in [implementation checks](../review/REVIEW_WORKFLOW_UX_IMPLEMENTATION_2026-10-29.md); packaged desktop and live-provider verification remain pending.
+
+- Review leads with up to three concrete actions ordered by confirmed blockers, remaining risks, then evidence gaps. A specific plain-language summary explains intended versus completed work, results, limitations and next steps. Recommendations use saved evidence without additional AI assessment. Verified unresolved Critical/High findings block handover; important unverified scope prevents readiness. Human approval remains separate.
+- Entry uses one form card. Full review includes all active project sources. Focused review uses the goal to prioritize analysis and offers a modal with all active sources initially selected. Existing requirements and standards can provide grounding without separate selectors. The Goal has a drop area for up to five references. Advanced scope stays open until toggled and shows separate Branch and Commit controls under Online repository. Commit options show the message above the SHA. Comparison Reviews retain the prior scope for explicit review before submission.
+- Findings opens a separate full-width detail page. Keep the shared problem and action visible and show one selected occurrence at a time using a compact location selector. This supersedes the older continuous stack of all occurrences. File indicators open large fixed-size scrollable hover previews at highlighted saved-source locations, with accessible keyboard/touch equivalents and click-through to the same saved source. Preserve return context and individual decisions.
+- Project Sources keeps a persistent source/repository tree beside a stable content area through source, directory and file navigation. This supersedes the earlier restriction against that composition. Preserve selected location and per-source navigation state. Sources and readers have fixed-height internal scrolling. Put manual Sync and status on source rows; replace the bottom updates panel with minute-cadence connected-source checks, preserving provider backoff, source-worker concurrency and model/indexing holds. Review-owned source evidence stays collapsed until requested and retains frozen versions.
+- Remove routine explanatory filler around features. Retain meaningful labels, result context, errors and limitations. General workflow instructions belong on a dedicated Help page, reached through a question-mark icon and Help label under the Settings navigation category.
+
+## Approved Review UI amendment (September 2026)
+
+### Findings document amendment (22 October 2026)
+
+The user selected a table-only Findings index with one row per issue type and a separate full-width continuous detail document. This supersedes the shared Project/Review master-detail sidebar. Opening an issue hides the table; Back returns to the retained table filters/page and focus. Details begin with a concise issue title and scope, followed by anchored sections for every flagged occurrence, public causal explanation, related versioned source excerpts, recommendations and individual status/history. Identical recorded remedies may appear once overall; different remedies stay with their affected item. Do not synthesize causal steps for old findings that lack them. Keep Review's Security, Business, Technical and Personnel domains distinct from Readiness's document-quality origin; grouping may retain multiple domain impacts. Preserve raw occurrence counts and risk/history contracts.
+
+### Source browsing reference amendment (22 October 2026)
+
+The user explicitly selected GitHub's repository list, repository Code view and file viewer as the Source UX/UI reference. Source content follows that structure: linked names in a compact list, a bordered directory table with a quiet header, path breadcrumbs, and a separate file-reading state with optional file navigation, Preview/Code controls, and numbered code lines. Match the reference's hierarchy, spacing and interactions within Centinel's existing application shell. Add source, sync and removal continue to use real Centinel workflows.
+
+For these Source surfaces, GitHub-like 6px control/panel corners and blue navigational text are approved local exceptions to the default green-link/8–12px radius treatment. Declare these as scoped semantic tokens in ArtifactsPanel.css. Keep the shared font and accessibility behavior. Do not add stars, forks, commit messages, branch selection, editing, or history controls without actual persisted data and supported behavior; saved import dates must be labelled as such. This amendment supersedes the earlier Source-specific split browser/empty-preview composition.
+
+The latest user-approved requirements supersede conflicting terminology and navigation below. The visual system and accessibility rules remain authoritative. Implementation is frontend-only; unsupported backend capabilities must be represented honestly.
+
+- Rename the user-facing Static testing module to **Review**. Global navigation: Home, Projects, Review, Dynamic Testing, Settings.
+- Project tabs: Overview, Assessment, Findings, Source, Collaborators, Settings. Review and Dynamic Testing are entry actions on Overview, not project tabs. Recent activity supports search, type, and date/time filters.
+- Home retains Highlights and Recommendations (one recommendation at a time); its lower section is Recent projects with available last-activity context.
+- Review entry starts with Review name, then project selection and Create project access, followed by objective/instructions and optional branch/PR scope. Active sources are validated at submission without rendering an available-source count or source list. No review-type selection. Preserve existing transport identifiers while service contracts are unchanged.
+- Progress presents stage/activity logs only. Review activity results preserve the Overview, Activity, Findings, and Traceability tabs, with activity-level Approve/Reject in the header. Project-level risk belongs to Project Assessment, not a Review Detail tab. Rejection requires feedback with optional finding mentions; human feedback appears separately from system history.
+- Desired lifecycle: In Progress, Pending to Review, Completed, Blocked, Cancelled, Failed. Never assert unsupported state transitions. Approval completes a review but does not resolve its findings.
+- Source currency confirmation is distinct from version approval: incoming versions do not need approval. Default currency interval is 90 days since last confirmation; deprecated documents are excluded from new reviews. Durable governance, roles, and iteration behavior require service support and are not simulated in production UI.
+
+### Evidence-led approval workflow amendment (10 September 2026)
+
+The following later decisions supersede conflicting Review navigation, lifecycle, and presentation rules above. The complete product and implementation contract is recorded in [docs/review/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md](../review/REVIEW_WORKFLOW_APPROVAL_EVIDENCE_SPEC_2026-09-10.md).
+
+- A technically successful review that has not been approved is **Need Approval**, not Completed. **Completed** is reserved for an approved review. Failed and blocked work remains visibly **Needs attention** even though it is outside the happy-path state list.
+- The Need Approval workspace exposes **Activity**, **Findings**, and **Traceability** before the reviewer can approve. Use a confirmation dialog that identifies the Review and any open blockers. Approval is blocked when the findings request fails or the effective scope is not trustworthy. Review exports save Markdown directly as Centinel_<project name>_<Review name>_report.md.
+- Review Detail preserves the existing header-adjacent tabs **Overview**, **Activity**, **Findings**, and **Traceability**. It reuses the shared findings workspace rather than a reduced result-only table, and project-level risk remains on Project Assessment.
+- Review Activity uses an 8/4 Activity/Objective layout on desktop. Stage content is presented as calm activity paragraphs with source tags; repeated actor labels, checkpoint rails, per-stage completion pills, duplicated timestamps, raw transport failures, and raw model chain-of-thought are not product content.
+- While automated reasoning is queued or running, the only workflow action is Stop/Cancel. Feedback becomes available after reasoning stops and is recorded chronologically as a human message. The UI must not imply that AI reasoning continued unless the service actually executes and persists a subsequent iteration.
+- Project tabs are **Overview, Assessment, Findings, Source, Collaborators, Settings**. Assessment is the project-level finding-derived risk report: Risk Summary, current Critical/High Risk items, and latest approved-Review traceability attention. It does not duplicate Readiness, Recurrence, Trends, full Findings, or full Traceability, and it does not claim an ISO/IEEE risk mandate.
+- One shared lifecycle mapper must be used by Review Activity, Project Recent activity, Projects, and Dashboard summaries. Execution status, human decision, and individual finding status remain separate concepts.
+
+### Project Assessment and Review Overview refinement (12 September 2026)
+
+The project risk and Review evidence refinement is additive to the visual and accessibility system above. Assessment is the single project-level risk destination and uses the versioned Centinel Severity + Priority matrix over Review/static findings; Dynamic Testing remains a separate evidence area until a comparable cross-module policy exists. Informational findings stay in Findings but are not promoted to Low Risk. Review Overview remains session-scoped and reports only persisted findings, source-manifest artifact counts, and traceability attention for that Review. Sources Used is a full-width evidence section below the existing Overview/Decision 8/4 row. Historical Reviews without the new evidence snapshots use explicit unavailable copy rather than zero. Recurring finding patterns may appear in Project Overview's short Need attention list, but full risk distributions and traceability tables remain in their dedicated destinations.
+
+Project Overview may also show a concise **Sources changed** reminder when the latest technically successful Review has an available source manifest and one or more artifacts named by that manifest have changed or been removed. Compare frozen artifact IDs and hashes from current project source records; sources outside the manifest do not establish that a reviewed source changed. Separately label artifacts absent from the manifest as **New sources need review** only when their recorded creation time is after the manifest capture time, and explain that they may fall outside the Review's scope. Preexisting unselected artifacts do not trigger this reminder. Updates are detectable after sources have been imported or synchronized into those records; this reminder does not poll connected repositories or document providers. If the manifest or current source versions are unavailable or incomplete, say **Review needs checking** and explain that source currency could not be verified. A newer failed or blocked Review does not replace the last successful source basis. This reminder is about whether the saved Review covers current source versions; it is separate from the 90-day source currency confirmation and does not change finding or Review decisions.
+
+### Review explanation refinement (18 October 2026)
+
+- Objective presents the authored instructions as sentence-level points, preserving business rules, decision wording, identifiers, and source references. Formatting does not invent confirmed requirements or requirement mappings.
+- Summary separates the overall review outcome, recorded blockers and coverage gaps, and the next action. Automated completion, human approval, and finding disposition remain distinct.
+- Activity explains saved checks through their purpose, source or feature, rule, review aspect (Security, Business rules, or Technical), recorded outcome, and supporting finding evidence. Sources and check details use accessible disclosures. Missing history and incomplete checks remain explicit; raw model chain-of-thought is excluded.
+
+### Simplified Review messages (18 October 2026, later refinement)
+
+- Use plain, higher-level terms in Objective and Summary; preserve the original instructions in the expanded objective dialog. Remove Model Usage from Review Overview.
+- Put a horizontal divider before Activity messages. Use concise engineer-style explanations of where the review starts and what comes next. Show only the kinds/names of findings from each stage, with links that select their full details in Findings; source excerpts and repeated technical check disclosures stay out of Activity.
+- Show total execution duration in Overview and Activity, and a recorded duration for each stage. Derive elapsed time from saved execution boundaries, not later human-decision timestamps or a sum of overlapping steps. Missing timing stays explicit.
+- Include saved document insufficiency in the review's Findings workspace and totals. A document gap is a limitation of the recorded review, distinct from a confirmed code defect; resolving it requires updated documents and a subsequent review.
+
+### Dashboard, Projects, and Review entry refinement (September 2026)
+
+The approved refinement keeps the interface neutral-first: white and light-grey surfaces and black/neutral text carry most of the hierarchy. Centinel green is reserved for primary actions, active selection, focus, success, and restrained hover feedback; semantic warning and danger colors remain limited to the state they communicate.
+
+- Dashboard **Action required** items use one semantic container with a quiet light-grey header. The header contains the icon, project/module/time context, and a compact action control; the body contains only the required-action title and concise reason.
+- **Recommendations** show one recommendation at a time in one white, non-nested surface. Each recommendation identifies the context and next action; no step-by-step workflow or rationale sub-card is rendered.
+- **Recent projects** and the Projects directory reuse one Project / Latest activity / Current state / Actions table. The dashboard presentation is intentionally simpler: it has no activity filter, visually hides the table headers while retaining them for assistive technology, removes the action column and dashboard row dividers, keeps missing activity aligned, and preserves the dashboard's four-row limit. The full Projects directory keeps visible headers, filters, pagination, and explicit row actions.
+- Projects uses a compact toolbar attached to the table, with search and Current state/activity filters. The directory keeps five-row pagination, directory-only local pin controls, and the project-only New project flow; project creation opens a labelled, focus-managed modal.
+- All user-facing select fields use the shared React-library-backed `Select` primitive. It provides an accessible combobox, keyboard navigation, Escape handling, visible focus, disabled state, portal layering, and narrow-viewport sizing. Native `<select>` elements are not used in `centinel/src`.
+
+### Dashboard and desktop shell refinement (September 2026)
+
+The latest dashboard and shell requirements supersede the earlier Home table/filter contract above. The visual system, neutral-first tokens, Lucide-only icon rule, WCAG 2.1 AA target, and responsive breakpoints remain authoritative.
+
+- Home's Recent projects section has no activity-type filter. **View more** is aligned to the far right of the section header and opens the unfiltered Projects directory.
+- Dashboard Recent projects keeps Project, Latest activity, and Current state data, but does not show a visible header row, trailing action buttons, row dividers, or right-arrow/chevron glyphs. Rows remain hoverable, focusable, and operable with Enter or Space to open the project overview. Current state is the rightmost, right-aligned column. These presentation rules do not change the Projects directory.
+- The dashboard right rail starts with a bare Quick actions grid above Recommendations. It has no enclosing panel or visible heading: Create project spans the grid's full 12-column row; Review and Dynamic Testing each span six columns at desktop widths and stack below 720 px. Actions use visible labels, Lucide icons, and no right-arrow glyphs.
+- Dashboard content controls do not render `>`/right-arrow affordances. Breadcrumb separators are the intentional exception and are decorative to assistive technology.
+- The packaged desktop application uses operating-system window decorations instead of imitating another platform. macOS displays its native traffic-light controls and system menu; Windows displays its native caption buttons. The native window uses Centinel's light theme so its chrome and workspace remain visually continuous. The custom light title bar is retained only as a browser-preview fallback. Below the platform chrome, one white workspace is split into a navigation-panel container and a page-content container. The navigation panel has its own header with the sidebar collapse/expand control and an independently scrolling body; the page-content container has a rounded top-left corner, its own breadcrumb header, and an independently scrolling body.
+- The sidebar has no product brand/logo block or service-readiness footer. Its labelled groups are Dashboard (Home), Activities (Review and Dynamic Testing), Settings (Settings), and a lightweight **Pinned** disclosure for locally persisted project shortcuts.
+- **Pinned** is a local desktop preference, not shared project state. Pin/unpin controls appear in the full Projects directory; stale project IDs are removed and the empty state is the subdued text **No pinned projects** without an additional navigation action.
+- Settings keeps four visible content headings: **App Version**, **Model Provider**, **Usage**, and **Connections**. Provider credentials remain one cohesive API-key flow; usage exposes only real `getAiUsage` values: a processed-token total, total requests, Input, Output, Cache creation, and Cache reads. App Version reads the running application version, checks the published GitHub release, and offers **Open update** only when a newer release exists. It never claims an in-app installer while the Tauri updater is inactive and unsigned. Connection values are shown only when the running application can retrieve them; unavailable capabilities are labelled explicitly.
+- The approved refinement removes the Home greeting block, keeps the dashboard right rail deterministic with a fixed desktop recommendation height, removes the visible Navigation label and shell divider lines, and uses a semantic page-width Review form rather than a nested setup card. These are presentation refinements only; existing navigation and service contracts remain unchanged.
+
+## 1. Product experience
+
+### Project Readiness refinement (19 October 2026)
+
+- Keep the existing Readiness card with four rows: Repository, Requirement specification, Design documentation, and Coding standards. Display Missing, Incomplete, or Completed from a saved assessment; use a dash before the first valid result.
+- Place Start and the active-work loading indicator on the right of the title. Disable Start during active work. Preserve previous results on failure with explicit feedback and Retry. Do not add a separate readiness screen or technical logs to the card.
+- Show current readiness gaps in the existing Project Findings workspace, with Project Readiness origin, source evidence, recommended action, and immutable assessment context. Keep them outside the persisted Project Assessment risk aggregation and Review approval state.
+
+### Readiness criteria disclosure (7 November 2026)
+
+- At the user's request (G-S6), each Readiness category row with saved criteria has a visible chevron disclosure. Expanding it lists every criterion with its saved verdict (Met, Gap or Not verified), the saved basis and up to three cited source excerpts; confirmed records show as "Confirmed requirement" or "Confirmed coding standard" instead of internal IDs. Older snapshots without criteria and the Repository row show no disclosure. Nothing is generated for the card.
+
+### Provider capacity pause (20 October 2026)
+
+- Provider rate-limit, quota, credit and billing blocks pause the affected workflow; never present them as completed assessment or approval-ready Review results.
+- Readiness preserves its earlier category states with an explicit pause reason and a manual **Resume** action. Category states remain Missing, Incomplete and Completed; the pause is execution status.
+- Review detail, dashboard/project summaries and completion toast show **Paused** with recovery guidance. Use the existing **Retry review** action to create a new linked attempt; preserve the earlier execution and findings.
+- Capacity pauses do not automatically retry, switch providers, or resume after source updates, status refreshes or restart. A generic rate limit does not imply depleted account allowance or credits.
+
+### Review Playground amendment (11 October 2026)
+
+- Activities includes an explicitly requested **Playground** entry for engineering inspection of Review executions.
+- Playground uses the production bearer-scoped Review workflow, durable execution events, shared controls, and neutral-first tokens. It shows source selection, gates, each recorded step, model attempts, validation outcomes, and durations; optional/unreached or historical steps are labelled honestly.
+- Starting a Review from Playground uses the existing scope form and returns to its live trace. Credentials, source bodies, model prompts, and private reasoning are not displayed. Detailed metadata uses progressive disclosure.
+
+Centinel helps a team answer two plain questions:
+
+1. **Are our files and requirements consistent?** Centinel Static reviews work products without running the application.
+2. **Does the live website behave as expected?** Centinel Dynamic executes a real browser workflow and records evidence.
+
+The interface should feel like dependable office software: understandable on first use, calm during long-running work, and rigorous when a user needs evidence. It is a workspace, not a developer console, marketing page, or science-fiction command center.
+
+### Experience principles
+
+1. **Start with the task.** Use user language before implementation language.
+2. **Show the summary, then the proof.** Put outcome and next action first; expose logs, model traffic, file paths, and traces on demand.
+3. **Make system state visible.** Every long-running action has a clear status, current step, elapsed context, cancel action, and completion result.
+4. **Keep the user in control.** AI output is proposed evidence, never an unexplained final authority. Decisions and destructive actions remain human actions.
+5. **Use real data.** Never invent metrics, readiness, telemetry, activity, or success.
+6. **Prefer recognition over recall.** Preserve context, use familiar labels, provide examples, and show available actions near the object they affect.
+7. **Be consistent before being novel.** The same concept must use the same component, label, icon, status, and interaction everywhere.
+
+## 2. User mental model and terminology
+
+Use these terms consistently in UI copy, navigation, documentation, and accessibility labels.
+
+| Product concept | Preferred label | Supporting explanation |
+|---|---|---|
+| Centinel Static | Review | Review files without running the application |
+| Centinel Dynamic | Dynamic testing | Test a live website in a real browser |
+| Artifact | Source | A document, requirement, coding standard, or source-code file |
+| Static session | Review | One saved static-testing run |
+| Dynamic session | Test run | One saved browser-testing run |
+| Mission goal | Test goal | What the browser should verify |
+| Finding | Finding | An issue or observation that needs review |
+| Evidence | Evidence | Screenshots, actions, logs, and supporting details |
+| Review decision | Review decision | Approve, request changes, or comment |
+| Test item | Suggested test | A test generated from review findings |
+
+Avoid labels such as “QA node,” “analysis channel,” “observation channel,” “traceability registry,” “autonomous validation,” and “agent thought.” If internal reasoning must be shown for audit purposes, label it **activity details** and keep it collapsed by default.
+
+Status labels use sentence case and plain language:
+
+- Not started
+- Queued
+- In progress
+- Completed
+- Needs attention
+- Failed
+- Cancelled
+
+Backend-specific statuses may remain in data contracts, but presentation components map them to this vocabulary.
+
+## 3. Information architecture
+
+### Global navigation
+
+The persistent application shell provides these grouped destinations:
+
+- **Dashboard / Home** — required actions, quick starts, and recent activity.
+- **Activities / Review** — open the Review start flow or its most relevant project context.
+- **Activities / Dynamic testing** — open the Dynamic testing start flow or its most relevant project context.
+- **Settings / Settings** — versions, model-provider credentials and usage, and connection boundaries.
+- **Pinned** — expand or collapse locally pinned project shortcuts. The exhaustive Projects directory remains reachable from Home actions and breadcrumbs.
+
+Integrations belong inside Settings. Authentication, authorization, storage, verification frameworks, and integration services are implementation details and do not appear as navigation labels.
+
+Do not place project-specific Evidence or Reports in global navigation. When a project is selected, show a breadcrumb and project navigation.
+
+### Project navigation
+
+Each project workspace has six stable destinations:
+
+1. **Overview** — project summary, setup progress, recent runs, and the next recommended action.
+2. **Assessment** — current project risk derived from persisted finding Severity and Priority, with latest approved-Review traceability attention.
+3. **Findings** — unified Review and Dynamic findings with filters and review actions.
+4. **Source** — active project sources and source setup.
+5. **Collaborators** — project review context and collaboration history.
+6. **Settings** — project-specific configuration.
+
+Review and Dynamic Testing are entry actions on Overview, not project tabs. Use tabs or a compact secondary navigation bar for the six stable destinations above. Preserve the selected project and selected subsection when the user returns from a detail view.
+
+### Screen hierarchy
+
+```text
+Centinel
+├── Home
+├── Projects
+│   └── Project
+│       ├── Overview
+│       ├── Source
+│       ├── Findings
+│       ├── Collaborations
+│       └── Settings
+└── Settings
+```
+
+Screens must have a stable route or equivalent restorable state. Back actions return to the previous meaningful list state, including filters and expanded items.
+
+## 4. Core workflows
+
+### Project setup
+
+1. Create a project and choose its local folder.
+2. Add sources by uploading files or importing a repository.
+3. Show whether Text AI and Vision AI are ready only when that state is retrieved from the application.
+4. Offer one recommended next action: start a static review or create a dynamic test.
+
+Do not block project creation on optional provider configuration. Explain the dependency when the user starts a task that requires it.
+
+### Static testing
+
+```text
+Add sources -> Review setup -> Review in progress -> Findings
+            -> Review decision -> Suggested tests -> Re-review / report
+```
+
+- Default to a full review.
+- Put Git base/head scope under **Advanced options**.
+- During a review, show the four user-meaningful stages and the latest activity summary. Keep detailed activity collapsed.
+- On completion, show severity summary, primary findings, and the next decision.
+- Keep per-finding status separate from the session-level review decision.
+- A re-review must explain its relationship to the previous review and show what is fixed, dismissed, still open, and new.
+
+### Dynamic testing
+
+```text
+Test setup -> Browser run in progress -> Outcome -> Evidence -> Report
+```
+
+- Ask for a website address and a plain-language test goal first.
+- Explain **User journey** and **Smoke test** at the selection point.
+- Put step limits and future expert controls under **Advanced options**.
+- Show the current step and latest action without streaming raw model traffic by default.
+- On completion, lead with the result and failure reason, then screenshots and action trace.
+- Raw AI requests, AI responses, console output, and debug data are advanced evidence.
+
+### Findings and reports
+
+- Findings use one shared list pattern across modules.
+- Default sorting is severity, then recency.
+- Filters are visible, named, keyboard accessible, and reflected in an active-filter summary.
+- Reports must say which runs and sources are included.
+- File export and Copy path are secondary actions; report content and outcome are primary.
+
+## 5. Norman and Shneiderman interaction rules
+
+Donald Norman’s interaction principles and Shneiderman’s eight golden rules are applied as concrete product requirements.
+
+| Rule | Centinel requirement |
+|---|---|
+| Visibility and informative feedback | Show connection, queue, progress, success, failure, and cancellation close to the action that caused them. |
+| Match and natural mapping | Place actions beside their object: review decisions under review results; finding actions inside the finding; evidence filters beside evidence. |
+| Signifiers and affordances | Interactive rows have a visible disclosure control. Icon-only buttons always have labels or tooltips and accessible names. |
+| Constraints and error prevention | Disable impossible actions with an explanation; validate URLs, refs, required fields, limits, and provider readiness before starting work. |
+| Conceptual model | Static testing always means file review; Dynamic testing always means browser execution. Do not mix their setup forms or status models. |
+| Consistency | Reuse one component and vocabulary for buttons, fields, badges, dialogs, progress, empty states, and errors. |
+| Closure | Multi-step work ends with a clear result summary and a recommended next action. |
+| Reversal and recovery | Cancel non-destructive work; confirm destructive work; preserve inputs after failure; provide Retry where retry is safe. |
+| User control | Do not auto-approve findings, auto-delete data, or hide material AI uncertainty. |
+| Reduce memory load | Preserve form context, explain options in place, remember list filters, and use visible breadcrumbs. |
+| Universal usability | Support keyboard-only use, zoom, reduced motion, plain language, and both novice and expert detail levels. |
+| Shortcuts for frequent users | Add shortcuts only after the visible workflow is complete; shortcuts never replace discoverable controls. |
+
+## 6. Visual direction
+
+### Style
+
+The design language is **approachable enterprise minimalism**:
+
+- light-first for office environments;
+- warm Stone neutral surfaces and clear hierarchy;
+- accessible forest green for primary interaction;
+- restrained semantic color for state;
+- evidence-oriented tables and lists rather than decorative dashboards;
+- enough density for QA work without shrinking text or controls.
+
+Centinel’s distinctiveness comes from disciplined evidence presentation, not visual effects.
+
+### Explicit anti-patterns
+
+Do not use:
+
+- radar, scan lines, telemetry grids, crosshairs, or ornamental “system online” graphics;
+- neon glows, glassmorphism, purple gradients, or gradient text;
+- a marketing hero inside the application;
+- bento-card layouts where a list, table, or workflow is clearer;
+- a card around every small group of content or nested cards without hierarchy;
+- oversized headings, excessive empty space, or tiny technical labels;
+- fake statistics, fake activity, fake readiness, or generated operational prose;
+- emoji as application icons;
+- multiple icon libraries or inconsistent icon weights;
+- page-load animation, decorative stagger, or motion on frequently repeated actions;
+- AI-centric copy that obscures the user’s task.
+
+## 7. Design tokens
+
+Tokens are the only source of reusable visual values. Components must not introduce one-off colors, radii, shadows, or timing values without updating this document and the token layer.
+
+### Color
+
+The default theme is light. A dark theme may be added only after all semantic tokens have parity and both themes pass the same accessibility and visual tests.
+
+```css
+:root {
+  --color-canvas: #f5f5f4;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #fafaf9;
+  --color-surface-hover: #f5f5f4;
+  --color-surface-selected: #f0fdf4;
+
+  --color-border: #e7e5e4;
+  --color-border-strong: #d6d3d1;
+
+  --color-text: #1c1917;
+  --color-text-muted: #57534e;
+  --color-text-subtle: #78716c;
+
+  --color-primary: #166534;
+  --color-primary-hover: #14532d;
+  --color-primary-subtle: #dcfce7;
+
+  --color-success: #15803d;
+  --color-success-subtle: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-subtle: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-hover: #991b1b;
+  --color-danger-subtle: #fef2f2;
+  --color-info: #0f766e;
+  --color-info-subtle: #f0fdfa;
+
+  --color-focus: #166534;
+  --focus-ring: 0 0 0 3px rgba(22, 101, 52, 0.24);
+}
+```
+
+The token layer lives in `centinel/src/tokens.css`. Screen layers alias these values; they must not redefine hex values.
+
+Color rules:
+
+- Forest green means action or selection, never general decoration.
+- Teal-green distinguishes Dynamic testing where a module accent is useful.
+- Green means successful or verified, never “currently running.”
+- Amber means caution or needs attention.
+- Red means failed, destructive, or invalid.
+- Status always includes text or an icon; color is never the only signal.
+- Every text/background pair must meet WCAG 2.1 AA contrast before release.
+
+### Typography
+
+```css
+--font-ui: 'IBM Plex Sans Variable', 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+--font-technical: 'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', ui-monospace, monospace;
+```
+
+Use IBM Plex Sans for the interface. Package or self-host it so the desktop app does not depend on a network request. Use the technical face only for code, file paths, refs, URLs, IDs, and log content.
+
+| Role | Size / line height | Weight |
+|---|---:|---:|
+| Page title | 24 / 32 px | 650 |
+| Section title | 18 / 26 px | 650 |
+| Component title | 15 / 22 px | 600 |
+| Body | 15 / 23 px | 400 |
+| Dense table/list | 14 / 20 px | 400 |
+| Supporting text | 13 / 19 px | 400 |
+| Technical metadata | 12 / 18 px | 450 |
+
+- Apply antialiasing to the application root.
+- Use `text-wrap: balance` for short headings and `text-wrap: pretty` for body copy where supported.
+- Use tabular numbers for counts, duration, tokens, percentages, and timestamps.
+- Do not use all caps for general navigation, headings, or field labels.
+
+### Spacing, size, and radius
+
+Use a 4 px base rhythm: `4, 8, 12, 16, 20, 24, 32, 40, 48`.
+
+- Standard desktop control height: 40 px.
+- Compact table control height: 36 px, only in dense data regions.
+- Narrow/touch control height: at least 44 px.
+- Icon-only hit target: at least 40 x 40 px desktop and 44 x 44 px narrow.
+- Content gutter: 32 px at 1440, 24 px at 1200, 16 px below 960.
+- Maximum readable page width: 1440 px; reading columns: 720 px.
+
+```css
+--radius-control: 8px;
+--radius-panel: 12px;
+--radius-overlay: 12px;
+--radius-pill: 999px;
+```
+
+Use concentric radii: an outer container radius equals the inner radius plus the visible padding between them. Do not mix arbitrary 2, 3, 4, 8, 10, and 20 px radii.
+
+### Borders and elevation
+
+- Borders communicate structure; shadows communicate elevation.
+- Default panels use a 1 px border and no shadow.
+- Home workspace panels may use the shared low-elevation layered shadow to separate prioritized work from the canvas. Nested lists and table dividers continue to use structural borders.
+- Menus use `0 8px 24px rgba(23, 32, 51, 0.12)`.
+- Dialogs use `0 20px 48px rgba(23, 32, 51, 0.18)`.
+- Focus uses the focus ring token, not a glow.
+- Do not add inner glows or colored drop shadows.
+
+### Icons
+
+- Use Lucide only.
+- Use `currentColor` and a 1.5 px stroke for regular UI icons.
+- Standard sizes: 16 px inline, 18 px controls, 20 px primary navigation, 24 px empty states.
+- Use outline icons by default and filled state only to indicate a selected or saved state where supported.
+- An icon does not replace a label for primary or unfamiliar actions.
+
+## 8. Layout and responsive behavior
+
+### Application shell
+
+- Expanded sidebar: 232 px. Collapsed sidebar: 72 px.
+- The sidebar contains grouped navigation only. Product identity belongs in the title bar, and connection/provider state belongs in Settings; the sidebar has no brand block or service footer.
+- Main content scrolls independently; the sidebar remains stable.
+- A light 44 px desktop title bar appears at the top of the shell with a restrained 14–16 px Centinel mark, functional File/Edit/View/Help menus, and working minimize, maximize/restore, and close controls. Unsupported commands are not exposed; browser/Vitest fallbacks remain safe when the Tauri bridge is unavailable.
+- The workspace is split into a navigation-panel container and a page-content container. The navigation panel has a compact header with a right-aligned, real sidebar collapse/expand control and an independently scrolling navigation body. The page-content container has a visible rounded top-left corner and its own header containing the semantic, route-aware `Home > …` trail. Ancestor crumbs are actionable, the current crumb is plain text with `aria-current="page"`, and separators are decorative.
+- The title bar and each container header remain fixed above their independently scrolling bodies. Page content must reserve space for the title bar and breadcrumb header and cannot be hidden behind them.
+- Page header includes breadcrumb, title, optional description, and at most one primary action.
+
+### Home dashboard
+
+Home is an action-oriented workspace, not a reporting dashboard. Start directly with the work and actions that need attention; do not render a time-aware greeting or orientation message above them.
+
+The first row uses a 12-column grid at desktop widths:
+
+- **Action required** occupies eight columns on the left. It shows up to three projects that require a human action, ordered by urgency and then most recent update. Each item is a clearly separated container with a quiet light-grey header containing its representative semantic icon, project, module, updated time, and compact action control, plus a body with only the required-action title and concise reason. When more projects need attention, a single footer routes to Projects with **Needs attention** already selected.
+- **Recommendations** occupies the right rail below Quick actions and shows one recommendation at a time inside a single white surface. The heading, compact previous/next chevron pager, `N of M` position text, recommendation title, concise summary, and next action belong to that surface; no step-by-step workflow or rationale sub-card is rendered. A restrained green Centinel shield watermark is inset within the top-right area and the forest-green CTA aligns to the trailing edge. Every recommendation type uses the same fixed desktop height so paging does not shift surrounding content; narrow layouts return to content-driven height. Pager controls appear only when more than one recommendation is available and wrap deterministically.
+
+Only these actionable states belong in Action required: review required, changes required, a blocked or failed test, and setup required. Do not include completed, ready, running, or passive warning states. Do not lead with an approval count.
+
+Each action row follows a reason-first scan path: compact semantic status icon; project, module, and updated-time context; dominant plain-language state; a plain explanatory message; and one contextual action. Use the short actions **Review**, **Resolve**, **Inspect**, and **Set up**. Do not place a decorative illustration inside each row; use one large, transparent illustration as a restrained page-level background element.
+
+The second and final row is **Recent projects**, capped at four rows. It uses a predictable table sequence: **Project**, **Latest activity**, and **Current state** on the dashboard; the full Projects directory also exposes explicit actions. The dashboard omits project descriptions to prioritize project-name scanning and visually hides the table header while retaining its semantics for assistive technology. Latest activity is an unboxed semantic stack with the module/type, activity name, and timestamp. Current state uses a compact rounded-rectangle semantic text tag based on the project's next-action state and is pinned to the far right. Testing counts are omitted because they do not help users choose the next action. Dashboard rows have no action column or dividers, remain hoverable and keyboard-operable to open the project overview, and **View more** is aligned to the far right of the section heading and opens the unfiltered directory.
+
+Dashboard does not filter Recent projects. Projects reuses the same table component and adds search across project name, description, and latest activity, plus **Current state** and activity filters. State groups are **Needs attention**, **In progress**, **Completed**, **Cancelled**, and **No activity**. Workspace path, pinning, and New project remain directory-only concerns; project removal is not presented in either project-summary table.
+
+All values come from persisted application data. Omit a value or show a concise empty state when it is unavailable; never manufacture a dashboard metric.
+
+Use consistent outline icons on tinted semantic tiles for repeated actions and statuses. A purpose-built code-native SVG may be used once as the page watermark to create attention without simulating data. Integrations may use connected service nodes only inside Settings. Do not use evidence screenshots, charts, generic AI artwork, or decorative telemetry on Home.
+
+### Breakpoints
+
+- **1440 x 900:** full sidebar, multi-column summaries where helpful.
+- **1200 x 900:** full or user-collapsed sidebar; reduce secondary columns before reducing control size.
+- **960 px and below:** collapsed sidebar or drawer; stack forms and details; keep tables horizontally scrollable with a clear affordance.
+- **720 px and below:** single-column content, 16 px gutters, 44 px controls, dialogs become near-full-width sheets.
+
+Responsive design must preserve every action. Do not hide important controls solely because the window is narrow.
+
+## 9. Component contract
+
+All screens use shared primitives rather than screen-specific imitations.
+
+### Buttons
+
+- **Primary:** one per action region; starts or confirms the main task.
+- **Secondary:** safe alternative actions.
+- **Quiet:** tertiary navigation and low-emphasis actions.
+- **Destructive:** delete or irreversible removal; never used as the default.
+- **Icon button:** only for familiar compact actions, with tooltip and accessible label.
+
+Loading buttons preserve width, disable repeat submission, and use a verb such as “Starting review…”. Never use `transition: all`.
+
+### Forms
+
+- Every control has a persistent visible label.
+- Required fields use text or a programmatic required state, not color alone.
+- Supporting text appears before an error; errors appear beside the field and in a focusable summary when submission fails.
+- Preserve entered values after an error.
+- Examples supplement labels; placeholders do not replace labels.
+- Advanced options are collapsed by default and remember their open state during the task.
+
+### Status and feedback
+
+Use one `StatusBadge` mapping across the application. Badges are compact labels, not primary calls to action.
+
+- Inline message: local validation or status near a field/action.
+- Banner: page-level service or workflow issue with recovery action.
+- Toast: background completion or non-blocking confirmation.
+- Dialog: user decision, not passive information.
+
+Long-running work uses an accessible progress region (`aria-live="polite"`). Failures use `role="alert"` only when immediate interruption is necessary.
+
+### Panels, lists, and tables
+
+- Use panels to group a real section, not every object.
+- Prefer a list for scan-and-open content and a table for exact comparison.
+- Rows use a dedicated disclosure button; do not make an unlabeled container click target.
+- Keep headers visible for long evidence or findings lists.
+- Empty states explain why the area is empty and offer the next relevant action.
+
+### Dialogs and overlays
+
+Dialogs require:
+
+- a labelled title and dialog semantics;
+- initial focus, focus trap, Escape support, and focus restoration;
+- a visible Close control with an accessible name;
+- outside-click dismissal only when losing unsaved input is impossible;
+- confirmation for destructive actions with the affected project/source named.
+
+### Findings
+
+Each finding row shows title, severity, source module, status, and location when present. Expanded detail follows this order:
+
+1. Description
+2. Evidence
+3. Recommendation
+4. Confidence and provenance
+5. Review actions
+
+Do not hide low-severity or informational findings from the count. Use the same finding lifecycle everywhere.
+
+### Evidence
+
+Screenshots are primary visual evidence. Action traces are primary textual evidence. AI requests/responses, console output, and debug bundles are advanced evidence.
+
+- Image thumbnails use a subtle outline because image edges may match the page surface.
+- The viewer supports keyboard close and previous/next navigation.
+- Type filters show counts and an active state.
+- Missing files show a recoverable error rather than an empty broken frame.
+
+## 10. Motion
+
+Motion explains change; it does not decorate the interface.
+
+```css
+--duration-fast: 100ms;
+--duration-standard: 150ms;
+--duration-slow: 220ms;
+--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+```
+
+- Hover/focus: 100-150 ms.
+- Disclosure and small overlays: 150-220 ms.
+- No page-load entrance animation or repeated stagger.
+- High-frequency actions such as typing, list filtering, and evidence stepping do not use custom animation.
+- Animate only `opacity` and `transform` when possible.
+- Declare exact transition properties; never use `transition: all`.
+- Transitions must be interruptible and reverse smoothly.
+- `prefers-reduced-motion: reduce` removes non-essential motion and scrolling effects.
+
+## 11. Accessibility and content
+
+The release target is WCAG 2.1 AA.
+
+- All workflows are operable by keyboard.
+- Focus is always visible and follows reading order.
+- Provide a skip link to main content.
+- Use semantic headings, landmarks, labels, buttons, tables, and lists.
+- Do not attach primary actions only to hover or row clicks.
+- Use real buttons for actions and real links for navigation.
+- Announce async results without repeatedly stealing focus.
+- Support 200% zoom without losing content or actions.
+- Write short sentences, front-load the action, and define technical terms in place.
+- Avoid blame (“Review could not start” rather than “You entered an invalid configuration”).
+- Error messages state what happened, what remains safe, and what the user can do next.
+
+## 12. Data integrity and trust
+
+- Dashboard summaries must be computed from persisted application data.
+- Never show placeholder readiness as a real failure or success.
+- Mark AI-generated content as generated and preserve provenance where available.
+- Do not expose secrets, full API keys, sensitive prompts, or credentials in UI, logs, evidence previews, or screenshots.
+- Destructive actions identify scope and consequences. Project deletion must continue to state whether local workspace files are retained.
+- Reports and evidence must preserve stable timestamps, session identity, source module, and status.
+- A visible confidence value must explain what it represents; otherwise omit it.
+
+## 13. Implementation rules
+
+1. Reuse or extend shared primitives before adding a screen-specific component.
+2. Put semantic tokens in one token stylesheet and component rules in one component layer. Remove duplicate command/legacy overrides as screens migrate.
+3. Keep feature behavior and frontend/sidecar contracts backward compatible unless the task explicitly changes them.
+4. Use real application data; do not add sample operational values to production screens.
+5. Use progressive disclosure for Git refs, provider endpoints/formats, model traffic, console logs, debug bundles, and other expert controls.
+6. Add component variants instead of one-off class names when a legitimate visual difference exists.
+7. Test component states: default, hover, focus-visible, disabled, loading, success, warning, error, empty, and reduced motion.
+8. Use accessible role/name queries in frontend tests for interaction-critical UI.
+9. Do not call a migration complete while the same concept still has competing legacy and new visual implementations.
+10. Any intentional deviation from this document requires explicit user approval and a recorded update to this file.
+
+## 14. Visual review checklist
+
+Before accepting a redesigned screen:
+
+- [ ] The primary user task and one primary action are obvious.
+- [ ] Static and Dynamic terminology matches this document.
+- [ ] Summary is visible before technical detail.
+- [ ] Empty, loading, partial, success, failure, cancelled, and disconnected states are handled where applicable.
+- [ ] Buttons, fields, status, panels, dialogs, icons, spacing, radius, and motion use shared primitives and tokens.
+- [ ] No fake metrics, decorative telemetry, gradients, glow, or nested card clutter remain.
+- [ ] Keyboard navigation, focus, dialog behavior, live status, error recovery, and reduced motion work.
+- [ ] The screen works at 1440 x 900, 1200 x 900, and a narrow viewport.
+- [ ] Text remains readable and actions remain reachable at 200% zoom.
+- [ ] The relevant frontend tests and `pnpm --filter centinel build` pass.
+- [ ] Styles do not leak into unrelated screens.

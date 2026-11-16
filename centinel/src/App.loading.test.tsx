@@ -9,6 +9,7 @@ vi.mock('./auth/supabaseAuth', () => ({ isSupabaseAuthConfigured: () => false, s
 vi.mock('./screens/AuthScreen', () => ({ AuthScreen: ({ onSignIn }: any) => <button onClick={() => onSignIn('person@example.test')}>Sign in</button> }));
 vi.mock('./components/AppShell', () => ({ AppShell: ({ children }: any) => <main>{children}</main> }));
 vi.mock('./screens/DashboardScreen', () => ({ DashboardScreen: ({ projects }: any) => <div>{projects.map((project: any) => <p key={project.id}>{project.name}</p>)}</div> }));
+vi.mock('./screens/check/StartScreen', () => ({ StartScreen: () => <h1>What should Centinel check?</h1> }));
 vi.mock('./hooks/useActiveReview', () => ({ ActiveReviewProvider: ({ children }: any) => children }));
 vi.mock('./components/ReviewToast', () => ({ ReviewToast: () => null }));
 vi.mock('./components/GithubConnectionPrompt', () => ({ GithubConnectionPrompt: () => null }));
@@ -16,6 +17,8 @@ vi.mock('./components/GithubConnectionPrompt', () => ({ GithubConnectionPrompt: 
 describe('workspace metadata loading', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // These cases load the project workspace; the Start screen case clears the hash itself.
+    window.location.hash = '#/dashboard';
     vi.mocked(api.projects).mockResolvedValue([{ id: 'project-1', name: 'Available project', description: '', workspacePath: '', createdAt: '', updatedAt: '' }]);
     vi.mocked(api.githubStatus).mockResolvedValue({ connected: false, login: null, message: '' });
   });
@@ -43,5 +46,12 @@ describe('workspace metadata loading', () => {
 
     expect(await screen.findByText('Available project')).toBeInTheDocument();
     expect(prepareWorkspaceSidecar).toHaveBeenCalledTimes(3);
+  });
+  it('opens the Start screen when no page is in the address', async () => {
+    window.location.hash = '';
+    vi.mocked(api.aiSettings).mockResolvedValue([]);
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('heading', { name: 'What should Centinel check?' })).toBeInTheDocument();
   });
 });

@@ -1,0 +1,14 @@
+/* DESIGN.md §8 Icons: optical centre, flat bases on the baseline, the icon follows its text. */
+.ci {
+  flex: none;
+  transform: translate(var(--ci-x, 0em), calc(var(--icon-nudge, 0em) + var(--ci-y, 0em)));
+}
+.ci-triangle { --ci-y: -0.1em; }
+.ci-play { --ci-x: 0.06em; }
+.ci.ci-spin { animation: ci-spin 1s linear infinite; transform: none; }
+@keyframes ci-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ci.ci-spin { animation: none; } }
+
+/* An icon-and-word pair whose baseline comes from its word. */
+.ci-pair { display: inline-flex; align-items: center; gap: var(--space-1); }
+.ci-pair > .ci-text { align-self: baseline; }

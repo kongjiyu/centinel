@@ -10,6 +10,7 @@ export type AutoTestEntry = {
   sourceRefs: Array<{ path: string; line: number }>; checks: AutoTestCheck[]; startPath: string;
   state: AutoTestState; laneId?: string; missionId?: string; revisionId?: string; runId?: string;
   reason?: string | null; checkResults?: AutoTestCheckResult[]; explanation?: string | null; startedAt?: string; finishedAt?: string;
+  controls?: Array<{ selector: string; actions: string[] }>;
 };
 export type AutoTestLane = { id: string; url: string | null; environmentId: string | null; state: 'starting' | 'idle' | 'running' | 'stopped' | 'failed'; currentTestId: string | null };
 
@@ -23,7 +24,15 @@ export type AutoTestSession = {
   lanes: AutoTestLane[]; laneLimit: number; laneNote: string | null;
   tests: AutoTestEntry[]; dropped: Array<{ name: string; reason: string }>;
   summary: { passed: number; failed: number; uncertain: number; blocked: number; notTested: number; limitations: string[] } | null;
+  /** Project conversation (13 Nov 2026). */
+  request?: { text: string; base: AutoTestPreset | null; history: string[] } | null;
+  reply?: string | null;
+  presets?: AutoTestPreset[];
+  planning?: boolean;
 };
+
+export type AutoTestPreset = { name: string; goal: string; startPath: string; requirementRef: string | null; sourceRefs: Array<{ path: string; line: number }>; checks: AutoTestCheck[]; controls: Array<{ selector: string; actions: string[] }> };
+export type AutoTestRef = { sessionId: string; testId: string };
 
 export type LiveBox = { x: number; y: number; width: number; height: number };
 export type LiveActionEvent = {

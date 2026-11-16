@@ -72,3 +72,6 @@ centinel/src-tauri/binaries/
 centinel/src-tauri/resources/codex/
 centinel/src-tauri/resources/sample-shop/
 supabase/.branches/
+
+# Sample Shop copy prepared by "Try the Sample Shop" (runtime data)
+samples/

@@ -29,7 +29,7 @@
 .select-trigger:focus-visible {
   outline: 2px solid var(--color-focus, var(--color-focus));
   outline-offset: 3px;
-  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.14);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
 }
 
 .select-trigger[data-disabled] {

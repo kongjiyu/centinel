@@ -1,6 +1,35 @@
 import { RISK_LABELS, RISK_MEANINGS, RISK_ORDER, friendlyDate, summarizeReport } from './summary.js';
 import type { ProjectReportFinding, ProjectReportSnapshot, ReportCurrentFinding } from './types.js';
 
+const BROWSER_RESULT: Record<string, string> = { passed: 'Passed', failed: 'Failed', unclear: 'Unclear', not_run: 'Did not run' };
+
+/** The latest full Auto test: each test, its checks, what the page showed, and its Run. */
+function appendBrowserTests(lines: string[], snapshot: ProjectReportSnapshot) {
+  const auto = snapshot.browserTests;
+  if (!auto) { lines.push('*Unavailable: no full browser test (Auto test) has finished for this project.*', ''); return; }
+  lines.push(
+    '**Run:** ' + inlineCode(auto.sessionId),
+    '**Started:** ' + date(auto.createdAt),
+    '**Finished:** ' + date(auto.finishedAt),
+    ...(auto.startedWith ? ['**App started with:** ' + inlineCode(auto.startedWith)] : []),
+    '**Result:** ' + auto.passed + ' passed, ' + auto.failed + ' failed, ' + auto.unclear + ' unclear, ' + auto.notRun + ' did not run',
+    '',
+  );
+  auto.tests.forEach((test, index) => {
+    lines.push('### ' + (index + 1) + '. ' + plainText(test.name) + ' — ' + BROWSER_RESULT[test.result], '');
+    if (test.requirementRef) lines.push('**Requirement:** ' + plainText(test.requirementRef), '');
+    lines.push('**Steps:** ' + plainText(test.goal), '');
+    lines.push('| Check | Expected | Result | The page showed |', '| --- | --- | --- | --- |');
+    test.checks.forEach(check => lines.push('| ' + tableCell(check.description) + ' | ' + tableCell(check.expected ?? '—') + ' | ' + tableCell(check.verdict) + ' | ' + tableCell(check.observed ?? '—') + ' |'));
+    lines.push('');
+    if (test.reason && test.result !== 'passed') lines.push('**Note:** ' + plainText(test.reason), '');
+    if (test.sourceRefs.length) lines.push('**Related code:** ' + test.sourceRefs.map(inlineCode).join(', '), '');
+    if (test.runId) lines.push('**Run ID:** ' + inlineCode(test.runId) + '. Screenshots and the action trace are kept with this Run in Centinel.', '');
+  });
+  auto.limitations.forEach(item => lines.push('- ' + plainText(item)));
+  if (auto.limitations.length) lines.push('');
+}
+
 function plainText(value: unknown): string {
   return String(value ?? '').replace(/[\u2010-\u2015\u2212]/g, '-');
 }
@@ -163,7 +192,7 @@ function summaryLines(snapshot: ProjectReportSnapshot): string[] {
     lines.push('  - Parts that could not be verified:');
     summary.unverifiedParts.forEach(part => lines.push('    - ' + plainText(part)));
   }
-  lines.push('- **Browser test — ' + summary.browserTest.label + '.** ' + (snapshot.latestDynamicTest ? '"' + plainText(snapshot.latestDynamicTest.session.name) + '". ' : '') + plainText(summary.browserTest.detail));
+  lines.push('- **Browser test' + (summary.browserTest.source === 'auto' ? 's' : '') + ' — ' + summary.browserTest.label + '.** ' + (summary.browserTest.source === 'manual' && snapshot.latestDynamicTest ? '"' + plainText(snapshot.latestDynamicTest.session.name) + '". ' : '') + plainText(summary.browserTest.detail));
   if (summary.requirements) {
     lines.push('- **Requirements.** ' + summary.requirements.complete + ' implemented, ' + summary.requirements.incomplete + ' partly implemented, ' + summary.requirements.missing + ' not linked to code yet.');
   } else {
@@ -399,6 +428,9 @@ export function renderProjectReportMarkdown(snapshot: ProjectReportSnapshot): st
   lines.push('## Model usage summary', '');
   appendUsage(lines, snapshot.modelUsage);
   lines.push('Usage contains provider/model and token counts only. Credentials, prompts, model responses, and hidden reasoning are excluded.', '');
+
+  lines.push('## Browser tests', '');
+  appendBrowserTests(lines, snapshot);
 
   lines.push('## Latest existing Dynamic Test', '');
   if (!snapshot.latestDynamicTest) {

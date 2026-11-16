@@ -3,8 +3,8 @@ import type { DiscoveryResult } from '../../src/dynamic/environment/controlDisco
 import type { EnvironmentProfile } from '../../src/dynamic/environment/types.js';
 import type { DynamicRun, MissionInput } from '../../src/dynamic/types.js';
 import type { LaunchedApp } from '../../src/dynamic/autonomous/launcher.js';
-import { buildPlanPrompt, knownSelectors, validatePlan } from '../../src/dynamic/autonomous/planner.js';
-import { newAutoTestSession, runAutoTest, scanPaths, type AutoTestDeps, type AutoTestSession } from '../../src/dynamic/autonomous/orchestrator.js';
+import { buildPlanPrompt, knownSelectors, validatePlan, type AutoTestPreset, type AutoTestRequest } from '../../src/dynamic/autonomous/planner.js';
+import { newAutoTestSession, presetFromEntry, runAutoTest, scanPaths, type AutoTestDeps, type AutoTestSession } from '../../src/dynamic/autonomous/orchestrator.js';
 import { handleAutoTestRoute, AutoTestRuntime } from '../../src/dynamic/autonomous/routes.js';
 import { MemoryAutoTestStore } from '../../src/dynamic/autonomous/store.js';
 import type { RepoDigest } from '../../src/dynamic/autonomous/repoDigest.js';
@@ -199,4 +199,93 @@ describe('Auto test routes', () => {
     const response = await route('GET', `/projects/${PROJECT}/dynamic/autonomous/${stale.id}`, {}, { store }) as { body: AutoTestSession };
     expect(response.body).toMatchObject({ stage: 'failed', error: { reason: 'interrupted' }, tests: [{ state: 'not_tested' }] });
   });
+});
+
+describe('Auto test from the project conversation', () => {
+  const request = (text: string, extra: Partial<AutoTestRequest> = {}): AutoTestRequest => ({ text, base: null, history: [], ...extra });
+
+  it('writes the prompt around the person’s request, reuses earlier messages and allows their test data', () => {
+    const prompt = buildPlanPrompt({ ...ctx, request: request('Test that a wrong password shows the generic error', { history: ['Use admin@test.com / test123'] }) });
+    expect(prompt).toContain('"""Test that a wrong password shows the generic error"""');
+    expect(prompt).toContain('- Use admin@test.com / test123');
+    expect(prompt).toContain('given by the person');
+    expect(prompt).not.toContain('Cover the most important user journeys');
+  });
+
+  it('asks for one complete revision when changing an existing test', () => {
+    const base: AutoTestPreset = { name: 'Coupon', goal: 'Apply SAVE10', startPath: '/', requirementRef: null, sourceRefs: [], checks: [{ id: 'c1', criterionId: 'x', description: 'Total', required: true, kind: 'visible_text', expected: '$10.80' }], controls: [{ selector: '#discount-code', actions: ['type'] }] };
+    const prompt = buildPlanPrompt({ ...ctx, request: request('Also check an expired code', { base }) });
+    expect(prompt).toContain('Return ONE complete revised test');
+    expect(prompt).toContain('visible_text = $10.80');
+  });
+
+  it('runs at most three tests for a request and keeps the model reply and test controls', async () => {
+    const fake = fakes();
+    fake.deps.generate = async () => ({ reply: 'I wrote a test for the sign-in error.', tests: Array.from({ length: 5 }, (_, index) => signInTest({ name: `Test ${index + 1}` })) });
+    const session = await runAutoTest(newAutoTestSession({ id: '3'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, request: request('Test sign-in errors') }), fake.deps, new AbortController().signal);
+    expect(session.stage).toBe('completed');
+    expect(session.tests).toHaveLength(3);
+    expect(session.reply).toBe('I wrote a test for the sign-in error.');
+    expect(session.tests[0].controls?.map(control => control.selector)).toContain('#email');
+    expect(presetFromEntry(session.tests[0])).toMatchObject({ name: 'Test 1', startPath: '/' });
+  });
+
+  it('marks only clicked controls repeatable, and passes that to the environment', async () => {
+    const plan = validatePlan({ tests: [signInTest({ controls: [{ selector: '#email', actions: ['type'], repeatable: true }, { selector: '#signin-form button[type="submit"]', actions: ['click'], repeatable: true }] })] }, ctx);
+    expect(plan.tests[0].controls).toEqual([{ selector: '#email', actions: ['type'] }, { selector: '#signin-form button[type="submit"]', actions: ['click'], repeatable: true }]);
+    const fake = fakes({ tests: 1 });
+    const saved: unknown[] = [];
+    const saveEnvironment = fake.deps.saveEnvironment;
+    fake.deps.saveEnvironment = async (value, id) => { saved.push(value.actionPolicy); return saveEnvironment(value, id); };
+    fake.deps.generate = async () => ({ reply: '', tests: [signInTest({ controls: [{ selector: '#signin-form button[type="submit"]', actions: ['click'], repeatable: true }] })] });
+    await runAutoTest(newAutoTestSession({ id: '9'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, request: request('Click sign in twice') }), fake.deps, new AbortController().signal);
+    expect(saved[0]).toMatchObject({ interactions: [{ selector: '#signin-form button[type="submit"]', actions: ['click'], repeatable: true }] });
+  });
+
+  it('answers a question in words and runs nothing', async () => {
+    const fake = fakes();
+    fake.deps.generate = async () => ({ reply: 'That needs a database check, which the browser cannot see.', tests: [] });
+    const session = await runAutoTest(newAutoTestSession({ id: '4'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', request: request('Is the database encrypted?') }), fake.deps, new AbortController().signal);
+    expect(session).toMatchObject({ stage: 'completed', tests: [], reply: 'That needs a database check, which the browser cannot see.' });
+    expect(fake.runs.size).toBe(0);
+    expect(fake.stopped.length).toBe(fake.launches.length);
+  });
+
+  it('runs saved tests again without exploring or asking the model', async () => {
+    const fake = fakes();
+    const generate = vi.fn(fake.deps.generate); const discover = vi.fn(fake.deps.discover);
+    fake.deps.generate = generate; fake.deps.discover = discover;
+    const preset: AutoTestPreset = { name: 'Saved sign-in', goal: 'Sign in', startPath: '/', requirementRef: 'REQ-1', sourceRefs: [], checks: [{ id: 'c1', criterionId: 'REQ-1', description: 'Error', required: true, kind: 'url', expected: 'http://localhost:1234/login' }], controls: [{ selector: '#email', actions: ['type'] }] };
+    const session = await runAutoTest(newAutoTestSession({ id: '5'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, presets: [preset], planning: false }), fake.deps, new AbortController().signal);
+    expect(generate).not.toHaveBeenCalled();
+    expect(discover).not.toHaveBeenCalled();
+    expect(session.tests.map(test => test.name)).toEqual(['Saved sign-in']);
+    // The saved URL check is moved to the app's current address.
+    expect(fake.missions[0].checks[0]).toMatchObject({ expected: `${new URL(fake.missions[0].targetUrl).origin}/login` });
+  });
+
+  it('validates conversation requests and loads the test being changed', async () => {
+    const store = new MemoryAutoTestStore(); const runtime = new AutoTestRuntime();
+    const earlier = newAutoTestSession({ id: '66666666-6666-4666-8666-666666666666', projectId: PROJECT, ownerId: 'u', folder: '/repo', request: request('Use admin@test.com / test123') });
+    earlier.stage = 'completed';
+    earlier.tests = [{ id: '77777777-7777-4777-8777-777777777777', name: 'Coupon', goal: 'Apply SAVE10', rationale: '', requirementRef: null, sourceRefs: [], startPath: '/', state: 'passed',
+      checks: [{ id: 'c1', criterionId: 'x', description: 'Total', required: true, kind: 'visible_text', expected: '$10.80' }], controls: [{ selector: '#discount-code', actions: ['type'] }] }];
+    await store.save(earlier);
+    let created: AutoTestSession | null = null;
+    const deps = { store, runtime, createDeps: async (_project: string, session: AutoTestSession) => { created = session; return fakes().deps; } };
+    const url = `/projects/${PROJECT}/dynamic/autonomous`;
+    expect(await route('POST', url, { folder: process.cwd(), request: '   ' }, deps)).toMatchObject({ status: 400 });
+    expect(await route('POST', url, { folder: process.cwd(), base: { sessionId: earlier.id, testId: earlier.tests[0].id } }, deps)).toMatchObject({ status: 400 });
+    expect(await route('POST', url, { folder: process.cwd(), request: 'x', base: { sessionId: earlier.id, testId: '88888888-8888-4888-8888-888888888888' } }, deps)).toMatchObject({ status: 404 });
+    const started = await route('POST', url, { folder: process.cwd(), request: 'Also check an expired code', base: { sessionId: earlier.id, testId: earlier.tests[0].id } }, deps) as { status: number; body: AutoTestSession };
+    expect(started.status).toBe(202);
+    expect(created!.laneLimit).toBe(1);
+    expect(created!.request).toMatchObject({ text: 'Also check an expired code', base: { name: 'Coupon' }, history: ['Use admin@test.com / test123'] });
+    await runtime.cancel(started.body.id);
+  });
+
+  function route(method: string, pathname: string, body: Record<string, unknown>, extra: Partial<Parameters<typeof handleAutoTestRoute>[1]>) {
+    return handleAutoTestRoute({ method, pathname, readBody: async () => body },
+      { ownerId: 'u', store: new MemoryAutoTestStore(), runtime: new AutoTestRuntime(), requireMember: async () => undefined, defaultFolder: async () => process.cwd(), createDeps: async () => fakes().deps, ...extra });
+  }
 });

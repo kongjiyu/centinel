@@ -6,9 +6,9 @@ import { ReviewToastComplete } from './ReviewToastComplete';
 import { reviewToastStages } from './reviewToastStages';
 import './ReviewToast.css';
 
-export function ReviewToast({ onOpenReview }: { onOpenReview?: (projectId: string, sessionId: string, reviewName: string) => void }) {
+export function ReviewToast({ onOpenReview, hidden = false }: { onOpenReview?: (projectId: string, sessionId: string, reviewName: string) => void; hidden?: boolean }) {
   const { state, controls } = useActiveReviewState();
-  if (!state) return null;
+  if (!state || hidden) return null;
   if (state.dismissed) return null;
   if (state.connectionLost) {
     return (

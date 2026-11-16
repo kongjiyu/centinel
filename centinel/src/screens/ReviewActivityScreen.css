@@ -770,7 +770,7 @@
 .review-decision-attachment { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .review-source-tag-action { min-height: 36px; max-width: min(100%, 280px); gap: 6px; cursor: pointer; font: inherit; }
 .review-source-tag-action:hover { border-color: var(--workspace-primary); background: var(--workspace-surface-hover); color: var(--workspace-primary); }
-.review-source-tag-action:focus-visible, .review-decision-attachment-link:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px rgba(22, 101, 52, 0.24)); }
+.review-source-tag-action:focus-visible, .review-decision-attachment-link:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px rgba(37, 99, 235, 0.24)); }
 .review-source-tag-action:disabled { cursor: wait; opacity: .65; }
 .review-decision-attachment-link { color: var(--workspace-primary); font-size: var(--font-size-meta); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .review-human-history-record .review-decision-attachment-error { color: var(--workspace-danger); font-size: var(--font-size-meta); }
@@ -1351,7 +1351,7 @@
 .review-traceability-table-heading h2 { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--workspace-text); font-size: var(--font-size-section); font-weight: 650; line-height: 26px; }
 .review-traceability-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(148px, .35fr); gap: 12px; margin-bottom: 16px; }
 .review-traceability-search { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid var(--workspace-border-strong); border-radius: var(--workspace-radius-control); background: var(--workspace-surface); color: var(--workspace-text-muted); }
-.review-traceability-search:focus-within { border-color: var(--workspace-focus); box-shadow: 0 0 0 2px rgba(22, 101, 52, .16); }
+.review-traceability-search:focus-within { border-color: var(--workspace-focus); box-shadow: 0 0 0 2px rgba(37, 99, 235, .16); }
 .review-traceability-search input { width: 100%; min-width: 0; height: 38px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--workspace-text); font: inherit; font-size: var(--font-size-support); }
 .review-traceability-state { min-width: 0; }
 .review-traceability-table-wrap { overflow-x: auto; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-control); }

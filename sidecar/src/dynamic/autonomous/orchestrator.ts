@@ -3,7 +3,7 @@ import type { EnvironmentInput, EnvironmentProfile } from '../environment/types.
 import type { CheckDefinition, CheckResult, DynamicRun, MissionInput } from '../types.js';
 import type { LaunchedApp, LaunchEvent } from './launcher.js';
 import { LaunchError } from './launcher.js';
-import { AUTO_TEST_PLAN_SCHEMA, AUTO_TEST_SYSTEM_PROMPT, buildPlanPrompt, validatePlan, type AutoTest, type DroppedTest } from './planner.js';
+import { AUTO_TEST_PLAN_SCHEMA, AUTO_TEST_SYSTEM_PROMPT, buildPlanPrompt, MAX_REQUEST_TESTS, planReply, presetToTest, validatePlan, type AutoTest, type AutoTestControl, type AutoTestPreset, type AutoTestRequest, type DroppedTest } from './planner.js';
 import type { RepoDigest } from './repoDigest.js';
 
 /**
@@ -18,6 +18,8 @@ export type AutoTestEntry = {
   sourceRefs: Array<{ path: string; line: number }>; checks: CheckDefinition[]; startPath: string;
   state: AutoTestState; laneId?: string; missionId?: string; revisionId?: string; runId?: string;
   reason?: string | null; checkResults?: CheckResult[]; explanation?: string | null; startedAt?: string; finishedAt?: string;
+  /** Allowed controls, kept so the test can be run again from the conversation. Absent on older sessions. */
+  controls?: AutoTestControl[];
 };
 export type AutoTestLane = { id: string; url: string | null; environmentId: string | null; state: 'starting' | 'idle' | 'running' | 'stopped' | 'failed'; currentTestId: string | null };
 export type AutoTestSession = {
@@ -30,6 +32,12 @@ export type AutoTestSession = {
   lanes: AutoTestLane[]; laneLimit: number; laneNote: string | null;
   tests: AutoTestEntry[]; dropped: DroppedTest[];
   summary: { passed: number; failed: number; uncertain: number; blocked: number; notTested: number; limitations: string[] } | null;
+  /** Project conversation (additive): the person's request, the model's plain reply, and saved tests to run. */
+  request?: AutoTestRequest | null;
+  reply?: string | null;
+  presets?: AutoTestPreset[];
+  /** False when only saved tests run, without writing new ones. */
+  planning?: boolean;
 };
 
 export type AutoTestDeps = {
@@ -55,14 +63,23 @@ const TERMINAL_RUN = new Set(['completed', 'blocked', 'cancelled', 'interrupted'
 const RUN_POLL_MS = 1000;
 const RUN_WAIT_LIMIT_MS = 6 * 60_000;
 
-export function newAutoTestSession(input: { id: string; projectId: string; ownerId: string; folder: string; lanes?: number; now?: Date }): AutoTestSession {
+export function newAutoTestSession(input: { id: string; projectId: string; ownerId: string; folder: string; lanes?: number; now?: Date; request?: AutoTestRequest | null; presets?: AutoTestPreset[]; planning?: boolean }): AutoTestSession {
   const at = (input.now ?? new Date()).toISOString();
   return {
     schemaVersion: 1, id: input.id, projectId: input.projectId, ownerId: input.ownerId, folder: input.folder,
     createdAt: at, updatedAt: at, stage: 'reading', error: null, repository: null, launch: null, exploration: null,
     lanes: [], laneLimit: Math.min(MAX_LANES, Math.max(1, Math.floor(input.lanes ?? DEFAULT_LANES))), laneNote: null,
     tests: [], dropped: [], summary: null,
+    ...(input.request ? { request: input.request } : {}),
+    ...(input.presets?.length ? { presets: input.presets } : {}),
+    ...(input.planning === false ? { planning: false } : {}),
   };
+}
+
+/** The saved definition of a test from an earlier session, if it can be run again. */
+export function presetFromEntry(entry: AutoTestEntry): AutoTestPreset | null {
+  if (!entry.controls?.length || !entry.checks.length) return null;
+  return { name: entry.name, goal: entry.goal, startPath: entry.startPath, requirementRef: entry.requirementRef, sourceRefs: entry.sourceRefs, checks: entry.checks, controls: entry.controls };
 }
 
 /** Pages worth scanning: page routes first, then GET server routes that are not APIs. */
@@ -133,23 +150,38 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     if (session.launch) Object.assign(session.launch, { url: first.server.url, portHonored: first.server.portHonored, installing: false, log: first.server.logs().slice(-4000) });
     checkCancelled();
 
-    // 3. Explore what the running app actually shows.
-    await stage('exploring');
-    const discovery = await deps.discover(first.server.url, scanPaths(digest));
-    session.exploration = { pages: discovery.pages.map(page => ({ path: new URL(page.finalUrl).pathname, controls: page.controls })), controls: discovery.controls.length };
-    checkCancelled();
+    // 3-4. Saved tests run as they are; otherwise explore what the running app shows and plan.
+    const planned: AutoTest[] = [];
+    for (const preset of session.presets ?? []) {
+      const test = presetToTest(preset, { appUrl: first.server.url, projectId: session.projectId });
+      if (test) planned.push(test); else session.dropped.push({ name: preset.name, reason: 'This saved test could not be rebuilt for the running app.' });
+    }
+    if (session.planning !== false) {
+      await stage('exploring');
+      const discovery = await deps.discover(first.server.url, scanPaths(digest));
+      session.exploration = { pages: discovery.pages.map(page => ({ path: new URL(page.finalUrl).pathname, controls: page.controls })), controls: discovery.controls.length };
+      checkCancelled();
 
-    // 4. Plan tests.
-    await stage('planning');
-    const raw = await deps.generate({ systemPrompt: AUTO_TEST_SYSTEM_PROMPT, prompt: buildPlanPrompt({ appUrl: first.server.url, digest, discovery }), outputSchema: AUTO_TEST_PLAN_SCHEMA, signal });
-    const plan = validatePlan(raw, { appUrl: first.server.url, projectId: session.projectId, digest, discovery });
-    session.dropped = plan.dropped;
-    const byId = new Map<string, AutoTest>(plan.tests.map(test => [test.id, test]));
-    session.tests = plan.tests.map(test => ({
+      await stage('planning');
+      const request = session.request ?? null;
+      const raw = await deps.generate({ systemPrompt: AUTO_TEST_SYSTEM_PROMPT, prompt: buildPlanPrompt({ appUrl: first.server.url, digest, discovery, request }), outputSchema: AUTO_TEST_PLAN_SCHEMA, signal });
+      const plan = validatePlan(raw, { appUrl: first.server.url, projectId: session.projectId, digest, discovery, ...(request ? { maxTests: request.base ? 1 : MAX_REQUEST_TESTS } : {}) });
+      session.dropped.push(...plan.dropped);
+      if (request) session.reply = planReply(raw);
+      planned.push(...plan.tests);
+    }
+    const byId = new Map<string, AutoTest>(planned.map(test => [test.id, test]));
+    session.tests = planned.map(test => ({
       id: test.id, name: test.name, goal: test.goal, rationale: test.rationale, requirementRef: test.requirementRef,
-      sourceRefs: test.sourceRefs, checks: test.mission.checks, startPath: test.startPath, state: 'queued',
+      sourceRefs: test.sourceRefs, checks: test.mission.checks, startPath: test.startPath, state: 'queued', controls: test.controls,
     }));
-    if (!session.tests.length) throw new LaunchError('unsupported', 'The AI could not write any usable test for this app.');
+    if (!session.tests.length && session.request && session.reply) {
+      // A question or something the browser cannot test: answer in words, run nothing.
+      session.summary = { passed: 0, failed: 0, uncertain: 0, blocked: 0, notTested: 0, limitations: [] };
+      session.stage = 'completed';
+      return session;
+    }
+    if (!session.tests.length) throw new LaunchError('unsupported', session.request ? 'The AI could not write a usable test for that request. Try describing the steps and what the page should show.' : 'The AI could not write any usable test for this app.');
     checkCancelled();
 
     // 5. Lanes: each gets its own app instance so tests never share in-memory state.
@@ -201,7 +233,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
             targetUrl: origin + '/', allowedOrigins: [origin], viewport: { width: 1280, height: 720 },
             accountRole: 'Visitor', requiredVariables: [], targetVersion: digest.fingerprint.slice(0, 12),
             startupInstructions: `Started automatically by Centinel Auto test with "${first.recipe.label}".`,
-            actionPolicy: { schemaVersion: 1, interactions: test.controls.map(control => ({ selector: control.selector, actions: control.actions })), allowCoordinates: false },
+            actionPolicy: { schemaVersion: 1, interactions: test.controls.map(control => ({ selector: control.selector, actions: control.actions, ...(control.repeatable ? { repeatable: true } : {}) })), allowCoordinates: false },
           }, lane.environmentId ?? undefined);
           lane.environmentId = environment.id;
           await deps.recordData(environment.id, 'preparation', 'Centinel started a fresh copy of the app for this test; its in-memory state is new.');
