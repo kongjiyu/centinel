@@ -1744,8 +1744,7 @@
   margin-bottom: 16px;
   border-bottom: 1px solid var(--workspace-border);
 }
-.review-agent-update p { margin: 0; line-height: 1.55; }
-.review-agent-update p span { display: block; color: var(--workspace-text-muted); }
+.review-agent-update p { margin: 0; }
 .review-agent-avatar {
   display: inline-grid;
   place-items: center;
@@ -1828,7 +1827,9 @@ details[open] > .review-disclosure-summary > svg { transform: rotate(90deg); }
 }
 
 .review-agent-history { margin-block: 14px; color: var(--workspace-text-muted); }
-.review-agent-history ol { padding-inline-start: 24px; }
+.review-agent-history ul { list-style: none; padding: 0; margin: 12px 0 0; }
+.review-agent-check { display: block; margin-block: 4px; color: var(--workspace-text-muted); }
+.review-session-summary { margin: 0 0 18px; overflow-wrap: anywhere; }
 .review-agent-history li + li { margin-top: 12px; }
 .review-agent-history p { margin: 4px 0 0; color: var(--workspace-text); }
 .review-agent-message p > span { display: inline; color: inherit; }

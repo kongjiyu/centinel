@@ -1,3 +1,4 @@
+import { UseModelProviderButton } from './UseModelProviderButton';
 import { useEffect, useState } from 'react';
 import { RefreshCw, Stethoscope } from 'lucide-react';
 import { api } from '../api/client';
@@ -12,7 +13,9 @@ export function GeminiOAuthPanel({ setting, onRefresh }: {
   setting?: AiProviderSetting;
   onRefresh: () => Promise<void>;
 }) {
-  const savedModel = setting?.provider === 'gemini' && setting.connectionMethod === 'oauth' ? setting.model : '';
+  const activeModel = setting?.provider === 'gemini' && setting.connectionMethod === 'oauth' ? setting.model : '';
+  const draftModel = setting?.savedProviders?.gemini?.model;
+  const savedModel = draftModel ?? activeModel;
   const [model, setModel] = useState(savedModel);
   const [status, setStatus] = useState<GeminiStatus | null>(null);
   const [checking, setChecking] = useState(true);
@@ -36,7 +39,7 @@ export function GeminiOAuthPanel({ setting, onRefresh }: {
     setMessage(null);
     try {
       if (save) {
-        await api.updateSharedAiSetting({ provider: 'gemini', apiFormat: 'google-native', apiKey: '', baseUrl: '', model, geminiOAuth: true });
+        await api.updateSharedAiSetting({ provider: 'gemini', apiFormat: 'google-native', apiKey: '', baseUrl: '', model, geminiOAuth: true, saveOnly: true });
         await onRefresh();
         setMessage({ ok: true, text: 'Settings saved.' });
       } else {
@@ -72,6 +75,7 @@ export function GeminiOAuthPanel({ setting, onRefresh }: {
       {status?.connected && <>
         <IconButton icon={Stethoscope} label="Test Gemini connection" disabled={busy || checking || !validModel} onClick={() => void submit(false)} />
         <button type="button" className="btn-primary" disabled={busy || checking || !validModel} onClick={() => void submit(true)}>Save</button>
+        <UseModelProviderButton slot="gemini" model={model} active={!!activeModel && activeModel === model} saved={draftModel === model} disabled={busy || checking || !validModel} onRefresh={onRefresh} />
       </>}
     </div>
     {message && <p role={message.ok ? 'status' : 'alert'} className={message.ok ? 'form-success' : 'form-error'}>{message.text}</p>}

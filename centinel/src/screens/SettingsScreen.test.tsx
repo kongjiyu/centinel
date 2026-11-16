@@ -145,7 +145,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.updateSharedAiSetting).toHaveBeenCalledWith({
       provider: 'custom', apiFormat: 'openai-compatible', apiKey: 'temporary-key',
-      baseUrl: 'https://api.example.com/v1', model: 'replacement-model',
+      baseUrl: 'https://api.example.com/v1', model: 'replacement-model', saveOnly: true,
     }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });

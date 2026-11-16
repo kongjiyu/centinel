@@ -1,3 +1,4 @@
+import { UseModelProviderButton } from './UseModelProviderButton';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { setVisibleInterval } from '../hooks/usePageVisible';
 import { api } from '../api/client';
@@ -44,7 +45,9 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
   const [models, setModels] = useState<Model[]>([]);
   const [modelCatalogState, setModelCatalogState] = useState<ModelCatalogState>('idle');
   const [modelError, setModelError] = useState('');
-  const [reviewModel, setReviewModel] = useState(() => savedCodexModel(settings, 'text'));
+  const active = settings.find(item => item.id === 'text');
+  const draftModel = active?.savedProviders?.codex?.model;
+  const [reviewModel, setReviewModel] = useState(() => draftModel ?? savedCodexModel(settings, 'text'));
   const [loginId, setLoginId] = useState<string | null>(null);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
@@ -53,11 +56,8 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
   const refreshing = useRef(false);
   const loginStarted = useRef(0);
 
-  const textSetting = settings.find(item => item.id === 'text');
-
-  useEffect(() => {
-    if (textSetting?.provider === 'codex') setReviewModel(textSetting.model.trim());
-  }, [textSetting?.provider, textSetting?.model]);
+  const savedModel = draftModel ?? (active?.provider === 'codex' ? active.model.trim() : '');
+  useEffect(() => { setReviewModel(savedModel); }, [savedModel]);
 
 
   const loadModels = useCallback(async () => {
@@ -195,10 +195,11 @@ export function CodexProviderPanel({ settings, onRefresh }: { settings: AiProvid
           if (result.status === 'fail') setError(result.message); else setMessage(result.message);
         })} />
         <button type="button" className="btn-primary" disabled={disabled || !selection} onClick={() => void act('save', async () => {
-          await api.updateSharedAiSetting({ provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: selection!.id });
+          await api.updateSharedAiSetting({ provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: selection!.id, saveOnly: true });
           await onRefresh();
           setMessage('Settings saved.');
         })}>Save</button>
+        <UseModelProviderButton slot="codex" model={reviewModel} active={active?.provider === 'codex' && active.model === reviewModel} saved={draftModel === reviewModel} disabled={disabled || !selection} onRefresh={onRefresh} />
       </>}
     </div>
     {message && <p role="status" className="form-success">{message}</p>}

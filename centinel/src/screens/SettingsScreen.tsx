@@ -1,9 +1,11 @@
+import { UseModelProviderButton } from '../components/UseModelProviderButton';
 import { useState, useEffect, useRef } from 'react';
 import { setVisibleInterval } from '../hooks/usePageVisible';
 import { Eye, EyeOff, Stethoscope, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus, AlertTriangle } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { checkForAppUpdate, installUpdateAndRestart } from '../utils/appUpdate';
-import type { AiProviderSetting, AiProvider, AiApiFormat } from '../types';
+import type { AiProviderSetting } from '../types';
+import { findMatchingPreset, PROVIDER_PRESETS } from './modelProviderPresets';
 import { ApiError, api } from '../api/client';
 import { CommandPageHeader, IconButton, StatusBadge } from '../components/CommandUI';
 import { CodexProviderPanel } from '../components/CodexProviderPanel';
@@ -14,44 +16,15 @@ import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import { openExternalUrl } from '../utils/openExternalUrl';
 
-type ProviderPreset = {
-  id: string;
-  label: string;
-  provider: AiProvider;
-  apiFormat: AiApiFormat;
-  baseUrl: string;
-  model: string;
-};
-
-const PROVIDER_PRESETS: ProviderPreset[] = [
-  { id: 'mimo-openai', label: 'MiMo (OpenAI-compatible)', provider: 'mimo', apiFormat: 'openai-compatible', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions', model: 'mimo-v2.5' },
-  { id: 'mimo-anthropic', label: 'MiMo (Anthropic-compatible)', provider: 'mimo', apiFormat: 'anthropic-compatible', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/anthropic', model: 'mimo-v2.5' },
-  { id: 'mimo-pro-openai', label: 'MiMo Pro (OpenAI-compatible)', provider: 'mimo', apiFormat: 'openai-compatible', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions', model: 'mimo-v2.5-pro' },
-  { id: 'mimo-pro-anthropic', label: 'MiMo Pro (Anthropic-compatible)', provider: 'mimo', apiFormat: 'anthropic-compatible', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/anthropic', model: 'mimo-v2.5-pro' },
-  { id: 'gemini', label: 'Google Gemini', provider: 'gemini', apiFormat: 'google-native', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-2.5-flash' },
-  { id: 'claude', label: 'Claude', provider: 'custom', apiFormat: 'anthropic-compatible', baseUrl: 'https://api.anthropic.com/v1/messages', model: '' },
-  { id: 'custom-openai', label: 'Custom (OpenAI-compatible)', provider: 'custom', apiFormat: 'openai-compatible', baseUrl: '', model: '' },
-  { id: 'custom-anthropic', label: 'Custom (Anthropic-compatible)', provider: 'custom', apiFormat: 'anthropic-compatible', baseUrl: '', model: '' },
-];
-
-function findMatchingPreset(setting: AiProviderSetting): ProviderPreset | null {
-  return PROVIDER_PRESETS.find(p =>
-    p.provider === setting.provider && p.apiFormat === setting.apiFormat &&
-    p.baseUrl === setting.baseUrl && p.model === setting.model
-  ) || null;
-}
-
-export { findMatchingPreset, PROVIDER_PRESETS };
-
 type Props = {
   settings: AiProviderSetting[];
   onRefresh: () => Promise<void>;
 };
 
-export const RELEASES_API_URL = 'https://api.github.com/repos/kongjiyu/centinel/releases/latest';
-export const RELEASES_URL = 'https://github.com/kongjiyu/centinel/releases';
+const RELEASES_API_URL = 'https://api.github.com/repos/kongjiyu/centinel/releases/latest';
+const RELEASES_URL = 'https://github.com/kongjiyu/centinel/releases';
 
-export type LatestRelease = {
+type LatestRelease = {
   version: string;
   url: string;
 };
@@ -62,7 +35,7 @@ function parseVersion(value: string): [number, number, number] | null {
   return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
 }
 
-export function isNewerVersion(latest: string, current: string): boolean {
+function isNewerVersion(latest: string, current: string): boolean {
   const latestParts = parseVersion(latest);
   const currentParts = parseVersion(current);
   if (!latestParts || !currentParts) return false;
@@ -72,7 +45,7 @@ export function isNewerVersion(latest: string, current: string): boolean {
   return false;
 }
 
-export async function loadApplicationVersion(): Promise<string | null> {
+async function loadApplicationVersion(): Promise<string | null> {
   try {
     const version = await getVersion();
     return version.trim() || null;
@@ -81,7 +54,7 @@ export async function loadApplicationVersion(): Promise<string | null> {
   }
 }
 
-export async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetch): Promise<LatestRelease> {
+async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetch): Promise<LatestRelease> {
   const response = await fetcher(RELEASES_API_URL, {
     headers: {
       Accept: 'application/vnd.github+json',
@@ -96,7 +69,7 @@ export async function fetchLatestRelease(fetcher: typeof fetch = globalThis.fetc
   return { version, url };
 }
 
-export async function openReleasePage(url: string): Promise<boolean> {
+async function openReleasePage(url: string): Promise<boolean> {
   return openExternalUrl(url);
 }
 
@@ -195,7 +168,7 @@ function AppVersionSection() {
   );
 }
 
-function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRefresh: () => Promise<void> }) {
+function ProviderForm({ setting, active, onRefresh }: { setting: AiProviderSetting; active: AiProviderSetting; onRefresh: () => Promise<void> }) {
   const match = findMatchingPreset(setting);
   const [presetId, setPresetId] = useState(match?.id ?? 'custom-openai');
   const [apiKey, setApiKey] = useState('');
@@ -207,12 +180,51 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
   const preset = PROVIDER_PRESETS.find(item => item.id === presetId)!;
   const sameDestination = setting.provider === preset.provider && setting.apiFormat === preset.apiFormat
     && setting.baseUrl.trim().replace(/\/+$/, '') === baseUrl.trim().replace(/\/+$/, '');
+  const [catalog, setCatalog] = useState<{ id: string; label: string }[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogRetry, setCatalogRetry] = useState(0);
+  const catalogKey = apiKey.trim();
+  const catalogEndpoint = baseUrl.trim();
+  const canDiscover = Boolean(preset.baseUrl && catalogEndpoint && (catalogKey || sameDestination && setting.hasApiKey));
+
+  useEffect(() => {
+    setCatalog([]);
+    setCatalogError(null);
+    setLoadingModels(false);
+    if (!canDiscover) return;
+    const controller = new AbortController();
+    // Let pasted or edited credentials settle before querying the provider.
+    const timer = setTimeout(async () => {
+      setLoadingModels(true);
+      try {
+        const models = await api.apiProviderModels({
+          provider: preset.provider, apiFormat: preset.apiFormat, baseUrl: catalogEndpoint, apiKey: catalogKey,
+        }, controller.signal);
+        if (controller.signal.aborted) return;
+        setCatalog(models);
+        if (!models.length) setCatalogError('The provider returned no compatible models.');
+      } catch (cause) {
+        if (!controller.signal.aborted) setCatalogError(cause instanceof ApiError && cause.code === 'provider_model_catalog'
+          ? cause.message : userFacingError(cause, 'Could not load models.'));
+      } finally {
+        if (!controller.signal.aborted) setLoadingModels(false);
+      }
+    }, 500);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [canDiscover, preset, catalogEndpoint, catalogKey, catalogRetry]);
   const ready = Boolean((apiKey.trim() || sameDestination && setting.hasApiKey) && baseUrl.trim() && model.trim());
+
+  const saved = Boolean(active.savedProviders?.api) && sameDestination && setting.hasApiKey && setting.model === model.trim() && !apiKey.trim();
+  const inUse = !apiKey.trim() && active.provider === preset.provider && active.connectionMethod !== 'oauth'
+    && active.apiFormat === preset.apiFormat && active.model === model.trim()
+    && active.baseUrl.replace(/\/+$/, '') === catalogEndpoint.replace(/\/+$/, '')
+    && (!active.savedProviders?.api || active.updatedAt >= active.savedProviders.api.updatedAt);
 
   const changePreset = (id: string) => {
     const next = PROVIDER_PRESETS.find(item => item.id === id);
     if (!next) return;
-    setPresetId(id); setBaseUrl(next.baseUrl); setModel(next.model); setApiKey(''); setResult(null);
+    setCatalog([]); setPresetId(id); setBaseUrl(next.baseUrl); setModel(next.model); setApiKey(''); setResult(null);
   };
 
   const submit = async (save: boolean) => {
@@ -220,9 +232,9 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
     const input = { provider: preset.provider, apiFormat: preset.apiFormat, apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), model: model.trim() };
     try {
       if (save) {
-        await api.updateSharedAiSetting(input);
-        setApiKey('');
+        await api.updateSharedAiSetting({ ...input, saveOnly: true });
         await onRefresh();
+        setApiKey('');
         setResult({ ok: true, message: 'Settings saved.' });
       } else {
         // Use the same credential and destination for the screenshot check.
@@ -239,23 +251,32 @@ function ProviderForm({ setting, onRefresh }: { setting: AiProviderSetting; onRe
     <fieldset disabled={busy}>
       <div className="form-field"><label htmlFor="shared-api-provider">Provider</label><Select id="shared-api-provider" value={presetId} onChange={changePreset} options={PROVIDER_PRESETS.map(item => ({ value: item.id, label: item.label }))} /></div>
       <div className="form-field"><label htmlFor="shared-api-key">API key</label><div className="api-key-field">
-        <input id="shared-api-key" type={showKey ? 'text' : 'password'} autoComplete="new-password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={sameDestination && setting.hasApiKey ? 'Saved key' : undefined} />
+        <input id="shared-api-key" type={showKey ? 'text' : 'password'} autoComplete="new-password" value={apiKey} onChange={event => { setCatalog([]); setApiKey(event.target.value); }} placeholder={sameDestination && setting.hasApiKey ? 'Saved key' : undefined} />
         <IconButton icon={showKey ? EyeOff : Eye} label={showKey ? 'Hide API key' : 'Show API key'} onClick={() => setShowKey(value => !value)} />
       </div></div>
       <div className="provider-endpoint-fields">
-        <div className="form-field"><label htmlFor="shared-api-endpoint">Base URL</label><input id="shared-api-endpoint" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} /></div>
-        <div className="form-field"><label htmlFor="shared-api-model">Model</label><input id="shared-api-model" value={model} onChange={event => setModel(event.target.value)} /></div>
+        <div className="form-field"><label htmlFor="shared-api-endpoint">Base URL</label><input id="shared-api-endpoint" value={baseUrl} onChange={event => { setCatalog([]); setBaseUrl(event.target.value); }} /></div>
+        <div className="form-field"><label htmlFor="shared-api-model">Model</label>{catalog.length ? <Select id="shared-api-model" value={model} onChange={setModel}
+          options={[...(!catalog.some(item => item.id === model) ? [{ value: model, label: model || 'Choose a model' }] : []), ...catalog.map(item => ({ value: item.id, label: item.label }))]} />
+          : <input id="shared-api-model" value={model} onChange={event => setModel(event.target.value)} />}
+          {loadingModels && <span role="status">Loading models…</span>}
+          {catalogError && <div><p className="form-error" role="status">{catalogError}</p>
+            <button type="button" className="btn-secondary" onClick={() => setCatalogRetry(value => value + 1)}>Retry loading models</button>
+          </div>}</div>
       </div>
     </fieldset>
     {result && <p className={result.ok ? 'form-success' : 'form-error'} role={result.ok ? 'status' : 'alert'}>{result.message}</p>}
-    <div className="form-actions"><IconButton icon={Stethoscope} label="Test connection" onClick={() => void submit(false)} disabled={!ready || busy} /><button type="submit" className="btn-primary" disabled={!ready || busy}>Save</button></div>
+    <div className="form-actions"><IconButton icon={Stethoscope} label="Test connection" onClick={() => void submit(false)} disabled={!ready || busy} /><button type="submit" className="btn-primary" disabled={!ready || busy}>Save</button><UseModelProviderButton slot="api" model={model.trim()} active={inUse} saved={saved} disabled={busy} onRefresh={onRefresh} /></div>
   </form>;
 }
 
 function SharedModelProvider({ settings, onRefresh }: Props) {
   const setting = settings.find(item => item.id === 'text');
   const [selectedMode, setMode] = useState<'api' | 'oauth' | null>(null);
-  const mode = selectedMode ?? (setting?.provider !== 'codex' && setting?.connectionMethod !== 'oauth' && (setting?.hasApiKey || setting?.model) ? 'api' : 'oauth');
+  const activeMethod = setting?.model && setting.provider === 'codex' ? 'Codex OAuth'
+    : setting?.model && setting.provider === 'gemini' && setting.connectionMethod === 'oauth' ? 'Gemini OAuth'
+      : setting?.model && setting.hasApiKey ? 'API provider' : null;
+  const mode = selectedMode ?? (activeMethod === 'API provider' || (!activeMethod && setting?.model) ? 'api' : 'oauth');
   const embedding = settings.find(item => item.id === 'embedding');
   return <section className="settings-section settings-provider-section" aria-labelledby="model-provider-title">
     <div className="settings-section-heading model-provider-heading">
@@ -269,7 +290,7 @@ function SharedModelProvider({ settings, onRefresh }: Props) {
       {mode === 'oauth' ? <div className="oauth-connection-grid" aria-label="OAuth connections">
         <CodexProviderPanel settings={settings} onRefresh={onRefresh} />
         <GeminiOAuthPanel setting={setting} onRefresh={onRefresh} />
-      </div> : setting && <ProviderForm setting={setting} onRefresh={onRefresh} />}
+      </div> : setting && <ProviderForm setting={setting.savedProviders?.api ?? setting} active={setting} onRefresh={onRefresh} />}
       {embedding && <EmbeddingProviderForm setting={embedding} onRefresh={onRefresh} />}
     </div>
   </section>;

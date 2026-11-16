@@ -9,6 +9,7 @@ import { EMBEDDING_DIMENSIONS, type EmbeddingProviderConfiguration } from './rev
 export type ModelProviderSettingId = 'text' | 'vision' | 'embedding';
 
 export type ModelProviderSettingView = {
+  savedProviders?: { api?: ModelProviderSettingView; codex?: ModelProviderSettingView; gemini?: ModelProviderSettingView };
   connectionMethod?: 'oauth';
   codexScreenshots?: boolean;
   id: ModelProviderSettingId;
@@ -215,9 +216,9 @@ export function validateModelProviderUpdate(input: UpdateModelProviderSetting, e
   if (!input.fallbackModel?.trim()) throw new Error('fallbackModel is required');
 }
 
-async function findRow(client: SupabaseClient, userId: string, id: ModelProviderSettingId, signal?: AbortSignal): Promise<ModelRow | null> {
+async function findRow(client: SupabaseClient, userId: string, id: ModelProviderSettingId, signal?: AbortSignal, savedPurpose = purpose(id)): Promise<ModelRow | null> {
   let query = client.from('model_configurations').select('*')
-    .eq('owner_id', userId).eq('purpose', purpose(id)).is('project_id', null)
+    .eq('owner_id', userId).eq('purpose', savedPurpose).is('project_id', null)
     .order('updated_at', { ascending: false }).limit(1);
   if (signal) query = query.abortSignal(signal);
   const result = await query.maybeSingle();
@@ -228,7 +229,12 @@ async function findRow(client: SupabaseClient, userId: string, id: ModelProvider
 
 export async function listModelProviderSettings(client: SupabaseClient, userId: string): Promise<ModelProviderSettingView[]> {
   const [textRow, visionRow, embeddingRow] = await Promise.all([findRow(client, userId, 'text'), findRow(client, userId, 'vision'), findRow(client, userId, 'embedding')]);
-  return [mapModelProviderSetting('text', textRow), mapModelProviderSetting('vision', visionRow), mapModelProviderSetting('embedding', embeddingRow)];
+  const savedProviders: NonNullable<ModelProviderSettingView['savedProviders']> = {};
+  await Promise.all((['api', 'codex', 'gemini'] as const).map(async slot => {
+    const row = await findRow(client, userId, 'text', undefined, providerDraftPurpose(slot));
+    if (row) savedProviders[slot] = mapModelProviderSetting('text', row);
+  }));
+  return [{ ...mapModelProviderSetting('text', textRow), savedProviders }, mapModelProviderSetting('vision', visionRow), mapModelProviderSetting('embedding', embeddingRow)];
 }
 
 function modelSettingPayload(userId: string, id: ModelProviderSettingId, input: UpdateModelProviderSetting, existing: ModelRow | null) {
@@ -292,6 +298,55 @@ export async function saveModelProviderSetting(
   return mapModelProviderSetting(id, result.data as ModelRow);
 }
 
+type ProviderSlot = 'api' | 'codex' | 'gemini';
+
+function providerDraftPurpose(slot: ProviderSlot) {
+  return `provider_draft_${slot}`;
+}
+
+function matchesDestination(row: ModelRow | null, input: Partial<UpdateModelProviderSetting>): row is ModelRow {
+  return !!row && row.provider === input.provider && row.api_format === input.apiFormat
+    && normalizedEndpoint(text(row, 'base_url')) === normalizedEndpoint(input.baseUrl ?? '');
+}
+
+export async function saveProviderDraft(client: SupabaseClient, userId: string, input: UpdateModelProviderSetting) {
+  const slot = input.provider === 'codex' ? 'codex' : input.geminiOAuth ? 'gemini' : 'api';
+  const draftPurpose = providerDraftPurpose(slot);
+  const [draft, active] = await Promise.all([
+    findRow(client, userId, 'text', undefined, draftPurpose), findRow(client, userId, 'text'),
+  ]);
+  const existing = matchesDestination(draft, input) ? draft : matchesDestination(active, input) ? active : null;
+  const payload = modelSettingPayload(userId, 'text', input, existing);
+  const { error } = await client.from('model_configurations').upsert({
+    ...payload, id: draft?.id ?? crypto.randomUUID(), purpose: draftPurpose, enabled: false,
+  }, { onConflict: 'id' });
+  if (error) throw new Error('Could not save the provider configuration.');
+}
+
+export async function preserveActiveProvider(client: SupabaseClient, userId: string, nextSlot: ProviderSlot) {
+  const active = await findRow(client, userId, 'text');
+  if (!active || !text(active, 'model')) return;
+  const slot = active.provider === 'codex' ? 'codex' : metadata(active).geminiOAuthProject ? 'gemini' : 'api';
+  if (slot === nextSlot || await findRow(client, userId, 'text', undefined, providerDraftPurpose(slot))) return;
+  const { created_at: _createdAt, ...payload } = active;
+  const { error } = await client.from('model_configurations').insert({
+    ...payload, id: crypto.randomUUID(), purpose: providerDraftPurpose(slot), enabled: false,
+  });
+  if (error && error.code !== '23505') throw new Error('Could not retain the previously active provider.');
+}
+
+export async function getProviderDraft(client: SupabaseClient, userId: string, slot: ProviderSlot): Promise<UpdateModelProviderSetting> {
+  const row = await findRow(client, userId, 'text', undefined, providerDraftPurpose(slot));
+  const provider = asProvider(row?.provider);
+  const apiFormat = asFormat(row?.api_format);
+  if (!row || !provider || !apiFormat) throw new Error('Save this provider before using it.');
+  return {
+    provider, apiFormat, model: text(row, 'model'), baseUrl: text(row, 'base_url'),
+    apiKey: slot === 'api' ? decryptSecret(text(row, 'secret_ciphertext')) : '',
+    geminiOAuth: slot === 'gemini', codexScreenshots: metadata(row).codexScreenshots === true,
+  };
+}
+
 /** Apply one owner-level model to both workflows in a single database statement. */
 export async function saveSharedModelProvider(client: SupabaseClient, userId: string, input: UpdateModelProviderSetting): Promise<void> {
   const [textRow, visionRow] = await Promise.all([findRow(client, userId, 'text'), findRow(client, userId, 'vision')]);
@@ -322,7 +377,10 @@ export async function resolveSavedProviderForTest(
     return { provider: 'gemini', apiFormat: 'google-native', apiKey: '', baseUrl: GEMINI_OAUTH_BASE_URL,
       model, ownerId: userId, geminiOAuthProject: project };
   }
-  const row = await findRow(client, userId, id);
+  const active = await findRow(client, userId, id);
+  const draft = !useFallback && !input.apiKey?.trim() && input.provider && input.baseUrl
+    ? await findRow(client, userId, 'text', undefined, providerDraftPurpose('api')) : null;
+  const row = matchesDestination(draft, input) ? draft : active;
   const selectedProvider = useFallback ? input.fallbackProvider ?? row?.fallback_provider : input.provider ?? row?.provider;
   if (selectedProvider === 'codex') {
     const model = input.model ?? text(row ?? {}, 'model');

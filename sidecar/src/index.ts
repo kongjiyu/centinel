@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { listApiProviderModels } from './model/apiProviderModels.js';
 import { centinelHome } from './paths.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ReviewRecoveryRecheck } from './review/recoveryRecheck.js';
@@ -86,7 +87,7 @@ import {
   type StaticReviewOrchestratorService,
   type StaticReviewRecord,
 } from './review/index.js';
-import { listModelProviderSettings, resolveSavedProviderForTest, saveModelProviderSetting, saveSharedModelProvider, SupabaseMigrationRequiredError, type UpdateModelProviderSetting } from './modelSettings.js';
+import { preserveActiveProvider, getProviderDraft, saveProviderDraft, listModelProviderSettings, resolveSavedProviderForTest, saveModelProviderSetting, saveSharedModelProvider, SupabaseMigrationRequiredError, type UpdateModelProviderSetting } from './modelSettings.js';
 import { GEMINI_OAUTH_BASE_URL, geminiOAuthProject, listGeminiOAuthModels } from './model/geminiOAuth.js';
 import { getEmbeddingSettingsCatalog } from './embeddingSettings.js';
 import { testSavedEmbeddingModel } from './embeddingConnectionTest.js';
@@ -100,7 +101,7 @@ import { indexFrozenArtifacts, retrieveFrozenContext, describeRepositoryIndex, D
 import { inspectPublishedRepositoryIndex, syncPublishedRepositoryIndex } from './review/repositoryIndexSync.js';
 import { handleRepositoryIndexSyncRoute } from './review/repositoryIndexSyncRoutes.js';
 import { SourceIndexCoordinator } from './review/sourceIndexJobs.js';
-import { SupabaseSourceIndexJobStore } from './review/sourceIndexJobStore.js';
+import { SourceIndexJournalError, SupabaseSourceIndexJobStore } from './review/sourceIndexJobStore.js';
 import { LocalRepositoryReconciliationCoordinator } from './integrations/localRepositoryReconciliation.js';
 import { optionalValidatedBatchCache } from './review/batchCheckpoint.js';
 import { createGroundingModelProvider } from './review/groundingProvider.js';
@@ -532,7 +533,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
   });
   const queueSourceIndex = async (context: AuthenticatedRequest, projectId: string) => {
     try { await sourceIndexes.notify(context, projectId); }
-    catch { console.error('[source-index] source event could not be queued; explicit indexing is required.'); }
+    catch (error) {
+      console.error('[source-index] Automatic preparation could not be queued.',
+        error instanceof SourceIndexJournalError ? error.message : error instanceof Error ? error.name : 'unknown');
+    }
   };
   const localRepositoryChanges = new LocalRepositoryReconciliationCoordinator({
     sources: (context, projectId) => new CentinelApplicationRepository(context.client, context.userId).listSources(projectId),
@@ -626,7 +630,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     }
     if (auth && /^\/projects\/[^/]+\/repository-index\/sync$/.test(url)) {
       await authGateway.requireProjectMember(auth, url.split('/')[2]);
-      await sourceIndexes.recover(auth, url.split('/')[2]);
+      await sourceIndexes.recover(auth, url.split('/')[2]).catch(error => {
+        if (!(error instanceof SourceIndexJournalError) || !error.transient) throw error;
+        console.warn('[source-index] Build recovery deferred.', error.message);
+      });
       const transfer = new AbortController();
       const stopTransfer = () => transfer.abort();
       res.once('close', stopTransfer);
@@ -1002,6 +1009,16 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       return json(res, 200, await listModelProviderSettings(auth!.client, ownerId));
     }
 
+    if (auth && req.method === 'POST' && url === '/settings/ai/models') {
+      const input = await parseJsonBody(req);
+      try {
+        return json(res, 200, await listApiProviderModels(auth.client, ownerId, input ?? {}));
+      } catch (error) {
+        const message = error instanceof Error && /^(?:The provider (?:model catalog|returned)|Model discovery|Enter a new API key)/.test(error.message)
+          ? error.message : 'Could not load models. Check the provider endpoint and API key.';
+        return json(res, 400, { error: message, code: 'provider_model_catalog' });
+      }
+    }
     if (req.method === 'GET' && url === '/settings/ai/embedding/models') {
       return json(res, 200, await getEmbeddingSettingsCatalog(auth!.client, ownerId));
     }
@@ -1013,6 +1030,20 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         return json(res, 200, { available: true, connected: true, models: await listGeminiOAuthModels(ownerId, project) });
       } catch {
         return json(res, 200, { available: true, connected: false, models: [] });
+      }
+    }
+
+    if (auth && req.method === 'POST' && url === '/settings/ai/shared/use') {
+      const { slot, model } = await parseJsonBody(req);
+      if (slot !== 'api' && slot !== 'codex' && slot !== 'gemini') return json(res, 400, { error: 'Choose a saved provider.' });
+      try {
+        const draft = await getProviderDraft(auth.client, ownerId, slot);
+        if (draft.model !== model) return json(res, 409, { error: 'The saved model changed. Refresh Settings and try again.' });
+        await preserveActiveProvider(auth.client, ownerId, slot);
+        await saveSharedModelProvider(auth.client, ownerId, draft);
+        return json(res, 200, { ok: true });
+      } catch {
+        return json(res, 400, { error: 'Could not activate the saved provider.' });
       }
     }
 
@@ -1037,7 +1068,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           }
           codexScreenshots = selected.supportsImages && selected.imageSupportKnown !== false;
         }
-        await saveSharedModelProvider(auth!.client, ownerId, {
+        await (body.saveOnly === true ? saveProviderDraft : saveSharedModelProvider)(auth!.client, ownerId, {
           provider: body.provider as UpdateModelProviderSetting['provider'],
           apiFormat: body.apiFormat as UpdateModelProviderSetting['apiFormat'],
           apiKey: typeof body.apiKey === 'string' ? body.apiKey : '',

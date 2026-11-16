@@ -2,11 +2,12 @@ import { featureDisplayName, groupReviewFeatures } from './reviewFeatures';
 import type { ReviewAnalysisMap } from './reviewHarness';
 import type { EvidenceSufficiencyAssessment, Finding, ReviewSourceManifest, ReviewTraceabilitySnapshot, StaticSession } from './types';
 
-/** Present saved assessment gaps alongside code findings without altering history. */
+/** Present source and requirement gaps alongside code findings. Review execution diagnostics stay in State. */
 export function reviewEvidenceFindings(session: Pick<StaticSession, 'id' | 'projectId'>, assessment: EvidenceSufficiencyAssessment | null,
   sources: ReviewSourceManifest['artifacts'] = []): Finding[] {
   if (!assessment || assessment.reviewId !== session.id || assessment.projectId !== session.projectId) return [];
-  return [...new Map(assessment.gaps.map(gap => [gap.id, gap])).values()].map(gap => {
+  const issueGaps = assessment.gaps.filter(gap => gap.code !== 'model_assessment_invalid');
+  return [...new Map(issueGaps.map(gap => [gap.id, gap])).values()].map(gap => {
     const filePath = gap.artifactId ? sources?.find(file => file.id === gap.artifactId)?.filePath ?? '' : '';
     return {
       id: `document-gap-${session.id}-${gap.id}`, projectId: session.projectId, sessionId: session.id,

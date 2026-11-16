@@ -76,7 +76,7 @@ describe('Codex provider settings', () => {
     expect(api.testCodex).toHaveBeenCalledWith('vision-model', true);
     expect(await screen.findByText('Codex test passed.')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(api.updateSharedAiSetting).toHaveBeenCalledWith({ provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: 'vision-model' });
+    expect(api.updateSharedAiSetting).toHaveBeenCalledWith({ provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: 'vision-model', saveOnly: true });
     expect(refresh).toHaveBeenCalledOnce();
   });
 

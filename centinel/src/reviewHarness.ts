@@ -9,7 +9,7 @@ export type HarnessEvent = {
 
 export type ReviewHarnessTrace = {
   workflow: { version: string; reference: string; stages: Array<{ id: string; label: string; steps: string[] }> };
-  review: { id: string; name: string; status: string; progress: { stage: string; completedStages: string[] } | null; modelStatus: string; updatedAt: string };
+  review: { id: string; name: string; status: string; progress: { stage: string; completedStages: string[]; assessmentPhase?: string } | null; modelStatus: string; updatedAt: string };
   events: HarnessEvent[];
   analysisMap?: ReviewAnalysisMap | null;
 };

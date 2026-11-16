@@ -253,6 +253,40 @@ describe('ReviewActivityScreen', () => {
     expect(within(details).queryByText('First')).not.toBeInTheDocument();
   });
 
+  it('updates the same categorized issue and sidebar from live verification events', async () => {
+    const running = { ...baseSession, status: 'running' as const };
+    setup(running);
+    const trace = {
+      workflow: { version: 'v1', reference: '', stages: [] },
+      review: { id: running.id, name: running.name, status: 'running', modelStatus: 'running', progress: null, updatedAt: running.updatedAt },
+    };
+    const discovered = {
+      reviewId: running.id, event: 'review_live_finding_titles', createdAt: running.updatedAt,
+      detail: { batchId: 'batch', provisional: true, issues: [{ key: 'candidate', title: 'Unexpected response', domain: 'security', filePath: 'src/handler.ts', lineNumber: 12 }] },
+    };
+    const started = {
+      reviewId: running.id, event: 'review_assessment_batch_started', stage: 'model_analysis', createdAt: running.updatedAt,
+      detail: { batchId: 'batch', phase: 'behavior', filePath: 'src/handler.ts' },
+    };
+    const assessed = { ...started, event: 'review_analysis_batch_saved', detail: { batchId: 'batch', features: [] } };
+    const challenge = { ...started, event: 'harness_step_started', detail: { step: 'challenge_support', executionId: 'challenge' } };
+    const activity = { ...trace, review: { ...trace.review, progress: { stage: 'model_analysis', completedStages: [] } } };
+    vi.mocked(api.getReviewHarness).mockResolvedValue({ ...activity, events: [started, assessed, discovered, challenge] });
+    render(<ReviewActivityScreen projectId={project.id} sessionId={running.id} onNavigate={vi.fn()} />);
+    const sidebar = await screen.findByRole('complementary', { name: 'Review details' });
+    await within(sidebar).findByText('1 line · 1 file');
+    const verifying = await screen.findByText('Verifying');
+    expect(verifying.closest('table')).toHaveAttribute('aria-label', 'Live Security issues');
+    expect(screen.getByText(/^Verifying reported issues/)).toBeInTheDocument();
+    const row = verifying.closest('tr');
+    vi.mocked(api.getReviewHarness).mockResolvedValue({ ...activity, events: [
+      started, assessed, discovered, challenge, { ...challenge, event: 'harness_step_completed' },
+      { ...discovered, detail: { ...discovered.detail, provisional: false } },
+    ] });
+    window.dispatchEvent(new Event('focus'));
+    expect((await screen.findByText('Verified · saving later')).closest('tr')).toBe(row);
+  });
+
   it('only exposes cancel while the review is running', async () => {
     const running = { ...baseSession, status: 'running' as const };
     setup(running);
@@ -305,10 +339,30 @@ describe('ReviewActivityScreen', () => {
         { reviewId: baseSession.id, stage: 'freezing_sources', event: 'harness_step_completed', createdAt: baseSession.updatedAt, detail: { step: 'read_source', executionId: 'read-1', output: { hashChecked: true } } },
         { reviewId: baseSession.id, stage: 'freezing_sources', event: 'harness_step_completed', createdAt: baseSession.updatedAt, detail: { step: 'load_grounding', executionId: 'grounding-1', output: { confirmedRequirements: 0 } } },
         { reviewId: baseSession.id, stage: 'model_analysis', event: 'review_retry_scheduled', createdAt: baseSession.updatedAt, detail: { kind: 'ai', attempt: 5, maxAttempts: 5, delayMs: 15000 } },
+        { reviewId: baseSession.id, stage: 'model_analysis', event: 'review_analysis_batch_unverified', createdAt: baseSession.updatedAt, detail: {
+          batchId: 'products', features: [{ id: 'list-products', assessments: [{ status: 'unverified', summary: 'The selected source shows catalog reads. The caller path still needs verification.' }] }],
+        } },
+        { reviewId: baseSession.id, stage: 'model_analysis', event: 'review_assessment_repair_scheduled', createdAt: baseSession.updatedAt, detail: {
+          batchId: 'products', reason: 'domain_coverage', coverageFeedback: [{ domain: 'business' }],
+        } },
+        { reviewId: baseSession.id, stage: 'model_analysis', event: 'review_batch_needs_verification', createdAt: baseSession.updatedAt, detail: { batchId: 'products', reason: 'domain_coverage' } },
+        { reviewId: baseSession.id, stage: 'model_analysis', event: 'review_analysis_batch_saved', createdAt: baseSession.updatedAt, detail: {
+          batchId: 'document', features: [{ id: 'checkout', assessments: [{ status: 'assessed', summary: 'A single domain was assessed.' }] }],
+          scopeSummary: 'I inspected the saved checkout requirement.',
+        } },
+        { reviewId: baseSession.id, stage: 'model_analysis', event: 'review_candidate_support_saved', createdAt: baseSession.updatedAt, detail: {
+          batchId: 'products', supportedCount: 1, contradictedCount: 2, insufficientCount: 0,
+        } },
       ],
     });
     render(<ReviewActivityScreen projectId={project.id} sessionId={baseSession.id} onNavigate={vi.fn()} />);
     await screen.findByRole('heading', { name: 'Review coverage' });
+    expect(await screen.findByText(/The selected source shows catalog reads/)).toBeInTheDocument();
+    expect(screen.getByText('I found 0 confirmed requirements for this review.')).toBeInTheDocument();
+    expect(screen.getByText(/could not verify every required check for business rules/)).toBeInTheDocument();
+    expect(screen.getByText('I inspected the saved checkout requirement.')).toBeInTheDocument();
+    expect(screen.queryByText('A single domain was assessed.')).not.toBeInTheDocument();
+    expect(screen.getByText(/2 candidates contradicted by the saved source/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Check the documents' })).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Review details' })).toHaveTextContent('Source reviewed');
     expect(within(screen.getByRole('complementary', { name: 'Review details' })).getByRole('heading', { name: 'Goal' })).toBeInTheDocument();
@@ -644,8 +698,21 @@ describe('ReviewActivityScreen', () => {
     const gaps = { ...baseSession, status: 'pending_approval' as const, progressJson: JSON.stringify({ stage: 'complete', completedStages: ['model_analysis'], coverage: 'partial', unverifiedPartCount: 1,
       unverifiedParts: [{ reason: 'semantic_support', files: ['src/cart.ts'], features: ['addToCart'] }] }) };
     setup(gaps);
+    vi.mocked(api.listStaticFindings).mockResolvedValue([
+      { ...finding, severity: 'critical', title: 'Unverified rule hit' },
+      { ...finding, id: 'supported', severity: 'medium', title: 'Saved totals differ',
+        description: 'Saved totals differ. Customers could see an incorrect subtotal.',
+        location: { sourceLocator: { citationEvidence: { version: 1, verification: 'verified', reason: 'source_match', candidates: [], unmatchedReferences: 0 } } } },
+    ]);
     render(<ReviewActivityScreen projectId={project.id} sessionId={gaps.id} onNavigate={vi.fn()} />);
 
+    const reviewSummary = await screen.findByLabelText('Review summary');
+    expect(reviewSummary).toHaveTextContent(/^Verdict:/);
+    expect(reviewSummary).toHaveTextContent('1 part remains unverified.');
+    await waitFor(() => expect(screen.getByLabelText('Review summary')).toHaveTextContent(
+      'Top finding with verified source evidence: Saved totals differ. Customers could see an incorrect subtotal.'));
+    expect(reviewSummary.compareDocumentPosition(screen.getByRole('heading', { name: 'Review coverage' })))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     const summary = await screen.findByText('Coverage gaps');
     expect(summary.closest('details')).not.toHaveAttribute('open');
     await userEvent.click(summary);

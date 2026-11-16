@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findMatchingPreset, PROVIDER_PRESETS } from './SettingsScreen';
+import { findMatchingPreset, PROVIDER_PRESETS } from './modelProviderPresets';
 import type { AiProviderSetting } from '../types';
 
 const baseSetting: AiProviderSetting = {

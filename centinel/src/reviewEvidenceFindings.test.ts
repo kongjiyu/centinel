@@ -18,6 +18,14 @@ describe('saved document gaps as findings', () => {
     expect(result[0].severity).toBe('high');
     expect(result[0].description).toBe('No requirement document.');
   });
+  it('keeps model verification diagnostics out of issues alongside real requirement gaps', () => {
+    const gap = { id: 'requirements', code: 'missing_requirements', title: 'Requirements missing', detail: 'No requirement document.', remediation: 'Add requirements.', severity: 'blocking' as const, affectedStages: [] };
+    const findings = reviewEvidenceFindings(session, { ...assessment, gaps: [
+      gap,
+      { ...gap, id: 'assessment', code: 'model_assessment_invalid', title: 'Model assessment needs verification' },
+    ] });
+    expect(findings.map(item => item.evidenceGap?.code)).toEqual(['missing_requirements']);
+  });
   it('does not infer absent documents when assessment evidence is unavailable or belongs to another review', () => {
     expect(reviewEvidenceFindings(session, null)).toEqual([]);
     expect(reviewEvidenceFindings(session, { ...assessment, reviewId: 'other' })).toEqual([]);
