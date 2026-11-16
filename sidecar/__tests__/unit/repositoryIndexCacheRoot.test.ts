@@ -12,7 +12,7 @@ describe('repository index cache root', () => {
     process.env.CENTINEL_HOME = '/tmp/centinel-home-test';
     vi.resetModules();
     const { DEFAULT_REPOSITORY_INDEX_CACHE_ROOT } = await import('../../src/review/repositoryIndexSnapshot.js');
-    expect(DEFAULT_REPOSITORY_INDEX_CACHE_ROOT).toBe(path.join('/tmp/centinel-home-test', 'data', 'repository-index') + path.sep);
+    expect(DEFAULT_REPOSITORY_INDEX_CACHE_ROOT).toBe(path.resolve('/tmp/centinel-home-test', 'data', 'repository-index') + path.sep);
   });
 
   it('keeps the repository data folder in development', async () => {

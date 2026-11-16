@@ -1,3 +1,4 @@
+import { tryFileSymlink } from '../fixtures/fileSymlink.js';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,7 +17,14 @@ const run = { id: 'r', projectId: 'p', state: 'completed', legacySessionId: sid,
 beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-shared-proof-')); fs.mkdirSync(path.join(root, 'sessions', sid, 'logs'), { recursive: true }); fs.writeFileSync(path.join(root, 'sessions', sid, 'logs', 'criterion-page.png'), bytes); });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 describe('Immutable private independent evidence', () => {
-    it('loads only the fixed artifact slot and refuses changed bytes, symlinks and session escape', () => { expect(loadIndependentEvidence(root, run, ref)).toEqual(bytes); fs.writeFileSync(path.join(root, 'sessions', sid, 'logs', 'criterion-page.png'), 'Changed'); expect(() => loadIndependentEvidence(root, run, ref)).toThrow('checksum'); expect(() => loadIndependentEvidence(root, { ...run, legacySessionId: '../../private' }, ref)).toThrow('unavailable'); fs.rmSync(path.join(root, 'sessions', sid, 'logs', 'criterion-page.png')); fs.writeFileSync(path.join(root, 'other.png'), bytes); fs.symlinkSync(path.join(root, 'other.png'), path.join(root, 'sessions', sid, 'logs', 'criterion-page.png')); expect(() => loadIndependentEvidence(root, run, ref)).toThrow('missing'); });
+    it('loads only the fixed artifact slot and refuses changed bytes and session escape', () => { expect(loadIndependentEvidence(root, run, ref)).toEqual(bytes); fs.writeFileSync(path.join(root, 'sessions', sid, 'logs', 'criterion-page.png'), 'Changed'); expect(() => loadIndependentEvidence(root, run, ref)).toThrow('checksum'); expect(() => loadIndependentEvidence(root, { ...run, legacySessionId: '../../private' }, ref)).toThrow('unavailable'); });
+    it('refuses a symlink in the fixed artifact slot', ({ skip }) => {
+        const slot = path.join(root, 'sessions', sid, 'logs', 'criterion-page.png');
+        const other = path.join(root, 'other.png');
+        fs.unlinkSync(slot);
+        fs.writeFileSync(other, bytes);
+        if (!tryFileSymlink(other, slot)) skip('File symlinks are unavailable');
+        expect(() => loadIndependentEvidence(root, run, ref)).toThrow('missing'); });
     it('checks membership before any Run, local-file or storage lookup', async () => { const deps = { requireMember: vi.fn().mockRejectedValue(Error('denied')), service: { requireRun: vi.fn() }, workspace: vi.fn(), repository: { list: vi.fn() } }; await expect(handleEvidenceCopyRoute({ method: 'GET', pathname: '/projects/p/dynamic/runs/r/evidence' }, deps as never)).rejects.toThrow('denied'); expect(deps.service.requireRun).not.toHaveBeenCalled(); expect(deps.workspace).not.toHaveBeenCalled(); expect(deps.repository.list).not.toHaveBeenCalled(); });
     it('validates the complete local set before preparing or uploading a partial copy', async () => { const deps = { requireMember: vi.fn().mockResolvedValue(undefined), service: { requireRun: vi.fn().mockResolvedValue({ ...run, evidence: [ref, { ...ref, id: 'checks', kind: 'checks' }] }) }, workspace: vi.fn().mockResolvedValue(root), repository: { prepare: vi.fn(), upload: vi.fn() } }; const result = await handleEvidenceCopyRoute({ method: 'POST', pathname: '/projects/p/dynamic/runs/r/evidence/sync' }, deps as never); expect(result?.status).toBe(409); expect(deps.repository.prepare).not.toHaveBeenCalled(); expect(deps.repository.upload).not.toHaveBeenCalled(); });
     it('shares the four fixed proof slots together and refuses an extra slot before transfer', async () => {

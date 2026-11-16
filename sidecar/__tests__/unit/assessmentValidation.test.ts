@@ -224,7 +224,11 @@ describe('Assessment acceptance boundary', () => {
     const completed = await run.completion;
     expect(completed).toMatchObject({ status: 'pending_approval', modelStatus: 'partial' });
     expect(completed.progress).toMatchObject({ coverage: 'partial', unverifiedParts: expect.arrayContaining([expect.objectContaining({ reason: 'model_timeout' })]) });
-    expect(new Set(stages).size).toBe(3); // the batch after the timeout and the source sweep still ran
+    const planned = repository.audits.find(event => event.event === 'review_batches_planned')?.detail?.batches;
+    expect(planned).toEqual(expect.any(Array));
+    expect(stages.length).toBeGreaterThan(2);
+    expect(new Set(stages).size).toBe(stages.length);
+    expect(stages).toHaveLength((planned as unknown[]).length);
     expect(repository.audits.filter(event => event.event === 'review_batch_needs_verification').map(event => event.detail?.reason)).toEqual(['model_timeout']);
     expect(repository.audits.some(event => event.event === 'review_assessment_validated')).toBe(false);
     expect(repository.findingCorrelations.size).toBe(0);
@@ -482,7 +486,7 @@ describe('Assessment acceptance boundary', () => {
   });
   it('excludes every related artifact in an insufficient runtime claim from absence proof', async () => {
     const repository = new InMemoryStaticReviewRepository();
-    const related = { ...artifact, id: 'related', fileName: 'related.ts', filePath: 'src/related.ts', contentHash: 'related-version' };
+    const related: Artifact = { ...artifact, id: 'related', type: 'other', fileName: 'related.md', filePath: 'docs/related.md', contentHash: 'related-version' };
     const unaffected = { ...artifact, id: 'unaffected', fileName: 'unaffected.ts', filePath: 'src/unaffected.ts', contentHash: 'unaffected-version' };
     const artifacts = [artifact, related, unaffected];
     const finding = { ...issue, domain: 'security' as const, relatedLocations: [{
@@ -492,7 +496,8 @@ describe('Assessment acceptance boundary', () => {
       settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' },
       result: isCandidateSupportRequest(request)
         ? candidateSupportResult(request, { disposition: 'insufficient', boundary: 'runtime_dependent' })
-        : { findings: [finding], featureAssessments: assessments(request) },
+        : { findings: request.prompt.includes(`--- Artifact: ${artifact.filePath} (`)
+          && request.prompt.includes(`--- Artifact: ${related.filePath} (`) ? [finding] : [], featureAssessments: assessments(request) },
     }) };
     const run = await service(repository, model).start({ projectId: 'project', reviewType: 'code_review', artifacts });
     expect((await run.completion).status).toBe('pending_approval');
@@ -500,8 +505,9 @@ describe('Assessment acceptance boundary', () => {
     expect(validated).toContain(unaffected.id);
     expect(validated).not.toContain(artifact.id);
     expect(validated).not.toContain(related.id);
-    expect(repository.findings.filter(item => item.source === 'model')).toHaveLength(1);
-    expect(repository.findings[0].sourceLocator?.citationEvidence).toMatchObject({ verification: 'needs_verification' });
+    expect(repository.audits.find(event => event.event === 'review_candidate_support_limited')?.detail)
+      .toMatchObject({ artifactId: artifact.id, limitationCode: 'runtime_boundary_unverified' });
+    expect(repository.findings.filter(item => item.source === 'model')).toHaveLength(0);
   });
   it.each([
     ['supported', 'contradicted'],
@@ -614,7 +620,7 @@ describe('Assessment acceptance boundary', () => {
   it('excludes artifacts referenced by both sides of a conflicting repair packet from absence proof', async () => {
     const repository = new InMemoryStaticReviewRepository();
     const guardContent = 'export function guard() { if (owner) return record; return null; }';
-    const guardArtifact: Artifact = { ...artifact, id: 'guard-code', fileName: 'guard.ts', filePath: 'src/guard.ts', contentHash: 'guard-version' };
+    const guardArtifact: Artifact = { ...artifact, id: 'guard-code', type: 'other', fileName: 'guard.md', filePath: 'docs/guard.md', contentHash: 'guard-version' };
     const sibling = { ...issue, title: 'Separate guard observation', description: 'A separate local guard behavior is alleged.', filePath: guardArtifact.filePath,
       lineNumber: 1, evidence: guardContent, artifactId: guardArtifact.id, sourceVersion: guardArtifact.contentHash, severity: 'medium' };
     let supportCalls = 0;
@@ -634,9 +640,9 @@ describe('Assessment acceptance boundary', () => {
           : candidates.map(candidate => row(candidate, 'supported', candidate.source));
         return { settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' }, result: { candidates: rows } };
       }
-      const isSweep = (request.outputSchema?.properties?.featureAssessments as any)?.maxItems === 0;
+      const includesBothSources = [artifact, guardArtifact].every(source => request.prompt.includes(`--- Artifact: ${source.filePath} (`));
       return { settings: { provider: 'custom', apiFormat: 'openai-compatible', model: 'offline' }, result: {
-        findings: isSweep ? [] : [{ ...issue, domain: 'security' }, sibling], featureAssessments: assessments(request),
+        findings: includesBothSources && assessments(request).length ? [{ ...issue, domain: 'security' }, sibling] : [], featureAssessments: assessments(request),
       } };
     } };
     const contents = new Map([[artifact.id, content], [guardArtifact.id, guardContent]]);
@@ -644,6 +650,7 @@ describe('Assessment acceptance boundary', () => {
       .start({ projectId: 'project', reviewType: 'code_review', artifacts: [artifact, guardArtifact] });
     expect(await run.completion).toMatchObject({ status: 'pending_approval', modelStatus: 'succeeded', modelFindingCount: 1 });
     expect(repository.findings.filter(finding => finding.source === 'model').map(finding => finding.title)).toEqual([sibling.title]);
+    expect(repository.audits.some(event => event.event === 'review_candidate_support_conflict')).toBe(true);
     const validated = repository.audits.find(event => event.event === 'review_assessment_validated')?.detail?.assessedArtifactIds as string[];
     expect(validated).not.toContain(artifact.id);
     expect(validated).not.toContain(guardArtifact.id);

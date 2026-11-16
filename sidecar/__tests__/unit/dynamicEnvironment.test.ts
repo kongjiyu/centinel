@@ -21,7 +21,7 @@ describe('Dynamic environments',()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'centinel-vault-'));try{
    const vault=new EnvironmentVault(root);expect(vault.write('actor-a','project-a','env-a',{TEST_PASSWORD:'seed-secret-987'})).toEqual({variableNames:['TEST_PASSWORD']});
    expect(fs.readFileSync(path.join(root,fs.readdirSync(root)[0]),'utf8')).not.toContain('seed-secret-987');
-   expect(fs.statSync(path.join(root,fs.readdirSync(root)[0])).mode&0o777).toBe(0o600);
+   if (process.platform !== 'win32') expect(fs.statSync(path.join(root,fs.readdirSync(root)[0])).mode&0o777).toBe(0o600);
    expect(vault.read('actor-a','project-a','env-a')).toEqual({TEST_PASSWORD:'seed-secret-987'});
    expect(vault.names('actor-b','project-a','env-a')).toEqual([]);expect(vault.names('actor-a','project-b','env-a')).toEqual([]);expect(vault.names('actor-a','project-a','env-b')).toEqual([]);
    vault.write('actor-a','project-a','env-a',{TEST_PASSWORD:''});expect(vault.names('actor-a','project-a','env-a')).toEqual([]);

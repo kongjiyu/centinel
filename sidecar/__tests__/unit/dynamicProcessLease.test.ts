@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runBoundedProcess } from '../../src/dynamic/workspace/process.js';
 const source = fileURLToPath(new URL('../../src/dynamic/workspace/process.ts', import.meta.url));
-describe('cross-project local workspace execution exclusion', () => {
+describe.skipIf(process.platform === 'win32')('cross-project local workspace execution exclusion', () => {
     it('blocks a second process through a directory alias and releases after worker SIGKILL', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-lease-test-')), workspace = path.join(root, 'project'), alias = path.join(root, 'alias'), marker = path.join(root, 'child.pid'), worker = path.join(root, 'worker.mts');
         fs.mkdirSync(workspace);
