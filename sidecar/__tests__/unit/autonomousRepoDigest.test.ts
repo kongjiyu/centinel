@@ -1,3 +1,4 @@
+import { tryFileSymlink } from '../fixtures/fileSymlink.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -63,7 +64,7 @@ describe('autonomous repository digest', () => {
     const login = digest.routes.find(route => route.path === '/api/login' && route.kind === 'server')!;
     const entry = digest.entries.find(item => item.kind === 'route' && item.path === 'server.js'
       && item.startLine <= login.line && item.endLine >= login.line)!;
-    const source = fs.readFileSync(path.join(sampleShop, 'server.js'), 'utf8').split('\n');
+    const source = fs.readFileSync(path.join(sampleShop, 'server.js'), 'utf8').split(/\r?\n/);
     expect(entry.text.split('\n')[login.line - entry.startLine]).toBe(source[login.line - 1]);
   });
 
@@ -116,11 +117,11 @@ describe('autonomous repository digest', () => {
     expect(isSecretLikePath('src/users.js')).toBe(false);
   });
 
-  it('rejects symlinks that escape the repository root', async () => {
+  it('rejects symlinks that escape the repository root', async ({ skip }) => {
     const outside = fixture({ 'outside-secret.md': '# Outside requirements\nescaped-content-marker' });
     const root = fixture({ 'README.md': '# App', 'docs/inside.md': 'inside text' });
-    fs.symlinkSync(path.join(outside, 'outside-secret.md'), path.join(root, 'docs', 'requirements.md'));
-    fs.symlinkSync(outside, path.join(root, 'linked-dir'));
+    if (!tryFileSymlink(path.join(outside, 'outside-secret.md'), path.join(root, 'docs', 'requirements.md'))) skip('File symlinks are unavailable');
+    fs.symlinkSync(outside, path.join(root, 'linked-dir'), process.platform === 'win32' ? 'junction' : 'dir');
     fs.symlinkSync(path.join(root, 'docs', 'inside.md'), path.join(root, 'docs', 'alias.md'));
     const digest = await buildRepoDigest(root);
     const dump = JSON.stringify(digest);

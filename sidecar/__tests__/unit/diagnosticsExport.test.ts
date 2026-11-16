@@ -72,8 +72,10 @@ describe('diagnostics redaction', () => {
     expect(text).not.toContain(encodeURIComponent('oauth secret/with+chars'));
   });
 
-  it('replaces the home directory, which contains the macOS account name', () => {
-    expect(redactDiagnosticText('open /Users/alex/Library/Application Support/com.centinel.app/data', [], '/Users/alex')).toBe('open ~/Library/Application Support/com.centinel.app/data');
+  it('replaces the home directory in diagnostic paths', () => {
+    const home = path.resolve('test-user-home');
+    const relative = path.join('app data', 'centinel');
+    expect(redactDiagnosticText('open ' + path.join(home, relative), [], home)).toBe('open ~' + path.sep + relative);
   });
 
   it('leaves ordinary diagnostic text readable', () => {

@@ -19,7 +19,7 @@ function fakeChild() {
 describe('bundled Sample Shop', () => {
   it('uses the bundled resources in packaged builds and the repository copy in development', () => {
     expect(sampleShopSource({ CENTINEL_SAMPLE_SHOP_DIR: '/Applications/Centinel.app/Contents/Resources/resources/sample-shop' }))
-      .toBe('/Applications/Centinel.app/Contents/Resources/resources/sample-shop');
+      .toBe(path.resolve('/Applications/Centinel.app/Contents/Resources/resources/sample-shop'));
     const dev = sampleShopSource({});
     expect(fs.existsSync(path.join(dev, 'server.js'))).toBe(true);
     expect(fs.existsSync(path.join(dev, 'sample-shop-answers.md'))).toBe(false);

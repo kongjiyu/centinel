@@ -6,5 +6,7 @@ export default defineConfig({
     environment: 'node',
     include: ['__tests__/**/*.test.ts'],
     testTimeout: 10000,
+    // Concurrent Chromium and native helper launches can exhaust Windows runner resources.
+    ...(process.platform === 'win32' ? { maxWorkers: 2 } : {}),
   },
 });
