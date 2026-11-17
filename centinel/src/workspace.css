@@ -10,7 +10,7 @@
 
 .workspace-mode:not(.dashboard-mode) {
   --workspace-canvas: var(--color-canvas);
-  --workspace-surface: #ffffff;
+  --workspace-surface: var(--color-surface);
   --workspace-surface-subtle: var(--color-surface-subtle);
   --workspace-surface-hover: var(--color-surface-hover);
   --workspace-surface-selected: var(--color-surface-selected);
@@ -2452,7 +2452,7 @@
    ------------------------------------------------------------------------- */
 .app-shell.has-window-chrome {
   --shell-canvas: var(--color-canvas);
-  --shell-surface: #ffffff;
+  --shell-surface: var(--color-surface);
   --shell-surface-subtle: var(--color-surface-subtle);
   --shell-surface-hover: var(--color-surface-hover);
   --shell-selected: var(--color-surface-selected);
@@ -2972,7 +2972,6 @@ div.app-shell.has-window-chrome .nav-item.active,
   border: 1px solid var(--shell-border);
   border-radius: 12px;
   background: var(--shell-surface);
-  box-shadow: 0 8px 24px rgba(28, 25, 23, 0.12);
   color: var(--shell-text);
 }
 

@@ -4,6 +4,11 @@
  * and one Auto test session. Results always come from those saved records.
  */
 export type CheckMode = 'both' | 'code' | 'browser';
+export const CHECK_MODES: Array<{ value: CheckMode; label: string }> = [
+  { value: 'both', label: 'Code and browser' },
+  { value: 'code', label: 'Code' },
+  { value: 'browser', label: 'Browser' },
+];
 
 export type CheckPhase = 'preparing' | 'running' | 'done' | 'failed';
 
@@ -15,6 +20,8 @@ export type CheckRecord = {
   updatedAt: string;
   projectId?: string;
   projectName: string;
+  referenceCheckIds?: string[];
+  sourceArtifactIds?: string[];
   folder?: string;
   githubUrl?: string;
   documents: string[];
@@ -30,11 +37,16 @@ export type CheckRecord = {
   /** Cached for the sidebar only; Result recomputes from saved records. */
   problemCount?: number;
   finishedAt?: string;
+  viewedAt?: string;
 };
 
 export type CheckDocument = { name: string; base64: string };
 
 export type StartCheckInput = {
+  sourceArtifactIds?: string[];
+  browserRequest?: string;
+  referenceCheckIds?: string[];
+  projectId?: string;
   folder?: string;
   githubUrl?: string;
   documents: CheckDocument[];

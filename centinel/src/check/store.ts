@@ -61,6 +61,11 @@ export function updateCheck(id: string, patch: Partial<CheckRecord>) {
   saveCheck({ ...current, ...patch, updatedAt: new Date().toISOString() });
 }
 
+export function markCheckViewed(id: string) {
+  const check = getCheck(id);
+  if (check && !check.viewedAt) saveCheck({ ...check, viewedAt: new Date().toISOString() });
+}
+
 export function removeCheck(id: string) {
   write(read().filter(check => check.id !== id));
 }

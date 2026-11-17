@@ -33,6 +33,7 @@ export function hashToScreen(hash: string): Screen | null {
   const [path, query = ''] = hash.slice(2).split('?', 2);
   const name = decodeURIComponent(path) as Screen['name'];
   if (!SCREEN_NAMES.has(name)) return null;
+  if (name === 'projects') return { name: 'new-check' };
   const screen: Record<string, unknown> = { name };
   for (const [key, raw] of new URLSearchParams(query)) {
     if (TRANSIENT_KEYS.has(key)) continue;

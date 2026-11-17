@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from './AppShell';
 import type { Project, Screen } from '../types';
 import { resetCheckStore } from '../check/store';
+import { api } from '../api/client';
+import type { Artifact, ConnectedSource } from '../types';
 
 const projects: Project[] = [
   {
@@ -47,18 +49,18 @@ describe('AppShell module launch', () => {
     Reflect.deleteProperty(window, '__TAURI_IPC__');
   });
 
-  it('marks the active navigation destination as the current page', () => {
+  it('marks the Settings shortcut beside the profile active', () => {
     renderShell({ name: 'settings' }, vi.fn());
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(within(nav).getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
-    expect(within(nav).getByRole('button', { name: 'Overview' })).not.toHaveAttribute('aria-current');
+    expect(within(screen.getByRole('complementary')).getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('button', { name: 'New Check' })).not.toHaveAttribute('aria-current');
   });
 
   it('keeps workspace navigation and a Findings breadcrumb on standalone finding pages', async () => {
     const navigate = vi.fn();
     renderShell({ name: 'review-finding', projectId: 'project-1', sessionId: 'review-1', findingId: 'finding-1' }, navigate);
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(within(nav).getByRole('button', { name: 'Code reviews' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).queryByRole('button', { name: 'Code reviews' })).not.toBeInTheDocument();
     const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
     await userEvent.click(within(breadcrumb).getByRole('link', { name: 'Findings' }));
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ name: 'review-activity', sessionId: 'review-1', initialTab: 'Findings' }));
@@ -84,36 +86,31 @@ describe('AppShell module launch', () => {
     expect(screen.getByRole('button', { name: 'Minimize window' })).toBeInTheDocument();
   });
 
-  it('opens the workspace Review directory', async () => {
+  it('opens New and omits the standalone activity directories', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    const reviewButton = screen.getByRole('button', { name: 'Code reviews' });
-    await user.click(reviewButton);
+    await user.click(screen.getByRole('button', { name: 'New Check' }));
+    expect(screen.queryByRole('button', { name: 'Code reviews' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Browser tests' })).not.toBeInTheDocument();
 
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-directory' });
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'new-check' });
   });
 
-  it('opens Help from the Settings navigation category', async () => {
+  it('opens Help from the shortcut beside the profile', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
-    const helpButton = within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('button', { name: 'Help' });
+    await user.click(screen.getByRole('button', { name: 'Open account menu' }));
+    const menu = within(screen.getByRole('dialog', { name: 'Account menu' }));
+    const labels = menu.getAllByRole('button').map(button => button.textContent?.trim());
+    expect(labels).toEqual(['Manage account', 'Switch account', 'Log out']);
+    const helpButton = within(screen.getByRole('complementary')).getByRole('button', { name: 'Help' });
     expect(helpButton.querySelector('svg')).toHaveClass('lucide-circle-question-mark');
     await user.click(helpButton);
     expect(onNavigate).toHaveBeenCalledWith({ name: 'help' });
-  });
-
-  it('opens the workspace Dynamic Testing directory', async () => {
-    const user = userEvent.setup();
-    const onNavigate = vi.fn();
-    renderShell({ name: 'dashboard' }, onNavigate);
-
-    const dynamicButton = screen.getByRole('button', { name: 'Browser tests' });
-    await user.click(dynamicButton);
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-directory' });
   });
 
   it('keeps sidebar navigation global inside a project', async () => {
@@ -121,34 +118,59 @@ describe('AppShell module launch', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'project-detail', projectId: 'project-2' }, onNavigate);
 
-    await user.click(screen.getByRole('button', { name: 'Code reviews' }));
+    await user.click(screen.getByRole('button', { name: 'New Check' }));
 
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-directory' });
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'new-check' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('opens the empty directory when there are no projects', async () => {
+  it('shows an empty recent projects section when there are no projects', () => {
+    renderShell({ name: 'new-check' }, vi.fn(), []);
+    const recent = screen.getByRole('region', { name: 'Recent projects' });
+    expect(within(recent).getByText('No projects yet')).toBeInTheDocument();
+  });
+
+  it('opens a recent project and shows its details and import sources from the ellipsis', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    renderShell({ name: 'dashboard' }, onNavigate, []);
-
-    await user.click(screen.getByRole('button', { name: 'Browser tests' }));
-
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-directory' });
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const sources = vi.spyOn(api, 'listConnectedSources').mockResolvedValue([
+      { id: 'remote-1', status: 'active', name: 'acme/shop', remoteUrl: 'https://github.com/acme/shop' } as ConnectedSource,
+    ]);
+    const artifacts = vi.spyOn(api, 'listArtifacts').mockResolvedValue([
+      { id: 'repo-file', source: 'repository', sourceId: 'local-1', localRepositoryName: 'payments' } as Artifact,
+    ]);
+    renderShell({ name: 'project', projectId: 'project-2' }, onNavigate);
+    const recent = within(screen.getByRole('region', { name: 'Recent projects' }));
+    const rows = recent.getAllByRole('listitem');
+    expect(within(rows[0]).getByRole('button', { name: 'Banking portal' })).toHaveAttribute('aria-current', 'page');
+    await user.click(recent.getByRole('button', { name: 'Website refresh' }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'project', projectId: 'project-1' });
+    await user.click(recent.getByRole('button', { name: 'Details for Banking portal' }));
+    const details = within(screen.getByRole('dialog', { name: 'Project details' }));
+    expect(details.getByText('Banking portal')).toBeInTheDocument();
+    expect(details.getByText('Payment verification')).toBeInTheDocument();
+    expect(details.getByText('C:/work/banking-portal')).toBeInTheDocument();
+    expect(await details.findByText('acme/shop')).toBeInTheDocument();
+    expect(details.getByText('payments')).toBeInTheDocument();
+    expect(sources).toHaveBeenCalledWith('project-2');
+    expect(artifacts).toHaveBeenCalledWith('project-2');
+    await user.click(details.getByRole('button', { name: 'Edit project' }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'project-detail', projectId: 'project-2', initialSection: 'settings' });
+    sources.mockRestore();
+    artifacts.mockRestore();
   });
 
-  it('renders New check, recent checks and the Details group without a brand or service footer', () => {
+  it('renders New, recent checks and Projects without a brand or service footer', () => {
     const onNavigate = vi.fn();
     renderShell({ name: 'dashboard' }, onNavigate);
 
     const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
-    expect(nav.getByRole('button', { name: 'New check' })).toBeInTheDocument();
-    expect(nav.getByRole('button', { name: 'Search checks' })).toBeInTheDocument();
+    expect(nav.getByRole('button', { name: 'New Check' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Search projects and checks' })).toBeInTheDocument();
     expect(nav.getByText('Recent checks')).toBeInTheDocument();
     expect(nav.getByText('No checks yet')).toBeInTheDocument();
-    expect(nav.getByText('Details')).toBeInTheDocument();
-    expect(nav.getByRole('button', { name: 'Projects' })).toBeInTheDocument();
+    expect(nav.getByRole('region', { name: 'Recent projects' })).toBeInTheDocument();
+    expect(nav.queryByRole('button', { name: /^Projects$/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true');
@@ -166,16 +188,30 @@ describe('AppShell module launch', () => {
     renderShell({ name: 'new-check' }, onNavigate);
 
     const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
-    expect(nav.getByRole('button', { name: 'New check' })).toHaveAttribute('aria-current', 'page');
+    expect(nav.getByRole('button', { name: 'New Check' })).toHaveAttribute('aria-current', 'page');
     expect(nav.getByText('5 problems')).toBeInTheDocument();
     expect(nav.getByText('No problems')).toBeInTheDocument();
     await user.click(nav.getByRole('button', { name: /sample-shop/ }));
     expect(onNavigate).toHaveBeenCalledWith({ name: 'check', checkId: 'c2' });
 
-    await user.click(nav.getByRole('button', { name: 'Search checks' }));
-    await user.type(screen.getByLabelText('Search checks by project name'), 'portfolio');
-    expect(nav.queryByText('sample-shop')).not.toBeInTheDocument();
-    expect(nav.getByText('portfolio-site')).toBeInTheDocument();
+    const search = screen.getByRole('button', { name: 'Search projects and checks' });
+    await user.click(search);
+    const dialog = within(screen.getByRole('dialog', { name: 'Search projects and checks' }));
+    expect(dialog.getAllByRole('heading').slice(-2).map(heading => heading.textContent)).toEqual(['Checks', 'Projects']);
+    const input = dialog.getByRole('searchbox', { name: 'Search by project name' });
+    expect(input).toHaveFocus();
+    await user.type(input, 'portfolio');
+    expect(dialog.getByText('No matching projects')).toBeInTheDocument();
+    expect(dialog.queryByText('sample-shop')).not.toBeInTheDocument();
+    expect(nav.getByText('sample-shop')).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: /portfolio-site/ }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'check', checkId: 'c1' });
+
+    await user.click(search);
+    const reopened = within(screen.getByRole('dialog', { name: 'Search projects and checks' }));
+    await user.type(reopened.getByRole('searchbox'), 'banking');
+    await user.click(reopened.getByRole('button', { name: 'Banking portal' }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'project', projectId: 'project-2' });
   });
 
   it('moves the shell toggle into the navigation panel header', async () => {
@@ -204,9 +240,9 @@ describe('AppShell module launch', () => {
     expect(profile).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('dialog', { name: 'Account menu' })).toBeInTheDocument();
     const menu = screen.getByRole('dialog', { name: 'Account menu' });
-    expect(within(menu).getByText('@centinel-demo')).toBeInTheDocument();
+    expect(within(menu).getByText('centinel-demo')).toBeInTheDocument();
     expect(within(menu).getByText('avery.chen@gmail.com')).toBeInTheDocument();
-    expect(screen.getByText('avery.chen@gmail.com', { selector: '.sidebar-profile-email' })).toBeInTheDocument();
+    expect(screen.getByText('centinel-demo', { selector: '.sidebar-profile-username' })).toBeInTheDocument();
     expect(within(menu).queryByText('GitHub repository access connected')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Signed in with GitHub')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Current account')).not.toBeInTheDocument();
@@ -239,8 +275,8 @@ describe('AppShell module launch', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Open account menu' }));
-    expect(within(screen.getByRole('dialog', { name: 'Account menu' })).getByText('@Cstan0824')).toBeInTheDocument();
-    expect(screen.getByText('@Cstan0824', { selector: '.sidebar-profile-username' })).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog', { name: 'Account menu' })).getByText('Cstan0824')).toBeInTheDocument();
+    expect(screen.getByText('Cstan0824', { selector: '.sidebar-profile-username' })).toBeInTheDocument();
     expect(screen.queryByText('GitHub repository access not connected')).not.toBeInTheDocument();
   });
 
@@ -260,7 +296,7 @@ describe('AppShell module launch', () => {
       </AppShell>,
     );
 
-    expect(screen.getByText('Google account')).toBeInTheDocument();
+    expect(screen.getByText('avery.chen@gmail.com')).toBeInTheDocument();
     expect(screen.queryByText('GitHub not connected')).not.toBeInTheDocument();
   });
 
@@ -321,10 +357,10 @@ describe('AppShell module launch', () => {
 });
 
 describe('sidebar active item', () => {
-  it('marks only Help as active on the Help screen', () => {
+  it('marks Help active beside the profile', () => {
     renderShell({ name: 'help' }, () => {});
     const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
-    expect(nav.getByRole('button', { name: 'Help' }).className).toContain('active');
-    expect(nav.getByRole('button', { name: 'Overview' }).className).not.toContain('active');
+    expect(within(screen.getByRole('complementary')).getByRole('button', { name: 'Help' })).toHaveAttribute('aria-current', 'page');
+    expect(nav.getByRole('button', { name: 'New Check' }).className).not.toContain('active');
   });
 });

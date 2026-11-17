@@ -94,6 +94,7 @@ import { testSavedEmbeddingModel } from './embeddingConnectionTest.js';
 import { getSupabaseModelUsageSummary } from './modelUsageSummary.js';
 import { ApplicationRepositoryAuthorizationError, ApplicationRepositoryError, CentinelApplicationRepository } from './applicationRepository.js';
 import { getClientArtifact, readClientArtifactBytes, importLocalRepositoryArtifacts, listClientArtifacts, localRootHash, readClientArtifactContent, sourceCurrency, uploadClientArtifact } from './applicationApi.js';
+import { withManagedProjectWorkspace } from './managedProjectWorkspace.js';
 import { getLatestLocalImportCoverage, inspectLocalRepository, recordLocalImportCoverageBaseline } from './applicationApi.js';
 import { readFrozenReviewSource } from './review/frozenSourceContent.js';
 import { accessTokenFingerprint, createRefreshableStaticReviewRuntime, RefreshableSupabaseRuntime, type RefreshableStaticReviewRuntime } from './runtime/index.js';
@@ -787,7 +788,12 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       const autoTestStore = new SupabaseAutoTestStore(auth.client, ownerId);
       const autoTestResponse = await handleAutoTestRoute({ method: req.method ?? 'GET', pathname: url, readBody: () => parseJsonBody(req, 10_000) }, {
         ownerId, store: autoTestStore, requireMember: projectId => authGateway.requireProjectMember(auth, projectId),
-        defaultFolder: async projectId => { const project = await applicationRepository!.getProject(projectId); return project?.workspacePath || null; },
+        defaultFolder: async projectId => {
+          const project = await applicationRepository!.getProject(projectId);
+          if (!project) return null;
+          const local = await withManagedProjectWorkspace(project, ownerId);
+          return local.workspacePath || (local.managedWorkspaceReady ? local.managedWorkspacePath ?? null : null);
+        },
         createDeps: (projectId, session) => createAutoTestDeps({
           projectId, ownerId, session, store: autoTestStore, environments, service, dynamicRouteDeps,
           home: path.join(dataDir, 'autotest-home'),
@@ -1242,7 +1248,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       }
       const projects = await applicationRepository!.listProjects();
       localRepositoryChanges.observe(auth!, projects);
-      return json(res, 200, projects);
+      return json(res, 200, await Promise.all(projects.map(project => withManagedProjectWorkspace(project, ownerId))));
     }
 
     if (req.method === 'POST' && url === '/projects') {
@@ -1255,7 +1261,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       if (name.length > 80) return json(res, 400, { error: 'Project name must be 80 characters or less' });
       if (description.length > 500) return json(res, 400, { error: 'Description must be 500 characters or less' });
       const submitted = body.sources ?? [source?.type === 'github' ? source : { type: 'local-repository', path: legacyWorkspace }];
-      if (!Array.isArray(submitted) || !submitted.length) return json(res, 400, { error: 'Add at least one repository.' });
+      if (!Array.isArray(submitted)) return json(res, 400, { error: 'Expected a list of project sources.' });
       const localFolders = new Map<string, string>();
       const githubLinks = new Map<string, string>();
       try {
@@ -1321,7 +1327,8 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
             }
           }
         }
-        json(res, 201, sourceImportWarnings.length ? { ...project, sourceImportWarnings } : project);
+        const localProject = await withManagedProjectWorkspace(project, ownerId);
+        json(res, 201, sourceImportWarnings.length ? { ...localProject, sourceImportWarnings } : localProject);
         for (const job of queued) sourceWorker.enqueue(auth!, job);
         readiness.notify(auth!, project.id, 'project_created');
         if (completeLocalImport) void queueSourceIndex(auth!, project.id).catch(() => undefined);
@@ -1521,7 +1528,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
     if (projectId && req.method === 'GET') {
       const project = await applicationRepository!.getProject(projectId);
       if (!project) return json(res, 404, { error: 'Project not found' });
-      return json(res, 200, project);
+      return json(res, 200, await withManagedProjectWorkspace(project, ownerId));
     }
 
     if (projectId && req.method === 'PUT') {
@@ -1537,7 +1544,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
         const updated = await applicationRepository!.updateProject(projectId, { name, description, workspacePath });
         if (!updated) return json(res, 404, { error: 'Project not found' });
         readiness.notify(auth!, projectId, 'project_updated');
-        return json(res, 200, updated);
+        return json(res, 200, await withManagedProjectWorkspace(updated, ownerId));
       } catch (cause) {
         return json(res, 400, { error: cause instanceof Error ? cause.message : 'Project could not be updated' });
       }

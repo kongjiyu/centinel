@@ -331,7 +331,7 @@ export const api = {
     }),
   deleteProject: (id: string) =>
     request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
-  updateProject: (id: string, data: { name: string; description: string; workspacePath: string }) =>
+  updateProject: (id: string, data: { name: string; description: string; workspacePath?: string }) =>
     request<Project>(`/projects/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),

@@ -13,6 +13,16 @@ use tauri::Manager;
 const AUTH_CALLBACK_EVENT: &str = "centinel://auth-callback";
 const SIDECAR_PORT: u16 = 37701;
 
+#[cfg(target_os = "windows")]
+fn is_auth_callback(url: &str) -> bool {
+    url.split(['?', '#']).next() == Some("centinel://auth/callback")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_auth_callback(url: &str) -> bool {
+    url.starts_with(AUTH_CALLBACK_EVENT)
+}
+
 struct PendingAuthCallback(Mutex<Option<String>>);
 
 /// The local service (sidecar) started by this app, if any.
@@ -34,6 +44,29 @@ fn app_data_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
         .app_data_dir()
         .ok_or("Could not resolve app data dir")?;
     Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn open_workspace_folder(folder: String) -> Result<(), String> {
+    let path = PathBuf::from(folder);
+    if !path.is_absolute() {
+        return Err("Choose an absolute workspace folder.".into());
+    }
+    let resolved = std::fs::canonicalize(&path).map_err(|_| "The workspace folder could not be found.")?;
+    if !resolved.is_dir() {
+        return Err("The workspace location is not a folder.".into());
+    }
+    #[cfg(target_os = "windows")]
+    let opener = "explorer.exe";
+    #[cfg(target_os = "macos")]
+    let opener = "/usr/bin/open";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let opener = "xdg-open";
+    Command::new(opener)
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|_| "The file manager could not open.".into())
 }
 
 #[tauri::command]
@@ -190,7 +223,7 @@ fn main() {
             });
             let app_handle = app.handle();
             tauri_plugin_deep_link::register("centinel", move |url| {
-                if url.starts_with(AUTH_CALLBACK_EVENT) {
+                if is_auth_callback(&url) {
                     if let Ok(mut pending) = app_handle.state::<PendingAuthCallback>().0.lock() {
                         *pending = Some(url.clone());
                     }
@@ -213,7 +246,7 @@ fn main() {
                 });
             }
         })
-        .invoke_handler(tauri::generate_handler![app_data_dir, take_auth_callback, stop_sidecar, ensure_sidecar])
+        .invoke_handler(tauri::generate_handler![app_data_dir, open_workspace_folder, take_auth_callback, stop_sidecar, ensure_sidecar])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

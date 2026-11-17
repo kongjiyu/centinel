@@ -93,13 +93,14 @@ export function AuthScreen({ onSignIn, onBackToWorkspace }: Props) {
     setActiveProvider(provider);
     setAuthBusy(true);
     try {
-      await (provider === 'google' ? startGoogleSignIn() : startGithubSignIn());
+      const openedExternally = await (provider === 'google' ? startGoogleSignIn() : startGithubSignIn());
+      if (!openedExternally) return;
     } catch (cause) {
       const providerLabel = provider === 'google' ? 'Google' : 'GitHub';
       setAuthError(cause instanceof Error ? cause.message : `${providerLabel} sign-in could not be started.`);
-      setAuthBusy(false);
-      setActiveProvider(null);
     }
+    setAuthBusy(false);
+    setActiveProvider(null);
   };
 
   return (

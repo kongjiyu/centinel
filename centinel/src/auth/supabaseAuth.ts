@@ -248,22 +248,32 @@ export async function updatePassword(password: string): Promise<void> {
   if (error) throw error;
 }
 
-async function startSocialSignIn(provider: 'google' | 'github'): Promise<void> {
+async function startSocialSignIn(provider: 'google' | 'github'): Promise<boolean> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) throw new Error('Supabase Auth is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
   const redirectTo = readEnv('VITE_SUPABASE_AUTH_REDIRECT_URL') || (typeof window !== 'undefined' ? window.location.origin : undefined);
-  const { error } = await supabase.auth.signInWithOAuth({
+  const openExternally = typeof window !== 'undefined'
+    && '__TAURI_IPC__' in window
+    && /\bWindows\b/i.test(window.navigator.userAgent)
+    && redirectTo === 'centinel://auth/callback';
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
-    options: { redirectTo },
+    options: { redirectTo, ...(openExternally ? { skipBrowserRedirect: true } : {}) },
   });
   if (error) throw error;
+  if (openExternally) {
+    if (!data.url) throw new Error('Supabase did not return a sign-in URL.');
+    const { open } = await import('@tauri-apps/api/shell');
+    await open(data.url);
+  }
+  return openExternally;
 }
 
-export function startGoogleSignIn(): Promise<void> {
+export function startGoogleSignIn(): Promise<boolean> {
   return startSocialSignIn('google');
 }
 
-export function startGithubSignIn(): Promise<void> {
+export function startGithubSignIn(): Promise<boolean> {
   return startSocialSignIn('github');
 }
 

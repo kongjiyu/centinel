@@ -5,6 +5,12 @@ import "@fontsource-variable/jetbrains-mono";
 import "./tokens.css";
 import App from "./App";
 import "./style.css";
+import { applyTheme, readTheme } from "./theme";
+
+applyTheme(readTheme());
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (readTheme() === "system") applyTheme("system");
+});
 
 // The webview delivers file drops to the frontend. Keep drops outside a
 // designated target from replacing the workspace with the dropped file.

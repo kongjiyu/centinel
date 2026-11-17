@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, CircleHelp, CircleUserRound, FileCheck2, FolderOpen, GitBranch, House, LoaderCircle, LogOut, MonitorPlay, PanelLeftClose, PanelLeftOpen, Plus, Repeat2, Search, Settings, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, CircleHelp, CircleUserRound, FolderOpen, LoaderCircle, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Repeat2, Search, Settings, TriangleAlert } from 'lucide-react';
 import type { Project, Screen } from '../types';
 import { PageBreadcrumbs } from './PageBreadcrumbs';
 import { WindowHeader } from './WindowHeader';
@@ -7,6 +7,8 @@ import { useChecks } from '../check/store';
 import { useBackgroundCheckSync } from '../check/sync';
 import type { CheckRecord } from '../check/types';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
+import { RecentProjectDetails } from './RecentProjectDetails';
 import './CheckSidebar.css';
 
 type Props = {
@@ -38,33 +40,27 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_IPC__' in window;
 }
 
-function accountUsername(githubLogin: string | null, accountEmail: string | null): string {
-  if (githubLogin) return `@${githubLogin.replace(/^@/, '')}`;
-  if (accountEmail) return accountEmail.split('@')[0] || accountEmail;
-  return 'Not provided';
-}
-
-export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, authProvider = null, onSwitchAccount, onLogOut, children }: Props) {
+export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [showAllProjects, setShowAllProjects] = useState(false);
+  const [checksExpanded, setChecksExpanded] = useState(true);
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
+  const [recentsScrolled, setRecentsScrolled] = useState(false);
+  const [detailsProjectId, setDetailsProjectId] = useState<string | null>(null);
   const checks = useChecks();
   useBackgroundCheckSync(true);
-  const visibleChecks = checks.filter(check => !search.trim() || check.projectName.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 20);
+  const visibleChecks = checks.slice(0, 20);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const accountTriggerRef = useRef<HTMLButtonElement | null>(null);
   const screenKey = JSON.stringify(screen);
   const nativeWindowChrome = isTauriRuntime();
-  const accountLogin = authProvider === 'github' ? accountGithubLogin ?? githubLogin
-    : authProvider ? null : accountGithubLogin ?? githubLogin;
-  const username = accountUsername(accountLogin, accountEmail);
-  const accountMethod = accountLogin ? `@${accountLogin.replace(/^@/, '')}`
-    : authProvider === 'google' ? 'Google account'
-      : authProvider === 'email' ? 'Email account'
-        : authProvider === 'github' ? 'GitHub account' : 'Account';
+  const accountLogin = accountGithubLogin ?? githubLogin;
+  const username = accountLogin?.replace(/^@/, '') || accountEmail || 'Profile';
 
   const isActive = (names: Screen['name'][]) => names.includes(screen.name);
   useEffect(() => {
@@ -110,12 +106,29 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
     };
   }, [accountMenuOpen]);
 
-  const staticActive = screen.name === 'review-directory' || screen.name === 'requirements' || screen.name === 'review-activity' || screen.name === 'review-finding' || screen.name === 'review-entry' || screen.name === 'reviews' ||
-    (screen.name === 'project-detail' && screen.initialAction === 'static');
-  const dynamicActive = screen.name === 'dynamic-directory' || screen.name === 'dynamic-testing' || screen.name === 'dynamic-session' ||
-    (screen.name === 'project-detail' && screen.initialAction === 'dynamic');
-  const projectsActive = screen.name === 'projects' || screen.name === 'project' || screen.name === 'evidence-browser' ||
-    (screen.name === 'project-detail' && !screen.initialAction);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'k') return;
+      event.preventDefault();
+      if (document.querySelector('[aria-modal="true"]')) return;
+      setAccountMenuOpen(false);
+      setSearch('');
+      setSearchOpen(true);
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, []);
+
+  const recentProjects = [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const detailsProject = projects.find(project => project.id === detailsProjectId);
+  const query = search.trim().toLowerCase();
+  const matchingProjects = searchOpen ? recentProjects.filter(project => project.name.toLowerCase().includes(query)) : [];
+  const matchingChecks = searchOpen ? checks.filter(check => check.projectName.toLowerCase().includes(query)) : [];
+
+  const openSearchResult = (result: Screen) => {
+    setSearchOpen(false);
+    onNavigate(result);
+  };
 
   return (
     <div className={`app-shell has-window-chrome command-mode workspace-mode ${nativeWindowChrome ? 'native-window-chrome' : 'browser-window-chrome'} ${screen.name === 'dashboard' ? 'dashboard-mode' : ''} ${screen.name === 'new-check' || screen.name === 'check' || screen.name === 'project' ? 'check-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${accountMenuOpen ? 'account-menu-open' : ''}`}>
@@ -142,38 +155,33 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               </button>
             </header>
             <nav className="sidebar-nav" aria-label="Primary navigation">
-            <div className="sidebar-nav-group">
+            <div className={`sidebar-fixed-actions${recentsScrolled ? ' is-scrolled' : ''}`}>
+            <div className="sidebar-nav-group sidebar-new">
               <button
                 className={`nav-item nav-new-check ${isActive(['new-check']) ? 'active' : ''}`}
                 aria-current={isActive(['new-check']) ? 'page' : undefined}
                 onClick={() => nav('new-check')}
-                aria-label="New check"
-                title="New check"
+                aria-label="New Check"
+                title="New Check"
               >
                 <Plus size={18} aria-hidden="true" />
-                <span>New check</span>
+                <span>New Check</span>
               </button>
-              <button
-                className={`nav-item ${searchOpen ? 'active' : ''}`}
-                aria-expanded={searchOpen}
-                aria-controls="sidebar-check-search"
-                onClick={() => { setSearchOpen(value => !value); if (sidebarCollapsed) setSidebarCollapsed(false); }}
-                aria-label="Search checks"
-                title="Search checks"
-              >
-                <Search size={18} aria-hidden="true" />
-                <span>Search</span>
-              </button>
-              {searchOpen && !sidebarCollapsed && (
-                <div className="sidebar-check-search" id="sidebar-check-search">
-                  <label className="sr-only" htmlFor="sidebar-check-search-input">Search checks by project name</label>
-                  <input id="sidebar-check-search-input" autoFocus value={search} onChange={event => setSearch(event.target.value)} placeholder="Project name" onKeyDown={event => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />
-                </div>
-              )}
             </div>
 
+            <button type="button" className="nav-item sidebar-search-toggle" aria-label="Search projects and checks"
+              aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" title="Search"
+              onClick={() => { setSearch(''); setSearchOpen(true); }}>
+              <Search size={18} strokeWidth={1.7} aria-hidden="true" /><span>Search</span>
+            </button>
+            </div>
+            <div className="sidebar-recents" onScroll={event => setRecentsScrolled(event.currentTarget.scrollTop > 0)}>
             <div className="sidebar-nav-group sidebar-checks">
-              <div className="sidebar-category">Recent checks</div>
+              <button type="button" className="sidebar-category sidebar-recent-toggle"
+                aria-expanded={checksExpanded} aria-controls="sidebar-recent-checks-content" onClick={() => setChecksExpanded(value => !value)}>
+                Recent checks <ChevronDown size={14} aria-hidden="true" />
+              </button>
+              <div id="sidebar-recent-checks-content" hidden={!checksExpanded}>
               {visibleChecks.length ? (
                 <ul className="sidebar-check-list">
                   {visibleChecks.map(check => {
@@ -195,78 +203,56 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                   })}
                 </ul>
               ) : (
-                <div className="sidebar-pins-empty"><span>{search ? 'No matching checks' : 'No checks yet'}</span></div>
+                <div className="sidebar-pins-empty"><span>No checks yet</span></div>
               )}
+              </div>
             </div>
 
-            <div className="sidebar-nav-group">
-              <div className="sidebar-category">Details</div>
-              <button
-                className={`nav-item ${isActive(['dashboard']) ? 'active' : ''}`}
-                aria-current={isActive(['dashboard']) ? 'page' : undefined}
-                onClick={() => nav('dashboard')}
-                aria-label="Overview"
-                title="Overview"
-              >
-                <House size={18} aria-hidden="true" />
-                <span>Overview</span>
+            <section className="sidebar-nav-group sidebar-recent-projects" aria-labelledby="sidebar-recent-projects-title">
+              <button type="button" className="sidebar-category sidebar-recent-toggle" id="sidebar-recent-projects-title"
+                aria-expanded={projectsExpanded} aria-controls="sidebar-recent-projects-content" onClick={() => setProjectsExpanded(value => !value)}>
+                Recent projects <ChevronDown size={14} aria-hidden="true" />
               </button>
-              <button
-                className={`nav-item ${projectsActive ? 'active' : ''}`}
-                aria-current={projectsActive ? 'page' : undefined}
-                onClick={() => nav('projects')}
-                aria-label="Projects"
-                title="Projects"
-              >
-                <FolderOpen size={18} aria-hidden="true" />
-                <span>Projects</span>
-              </button>
-              <button
-                className={`nav-item ${staticActive ? 'active' : ''}`}
-                aria-current={staticActive ? 'page' : undefined}
-                onClick={() => nav('review-directory')}
-                aria-label="Code reviews"
-                title="Code reviews"
-              >
-                <FileCheck2 size={18} aria-hidden="true" />
-                <span>Code reviews</span>
-              </button>
-              <button
-                className={`nav-item ${dynamicActive ? 'active' : ''}`}
-                aria-current={dynamicActive ? 'page' : undefined}
-                onClick={() => nav('dynamic-directory')}
-                aria-label="Browser tests"
-                title="Browser tests"
-              >
-                <MonitorPlay size={18} aria-hidden="true" />
-                <span>Browser tests</span>
-              </button>
+              <div id="sidebar-recent-projects-content" hidden={!projectsExpanded}>
+              {recentProjects.length ? (
+                <>
+                  <ul className="sidebar-check-list" id="sidebar-recent-projects-list">
+                    {(showAllProjects ? recentProjects : recentProjects.slice(0, 6)).map(project => {
+                      const current = (screen.name === 'project' || screen.name === 'project-detail') && screen.projectId === project.id;
+                      return (
+                        <li className="sidebar-project-row" key={project.id}>
+                          <button
+                            type="button"
+                            className={`sidebar-check sidebar-project${current ? ' active' : ''}`}
+                            aria-current={current ? 'page' : undefined}
+                            title={project.name}
+                            onClick={() => onNavigate({ name: 'project', projectId: project.id })}
+                          >
+                            <Icon icon={FolderOpen} />
+                            <span className="sidebar-check-name">{project.name}</span>
+                          </button>
+                          <button type="button" className="sidebar-project-options"
+                            aria-label={`Details for ${project.name}`} aria-haspopup="dialog" title="Project details"
+                            onClick={() => setDetailsProjectId(project.id)}
+                          ><Icon icon={MoreHorizontal} /></button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {recentProjects.length > 6 && (
+                    <button type="button" className="sidebar-project-more" aria-expanded={showAllProjects} aria-controls="sidebar-recent-projects-list" onClick={() => setShowAllProjects(value => !value)}>
+                      {showAllProjects ? 'Show fewer projects' : 'Show all projects'}
+                    </button>
+                  )}
+                </>
+              ) : <div className="sidebar-pins-empty"><span>No projects yet</span></div>}
+              </div>
+            </section>
             </div>
 
-            <div className="sidebar-nav-group sidebar-settings-group">
-              <button
-                className={`nav-item ${isActive(['settings']) ? 'active' : ''}`}
-                aria-current={isActive(['settings']) ? 'page' : undefined}
-                onClick={() => nav('settings')}
-                aria-label="Settings"
-                title="Settings"
-              >
-                <Settings size={18} aria-hidden="true" />
-                <span>Settings</span>
-              </button>
-              <button
-                className={`nav-item ${isActive(['help']) ? 'active' : ''}`}
-                aria-current={isActive(['help']) ? 'page' : undefined}
-                onClick={() => nav('help')}
-                aria-label="Help"
-                title="Help"
-              >
-                <CircleHelp size={18} aria-hidden="true" />
-                <span>Help</span>
-              </button>
-            </div>
             </nav>
             <div className="sidebar-profile">
+              <div className="sidebar-profile-actions">
               <button
                 type="button"
                 ref={accountTriggerRef}
@@ -276,20 +262,18 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 aria-haspopup="dialog"
                 aria-expanded={accountMenuOpen}
                 aria-controls="sidebar-account-menu"
-                title="Account"
               >
                 <span className="sidebar-profile-avatar" aria-hidden="true"><CircleUserRound size={20} strokeWidth={1.7} /></span>
-                <span className="sidebar-profile-copy">
-                  <span className="sidebar-profile-label">Account</span>
-                  <span className="sidebar-profile-username">{accountLogin && <GitBranch size={12} aria-hidden="true" />}{accountMethod}</span>
-                  {accountEmail && <span className="sidebar-profile-email">{accountEmail}</span>}
-                </span>
+                <span className="sidebar-profile-copy"><span className="sidebar-profile-username">{username}</span></span>
               </button>
+              <button type="button" className="sidebar-profile-action" title="Help" aria-label="Help" aria-current={screen.name === 'help' ? 'page' : undefined} onClick={() => { setAccountMenuOpen(false); nav('help'); }}><CircleHelp size={17} aria-hidden="true" /></button>
+              <button type="button" className="sidebar-profile-action" title="Settings" aria-label="Settings" aria-current={screen.name === 'settings' ? 'page' : undefined} onClick={() => { setAccountMenuOpen(false); nav('settings'); }}><Settings size={17} aria-hidden="true" /></button>
+              </div>
               {accountMenuOpen && (
                 <div id="sidebar-account-menu" ref={accountMenuRef} className="sidebar-account-menu" role="dialog" aria-label="Account menu">
                   <div className="sidebar-account-menu-heading">
                     <span className="sidebar-account-menu-avatar" aria-hidden="true"><CircleUserRound size={20} strokeWidth={1.7} /></span>
-                  <div><strong>{username}</strong><span>{accountEmail ?? 'Email not provided'}</span></div>
+                  <div><strong>{username}</strong>{accountEmail && accountEmail !== username && <span>{accountEmail}</span>}</div>
                 </div>
                   <div className="sidebar-account-actions" role="group" aria-label="Account actions">
                     <button type="button" onClick={() => { setAccountMenuOpen(false); onNavigate({ name: 'profile' }); }}><CircleUserRound size={16} aria-hidden="true" /> Manage account</button>
@@ -303,17 +287,54 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         </aside>
 
         <section className="page-content-container" aria-label="Page content">
-          <PageBreadcrumbs
+          {screen.name !== 'new-check' && screen.name !== 'check' && <PageBreadcrumbs
             screen={screen}
             projects={projects}
             onNavigate={onNavigate}
-          />
+          />}
           <main ref={mainContentRef} className="main-content" id="main-content" tabIndex={-1}>
             {children}
           </main>
         </section>
       </div>
-
+      <Modal isOpen={searchOpen} onClose={() => setSearchOpen(false)} title="Search projects and checks" width={720}
+        headerContent={<input className="sidebar-search-field" type="search" data-autofocus aria-label="Search by project name" placeholder="Search checks and projects" value={search} onChange={event => setSearch(event.target.value)} />}>
+        <div className="sidebar-search-dialog">
+          <div className="sidebar-search-results">
+            <section aria-labelledby="sidebar-search-checks">
+              <h4 id="sidebar-search-checks">Checks</h4>
+              {matchingChecks.length ? <ul className="sidebar-check-list">
+                {matchingChecks.map(check => <li key={check.id}>
+                  <button type="button" className="sidebar-check" onClick={() => openSearchResult({ name: 'check', checkId: check.id })}>
+                    <span className="sidebar-check-name">{check.projectName}</span>
+                    <time dateTime={check.createdAt}>{new Date(check.createdAt).toLocaleString()}</time>
+                    <CheckOutcome check={check} />
+                  </button>
+                </li>)}
+              </ul> : <p>{query ? 'No matching checks' : 'No checks yet'}</p>}
+            </section>
+            <section aria-labelledby="sidebar-search-projects">
+              <h4 id="sidebar-search-projects">Projects</h4>
+              {matchingProjects.length ? <ul className="sidebar-check-list">
+                {matchingProjects.map(project => <li key={project.id}>
+                  <button type="button" className="sidebar-check sidebar-project" onClick={() => openSearchResult({ name: 'project', projectId: project.id })}>
+                    <Icon icon={FolderOpen} /><span className="sidebar-check-name">{project.name}</span>
+                  </button>
+                </li>)}
+              </ul> : <p>{query ? 'No matching projects' : 'No projects yet'}</p>}
+            </section>
+          </div>
+        </div>
+      </Modal>
+      {detailsProject && (
+        <RecentProjectDetails key={detailsProject.id} project={detailsProject}
+          onClose={() => setDetailsProjectId(null)}
+          onEdit={() => {
+            setDetailsProjectId(null);
+            onNavigate({ name: 'project-detail', projectId: detailsProject.id, initialSection: 'settings' });
+          }}
+        />
+      )}
     </div>
   );
 }

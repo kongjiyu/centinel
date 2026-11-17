@@ -59,13 +59,11 @@ export function ProjectsScreen({
   return (
     <div className="screen command-projects animate-fade-in">
       <CommandPageHeader
-        eyebrow="Workspace"
         title="Projects"
-        description="Browse saved workspaces and open the next task."
         actions={(
           <button className="btn-primary" onClick={() => setShowForm(true)}>
             <Plus size={14} />
-            New project
+            Add project
           </button>
         )}
       />
@@ -74,8 +72,7 @@ export function ProjectsScreen({
         <CommandEmptyState
           icon={FolderOpen}
           title="No projects yet"
-          description="A project is required before you can start Review or Dynamic Testing."
-          action={<button className="btn-primary" onClick={() => setShowForm(true)}><Plus size={16} /> Create project</button>}
+          description="Add a project to reuse it when starting a check from Home."
         />
       )}
 
@@ -132,6 +129,7 @@ export function ProjectsScreen({
                 onNavigate={onNavigate}
                 isPinned={isPinned}
                 onTogglePin={togglePin}
+                onEdit={projectId => onNavigate({ name: 'project-detail', projectId, initialSection: 'settings' })}
                 ariaLabel="Projects"
                 variant="directory-recent"
               />

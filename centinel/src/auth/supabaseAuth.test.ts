@@ -6,6 +6,7 @@ const authMocks = vi.hoisted(() => ({
   linkIdentity: vi.fn(),
   unlinkIdentity: vi.fn(),
   signInWithOAuth: vi.fn(),
+  openExternal: vi.fn(),
   setSession: vi.fn(),
   exchangeCodeForSession: vi.fn(),
   signOut: vi.fn(),
@@ -15,13 +16,39 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({ auth: authMocks })),
 }));
 
+vi.mock('@tauri-apps/api/shell', () => ({ open: authMocks.openExternal }));
+
 describe('Supabase social authentication', () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     window.localStorage.clear();
     window.sessionStorage.clear();
     vi.resetModules();
+  });
+
+  it.each([
+    ['Windows NT 10.0', true],
+    ['Macintosh; Intel Mac OS X 10_15_7', false],
+  ])('uses the system browser only for Windows desktop OAuth (%s)', async (userAgent, external) => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://centinel-test.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'sb_publishable_test');
+    vi.stubEnv('VITE_SUPABASE_AUTH_REDIRECT_URL', 'centinel://auth/callback');
+    vi.stubGlobal('__TAURI_IPC__', vi.fn());
+    vi.stubGlobal('navigator', { userAgent });
+    const url = 'https://centinel-test.supabase.co/auth/v1/authorize?provider=google';
+    authMocks.signInWithOAuth.mockResolvedValue({ data: { url }, error: null });
+
+    const { startGoogleSignIn } = await import('./supabaseAuth');
+    await expect(startGoogleSignIn()).resolves.toBe(external);
+
+    expect(authMocks.signInWithOAuth).toHaveBeenCalledWith({
+      provider: 'google',
+      options: { redirectTo: 'centinel://auth/callback', ...(external ? { skipBrowserRedirect: true } : {}) },
+    });
+    if (external) expect(authMocks.openExternal).toHaveBeenCalledWith(url);
+    else expect(authMocks.openExternal).not.toHaveBeenCalled();
   });
 
   it('starts identity-only GitHub sign-in through Supabase', async () => {

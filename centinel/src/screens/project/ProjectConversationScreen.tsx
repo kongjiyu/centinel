@@ -5,12 +5,15 @@ import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from
 import { isActive } from '../../autotest/types';
 import { stageHeadline } from '../../autotest/presentation';
 import { Icon } from '../../components/Icon';
+import { Select } from '../../components/Select';
 import { CornersIn, CornersOut } from '../../components/cornerIcons';
 import { browserProblem } from '../../check/result';
 import { addNote, isPinned, looksLikeAccount, MODE_LABEL, pinTest, setMode, setSideOpen, unpinTest, updatePrefs, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
 import { useLatestResult, type LatestResult } from '../../check/latestResult';
 import { folderName, startCheck } from '../../check/runner';
 import { useChecks } from '../../check/store';
+import { CHECK_MODES, type CheckMode } from '../../check/types';
+import { projectLocalFolder } from '../../check/projectWorkspace';
 import type { Artifact, Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from '../check/BrowserTiles';
@@ -19,7 +22,7 @@ import '../check/Check.css';
 import './ProjectConversation.css';
 
 type Navigate = (screen: Screen) => void;
-type Pending = { text: string; base: (AutoTestRef & { name: string }) | null } | { rerun: Array<AutoTestRef & { name: string }> };
+type Pending = { text: string; base: (AutoTestRef & { name: string }) | null; checkMode?: CheckMode } | { rerun: Array<AutoTestRef & { name: string }> };
 
 const POLL_MS = 2000;
 const IDLE_POLL_MS = 15000;
@@ -277,7 +280,7 @@ function ProjectSidePanel({ project, latest, onOpen, open, onToggle, documents, 
   const tally = result?.requirements ?? null;
   const browserTests = autoTest?.tests ?? [];
   const browserFailed = browserTests.filter(test => test.state === 'failed').length;
-  const hasFolder = !!project.workspacePath;
+  const hasFolder = !!projectLocalFolder(project);
   const download = async () => {
     if (!review) return;
     setExporting(true);
@@ -426,9 +429,11 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
+  const [checkMode, setCheckMode] = useState<CheckMode>('browser');
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const hasFolder = !!project.workspacePath;
+  const hasFolder = !!projectLocalFolder(project);
 
   const refresh = useCallback(async () => {
     try {
@@ -466,6 +471,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' }); }, [lastSignature, pending]);
 
   const launch = async (job: Pending) => {
+    if ('checkMode' in job && job.checkMode && job.checkMode !== 'browser') {
+      const check = startCheck({ projectId: project.id, documents: [], focus: job.text, mode: job.checkMode,
+        ...(job.checkMode === 'both' ? { browserRequest: job.text } : {}) }, { api, projects: () => projects });
+      onNavigate({ name: 'check', checkId: check.id });
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -481,7 +492,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   };
 
   const submit = (job: Pending) => {
-    if (!hasFolder) {
+    if (!hasFolder && (!('checkMode' in job) || job.checkMode !== 'code')) {
       addNote(project.id, 'Browser tests need the project folder on this computer, and this project only has a GitHub link. Add the folder from Start to test it here.');
       return;
     }
@@ -496,14 +507,14 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
       updatePrefs(project.id, current => ({ ...current, accountReminderShown: true }));
       addNote(project.id, 'The AI will see this account. Use test accounts only.');
     }
-    submit({ text: value, base });
+    submit({ text: value, base, checkMode: base ? 'browser' : checkMode });
     setText('');
     setBase(null);
   };
 
   const runFullCheck = () => {
-    if (!project.workspacePath) return;
-    const check = startCheck({ folder: project.workspacePath, documents: [], focus: '', mode: 'both' }, { api, projects: () => projects });
+    if (!hasFolder) return;
+    const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'both' }, { api, projects: () => projects });
     onNavigate({ name: 'check', checkId: check.id });
   };
 
@@ -573,7 +584,9 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
             <div ref={endRef} />
           </div>
 
-          <form className="pc-composer" onSubmit={event => { event.preventDefault(); send(); }}>
+          <form className={`pc-composer${composerExpanded ? ' is-expanded' : ''}`} onSubmit={event => { event.preventDefault(); send(); }}>
+            <button type="button" className="ck-composer-expand" aria-label={composerExpanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={composerExpanded}
+              onClick={() => setComposerExpanded(value => !value)}><Icon icon={composerExpanded ? CornersIn : CornersOut} /></button>
             {base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>}
             <label className="ck-visually-hidden" htmlFor="pc-input">Message to Centinel</label>
             <textarea id="pc-input" ref={inputRef} rows={2} maxLength={2000} value={text} onChange={event => setText(event.target.value)}
@@ -597,6 +610,10 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
                   </ul>
                 )}
               </div>
+              <Select aria-label="Check mode" className="ck-mode-select pc-check-mode"
+                value={base ? 'browser' : checkMode} disabled={!!base}
+                options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && option.value === 'both' }))}
+                onChange={value => setCheckMode(value as CheckMode)} />
               <button type="submit" className="ck-round is-go" aria-label="Send" disabled={sending || !text.trim()}><ArrowUp size={18} strokeWidth={2} aria-hidden="true" /></button>
             </div>
           </form>

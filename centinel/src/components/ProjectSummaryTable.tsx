@@ -1,4 +1,4 @@
-import { ChevronRight, FileCheck2, MonitorPlay, Pin, Trash2 } from 'lucide-react';
+import { ChevronRight, FileCheck2, MonitorPlay, Pencil, Pin, Trash2 } from 'lucide-react';
 import {
   formatActivityTime,
   getProjectState,
@@ -14,6 +14,7 @@ type Props = {
   summaries: ProjectSummary[];
   onNavigate: (screen: Screen) => void;
   onDelete?: (summary: ProjectSummary) => void;
+  onEdit?: (projectId: string) => void;
   /** Directory-only local pin affordance. Dashboard rows never render it. */
   isPinned?: (projectId: string) => boolean;
   onTogglePin?: (projectId: string) => void;
@@ -39,6 +40,7 @@ export function ProjectSummaryTable({
   summaries,
   onNavigate,
   onDelete,
+  onEdit,
   isPinned,
   onTogglePin,
   showWorkspacePath = false,
@@ -145,10 +147,11 @@ export function ProjectSummaryTable({
                       <button
                         type="button"
                         className="project-summary-open"
-                        onClick={() => openSummary(summary, onNavigate)}
-                        aria-label={`${actionLabel} for ${summary.project.name}`}
+                        onClick={() => onEdit ? onEdit(summary.project.id) : openSummary(summary, onNavigate)}
+                        aria-label={onEdit ? `Edit project ${summary.project.name}` : `${actionLabel} for ${summary.project.name}`}
+                        title={onEdit ? 'Edit project' : actionLabel}
                       >
-                        <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+                        {onEdit ? <Pencil size={16} aria-hidden="true" /> : <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />}
                       </button>
                       {onDelete && (
                         <button

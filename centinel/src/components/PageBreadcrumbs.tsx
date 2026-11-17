@@ -42,23 +42,22 @@ function breadcrumbHref(screen: Screen): string {
 
 /** Build the shell's semantic route trail without coupling it to a router. */
 export function getBreadcrumbItems(screen: Screen, projects: Project[]): BreadcrumbItem[] {
-  const product: BreadcrumbItem = { label: 'Details', target: { name: 'dashboard' } };
-  const projectsItem: BreadcrumbItem = { label: 'Projects', target: { name: 'projects' } };
+  const product: BreadcrumbItem = { label: 'New Check', target: { name: 'new-check' } };
 
   switch (screen.name) {
     case 'new-check':
-      return [{ label: 'New check' }];
+      return [{ label: 'New Check' }];
     case 'project':
-      return [projectsItem, { label: projectLabel(projects, screen.projectId) }];
+      return [product, { label: projectLabel(projects, screen.projectId) }];
     case 'check':
       return [{ label: 'Checks', target: { name: 'new-check' } }, { label: 'Check' }];
     case 'dashboard':
-      return [product, { label: 'Overview' }];
+      return [product, { label: 'Workspace details' }];
     case 'projects':
       return [product, { label: 'Projects' }];
     case 'project-detail': {
       const project = projectLabel(projects, screen.projectId);
-      const trail: BreadcrumbItem[] = [product, projectsItem, { label: project }];
+      const trail: BreadcrumbItem[] = [product, { label: project }];
       if (screen.initialAction === 'static') trail.push({ label: 'Review setup' });
       if (screen.initialAction === 'dynamic') trail.push({ label: 'Dynamic Testing setup' });
       return trail;
@@ -72,7 +71,6 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
       const project = projectLabel(projects, screen.projectId);
       return [
         product,
-        projectsItem,
         { label: project, target: { name: 'project-detail', projectId: screen.projectId } },
         { label: 'Review', target: { name: 'review-entry', projectId: screen.projectId } },
         ...(screen.name === 'review-finding'
@@ -83,12 +81,11 @@ export function getBreadcrumbItems(screen: Screen, projects: Project[]): Breadcr
     case 'reviews':
       return [
         product,
-        projectsItem,
         { label: projectLabel(projects, screen.projectId), target: { name: 'project-detail', projectId: screen.projectId } },
         { label: 'Reviews' },
       ];
     case 'dynamic-testing':
-      return screen.projectId ? [product, projectsItem, { label: projectLabel(projects, screen.projectId), target: { name: 'project-detail', projectId: screen.projectId } }, { label: 'Dynamic testing' }] : [{ label: 'Activities' }, { label: 'Dynamic testing' }];
+      return screen.projectId ? [product, { label: projectLabel(projects, screen.projectId), target: { name: 'project-detail', projectId: screen.projectId } }, { label: 'Dynamic testing' }] : [{ label: 'Activities' }, { label: 'Dynamic testing' }];
     case 'dynamic-session':
       return [
         product,

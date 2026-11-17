@@ -7,12 +7,13 @@ type Props = {
   onClose: () => void;
   title: string;
   headerAside?: ReactNode;
+  headerContent?: ReactNode;
   descriptionId?: string;
   width?: number;
   children: React.ReactNode;
 };
 
-export function Modal({ isOpen, onClose, title, headerAside, descriptionId, width = 520, children }: Props) {
+export function Modal({ isOpen, onClose, title, headerAside, headerContent, descriptionId, width = 520, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const titleId = useId();
@@ -74,17 +75,20 @@ export function Modal({ isOpen, onClose, title, headerAside, descriptionId, widt
         style={{ width }}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-labelledby={headerContent ? undefined : titleId}
+        aria-label={headerContent ? title : undefined}
         aria-describedby={descriptionId}
         tabIndex={-1}
         onClick={event => event.stopPropagation()}
       >
-        <div className="modal-header">
+        <div className={`modal-header${headerContent ? ' modal-custom-header' : ''}`}>
+          {headerContent ?? <>
           <div className="modal-title-group">
             <h3 id={titleId}>{title}</h3>
             {headerAside}
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>
+          </>}
         </div>
         <div className="modal-body">
           {children}

@@ -15,6 +15,7 @@ import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import { openExternalUrl } from '../utils/openExternalUrl';
+import { readTheme, saveTheme, type Theme } from '../theme';
 
 type Props = {
   settings: AiProviderSetting[];
@@ -164,6 +165,18 @@ function AppVersionSection() {
         </div>
       </div>
       {updateMessage && <p className={`app-update-message app-update-${updateState}`} role={updateState === 'error' ? 'alert' : 'status'}>{updateMessage}</p>}
+    </section>
+  );
+}
+
+function AppearanceSection() {
+  const [theme, setTheme] = useState(readTheme);
+  return (
+    <section className="settings-section" aria-labelledby="settings-appearance-title">
+      <div className="settings-section-heading"><h2 id="settings-appearance-title">Appearance</h2></div>
+      <Select aria-label="Theme" value={theme} options={[
+        { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' },
+      ]} onChange={value => { const next = value as Theme; setTheme(next); saveTheme(next); }} />
     </section>
   );
 }
@@ -620,6 +633,7 @@ export function SettingsScreen({ settings, onRefresh, initialSection }: Props & 
 
       <div className="settings-layout">
         <AppVersionSection />
+        <AppearanceSection />
 
         <section className="settings-section settings-connectors" aria-labelledby="settings-connections-title">
           <div className="settings-section-heading">

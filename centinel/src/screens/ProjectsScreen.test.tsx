@@ -29,23 +29,32 @@ describe('Project creation', () => {
     folderPicker.mockResolvedValue('C:\\Projects\\banking');
     const onCreate = vi.fn().mockRejectedValue(new Error('Storage unavailable'));
     render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: 'New project' }));
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
     await user.type(screen.getByLabelText(/Description/), 'Payment verification');
-    expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Add local folders' }));
-    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await user.click(screen.getByRole('dialog', { name: 'Add Project' }).querySelector('button[type=submit]')!);
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Banking', 'Payment verification', [{ type: 'local-repository', path: 'C:\\Projects\\banking' }]));
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage unavailable');
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
     expect(screen.getByText('C:\\Projects\\banking')).toBeInTheDocument();
   });
 
+  it('creates a project without a selected repository so it can use a managed folder', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
+    await user.type(screen.getByLabelText('Project name *'), 'New workspace');
+    await user.click(within(screen.getByRole('dialog', { name: 'Add Project' })).getByRole('button', { name: 'Add project' }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith('New workspace', '', []));
+  });
+
   it('reports folder-picker failures without discarding the project name', async () => {
     const user = userEvent.setup();
     folderPicker.mockRejectedValue(new Error('Desktop bridge unavailable'));
     render(<ProjectsScreen projects={[]} onCreate={vi.fn()} onDelete={vi.fn()} onNavigate={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: 'New project' }));
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
     await user.click(screen.getByRole('button', { name: 'Add local folders' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('folder picker could not open');
@@ -57,11 +66,11 @@ describe('Project creation', () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
 
-    await user.click(screen.getByRole('button', { name: 'New project' }));
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Remote project');
     await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/remote-project');
-    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await user.click(screen.getByRole('dialog', { name: 'Add Project' }).querySelector('button[type=submit]')!);
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Remote project', '', [{
       type: 'github',
@@ -75,7 +84,7 @@ describe('Project creation', () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     folderPicker.mockResolvedValue(['C:\\Projects\\api', 'C:\\Projects\\web']);
     render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: 'New project' }));
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Mixed');
     await user.click(screen.getByRole('button', { name: 'Add local folders' }));
     expect(folderPicker).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }));
@@ -83,7 +92,7 @@ describe('Project creation', () => {
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/first.git');
     await user.click(screen.getByRole('button', { name: 'Add link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/second');
-    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await user.click(screen.getByRole('dialog', { name: 'Add Project' }).querySelector('button[type=submit]')!);
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Mixed', '', [
       { type: 'local-repository', path: 'C:\\Projects\\api' },
       { type: 'local-repository', path: 'C:\\Projects\\web' },
@@ -235,13 +244,13 @@ describe('Project directory', () => {
     expect(screen.getByText('1–5 of 6')).toBeInTheDocument();
     expect(table).not.toHaveTextContent('Private description 1');
     expect(screen.queryByRole('button', { name: /Remove page project/i })).not.toBeInTheDocument();
-    const firstPageProjectLabels = within(table).getAllByRole('button', { name: /Open project for Page project/i })
+    const firstPageProjectLabels = within(table).getAllByRole('button', { name: /Edit project Page project/i })
       .map(button => button.getAttribute('aria-label'));
 
     await user.click(screen.getByRole('button', { name: 'Next project page' }));
 
     expect(within(table).getAllByRole('row')).toHaveLength(2);
-    const secondPageProjectLabel = within(table).getByRole('button', { name: /Open project for Page project/i }).getAttribute('aria-label');
+    const secondPageProjectLabel = within(table).getByRole('button', { name: /Edit project Page project/i }).getAttribute('aria-label');
     expect(secondPageProjectLabel).not.toBeNull();
     expect(firstPageProjectLabels).not.toContain(secondPageProjectLabel);
     expect(screen.getByText('6–6 of 6')).toBeInTheDocument();

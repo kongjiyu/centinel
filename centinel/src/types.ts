@@ -3,6 +3,8 @@ export type Project = {
   name: string;
   description: string;
   workspacePath: string;
+  managedWorkspacePath?: string;
+  managedWorkspaceReady?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -875,7 +877,7 @@ export type ProjectAssessment = {
 
 export type Screen =
   /** Start: give Centinel a project and documents (DESIGN.md §4.1). */
-  | { name: 'new-check' }
+  | { name: 'new-check'; initialCreate?: boolean }
   /** Live while a check runs, then its Result (DESIGN.md §4.2, §4.3). */
   | { name: 'check'; checkId: string }
   /** A project as a conversation with Centinel (DESIGN.md §4.4). */
@@ -892,7 +894,7 @@ export type Screen =
   | {
       name: 'project-detail';
       projectId: string;
-      initialSection?: 'source' | 'findings';
+      initialSection?: 'source' | 'findings' | 'settings';
       findingsReviewId?: string;
       findingId?: string;
       sourceArtifactId?: string;

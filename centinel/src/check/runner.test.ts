@@ -35,6 +35,18 @@ describe('check runner', () => {
     expect(documentType('notes.txt')).toBe('other');
   });
 
+  it('uses attached library files for a focused code review', async () => {
+    const api = fakeApi({
+      listArtifacts: vi.fn().mockResolvedValue([{ id: 'picked', type: 'source_code' }, { id: 'other', type: 'source_code' }]),
+    });
+    const project = { id: 'saved', name: 'Saved Shop', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, sourceArtifactIds: ['picked'], documents: [], focus: 'Review totals', mode: 'code' },
+      { api, projects: () => [project] });
+    await until(() => getCheck(check.id)?.phase === 'running');
+    expect(api.createStaticSession).toHaveBeenCalledWith('saved', expect.objectContaining({ scopeMode: 'focused', artifactIds: ['picked'] }));
+    expect(api.uploadArtifact).not.toHaveBeenCalled();
+  });
+
   it('creates the project, adds documents, starts the review with the full scope and the browser tests', async () => {
     const api = fakeApi();
     const onProjectCreated = vi.fn();
@@ -71,11 +83,33 @@ describe('check runner', () => {
     expect(getCheck(check.id)?.notes[0]).toMatch(/Browser tests did not run/);
   });
 
+  it('runs browser-only against the selected saved project when paths match', async () => {
+    const api = fakeApi();
+    const project = { id: 'saved', name: 'Saved Shop', description: '', workspacePath: '/work/shop', createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'browser' }, {
+      api, projects: () => [{ ...project, id: 'other' }, project],
+    });
+    expect(check.projectName).toBe('Saved Shop');
+    await until(() => getCheck(check.id)?.phase === 'running');
+    expect(api.createProject).not.toHaveBeenCalled();
+    expect(api.createStaticSession).not.toHaveBeenCalled();
+    expect(api.startAutoTest).toHaveBeenCalledWith('saved', { folder: '/work/shop' });
+  });
+
   it('fails with a plain reason when nothing could start', async () => {
     const api = fakeApi({ listArtifacts: vi.fn().mockResolvedValue([]) });
     const check = startCheck({ folder: '/work/empty', documents: [], focus: '', mode: 'code' }, { api, projects: () => [] });
     await until(() => getCheck(check.id)?.phase === 'failed');
     expect(getCheck(check.id)?.error).toBe('No readable files were found in the project, so nothing could be reviewed.');
+  });
+
+  it('uses a populated managed folder for a project without a registered folder', async () => {
+    const api = fakeApi();
+    const project = { id: 'saved', name: 'Managed Shop', description: '', workspacePath: '',
+      managedWorkspacePath: '/app-data/projects/account/saved', managedWorkspaceReady: true, createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'browser' }, { api, projects: () => [project] });
+    await until(() => getCheck(check.id)?.phase === 'running');
+    expect(api.startAutoTest).toHaveBeenCalledWith('saved', { folder: project.managedWorkspacePath });
   });
 
   it('keeps the review running when the browser tests cannot start', async () => {

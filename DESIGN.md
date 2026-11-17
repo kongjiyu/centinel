@@ -70,29 +70,29 @@ Status words, in sentence case: Not started, Queued, In progress, Paused, Comple
 
 **Job:** take the project and begin.
 
-The layout follows the familiar AI-app start page (the user chose Gamma's home as the reference): a centred headline over one large input, with quick choices below it.
+Home follows the familiar AI-app start page (the user chose Gamma's home as the reference): a centred headline over one large check input.
 
 Top to bottom, in one centred column:
 
 1. **The headline** "What should Centinel check?" and one supporting line. The glow (§7) sits behind and below this column.
 2. **The check input**, at most 600 px wide, with the hero radius and the one raised shadow (§8):
    - **Attached items** on the first line, as removable pill chips. The project chip (a folder or a GitHub repository) is dark ink with white text and a folder icon; document chips are light with a file icon.
-   - **A text area** for an optional focus ("check that sign-in and checkout follow the requirements"). It maps to the existing Review goal.
-   - **An add button** (a round "+", bottom left) that opens: Choose a folder, Paste a GitHub link, Add documents.
-   - **A start button** (a round filled arrow, bottom right) with the accessible name **Start check**. It is the screen's one primary action.
-3. **Mode chips** under the input, one selected at a time (the selected chip is dark ink with white text, the others are white with a border; each has its icon): **Code and browser** (default), **Code only**, **Browser only**.
-4. **Try the Sample Shop**, a single quiet link with a cart icon for someone with no project at hand. It attaches the bundled example project.
+   - **A text area** for an optional focus ("check that sign-in and checkout follow the requirements"). It maps to the existing Review goal. Focusing the field keeps the card border unchanged and adds no outline around the text area.
+   - **A mode dropdown** in the composer footer shows the muted selection with a chevron and no border. Its options are **Code and browser** (default), **Code** and **Browser**.
+   - **An add button** (a borderless "+" at bottom left) opens a composer-width overlay above the input. Add contains documents and repositories. Recent Checks can select the associated project and attach the earlier check. Typing @ opens the overlay with matching recent checks first and saved projects second. Choosing a project sets it for the new check. The project selector in the footer provides project search and a fixed Add a project action.
+   - **Check**, a filled pill at bottom right, starts the check. When the person types, it becomes an up-arrow button with the same accessible name.
+3. **Recommendations**, four borderless translucent rows centered at 90% of the composer width. The first three use ranked project activity with at most two from any scenario and general prompts filling gaps. Try the Sample Shop is always fourth. Selecting a row replaces the draft, project and check mode. General prompts start without a project.
 
 Recent checks are in the sidebar (§6), not on this screen.
 
 Rules:
 
 - The project is required; text is optional. The input must never look like a plain chat box:
-  - with nothing attached, the placeholder says "Drop your project folder here, or paste a GitHub link";
+  - with nothing attached, the placeholder says "Choose a project with +, drop documents here, or paste a GitHub link";
   - once a project is attached, the placeholder changes to the optional-focus example;
   - the start button stays visible, and until a project is attached it explains what is missing instead of starting.
 - The whole input accepts a dropped folder or files, and a pasted GitHub link becomes a project chip. Every one of these also works through the add button and the keyboard.
-- No project form. Centinel creates the project from the folder, or reuses the existing project for that folder.
+- Home can select a saved project or start from a folder or GitHub link. Add a project opens the project form on Home. Projects without a registered folder get an account-scoped folder under Centinel’s writable application data directory on the current device. Browser testing needs app files in that folder.
 - No environment, permission, model or scope settings on this screen. Sensible defaults apply; settings live under Details and Settings.
 - If something required is missing (for example no AI provider is connected), show the one missing step in place, with one action. Do not send the person to another screen and back.
 - Documents are optional. Without them the check still runs, and the result says requirements were not provided.
@@ -257,7 +257,8 @@ Marks, the risk word and Live statuses are an icon or a dot plus a word. They ha
 ### Shell
 
 - Use the operating system's window controls.
-- One sidebar, one level. In order: **New check** (opens Start), **Search**, the list of **recent checks**, and **Settings** at the bottom. It collapses.
+- One sidebar, one level. **New Check** opens the check composer and stays fixed above the scrollable **Recent checks** and **Recent projects** lists. Search sits beneath New Check. The dialog opens from Search or Ctrl/Cmd+K, puts its input in the header, and shows Checks before Projects. Account stays below the scroll area and contains Settings, Manage account, Switch account, Help and Log out in that order.
+- Recent checks and Recent projects each collapse from their headings. Recent projects shows the six most recently updated projects and a way to show the rest. Selecting a project opens its conversation. The ellipsis appears on hover or keyboard focus and opens a dialog with the project name, description and import sources. Edit project is available in that dialog. The composer provides Add a project.
 - Do not add a second navigation column or an icon rail beside it. Centinel has few destinations; everything else is under Details.
 - Each recent check shows the project name and, 4 px below it, its result in a few words with an icon (a warning triangle and "5 problems" in red; a check and "No problems"). Records are separated by more space than a name and its result.
 - A running check appears at the top of the recent list with a live state and returns to Live.
@@ -289,7 +290,6 @@ Do not use:
 - radar, scan lines, telemetry grids, crosshairs or "system online" graphics;
 - neon glows, gradient text, or gradients on buttons, cards, chips or icons;
 - a second glow, or the glow in colours other than its three;
-- dark panels or a dark theme;
 - progress bars or percentages that are not computed from real progress;
 - looping animation that does not show a real action;
 - a card around every small group, or cards inside cards;
@@ -505,6 +505,8 @@ Motion has two jobs: to explain a change, and to show real work.
 - Animate only `opacity` and `transform` where possible. Never `transition: all`.
 - No page-load entrance animation and no decorative stagger.
 
+**On New Check,** the headline types in and the underscore blinks slowly. The subtitle slides in from the left, followed by staggered recommendation rows in reserved space. Blue moves from the upper left, pink from the middle right, and orange from the lower left-center on independent paths. The composer expands upward while keeping the heading and subtitle in place. When a check starts, the footer collapses and the composer moves from its measured landing position to the measured follow-up position. The Check details panel enters from the right. Reduced motion keeps the introduction and route change immediate and the colors still.
+
 **On Live, motion is evidence.** These are allowed because each one shows something that really happened:
 
 - the cursor gliding to the element the browser is about to use, a click ripple, a target outline and a masked typing caret;
@@ -577,10 +579,10 @@ This document describes the target. Built on 12–13 November 2026 (frontend onl
 | Aurora tokens: palette, glow, lanes, stage, spacing, shape | Built in `centinel/src/tokens.css`. Token names are unchanged, so older screens now use the Aurora colours |
 | Onest | Bundled; replaces IBM Plex Sans in the app. Exported PDF reports still use IBM Plex Sans |
 | Shared icon component with optical alignment | Built: `components/Icon.tsx`. Used on the three new screens and the sidebar; older screens still use plain Lucide icons |
-| Start screen | Built: `screens/check/StartScreen.tsx`. Folder by the add menu or a pasted path; documents by drop or the add menu; GitHub link by paste or the add menu |
+| Home | Built: `screens/check/StartScreen.tsx`. Choose or add a saved project via the add menu, add documents by drop or the add menu, or paste a GitHub link. The mode dropdown sits at the upper left of the composer |
 | Live screen | Built: `screens/check/CheckScreen.tsx`. Code column reads the Review's saved progress and validated live titles; browser column reuses the Auto test live stream |
 | Result screen | Built: same file. Two groups, three numbers, one risk word with its icon, open-in-place evidence |
-| Sidebar: New check, Search, recent checks, Details | Built. Recent checks are stored on this device only (`check/store.ts`); they hold IDs and outcomes, never findings or source |
+| Sidebar: New, Search, recent checks, recent projects | Built. Recent checks are stored on this device only (`check/store.ts`); they hold IDs and outcomes, never findings or source |
 | Code and Browser marks | Built. Browser problems are failed Auto test runs; code problems are open Review findings |
 | Handing code-review problems to browser tests | Not built. No problem carries both marks yet |
 | Dropping a folder onto the check input | Not possible in the desktop window: native file drop is off, so a dropped folder has no path. The input says to use the add menu instead |
@@ -636,6 +638,24 @@ Before accepting a screen:
 
 Decision log (user-approved unless noted):
 
+- 2026-11-17 (user request): Show the permission choices on hover and expose the project library from the Check Details header and composer. The follow-up composer overlays the scrolling response and expands without resizing it.
+- 2026-11-17 (user request): Share one glow across the Check Details header, content and sidebar. Keep the profile popup flat with a border.
+- 2026-11-17 (user request): Put Help and Settings beside the compact profile, separate the scrolled recent lists from the fixed actions, and match the New Check and follow-up composer positions during navigation. Use the project-name source dropdown in check details.
+- 2026-11-17 (user request): Make a recommendation replace the draft, remove recommendations from the + menu, and provide a device-local app-managed folder when no folder is registered.
+- 2026-11-17 (user request): Animate the three glow colors independently, expand the composer on demand, cap recommendations by scenario, dock the composer when a check starts, and put check mode before Send in check details and project conversation.
+- 2026-11-17 (user request): Fix Sample Shop in the fourth recommendation row, append prompts from translucent rows, add recent-list disclosures, and keep the title caret and background moving.
+- 2026-11-17 (user request): Add Light, Dark and System appearance settings. Rank New Check recommendations by saved activity, remove pointer motion, and give the title more time to type before the recommendations appear below the composer.
+- 2026-11-17 (user request): Type in the New Check title, then reveal the subtitle and actionable suggestions. Use background ripples and keep the composer focus glow. Make the workspace search input fill its dialog header.
+- 2026-11-17 (user request): Make the New Check glow and points of light follow the pointer and gather at the composer border on focus.
+- 2026-11-17 (user request): Let @ select a saved project from below the matching recent checks.
+- 2026-11-17 (user request): Use New Check and Check, move project and mode into the composer footer, add recent-check references and @ filtering, and put Checks first in the keyboard-accessible search dialog.
+
+- 2026-11-17 (user request): Pin New above the scrolling lists. Open project and check search from the header icon and move Settings and Help to Account.
+- 2026-11-17 (user request): Use a borderless project row with an ellipsis on hover. Open the project details dialog from the ellipsis and keep editing available there.
+- 2026-11-17 (user request): Replace the Projects page with Recent projects below Recent checks. Keep project editing on each row and project creation in the composer.
+- 2026-11-16 (user request): Center the Home composer, put the mode at the upper left, use a fixed add-project action in the project dropdown, and switch Send to an up arrow while typing.
+- 2026-11-16 (user request): Give the Home composer a larger Send button, a borderless Check mode selector with short options, and a text area with no outline on focus.
+- 2026-11-16 (user request): Home is the check composer. Projects holds the directory and the add and edit actions. The standalone activity directories leave the sidebar, and check mode moves beside the add button as a dropdown.
 - 2026-11-12: Replace the earlier guide with the three-screen design: Start, Live, Result.
 - 2026-11-12: One Start runs both the code review and browser tests by default.
 - 2026-11-12: Code-review problems are double-checked in the browser. A problem tested in the browser that does not show is not listed as a problem; its record is kept.

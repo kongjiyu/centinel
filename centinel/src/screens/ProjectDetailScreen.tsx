@@ -34,7 +34,7 @@ type Props = {
   onNavigate: (screen: Screen) => void;
   onProjectUpdated?: (project: Project) => void;
   initialAction?: 'static' | 'dynamic';
-  initialSection?: 'source' | 'findings';
+  initialSection?: 'source' | 'findings' | 'settings';
   findingsReviewId?: string;
   findingId?: string;
   sourceArtifactId?: string;
@@ -115,8 +115,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   const [showReportHistory, setShowReportHistory] = useState(false);
   const [reportLinks, setReportLinks] = useState<Record<string, ProjectReportDownloadLinks>>({});
   const [renewingReportId, setRenewingReportId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState(initialSection === 'source' ? 'project-source' : initialSection === 'findings' ? 'project-findings' : 'project-overview');
-  useEffect(() => { setActiveSection(initialSection === 'source' ? 'project-source' : initialSection === 'findings' ? 'project-findings' : 'project-overview'); }, [project.id, initialSection, findingsReviewId, findingId]);
+  const entrySection = initialSection ? `project-${initialSection}` : 'project-overview';
+  const [activeSection, setActiveSection] = useState(entrySection);
+  useEffect(() => { setActiveSection(entrySection); }, [project.id, entrySection, findingsReviewId, findingId]);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [activityQuery, setActivityQuery] = useState('');
   const [activityType, setActivityType] = useState<'all' | 'review' | 'dynamic'>('all');
@@ -254,6 +255,10 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
     setCurrentProject(project);
     setSettingsEditing(false);
   }, [project.description, project.id, project.name, project.workspacePath]);
+
+  useEffect(() => {
+    if (initialSection === 'settings') setSettingsEditing(true);
+  }, [initialSection, project.id]);
 
   useEffect(() => {
     setDynamicSessionsError(null);
@@ -853,8 +858,9 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
   };
 
   const handleSaveSettings = async () => {
-    if (!settingsDraft.name.trim() || !settingsDraft.workspacePath.trim()) {
-      setSettingsError('Project name and workspace are required.');
+    const workspacePath = settingsDraft.workspacePath.trim();
+    if (!settingsDraft.name.trim() || (currentProject.workspacePath && !workspacePath)) {
+      setSettingsError('Enter a project name and keep the existing workspace path or choose a new one.');
       return;
     }
     setSavingSettings(true);
@@ -864,7 +870,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       const updated = await api.updateProject(project.id, {
         name: settingsDraft.name.trim(),
         description: settingsDraft.description.trim(),
-        workspacePath: settingsDraft.workspacePath.trim(),
+        ...(workspacePath ? { workspacePath } : {}),
       });
       setCurrentProject(updated);
       setSettingsDraft({ name: updated.name, description: updated.description, workspacePath: updated.workspacePath });
@@ -1280,7 +1286,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
 
         {activeSection === 'project-settings' && <section className="card detail-card project-settings-card" id="project-settings">
           <div className="panel-header project-settings-header">
-            <div><h2><Settings size={19} /> Settings</h2></div>
+            <div><h2><Settings size={19} /> {settingsEditing ? 'Edit project' : 'Settings'}</h2></div>
             <div className="project-settings-actions">
               {!settingsEditing ? (
                 <button type="button" className="btn-secondary" onClick={() => { setSettingsEditing(true); setSettingsSaved(false); }}><Settings size={15} aria-hidden="true" /> Edit</button>

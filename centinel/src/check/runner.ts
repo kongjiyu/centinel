@@ -1,4 +1,5 @@
 import { api, type CreateStaticSessionPayload } from '../api/client';
+import { projectLocalFolder } from './projectWorkspace';
 import type { Artifact, ArtifactType, Project } from '../types';
 import { userFacingError } from '../utils/userFacingError';
 import { readPrefs } from './projectPrefs';
@@ -59,14 +60,18 @@ export type RunnerDeps = {
 
 export function startCheck(input: StartCheckInput, deps: RunnerDeps): CheckRecord {
   const now = (deps.now ?? (() => new Date()))().toISOString();
+  const selectedProject = input.projectId ? deps.projects().find(project => project.id === input.projectId) : undefined;
+  const folder = projectLocalFolder(selectedProject) || input.folder;
   const repositoryName = input.githubUrl ? githubRepositoryName(input.githubUrl) : null;
-  const projectName = input.folder ? folderName(input.folder) : repositoryName ?? 'Project';
+  const projectName = selectedProject?.name ?? (folder ? folderName(folder) : repositoryName ?? 'Project');
   const check: CheckRecord = {
     id: newId(),
     createdAt: now,
     updatedAt: now,
     projectName,
-    ...(input.folder ? { folder: input.folder } : {}),
+    ...(input.referenceCheckIds?.length ? { referenceCheckIds: input.referenceCheckIds } : {}),
+    ...(input.sourceArtifactIds?.length ? { sourceArtifactIds: input.sourceArtifactIds } : {}),
+    ...(folder ? { folder } : {}),
     ...(input.githubUrl ? { githubUrl: input.githubUrl.trim() } : {}),
     documents: input.documents.map(document => document.name),
     focus: input.focus.trim(),
@@ -76,19 +81,29 @@ export function startCheck(input: StartCheckInput, deps: RunnerDeps): CheckRecor
     notes: [],
   };
   saveCheck(check);
-  void prepare(check.id, input, deps);
+  void prepare(check.id, { ...input, folder }, deps, selectedProject);
   return check;
 }
 
-async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps) {
+async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps, selectedProject?: Project) {
   const { api } = deps;
   const note = (text: string) => updateCheck(checkId, { notes: [...(getCheck(checkId)?.notes ?? []), text] });
   try {
+    if (input.mode === 'browser' && input.sourceArtifactIds?.length) {
+      throw new Error('Library files need a code review. Choose Code or Code and browser.');
+    }
+    if (input.referenceCheckIds?.some(id => !selectedProject || getCheck(id)?.projectId !== selectedProject.id)) {
+      throw new Error('An attached check is no longer available for this project. Select it again.');
+    }
     // 1. Project: reuse the project for this folder, or create it.
-    let project: Project | undefined;
+    let project = selectedProject;
+    if (input.projectId && !project) throw new Error('This project is no longer available. Choose another project.');
     if (input.folder) {
       const folder = normalizePath(input.folder);
-      project = deps.projects().find(item => item.workspacePath && normalizePath(item.workspacePath) === folder);
+      project ??= deps.projects().find(item => {
+        const localFolder = projectLocalFolder(item);
+        return localFolder && normalizePath(localFolder) === folder;
+      });
       if (project) {
         // Refresh the saved copy so the Review sees the folder as it is now.
         const refreshed = await api.importRepoArtifacts(project.id, input.folder);
@@ -99,7 +114,7 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
         deps.onProjectCreated?.(created);
         for (const warning of created.sourceImportWarnings ?? []) note(warning);
       }
-    } else if (input.githubUrl) {
+    } else if (!project && input.githubUrl) {
       const name = githubRepositoryName(input.githubUrl) ?? 'GitHub project';
       const created = await api.createProject(name.split('/').pop() ?? name, '', '', [{ type: 'github', repoUrl: input.githubUrl.trim() }]);
       project = created;
@@ -110,7 +125,8 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
     updateCheck(checkId, { projectId: project.id, projectName: project.name, prepStep: 'documents' });
 
     // 2. Documents.
-    for (const document of input.documents) await uploadDocument(api, project.id, document);
+    const uploadedIds: string[] = [];
+    for (const document of input.documents) uploadedIds.push((await uploadDocument(api, project.id, document)).id);
 
     // 3. GitHub import finishes in the background; wait for it before reviewing.
     if (input.githubUrl && !input.folder) {
@@ -123,7 +139,7 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
     const wantsBrowser = input.mode !== 'code';
     if (wantsCode) {
       updateCheck(checkId, { prepStep: 'review' });
-      const review = await startReview(api, project.id, project.name, input.focus.trim());
+      const review = await startReview(api, project.id, project.name, input.focus.trim(), input.sourceArtifactIds, uploadedIds);
       updateCheck(checkId, { reviewId: review.id });
     }
 
@@ -136,7 +152,9 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
         try {
           // Tests saved for every check in the project conversation run alongside the newly planned ones.
           const pinned = readPrefs(project.id).pinned.map(({ sessionId, testId }) => ({ sessionId, testId }));
-          const session = await api.startAutoTest(project.id, { folder: input.folder, ...(pinned.length ? { pinned } : {}) });
+          const request = input.browserRequest?.trim();
+          const session = await api.startAutoTest(project.id, { folder: input.folder,
+            ...(request ? { request } : pinned.length ? { pinned } : {}) });
           updateCheck(checkId, { autoTestId: session.id });
         } catch (cause) {
           note(`Browser tests did not start: ${userFacingError(cause, 'the browser test service was not available.')}`);
@@ -153,7 +171,7 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
 }
 
 async function uploadDocument(api: Api, projectId: string, document: CheckDocument) {
-  await api.uploadArtifact(projectId, { fileName: document.name, content: document.base64, type: documentType(document.name) });
+  return api.uploadArtifact(projectId, { fileName: document.name, content: document.base64, type: documentType(document.name) });
 }
 
 async function waitForGithubImport(api: Api, projectId: string) {
@@ -168,14 +186,20 @@ async function waitForGithubImport(api: Api, projectId: string) {
   throw new Error('The GitHub repository is still importing. Open the project under Details to follow it, then start the check again.');
 }
 
-async function startReview(api: Api, projectId: string, projectName: string, focus: string) {
+async function startReview(api: Api, projectId: string, projectName: string, focus: string, sources: string[] = [], uploadedIds: string[] = []) {
   const [artifacts, requirements] = await Promise.all([
     api.listArtifacts(projectId),
     typeof api.listRequirements === 'function' ? api.listRequirements(projectId).catch(() => []) : Promise.resolve([]),
   ]);
   const active = artifacts.filter(artifact => !isDeprecated(artifact));
   if (!active.length) throw new Error('No readable files were found in the project, so nothing could be reviewed.');
-  const artifactIds = active.filter(artifact => artifact.type !== 'coding_standard').map(artifact => artifact.id);
+  const selected = new Set([...sources, ...uploadedIds]);
+  const available = new Set(active.map(artifact => artifact.id));
+  if (sources.some(id => !available.has(id))) throw new Error('An attached source is no longer available. Select it again from the library.');
+  const files = active.filter(artifact => artifact.type !== 'coding_standard');
+  const focused = sources.length > 0;
+  const artifactIds = (focused ? files.filter(artifact => selected.has(artifact.id)) : files).map(artifact => artifact.id);
+  if (focused && !artifactIds.length) throw new Error('Attach at least one source file or document alongside coding standards.');
   const standardIds = active.filter(artifact => artifact.type === 'coding_standard').map(artifact => artifact.id);
   const requirementIds = requirements.map(requirement => requirement.id);
   const payload: CreateStaticSessionPayload = {
@@ -190,7 +214,7 @@ async function startReview(api: Api, projectId: string, projectName: string, foc
     selectedArtifactIds: artifactIds,
     selectedRequirementIds: requirementIds,
     selectedStandardIds: standardIds,
-    scopeMode: 'full',
+    scopeMode: focused ? 'focused' : 'full',
     idempotencyKey: newId(),
   };
   return api.createStaticSession(projectId, payload);

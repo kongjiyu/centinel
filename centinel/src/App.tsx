@@ -27,7 +27,6 @@ import type { Session } from '@supabase/supabase-js';
 
 // Screens outside the first view load on demand so the initial bundle stays
 // small. Home and the sign-in screen stay in the main chunk.
-const ProjectsScreen = lazy(() => import('./screens/ProjectsScreen').then(module => ({ default: module.ProjectsScreen })));
 const ProjectDetailScreen = lazy(() => import('./screens/ProjectDetailScreen').then(module => ({ default: module.ProjectDetailScreen })));
 const DynamicWorkspaceScreen = lazy(() => import('./screens/DynamicWorkspaceScreen').then(module => ({ default: module.DynamicWorkspaceScreen })));
 const DynamicSessionScreen = lazy(() => import('./screens/DynamicSessionScreen').then(module => ({ default: module.DynamicSessionScreen })));
@@ -83,6 +82,7 @@ function App() {
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [screen, setScreen] = useState<Screen>(() => (typeof window !== 'undefined' && hashToScreen(window.location.hash)) || { name: 'new-check' });
   const navigate = (next: Screen) => {
+    if (next.name === 'projects') return setScreen({ name: 'new-check', initialCreate: next.initialCreate });
     if (next.name === 'project-detail' && next.initialAction === 'dynamic') return setScreen({ name: 'dynamic-testing', projectId: next.projectId });
     // Opening a project shows its conversation (DESIGN.md §4.4); the older tabs stay under Details.
     const plainOpen = next.name === 'project-detail' && !next.details && !next.initialSection && !next.initialAction && !next.findingId && !next.findingsReviewId && !next.sourceArtifactId && !next.initialStaticSessionId;
@@ -223,6 +223,24 @@ function App() {
   }, [entryMode]);
 
   useEffect(() => {
+    if (entryMode !== 'workspace' || !projects.some(project => project.managedWorkspacePath)) return;
+    let active = true;
+    const refreshManagedFolders = () => {
+      void api.projects().then(current => {
+        if (!active) return;
+        const byId = new Map(current.map(project => [project.id, project]));
+        setProjects(previous => {
+          const changed = previous.some(project => project.managedWorkspacePath && byId.has(project.id)
+            && project.managedWorkspaceReady !== byId.get(project.id)?.managedWorkspaceReady);
+          return changed ? previous.map(project => project.managedWorkspacePath ? byId.get(project.id) ?? project : project) : previous;
+        });
+      }).catch(() => undefined);
+    };
+    window.addEventListener('focus', refreshManagedFolders);
+    return () => { active = false; window.removeEventListener('focus', refreshManagedFolders); };
+  }, [entryMode, projects]);
+
+  useEffect(() => {
     if (authProvider !== 'github' || !accountUserId || !githubStatusLoaded || githubLogin || githubPromptedForUserId === accountUserId) return;
     setGithubPromptedForUserId(accountUserId);
     setGithubConnectionPromptOpen(true);
@@ -287,14 +305,6 @@ function App() {
     return project;
   };
 
-  const handleDeleteProject = async (id: string) => {
-    await api.deleteProject(id);
-    setProjects(prev => prev.filter(p => p.id !== id));
-    if (screen.name === 'project-detail' && screen.projectId === id) {
-      setScreen({ name: 'projects' });
-    }
-  };
-
   if (loading) {
     return (
       <main className="loading-screen project-workspace-loading" aria-busy="true">
@@ -341,11 +351,13 @@ function App() {
           <StartScreen
             projects={projects}
             aiSettings={aiSettings}
+            initialCreate={screen.initialCreate}
             onNavigate={navigate}
+            onCreateProject={handleCreateProject}
             onProjectCreated={project => setProjects(prev => prev.some(item => item.id === project.id) ? prev : [project, ...prev])}
           />
         )}
-        {screen.name === 'check' && <CheckScreen key={screen.checkId} checkId={screen.checkId} onNavigate={navigate} />}
+        {screen.name === 'check' && <CheckScreen key={screen.checkId} checkId={screen.checkId} projects={projects} onNavigate={navigate} />}
         {screen.name === 'project' && (() => {
           const project = projects.find(item => item.id === screen.projectId);
           return project ? <ProjectConversationScreen key={project.id} project={project} projects={projects} onNavigate={navigate} /> : <ScreenLoading />;
@@ -357,17 +369,6 @@ function App() {
             onNavigate={navigate}
             accountId={accountUserId}
             onDataChanged={loadData}
-          />
-        )}
-        {screen.name === 'projects' && (
-          <ProjectsScreen
-            projects={projects}
-            initialSearch={screen.search}
-            initialStateFilter={screen.stateFilter}
-            initialCreate={screen.initialCreate}
-            onNavigate={navigate}
-            onCreate={handleCreateProject}
-            onDelete={handleDeleteProject}
           />
         )}
         {screen.name === 'project-detail' && currentProject && (

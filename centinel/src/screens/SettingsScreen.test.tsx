@@ -71,7 +71,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     }));
   });
 
-  it('presents four settings containers with one custom model provider and honest connections', async () => {
+  it('presents Appearance after App Version with the other settings sections', async () => {
     vi.mocked(api.getAiUsage).mockResolvedValue({
       totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, calls: 0 },
       byGroup: [],
@@ -80,7 +80,10 @@ describe('SettingsScreen information architecture and capability boundary', () =
 
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
 
-    expect(screen.getByRole('heading', { name: 'App Version' })).toBeInTheDocument();
+    const headings = screen.getAllByRole('heading');
+    const version = headings.indexOf(screen.getByRole('heading', { name: 'App Version' }));
+    expect(headings[version + 1]).toHaveTextContent('Appearance');
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Model Provider' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Connections' })).toBeInTheDocument();
