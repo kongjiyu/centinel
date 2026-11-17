@@ -10,10 +10,11 @@ type Props = {
   headerContent?: ReactNode;
   descriptionId?: string;
   width?: number;
+  overlayClassName?: string;
   children: React.ReactNode;
 };
 
-export function Modal({ isOpen, onClose, title, headerAside, headerContent, descriptionId, width = 520, children }: Props) {
+export function Modal({ isOpen, onClose, title, headerAside, headerContent, descriptionId, width = 520, overlayClassName, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const titleId = useId();
@@ -68,7 +69,7 @@ export function Modal({ isOpen, onClose, title, headerAside, headerContent, desc
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={event => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
+    <div className={['modal-overlay', overlayClassName].filter(Boolean).join(' ')} onClick={event => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <div
         ref={dialogRef}
         className="modal"

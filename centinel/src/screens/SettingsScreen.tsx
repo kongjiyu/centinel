@@ -480,16 +480,18 @@ function TokenUsagePanel() {
   );
 }
 
-export function SettingsScreen({ settings, onRefresh, initialSection, account }: Props & { initialSection?: 'connections' }) {
+export function SettingsScreen({ settings, onRefresh, initialSection, headingId, account }: Props & { initialSection?: 'connections'; headingId?: string }) {
   useEffect(() => {
-    if (initialSection !== 'connections') return;
+    const targetId = headingId ?? (initialSection === 'connections' ? 'settings-connections-title' : undefined);
+    if (!targetId) return;
     const frame = requestAnimationFrame(() => {
-      const heading = document.getElementById('settings-connections-title');
+      const heading = document.getElementById(targetId);
+      heading?.setAttribute('tabindex', '-1');
       heading?.focus({ preventScroll: true });
       heading?.scrollIntoView?.({ block: 'start' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [initialSection]);
+  }, [initialSection, headingId]);
   const [connectionDialog, setConnectionDialog] = useState<ConnectionDefinition | null>(null);
   const [managedConnection, setManagedConnection] = useState<ConnectionDefinition | null>(null);
   const [githubStatus, setGithubStatus] = useState<{ connected: boolean; login: string | null; message: string } | null>(null);

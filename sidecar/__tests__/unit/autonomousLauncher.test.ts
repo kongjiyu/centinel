@@ -115,7 +115,7 @@ describe('launch recipe detection', () => {
 const SERVER = (body: string) => `const http=require('http');${body}`;
 
 describe('managed app server', () => {
-  it.skipIf(process.platform === 'win32')('starts on the assigned port, reports output and stops the whole process group', async () => {
+  it('starts on the assigned port, reports output and stops the whole process group', async () => {
     const dir = project({ 'server.js': SERVER(`http.createServer((q,s)=>s.end('hello')).listen(Number(process.env.PORT),'127.0.0.1',()=>console.log('ready at http://localhost:'+process.env.PORT+' secret-token'));`) });
     const port = await findFreePort();
     const server = await startManagedServer({ executable: process.execPath, args: [path.join(dir, 'server.js')], cwd: dir, home: path.join(dir, '.home'), port, secrets: ['secret-token'] });
@@ -130,7 +130,7 @@ describe('managed app server', () => {
     expect(pidAlive(server.pid)).toBe(false);
   });
 
-  it.skipIf(process.platform === 'win32')('finds an app that ignores PORT from the URL it prints', async () => {
+  it('finds an app that ignores PORT from the URL it prints', async () => {
     const other = await findFreePort();
     const dir = project({ 'server.js': SERVER(`http.createServer((q,s)=>s.end('x')).listen(${other},'127.0.0.1',()=>console.log('Listening on http://localhost:${other}'));`) });
     const server = await startManagedServer({ executable: process.execPath, args: [path.join(dir, 'server.js')], cwd: dir, home: path.join(dir, '.home'), port: await findFreePort() });
@@ -138,7 +138,7 @@ describe('managed app server', () => {
     expect(server).toMatchObject({ port: other, portHonored: false });
   });
 
-  it.skipIf(process.platform === 'win32')('kills child processes the app spawned', async () => {
+  it('kills child processes the app spawned', async () => {
     const dir = project({ 'server.js': SERVER(`const c=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});require('fs').writeFileSync('child.pid',String(c.pid));http.createServer((q,s)=>s.end()).listen(Number(process.env.PORT),'127.0.0.1');`) });
     const server = await startManagedServer({ executable: process.execPath, args: [path.join(dir, 'server.js')], cwd: dir, home: path.join(dir, '.home'), port: await findFreePort() });
     const childPid = Number(fs.readFileSync(path.join(dir, 'child.pid'), 'utf8'));
@@ -148,7 +148,7 @@ describe('managed app server', () => {
     expect(pidAlive(childPid)).toBe(false);
   });
 
-  it.skipIf(process.platform === 'win32')('reports an app that exits during start-up with its log', async () => {
+  it('reports an app that exits during start-up with its log', async () => {
     const dir = project({ 'server.js': `console.error('Missing DATABASE_URL');process.exit(3);` });
     const error = await startManagedServer({ executable: process.execPath, args: [path.join(dir, 'server.js')], cwd: dir, home: path.join(dir, '.home'), port: await findFreePort() }).catch(caught => caught);
     expect(error).toBeInstanceOf(ManagedServerError);
@@ -156,11 +156,14 @@ describe('managed app server', () => {
     expect(error.logs).toContain('Missing DATABASE_URL');
   });
 
-  it.skipIf(process.platform === 'win32')('cancels start-up and leaves nothing running', async () => {
+  it('cancels start-up and leaves nothing running', async () => {
     const dir = project({ 'server.js': `require('fs').writeFileSync('pid',String(process.pid));setInterval(()=>{},1000);` });
     const controller = new AbortController();
     const pending = startManagedServer({ executable: process.execPath, args: [path.join(dir, 'server.js')], cwd: dir, home: path.join(dir, '.home'), port: await findFreePort(), signal: controller.signal });
-    await new Promise(resolve => setTimeout(resolve, 400));
+    const deadline = Date.now() + 3500;
+    while (!fs.existsSync(path.join(dir, 'pid')) && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
     controller.abort();
     await expect(pending).rejects.toMatchObject({ reason: 'cancelled' });
     expect(pidAlive(Number(fs.readFileSync(path.join(dir, 'pid'), 'utf8')))).toBe(false);
@@ -173,7 +176,7 @@ describe('managed app server', () => {
 });
 
 describe('launchRepository', () => {
-  it.skipIf(process.platform === 'win32')('starts the Sample Shop on a free port without any approval step', async () => {
+  it('starts the Sample Shop on a free port without any approval step', async () => {
     const shop = path.resolve(__dirname, '../../../examples/sample-shop');
     const events: string[] = [];
     const app = await launchRepository({ folder: shop, home: path.join(tempDir(), 'home'), onEvent: event => events.push(event.stage) });

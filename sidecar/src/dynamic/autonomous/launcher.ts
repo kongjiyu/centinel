@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { installedPackageManager } from '../workspace/packageManager.js';
+import { installedPackageManager, packageManagerCommand } from '../workspace/packageManager.js';
 import { runBoundedProcess, type ProcessResult } from '../workspace/process.js';
 import { findFreePort, ManagedServerError, startManagedServer, type ManagedServer } from '../workspace/managedServer.js';
 import { detectLaunchRecipes, type LaunchRecipe, type NodePackageManager, type RecipeDetection } from './recipes.js';
@@ -29,9 +29,21 @@ type Resolvers = {
 
 /** Prefer the project's virtual environment, then the system interpreter. */
 export function pythonInterpreter(folder: string): string | null {
-  for (const candidate of ['.venv/bin/python', 'venv/bin/python', 'env/bin/python']) {
+  const windows = process.platform === 'win32';
+  for (const environment of ['.venv', 'venv', 'env']) {
+    const candidate = windows ? path.join(environment, 'Scripts', 'python.exe') : path.join(environment, 'bin', 'python');
     const file = path.join(folder, candidate);
     if (fs.existsSync(file)) return file;
+  }
+  if (windows) {
+    for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
+      if (!path.isAbsolute(directory) || /[\\/]WindowsApps[\\/]?$/i.test(directory)) continue;
+      for (const name of ['python.exe', 'python3.exe']) {
+        const executable = path.join(directory, name);
+        if (fs.statSync(executable, { throwIfNoEntry: false })?.isFile()) return executable;
+      }
+    }
+    return null;
   }
   try {
     const found = execFileSync('/usr/bin/which', ['python3'], { timeout: 2000, env: { PATH: process.env.PATH }, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
@@ -59,7 +71,7 @@ export function buildLaunchCommand(recipe: LaunchRecipe, folder: string, port: n
       const args = recipe.packageManager === 'npm'
         ? ['run', recipe.script, ...(extra.length ? ['--', ...extra] : [])]
         : ['run', recipe.script, ...extra];
-      return { executable, args, runtimeBinDirectory: path.dirname(process.execPath) };
+      return packageManagerCommand(executable, args);
     }
     case 'python_django':
     case 'python_flask':
@@ -85,7 +97,7 @@ export function buildInstallCommand(recipe: LaunchRecipe, folder: string, resolv
   const args = manager === 'npm'
     ? (locked ? ['ci', '--no-audit', '--no-fund'] : ['install', '--no-audit', '--no-fund', '--no-package-lock'])
     : manager === 'pnpm' ? ['install', '--frozen-lockfile'] : ['install', '--frozen-lockfile'];
-  return { executable, args, runtimeBinDirectory: path.dirname(process.execPath) };
+  return packageManagerCommand(executable, args);
 }
 
 const describe = (command: LaunchCommand) => [path.basename(command.executable), ...command.args.map(arg => path.isAbsolute(arg) ? path.basename(arg) : arg)].join(' ');

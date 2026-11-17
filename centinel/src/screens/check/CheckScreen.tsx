@@ -1,33 +1,20 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, Maximize2, Minimize2, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { laneNumber } from '../../autotest/presentation';
 import { Icon } from '../../components/Icon';
-import { Select } from '../../components/Select';
 import type { CheckProblem, CheckResult } from '../../check/result';
-import { getCheck, markCheckViewed, useCheck, useChecks } from '../../check/store';
-import { CHECK_MODES, type CheckDocument, type CheckMode, type CheckRecord } from '../../check/types';
-import { startCheck } from '../../check/runner';
-import { projectLocalFolder } from '../../check/projectWorkspace';
+import { getCheck, markCheckViewed, useCheck } from '../../check/store';
+import { type CheckRecord } from '../../check/types';
 import { useCheckData, type CheckData } from '../../check/useCheckData';
 import type { RiskLevel } from '../../riskPolicy';
 import type { Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from './BrowserTiles';
-import { CheckPermission } from './CheckPermission';
-import { CheckDocumentPicker, readCheckDocuments } from './CheckDocumentPicker';
-import { setMode as savePermission, useProjectPrefs } from '../../check/projectPrefs';
-import { animateComposerArrival } from './composerTransition';
-import { useImportSources } from '../../components/RecentProjectDetails';
-import { invoke } from '@tauri-apps/api/tauri';
-import { ExternalLink } from 'lucide-react';
-import { CheckAddSource, CheckLibraryList, useCheckLibrary, type CheckLibrary } from './CheckSourceLibrary';
-import { handleComposerEnter } from './composerKeys';
-import { findCheckMention } from './checkMention';
+import { useCheckLibrary } from './CheckSourceLibrary';
 import type { Artifact } from '../../types';
-import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
-import { CheckAttachmentCount } from './CheckAttachmentCount';
-import { CheckComposerNotices } from './CheckComposerNotices';
+import { CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from './CheckProjectWorkspace';
+import { CheckProjectSidebar } from '../project/ProjectSidePanel';
 import './Check.css';
 
 type Navigate = (screen: Screen) => void;
@@ -65,21 +52,10 @@ function useNow(active: boolean) {
 
 export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string; onNavigate: Navigate; projects?: Project[] }) {
   const check = useCheck(checkId);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
   const library = useCheckLibrary(projects ? check?.projectId : undefined);
   const data = useCheckData(check);
   const showResult = !!check && !!data && (check.phase === 'failed' || check.phase === 'done' || data.result.finished);
-  useLayoutEffect(() => {
-    const pane = contentRef.current;
-    const panel = pane?.querySelector<HTMLElement>('.ck-panel');
-    const layout = pane?.parentElement;
-    if (!panel || !layout) return;
-    const measure = () => layout.style.setProperty('--ck-docked-width', panel.getBoundingClientRect().width + 'px');
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(panel);
-    return () => { observer?.disconnect(); layout.style.removeProperty('--ck-docked-width'); };
-  }, [checkId, !!check, !!projects, showResult]);
   useEffect(() => {
     if (!showResult) return;
     const markVisible = () => {
@@ -109,200 +85,14 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
   </>;
   if (!projects) return content;
   const project = projects.find(item => item.id === check.projectId);
-  return <div className="ck-detail-layout">
-    <div className="ck-glow" aria-hidden="true" />
-    <CheckProjectHeader check={check} project={project} onNavigate={onNavigate} library={library} />
-    <div className="ck-detail-content" ref={contentRef}>{content}</div>
-    <aside className="ck-detail-sidebar" aria-label="Check details">
-      <h2>{check.projectName}</h2>
-      <p>{CHECK_MODES.find(option => option.value === check.mode)?.label}</p>
-      <p>{showResult ? 'Result' : 'Check in progress'}</p>
-      {check.projectId && projects.some(project => project.id === check.projectId) &&
-        <button type="button" className="ck-link" onClick={() => onNavigate({ name: 'project', projectId: check.projectId! })}>Open project</button>}
-    </aside>
-    <CheckFollowUp check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />
-  </div>;
-}
-
-function CheckProjectHeader({ check, project, onNavigate, library }: { check: CheckRecord; project?: Project; onNavigate: Navigate; library: CheckLibrary }) {
-  const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [folderError, setFolderError] = useState<string | null>(null);
-  const result = useImportSources(open ? check.projectId : undefined);
-  const folder = project?.workspacePath || project?.managedWorkspacePath || check.folder;
-  return <header className="ck-detail-header">
-    <details onToggle={event => setOpen(event.currentTarget.open)}>
-      <summary><Icon icon={Folder} /><span>{check.projectName}</span><Icon icon={ChevronDown} /></summary>
-      <div className="ck-menu ck-detail-sources" aria-label="Project sources">
-        {folder && <div className="ck-library-heading"><p><strong>Workspace directory</strong><span>{folder}</span></p>
-          <button type="button" className="ck-round" aria-label="Open workspace folder" onClick={() => {
-            setFolderError(null);
-            if (!('__TAURI_IPC__' in window)) { setFolderError('Open the workspace folder from the desktop app.'); return; }
-            void invoke('open_workspace_folder', { folder }).catch(error => setFolderError(typeof error === 'string' ? error : 'The workspace folder could not be opened.'));
-          }}><Icon icon={ExternalLink} /></button>
-        </div>}
-        {folderError && <p role="status">{folderError}</p>}
-        {(result?.sources ?? []).map(source => <p key={source.id}><strong>{source.name}</strong>{source.location && <span>{source.location}</span>}</p>)}
-        {check.githubUrl && !result?.sources.some(source => source.location === check.githubUrl) && <p>{check.githubUrl}</p>}
-        {!result && check.projectId && <p role="status">Loading project sources…</p>}
-        {result?.incomplete && <p role="status">Some sources could not be loaded.</p>}
-        <section aria-label="Library">
-          <div className="ck-library-heading"><strong>Library</strong>{check.projectId && <button type="button" className="ck-round" aria-label="Add source" onClick={() => setAdding(true)}><Icon icon={Plus} /></button>}</div>
-          {check.projectId ? <CheckLibraryList library={library} /> : <p>No project library available.</p>}
-        </section>
-        {project && <button type="button" onClick={() => onNavigate({ name: 'project', projectId: project.id })}>Open project</button>}
-      </div>
-    </details>
-    {adding && check.projectId && <CheckAddSource projectId={check.projectId} onClose={() => setAdding(false)} onSaved={library.refresh} />}
-  </header>;
-}
-
-function CheckFollowUp({ check, projects, onNavigate, available, library }: { check: CheckRecord; projects: Project[]; onNavigate: Navigate; available: boolean; library: CheckLibrary }) {
-  const [draft, setDraft] = useState('');
-  const [mode, setMode] = useState<CheckMode>(check.mode);
-  const [expanded, setExpanded] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [picker, setPicker] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [mention, setMention] = useState<ReturnType<typeof findCheckMention>>(null);
-  const [attachedChecks, setAttachedChecks] = useState<CheckRecord[]>([]);
-  const [addingSource, setAddingSource] = useState(false);
-  const recent = useChecks();
-  const [sources, setSources] = useState<Artifact[]>([]);
-  const [documents, setDocuments] = useState<CheckDocument[]>([]);
-  const [attachmentMessage, setAttachmentMessage] = useState<string | null>(null);
-  const composer = useRef<HTMLFormElement>(null);
-  const addTrigger = useRef<HTMLButtonElement>(null);
-  const addMenu = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  const closeMenu = () => { setAddOpen(false); setMention(null); };
-  useEffect(() => {
-    if (!addOpen) return;
-    if (!mention) addMenu.current?.querySelector('button')?.focus();
-    const close = (event: PointerEvent) => {
-      if (event.target !== input.current && !addMenu.current?.contains(event.target as Node) && !addTrigger.current?.contains(event.target as Node)) {
-        setAddOpen(false); setMention(null);
-      }
-    };
-    document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
-  }, [addOpen, Boolean(mention)]);
-  const prefs = useProjectPrefs(check.projectId ?? '');
-  useLayoutEffect(() => {
-    if (composer.current) animateComposerArrival(check.id, composer.current);
-  }, [check.id]);
-  const project = projects.find(item => item.id === check.projectId);
-  const hasFolder = !!(projectLocalFolder(project) || check.folder);
-  const effectiveMode = hasFolder ? mode : 'code';
-  const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0;
-  const canSend = available && project && draft.trim() && !sending && !libraryRequiresCode && !mention;
-  const query = mention?.query.trim().toLowerCase() ?? '';
-  const matchingChecks = rankMentionChecks(recent.filter(item => check.projectId && item.projectId === check.projectId
-    && item.id !== check.id && !attachedChecks.some(attached => attached.id === item.id)
-    && [item.projectName, item.focus].join(' ').toLowerCase().includes(query)));
-  const mentionProjects = rankMentionProjects(projects.filter(item => item.id !== check.projectId), recent, query);
-  const selectMention = useMentionSelection(addMenu, mention?.query);
-  const showAddAction = (name: string) => !query || name.toLowerCase().includes(query);
-  const changeDraft = (value: string, caret: number) => {
-    setDraft(value);
-    const next = findCheckMention(value, caret);
-    if (next && !mention) library.refresh();
-    if (next || mention) setAddOpen(!!next);
-    setMention(next);
-  };
-  const finishAttachment = () => {
-    if (mention) setDraft(current => current.slice(0, mention.start) + current.slice(mention.end));
-    closeMenu();
-    input.current?.focus({ preventScroll: true });
-  };
-  return <><form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onSubmit={event => {
-    event.preventDefault();
-    if (!canSend) return;
-    setSending(true);
-    const focus = draft.trim();
-    const next = startCheck({ projectId: project.id, documents, focus, mode: effectiveMode,
-      ...(effectiveMode === 'code' ? {} : { browserRequest: focus }), referenceCheckIds: [check.id, ...attachedChecks.map(item => item.id)],
-      ...(sources.length ? { sourceArtifactIds: sources.map(source => source.id) } : {}) },
-      { api, projects: () => projects });
-    onNavigate({ name: 'check', checkId: next.id });
-  }}>
-    <button type="button" className="ck-composer-expand" aria-label={expanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={expanded}
-      onClick={() => setExpanded(value => !value)}><Icon icon={expanded ? Minimize2 : Maximize2} /></button>
-    {!!documents.length && <ul className="ck-attached">{documents.map(document => <li className="ck-chip" key={document.name}>
-      <Icon icon={FileText} /><span>{document.name}</span><button type="button" aria-label={`Remove ${document.name}`} onClick={() => setDocuments(current => current.filter(item => item.name !== document.name))}><Icon icon={X} /></button>
-    </li>)}</ul>}
-    {!!sources.length && <ul className="ck-attached">{sources.map(source => <li className="ck-chip" key={source.id}>
-      <Icon icon={FileText} /><span>{source.fileName}</span><button type="button" aria-label={`Remove source ${source.fileName}`} onClick={() => setSources(current => current.filter(item => item.id !== source.id))}><Icon icon={X} /></button>
-    </li>)}</ul>}
-    {!!attachedChecks.length && <ul className="ck-attached">{attachedChecks.map(item => <li className="ck-chip" key={item.id}>
-      <Icon icon={Clock} /><span>{item.focus || item.projectName}</span><button type="button" aria-label={'Remove check ' + (item.focus || item.projectName)} onClick={() => setAttachedChecks(current => current.filter(entry => entry.id !== item.id))}><Icon icon={X} /></button>
-    </li>)}</ul>}
-    <textarea ref={input} className="ck-focus" rows={2} maxLength={2000} aria-label="Follow-up check" value={draft}
-      placeholder={available ? 'What should Centinel check next?' : 'Prepare a follow-up while this check runs'}
-      onChange={event => changeDraft(event.target.value, event.target.selectionStart)}
-      onKeyDown={event => {
-        if (mention && event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
-        if (selectMention(event)) return;
-        handleComposerEnter(event, expanded, () => composer.current?.requestSubmit(), changeDraft);
-      }} />
-    <div className="ck-input-actions">
-      <button type="button" ref={addTrigger} className="ck-round ck-add-trigger" aria-label="Add to check" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => { if (!addOpen) library.refresh(); setMention(null); setAddOpen(!addOpen || !!mention); }}><Icon icon={Plus} /></button>
-      <CheckPermission value={prefs.mode} onChange={mode => { if (check.projectId) savePermission(check.projectId, mode); }} />
-      <Select aria-label="Check mode" className="ck-mode-select" value={effectiveMode}
-        options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && option.value !== 'code' }))}
-        onChange={value => setMode(value as CheckMode)} />
-      <button type="submit" aria-label="Send follow-up" className="ck-round ck-follow-up-send" disabled={!canSend}><Icon icon={ArrowUp} /></button>
-    </div>
-    {addOpen && <div ref={addMenu} className="ck-menu ck-attachment-menu ck-follow-up-menu" role="dialog" aria-label="Add to check"
-      onKeyDown={event => {
-        if (event.key === 'Escape') {
-          event.stopPropagation(); closeMenu(); (mention ? input : addTrigger).current?.focus(); return;
-        }
-        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-        if (!(event.target instanceof HTMLButtonElement)) return;
-        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
-        const index = buttons.indexOf(event.target);
-        if (index < 0) return;
-        event.preventDefault();
-        buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
-      }}>
-      {(showAddAction('Add Document') || (project && showAddAction('Add source'))) && <section aria-label="Add">
-        <h2>Add</h2>
-        {showAddAction('Add Document') && <button type="button" onClick={() => { finishAttachment(); setPicker(true); }}><Icon icon={FileText} />Add Document</button>}
-        {project && showAddAction('Add source') && <button type="button" onClick={() => { finishAttachment(); setAddingSource(true); }}><Icon icon={Plus} />Add source</button>}
-      </section>}
-      <section aria-label="Recent Checks"><h2>Recent Checks</h2>
-        {matchingChecks.length ? matchingChecks.map(item => <button key={item.id} type="button" onClick={() => {
-          setAttachedChecks(current => [...current, item]);
-          finishAttachment();
-        }}><Icon icon={Clock} /><span>{item.focus || item.projectName}</span>
-          <CheckAttachmentCount check={item} />
-        </button>) : <p>No matching checks for this project.</p>}
-      </section>
-      {mention && <section aria-label="Projects"><h2>Projects</h2>
-        {mentionProjects.map(item => <button key={item.id} type="button" onClick={() => {
-          onNavigate({ name: 'new-check', draft: {
-            projectId: item.id, focus: draft.slice(0, mention.start) + draft.slice(mention.end),
-            mode: projectLocalFolder(item) ? mode : 'code', documents,
-          } });
-        }}><Icon icon={Folder} /><span>{item.name}</span><small className="ck-attachment-count">New check</small></button>)}
-        {!mentionProjects.length && <p>No matching projects.</p>}
-      </section>}
-      <section aria-label="Library"><h2>Library</h2>
-        {!check.projectId ? <p>No project library available.</p> : effectiveMode === 'browser' ? <p>Choose Code or Code and browser to attach library files.</p> :
-          <CheckLibraryList library={library} attached={sources} filter={mention?.query} onAttach={source => { setSources(current => current.some(item => item.id === source.id) ? current : [...current, source]); finishAttachment(); }} />}
-      </section>
-    </div>}
-    {!addOpen && <CheckComposerNotices notices={[
-      ...(libraryRequiresCode ? [{ title: 'Library files need a code check', description: 'Choose Code or Code and browser, or remove the attached library files.', tone: 'warning' as const }] : []),
-      ...(attachmentMessage ? [{ title: 'Check attachments', description: attachmentMessage, tone: 'warning' as const }] : []),
-    ]} />}
-  </form><CheckDocumentPicker open={picker} onClose={() => setPicker(false)} onSelect={files => {
-    void readCheckDocuments(files).then(({ accepted, message }) => {
-      setDocuments(current => [...current, ...accepted.filter(item => !current.some(existing => existing.name === item.name))]);
-      setAttachmentMessage(message);
-    });
-  }} />{addingSource && project && <CheckAddSource projectId={project.id} onClose={() => setAddingSource(false)} onSaved={library.refresh} />}</>;
+  return <CheckProjectLayout
+    expanded={expanded} onCloseSidebar={() => setExpanded(false)}
+    contentKey={check.id + ':' + showResult}
+    header={<CheckProjectHeader check={check} project={project} onNavigate={onNavigate} library={library} />}
+    composer={<CheckFollowUp check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />}
+    sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)} />}>
+    {content}
+  </CheckProjectLayout>;
 }
 
 /* ------------------------------------------------------------------ Live */

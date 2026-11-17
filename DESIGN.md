@@ -94,7 +94,7 @@ Rules:
 - The whole input accepts a dropped folder or files, and a pasted GitHub link becomes a project chip. Every one of these also works through the add button and the keyboard.
 - Home can select a saved project or start from a folder or GitHub link. Add a project opens the project form on Home. Projects without a registered folder get an account-scoped folder under Centinel’s writable application data directory on the current device. Browser testing needs app files in that folder.
 - No environment, permission, model or scope settings on this screen. Sensible defaults apply; settings live under Details and Settings.
-- Show setup notices directly above the composer with a title, explanation, and settings link where available. Distinguish blocked steps from optional setup.
+- Show setup notices directly above the composer with a left-aligned title and explanation. Place the settings button at the right, vertically centered, with a distinct hover background. Distinguish blocked steps from optional setup.
 - Documents are optional. Without them the check still runs, and the result says requirements were not provided.
 - Do not add a row of templates, sample prompts or suggestions that are not real, usable things. The Sample Shop is the only example because it ships with the app.
 
@@ -257,8 +257,8 @@ Marks, the risk word and Live statuses are an icon or a dot plus a word. They ha
 ### Shell
 
 - Use the operating system's window controls.
-- One sidebar, one level. **New Check** opens the check composer and stays fixed above the scrollable **Recent checks** and **Recent projects** lists. Search sits beneath New Check. The dialog opens from Search or Ctrl/Cmd+K, puts its input in the header, and shows Checks before Projects. Help and Settings sit beside the profile below the scroll area. The profile menu holds Switch account and Log out. Manage account lives in Settings under Account.
-- Recent checks and Recent projects use compact rows and each list collapses from its heading. Checks show the outcome at the right. Projects show a folder and an ellipsis on the hovered or keyboard-focused row. Long project names scroll once on hover after 500 ms. The ellipsis opens project details and editing. Recent projects shows the six most recently updated projects with a way to show the rest.
+- One sidebar, one level. **New Check** opens the check composer and stays fixed above the scrollable **Checks** and **Projects** lists. Search sits beneath New Check. The dialog opens from Search or Ctrl/Cmd+K, puts its input in the header, and shows Checks before Projects. It shares the @ menu’s ranking, shows up to eight items per list, and opens matching Help and Settings sections. The dialog uses a 75% surface with local blur and a light shadow. The page outside the dialog remains clear. Help and Settings sit beside the profile below the scroll area. The profile menu holds Switch account and Log out. Manage account lives in Settings under Account.
+- Checks and Projects use compact rows and each list collapses from its heading. The Projects heading also has an Add project action. Checks show the outcome at the right. Projects show a folder and an ellipsis on the hovered or keyboard-focused row. Long project names scroll once on hover after 500 ms. The ellipsis opens project details and editing. Recent projects shows the six most recently updated projects with a way to show the rest.
 - Do not add a second navigation column or an icon rail beside it. Centinel has few destinations; everything else is under Details.
 - Each recent check shows the project name and, 4 px below it, its result in a few words with an icon (a warning triangle and "5 problems" in red; a check and "No problems"). Records are separated by more space than a name and its result.
 - A running check appears at the top of the recent list with a live state and returns to Live.
@@ -637,6 +637,12 @@ Before accepting a screen:
 - [ ] Styles do not leak into other screens.
 
 Decision log (user-approved unless noted):
+
+- 2026-11-17 (user request): Left-align setup notice text and place its settings button at the right, vertically centered. Use an opaque surface for the project Sources button and popover, white in Light appearance.
+
+- 2026-11-17 (user request): Place searchable project check history beside Sources on Project and Check Details, add a direct project return on Check Details, and use softly blurred translucent popovers for search and sources.
+
+- 2026-11-17 (user request): Project and Check Details share the source dropdown, response card and composer layout, and expandable results sidebar. Project opens in conversation when there is no check history and opens the sidebar when check history exists. Global search uses the @ menu ranking with up to eight checks and eight projects, links to Help and Settings sections, and leaves the surrounding page undimmed.
 
 - 2026-11-17 (user request): Highlight the first @ action while keeping the prompt editable. Put Add first, rank up to five checks by problem count and up to five projects by last completed check, and tint counts by the highest known risk. Show setup notices above the composer, and align the detail composer to its response card.
 

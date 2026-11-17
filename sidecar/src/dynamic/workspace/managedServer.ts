@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
+import { spawnWindowsJob, WINDOWS_RUNTIME_VARIABLE, windowsRuntimeEnvironment } from './windowsJob.js';
 import { redactOutput } from './redaction.js';
 
 /**
@@ -104,12 +105,12 @@ export async function startManagedServer(input: {
   signal?: AbortSignal;
   onOutput?(redactedTail: string): void;
 }): Promise<ManagedServer> {
-  if (process.platform === 'win32') throw new ManagedServerError('launch_failed', 'Starting apps automatically currently requires macOS or Linux.');
+  const windows = process.platform === 'win32';
   if (!path.isAbsolute(input.cwd) || !path.isAbsolute(input.home) || !Number.isInteger(input.port) || input.port < 1 || input.port > 65535) {
     throw new ManagedServerError('launch_failed', 'Managed server configuration required.');
   }
   const variables = input.variables ?? {};
-  if (Object.keys(variables).some(name => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || FORBIDDEN_NAME.test(name))) {
+  if (Object.keys(variables).some(name => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || FORBIDDEN_NAME.test(name) || (windows && WINDOWS_RUNTIME_VARIABLE.test(name)))) {
     throw new ManagedServerError('launch_failed', 'Reserved process environment names are not permitted.');
   }
   if (input.signal?.aborted) throw new ManagedServerError('cancelled', 'Cancelled before the app started.');
@@ -119,7 +120,7 @@ export async function startManagedServer(input: {
   const logs = () => redactOutput(log, secrets, true);
   let child: ChildProcess;
   try {
-    child = spawn(input.executable, input.args, {
+    child = (windows ? spawnWindowsJob : spawn)(input.executable, input.args, {
       cwd: input.cwd, detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         PATH: [input.runtimeBinDirectory, process.env.PATH].filter(Boolean).join(path.delimiter),
@@ -129,6 +130,7 @@ export async function startManagedServer(input: {
         npm_config_manage_package_manager_versions: 'false', npm_config_update_notifier: 'false',
         PORT: String(input.port), HOST: '127.0.0.1',
         ...variables,
+        ...(windows ? windowsRuntimeEnvironment(input.home) : {}),
       },
     });
   } catch {
@@ -139,11 +141,11 @@ export async function startManagedServer(input: {
     throw new ManagedServerError('launch_failed', 'The app could not be launched.');
   }
   const groupPid = child.pid;
-  const guardian = spawn(process.execPath, ['-e', SERVER_GUARDIAN, JSON.stringify({ groupPid })], {
+  const guardian = windows ? null : spawn(process.execPath, ['-e', SERVER_GUARDIAN, JSON.stringify({ groupPid })], {
     detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH },
   });
-  guardian.unref();
-  guardian.on('error', () => undefined);
+  guardian?.unref();
+  guardian?.on('error', () => undefined);
 
   const detectedPorts = new Set<number>();
   let lastNotify = 0;
@@ -171,8 +173,14 @@ export async function startManagedServer(input: {
   let stopping: Promise<void> | null = null;
   const stop = () => {
     stopping ??= (async () => {
+      if (windows) {
+        child.stdin?.end();
+        if (!exitInfo) child.kill();
+        await exited;
+        return;
+      }
       const guardianDone = new Promise<void>(resolve => {
-        if (!guardian.connected) return resolve();
+        if (!guardian?.connected) return resolve();
         guardian.once('exit', () => resolve());
         guardian.once('message', () => resolve());
         try { guardian.send({ stop: true }); } catch { resolve(); }
@@ -182,7 +190,7 @@ export async function startManagedServer(input: {
       await Promise.race([Promise.all([exited, guardianDone]), new Promise(resolve => setTimeout(resolve, 5000))]);
       clearTimeout(forced);
       try { process.kill(-groupPid, 'SIGKILL'); } catch { /* gone */ }
-      if (guardian.connected) guardian.disconnect();
+      if (guardian?.connected) guardian.disconnect();
     })();
     return stopping;
   };

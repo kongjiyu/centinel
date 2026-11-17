@@ -67,6 +67,7 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session({ repository: { fingerprint: 'f', files: 10, routes: 4, forms: 1, requirements: true, truncated: false, persistence: [] }, launch: { recipeId: 'r', label: 'node server.js', framework: 'node', url: 'http://localhost:4101', portHonored: true, installing: false, log: '' }, exploration: { pages: [{ path: '/', controls: 8 }], controls: 8 } })]);
     const onNavigate = renderScreen();
+    await user.click(await screen.findByRole('button', { name: 'Back to the conversation' }));
     expect(await screen.findByText('Test that two mugs cost $24.00')).toBeInTheDocument();
     const reply = screen.getByRole('region', { name: "Centinel's reply" });
     expect(within(reply).getByText('“Two mugs total $24.00” found a problem. I expected the page to show “$24.00”, but it was not shown on the page.')).toBeInTheDocument();
@@ -91,7 +92,8 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     renderScreen();
-    await user.click(await screen.findByRole('button', { name: 'Save for every check' }));
+    await user.click(await screen.findByRole('button', { name: 'Back to the conversation' }));
+    await user.click(screen.getByRole('button', { name: 'Save for every check' }));
     expect(readPrefs('p1').pinned).toMatchObject([{ testId: test().id, name: 'Two mugs total $24.00' }]);
     const side = screen.getByRole('complementary', { name: 'What Centinel knows' });
     await user.click(within(side).getByRole('button', { name: 'Show the whole project' }));
@@ -107,7 +109,8 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     renderScreen();
-    await user.click(await screen.findByRole('button', { name: 'Change it' }));
+    await user.click(await screen.findByRole('button', { name: 'Back to the conversation' }));
+    await user.click(screen.getByRole('button', { name: 'Change it' }));
     expect(screen.getByText('Changing “Two mugs total $24.00”')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Message to Centinel'), 'Also check three mugs{Enter}');
     expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Also check three mugs', base: { sessionId: session().id, testId: test().id }, lanes: 1 });
@@ -116,8 +119,8 @@ describe('project conversation', () => {
   it('asks first in Ask first mode, records the mode change and reminds once about accounts', async () => {
     const user = userEvent.setup();
     renderScreen();
-    await user.click(screen.getByRole('button', { name: 'Permission mode: Auto' }));
-    await user.click(screen.getByRole('button', { name: /Ask first/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Project conversation permission' }));
+    await user.click(screen.getByRole('option', { name: /Ask first/ }));
     expect(screen.getByText('Permission mode changed to Ask first.')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Message to Centinel'), 'Use admin@test.com / test123 to check orders{Enter}');
     expect(screen.getByText('The AI will see this account. Use test accounts only.')).toBeInTheDocument();
@@ -155,17 +158,8 @@ describe('project conversation', () => {
     const onNavigate = renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What Centinel knows' });
     expect(await within(panel).findByText('1 problem')).toBeInTheDocument();
-    // Collapsed: the latest check and its problems only; no requirements or report.
-    expect(within(panel).getByText('Orders open without sign-in')).toBeInTheDocument();
-    expect(within(panel).queryByText('REQ-1 Generic sign-in error')).not.toBeInTheDocument();
-    expect(within(panel).queryByRole('button', { name: 'Download report' })).not.toBeInTheDocument();
-    const toggle = within(panel).getByRole('button', { name: 'Show the whole project' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await user.click(toggle);
     expect(within(panel).getByRole('button', { name: 'Back to the conversation' })).toHaveAttribute('aria-expanded', 'true');
-    expect(readPrefs('p1').sideOpen).toBe(true);
-    // Expanded, it covers the conversation, which cannot be reached meanwhile.
-    expect(document.querySelector('.pc-main')).toHaveAttribute('inert');
+    expect(screen.queryByRole('textbox', { name: 'Message to Centinel' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save for every check' })).not.toBeInTheDocument();
     expect(within(panel).getByText('Orders open without sign-in')).toBeInTheDocument();
     expect(within(panel).queryByText('Debug output')).not.toBeInTheDocument();
@@ -189,7 +183,6 @@ describe('project conversation', () => {
     vi.mocked(api.autoTests).mockResolvedValue([full]);
     renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What Centinel knows' });
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
     expect(await within(panel).findByText('Browser tests · 1 of 2 failed')).toBeInTheDocument();
     expect(within(panel).getByTitle('Sign in works: passed')).toBeInTheDocument();
   });

@@ -3250,7 +3250,7 @@ div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-nav {
 }
 
 div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-category,
-div.app-shell.has-window-chrome.sidebar-collapsed .nav-item span,
+div.app-shell.has-window-chrome.sidebar-collapsed .nav-item span:not(.sidebar-profile-avatar),
 div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle span,
 div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-empty {
   position: absolute;
@@ -3405,7 +3405,7 @@ div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pin-item {
   div.app-shell.has-window-chrome .sidebar { flex-basis: 72px; width: 72px; }
   div.app-shell.has-window-chrome .sidebar-nav { padding: 12px 8px 16px; }
   div.app-shell.has-window-chrome .sidebar-category,
-  div.app-shell.has-window-chrome .nav-item span,
+  div.app-shell.has-window-chrome .nav-item span:not(.sidebar-profile-avatar),
   div.app-shell.has-window-chrome .sidebar-pins-toggle span,
   div.app-shell.has-window-chrome .sidebar-pins-empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   div.app-shell.has-window-chrome .nav-item,
@@ -3632,7 +3632,7 @@ div.app-shell.has-window-chrome .page-content-container > .main-content {
   }
 
   div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-category,
-  div.app-shell.has-window-chrome.sidebar-collapsed .nav-item span,
+  div.app-shell.has-window-chrome.sidebar-collapsed .nav-item span:not(.sidebar-profile-avatar),
   div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-toggle span,
   div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-pins-empty {
     position: absolute;

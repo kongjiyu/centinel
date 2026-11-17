@@ -126,7 +126,7 @@ describe('AppShell module launch', () => {
 
   it('shows an empty recent projects section when there are no projects', () => {
     renderShell({ name: 'new-check' }, vi.fn(), []);
-    const recent = screen.getByRole('region', { name: 'Recent projects' });
+    const recent = screen.getByRole('region', { name: 'Projects' });
     expect(within(recent).getByText('No projects yet')).toBeInTheDocument();
   });
 
@@ -140,7 +140,7 @@ describe('AppShell module launch', () => {
       { id: 'repo-file', source: 'repository', sourceId: 'local-1', localRepositoryName: 'payments' } as Artifact,
     ]);
     renderShell({ name: 'project', projectId: 'project-2' }, onNavigate);
-    const recent = within(screen.getByRole('region', { name: 'Recent projects' }));
+    const recent = within(screen.getByRole('region', { name: 'Projects' }));
     const rows = recent.getAllByRole('listitem');
     expect(within(rows[0]).getByRole('button', { name: 'Banking portal' })).toHaveAttribute('aria-current', 'page');
     await user.click(recent.getByRole('button', { name: 'Website refresh' }));
@@ -167,10 +167,11 @@ describe('AppShell module launch', () => {
     const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
     expect(nav.getByRole('button', { name: 'New Check' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Search projects and checks' })).toBeInTheDocument();
-    expect(nav.getByText('Recent checks')).toBeInTheDocument();
+    expect(nav.getByText('Checks')).toBeInTheDocument();
     expect(nav.getByText('No checks yet')).toBeInTheDocument();
-    expect(nav.getByRole('region', { name: 'Recent projects' })).toBeInTheDocument();
-    expect(nav.queryByRole('button', { name: /^Projects$/ })).not.toBeInTheDocument();
+    expect(nav.getByRole('region', { name: 'Projects' })).toBeInTheDocument();
+    expect(nav.getByRole('button', { name: 'Projects', expanded: true })).toBeInTheDocument();
+    expect(nav.getByRole('button', { name: 'Add project' })).toBeInTheDocument();
     expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
     expect(screen.queryByText('Navigation')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true');
@@ -198,7 +199,7 @@ describe('AppShell module launch', () => {
     await user.click(search);
     const dialog = within(screen.getByRole('dialog', { name: 'Search projects and checks' }));
     expect(dialog.getAllByRole('heading').slice(-2).map(heading => heading.textContent)).toEqual(['Checks', 'Projects']);
-    const input = dialog.getByRole('searchbox', { name: 'Search by project name' });
+    const input = dialog.getByRole('searchbox', { name: 'Search checks, projects, settings, and guides' });
     expect(input).toHaveFocus();
     await user.type(input, 'portfolio');
     expect(dialog.getByText('No matching projects')).toBeInTheDocument();
@@ -212,6 +213,16 @@ describe('AppShell module launch', () => {
     await user.type(reopened.getByRole('searchbox'), 'banking');
     await user.click(reopened.getByRole('button', { name: 'Banking portal' }));
     expect(onNavigate).toHaveBeenLastCalledWith({ name: 'project', projectId: 'project-2' });
+
+    await user.click(search);
+    await user.type(screen.getByRole('searchbox'), 'settings model');
+    await user.click(screen.getByRole('button', { name: 'Model Provider' }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'settings', headingId: 'model-provider-title' });
+
+    await user.click(search);
+    await user.type(screen.getByRole('searchbox'), 'setup guide');
+    await user.click(screen.getByRole('button', { name: 'Setup guide' }));
+    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'help', headingId: 'help-guide-heading' });
   });
 
   it('moves the shell toggle into the navigation panel header', async () => {
@@ -225,6 +236,11 @@ describe('AppShell module launch', () => {
 
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-expanded', 'false');
     expect(container.querySelector('.app-shell')).toHaveClass('sidebar-collapsed');
+    const profile = screen.getByRole('button', { name: 'Open account menu' });
+    await user.click(profile);
+    expect(screen.getByRole('dialog', { name: 'Account menu' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(profile).toHaveFocus();
   });
 
   it('keeps the account control at the bottom of navigation and exposes account actions', async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, GitBranch, Plus } from 'lucide-react';
+import { FileText, GitBranch, Plus, Search } from 'lucide-react';
 import { api } from '../../api/client';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
@@ -29,26 +29,29 @@ export function useCheckLibrary(projectId?: string) {
 
 export type CheckLibrary = ReturnType<typeof useCheckLibrary>;
 
-export function CheckLibraryList({ library, onAttach, attached = [], filter }: {
+export function CheckLibraryList({ library, onAttach, attached = [], filter, compact = false }: {
   library: CheckLibrary;
   onAttach?: (artifact: Artifact) => void;
   attached?: Artifact[];
   filter?: string;
+  compact?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const search = (filter ?? query).trim().toLowerCase();
-  const matches = library.items?.filter(item => (item.filePath || item.fileName).toLowerCase().includes(search)) ?? [];
+  const matches = library.items?.filter(item => [item.fileName, item.filePath].some(value => value?.toLowerCase().includes(search))) ?? [];
   if (library.error && !library.items) return <p role="status">Source library could not be loaded.</p>;
   if (!library.items) return <p role="status">Loading library…</p>;
   if (!library.items.length) return <p>No sources in this project yet.</p>;
   return <>
-    {filter === undefined && library.items.length > 10 && <input type="search" aria-label="Search library" placeholder="Search library" value={query} onChange={event => setQuery(event.target.value)} />}
+    {filter === undefined && (compact || library.items.length > 10) && <label className="ck-popover-search"><Icon icon={Search} /><input type="search" aria-label="Search library" placeholder="Search library" value={query} onChange={event => setQuery(event.target.value)} /></label>}
     {!matches.length && <p>No matching sources.</p>}
-    <ul className="ck-library-list">
+    <ul className={compact ? "ck-library-list is-compact" : "ck-library-list"}>
       {matches.slice(0, 80).map(item => <li key={item.id}>
         {onAttach ? <button type="button" disabled={attached.some(source => source.id === item.id)} onClick={() => onAttach(item)}>
           <Icon icon={Plus} /><span>{item.filePath || item.fileName}</span>
-        </button> : <span title={item.filePath || item.fileName}>{item.filePath || item.fileName}</span>}
+        </button> : compact ? <div className="ck-source-row" title={item.filePath || item.fileName}>
+          <Icon icon={FileText} /><div><strong>{(item.fileName || item.filePath || 'Source').split(/[\\/]/).filter(Boolean).at(-1)}</strong></div>
+        </div> : <span title={item.filePath || item.fileName}>{item.filePath || item.fileName}</span>}
       </li>)}
     </ul>
     {matches.length > 80 && <p>Search to find more files.</p>}

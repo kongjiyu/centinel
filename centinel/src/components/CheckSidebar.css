@@ -64,7 +64,8 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
   width: 100%;
   min-height: 32px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: var(--space-1);
   padding-block: 0;
   border: 0;
   border-radius: var(--workspace-radius-control, 8px);
@@ -77,7 +78,7 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
 .app-shell.has-window-chrome .modal-custom-header:has(> .sidebar-search-header) { padding: 0; }
 .sidebar-search-header { position: relative; width: 100%; }
 .sidebar-search-header > svg { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); pointer-events: none; color: var(--color-text-muted); }
-.app-shell.has-window-chrome .modal:has(.sidebar-search-header) { background: color-mix(in srgb, var(--color-surface) 91%, transparent); backdrop-filter: blur(14px); }
+.app-shell.has-window-chrome .modal:has(.sidebar-search-header) { background: color-mix(in srgb, var(--color-surface) 75%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 5px 20px rgb(0 0 0 / 12%); }
 .sidebar-search-field {
   width: 100%;
   min-height: 56px;
@@ -175,3 +176,34 @@ div.app-shell.check-mode .main-content { padding: 0; background: var(--color-can
   div.app-shell.has-window-chrome .sidebar-header .sidebar-toggle { flex-basis: 28px; width: 28px; }
 }
 div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-header { padding-inline: var(--space-1); gap: 0; }
+
+.app-shell.has-window-chrome .modal-overlay.sidebar-search-overlay { background: transparent; backdrop-filter: none; }
+
+.app-shell.has-window-chrome .modal-overlay.sidebar-search-overlay {
+  -webkit-backdrop-filter: none;
+}
+
+.sidebar-projects-heading { display: flex; align-items: center; gap: var(--space-1); }
+.app-shell.has-window-chrome .sidebar-projects-heading .sidebar-recent-toggle { flex: 1; }
+.sidebar-project-add {
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border: 0;
+  border-radius: var(--workspace-radius-control, 8px);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.sidebar-project-add:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.app-shell.has-window-chrome .sidebar-search-overlay .modal-custom-header { background: color-mix(in srgb, var(--color-surface) 20%, transparent); }
+
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-profile { position: relative; }
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-account-menu { position: absolute; bottom: calc(100% + 4px); left: 8px; }
+@media (max-width: 720px) {
+  .app-shell.has-window-chrome .sidebar-profile { position: relative; }
+  .app-shell.has-window-chrome .sidebar-profile-actions .sidebar-profile-button { flex-basis: 100%; justify-content: center; }
+  .app-shell.has-window-chrome .sidebar-account-menu { position: absolute; bottom: calc(100% + 4px); left: 8px; }
+}

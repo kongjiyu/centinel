@@ -3,20 +3,20 @@ import { useEffect, useState } from 'react';
 import type { Project } from '../../types';
 import type { CheckRecord } from '../../check/types';
 
-export function rankMentionChecks(checks: CheckRecord[]) {
+export function rankMentionChecks(checks: CheckRecord[], limit = 5) {
   return [...checks].sort((a, b) => (b.problemCount ?? -1) - (a.problemCount ?? -1)
-    || (b.finishedAt ?? b.createdAt).localeCompare(a.finishedAt ?? a.createdAt)).slice(0, 5);
+    || (b.finishedAt ?? b.createdAt).localeCompare(a.finishedAt ?? a.createdAt)).slice(0, limit);
 }
 
-export function rankMentionProjects(projects: Project[], checks: CheckRecord[], query: string) {
+export function rankMentionProjects(projects: Project[], checks: CheckRecord[], query: string, limit = 5, includeUnchecked = false) {
   const latest = new Map<string, string>();
   for (const check of checks) {
     if (!check.projectId || check.phase !== 'done') continue;
     const date = check.finishedAt ?? check.createdAt;
     if (date > (latest.get(check.projectId) ?? '')) latest.set(check.projectId, date);
   }
-  return projects.filter(project => query ? project.name.toLowerCase().includes(query) : latest.has(project.id))
-    .sort((a, b) => (latest.get(b.id) ?? '').localeCompare(latest.get(a.id) ?? '')).slice(0, 5);
+  return projects.filter(project => query ? project.name.toLowerCase().includes(query) : includeUnchecked || latest.has(project.id))
+    .sort((a, b) => (latest.get(b.id) ?? '').localeCompare(latest.get(a.id) ?? '')).slice(0, limit);
 }
 
 /** Keep typing focus in the textarea while the menu has an active action. */

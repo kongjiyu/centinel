@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CircleHelp, Download, ExternalLink } from 'lucide-react';
 import { CommandPageHeader } from '../components/CommandUI';
 import { exportAndSaveDiagnostics } from '../utils/saveDiagnostics';
@@ -10,11 +10,12 @@ export const PRIVACY_STATEMENT_URL = 'https://github.com/kongjiyu/centinel/blob/
 type ExportState = { kind: 'idle' } | { kind: 'busy' } | { kind: 'done'; message: string } | { kind: 'error'; message: string };
 
 type Props = {
+  headingId?: string;
   /** Reopens the first-run setup guide on Home. Omitted when no account is signed in. */
   onOpenSetupGuide?: () => void;
 };
 
-export function HelpScreen({ onOpenSetupGuide }: Props = {}) {
+export function HelpScreen({ onOpenSetupGuide, headingId }: Props = {}) {
   const [exportState, setExportState] = useState<ExportState>({ kind: 'idle' });
   const exportDiagnostics = async () => {
     setExportState({ kind: 'busy' });
@@ -29,6 +30,16 @@ export function HelpScreen({ onOpenSetupGuide }: Props = {}) {
       setExportState({ kind: 'error', message: error instanceof Error && error.message ? error.message : 'Diagnostics could not be exported.' });
     }
   };
+  useEffect(() => {
+    if (!headingId) return;
+    const frame = requestAnimationFrame(() => {
+      const heading = document.getElementById(headingId);
+      heading?.setAttribute('tabindex', '-1');
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView?.({ block: 'start' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [headingId]);
   return (
     <div className="screen command-help-screen">
       <CommandPageHeader eyebrow="Support" title="Help" />

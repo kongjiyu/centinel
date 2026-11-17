@@ -10,7 +10,7 @@ export function CheckComposerNotices({ notices, covered = false }: { notices: Co
     {notices.map(({ title, description, tone, action }) => <div key={title} className={'ck-composer-notice is-' + tone}>
       <Icon icon={tone === 'critical' ? OctagonAlert : tone === 'warning' ? TriangleAlert : Info} />
       <div><strong>{title}</strong><p role="status">{description}</p></div>
-      {action && <button type="button" className="ck-link" onClick={action.run}>{action.label}</button>}
+      {action && <button type="button" className="ck-button is-small" onClick={action.run}>{action.label}</button>}
     </div>)}
   </aside>;
 }

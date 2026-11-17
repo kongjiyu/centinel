@@ -1,3 +1,4 @@
+import { rankMentionChecks, rankMentionProjects } from '../screens/check/checkMentionSelection';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, CircleHelp, CircleUserRound, FolderOpen, LoaderCircle, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Repeat2, Search, Settings, TriangleAlert } from 'lucide-react';
 import type { Project, Screen } from '../types';
@@ -7,6 +8,8 @@ import { useChecks } from '../check/store';
 import { useBackgroundCheckSync } from '../check/sync';
 import type { CheckRecord } from '../check/types';
 import { Icon } from './Icon';
+import { ProjectCreateModal } from './ProjectCreateModal';
+import type { ProjectCreationResult, ProjectRepositoryInput } from '../types';
 import { Modal } from './Modal';
 import { RecentProjectDetails } from './RecentProjectDetails';
 import './CheckSidebar.css';
@@ -15,6 +18,7 @@ type Props = {
   screen: Screen;
   onNavigate: (screen: Screen) => void;
   projects: Project[];
+  onCreateProject?: (name: string, description: string, sources: ProjectRepositoryInput[]) => Promise<ProjectCreationResult | void>;
   accountEmail: string | null;
   githubLogin: string | null;
   accountGithubLogin?: string | null;
@@ -40,9 +44,23 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_IPC__' in window;
 }
 
-export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, onSwitchAccount, onLogOut, children }: Props) {
+const SEARCH_SECTIONS = [
+  { page: 'help', name: 'Help', entries: [
+    ['Setup guide', 'help-guide-heading'], ['Start a Review', 'help-start-heading'], ['Follow Activity', 'help-activity-heading'],
+    ['Read the result', 'help-result-heading'], ['Inspect evidence', 'help-evidence-heading'], ['Update project sources', 'help-sync-heading'],
+    ['Confirm requirements', 'help-requirements-heading'], ['Test the running application', 'help-dynamic-heading'],
+    ['Share a project', 'help-project-heading'], ['Set up AI models', 'help-settings-heading'], ['Privacy and diagnostics', 'help-privacy-heading'],
+  ] },
+  { page: 'settings', name: 'Settings', entries: [
+    ['App Version', 'settings-app-version-title'], ['Appearance', 'settings-appearance-title'], ['Account', 'settings-account-title'],
+    ['Connections', 'settings-connections-title'], ['Model Provider', 'model-provider-title'], ['Embedding model provider', 'embedding-provider-heading'], ['Usage', 'settings-usage-title'],
+  ] },
+] as const;
+
+export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, onCreateProject, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -122,8 +140,8 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
   const recentProjects = [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const detailsProject = projects.find(project => project.id === detailsProjectId);
   const query = search.trim().toLowerCase();
-  const matchingProjects = searchOpen ? recentProjects.filter(project => project.name.toLowerCase().includes(query)) : [];
-  const matchingChecks = searchOpen ? checks.filter(check => check.projectName.toLowerCase().includes(query)) : [];
+  const matchingProjects = searchOpen ? rankMentionProjects(recentProjects, checks, query, 8, true) : [];
+  const matchingChecks = searchOpen ? rankMentionChecks(checks.filter(check => [check.projectName, check.focus].join(' ').toLowerCase().includes(query)), 8) : [];
 
   const openSearchResult = (result: Screen) => {
     setSearchOpen(false);
@@ -179,7 +197,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
             <div className="sidebar-nav-group sidebar-checks">
               <button type="button" className="sidebar-category sidebar-recent-toggle"
                 aria-expanded={checksExpanded} aria-controls="sidebar-recent-checks-content" onClick={() => setChecksExpanded(value => !value)}>
-                Recent checks <ChevronDown size={14} aria-hidden="true" />
+                Checks <ChevronDown size={14} aria-hidden="true" />
               </button>
               <div id="sidebar-recent-checks-content" hidden={!checksExpanded}>
               {visibleChecks.length ? (
@@ -209,10 +227,16 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
             </div>
 
             <section className="sidebar-nav-group sidebar-recent-projects" aria-labelledby="sidebar-recent-projects-title">
+              <div className="sidebar-projects-heading">
               <button type="button" className="sidebar-category sidebar-recent-toggle" id="sidebar-recent-projects-title"
                 aria-expanded={projectsExpanded} aria-controls="sidebar-recent-projects-content" onClick={() => setProjectsExpanded(value => !value)}>
-                Recent projects <ChevronDown size={14} aria-hidden="true" />
+                Projects <ChevronDown size={14} aria-hidden="true" />
               </button>
+              <button type="button" className="sidebar-project-add" aria-label="Add project" title="Add project" onClick={() => {
+                if (onCreateProject) setCreateProjectOpen(true);
+                else onNavigate({ name: 'new-check', initialCreate: true });
+              }}><Icon icon={Plus} /></button>
+              </div>
               <div id="sidebar-recent-projects-content" hidden={!projectsExpanded}>
               {recentProjects.length ? (
                 <>
@@ -291,7 +315,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         </aside>
 
         <section className="page-content-container" aria-label="Page content">
-          {screen.name !== 'new-check' && screen.name !== 'check' && <PageBreadcrumbs
+          {screen.name !== 'new-check' && screen.name !== 'check' && screen.name !== 'project' && <PageBreadcrumbs
             screen={screen}
             projects={projects}
             onNavigate={onNavigate}
@@ -301,8 +325,8 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
           </main>
         </section>
       </div>
-      <Modal isOpen={searchOpen} onClose={() => setSearchOpen(false)} title="Search projects and checks" width={720}
-        headerContent={<div className="sidebar-search-header"><input className="sidebar-search-field" type="search" data-autofocus aria-label="Search by project name" placeholder="Search checks and projects" value={search} onChange={event => setSearch(event.target.value)} /><Search size={17} aria-hidden="true" /></div>}>
+      <Modal isOpen={searchOpen} onClose={() => setSearchOpen(false)} title="Search projects and checks" width={720} overlayClassName="sidebar-search-overlay"
+        headerContent={<div className="sidebar-search-header"><input className="sidebar-search-field" type="search" data-autofocus aria-label="Search checks, projects, settings, and guides" placeholder="Search checks, projects, settings, and guides" value={search} onChange={event => setSearch(event.target.value)} /><Search size={17} aria-hidden="true" /></div>}>
         <div className="sidebar-search-dialog">
           <div className="sidebar-search-results">
             <section aria-labelledby="sidebar-search-checks">
@@ -326,9 +350,19 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 </li>)}
               </ul> : <p>{query ? 'No matching projects' : 'No projects yet'}</p>}
             </section>
+            {query && SEARCH_SECTIONS.map(({ page, name, entries }) => {
+              const matches = entries.filter(([label]) => query.split(/\s+/).every(term => (name + ' ' + label).toLowerCase().includes(term)));
+              return matches.length > 0 && <section key={page} aria-label={name}>
+                <h4>{name}</h4>
+                <ul className="sidebar-check-list">{matches.map(([label, headingId]) => <li key={headingId}>
+                  <button type="button" className="sidebar-check" onClick={() => openSearchResult({ name: page, headingId })}>{label}</button>
+                </li>)}</ul>
+              </section>;
+            })}
           </div>
         </div>
       </Modal>
+      {onCreateProject && <ProjectCreateModal isOpen={createProjectOpen} onClose={() => setCreateProjectOpen(false)} onCreate={onCreateProject} />}
       {detailsProject && (
         <RecentProjectDetails key={detailsProject.id} project={detailsProject}
           onClose={() => setDetailsProjectId(null)}

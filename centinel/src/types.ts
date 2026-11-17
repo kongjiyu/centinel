@@ -916,8 +916,8 @@ export type Screen =
   | { name: 'evidence-browser'; projectId: string }
   | { name: 'requirements'; projectId: string }
   | { name: 'review-playground'; projectId?: string; sessionId?: string }
-  | { name: 'settings'; section?: 'connections' }
-    | { name: 'help' }
+  | { name: 'settings'; section?: 'connections'; headingId?: string }
+    | { name: 'help'; headingId?: string }
   | { name: 'profile' };
 
 export type Requirement = {

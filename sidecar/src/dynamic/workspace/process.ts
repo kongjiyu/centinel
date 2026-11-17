@@ -2,6 +2,7 @@ import { acquireProcessLease, releaseUnstartedLease, PROCESS_GUARDIAN } from './
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnWindowsJob, WINDOWS_RUNTIME_VARIABLE, windowsRuntimeEnvironment } from './windowsJob.js';
 import { redactOutput } from './redaction.js';
 export type ProcessResult = {
     outcome: 'passed' | 'failed' | 'cancelled' | 'timeout' | 'output_limit' | 'runner_error';
@@ -26,15 +27,14 @@ export async function runBoundedProcess(input: {
     /** Only the autonomous dependency install sets this; every other command stays offline. */
     allowNetwork?: boolean;
 }): Promise<ProcessResult> {
-    if (process.platform === 'win32')
-        throw new Error('Bounded repository execution currently requires Unix process groups.');
+    const windows = process.platform === 'win32';
     const start = performance.now();
     const maximum = input.maxOutputBytes ?? 256000;
     if (!path.isAbsolute(input.cwd) || !path.isAbsolute(input.home) || !Number.isInteger(input.timeoutMs) || input.timeoutMs < 10 || input.timeoutMs > 300000 || maximum < 1 || maximum > 1000000)
         throw new Error('Bounded process configuration required.');
     const variables = input.variables ?? {};
     const forbidden = /^(PATH|HOME|SHELL|NODE_OPTIONS|BASH_ENV|ENV|LD_.*|DYLD_.*|NPM_CONFIG_.*|npm_config_.*|COREPACK_.*|GIT_.*)$/;
-    if (Object.keys(variables).some(name => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || forbidden.test(name)))
+    if (Object.keys(variables).some(name => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || forbidden.test(name) || (windows && WINDOWS_RUNTIME_VARIABLE.test(name))))
         throw new Error('Reserved process environment names are not permitted.');
     fs.mkdirSync(input.home, { recursive: true, mode: 0o700 });
     if (input.signal?.aborted)
@@ -48,7 +48,7 @@ export async function runBoundedProcess(input: {
         const chunks: Buffer[] = [];
         let ended = false;
         let outputTruncated = false;
-        const launch = () => spawn(input.executable, input.args, { cwd: input.cwd, detached: process.platform !== 'win32', shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: [input.runtimeBinDirectory, process.env.PATH].filter(Boolean).join(path.delimiter), HOME: input.home, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG ?? 'en_US.UTF-8', CI: '1', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0', COREPACK_ENABLE_PROJECT_SPEC: '0', npm_config_manage_package_manager_versions: 'false', ...(input.allowNetwork ? {} : { npm_config_offline: 'true' }), ...variables } });
+        const launch = () => (windows ? spawnWindowsJob : spawn)(input.executable, input.args, { cwd: input.cwd, detached: process.platform !== 'win32', shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: [input.runtimeBinDirectory, process.env.PATH].filter(Boolean).join(path.delimiter), HOME: input.home, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG ?? 'en_US.UTF-8', CI: '1', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0', COREPACK_ENABLE_PROJECT_SPEC: '0', npm_config_manage_package_manager_versions: 'false', ...(input.allowNetwork ? {} : { npm_config_offline: 'true' }), ...variables, ...(windows ? windowsRuntimeEnvironment(input.home) : {}) } });
         let child: ReturnType<typeof launch>;
         try {
             child = launch();
@@ -59,7 +59,7 @@ export async function runBoundedProcess(input: {
             return;
         }
         // The guardian alone releases the workspace lock after the whole group ends.
-        const guardian = child.pid ? spawn(process.execPath, ['-e', PROCESS_GUARDIAN, JSON.stringify({ groupPid: child.pid, timeoutMs: input.timeoutMs, ...lease })], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH } }) : null;
+        const guardian = !windows && child.pid ? spawn(process.execPath, ['-e', PROCESS_GUARDIAN, JSON.stringify({ groupPid: child.pid, timeoutMs: input.timeoutMs, ...lease })], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { PATH: process.env.PATH } }) : null;
         let leaseReleased = false;
         let guardianEnded = false;
         let acknowledgement: () => void = () => { };
@@ -69,7 +69,9 @@ export async function runBoundedProcess(input: {
         } });
         guardian?.on('exit', () => { guardianEnded = true; acknowledgement(); });
         guardian?.unref();
-        const kill = () => { try {
+        const kill = () => {
+            if (windows) { child.stdin?.end(); child.kill(); return; }
+            try {
             if (process.platform !== 'win32' && child.pid)
                 process.kill(-child.pid, 'SIGTERM');
             else
@@ -106,15 +108,15 @@ export async function runBoundedProcess(input: {
                 kill();
             }
         } };
-        child.stdout.on('data', collect);
-        child.stderr.on('data', collect);
+        child.stdout?.on('data', collect);
+        child.stderr?.on('data', collect);
         const finish = async (exitCode: number | null, signal: string | null) => {
             if (ended)
                 return;
             ended = true;
             clearTimeout(timer);
             input.signal?.removeEventListener('abort', abort);
-            if (!child.pid) {
+            if (windows || !child.pid) {
                 releaseUnstartedLease(lease);
                 leaseReleased = true;
             }

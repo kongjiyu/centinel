@@ -9,14 +9,19 @@ export type ProcessLease = {
  * A leftover/corrupt lease fails closed; age alone never proves a process stopped. */
 export function acquireProcessLease(workspace: string): ProcessLease | null {
     const uid = process.getuid?.();
-    if (uid === undefined)
-        throw Error('Unix workspace execution identity required');
-    const root = path.join('/tmp', 'centinel-workspace-processes-v1-' + uid);
+    const windows = process.platform === 'win32';
+    const local = process.env.LOCALAPPDATA;
+    if (windows ? !local || !path.isAbsolute(local) : uid === undefined)
+        throw Error('A private workspace execution identity is required.');
+    const root = windows ? path.join(local!, 'Centinel', 'workspace-processes-v1') : path.join('/tmp', 'centinel-workspace-processes-v1-' + uid);
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
     const directoryInfo = fs.lstatSync(root);
-    if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() || directoryInfo.uid !== uid || (directoryInfo.mode & 0o077) !== 0)
+    if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() || (!windows && (directoryInfo.uid !== uid || (directoryInfo.mode & 0o077) !== 0)))
         throw Error('Private workspace execution lease directory required');
-    const directory = fs.realpathSync(workspace), file = path.join(root, crypto.createHash('sha256').update(directory).digest('hex') + '.json'), nonce = crypto.randomUUID();
+    const directory = fs.realpathSync(workspace);
+    const identity = windows ? directory.toLowerCase() : directory;
+    const file = path.join(root, crypto.createHash('sha256').update(identity).digest('hex') + '.json');
+    const nonce = crypto.randomUUID();
     try {
         fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, nonce, ownerPid: process.pid }), { flag: 'wx', mode: 0o600 });
         return { file, nonce };

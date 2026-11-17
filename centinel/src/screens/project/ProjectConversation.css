@@ -1,16 +1,4 @@
 /* Project conversation (DESIGN.md §4.4). Builds on the .ck-* primitives in Check.css. */
-.pc-screen { padding-bottom: 0; }
-.pc-layout {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: var(--space-6);
-  max-width: 1200px;
-  height: calc(100vh - 140px);
-  min-height: 520px;
-  margin: 0 auto;
-}
-.pc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-4); }
 .pc-kicker { color: var(--color-text-muted); font-size: 13px; }
 .pc-thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-1) var(--space-4); }
@@ -45,46 +33,14 @@
 .pc-diff .is-added { color: var(--color-success); }
 .pc-diff .is-removed { color: var(--color-danger); text-decoration: line-through; }
 .pc-live { min-width: min(560px, 70vw); }
-.pc-composer {
-  position: relative;
-  display: grid;
-  gap: var(--space-2);
-  margin-bottom: var(--space-6);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-stage-border);
-  border-radius: var(--radius-input-hero);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-input-hero);
-}
-.pc-composer textarea { width: 100%; min-height: 44px; border: 0; outline: none; resize: none; background: transparent; color: var(--color-text); font: 400 15px/1.5 var(--font-ui); }
-.pc-composer textarea::placeholder { color: var(--color-text-muted); }
-.pc-composer textarea { padding-inline-end: 34px; }
-.pc-composer.is-expanded textarea { min-height: clamp(125px, 24vh, 240px); }
 .pc-base { justify-self: start; }
-.pc-composer-row { display: flex; justify-content: space-between; align-items: center; }
-.pc-mode { position: relative; }
-.pc-mode > .ck-button { border: 0; background: transparent; }
-.pc-composer-row { gap: var(--space-2); }
-.pc-composer-row .pc-check-mode { margin-inline-start: auto; min-width: 0; }
-.pc-mode-menu { top: auto; bottom: calc(100% + var(--space-2)); min-width: 300px; margin: 0; list-style: none; }
-.pc-mode-menu button { align-items: flex-start; }
-.pc-mode-menu small { display: block; color: var(--color-text-muted); font-size: 12px; }
-.pc-mode-menu b { font-weight: 600; }
-.pc-mode-space { width: 1.2em; flex: none; }
 .pc-side {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: 0;
-  bottom: var(--space-6);
   box-sizing: border-box;
-  width: 280px;
   overflow-x: hidden;
   overflow-y: auto;
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(8px);
   font-size: 13px;
 }
@@ -100,11 +56,6 @@
 .pc-details { margin-top: var(--space-6); }
 
 @media (max-width: 960px) {
-  .pc-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
-  .pc-thread { overflow: visible; }
-  .pc-side-slot { display: none; }
-  .pc-side, .pc-side.is-open { position: static; order: -1; width: 100%; }
-  .pc-layout.is-side-open .pc-main { display: none; }
   .pc-msg { max-width: 100%; }
   .pc-live { min-width: 0; }
 }
@@ -185,14 +136,10 @@
 /* Side panel (14 Nov 2026): a 280px column with the latest check and its problems.
    Expanded, it grows from that column over the whole conversation area (DESIGN.md §9:
    disclosure 150–220 ms); the extra columns fade in once it has room. */
-.pc-side { transition: width var(--duration-slow, 220ms) var(--ease-standard, cubic-bezier(0.2, 0, 0, 1)); }
-.pc-side.is-open { width: 100%; background: rgba(255, 255, 255, 0.92); box-shadow: var(--shadow-tile); }
 .pc-side-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
 .pc-side .pc-side-top h2 { margin: 0; }
 .pc-side.is-open .pc-side-top { margin-bottom: var(--space-4); }
 .pc-side.is-open .pc-side-top h2 { font: 600 var(--font-size-section)/1.3 var(--font-ui); color: var(--color-text); }
-.pc-main { transition: opacity var(--duration-standard, 150ms) var(--ease-standard, cubic-bezier(0.2, 0, 0, 1)); }
-.pc-layout.is-side-open .pc-main { opacity: 0; }
 .pc-side-toggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; padding: 0; border: 1px solid transparent; border-radius: var(--space-2); background: none; color: var(--color-text-muted); cursor: pointer; transition: background-color var(--duration-fast, 100ms) ease, color var(--duration-fast, 100ms) ease; }
 .pc-side-toggle:hover { background: var(--color-surface); border-color: var(--color-border); color: var(--color-text); }
 .pc-side-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
@@ -206,9 +153,38 @@
 .pc-side-extra .pc-details { display: block; margin-top: var(--space-3); text-align: left; font-weight: 400; color: var(--color-text-muted); }
 @keyframes pc-side-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .pc-side, .pc-side-toggle, .pc-main { transition: none; }
   .pc-side-extra { animation: none; }
 }
 @media (max-width: 960px) {
   .pc-side.is-open .pc-side-body { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+}
+
+.ck-detail-layout > .pc-side {
+  grid-area: sidebar;
+  position: relative;
+  inset: auto;
+  width: auto;
+  min-width: 0;
+  margin-top: 40px;
+  z-index: 3;
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+}
+.ck-detail-layout > .pc-side.is-open {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: auto;
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+}
+.pc-response .pc-thread { overflow: visible; padding-bottom: 0; }
+.pc-response .pc-head { margin-bottom: var(--space-4); }
+@media (max-width: 900px) {
+  .ck-detail-layout > .pc-side:not(.is-open) {
+    grid-area: content;
+    align-self: start;
+    justify-self: end;
+    margin: 0;
+    padding: var(--space-1);
+  }
+  .ck-detail-layout > .pc-side:not(.is-open) .pc-side-top { margin: 0; }
+  .ck-detail-layout > .pc-side:not(.is-open) :is(.pc-side-body, .pc-side-top h2) { display: none; }
 }

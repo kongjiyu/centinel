@@ -1,29 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bookmark, BookmarkCheck, Check, Download, LayoutList, Minus, OctagonAlert, ChevronDown, ChevronRight, Code, RotateCcw, Search, Wrench, FileText, Folder, Globe, Image, Info, LoaderCircle, Lock, MonitorCheck, Pencil, Play, Plus, Save, ShieldCheck, Sparkles, TriangleAlert, Undo2, X } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Check, ChevronDown, ChevronRight, RotateCcw, Search, Wrench, FileText, Globe, Info, LoaderCircle, MonitorCheck, Pencil, Play, Plus, Save, ShieldCheck, TriangleAlert, Undo2, X } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from '../../autotest/types';
 import { isActive } from '../../autotest/types';
 import { stageHeadline } from '../../autotest/presentation';
 import { Icon } from '../../components/Icon';
-import { Select } from '../../components/Select';
-import { CornersIn, CornersOut } from '../../components/cornerIcons';
 import { browserProblem } from '../../check/result';
-import { addNote, isPinned, looksLikeAccount, MODE_LABEL, pinTest, setMode, setSideOpen, unpinTest, updatePrefs, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
-import { useLatestResult, type LatestResult } from '../../check/latestResult';
-import { folderName, startCheck } from '../../check/runner';
+import { addNote, isPinned, looksLikeAccount, pinTest, setMode, setSideOpen, unpinTest, updatePrefs, useProjectPrefs } from '../../check/projectPrefs';
+import { useLatestResult } from '../../check/latestResult';
+import { startCheck } from '../../check/runner';
 import { useChecks } from '../../check/store';
-import { CHECK_MODES, type CheckMode } from '../../check/types';
+import { type CheckMode, type StartCheckInput } from '../../check/types';
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import type { Artifact, Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from '../check/BrowserTiles';
 import { InlineText } from '../check/CheckScreen';
-import { handleComposerEnter } from '../check/composerKeys';
 import '../check/Check.css';
+import { CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from '../check/CheckProjectWorkspace';
+import { useCheckLibrary } from '../check/CheckSourceLibrary';
+import { ProjectSidePanel } from './ProjectSidePanel';
 import './ProjectConversation.css';
 
 type Navigate = (screen: Screen) => void;
-type Pending = { text: string; base: (AutoTestRef & { name: string }) | null; checkMode?: CheckMode } | { rerun: Array<AutoTestRef & { name: string }> };
+type Pending = { text: string; base: (AutoTestRef & { name: string }) | null; checkMode?: CheckMode; checkInput?: StartCheckInput } | { rerun: Array<AutoTestRef & { name: string }> };
 
 const POLL_MS = 2000;
 const IDLE_POLL_MS = 15000;
@@ -249,189 +249,16 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
   );
 }
 
-const RISK_ICON: Record<string, { icon: typeof Check; shape?: 'triangle'; className: string }> = {
-  critical: { icon: OctagonAlert, className: 'pc-risk-critical' },
-  high: { icon: TriangleAlert, shape: 'triangle', className: 'pc-risk-high' },
-  medium: { icon: TriangleAlert, shape: 'triangle', className: 'pc-risk-medium' },
-  low: { icon: Info, className: 'pc-risk-low' },
-};
-
-const DAY = { day: 'numeric', month: 'short' } as const;
-
-/**
- * The project side panel (DESIGN.md §4.4, 14 Nov 2026). Collapsed it is a narrow
- * column with the latest check: the problem count, three numbers and its problems.
- * Expanded it grows over the whole conversation area and adds everything the
- * project holds: requirements, browser tests, sources, saved tests, how it is
- * tested, checks, the report and the full result. Everything is read from saved
- * records; whether it is open is kept on this device.
- */
-function ProjectSidePanel({ project, latest, onOpen, open, onToggle, documents, codeFiles, pinned, lastStateOf, mode, accountGiven, checks, onNavigate }: {
-  project: Project; latest: LatestResult; onOpen(): void; open: boolean; onToggle(): void;
-  documents: Artifact[]; codeFiles: number; pinned: ReturnType<typeof useProjectPrefs>['pinned'];
-  lastStateOf(ref: AutoTestRef): string | undefined; mode: PermissionMode; accountGiven: boolean;
-  checks: ReturnType<typeof useChecks>; onNavigate: Navigate;
-}) {
-  const [exporting, setExporting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const { result, review, autoTest } = latest;
-  const problems = result ? [...result.proven, ...result.foundInCode] : [];
-  const running = !!result && !result.finished;
-  const reviewDone = !!review && result?.codeState === 'done';
-  const tally = result?.requirements ?? null;
-  const browserTests = autoTest?.tests ?? [];
-  const browserFailed = browserTests.filter(test => test.state === 'failed').length;
-  const hasFolder = !!projectLocalFolder(project);
-  const download = async () => {
-    if (!review) return;
-    setExporting(true);
-    setMessage(null);
-    try {
-      const report = await api.exportProjectReport(project.id, { reviewId: review.id });
-      const target = report.downloads.pdf ?? report.downloads.markdown;
-      if (!target) throw new Error('The report has no download link.');
-      if (typeof window !== 'undefined' && '__TAURI_IPC__' in (window as object)) { const shell = await import('@tauri-apps/api/shell'); await shell.open(target); }
-      else globalThis.open(target, '_blank', 'noopener');
-      setMessage('The report opened in your browser.');
-    } catch (cause) {
-      setMessage(userFacingError(cause, 'The report could not be created. Try again.'));
-    } finally {
-      setExporting(false);
-    }
-  };
-  const requirementNames = tally ? (latest.requirements.length ? latest.requirements.map(item => item.title) : [...tally.notMetNames, ...(tally.metNames ?? [])]) : [];
-
-  const latestLabel = `Latest check${latest.at ? ` · ${new Date(latest.at).toLocaleDateString(undefined, DAY)}` : ''}`;
-  const toggleLabel = open ? 'Back to the conversation' : 'Show the whole project';
-
-  return (
-    <aside className={`pc-side${open ? ' is-open' : ''}`} aria-label="What Centinel knows">
-      <div className="pc-side-top">
-        <h2>{open ? project.name : latestLabel}</h2>
-        <button type="button" className="pc-side-toggle" onClick={onToggle} aria-expanded={open} aria-controls="pc-side-more"
-          aria-label={toggleLabel} title={toggleLabel}>
-          <Icon icon={open ? CornersIn : CornersOut} />
-        </button>
-      </div>
-      <div className="pc-side-body">
-        <section className="pc-side-col pc-side-latest">
-          {open && <h2>{latestLabel}</h2>}
-          {latest.loading ? <p className="pc-empty"><Icon icon={LoaderCircle} className="ci-spin" /> Loading…</p>
-            : !result ? <p className="pc-empty">No check has run yet. Use Run a full check.</p>
-            : <>
-              <p className="pc-latest-verdict">
-                {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : problems.length ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : <Icon icon={Check} />}
-                <span>{running ? 'A check is running' : problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'No problems found'}</span>
-              </p>
-              {!running && result.proven.length > 0 && <p className="pc-latest-sub">{result.proven.length} proven in the browser</p>}
-              {!running && (
-                <div className="pc-latest-numbers">
-                  <div><small>Browser</small><b>{result.browserState === 'not_requested' || result.browserState === 'not_started' ? '–' : result.proven.length}</b></div>
-                  <div><small>Code</small><b>{result.codeState === 'not_requested' || result.codeState === 'not_started' ? '–' : result.foundInCode.length}</b></div>
-                  <div><small>Not met</small><b>{tally ? tally.notMet : '–'}</b>{tally ? <small className="pc-of"> /{tally.total}</small> : null}</div>
-                </div>
-              )}
-              {problems.length > 0 && <>
-                <h2>Problems</h2>
-                <ul className="pc-latest-problems">
-                  {problems.map(problem => {
-                    const look = RISK_ICON[problem.risk ?? ''] ?? (problem.marks.includes('browser') ? { icon: MonitorCheck, className: 'pc-risk-browser' } : RISK_ICON.low);
-                    return <li key={problem.key}><Icon icon={look.icon} shape={look.shape} className={look.className} /><span title={problem.title}>{problem.title}</span></li>;
-                  })}
-                </ul>
-              </>}
-              <button type="button" className="ck-link pc-open-result" onClick={onOpen}><Icon icon={LayoutList} />Open the full result</button>
-            </>}
-        </section>
-        {open && <>
-          <section className="pc-side-col pc-side-extra" id="pc-side-more">
-            {tally && tally.total > 0 && <>
-              <h2>Requirements</h2>
-              <ul>
-                {requirementNames.map(name => {
-                  const notMet = tally.notMetNames.includes(name);
-                  const met = tally.metNames?.includes(name);
-                  return <li key={name}>{notMet ? <Icon icon={X} className="pc-bad" /> : met ? <Icon icon={Check} /> : <Icon icon={Minus} />}<span title={`${name}: ${notMet ? 'not met' : met ? 'met' : 'not checked'}`}>{name}</span></li>;
-                })}
-              </ul>
-            </>}
-            {browserTests.length > 0 && <>
-              <h2>Browser tests · {browserFailed ? `${browserFailed} of ${browserTests.length} failed` : `${browserTests.length} ran`}</h2>
-              <ul>
-                {browserTests.map(test => (
-                  <li key={test.id}>
-                    {test.state === 'failed' ? <Icon icon={X} className="pc-bad" /> : test.state === 'passed' ? <Icon icon={Check} /> : <Icon icon={Minus} />}
-                    <span title={`${test.name}: ${test.state === 'failed' ? 'failed' : test.state === 'passed' ? 'passed' : 'not finished'}`}>{test.name}</span>
-                  </li>
-                ))}
-              </ul>
-            </>}
-            {!(tally && tally.total) && !browserTests.length && <p className="pc-empty">No requirements or browser tests yet.</p>}
-          </section>
-          <section className="pc-side-col pc-side-extra">
-            <h2>Sources</h2>
-            <ul>
-              {project.workspacePath ? <li><Icon icon={Folder} /><span title={project.workspacePath}>{folderName(project.workspacePath)}{codeFiles ? ` · ${codeFiles} files` : ''}</span></li> : <li><Icon icon={Code} /><span>{codeFiles} code files</span></li>}
-              {documents.slice(0, 8).map(document => <li key={document.id}><Icon icon={FileText} /><span>{document.fileName}</span></li>)}
-            </ul>
-            <h2>Saved browser tests{pinned.length ? ` · ${pinned.length}` : ''}</h2>
-            {pinned.length ? (
-              <ul>
-                {pinned.map(test => {
-                  const state = lastStateOf(test);
-                  return (
-                    <li key={`${test.sessionId}:${test.testId}`}>
-                      {state === 'failed' ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : state === 'passed' ? <Icon icon={Check} /> : <Icon icon={MonitorCheck} />}
-                      <span>{test.name}</span>
-                      <button type="button" className="pc-unpin" onClick={() => unpinTest(project.id, test)} aria-label={`Stop running ${test.name} in every check`}><Icon icon={X} /></button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : <p className="pc-empty">None yet. Use Save for every check on a test.</p>}
-            <h2>How it is tested</h2>
-            <ul>
-              <li><Icon icon={Globe} /><span>{hasFolder ? 'Centinel starts the app itself' : 'No folder on this computer, so browser tests cannot run'}</span></li>
-              <li><Icon icon={ShieldCheck} /><span>{MODE_LABEL[mode]} mode</span></li>
-              {accountGiven && <li><Icon icon={Lock} /><span>Test account given in the conversation</span></li>}
-            </ul>
-            <h2>Checks</h2>
-            {checks.length ? (
-              <ul>
-                {checks.slice(0, 5).map(check => (
-                  <li key={check.id}>
-                    <button type="button" className="ck-link pc-check-link" onClick={() => onNavigate({ name: 'check', checkId: check.id })}>
-                      {check.phase === 'done' && check.problemCount ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : check.phase === 'done' ? <Icon icon={Check} /> : <Icon icon={LoaderCircle} />}
-                      {new Date(check.createdAt).toLocaleDateString(undefined, DAY)} · {check.phase === 'done' ? `${check.problemCount ?? 0} problems` : check.phase === 'failed' ? 'did not start' : 'running'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="pc-empty">No checks on this computer yet.</p>}
-            {reviewDone && <button type="button" className="ck-button is-primary is-small pc-download" onClick={() => void download()} disabled={exporting}><Icon icon={Download} />{exporting ? 'Creating report…' : 'Download report'}</button>}
-            {message && <p className="pc-empty">{message}</p>}
-            <button type="button" className="ck-link pc-details" onClick={() => onNavigate({ name: 'project-detail', projectId: project.id, details: true })}>Details: findings, sources, settings</button>
-          </section>
-        </>}
-      </div>
-    </aside>
-  );
-}
-
 export function ProjectConversationScreen({ project, projects, onNavigate }: { project: Project; projects: Project[]; onNavigate: Navigate }) {
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(check => check.projectId === project.id);
   const [sessions, setSessions] = useState<AutoTestSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [text, setText] = useState('');
   const [base, setBase] = useState<(AutoTestRef & { name: string }) | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modeOpen, setModeOpen] = useState(false);
-  const [checkMode, setCheckMode] = useState<CheckMode>('browser');
-  const [composerExpanded, setComposerExpanded] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const hasFolder = !!projectLocalFolder(project);
@@ -472,9 +299,8 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' }); }, [lastSignature, pending]);
 
   const launch = async (job: Pending) => {
-    if ('checkMode' in job && job.checkMode && job.checkMode !== 'browser') {
-      const check = startCheck({ projectId: project.id, documents: [], focus: job.text, mode: job.checkMode,
-        ...(job.checkMode === 'both' ? { browserRequest: job.text } : {}) }, { api, projects: () => projects });
+    if ('checkInput' in job && job.checkInput) {
+      const check = startCheck(job.checkInput, { api, projects: () => projects });
       onNavigate({ name: 'check', checkId: check.id });
       return;
     }
@@ -501,15 +327,14 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     void launch(job);
   };
 
-  const send = () => {
-    const value = text.trim();
-    if (!value || sending) return;
-    if (looksLikeAccount(value) && !prefs.accountReminderShown) {
+  const send = (request: StartCheckInput) => {
+    if (looksLikeAccount(request.focus) && !prefs.accountReminderShown) {
       updatePrefs(project.id, current => ({ ...current, accountReminderShown: true }));
       addNote(project.id, 'The AI will see this account. Use test accounts only.');
     }
-    submit({ text: value, base, checkMode: base ? 'browser' : checkMode });
-    setText('');
+    const hasAttachments = request.documents.length || request.referenceCheckIds?.length || request.sourceArtifactIds?.length;
+    submit({ text: request.focus, base, checkMode: request.mode,
+      checkInput: !base && (request.mode !== 'browser' || hasAttachments) ? request : undefined });
     setBase(null);
   };
 
@@ -520,13 +345,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   };
 
   const latest = useLatestResult(project.id, sessions);
-  const sideOpen = prefs.sideOpen;
-  useEffect(() => {
-    if (!sideOpen) return;
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) setSideOpen(project.id, false); };
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [sideOpen, project.id]);
+  const [sideChoice, setSideChoice] = useState<boolean | null>(null);
+  const hasChecks = checks.some(check => check.phase !== 'failed') || !!latest.review || !!latest.autoTest
+    || sessions.some(session => session.tests.length > 0);
+  const sideOpen = sideChoice ?? hasChecks;
+  const toggleSide = (open: boolean) => { setSideChoice(open); setSideOpen(project.id, open); };
+  const library = useCheckLibrary(project.id);
   const openLatest = () => {
     const local = latest.review ? checks.find(check => check.reviewId === latest.review!.id) : checks[0];
     if (local) onNavigate({ name: 'check', checkId: local.id });
@@ -538,12 +362,19 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const codeFiles = artifacts.filter(artifact => artifact.source === 'repository').length;
   const lastStateOf = (ref: AutoTestRef) => sessions.find(session => session.id === ref.sessionId)?.tests.find(test => test.id === ref.testId)?.state;
 
-  return (
-    <div className="ck-screen pc-screen">
-      <div className="ck-glow is-low" aria-hidden="true" />
-      <div className={`pc-layout${prefs.sideOpen ? ' is-side-open' : ''}`}>
-        {/* While the panel covers the conversation, the conversation cannot be reached. */}
-        <section className="pc-main" aria-label={`Conversation about ${project.name}`} aria-hidden={prefs.sideOpen || undefined} {...(prefs.sideOpen ? { inert: '' } : {})}>
+  return <CheckProjectLayout expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
+    header={<CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library} />}
+    composer={<CheckFollowUp check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
+      onNavigate={onNavigate} available library={library} conversation={{
+        editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
+        inputRef, sending, send, onFocus: () => setSideChoice(false),
+        placeholder: base ? 'How should this test change?' : 'Ask Centinel to test or change something',
+        setPermission: mode => setMode(project.id, mode),
+      }} />}
+    sidebar={<ProjectSidePanel project={project} latest={latest} onOpen={openLatest} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
+      documents={documents} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
+      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} />}>
+      <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
           <header className="pc-head">
             <div>
               <p className="pc-kicker">Project</p>
@@ -585,46 +416,6 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
             <div ref={endRef} />
           </div>
 
-          <form className={`pc-composer${composerExpanded ? ' is-expanded' : ''}`} onSubmit={event => { event.preventDefault(); send(); }}>
-            <button type="button" className="ck-composer-expand" aria-label={composerExpanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={composerExpanded}
-              onClick={() => setComposerExpanded(value => !value)}><Icon icon={composerExpanded ? CornersIn : CornersOut} /></button>
-            {base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>}
-            <label className="ck-visually-hidden" htmlFor="pc-input">Message to Centinel</label>
-            <textarea id="pc-input" ref={inputRef} rows={2} maxLength={2000} value={text} onChange={event => setText(event.target.value)}
-              placeholder={base ? 'How should this test change?' : 'Ask Centinel to test or change something'}
-              onKeyDown={event => handleComposerEnter(event, composerExpanded, send, setText)} />
-            <div className="pc-composer-row">
-              <div className="pc-mode">
-                <button type="button" className="ck-button is-small" aria-haspopup="listbox" aria-expanded={modeOpen} onClick={() => setModeOpen(value => !value)} aria-label={`Permission mode: ${MODE_LABEL[prefs.mode]}`}>
-                  <Icon icon={ShieldCheck} />{MODE_LABEL[prefs.mode]}
-                </button>
-                {modeOpen && (
-                  <ul className="ck-menu pc-mode-menu" role="listbox" aria-label="Permission mode">
-                    {([['ask', 'Asks before running or changing anything'], ['auto', 'Runs and saves tests; asks before changing settings'], ['bypass', 'Does everything except deleting']] as Array<[PermissionMode, string]>).map(([mode, hint]) => (
-                      <li key={mode} role="option" aria-selected={prefs.mode === mode}>
-                        <button type="button" onClick={() => { setMode(project.id, mode); setModeOpen(false); }}>
-                          {prefs.mode === mode ? <Icon icon={Check} /> : <span className="pc-mode-space" />}
-                          <span><b>{MODE_LABEL[mode]}</b><small>{hint}</small></span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <Select aria-label="Check mode" className="ck-mode-select pc-check-mode"
-                value={base ? 'browser' : checkMode} disabled={!!base}
-                options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && option.value === 'both' }))}
-                onChange={value => setCheckMode(value as CheckMode)} />
-              <button type="submit" className="ck-round is-go" aria-label="Send" disabled={sending || !text.trim()}><ArrowUp size={18} strokeWidth={2} aria-hidden="true" /></button>
-            </div>
-          </form>
-        </section>
-
-        <div className="pc-side-slot" aria-hidden="true" />
-        <ProjectSidePanel project={project} latest={latest} onOpen={openLatest} open={prefs.sideOpen} onToggle={() => setSideOpen(project.id, !prefs.sideOpen)}
-          documents={documents} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
-          accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} />
-      </div>
-    </div>
-  );
+      </section></div>
+  </CheckProjectLayout>;
 }
