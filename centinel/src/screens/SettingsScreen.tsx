@@ -1,7 +1,7 @@
 import { UseModelProviderButton } from '../components/UseModelProviderButton';
 import { useState, useEffect, useRef } from 'react';
 import { setVisibleInterval } from '../hooks/usePageVisible';
-import { Eye, EyeOff, Stethoscope, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, Stethoscope, RefreshCw, ExternalLink, PackageCheck, Cable, Bot, ChartNoAxesCombined, Ellipsis, Plus, AlertTriangle, Sun, Moon, Monitor } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { checkForAppUpdate, installUpdateAndRestart } from '../utils/appUpdate';
 import type { AiProviderSetting } from '../types';
@@ -15,11 +15,12 @@ import { Modal } from '../components/Modal';
 import { Select } from '../components/Select';
 import { userFacingError } from '../utils/userFacingError';
 import { openExternalUrl } from '../utils/openExternalUrl';
-import { readTheme, saveTheme, type Theme } from '../theme';
+import { readTheme, saveTheme } from '../theme';
 
 type Props = {
   settings: AiProviderSetting[];
   onRefresh: () => Promise<void>;
+  account?: React.ReactNode;
 };
 
 const RELEASES_API_URL = 'https://api.github.com/repos/kongjiyu/centinel/releases/latest';
@@ -174,9 +175,13 @@ function AppearanceSection() {
   return (
     <section className="settings-section" aria-labelledby="settings-appearance-title">
       <div className="settings-section-heading"><h2 id="settings-appearance-title">Appearance</h2></div>
-      <Select aria-label="Theme" value={theme} options={[
-        { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' },
-      ]} onChange={value => { const next = value as Theme; setTheme(next); saveTheme(next); }} />
+      <div className="settings-theme-caption" aria-hidden="true">Theme mode</div>
+      <div className="settings-theme-options" role="radiogroup" aria-label="Theme">
+        {([['light', 'Light', Sun], ['dark', 'Dark', Moon], ['system', 'System', Monitor]] as const).map(([value, label, Icon]) => (
+          <label key={value}><Icon size={18} aria-hidden="true" /><span>{label}</span><input type="radio" name="centinel-theme" checked={theme === value}
+            onChange={() => { setTheme(value); saveTheme(value); }} /></label>
+        ))}
+      </div>
     </section>
   );
 }
@@ -475,7 +480,7 @@ function TokenUsagePanel() {
   );
 }
 
-export function SettingsScreen({ settings, onRefresh, initialSection }: Props & { initialSection?: 'connections' }) {
+export function SettingsScreen({ settings, onRefresh, initialSection, account }: Props & { initialSection?: 'connections' }) {
   useEffect(() => {
     if (initialSection !== 'connections') return;
     const frame = requestAnimationFrame(() => {
@@ -634,6 +639,10 @@ export function SettingsScreen({ settings, onRefresh, initialSection }: Props & 
       <div className="settings-layout">
         <AppVersionSection />
         <AppearanceSection />
+        {account && <section className="settings-section" aria-labelledby="settings-account-title">
+          <div className="settings-section-heading"><h2 id="settings-account-title">Account</h2></div>
+          {account}
+        </section>}
 
         <section className="settings-section settings-connectors" aria-labelledby="settings-connections-title">
           <div className="settings-section-heading">

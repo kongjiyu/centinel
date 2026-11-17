@@ -9,15 +9,11 @@
   display: grid;
   gap: 12px;
 }
-.project-github-account { justify-self: start; }
 .project-account-repositories { max-height: 230px; overflow: auto; }
 .project-account-repositories .project-source-list li { display: block; }
 
-.project-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.project-source-actions .project-source-action { min-width: 0; justify-content: start; padding: 12px; text-align: start; white-space: normal; }
-.project-source-action > span { display: grid; gap: 3px; }
+.project-source-action { justify-self: start; }
 .project-source-action > svg { flex: none; }
-.project-source-action small { color: var(--color-text-muted); font-weight: 400; }
 
 .project-source-link {
   display: grid;
@@ -47,3 +43,6 @@
   .project-source-link { grid-template-columns: minmax(0, 1fr); }
   .project-source-link button { justify-self: end; }
 }
+.project-source-tabs { display: flex; gap: 12px; border-bottom: 1px solid var(--color-border); }
+.project-source-tabs button { padding: 8px 10px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--color-text-muted); font: inherit; cursor: pointer; }
+.project-source-tabs button[aria-pressed='true'] { border-bottom-color: var(--color-primary); color: var(--color-text); font-weight: 650; }

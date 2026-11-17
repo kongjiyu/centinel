@@ -83,7 +83,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     const headings = screen.getAllByRole('heading');
     const version = headings.indexOf(screen.getByRole('heading', { name: 'App Version' }));
     expect(headings[version + 1]).toHaveTextContent('Appearance');
-    expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Theme' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Model Provider' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Connections' })).toBeInTheDocument();

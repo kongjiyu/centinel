@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiProviderSetting, Project } from '../../types';
@@ -61,6 +61,24 @@ describe('Start screen', () => {
     expect(screen.getByRole('combobox', { name: 'Project conversation permission' })).toHaveTextContent('Auto');
     await user.click(screen.getByRole('button', { name: 'Expand composer' }));
     expect(screen.getByRole('button', { name: 'Collapse composer' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('uses Enter to send compact drafts and Ctrl+Enter to send expanded drafts', async () => {
+    const user = userEvent.setup();
+    renderStart(ready, [{ id: 'shop', name: 'Shop', description: '', workspacePath: '/apps/shop', createdAt: '', updatedAt: '' }]);
+    await user.click(screen.getByRole('button', { name: 'Choose project' }));
+    await user.click(screen.getByRole('button', { name: 'Shop' }));
+    const input = screen.getByRole('textbox');
+    await user.type(input, 'First');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(input).toHaveValue('First\n');
+    expect(startCheck).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Expand composer' }));
+    await user.type(input, 'Second{Enter}Third');
+    expect(input).toHaveValue('First\nSecond\nThird');
+    expect(startCheck).not.toHaveBeenCalled();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(startCheck).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'shop', focus: 'First\nSecond\nThird' }));
   });
 
   it('uses a different scenario after two first-check recommendations', async () => {
@@ -131,10 +149,10 @@ describe('Start screen', () => {
     renderStart();
     await user.click(screen.getByRole('button', { name: 'Add to check' }));
     await user.click(screen.getByRole('button', { name: /Add Repository/ }));
-    await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
+    await user.click(screen.getByRole('button', { name: 'Link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/acme/shop{Enter}');
     expect(screen.getByRole('button', { name: 'Choose project: acme/shop' })).toBeInTheDocument();
-    expect(screen.getByText(/Browser tests need the project folder on this computer/)).toBeInTheDocument();
+    expect(screen.getByText(/Choose a project with a local folder to run browser tests/)).toBeInTheDocument();
   });
 
   it('rejects a link that is not a GitHub repository', async () => {
@@ -142,14 +160,14 @@ describe('Start screen', () => {
     renderStart();
     await user.click(screen.getByRole('button', { name: 'Add to check' }));
     await user.click(screen.getByRole('button', { name: /Add Repository/ }));
-    await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
+    await user.click(screen.getByRole('button', { name: 'Link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://example.com/shop{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid GitHub repository URL');
   });
 
   it('shows the one missing setup step in place when no AI provider is connected', async () => {
     const { onNavigate } = renderStart([]);
-    expect(screen.getByText('Connect an AI provider for the code review and the browser tests first.')).toBeInTheDocument();
+    expect(screen.getByText('Connect an AI provider for code and browser checks.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Open AI settings' }));
     expect(onNavigate).toHaveBeenCalledWith({ name: 'settings' });
   });
@@ -171,8 +189,7 @@ describe('Start screen', () => {
     await user.type(screen.getByRole('textbox'), 'checkout @absent');
     expect(screen.getByText('No matching checks')).toBeInTheDocument();
     await user.type(screen.getByRole('textbox'), '{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}store');
-    await user.keyboard('{ArrowDown}');
-    expect(screen.getByRole('button', { name: /Storefront.*2026/ })).toHaveFocus();
+    expect(within(screen.getByRole('region', { name: 'Recent Checks' })).getByRole('button', { name: 'Storefront' })).toHaveAttribute('data-mention-active');
     await user.keyboard('{Enter}');
     expect(screen.getByRole('button', { name: 'Choose project: Storefront' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Conduct the Check' }));
@@ -188,7 +205,7 @@ describe('Start screen', () => {
     await user.type(screen.getByRole('textbox'), 'review @CARGO');
     expect(screen.queryByRole('button', { name: 'Storefront' })).not.toBeInTheDocument();
     await user.keyboard('{ArrowDown}');
-    expect(screen.getByRole('button', { name: 'CargoChain' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'CargoChain' })).toHaveAttribute('data-mention-active');
     await user.keyboard('{Enter}');
     expect(screen.getByRole('button', { name: 'Choose project: CargoChain' })).toBeInTheDocument();
     expect(screen.getByRole('textbox')).toHaveValue('review ');

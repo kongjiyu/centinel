@@ -18,6 +18,7 @@ import type { Artifact, Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from '../check/BrowserTiles';
 import { InlineText } from '../check/CheckScreen';
+import { handleComposerEnter } from '../check/composerKeys';
 import '../check/Check.css';
 import './ProjectConversation.css';
 
@@ -591,7 +592,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
             <label className="ck-visually-hidden" htmlFor="pc-input">Message to Centinel</label>
             <textarea id="pc-input" ref={inputRef} rows={2} maxLength={2000} value={text} onChange={event => setText(event.target.value)}
               placeholder={base ? 'How should this test change?' : 'Ask Centinel to test or change something'}
-              onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} />
+              onKeyDown={event => handleComposerEnter(event, composerExpanded, send, setText)} />
             <div className="pc-composer-row">
               <div className="pc-mode">
                 <button type="button" className="ck-button is-small" aria-haspopup="listbox" aria-expanded={modeOpen} onClick={() => setModeOpen(value => !value)} aria-label={`Permission mode: ${MODE_LABEL[prefs.mode]}`}>

@@ -36,6 +36,7 @@ export type CheckRecord = {
   error?: string;
   /** Cached for the sidebar only; Result recomputes from saved records. */
   problemCount?: number;
+  problemRisk?: import('../riskPolicy').RiskLevel;
   finishedAt?: string;
   viewedAt?: string;
 };

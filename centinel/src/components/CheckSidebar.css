@@ -6,7 +6,14 @@ div.app-shell.has-window-chrome .sidebar .sidebar-nav {
 }
 .sidebar-fixed-actions { display: grid; gap: var(--space-1); flex: none; padding-bottom: var(--space-1); border-bottom: 1px solid transparent; }
 .sidebar-fixed-actions.is-scrolled { border-bottom-color: var(--color-border); }
+.sidebar-fixed-actions { margin-inline: -12px; padding-inline: 12px; }
 .sidebar-fixed-actions .sidebar-search-toggle { min-width: 0; }
+div.app-shell.has-window-chrome .sidebar .sidebar-header { flex-basis: 38px; height: 38px; min-height: 38px; padding-block: 3px; }
+div.app-shell.has-window-chrome .sidebar .sidebar-nav { padding-block-start: 4px; }
+.app-shell.has-window-chrome .sidebar-panel > .sidebar-profile { padding-block: 5px; }
+div.app-shell.has-window-chrome.sidebar-collapsed .sidebar { width: 52px; flex-basis: 52px; }
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar svg { width: 14px; height: 14px; }
+.app-shell.has-window-chrome.sidebar-collapsed .sidebar-fixed-actions { margin-inline: 0; padding-inline: 0; }
 .sidebar-profile-actions { display: flex; align-items: center; gap: 3px; }
 .app-shell.has-window-chrome .sidebar-profile-actions .sidebar-profile-button { flex: 1; width: auto; min-width: 0; min-height: 36px; padding: 3px 5px; border-radius: var(--radius-inner); }
 .app-shell.has-window-chrome .sidebar-profile-actions .sidebar-profile-username { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--color-text); }
@@ -67,18 +74,21 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
 }
 .app-shell.has-window-chrome .sidebar-category.sidebar-recent-toggle:hover { background: var(--color-surface-hover); }
 .sidebar-recent-toggle[aria-expanded='false'] svg { transform: rotate(-90deg); }
-.app-shell.has-window-chrome .modal-custom-header:has(> .sidebar-search-field) { padding: 0; }
+.app-shell.has-window-chrome .modal-custom-header:has(> .sidebar-search-header) { padding: 0; }
+.sidebar-search-header { position: relative; width: 100%; }
+.sidebar-search-header > svg { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); pointer-events: none; color: var(--color-text-muted); }
+.app-shell.has-window-chrome .modal:has(.sidebar-search-header) { background: color-mix(in srgb, var(--color-surface) 91%, transparent); backdrop-filter: blur(14px); }
 .sidebar-search-field {
   width: 100%;
   min-height: 56px;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) 45px var(--space-3) var(--space-5);
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--color-text);
   font: 400 15px var(--font-ui);
 }
-.sidebar-search-field:focus-visible { outline: 2px solid transparent; outline-offset: -2px; box-shadow: inset 0 -2px var(--color-border-strong); }
+.workspace-mode:not(.dashboard-mode) .sidebar-search-field:focus-visible { outline: none; box-shadow: none; }
 .sidebar-search-results { display: grid; gap: var(--space-4); margin-top: var(--space-4); }
 .sidebar-search-results h4, .sidebar-search-results p { margin: 0 0 var(--space-1); }
 .sidebar-search-results p, .sidebar-search-results time { color: var(--color-text-muted); font-size: 12px; }
@@ -86,9 +96,12 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
 .sidebar-check-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .sidebar-check {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-2);
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--workspace-radius-control, 8px);
   background: transparent;
   color: var(--color-text);
@@ -97,10 +110,19 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
   cursor: pointer;
 }
 .sidebar-check:hover { background: var(--color-surface-subtle); }
-.sidebar-check.active { background: var(--color-surface-selected); border-color: var(--color-border-strong); }
+.sidebar-check.active { background: var(--color-surface-selected); }
 .sidebar-check:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .sidebar-check-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-project-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.sidebar-project-row { position: relative; min-width: 0; border-radius: var(--workspace-radius-control, 8px); }
+.sidebar-project-row:hover { background: var(--color-surface-subtle); }
+.sidebar-project-row.active { background: var(--color-surface-selected); }
+.sidebar-project-row .sidebar-project { padding-inline-end: 38px; }
+.sidebar-project-row .sidebar-project:is(:hover, .active) { background: transparent; }
+.sidebar-project-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-project-label > span { display: inline-block; }
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-project-row:hover .sidebar-project-label > span { transform: translateX(calc(-1 * var(--project-overflow, 0px))); transition: transform 2s linear 500ms; }
+}
 .sidebar-project.sidebar-check { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); border: 0; }
 .sidebar-project-options, .sidebar-project-more {
   padding: var(--space-2);
@@ -111,9 +133,10 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
   font: inherit;
   cursor: pointer;
 }
-.sidebar-project-options { display: grid; min-width: 32px; min-height: 32px; place-items: center; }
+.sidebar-project-options { position: absolute; inset-inline-end: 3px; top: 50%; transform: translateY(-50%); display: grid; min-width: 32px; min-height: 32px; place-items: center; }
 .sidebar-project-more { margin-top: var(--space-1); font-size: 12px; }
-.sidebar-project-options:hover, .sidebar-project-more:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.sidebar-project-options:hover { color: var(--color-text); }
+.sidebar-project-more:hover { background: var(--color-surface-hover); color: var(--color-text); }
 @media (hover: hover) {
   .sidebar-project-options { opacity: 0; pointer-events: none; }
   .sidebar-project-row:hover .sidebar-project-options,

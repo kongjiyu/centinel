@@ -877,7 +877,7 @@ export type ProjectAssessment = {
 
 export type Screen =
   /** Start: give Centinel a project and documents (DESIGN.md §4.1). */
-  | { name: 'new-check'; initialCreate?: boolean }
+  | { name: 'new-check'; initialCreate?: boolean; draft?: { projectId: string; focus: string; mode: import('./check/types').CheckMode; documents: import('./check/types').CheckDocument[] } }
   /** Live while a check runs, then its Result (DESIGN.md §4.2, §4.3). */
   | { name: 'check'; checkId: string }
   /** A project as a conversation with Centinel (DESIGN.md §4.4). */

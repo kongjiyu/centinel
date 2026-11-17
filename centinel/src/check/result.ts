@@ -253,3 +253,11 @@ export function buildCheckResult(input: {
     finished,
   };
 }
+
+/** Cached presentation only; historical records without a known risk remain neutral. */
+export function checkProblemSummary(result: CheckResult) {
+  const problems = [...result.proven, ...result.foundInCode];
+  const problemRisk = problems.reduce<RiskLevel | undefined>((highest, { risk }) =>
+    risk && (!highest || riskLevelRank(risk) < riskLevelRank(highest)) ? risk : highest, undefined);
+  return { problemCount: problems.length, problemRisk };
+}

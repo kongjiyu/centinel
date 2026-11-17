@@ -47,6 +47,29 @@ describe('check runner', () => {
     expect(api.uploadArtifact).not.toHaveBeenCalled();
   });
 
+  it('rejects an attached check from another project before starting work', async () => {
+    const api = fakeApi();
+    const project = { id: 'saved', name: 'Saved Shop', description: '', workspacePath: '/work/shop', createdAt: '', updatedAt: '' };
+    const otherProject = { ...project, id: 'other' };
+    const other = startCheck({ projectId: 'other', documents: [], focus: '', mode: 'code' }, { api: fakeApi(), projects: () => [otherProject] });
+    await until(() => getCheck(other.id)?.phase === 'running');
+    const check = startCheck({ projectId: project.id, referenceCheckIds: [other.id], documents: [], focus: '', mode: 'code' },
+      { api, projects: () => [project] });
+    expect(getCheck(check.id)).toMatchObject({ phase: 'failed', error: expect.stringContaining('no longer available for this project') });
+    expect(api.importRepoArtifacts).not.toHaveBeenCalled();
+    expect(api.createStaticSession).not.toHaveBeenCalled();
+  });
+
+  it('does not broaden a standards-only attachment into a full review', async () => {
+    const api = fakeApi();
+    const project = { id: 'saved', name: 'Saved Shop', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, sourceArtifactIds: ['a2'], documents: [], focus: '', mode: 'code' },
+      { api, projects: () => [project] });
+    await until(() => getCheck(check.id)?.phase === 'failed');
+    expect(getCheck(check.id)?.error).toContain('alongside coding standards');
+    expect(api.createStaticSession).not.toHaveBeenCalled();
+  });
+
   it('creates the project, adds documents, starts the review with the full scope and the browser tests', async () => {
     const api = fakeApi();
     const onProjectCreated = vi.fn();

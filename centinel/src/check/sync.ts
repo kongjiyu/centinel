@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { api } from '../api/client';
-import { buildCheckResult } from './result';
+import { checkProblemSummary, buildCheckResult } from './result';
 import { listChecks, updateCheck } from './store';
 
 const SYNC_MS = 10_000;
@@ -24,7 +24,7 @@ export function useBackgroundCheckSync(enabled: boolean) {
           if (!partial.finished) continue;
           const findings = review && check.reviewId ? await api.listStaticFindings(check.projectId!, check.reviewId) : [];
           const result = buildCheckResult({ check, review, findings, autoTest, requirements: [] });
-          if (active) updateCheck(check.id, { phase: 'done', problemCount: result.proven.length + result.foundInCode.length, finishedAt: new Date().toISOString() });
+          if (active) updateCheck(check.id, { phase: 'done', ...checkProblemSummary(result), finishedAt: new Date().toISOString() });
         } catch {
           /* try again on the next pass */
         }

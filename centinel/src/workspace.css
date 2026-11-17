@@ -5272,3 +5272,24 @@ div.app-shell.has-window-chrome .sidebar {
 .settings-provider-section .provider-form .form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .settings-provider-section .provider-form .form-actions .command-icon-button { min-width: 40px; min-height: 40px; }
 .settings-usage-section .usage-table td:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.settings-theme-caption { margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+.settings-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.settings-theme-options label {
+  display: grid;
+  position: relative;
+  place-items: center;
+  align-content: center;
+  min-height: 64px;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-inner);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.settings-theme-options label:has(:checked) { border-color: #1c212a; background: #1c212a; color: #fff; }
+.settings-theme-options label:has(:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.settings-theme-options input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.profile-screen.profile-embedded { padding: 0; width: 100%; margin: 0; }

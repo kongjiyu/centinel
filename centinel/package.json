@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "node ./scripts/tauri-with-msvc.cjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:check-flow": "vitest run src/screens/check/CheckFlow.test.tsx src/screens/check/StartScreen.test.tsx src/screens/check/CheckScreen.test.tsx src/check/runner.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

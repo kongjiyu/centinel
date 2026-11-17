@@ -352,6 +352,7 @@ function App() {
             projects={projects}
             aiSettings={aiSettings}
             initialCreate={screen.initialCreate}
+            initialDraft={screen.draft}
             onNavigate={navigate}
             onCreateProject={handleCreateProject}
             onProjectCreated={project => setProjects(prev => prev.some(item => item.id === project.id) ? prev : [project, ...prev])}
@@ -430,7 +431,8 @@ function App() {
         {screen.name === 'settings' && <>
           {settingsLoading && <p role="status">Loading Model Provider settings…</p>}
           {settingsError && <div className="command-inline-alert" role="status"><span>{settingsError}</span><button type="button" className="btn-secondary" onClick={() => void loadData()}>Retry settings</button></div>}
-          <SettingsScreen settings={aiSettings} onRefresh={loadData} initialSection={screen.section} />
+          <SettingsScreen settings={aiSettings} onRefresh={loadData} initialSection={screen.section}
+            account={<ProfileScreen accountEmail={accountEmail} authProvider={authProvider} embedded />} />
         </>}
         {screen.name === 'help' && <HelpScreen onOpenSetupGuide={accountUserId ? () => { restartOnboarding(accountUserId); setScreen({ name: 'dashboard' }); } : undefined} />}
         {screen.name === 'review-playground' && (

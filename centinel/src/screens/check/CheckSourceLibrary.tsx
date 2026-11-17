@@ -29,19 +29,20 @@ export function useCheckLibrary(projectId?: string) {
 
 export type CheckLibrary = ReturnType<typeof useCheckLibrary>;
 
-export function CheckLibraryList({ library, onAttach, attached = [] }: {
+export function CheckLibraryList({ library, onAttach, attached = [], filter }: {
   library: CheckLibrary;
   onAttach?: (artifact: Artifact) => void;
   attached?: Artifact[];
+  filter?: string;
 }) {
   const [query, setQuery] = useState('');
-  const search = query.trim().toLowerCase();
+  const search = (filter ?? query).trim().toLowerCase();
   const matches = library.items?.filter(item => (item.filePath || item.fileName).toLowerCase().includes(search)) ?? [];
   if (library.error && !library.items) return <p role="status">Source library could not be loaded.</p>;
   if (!library.items) return <p role="status">Loading library…</p>;
   if (!library.items.length) return <p>No sources in this project yet.</p>;
   return <>
-    {library.items.length > 10 && <input type="search" aria-label="Search library" placeholder="Search library" value={query} onChange={event => setQuery(event.target.value)} />}
+    {filter === undefined && library.items.length > 10 && <input type="search" aria-label="Search library" placeholder="Search library" value={query} onChange={event => setQuery(event.target.value)} />}
     {!matches.length && <p>No matching sources.</p>}
     <ul className="ck-library-list">
       {matches.slice(0, 80).map(item => <li key={item.id}>

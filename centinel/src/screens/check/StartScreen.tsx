@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, ChevronDown, FileText, Folder, GitBranch, History, Maximize2, Minimize2, MonitorCheck, Plus, TriangleAlert, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, FileText, Folder, GitBranch, History, Maximize2, Minimize2, Plus, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useChecks } from '../../check/store';
 import { useAttention, type AttentionItem } from '../../check/attention';
@@ -16,12 +16,19 @@ import { userFacingError } from '../../utils/userFacingError';
 import { CheckPermission } from './CheckPermission';
 import { rememberComposerPosition } from './composerTransition';
 import { CheckDocumentPicker, readCheckDocuments } from './CheckDocumentPicker';
+import { CheckAurora } from './CheckAurora';
+import { handleComposerEnter } from './composerKeys';
+import { findCheckMention } from './checkMention';
+import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
+import { CheckAttachmentCount } from './CheckAttachmentCount';
+import { CheckComposerNotices, type ComposerNotice } from './CheckComposerNotices';
 import './Check.css';
 
 type Props = {
   projects: Project[];
   aiSettings: AiProviderSetting[];
   initialCreate?: boolean;
+  initialDraft?: Extract<Screen, { name: 'new-check' }>['draft'];
   onNavigate: (screen: Screen) => void;
   onProjectCreated: (project: Project) => void;
   onCreateProject: (name: string, description: string, sources: ProjectRepositoryInput[]) => Promise<ProjectCreationResult | void>;
@@ -54,11 +61,11 @@ function looksLikeFolder(text: string) {
 }
 
 
-export function StartScreen({ projects, aiSettings, initialCreate = false, onNavigate, onProjectCreated, onCreateProject }: Props) {
-  const [attached, setAttached] = useState<Attached | null>(null);
-  const [documents, setDocuments] = useState<CheckDocument[]>([]);
-  const [focus, setFocus] = useState('');
-  const [mode, setMode] = useState<CheckMode>('both');
+export function StartScreen({ projects, aiSettings, initialCreate = false, initialDraft, onNavigate, onProjectCreated, onCreateProject }: Props) {
+  const [attached, setAttached] = useState<Attached | null>(() => initialDraft ? { kind: 'project', id: initialDraft.projectId } : null);
+  const [documents, setDocuments] = useState<CheckDocument[]>(() => initialDraft?.documents ?? []);
+  const [focus, setFocus] = useState(() => initialDraft?.focus ?? '');
+  const [mode, setMode] = useState<CheckMode>(() => initialDraft?.mode ?? 'both');
   const [menu, setMenu] = useState<'add' | 'projects' | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [documentsOpen, setDocumentsOpen] = useState(false);
@@ -127,7 +134,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
     const fit = () => {
       if (!popover || !anchor) return;
       const top = scrollArea?.getBoundingClientRect().top ?? 0;
-      popover.style.setProperty('--ck-popover-room', `${Math.max(80, anchor.getBoundingClientRect().top - top - 8)}px`);
+      popover.style.setProperty('--ck-popover-room', `${Math.max(0, anchor.getBoundingClientRect().top - top - 26)}px`);
     };
     fit();
     if (!mention) popover?.querySelector<HTMLElement>(menu === 'projects' ? 'input' : 'button')?.focus({ preventScroll: true });
@@ -165,11 +172,50 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
   const visionReady = isWorkflowProviderConfigured(aiSettings, 'vision');
   const needsText = mode !== 'browser' && !textReady;
   const needsVision = mode !== 'code' && !visionReady;
+  const [github, setGithub] = useState<{ connected: boolean; message: string } | null>(null);
+  const githubRelevant = attached?.kind === 'github' || repoOpen;
+  useEffect(() => {
+    if (typeof api.githubStatus !== 'function') return;
+    let active = true;
+    const refresh = () => {
+      void api.githubStatus().then(status => { if (active) setGithub(status); }).catch(() => { if (active) setGithub(null); });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => { active = false; window.removeEventListener('focus', refresh); };
+  }, [githubRelevant]);
   const savedProject = attached?.kind === 'project' ? projects.find(project => project.id === attached.id) : undefined;
   const projectPrefs = useProjectPrefs(savedProject?.id ?? '');
   const projectLabel = attached?.kind === 'project' ? savedProject?.name ?? 'Saved project'
     : attached?.kind === 'folder' ? folderName(attached.path) : attached ? githubRepositoryName(attached.url) : null;
   const browserNeedsFolder = mode !== 'code' && (attached?.kind === 'github' || (attached?.kind === 'project' && !projectLocalFolder(savedProject)));
+
+  const notices: ComposerNotice[] = [];
+  if (message) notices.push({ title: 'Check setup needs attention', description: message, tone: 'warning' });
+  const aiAction = { label: 'Open AI settings', run: () => onNavigate({ name: 'settings' }) };
+  if (needsText || needsVision) notices.push({
+    title: needsText ? 'AI provider needed' : 'Screenshot model needed',
+    description: needsText && needsVision ? 'Connect an AI provider for code and browser checks.' : needsText
+      ? 'Connect an AI provider for code checks.' : 'Choose an AI model that can read screenshots for browser checks.',
+    tone: 'critical', action: aiAction,
+  });
+  if (browserNeedsFolder) notices.push({
+    title: 'Local project files needed',
+    description: savedProject?.managedWorkspacePath
+      ? <>Add your app files to <code>{savedProject.managedWorkspacePath}</code> before running browser tests.</>
+      : 'Choose a project with a local folder to run browser tests.',
+    tone: 'warning',
+  });
+  if (github && !github.connected && (githubRelevant || /expired/i.test(github.message))) notices.push({
+    title: /expired/i.test(github.message) ? 'GitHub connection expired' : 'GitHub isn’t connected',
+    description: github.message,
+    tone: /expired/i.test(github.message) ? 'warning' : 'info',
+    action: { label: 'Open connections', run: () => onNavigate({ name: 'settings', section: 'connections' }) },
+  });
+  if (attached && mode !== 'browser' && !needsText && !aiSettings.some(setting => setting.id === 'embedding' && setting.hasApiKey && setting.model?.trim())) notices.push({
+    title: 'Embedding model isn’t connected', description: 'Code checks can still run. Connect an embedding model to enable semantic source search.',
+    tone: 'info', action: aiAction,
+  });
 
   const attachProject = (id: string) => {
     recommendationVersion.current += 1;
@@ -212,9 +258,9 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
 
   const changeFocus = (value: string, caret: number) => {
     setFocus(value);
-    const match = /(?:^|\s)@([^@\n]*)$/.exec(value.slice(0, caret));
-    if (match) {
-      setMention({ start: caret - match[1].length - 1, end: caret, query: match[1] });
+    const next = findCheckMention(value, caret);
+    if (next) {
+      setMention(next);
       setMenu('add');
     } else if (mention) {
       setMention(null);
@@ -222,9 +268,19 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
     }
   };
 
-  const matchingProjects = projects.filter(project => project.name.toLowerCase().includes((mention?.query ?? projectQuery).trim().toLowerCase()));
-  const matchingChecks = recentChecks.filter(check => check.projectId && projects.some(project => project.id === check.projectId)
-    && check.projectName.toLowerCase().includes(mention?.query.trim().toLowerCase() ?? '')).slice(0, 10);
+  const mentionKey = mention?.query.trim().toLowerCase();
+  const matchingProjects = projects.filter(project => project.name.toLowerCase().includes(projectQuery.trim().toLowerCase()));
+  const mentionProjects = rankMentionProjects(projects, recentChecks, mentionKey ?? '');
+  const matchingChecks = rankMentionChecks(recentChecks.filter(check => check.projectId && projects.some(project => project.id === check.projectId)
+    && [check.projectName, check.focus].join(' ').toLowerCase().includes(mentionKey ?? '')));
+  const selectMention = useMentionSelection(menuRef, mention?.query);
+  const showAddAction = (name: string) => !mentionKey || name.toLowerCase().includes(mentionKey);
+  const openAddAction = (open: (value: boolean) => void) => {
+    if (mention) setFocus(value => value.slice(0, mention.start) + value.slice(mention.end));
+    setMention(null);
+    setMenu(null);
+    open(true);
+  };
 
   const attachRepository = (source: ProjectRepositoryInput) => {
     recommendationVersion.current += 1;
@@ -291,7 +347,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
       setMessage('Add your project first. Choose one below or add a repository.');
       return;
     }
-    if (needsText || needsVision || (mode === 'browser' && browserNeedsFolder)) return;
+    if (mention || needsText || needsVision || (mode === 'browser' && browserNeedsFolder)) return;
     setStarting(true);
     const check = startCheck({
       ...(attached.kind === 'project' ? { projectId: attached.id }
@@ -330,7 +386,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
   return (
     <>
     <div className={`ck-screen ck-start${starting ? ' is-launching' : ''}`}>
-      <div className="ck-aurora" aria-hidden="true"><span /><span /><span /></div>
+      <CheckAurora />
       <div className={`ck-start-column${titleLength === TITLE.length ? ' is-intro-ready' : ''}`}>
         <h1 className="ck-headline" aria-label={TITLE}>
           <span className="ck-title-space" aria-hidden="true">{TITLE}_</span>
@@ -338,6 +394,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
         </h1>
         <p className="ck-sub">Add your code and your documents. Centinel does the rest.</p>
 
+        <CheckComposerNotices notices={notices} covered={menu !== null} />
         <div className={`ck-composer${expanded ? ' is-expanded' : ''}`} ref={composerRef}>
         <div
           className={`ck-input${dragging ? ' is-dragging' : ''}`}
@@ -381,12 +438,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
               changeFocus(value, event.target.selectionStart);
             }}
             onKeyDown={event => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) start();
-              if (mention && menu === 'add' && event.key === 'ArrowDown') {
-                event.preventDefault();
-                event.stopPropagation();
-                menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-              }
+              if (!selectMention(event)) handleComposerEnter(event, expanded, start, changeFocus);
             }}
           />
           <div className="ck-input-actions">
@@ -403,27 +455,28 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
           </div>
           {menu === 'add' && (
             <div className="ck-menu ck-attachment-menu" role="dialog" aria-label="Add to check" ref={menuRef}>
-              {!mention && <>
+              {(showAddAction('Add Document') || showAddAction('Add Repository')) && <>
                 <h2>Add</h2>
-                <button type="button" onClick={() => { setMenu(null); setDocumentsOpen(true); }}>
+                {showAddAction('Add Document') && <button type="button" onClick={() => openAddAction(setDocumentsOpen)}>
                   <Icon icon={FileText} /><span>Add Document <small>Add any files and folders as reference for your project</small></span>
-                </button>
-                <button type="button" onClick={() => { setMenu(null); setRepoOpen(true); }}>
+                </button>}
+                {showAddAction('Add Repository') && <button type="button" onClick={() => openAddAction(setRepoOpen)}>
                   <Icon icon={GitBranch} /><span>Add Repository <small>Choose a GitHub repository, paste a link, or use a local folder</small></span>
-                </button>
+                </button>}
               </>}
               <section className="ck-recent-attachments" aria-labelledby="ck-recent-attachments-title">
                 <h2 id="ck-recent-attachments-title">Recent Checks</h2>
                 {matchingChecks.length ? matchingChecks.map(check => (
                   <button type="button" key={check.id} onClick={() => attachCheck(check)}>
-                    <Icon icon={History} /><span>{check.projectName} <small>{new Date(check.createdAt).toLocaleString()}</small></span>
+                    <Icon icon={History} /><span>{check.projectName}</span>
+                    <CheckAttachmentCount check={check} />
                   </button>
                 )) : <p>{mention?.query.trim() ? 'No matching checks' : 'No recent checks to attach'}</p>}
               </section>
               {mention && (
                 <section className="ck-recent-attachments" aria-labelledby="ck-mention-projects-title">
                   <h2 id="ck-mention-projects-title">Projects</h2>
-                  {matchingProjects.length ? matchingProjects.map(project => (
+                  {mentionProjects.length ? mentionProjects.map(project => (
                     <button key={project.id} type="button" onClick={() => attachProject(project.id)}>
                       <Icon icon={Folder} /><span>{project.name}</span>
                     </button>
@@ -458,18 +511,6 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, onNav
           <Select aria-label="Check mode" className="ck-mode-select" value={mode} options={CHECK_MODES} onChange={value => setMode(value as CheckMode)} />
         </div>
         </div>
-
-        {message && <p className="ck-inline-message" role="status"><Icon icon={TriangleAlert} shape="triangle" /><span className="ci-text">{message}</span></p>}
-        {(needsText || needsVision) && (
-          <div className="ck-setup-step" role="status">
-            <Icon icon={TriangleAlert} shape="triangle" />
-            <span>{needsText && needsVision ? 'Connect an AI provider for the code review and the browser tests first.' : needsText ? 'Connect an AI provider for the code review first.' : 'Choose an AI model that can read screenshots for the browser tests first.'}</span>
-            <button type="button" className="ck-button" onClick={() => onNavigate({ name: 'settings' })}>Open AI settings</button>
-          </div>
-        )}
-        {browserNeedsFolder && <p className="ck-inline-message is-quiet"><Icon icon={MonitorCheck} /><span>{savedProject?.managedWorkspacePath
-          ? <>Add your app files to <code>{savedProject.managedWorkspacePath}</code> before running browser tests.</>
-          : 'Browser tests need the project folder on this computer. Choose or add a project with a local folder.'}</span></p>}
 
         <div className="ck-attention" role="group" aria-label="Recommendations">{attentionRows}</div>
       </div>

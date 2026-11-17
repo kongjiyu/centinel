@@ -68,7 +68,7 @@ describe('Project creation', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Remote project');
-    await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
+    await user.click(screen.getByRole('button', { name: 'Link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/remote-project');
     await user.click(screen.getByRole('dialog', { name: 'Add Project' }).querySelector('button[type=submit]')!);
 
@@ -88,7 +88,7 @@ describe('Project creation', () => {
     await user.type(screen.getByLabelText('Project name *'), 'Mixed');
     await user.click(screen.getByRole('button', { name: 'Add local folders' }));
     expect(folderPicker).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }));
-    await user.click(screen.getByRole('button', { name: 'Add GitHub link' }));
+    await user.click(screen.getByRole('button', { name: 'Link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/first.git');
     await user.click(screen.getByRole('button', { name: 'Add link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/second');

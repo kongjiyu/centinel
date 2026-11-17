@@ -106,7 +106,7 @@ describe('AppShell module launch', () => {
     await user.click(screen.getByRole('button', { name: 'Open account menu' }));
     const menu = within(screen.getByRole('dialog', { name: 'Account menu' }));
     const labels = menu.getAllByRole('button').map(button => button.textContent?.trim());
-    expect(labels).toEqual(['Manage account', 'Switch account', 'Log out']);
+    expect(labels).toEqual(['Switch account', 'Log out']);
     const helpButton = within(screen.getByRole('complementary')).getByRole('button', { name: 'Help' });
     expect(helpButton.querySelector('svg')).toHaveClass('lucide-circle-question-mark');
     await user.click(helpButton);
@@ -249,7 +249,7 @@ describe('AppShell module launch', () => {
     expect(within(menu).queryByText('Local Centinel session')).not.toBeInTheDocument();
     expect(within(menu).queryByText('GitHub')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Google email')).not.toBeInTheDocument();
-    expect(within(menu).getByRole('button', { name: 'Manage account' })).toBeInTheDocument();
+    expect(within(menu).queryByRole('button', { name: 'Manage account' })).not.toBeInTheDocument();
     expect(within(menu).queryByRole('button', { name: 'Manage sign-in methods' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Switch account' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument();
@@ -306,14 +306,14 @@ describe('AppShell module launch', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open account menu' }));
     const menu = screen.getByRole('dialog', { name: 'Account menu' });
-    const manage = within(menu).getByRole('button', { name: 'Manage account' });
+    const switchAccount = within(menu).getByRole('button', { name: 'Switch account' });
     const logout = within(menu).getByRole('button', { name: 'Log out' });
-    expect(manage).toHaveFocus();
+    expect(switchAccount).toHaveFocus();
 
     await user.tab({ shift: true });
     expect(logout).toHaveFocus();
     await user.tab();
-    expect(manage).toHaveFocus();
+    expect(switchAccount).toHaveFocus();
   });
 
   it('closes the account menu with Escape and restores focus to its trigger', async () => {

@@ -24,7 +24,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated, onRep
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [sources, setSources] = useState<ProjectRepositoryInput[]>([]);
-  const [method, setMethod] = useState<'local' | 'link' | 'account' | null>(null);
+  const [method, setMethod] = useState<'local' | 'link' | 'account'>('local');
   const [repoUrl, setRepoUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -35,7 +35,7 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated, onRep
     setName('');
     setDescription('');
     setSources([]);
-    setMethod(null);
+    setMethod('local');
     setRepoUrl('');
     setError(null);
     setCreatedWithWarnings(null);
@@ -153,13 +153,14 @@ export function ProjectCreateModal({ isOpen, onClose, onCreate, onCreated, onRep
         </div>
         </>}
         <fieldset className="project-source-choice" disabled={creating || picking}>
-          <legend>Source repositories {!onRepositorySelected && <span className="field-optional">Optional</span>}</legend>
+          <legend>Source repositories</legend>
           <div className="project-source-methods">
-            <div className="project-source-actions">
-              <button type="button" className="btn-secondary project-source-action" aria-label="Add local folders" aria-pressed={method === "local"} onClick={() => { setMethod("local"); void chooseFolder(); }}><FolderGit2 size={18} aria-hidden="true" /><span><strong>Add local folders</strong><small>Choose folders from this device</small></span></button>
-              <button type="button" className="btn-secondary project-source-action" aria-label="Add GitHub link" aria-expanded={method === "link"} aria-controls="project-github-fields" onClick={() => { setMethod("link"); setError(null); }}><GitBranch size={18} aria-hidden="true" /><span><strong>Add GitHub link</strong><small>Paste a repository URL</small></span></button>
+            <div className="project-source-tabs" role="group" aria-label="Repository source">
+              {([['local', 'Local'], ['account', 'GitHub'], ['link', 'Link']] as const).map(([key, label]) => (
+                <button key={key} type="button" aria-pressed={method === key} onClick={() => { setMethod(key); setError(null); }}>{label}</button>
+              ))}
             </div>
-            <button type="button" className="btn-secondary project-github-account" aria-expanded={method === "account"} onClick={() => { setMethod("account"); setError(null); }}>Select from GitHub account</button>
+            {method === 'local' && <button type="button" className="btn-secondary project-source-action" onClick={() => void chooseFolder()}><FolderGit2 size={18} aria-hidden="true" />Add local folders</button>}
             {method === 'account' && <GitHubRepositoryPicker onSelect={addGitHub} />}
             {method === 'link' && <div className="project-source-link" id="project-github-fields">
               <label htmlFor="project-github-url">GitHub repository URL</label>

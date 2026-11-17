@@ -113,3 +113,11 @@
 .profile-password-form .form-field { margin: 0; }
 .profile-password-success { margin: 10px 0 0; color: var(--workspace-success); font-size: var(--font-size-support); }
 @media (max-width: 860px) { .profile-password-form { grid-template-columns: 1fr; } }
+
+.workspace-mode:not(.dashboard-mode) .profile-embedded :is(.profile-card, .profile-provider-section) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.workspace-mode:not(.dashboard-mode) .profile-card > .status-badge { margin-left: 0; }
+.workspace-mode:not(.dashboard-mode) .profile-card > .profile-provider-action { margin-inline-start: auto; }

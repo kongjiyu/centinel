@@ -19,8 +19,8 @@ describe('ProfileScreen account management', () => {
 
     expect(screen.getByRole('heading', { name: 'Manage account' })).toBeInTheDocument();
     expect(screen.getByText('avery@example.com')).toBeInTheDocument();
-    expect(screen.getByText('GitHub')).toBeInTheDocument();
-    expect(screen.getByText(/repository access is managed separately/i)).toBeInTheDocument();
+    expect(screen.getByText('Signed in with GitHub')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Account access' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Sign-in methods' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Link (Google|GitHub)/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
@@ -32,8 +32,8 @@ describe('ProfileScreen account management', () => {
   it('keeps email and password as the current account access without offering another sign-in method', () => {
     render(<ProfileScreen accountEmail="avery@example.com" authProvider="email" />);
 
-    expect(screen.getByText('Email and password')).toBeInTheDocument();
-    expect(screen.getByText(/uses your email address and password/i)).toBeInTheDocument();
+    expect(screen.getByText('Signed in with Email and password')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Password' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Manage .* account/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Link / })).not.toBeInTheDocument();
   });
@@ -42,7 +42,6 @@ describe('ProfileScreen account management', () => {
     render(<ProfileScreen accountEmail="avery@example.com" />);
 
     expect(screen.getByText('Provider unavailable')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(/could not determine which provider/i);
     expect(screen.queryByRole('button', { name: /Manage .* account/ })).not.toBeInTheDocument();
   });
 

@@ -5,7 +5,7 @@ import { laneNumber } from '../../autotest/presentation';
 import { Icon } from '../../components/Icon';
 import { Select } from '../../components/Select';
 import type { CheckProblem, CheckResult } from '../../check/result';
-import { getCheck, markCheckViewed, useCheck } from '../../check/store';
+import { getCheck, markCheckViewed, useCheck, useChecks } from '../../check/store';
 import { CHECK_MODES, type CheckDocument, type CheckMode, type CheckRecord } from '../../check/types';
 import { startCheck } from '../../check/runner';
 import { projectLocalFolder } from '../../check/projectWorkspace';
@@ -22,7 +22,12 @@ import { useImportSources } from '../../components/RecentProjectDetails';
 import { invoke } from '@tauri-apps/api/tauri';
 import { ExternalLink } from 'lucide-react';
 import { CheckAddSource, CheckLibraryList, useCheckLibrary, type CheckLibrary } from './CheckSourceLibrary';
+import { handleComposerEnter } from './composerKeys';
+import { findCheckMention } from './checkMention';
 import type { Artifact } from '../../types';
+import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
+import { CheckAttachmentCount } from './CheckAttachmentCount';
+import { CheckComposerNotices } from './CheckComposerNotices';
 import './Check.css';
 
 type Navigate = (screen: Screen) => void;
@@ -60,9 +65,21 @@ function useNow(active: boolean) {
 
 export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string; onNavigate: Navigate; projects?: Project[] }) {
   const check = useCheck(checkId);
+  const contentRef = useRef<HTMLDivElement>(null);
   const library = useCheckLibrary(projects ? check?.projectId : undefined);
   const data = useCheckData(check);
   const showResult = !!check && !!data && (check.phase === 'failed' || check.phase === 'done' || data.result.finished);
+  useLayoutEffect(() => {
+    const pane = contentRef.current;
+    const panel = pane?.querySelector<HTMLElement>('.ck-panel');
+    const layout = pane?.parentElement;
+    if (!panel || !layout) return;
+    const measure = () => layout.style.setProperty('--ck-docked-width', panel.getBoundingClientRect().width + 'px');
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(panel);
+    return () => { observer?.disconnect(); layout.style.removeProperty('--ck-docked-width'); };
+  }, [checkId, !!check, !!projects, showResult]);
   useEffect(() => {
     if (!showResult) return;
     const markVisible = () => {
@@ -82,11 +99,11 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
     );
   }
   if (!data) return null;
-  const references = (check.referenceCheckIds ?? []).map(getCheck).filter((reference): reference is CheckRecord => !!reference);
+  const references = (check.referenceCheckIds ?? []).map(getCheck)
+    .filter((reference): reference is CheckRecord => !!check.projectId && reference?.projectId === check.projectId);
   const content = <>
     {references.length > 0 && <nav className="ck-check-references" aria-label="Referenced checks">
-      <span>Referenced checks</span>
-      {references.map(reference => <button type="button" key={reference.id} className="ck-link" onClick={() => onNavigate({ name: 'check', checkId: reference.id })}>{reference.projectName} · {new Date(reference.createdAt).toLocaleDateString()}</button>)}
+      {references.map(reference => <button type="button" key={reference.id} className="ck-link" onClick={() => onNavigate({ name: 'check', checkId: reference.id })}>{reference.focus || reference.projectName}{typeof reference.problemCount === 'number' && (' · ' + reference.problemCount + (reference.problemCount === 1 ? ' problem' : ' problems'))}</button>)}
     </nav>}
     {showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} /> : <LiveView check={check} data={data} onNavigate={onNavigate} />}
   </>;
@@ -95,7 +112,7 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
   return <div className="ck-detail-layout">
     <div className="ck-glow" aria-hidden="true" />
     <CheckProjectHeader check={check} project={project} onNavigate={onNavigate} library={library} />
-    <div className="ck-detail-content">{content}</div>
+    <div className="ck-detail-content" ref={contentRef}>{content}</div>
     <aside className="ck-detail-sidebar" aria-label="Check details">
       <h2>{check.projectName}</h2>
       <p>{CHECK_MODES.find(option => option.value === check.mode)?.label}</p>
@@ -147,21 +164,29 @@ function CheckFollowUp({ check, projects, onNavigate, available, library }: { ch
   const [sending, setSending] = useState(false);
   const [picker, setPicker] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [mention, setMention] = useState<ReturnType<typeof findCheckMention>>(null);
+  const [attachedChecks, setAttachedChecks] = useState<CheckRecord[]>([]);
+  const [addingSource, setAddingSource] = useState(false);
+  const recent = useChecks();
   const [sources, setSources] = useState<Artifact[]>([]);
   const [documents, setDocuments] = useState<CheckDocument[]>([]);
   const [attachmentMessage, setAttachmentMessage] = useState<string | null>(null);
   const composer = useRef<HTMLFormElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
   const addMenu = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const closeMenu = () => { setAddOpen(false); setMention(null); };
   useEffect(() => {
     if (!addOpen) return;
-    addMenu.current?.querySelector('button')?.focus();
+    if (!mention) addMenu.current?.querySelector('button')?.focus();
     const close = (event: PointerEvent) => {
-      if (!addMenu.current?.contains(event.target as Node) && !addTrigger.current?.contains(event.target as Node)) setAddOpen(false);
+      if (event.target !== input.current && !addMenu.current?.contains(event.target as Node) && !addTrigger.current?.contains(event.target as Node)) {
+        setAddOpen(false); setMention(null);
+      }
     };
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
-  }, [addOpen]);
+  }, [addOpen, Boolean(mention)]);
   const prefs = useProjectPrefs(check.projectId ?? '');
   useLayoutEffect(() => {
     if (composer.current) animateComposerArrival(check.id, composer.current);
@@ -170,14 +195,33 @@ function CheckFollowUp({ check, projects, onNavigate, available, library }: { ch
   const hasFolder = !!(projectLocalFolder(project) || check.folder);
   const effectiveMode = hasFolder ? mode : 'code';
   const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0;
-  const canSend = available && project && draft.trim() && !sending && !libraryRequiresCode;
+  const canSend = available && project && draft.trim() && !sending && !libraryRequiresCode && !mention;
+  const query = mention?.query.trim().toLowerCase() ?? '';
+  const matchingChecks = rankMentionChecks(recent.filter(item => check.projectId && item.projectId === check.projectId
+    && item.id !== check.id && !attachedChecks.some(attached => attached.id === item.id)
+    && [item.projectName, item.focus].join(' ').toLowerCase().includes(query)));
+  const mentionProjects = rankMentionProjects(projects.filter(item => item.id !== check.projectId), recent, query);
+  const selectMention = useMentionSelection(addMenu, mention?.query);
+  const showAddAction = (name: string) => !query || name.toLowerCase().includes(query);
+  const changeDraft = (value: string, caret: number) => {
+    setDraft(value);
+    const next = findCheckMention(value, caret);
+    if (next && !mention) library.refresh();
+    if (next || mention) setAddOpen(!!next);
+    setMention(next);
+  };
+  const finishAttachment = () => {
+    if (mention) setDraft(current => current.slice(0, mention.start) + current.slice(mention.end));
+    closeMenu();
+    input.current?.focus({ preventScroll: true });
+  };
   return <><form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onSubmit={event => {
     event.preventDefault();
     if (!canSend) return;
     setSending(true);
     const focus = draft.trim();
     const next = startCheck({ projectId: project.id, documents, focus, mode: effectiveMode,
-      ...(effectiveMode === 'code' ? {} : { browserRequest: focus }), referenceCheckIds: [check.id],
+      ...(effectiveMode === 'code' ? {} : { browserRequest: focus }), referenceCheckIds: [check.id, ...attachedChecks.map(item => item.id)],
       ...(sources.length ? { sourceArtifactIds: sources.map(source => source.id) } : {}) },
       { api, projects: () => projects });
     onNavigate({ name: 'check', checkId: next.id });
@@ -190,11 +234,19 @@ function CheckFollowUp({ check, projects, onNavigate, available, library }: { ch
     {!!sources.length && <ul className="ck-attached">{sources.map(source => <li className="ck-chip" key={source.id}>
       <Icon icon={FileText} /><span>{source.fileName}</span><button type="button" aria-label={`Remove source ${source.fileName}`} onClick={() => setSources(current => current.filter(item => item.id !== source.id))}><Icon icon={X} /></button>
     </li>)}</ul>}
-    <textarea className="ck-focus" rows={2} maxLength={2000} aria-label="Follow-up check" value={draft}
+    {!!attachedChecks.length && <ul className="ck-attached">{attachedChecks.map(item => <li className="ck-chip" key={item.id}>
+      <Icon icon={Clock} /><span>{item.focus || item.projectName}</span><button type="button" aria-label={'Remove check ' + (item.focus || item.projectName)} onClick={() => setAttachedChecks(current => current.filter(entry => entry.id !== item.id))}><Icon icon={X} /></button>
+    </li>)}</ul>}
+    <textarea ref={input} className="ck-focus" rows={2} maxLength={2000} aria-label="Follow-up check" value={draft}
       placeholder={available ? 'What should Centinel check next?' : 'Prepare a follow-up while this check runs'}
-      onChange={event => setDraft(event.target.value)} />
+      onChange={event => changeDraft(event.target.value, event.target.selectionStart)}
+      onKeyDown={event => {
+        if (mention && event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
+        if (selectMention(event)) return;
+        handleComposerEnter(event, expanded, () => composer.current?.requestSubmit(), changeDraft);
+      }} />
     <div className="ck-input-actions">
-      <button type="button" ref={addTrigger} className="ck-round ck-add-trigger" aria-label="Add to check" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => { if (!addOpen) library.refresh(); setAddOpen(!addOpen); }}><Icon icon={Plus} /></button>
+      <button type="button" ref={addTrigger} className="ck-round ck-add-trigger" aria-label="Add to check" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => { if (!addOpen) library.refresh(); setMention(null); setAddOpen(!addOpen || !!mention); }}><Icon icon={Plus} /></button>
       <CheckPermission value={prefs.mode} onChange={mode => { if (check.projectId) savePermission(check.projectId, mode); }} />
       <Select aria-label="Check mode" className="ck-mode-select" value={effectiveMode}
         options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && option.value !== 'code' }))}
@@ -202,21 +254,55 @@ function CheckFollowUp({ check, projects, onNavigate, available, library }: { ch
       <button type="submit" aria-label="Send follow-up" className="ck-round ck-follow-up-send" disabled={!canSend}><Icon icon={ArrowUp} /></button>
     </div>
     {addOpen && <div ref={addMenu} className="ck-menu ck-attachment-menu ck-follow-up-menu" role="dialog" aria-label="Add to check"
-      onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setAddOpen(false); addTrigger.current?.focus(); } }}>
-      <button type="button" onClick={() => { setAddOpen(false); setPicker(true); }}><Icon icon={FileText} />Add Document</button>
+      onKeyDown={event => {
+        if (event.key === 'Escape') {
+          event.stopPropagation(); closeMenu(); (mention ? input : addTrigger).current?.focus(); return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        if (!(event.target instanceof HTMLButtonElement)) return;
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+        const index = buttons.indexOf(event.target);
+        if (index < 0) return;
+        event.preventDefault();
+        buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+      }}>
+      {(showAddAction('Add Document') || (project && showAddAction('Add source'))) && <section aria-label="Add">
+        <h2>Add</h2>
+        {showAddAction('Add Document') && <button type="button" onClick={() => { finishAttachment(); setPicker(true); }}><Icon icon={FileText} />Add Document</button>}
+        {project && showAddAction('Add source') && <button type="button" onClick={() => { finishAttachment(); setAddingSource(true); }}><Icon icon={Plus} />Add source</button>}
+      </section>}
+      <section aria-label="Recent Checks"><h2>Recent Checks</h2>
+        {matchingChecks.length ? matchingChecks.map(item => <button key={item.id} type="button" onClick={() => {
+          setAttachedChecks(current => [...current, item]);
+          finishAttachment();
+        }}><Icon icon={Clock} /><span>{item.focus || item.projectName}</span>
+          <CheckAttachmentCount check={item} />
+        </button>) : <p>No matching checks for this project.</p>}
+      </section>
+      {mention && <section aria-label="Projects"><h2>Projects</h2>
+        {mentionProjects.map(item => <button key={item.id} type="button" onClick={() => {
+          onNavigate({ name: 'new-check', draft: {
+            projectId: item.id, focus: draft.slice(0, mention.start) + draft.slice(mention.end),
+            mode: projectLocalFolder(item) ? mode : 'code', documents,
+          } });
+        }}><Icon icon={Folder} /><span>{item.name}</span><small className="ck-attachment-count">New check</small></button>)}
+        {!mentionProjects.length && <p>No matching projects.</p>}
+      </section>}
       <section aria-label="Library"><h2>Library</h2>
         {!check.projectId ? <p>No project library available.</p> : effectiveMode === 'browser' ? <p>Choose Code or Code and browser to attach library files.</p> :
-          <CheckLibraryList library={library} attached={sources} onAttach={source => { setSources(current => current.some(item => item.id === source.id) ? current : [...current, source]); setAddOpen(false); addTrigger.current?.focus(); }} />}
+          <CheckLibraryList library={library} attached={sources} filter={mention?.query} onAttach={source => { setSources(current => current.some(item => item.id === source.id) ? current : [...current, source]); finishAttachment(); }} />}
       </section>
     </div>}
-    {libraryRequiresCode && <p role="status">Choose Code or Code and browser, or remove the attached library files.</p>}
-    {attachmentMessage && <p role="status">{attachmentMessage}</p>}
+    {!addOpen && <CheckComposerNotices notices={[
+      ...(libraryRequiresCode ? [{ title: 'Library files need a code check', description: 'Choose Code or Code and browser, or remove the attached library files.', tone: 'warning' as const }] : []),
+      ...(attachmentMessage ? [{ title: 'Check attachments', description: attachmentMessage, tone: 'warning' as const }] : []),
+    ]} />}
   </form><CheckDocumentPicker open={picker} onClose={() => setPicker(false)} onSelect={files => {
     void readCheckDocuments(files).then(({ accepted, message }) => {
       setDocuments(current => [...current, ...accepted.filter(item => !current.some(existing => existing.name === item.name))]);
       setAttachmentMessage(message);
     });
-  }} /></>;
+  }} />{addingSource && project && <CheckAddSource projectId={project.id} onClose={() => setAddingSource(false)} onSaved={library.refresh} />}</>;
 }
 
 /* ------------------------------------------------------------------ Live */

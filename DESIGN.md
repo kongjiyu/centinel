@@ -79,7 +79,7 @@ Top to bottom, in one centred column:
    - **Attached items** on the first line, as removable pill chips. The project chip (a folder or a GitHub repository) is dark ink with white text and a folder icon; document chips are light with a file icon.
    - **A text area** for an optional focus ("check that sign-in and checkout follow the requirements"). It maps to the existing Review goal. Focusing the field keeps the card border unchanged and adds no outline around the text area.
    - **A mode dropdown** in the composer footer shows the muted selection with a chevron and no border. Its options are **Code and browser** (default), **Code** and **Browser**.
-   - **An add button** (a borderless "+" at bottom left) opens a composer-width overlay above the input. Add contains documents and repositories. Recent Checks can select the associated project and attach the earlier check. Typing @ opens the overlay with matching recent checks first and saved projects second. Choosing a project sets it for the new check. The project selector in the footer provides project search and a fixed Add a project action.
+   - **An add button** (a borderless "+" at bottom left) opens a composer-width overlay above the input. Add contains documents and repositories. Recent Checks can select the associated project and attach the earlier check. Typing @ highlights the first action without moving focus from the draft. Add comes first, followed by up to five matching checks by problem count and up to five projects by latest completed check. A typed project search can also find projects with no checks. A follow-up keeps its references and library scoped to its project. Selecting another project moves the prompt and documents to New Check for that project. Choosing a project sets it for the new check. The project selector in the footer provides project search and a fixed Add a project action.
    - **Check**, a filled pill at bottom right, starts the check. When the person types, it becomes an up-arrow button with the same accessible name.
 3. **Recommendations**, four borderless translucent rows centered at 90% of the composer width. The first three use ranked project activity with at most two from any scenario and general prompts filling gaps. Try the Sample Shop is always fourth. Selecting a row replaces the draft, project and check mode. General prompts start without a project.
 
@@ -94,7 +94,7 @@ Rules:
 - The whole input accepts a dropped folder or files, and a pasted GitHub link becomes a project chip. Every one of these also works through the add button and the keyboard.
 - Home can select a saved project or start from a folder or GitHub link. Add a project opens the project form on Home. Projects without a registered folder get an account-scoped folder under Centinel’s writable application data directory on the current device. Browser testing needs app files in that folder.
 - No environment, permission, model or scope settings on this screen. Sensible defaults apply; settings live under Details and Settings.
-- If something required is missing (for example no AI provider is connected), show the one missing step in place, with one action. Do not send the person to another screen and back.
+- Show setup notices directly above the composer with a title, explanation, and settings link where available. Distinguish blocked steps from optional setup.
 - Documents are optional. Without them the check still runs, and the result says requirements were not provided.
 - Do not add a row of templates, sample prompts or suggestions that are not real, usable things. The Sample Shop is the only example because it ships with the app.
 
@@ -257,8 +257,8 @@ Marks, the risk word and Live statuses are an icon or a dot plus a word. They ha
 ### Shell
 
 - Use the operating system's window controls.
-- One sidebar, one level. **New Check** opens the check composer and stays fixed above the scrollable **Recent checks** and **Recent projects** lists. Search sits beneath New Check. The dialog opens from Search or Ctrl/Cmd+K, puts its input in the header, and shows Checks before Projects. Account stays below the scroll area and contains Settings, Manage account, Switch account, Help and Log out in that order.
-- Recent checks and Recent projects each collapse from their headings. Recent projects shows the six most recently updated projects and a way to show the rest. Selecting a project opens its conversation. The ellipsis appears on hover or keyboard focus and opens a dialog with the project name, description and import sources. Edit project is available in that dialog. The composer provides Add a project.
+- One sidebar, one level. **New Check** opens the check composer and stays fixed above the scrollable **Recent checks** and **Recent projects** lists. Search sits beneath New Check. The dialog opens from Search or Ctrl/Cmd+K, puts its input in the header, and shows Checks before Projects. Help and Settings sit beside the profile below the scroll area. The profile menu holds Switch account and Log out. Manage account lives in Settings under Account.
+- Recent checks and Recent projects use compact rows and each list collapses from its heading. Checks show the outcome at the right. Projects show a folder and an ellipsis on the hovered or keyboard-focused row. Long project names scroll once on hover after 500 ms. The ellipsis opens project details and editing. Recent projects shows the six most recently updated projects with a way to show the rest.
 - Do not add a second navigation column or an icon rail beside it. Centinel has few destinations; everything else is under Details.
 - Each recent check shows the project name and, 4 px below it, its result in a few words with an icon (a warning triangle and "5 problems" in red; a check and "No problems"). Records are separated by more space than a name and its result.
 - A running check appears at the top of the recent list with a live state and returns to Live.
@@ -638,6 +638,11 @@ Before accepting a screen:
 
 Decision log (user-approved unless noted):
 
+- 2026-11-17 (user request): Highlight the first @ action while keeping the prompt editable. Put Add first, rank up to five checks by problem count and up to five projects by last completed check, and tint counts by the highest known risk. Show setup notices above the composer, and align the detail composer to its response card.
+
+- 2026-11-17 (user request): Put account controls directly in Settings, present checks and projects as compact rows, and let follow-ups attach same-project checks and library files through @.
+- 2026-11-17 (user request): Use Local, GitHub and Link tabs for project sources, appearance radio cards in Settings, and reflected circular glow paths. Enter sends from compact check composers. Ctrl/Cmd+Enter sends from expanded composers.
+- 2026-11-17 (user request): Keep recent-check references within their project. Library attachments on follow-up checks scope the code review to the selected files, alongside the review's requirements and standards. Browser-only follow-ups require removing library attachments or changing the mode.
 - 2026-11-17 (user request): Show the permission choices on hover and expose the project library from the Check Details header and composer. The follow-up composer overlays the scrolling response and expands without resizing it.
 - 2026-11-17 (user request): Share one glow across the Check Details header, content and sidebar. Keep the profile popup flat with a border.
 - 2026-11-17 (user request): Put Help and Settings beside the compact profile, separate the scrolled recent lists from the fixed actions, and match the New Check and follow-up composer positions during navigation. Use the project-name source dropdown in check details.

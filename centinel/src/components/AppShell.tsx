@@ -220,16 +220,21 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                     {(showAllProjects ? recentProjects : recentProjects.slice(0, 6)).map(project => {
                       const current = (screen.name === 'project' || screen.name === 'project-detail') && screen.projectId === project.id;
                       return (
-                        <li className="sidebar-project-row" key={project.id}>
+                        <li className={`sidebar-project-row${current ? ' active' : ''}`} key={project.id}
+                          onPointerEnter={event => {
+                            const label = event.currentTarget.querySelector('.sidebar-project-label');
+                            if (label?.firstElementChild) {
+                              event.currentTarget.style.setProperty('--project-overflow', `${Math.max(0, label.firstElementChild.scrollWidth - label.clientWidth)}px`);
+                            }
+                          }}>
                           <button
                             type="button"
                             className={`sidebar-check sidebar-project${current ? ' active' : ''}`}
                             aria-current={current ? 'page' : undefined}
-                            title={project.name}
                             onClick={() => onNavigate({ name: 'project', projectId: project.id })}
                           >
                             <Icon icon={FolderOpen} />
-                            <span className="sidebar-check-name">{project.name}</span>
+                            <span className="sidebar-project-label"><span>{project.name}</span></span>
                           </button>
                           <button type="button" className="sidebar-project-options"
                             aria-label={`Details for ${project.name}`} aria-haspopup="dialog" title="Project details"
@@ -276,7 +281,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                   <div><strong>{username}</strong>{accountEmail && accountEmail !== username && <span>{accountEmail}</span>}</div>
                 </div>
                   <div className="sidebar-account-actions" role="group" aria-label="Account actions">
-                    <button type="button" onClick={() => { setAccountMenuOpen(false); onNavigate({ name: 'profile' }); }}><CircleUserRound size={16} aria-hidden="true" /> Manage account</button>
                     <button type="button" onClick={() => { setAccountMenuOpen(false); onSwitchAccount(); }}><Repeat2 size={16} aria-hidden="true" /> Switch account</button>
                     <button type="button" className="sidebar-account-logout" onClick={() => { setAccountMenuOpen(false); onLogOut(); }}><LogOut size={16} aria-hidden="true" /> Log out</button>
                   </div>
@@ -298,7 +302,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         </section>
       </div>
       <Modal isOpen={searchOpen} onClose={() => setSearchOpen(false)} title="Search projects and checks" width={720}
-        headerContent={<input className="sidebar-search-field" type="search" data-autofocus aria-label="Search by project name" placeholder="Search checks and projects" value={search} onChange={event => setSearch(event.target.value)} />}>
+        headerContent={<div className="sidebar-search-header"><input className="sidebar-search-field" type="search" data-autofocus aria-label="Search by project name" placeholder="Search checks and projects" value={search} onChange={event => setSearch(event.target.value)} /><Search size={17} aria-hidden="true" /></div>}>
         <div className="sidebar-search-dialog">
           <div className="sidebar-search-results">
             <section aria-labelledby="sidebar-search-checks">
@@ -307,7 +311,6 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 {matchingChecks.map(check => <li key={check.id}>
                   <button type="button" className="sidebar-check" onClick={() => openSearchResult({ name: 'check', checkId: check.id })}>
                     <span className="sidebar-check-name">{check.projectName}</span>
-                    <time dateTime={check.createdAt}>{new Date(check.createdAt).toLocaleString()}</time>
                     <CheckOutcome check={check} />
                   </button>
                 </li>)}

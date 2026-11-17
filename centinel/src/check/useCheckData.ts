@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import type { AutoTestSession } from '../autotest/types';
 import type { ReviewHarnessTrace } from '../reviewHarness';
 import type { Finding, Requirement, StaticSession } from '../types';
-import { buildCheckResult, isTerminal, type CheckResult } from './result';
+import { checkProblemSummary, buildCheckResult, isTerminal, type CheckResult } from './result';
 import { reviewLiveView, type ReviewLiveView } from './live';
 import { updateCheck } from './store';
 import type { CheckRecord } from './types';
@@ -105,10 +105,17 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
   const reviewReady = !reviewId || !!review;
   const browserReady = !autoTestId || !!autoTest;
   useEffect(() => {
-    if (!check || !result || check.phase !== 'running' || !reviewReady || !browserReady) return;
+    if (!check || !result || !['running', 'done'].includes(check.phase) || !reviewReady || !browserReady) return;
     if (!result.finished || !isTerminal(result.codeState) || !isTerminal(result.browserState)) return;
     if (reviewId && review && !['queued', 'prepared', 'running'].includes(review.status) && findingsLoadedFor.current === null) return;
-    updateCheck(check.id, { phase: 'done', problemCount: result.proven.length + result.foundInCode.length, finishedAt: new Date().toISOString() });
+    const summary = checkProblemSummary(result);
+    if (check.phase === 'done') {
+      if (!check.problemRisk && summary.problemRisk && check.problemCount === summary.problemCount) {
+        updateCheck(check.id, { problemRisk: summary.problemRisk });
+      }
+      return;
+    }
+    updateCheck(check.id, { phase: 'done', ...summary, finishedAt: new Date().toISOString() });
   }, [check, result, reviewReady, browserReady, reviewId, review]);
 
   if (!check || !result) return null;
