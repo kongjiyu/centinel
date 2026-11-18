@@ -8,6 +8,7 @@ import { newAutoTestSession, presetFromEntry, runAutoTest, scanPaths, type AutoT
 import { handleAutoTestRoute, AutoTestRuntime } from '../../src/dynamic/autonomous/routes.js';
 import { MemoryAutoTestStore } from '../../src/dynamic/autonomous/store.js';
 import type { RepoDigest } from '../../src/dynamic/autonomous/repoDigest.js';
+import { ModelProviderError } from '../../src/review/retry.js';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 const digest = (overrides: Partial<RepoDigest> = {}): RepoDigest => ({
@@ -106,6 +107,41 @@ function fakes(options: { verdicts?: string[]; tests?: number; persistence?: boo
 }
 
 describe('Auto test orchestrator', () => {
+  it('bounds cancellation recovery and admits no later tests when a child cannot confirm stopping', async () => {
+    const fake = fakes({ persistence: true });
+    let time = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => time);
+    const getRun = fake.deps.getRun;
+    fake.deps.getRun = async id => ({ ...await getRun(id), state: 'running' });
+    fake.deps.cancelRun = vi.fn().mockRejectedValue(new Error('cancel unavailable'));
+    fake.deps.sleep = async () => { time += 60 * 60_000; };
+    try {
+      const result = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1 }), fake.deps, new AbortController().signal);
+      expect(result.stage).toBe('failed');
+      expect(result.error?.message).toContain('could not confirm stopping');
+      expect(fake.missions).toHaveLength(1);
+      expect(fake.deps.cancelRun).toHaveBeenCalledOnce();
+    } finally { clock.mockRestore(); }
+  });
+  it('stops later tests when the explanation provider reports exhausted capacity', async () => {
+    const fake = fakes({ persistence: true });
+    fake.deps.explainFailure = vi.fn().mockRejectedValue(new ModelProviderError('Capacity unavailable', { code: 'quota_exhausted', retryable: false }));
+    const original = fake.deps.getRun;
+    fake.deps.getRun = async id => ({ ...await original(id), state: 'completed', verdict: 'failed' });
+    const result = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1 }), fake.deps, new AbortController().signal);
+    expect(result.stage).toBe('failed');
+    expect(result.error?.reason).toBe('provider_paused');
+    expect(fake.deps.explainFailure).toHaveBeenCalledOnce();
+    expect(fake.missions).toHaveLength(1);
+  });
+  it('stops before launching the app when a progress checkpoint cannot be saved', async () => {
+    const fake = fakes();
+    fake.deps.save = vi.fn().mockRejectedValue(new Error('progress unavailable'));
+    await expect(runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal))
+      .rejects.toThrow('progress unavailable');
+    expect(fake.launches).toHaveLength(0);
+    expect(fake.missions).toHaveLength(0);
+  });
   it('runs every test in isolated parallel lanes and summarises from Run verdicts', async () => {
     const fake = fakes();
     const session = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal);

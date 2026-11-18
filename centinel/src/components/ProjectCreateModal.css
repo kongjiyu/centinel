@@ -9,11 +9,68 @@
   display: grid;
   gap: 12px;
 }
-.project-account-repositories { max-height: 230px; overflow: auto; }
-.project-account-repositories .project-source-list li { display: block; }
+.project-account-repositories { display: grid; min-width: 0; gap: var(--space-2); }
+.project-repository-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); }
+.project-repository-tools input {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-inner);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+}
+.project-repository-results {
+  min-height: 80px;
+  max-height: min(260px, 36vh);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-inner);
+}
+.project-repository-results ul { list-style: none; margin: 0; padding: var(--space-1); }
+.project-repository-results li button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-inner);
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.project-repository-results li button:hover { background: var(--color-surface-hover); }
+.project-repository-results li button[aria-pressed='true'] { background: var(--color-surface-selected); }
+.project-repository-results li button:focus-visible { outline-offset: -2px; }
+.project-repository-results li svg { flex: none; color: var(--color-text-muted); }
+.project-repository-results li span { overflow-wrap: anywhere; }
+.project-repository-results > :is(p, button) { margin: var(--space-2); }
+.project-repository-add { justify-self: start; }
 
-.project-source-action { justify-self: start; }
-.project-source-action > svg { flex: none; }
+.project-source-drop {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-inner);
+  background: var(--color-surface);
+  text-align: center;
+}
+.project-source-drop[data-dragging] {
+  border-color: var(--color-primary);
+  background: var(--color-surface-selected);
+}
+.project-source-drop > svg, .project-source-note { color: var(--color-text-muted); }
+.project-source-pickers { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-1) var(--space-3); }
+.project-source-pickers > button { min-height: 32px; text-decoration: underline; text-underline-offset: 3px; }
+.project-source-pickers > button:hover { background: var(--color-surface-hover); }
+.project-source-note { margin: 0; }
 
 .project-source-link {
   display: grid;

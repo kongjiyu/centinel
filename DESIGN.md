@@ -91,7 +91,7 @@ Rules:
   - with nothing attached, the placeholder says "Choose a project with +, drop documents here, or paste a GitHub link";
   - once a project is attached, the placeholder changes to the optional-focus example;
   - the start button stays visible, and until a project is attached it explains what is missing instead of starting.
-- The whole input accepts a dropped folder or files, and a pasted GitHub link becomes a project chip. Every one of these also works through the add button and the keyboard.
+- The whole input accepts dropped documents and folders of documents, and a pasted GitHub link becomes a project chip. Add Document opens a drop area with file and folder pickers. Add Repository is shared by New Check, Project and Check. Its GitHub tab has a filter, refresh button, scrollable repository list and an explicit Add repository action after selection.
 - Home can select a saved project or start from a folder or GitHub link. Add a project opens the project form on Home. Projects without a registered folder get an account-scoped folder under Centinel’s writable application data directory on the current device. Browser testing needs app files in that folder.
 - No environment, permission, model or scope settings on this screen. Sensible defaults apply; settings live under Details and Settings.
 - Show setup notices directly above the composer with a left-aligned title and explanation. Place the settings button at the right, vertically centered, with a distinct hover background. Distinguish blocked steps from optional setup.
@@ -179,6 +179,10 @@ Numbers:
 - When no requirements were provided, say "No requirements provided" instead of a number.
 
 ### 4.4 Project conversation
+
+Project conversation places each check card at the point it was requested. View expands the card into Check and attaches that Check to the composer. Typing keeps the result open. An acknowledged send returns to Project and collapses the card. Both composers accept check and problem references through @. The sidebar initially keeps its compact layout so the conversation remains visible. The [harness contract](docs/project/PROJECT_CONVERSATION_HARNESS_CONTRACT_2026-11-18.md) defines the evidence and execution boundaries. The [implementation report](docs/project/PROJECT_CONVERSATION_HARNESS_IMPLEMENTATION_2026-11-18.md) records verification and remaining live acceptance.
+
+Project and each Check keep separate drafts with their attachments. A message sent from Check appears in the Project conversation while the Project composer restores its own draft. User messages align right and occupy up to 60% of the conversation width. Agent responses use the full width.
 
 **Job:** let a person test and change a project by talking to Centinel, instead of filling in forms.
 
@@ -585,7 +589,7 @@ This document describes the target. Built on 12–13 November 2026 (frontend onl
 | Sidebar: New, Search, recent checks, recent projects | Built. Recent checks are stored on this device only (`check/store.ts`); they hold IDs and outcomes, never findings or source |
 | Code and Browser marks | Built. Browser problems are failed Auto test runs; code problems are open Review findings |
 | Handing code-review problems to browser tests | Not built. No problem carries both marks yet |
-| Dropping a folder onto the check input | Not possible in the desktop window: native file drop is off, so a dropped folder has no path. The input says to use the add menu instead |
+| Dropping a folder onto a check input | Reads the folder's documents as library files. Choose a local repository through the native folder picker to register its workspace path |
 | Migrating older screens to Aurora layouts | Not done. They keep their layouts under Details, in the new colours |
 | Project conversation, step 1: add, run, change and save browser tests by message (§4.4) | Built: `screens/project/ProjectConversationScreen.tsx`. Opening a project shows it; the older tabs are under its Details link |
 | Permission modes (§4.5) | Built for step 1. Ask first confirms before running; Auto and Bypass run at once. Saving a test shows Undo. Mode, saved tests and notes are stored on this device (`check/projectPrefs.ts`) |
@@ -637,6 +641,16 @@ Before accepting a screen:
 - [ ] Styles do not leak into other screens.
 
 Decision log (user-approved unless noted):
+
+- 2026-11-18 (user decisions): Keep composers on Project and Check, place compact check cards in the Project conversation, and expand them through View. Support @ checks and problems for explanations, suggested fixes and scoped checks/browser tests. Follow the harness contract's acceptance criteria before accepting the feature.
+- 2026-11-18 (user request): Match the GitHub repository chooser across New Check, Project and Check. Keep the shared composer aligned to the response during transitions.
+- 2026-11-18 (user request): Keep independent drafts for Project and each Check. Align user messages right at up to 60% width and give agent responses the full width.
+
+- 2026-11-17 (user request): Share the Add actions and document drop area across New Check, Check and Project. When a saved project is selected, add documents immediately to its library and keep them attached to the draft. Other documents are uploaded when the check prepares its project. Open the Sources add menu to the right when space permits, with a below-trigger fallback on narrow screens.
+
+- 2026-11-17 (user request): The configured agent assigns a short name from the project's check context. The history row shows the name alone. The Check page keeps references in its saved record and omits the reference strip. Show check progress in the sidebar and on Live. The legacy floating progress popup is reserved for standalone Reviews.
+
+- 2026-11-17 (user request): Add a drop area for individual files and folder contents to Add Project, with file and folder pickers inside it. A picked repository folder registers a workspace. Dropped files and folder contents are added to the project library. The Sources add button opens Add documents and Add repository on hover or activation.
 
 - 2026-11-17 (user request): Left-align setup notice text and place its settings button at the right, vertically centered. Use an opaque surface for the project Sources button and popover, white in Light appearance.
 

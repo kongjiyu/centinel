@@ -20,6 +20,10 @@ import '../check/Check.css';
 import { CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from '../check/CheckProjectWorkspace';
 import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
+import { ProjectCheckCard } from './ProjectCheckCard';
+import { ConversationTurn } from './ConversationTurn';
+import { useConversationRequests } from '../../check/conversation';
+import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
 import './ProjectConversation.css';
 
 type Navigate = (screen: Screen) => void;
@@ -252,6 +256,7 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
 export function ProjectConversationScreen({ project, projects, onNavigate }: { project: Project; projects: Project[]; onNavigate: Navigate }) {
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(check => check.projectId === project.id);
+  const conversationRequests = useConversationRequests(project.id, project.name);
   const [sessions, setSessions] = useState<AutoTestSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -261,6 +266,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const initializedScroll = useRef(false);
   const hasFolder = !!projectLocalFolder(project);
 
   const refresh = useCallback(async () => {
@@ -289,19 +295,34 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   }, [project.id]);
 
   const timeline = useMemo(() => {
-    const turns = sessions.filter(conversational).map(session => ({ at: session.createdAt, key: `s:${session.id}`, session }));
+    const turns = sessions.filter(session => conversational(session) && !checks.some(check => check.autoTestId === session.id)).map(session => ({ at: session.createdAt, key: `s:${session.id}`, session }));
     const notes = prefs.notes.map(note => ({ at: note.at, key: `n:${note.id}`, note }));
-    return [...turns, ...notes].sort((a, b) => a.at.localeCompare(b.at));
-  }, [sessions, prefs.notes]);
+    const cards = checks.map(check => ({ at: check.createdAt, key: 'c:' + check.id, check }));
+    const requests = conversationRequests.records.map(request => ({ at: request.createdAt, key: 'r:' + request.id, request }));
+    return [...turns, ...notes, ...cards, ...requests].sort((a, b) => a.at.localeCompare(b.at));
+  }, [sessions, prefs.notes, checks, conversationRequests.records]);
   const last = timeline[timeline.length - 1];
   // Follow the newest reply as it grows (stage, tests and their results), not only new messages.
   const lastSignature = last ? `${last.key}:${'session' in last ? `${last.session.stage}:${last.session.reply ?? ''}:${last.session.tests.map(test => test.state).join(',')}` : ''}` : '';
-  useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' }); }, [lastSignature, pending]);
+  useEffect(() => {
+    if (!loaded || !conversationRequests.loaded) return;
+    if (!initializedScroll.current) {
+      initializedScroll.current = true;
+      const restored = restoreProjectPosition(project.id, endRef.current);
+      if (consumeConversationReturn(project.id)) {
+        inputRef.current?.focus({ preventScroll: true });
+      } else if (restored) return;
+    }
+    endRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' });
+  }, [loaded, conversationRequests.loaded, lastSignature, pending, project.id]);
+  useEffect(() => {
+    const element = endRef.current;
+    return () => rememberProjectPosition(project.id, element);
+  }, [project.id]);
 
   const launch = async (job: Pending) => {
     if ('checkInput' in job && job.checkInput) {
-      const check = startCheck(job.checkInput, { api, projects: () => projects });
-      onNavigate({ name: 'check', checkId: check.id });
+      startCheck(job.checkInput, { api, projects: () => projects });
       return;
     }
     setSending(true);
@@ -340,15 +361,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
 
   const runFullCheck = () => {
     if (!hasFolder) return;
-    const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'both' }, { api, projects: () => projects });
-    onNavigate({ name: 'check', checkId: check.id });
+    startCheck({ projectId: project.id, documents: [], focus: '', mode: 'both' }, { api, projects: () => projects });
   };
 
   const latest = useLatestResult(project.id, sessions);
   const [sideChoice, setSideChoice] = useState<boolean | null>(null);
-  const hasChecks = checks.some(check => check.phase !== 'failed') || !!latest.review || !!latest.autoTest
-    || sessions.some(session => session.tests.length > 0);
-  const sideOpen = sideChoice ?? hasChecks;
+  const sideOpen = sideChoice ?? false;
   const toggleSide = (open: boolean) => { setSideChoice(open); setSideOpen(project.id, open); };
   const library = useCheckLibrary(project.id);
   const openLatest = () => {
@@ -364,7 +382,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
 
   return <CheckProjectLayout expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
     header={<CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library} />}
-    composer={<CheckFollowUp check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
+    composer={<CheckFollowUp key={project.id} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
       onNavigate={onNavigate} available library={library} conversation={{
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
         inputRef, sending, send, onFocus: () => setSideChoice(false),
@@ -384,16 +402,22 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
           </header>
 
           <div className="pc-thread" aria-live="polite">
-            <div className="pc-turn pc-ai-text pc-intro">
+            {!checks.length && <div className="pc-turn pc-ai-text pc-intro">
               <span>{latestCheck
                 ? latestCheck.phase === 'done'
                   ? <>The last check found {latestCheck.problemCount ? `${latestCheck.problemCount} problem${latestCheck.problemCount === 1 ? '' : 's'}` : 'no problems'}. <button type="button" className="ck-link" onClick={() => onNavigate({ name: 'check', checkId: latestCheck.id })}>Open the result</button></>
                   : <>A check is {latestCheck.phase === 'failed' ? 'saved but did not start' : 'running'}. <button type="button" className="ck-link" onClick={() => onNavigate({ name: 'check', checkId: latestCheck.id })}>Open it</button></>
                 : 'No check has run on this computer yet.'}
               {' '}Ask me to test something, for example “Test that a wrong password shows an error”.</span>
-            </div>
+            </div>}
             {!loaded && <p className="pc-sub"><Icon icon={LoaderCircle} className="ci-spin" />Loading the conversation…</p>}
-            {timeline.map(item => 'session' in item
+            {conversationRequests.error && <p role="status">{conversationRequests.error}</p>}
+            {timeline.map(item => 'check' in item ? <div className="pc-turn" key={item.key}>
+                {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
+                <ProjectCheckCard check={item.check} onNavigate={onNavigate} />
+              </div>
+              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate} />
+              : 'session' in item
               ? <SessionTurn key={item.key} session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}
                   onRerun={ref => submit({ rerun: [ref] })}

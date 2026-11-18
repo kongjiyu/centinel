@@ -2,9 +2,9 @@
 .pc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-4); }
 .pc-kicker { color: var(--color-text-muted); font-size: 13px; }
 .pc-thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-1) var(--space-4); }
-.pc-msg { max-width: 82%; padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); font-size: 15px; line-height: 1.55; }
-.pc-msg.is-me { align-self: flex-end; background: var(--color-primary); color: var(--color-on-primary); border-bottom-right-radius: var(--space-1); white-space: pre-wrap; }
-.pc-msg.is-ai { align-self: flex-start; display: grid; gap: var(--space-2); background: var(--color-surface); border: 1px solid var(--color-border); border-bottom-left-radius: var(--space-1); box-shadow: var(--shadow-card); }
+.pc-msg { min-width: 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); font-size: 15px; line-height: 1.55; }
+.pc-msg.is-me { align-self: flex-end; justify-self: end; inline-size: fit-content; max-inline-size: 60%; background: var(--color-primary); color: var(--color-on-primary); border-bottom-right-radius: var(--space-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pc-msg.is-ai { align-self: stretch; display: grid; gap: var(--space-2); background: var(--color-surface); border: 1px solid var(--color-border); border-bottom-left-radius: var(--space-1); box-shadow: var(--shadow-card); }
 .pc-about { display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-1); font-size: 12px; opacity: 0.75; }
 .pc-status, .pc-sub, .pc-note, .pc-error { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: 13px; color: var(--color-text-muted); }
 .pc-status { color: var(--color-browser); }
@@ -92,8 +92,8 @@
 .pc-actions .pc-done { margin-left: var(--space-2); }
 
 /* Codex-style turn (14 Nov 2026): Centinel speaks in plain text, work is collapsed, actions sit outside. */
-.pc-turn { align-self: stretch; display: grid; gap: var(--space-2); max-width: 82%; }
-.pc-ai-text { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 15px; line-height: 1.55; }
+.pc-turn { align-self: stretch; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.pc-ai-text { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
 .pc-ai-text .ci { margin-top: 0.2em; }
 .pc-worked { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-1) 0; border: 0; background: none; color: var(--color-text-muted); font: 400 13px/1.5 var(--font-ui); cursor: pointer; }
 .pc-worked:disabled { cursor: default; }
@@ -188,3 +188,11 @@
   .ck-detail-layout > .pc-side:not(.is-open) .pc-side-top { margin: 0; }
   .ck-detail-layout > .pc-side:not(.is-open) :is(.pc-side-body, .pc-side-top h2) { display: none; }
 }
+.pc-check-card-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.pc-check-card-heading h2 { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.pc-check-card-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.pc-check-card-counts dt { display: flex; align-items: center; gap: var(--space-1); font-size: 12px; color: var(--color-text-muted); }
+.pc-check-card-counts dd { margin: var(--space-1) 0 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+.pc-check-card-counts small { font-size: 12px; }
+.pc-conversation-request { display: grid; gap: var(--space-3); }
+@media (max-width: 600px) { .pc-check-card-counts { grid-template-columns: 1fr; } }

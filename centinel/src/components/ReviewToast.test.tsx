@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ActiveReviewContext, type ActiveReviewSnapshot, type ActiveReviewState } from '../context/ActiveReviewContext';
 import { ReviewToast } from './ReviewToast';
+import { resetCheckStore, saveCheck } from '../check/store';
 
 vi.mock('../api/client', () => ({ api: { cancelStaticSession: vi.fn().mockResolvedValue(undefined) } }));
 
@@ -45,6 +46,15 @@ function renderToast(state: Partial<ActiveReviewState> & { session: ActiveReview
 }
 
 describe('ReviewToast', () => {
+  beforeEach(resetCheckStore);
+
+  it('keeps a running Check out of the standalone review popup', () => {
+    saveCheck({ id: 'check-1', projectName: 'Sample Shop', reviewId: 'review-1', createdAt: '', updatedAt: '',
+      focus: 'Check checkout', mode: 'code', phase: 'running', documents: [], notes: [] });
+    renderToast({ session: snapshot() });
+    expect(screen.queryByRole('region', { name: 'Review progress' })).not.toBeInTheDocument();
+  });
+
   it('summarises the current stage in plain language and opens details', () => {
     const openReview = vi.fn();
     const controls = renderToast({ session: snapshot() }, openReview);

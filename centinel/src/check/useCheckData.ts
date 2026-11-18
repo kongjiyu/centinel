@@ -17,6 +17,8 @@ export type CheckData = {
   result: CheckResult;
   live: ReviewLiveView;
   loadError: string | null;
+  requirementsState?: 'loading' | 'ready' | 'unavailable';
+  evidenceLoaded?: boolean;
 };
 
 const REVIEW_POLL_MS = 3000;
@@ -29,6 +31,7 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
   const [trace, setTrace] = useState<ReviewHarnessTrace | null>(null);
   const [autoTest, setAutoTest] = useState<AutoTestSession | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [requirementsState, setRequirementsState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const projectId = check?.projectId;
   const reviewId = check?.reviewId;
@@ -92,9 +95,26 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
   }, [projectId, autoTestId]);
 
   useEffect(() => {
-    if (!projectId || typeof api.listRequirements !== 'function') return;
+    if (!projectId) return;
     let active = true;
-    api.listRequirements(projectId).then(items => { if (active) setRequirements(items); }).catch(() => undefined);
+    setRequirementsState('loading');
+    const load = async () => {
+      if (reviewId && typeof api.getReviewTraceability === 'function') {
+        const snapshot = await api.getReviewTraceability(projectId, reviewId);
+        if (snapshot.status !== 'available' || snapshot.projectId !== projectId || snapshot.sessionId !== reviewId) throw new Error('Frozen requirements unavailable');
+        if (review?.scope?.requirementIds?.some(id => !snapshot.records.some(record => record.requirementId === id))) throw new Error('Selected frozen requirements unavailable');
+        return snapshot.records.map(record => ({
+          id: record.requirementId, projectId, title: record.title, description: record.description,
+          category: record.category, priority: '', createdAt: record.capturedAt,
+        }));
+      }
+      return typeof api.listRequirements === 'function' ? api.listRequirements(projectId) : [];
+    };
+    void load().then(items => {
+      if (active) { setRequirements(items); setRequirementsState('ready'); }
+    }).catch(() => {
+      if (active) { setRequirements([]); setRequirementsState('unavailable'); }
+    });
     return () => { active = false; };
   }, [projectId, review?.status, autoTest?.stage]);
 
@@ -119,5 +139,7 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
   }, [check, result, reviewReady, browserReady, reviewId, review]);
 
   if (!check || !result) return null;
-  return { review, findings, trace, autoTest, requirements, result, live, loadError };
+  const evidenceLoaded = reviewReady && browserReady && (!reviewId || !review
+    || ['queued', 'prepared', 'running'].includes(review.status) || findingsLoadedFor.current === `${reviewId}:${review.status}`);
+  return { review, findings, trace, autoTest, requirements, result, live, loadError, requirementsState, evidenceLoaded };
 }

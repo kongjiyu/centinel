@@ -92,6 +92,8 @@ Embedding Settings supports published Voyage 4 Lite/4/4 Large choices and the ex
 
 ## Frontend and Design
 
+Project conversation requests live in `sidecar/src/conversation/` behind authenticated `/projects/:projectId/conversation-requests` routes. Existing `audit_events` rows provide unique request insertion and revision CAS updates. Resolve check/problem references through saved project-scoped records, preserve historical source versions, and validate exact evidence quotes and executable scope before child dispatch. Browser verification requires saved assertions or supported positive expected-message criteria, with full target matching for every admitted test. Keep AI analysis separate from saved execution verdicts. Project cards, drafts and transitions live in `centinel/src/check/` and `screens/project/`. The implementation report records offline checks and remaining live-provider/native acceptance in `docs/project/PROJECT_CONVERSATION_HARNESS_IMPLEMENTATION_2026-11-18.md`.
+
 Before changing UI, CSS, branding, icons, animation, responsive behavior, or user-facing layout, read and follow [`DESIGN.md`](./DESIGN.md). It is authoritative for new work.
 
 Design direction (12 November 2026, user-approved): `DESIGN.md` was rewritten around three screens — Start (give a folder and documents), Live (watch the code review and browser tests in real time) and Result (one page of problems). The earlier guide is frozen at [`docs/design/DESIGN_LEGACY_2026-11-12.md`](./docs/design/DESIGN_LEGACY_2026-11-12.md) and still governs screens that have not migrated (see `DESIGN.md` §14); where the two disagree, `DESIGN.md` wins. Record new design decisions in the relevant section and its decision log (§16), not as dated amendment sections.

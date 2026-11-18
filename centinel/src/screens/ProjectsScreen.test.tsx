@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
@@ -11,7 +11,7 @@ vi.mock('../api/client', () => ({
   api: {
     listStaticSessions: vi.fn(),
     listDynamicSessions: vi.fn(),
-    listArtifacts: vi.fn(), getSourcePresence: vi.fn(),
+    listArtifacts: vi.fn(), getSourcePresence: vi.fn(), uploadArtifact: vi.fn(),
   },
 }));
 
@@ -32,7 +32,7 @@ describe('Project creation', () => {
     await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
     await user.type(screen.getByLabelText(/Description/), 'Payment verification');
-    await user.click(screen.getByRole('button', { name: 'Add local folders' }));
+    await user.click(screen.getByRole('button', { name: 'Choose folders' }));
     await user.click(screen.getByRole('dialog', { name: 'Add Project' }).querySelector('button[type=submit]')!);
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Banking', 'Payment verification', [{ type: 'local-repository', path: 'C:\\Projects\\banking' }]));
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage unavailable');
@@ -56,7 +56,7 @@ describe('Project creation', () => {
     render(<ProjectsScreen projects={[]} onCreate={vi.fn()} onDelete={vi.fn()} onNavigate={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Banking');
-    await user.click(screen.getByRole('button', { name: 'Add local folders' }));
+    await user.click(screen.getByRole('button', { name: 'Choose folders' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('folder picker could not open');
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
   });
@@ -86,7 +86,7 @@ describe('Project creation', () => {
     render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.type(screen.getByLabelText('Project name *'), 'Mixed');
-    await user.click(screen.getByRole('button', { name: 'Add local folders' }));
+    await user.click(screen.getByRole('button', { name: 'Choose folders' }));
     expect(folderPicker).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }));
     await user.click(screen.getByRole('button', { name: 'Link' }));
     await user.type(screen.getByLabelText('GitHub repository URL'), 'https://github.com/example/first.git');
@@ -99,6 +99,30 @@ describe('Project creation', () => {
       { type: 'github', repoUrl: 'https://github.com/example/first' },
       { type: 'github', repoUrl: 'https://github.com/example/second' },
     ]));
+  });
+
+  it('stages the contents of a dropped folder and an individually chosen file before creating the project', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue({ id: 'new-project', name: 'Local sources' });
+    vi.mocked(api.uploadArtifact).mockClear();
+    render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Add Project' }));
+    await user.type(dialog.getByLabelText('Project name *'), 'Local sources');
+    const drop = dialog.getByText('Drop files or a folder here').parentElement!;
+    const nestedFile = new File(['let x = 1'], 'item.ts');
+    const droppedEntry = { isFile: true, fullPath: '/folder/item.ts', file: (success: (file: File) => void) => success(nestedFile) };
+    const readEntries = vi.fn().mockImplementationOnce(success => success([droppedEntry])).mockImplementation(success => success([]));
+    const root = { isDirectory: true, fullPath: '/folder', createReader: () => ({ readEntries }) };
+    fireEvent.drop(drop, { dataTransfer: { types: ['Files'], items: [{ kind: 'file', webkitGetAsEntry: () => root }], files: [] } });
+    expect(await dialog.findByText('folder/item.ts')).toBeInTheDocument();
+    await user.upload(dialog.getByLabelText('Local source files'), new File(['test'], 'notes.md'));
+    expect(dialog.getByText('notes.md')).toBeInTheDocument();
+    expect(api.uploadArtifact).not.toHaveBeenCalled();
+    await user.click(dialog.getByRole('button', { name: 'Add project' }));
+    await waitFor(() => expect(api.uploadArtifact).toHaveBeenCalledTimes(2));
+    expect(api.uploadArtifact).toHaveBeenCalledWith('new-project', { fileName: 'folder/item.ts', content: 'bGV0IHggPSAx' });
+    expect(api.uploadArtifact).toHaveBeenCalledWith('new-project', { fileName: 'notes.md', content: 'dGVzdA==' });
   });
 });
 

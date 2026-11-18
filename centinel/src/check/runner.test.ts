@@ -24,6 +24,21 @@ const until = async (predicate: () => boolean) => { for (let i = 0; i < 50 && !p
 describe('check runner', () => {
   beforeEach(() => resetCheckStore());
 
+  it('assigns the agent title without waiting to start the check', async () => {
+    let finishTitle!: (result: { title: string }) => void;
+    const generateCheckTitle = vi.fn(() => new Promise<{ title: string }>(resolve => { finishTitle = resolve; }));
+    const api = fakeApi({ generateCheckTitle });
+    const project = { id: 'saved', name: 'Saved Shop', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, documents: [], focus: 'Check prices at checkout', mode: 'code' },
+      { api, projects: () => [project] });
+    await until(() => getCheck(check.id)?.phase === 'running');
+    expect(getCheck(check.id)?.title).toBeUndefined();
+    expect(generateCheckTitle).toHaveBeenCalledExactlyOnceWith(project.id, { focus: 'Check prices at checkout', mode: 'code', documents: [] });
+    finishTitle({ title: 'Checkout Pricing' });
+    await until(() => getCheck(check.id)?.title === 'Checkout Pricing');
+    expect(getCheck(check.id)).toMatchObject({ title: 'Checkout Pricing', phase: 'running', reviewId: 'review-1' });
+  });
+
   it('reads names from folders and GitHub links and labels documents by name only', () => {
     expect(folderName('/Users/me/work/shop/')).toBe('shop');
     expect(folderName('C:\\work\\portal')).toBe('portal');
@@ -58,6 +73,20 @@ describe('check runner', () => {
     expect(getCheck(check.id)).toMatchObject({ phase: 'failed', error: expect.stringContaining('no longer available for this project') });
     expect(api.importRepoArtifacts).not.toHaveBeenCalled();
     expect(api.createStaticSession).not.toHaveBeenCalled();
+  });
+
+  it('reuses a document saved to this project and uploads a copy when the draft changes project', async () => {
+    const api = fakeApi();
+    const project = { id: 'saved', name: 'Saved Shop', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
+    const other = { ...project, id: 'other' };
+    const documents = [{ name: 'notes.md', base64: 'dGVzdA==', saved: { projectId: project.id, artifactId: 'a1' } }];
+    const deps = { api, projects: () => [project, other] };
+    const first = startCheck({ projectId: project.id, documents, focus: '', mode: 'code' }, deps);
+    await until(() => getCheck(first.id)?.phase === 'running');
+    expect(api.uploadArtifact).not.toHaveBeenCalled();
+    const second = startCheck({ projectId: other.id, documents, focus: '', mode: 'code' }, deps);
+    await until(() => getCheck(second.id)?.phase === 'running');
+    expect(api.uploadArtifact).toHaveBeenCalledExactlyOnceWith(other.id, { fileName: 'notes.md', content: 'dGVzdA==', type: 'other' });
   });
 
   it('does not broaden a standards-only attachment into a full review', async () => {

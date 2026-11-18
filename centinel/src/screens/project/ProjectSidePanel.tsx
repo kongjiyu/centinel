@@ -191,7 +191,8 @@ export function CheckProjectSidebar({ project, check, data, onNavigate, open, on
     return () => { active = false; };
   }, [open, project.id]);
   return <ProjectSidePanel project={project} open={open} onToggle={onToggle} checkLabel="This check"
-    latest={{ review: data.review, autoTest: data.autoTest, result: data.result, requirements: data.requirements,
+    latest={{ review: data.review, autoTest: data.autoTest,
+      result: data.requirementsState === 'unavailable' ? { ...data.result, requirements: null } : data.result, requirements: data.requirements,
       at: check.finishedAt ?? check.createdAt, loading: false }}
     onOpen={() => { if (open) onToggle(); else document.querySelector<HTMLElement>('.ck-detail-content')?.scrollTo?.({ top: 0 }); }}
     documents={artifacts.filter(item => item.source === 'documents')}

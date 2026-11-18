@@ -1,7 +1,8 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AiProviderSetting, Project } from '../../types';
+import type { AiProviderSetting, Artifact, Project } from '../../types';
+import { api } from '../../api/client';
 import { StartScreen } from './StartScreen';
 import { resetCheckStore, saveCheck } from '../../check/store';
 
@@ -10,6 +11,8 @@ vi.mock('../../api/client', () => ({ api: {
   listConnectedSources: vi.fn().mockResolvedValue([]),
   listStaticSessions: vi.fn().mockResolvedValue([]),
   autoTests: vi.fn().mockResolvedValue([]),
+  listArtifacts: vi.fn().mockResolvedValue([]),
+  uploadArtifact: vi.fn(),
 } }));
 const startCheck = vi.fn((_input: unknown) => ({ id: 'check-1' }));
 vi.mock('../../check/runner', async importOriginal => ({ ...(await importOriginal<typeof import('../../check/runner')>()), startCheck: (input: unknown) => startCheck(input) }));
@@ -28,9 +31,34 @@ function renderStart(settings = ready, projects: Project[] = []) {
 describe('Start screen', () => {
   beforeEach(() => { startCheck.mockClear(); resetCheckStore(); window.localStorage.clear(); Reflect.deleteProperty(window, '__TAURI_IPC__'); });
 
+  it('adds a dropped document to the selected project library and carries its saved ID into the check', async () => {
+    const project = { id: 'shop', name: 'Storefront', description: '', workspacePath: '/apps/shop', createdAt: '', updatedAt: '' };
+    const artifact = { id: 'document-1', projectId: 'shop', fileName: 'requirements.md' } as Artifact;
+    vi.mocked(api.uploadArtifact).mockResolvedValueOnce(artifact);
+    vi.mocked(api.listArtifacts).mockResolvedValue([artifact]);
+    const user = userEvent.setup();
+    renderStart(ready, [project]);
+    await user.click(screen.getByRole('button', { name: 'Choose project' }));
+    await user.click(screen.getByRole('button', { name: 'Storefront' }));
+    await user.click(screen.getByRole('button', { name: 'Add to check' }));
+    expect(await screen.findByRole('button', { name: 'requirements.md' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add Document' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Add Document' }));
+    fireEvent.drop(dialog.getByText('Drop files or a folder here').parentElement!, {
+      dataTransfer: { types: ['Files'], files: [new File(['requirement'], 'requirements.md')], items: [] },
+    });
+    expect(await screen.findByRole('button', { name: 'Remove requirements.md' })).toBeInTheDocument();
+    expect(api.uploadArtifact).toHaveBeenCalledWith('shop', { fileName: 'requirements.md', content: 'cmVxdWlyZW1lbnQ=', type: 'requirement' });
+    await user.click(screen.getByRole('button', { name: 'Conduct the Check' }));
+    expect(startCheck).toHaveBeenCalledWith(expect.objectContaining({ documents: [{
+      name: 'requirements.md', base64: 'cmVxdWlyZW1lbnQ=', saved: { projectId: 'shop', artifactId: 'document-1' },
+    }] }));
+    vi.mocked(api.listArtifacts).mockResolvedValue([]);
+  });
+
   it('replaces the project, mode and draft from an unseen result without starting a check', async () => {
     const user = userEvent.setup();
-    saveCheck({ id: 'prior', projectId: 'shop', projectName: 'Storefront', createdAt: '2026-11-17T08:00:00Z', updatedAt: '2026-11-17T08:00:00Z',
+    saveCheck({ id: 'prior', projectId: 'shop', projectName: 'Storefront', title: 'Checkout pricing', createdAt: '2026-11-17T08:00:00Z', updatedAt: '2026-11-17T08:00:00Z',
       documents: [], focus: 'Checkout totals', mode: 'code', phase: 'done', notes: [] });
     renderStart(ready, ['Current project', 'Storefront'].map((name, index) => ({
       id: index ? 'shop' : 'current', name, description: '', workspacePath: '/apps/' + index, createdAt: '', updatedAt: '',
@@ -44,7 +72,7 @@ describe('Start screen', () => {
     expect(draft).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Choose project: Storefront' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Check mode' })).toHaveTextContent('Code');
-    expect(screen.getByRole('button', { name: 'Remove check Storefront' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove check Checkout pricing' })).toBeInTheDocument();
     expect(startCheck).not.toHaveBeenCalled();
   });
 
@@ -184,12 +212,12 @@ describe('Start screen', () => {
 
   it('filters check mentions, selects their project, and carries the reference into the new check', async () => {
     const user = userEvent.setup();
-    saveCheck({ id: 'earlier', projectId: 'shop', projectName: 'Storefront', createdAt: '2026-11-17T08:00:00Z', updatedAt: '2026-11-17T08:00:00Z', documents: [], focus: '', mode: 'both', phase: 'done', notes: [] });
+    saveCheck({ id: 'earlier', projectId: 'shop', projectName: 'Storefront', title: 'Storefront smoke test', createdAt: '2026-11-17T08:00:00Z', updatedAt: '2026-11-17T08:00:00Z', documents: [], focus: '', mode: 'both', phase: 'done', notes: [] });
     renderStart(ready, [{ id: 'shop', name: 'Storefront', description: '', workspacePath: '/apps/shop', createdAt: '', updatedAt: '' }]);
     await user.type(screen.getByRole('textbox'), 'checkout @absent');
     expect(screen.getByText('No matching checks')).toBeInTheDocument();
     await user.type(screen.getByRole('textbox'), '{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}store');
-    expect(within(screen.getByRole('region', { name: 'Recent Checks' })).getByRole('button', { name: 'Storefront' })).toHaveAttribute('data-mention-active');
+    expect(within(screen.getByRole('region', { name: 'Recent Checks' })).getByRole('button', { name: 'Storefront smoke test' })).toHaveAttribute('data-mention-active');
     await user.keyboard('{Enter}');
     expect(screen.getByRole('button', { name: 'Choose project: Storefront' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Conduct the Check' }));

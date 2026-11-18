@@ -554,6 +554,19 @@ export const api = {
   autoTests: (projectId: string) => request<AutoTestSession[]>(`/projects/${projectId}/dynamic/autonomous`, { cache: 'no-store' }),
   autoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}`, { cache: 'no-store' }),
   startAutoTest: (projectId: string, input: { folder?: string; lanes?: number; request?: string; base?: import('../autotest/types').AutoTestRef; rerun?: import('../autotest/types').AutoTestRef[]; pinned?: import('../autotest/types').AutoTestRef[] }) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous`, { method: 'POST', body: JSON.stringify(input) }),
+  generateCheckTitle: (projectId: string, input: { focus: string; mode: import('../check/types').CheckMode; documents: string[] }) =>
+    request<{ title: string | null }>(`/projects/${encodeURIComponent(projectId)}/check-title`, {
+      method: 'POST', body: JSON.stringify(input), signal: AbortSignal.timeout(65_000),
+    }),
+  conversationRequests: (projectId: string) => request<import('../check/conversationTypes').ConversationRequest[]>(`/projects/${projectId}/conversation-requests`),
+  setConversationPermission: (projectId: string, permission: 'ask' | 'auto' | 'bypass') =>
+    request(`/projects/${projectId}/conversation-permission`, { method: 'POST', body: JSON.stringify({ permission }) }),
+  sendConversationRequest: (projectId: string, input: import('../check/conversationTypes').ConversationInput) =>
+    request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests`, { method: 'POST', body: JSON.stringify(input) }),
+  confirmConversationRequest: (projectId: string, id: string, revision: number) =>
+    request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/confirm`, { method: 'POST', body: JSON.stringify({ revision }) }),
+  cancelConversationRequest: (projectId: string, id: string) =>
+    request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/cancel`, { method: 'POST', body: '{}' }),
   cancelAutoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}/cancel`, { method: 'POST', body: '{}' }),
   dynamicRuns: (projectId: string, options?: { fresh?: boolean }) => request<DynamicRun[]>(`/projects/${projectId}/dynamic/runs`, options?.fresh ? { cache: 'no-store' } : undefined),
   startDynamicRun: (projectId: string, revisionId: string, idempotencyKey: string, environmentId?: string, baselineRunId?:string) => request<DynamicRun>(`/projects/${projectId}/dynamic/runs`, { method: 'POST', body: JSON.stringify({ revisionId, idempotencyKey, ...(environmentId ? {environmentId} : {}),...(baselineRunId?{baselineRunId}:{}) }) }),

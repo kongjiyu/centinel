@@ -5,6 +5,7 @@ import type { LaunchedApp, LaunchEvent } from './launcher.js';
 import { LaunchError } from './launcher.js';
 import { AUTO_TEST_PLAN_SCHEMA, AUTO_TEST_SYSTEM_PROMPT, buildPlanPrompt, MAX_REQUEST_TESTS, planReply, presetToTest, validatePlan, type AutoTest, type AutoTestControl, type AutoTestPreset, type AutoTestRequest, type DroppedTest } from './planner.js';
 import type { RepoDigest } from './repoDigest.js';
+import { reviewProviderPause } from '../../review/providerPause.js';
 
 /**
  * Autonomous Dynamic testing: read a folder, start its app, plan tests, run them in
@@ -53,6 +54,8 @@ export type AutoTestDeps = {
   getRun(runId: string): Promise<DynamicRun>;
   cancelRun(runId: string): Promise<void>;
   save(session: AutoTestSession): Promise<void>;
+  beforeAction?(): Promise<void>;
+  validatePlanned?(tests: AutoTest[]): Promise<void>;
   now?(): Date;
   sleep?(ms: number): Promise<void>;
 };
@@ -107,11 +110,16 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
   const sleep = deps.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const servers = new Map<string, LaunchedApp>();
   let saving = Promise.resolve();
+  let persistenceError: unknown;
+  let admissionError: unknown;
   const persist = () => {
     session.updatedAt = now();
     const snapshot = structuredClone(session);
-    saving = saving.then(() => deps.save(snapshot)).catch(() => undefined);
-    return saving;
+    saving = saving.then(async () => {
+      if (persistenceError) return;
+      try { await deps.save(snapshot); } catch (error) { persistenceError = error; }
+    });
+    return saving.then(() => { if (persistenceError) throw persistenceError; });
   };
   const stage = async (value: AutoTestStage) => { session.stage = value; await persist(); };
   const checkCancelled = () => { if (signal.aborted) throw new LaunchError('cancelled', 'Cancelled.'); };
@@ -132,6 +140,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     let lastLog = 0;
     const firstLane: AutoTestLane = { id: 'lane-1', url: null, environmentId: null, state: 'starting', currentTestId: null };
     session.lanes = [firstLane];
+    await deps.beforeAction?.();
     const first = await deps.launch({
       folder: session.folder, signal,
       onEvent: event => {
@@ -140,7 +149,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           session.launch.installing = event.stage === 'installing';
           session.launch.label = event.command;
           if (event.log) session.launch.log = event.log.slice(-4000);
-          if (Date.now() - lastLog > 1000) { lastLog = Date.now(); void persist(); }
+          if (Date.now() - lastLog > 1000) { lastLog = Date.now(); void persist().catch(() => undefined); }
         }
       },
     });
@@ -171,6 +180,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
       planned.push(...plan.tests);
     }
     const byId = new Map<string, AutoTest>(planned.map(test => [test.id, test]));
+    await deps.validatePlanned?.(planned);
     session.tests = planned.map(test => ({
       id: test.id, name: test.name, goal: test.goal, rationale: test.rationale, requirementRef: test.requirementRef,
       sourceRefs: test.sourceRefs, checks: test.mission.checks, startPath: test.startPath, state: 'queued', controls: test.controls,
@@ -193,6 +203,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
       const lane: AutoTestLane = { id: `lane-${index}`, url: null, environmentId: null, state: 'starting', currentTestId: null };
       session.lanes.push(lane);
       try {
+        await deps.beforeAction?.();
         const app = await deps.launch({ folder: session.folder, recipeId: first.recipe.id, signal });
         servers.set(lane.id, app);
         lane.url = app.server.url;
@@ -208,7 +219,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     const queue = [...session.tests];
     const finishedOnLane = new Map<string, number>();
     const runLane = async (lane: AutoTestLane) => {
-      while (!signal.aborted) {
+      while (!signal.aborted && !persistenceError && !admissionError) {
         const entry = queue.shift();
         if (!entry) break;
         const test = byId.get(entry.id)!;
@@ -220,6 +231,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         await persist();
         try {
           // A fresh app instance per test: restart the lane's own process after the first test.
+          await deps.beforeAction?.();
           let app = servers.get(lane.id)!;
           if (finishedOnLane.get(lane.id)) {
             await app.server.stop();
@@ -240,14 +252,24 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           const saved = await deps.saveMission(mission);
           entry.missionId = saved.missionId;
           entry.revisionId = saved.revisionId;
+          await deps.beforeAction?.();
           const runId = await deps.startRun({ revisionId: saved.revisionId, environmentId: environment.id, idempotencyKey: `autotest:${session.id.slice(0, 8)}:${entry.id}`, laneId: lane.id });
           entry.runId = runId;
           await persist();
           let run = await deps.getRun(runId);
           const deadline = Date.now() + RUN_WAIT_LIMIT_MS;
           let cancelRequested = false;
+          let cancellationStarted = 0;
           while (!TERMINAL_RUN.has(run.state)) {
-            if (!cancelRequested && (signal.aborted || Date.now() > deadline)) { cancelRequested = true; await deps.cancelRun(runId).catch(() => undefined); }
+            if (!cancelRequested && (signal.aborted || persistenceError || admissionError || Date.now() > deadline)) {
+              cancelRequested = true;
+              cancellationStarted = Date.now();
+              await deps.cancelRun(runId).catch(() => undefined);
+            }
+            if (cancelRequested && Date.now() - cancellationStarted > 30_000) {
+              admissionError = new Error('The browser run could not confirm stopping. Inspect the saved run before starting another check.');
+              throw admissionError;
+            }
             await sleep(RUN_POLL_MS);
             run = await deps.getRun(runId);
           }
@@ -256,9 +278,15 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           entry.checkResults = run.checks;
           await deps.recordData(environment.id, 'cleanup', 'Centinel stopped this copy of the app after the test; nothing persists outside its process.').catch(() => undefined);
           if (entry.state === 'failed' && deps.explainFailure && !signal.aborted) {
-            entry.explanation = await deps.explainFailure({ test: entry, run, excerpts: excerptsFor(entry, digest), signal }).catch(() => null);
+            try {
+              entry.explanation = await deps.explainFailure({ test: entry, run, excerpts: excerptsFor(entry, digest), signal });
+            } catch (error) {
+              if (reviewProviderPause(error)) { admissionError = error; throw error; }
+              entry.explanation = null;
+            }
           }
         } catch (error) {
+          if (persistenceError && entry.runId) await deps.cancelRun(entry.runId).catch(() => undefined);
           entry.state = signal.aborted ? 'cancelled' : 'blocked';
           entry.reason = error instanceof Error ? error.message.slice(0, 500) : 'The test could not run.';
         }
@@ -269,7 +297,10 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         await persist();
       }
     };
-    await Promise.all(session.lanes.filter(lane => lane.state === 'idle').map(runLane));
+    const laneResults = await Promise.allSettled(session.lanes.filter(lane => lane.state === 'idle').map(runLane));
+    const failedLane = laneResults.find(result => result.status === 'rejected');
+    if (failedLane?.status === 'rejected') throw failedLane.reason;
+    if (admissionError) throw admissionError;
     for (const entry of session.tests) if (entry.state === 'queued') entry.state = signal.aborted ? 'cancelled' : 'not_tested';
     checkCancelled();
 
@@ -291,12 +322,18 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
       for (const entry of session.tests) if (entry.state === 'queued' || entry.state === 'running') entry.state = 'cancelled';
     } else {
       session.stage = 'failed';
-      session.error = error instanceof LaunchError
+      const pause = reviewProviderPause(error);
+      session.error = pause ? { reason: 'provider_paused', message: pause.message } : error instanceof LaunchError
         ? { reason: error.reason, message: error.message, ...(error.logs ? { log: error.logs.slice(-4000) } : {}) }
         : { reason: 'internal', message: error instanceof Error ? error.message.slice(0, 500) : 'Auto test failed.' };
     }
   } finally {
-    await Promise.all([...servers.values()].map(app => app.server.stop().catch(() => undefined)));
+    const cleanup = await Promise.allSettled([...servers.values()].map(app => app.server.stop()));
+    if (cleanup.some(result => result.status === 'rejected')) {
+      if (session.stage !== 'cancelled') session.stage = 'failed';
+      session.error = { reason: session.error?.reason ?? 'cleanup_failed',
+        message: [session.error?.message, 'Some app processes could not confirm stopping. Inspect the saved execution before starting again.'].filter(Boolean).join(' ') };
+    }
     for (const lane of session.lanes) { lane.state = lane.state === 'failed' ? 'failed' : 'stopped'; lane.currentTestId = null; }
     await persist();
   }

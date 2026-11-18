@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
@@ -11,7 +11,8 @@ import { StartScreen } from './StartScreen';
 vi.mock('../../api/client', () => ({ api: {
   listArtifacts: vi.fn(), listConnectedSources: vi.fn(), listStaticSessions: vi.fn(), autoTests: vi.fn(),
   listRequirements: vi.fn(), createStaticSession: vi.fn(), getStaticSession: vi.fn(),
-  listStaticFindings: vi.fn(), getReviewHarness: vi.fn(), startAutoTest: vi.fn(),
+  listStaticFindings: vi.fn(), getReviewHarness: vi.fn(), startAutoTest: vi.fn(), uploadArtifact: vi.fn(),
+  importConnectedSource: vi.fn(), browseConnectedSources: vi.fn(),
 } }));
 
 const project = { id: 'shop', name: 'Fixture shop', description: '', workspacePath: '', createdAt: '', updatedAt: '' };
@@ -29,6 +30,7 @@ function Workspace() {
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
   resetCheckStore();
   vi.resetAllMocks();
   vi.mocked(api.listArtifacts).mockResolvedValue(artifacts);
@@ -45,7 +47,7 @@ beforeEach(() => {
 
 it('carries a recent-check reference into a result and a library selection into its follow-up Review', async () => {
   saveCheck({
-    id: 'prior', projectId: project.id, projectName: project.name, createdAt: '2026-10-01T12:00:00Z', updatedAt: '2026-10-01T12:00:00Z',
+    id: 'prior', projectId: project.id, projectName: project.name, title: 'Catalog Navigation', createdAt: '2026-10-01T12:00:00Z', updatedAt: '2026-10-01T12:00:00Z',
     mode: 'code', phase: 'done', focus: '', documents: [], notes: [],
   });
   vi.mocked(api.createStaticSession).mockResolvedValueOnce({ id: 'first' } as StaticSession).mockResolvedValueOnce({ id: 'second' } as StaticSession);
@@ -53,13 +55,17 @@ it('carries a recent-check reference into a result and a library selection into 
   render(<Workspace />);
   await user.type(screen.getByRole('textbox'), 'Review checkout @Fixture');
   const recent = within(screen.getByRole('region', { name: 'Recent Checks' }));
-  await user.click(recent.getByRole('button', { name: /Fixture shop/ }));
+  await user.click(recent.getByRole('button', { name: 'Catalog Navigation' }));
   await user.click(screen.getByRole('combobox', { name: 'Check mode' }));
   await user.click(screen.getByRole('option', { name: 'Code' }));
   await user.click(screen.getByRole('button', { name: 'Conduct the Check' }));
 
-  await screen.findByRole('navigation', { name: 'Referenced checks' });
   await waitFor(() => expect(listChecks()[0]).toMatchObject({ reviewId: 'first', phase: 'done', referenceCheckIds: ['prior'] }));
+  expect(screen.queryByRole('navigation', { name: 'Referenced checks' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Check history' }));
+  const history = within(screen.getByRole('dialog', { name: 'Check history' }));
+  expect(history.getByRole('button', { name: 'Catalog Navigation' })).toBeInTheDocument();
+  expect(history.queryByText(/01 Oct/)).not.toBeInTheDocument();
   const firstCheck = listChecks()[0].id;
   expect(api.createStaticSession).toHaveBeenNthCalledWith(1, project.id, expect.objectContaining({
     instructions: 'Review checkout', artifactIds: ['orders', 'catalog'], scopeMode: 'full',
@@ -72,9 +78,9 @@ it('carries a recent-check reference into a result and a library selection into 
   const followUp = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(followUp, 'Review order totals @Fixture');
   const mentions = within(screen.getByRole('region', { name: 'Recent Checks' }));
-  await user.click(mentions.getByRole('button', { name: 'Fixture shop' }));
+  await user.click(mentions.getByRole('button', { name: 'Catalog Navigation' }));
   expect(followUp).toHaveValue('Review order totals ');
-  expect(screen.getByRole('button', { name: 'Remove check Fixture shop' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Remove check Catalog Navigation' })).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
 
   await waitFor(() => expect(listChecks()[0]).toMatchObject({ reviewId: 'second', phase: 'done', referenceCheckIds: [firstCheck, 'prior'], sourceArtifactIds: ['orders'] }));
@@ -82,6 +88,87 @@ it('carries a recent-check reference into a result and a library selection into 
     instructions: 'Review order totals', artifactIds: ['orders'], scopeMode: 'focused',
   }));
   expect(api.startAutoTest).not.toHaveBeenCalled();
+});
+
+it('offers document and repository actions on source hover and keyboard activation', async () => {
+  saveCheck({ id: 'prior', projectId: project.id, projectName: project.name, createdAt: '', updatedAt: '',
+    mode: 'code', phase: 'done', focus: '', documents: [], notes: [] });
+  const user = userEvent.setup();
+  render(<CheckScreen checkId="prior" projects={projects} onNavigate={vi.fn()} />);
+  await user.click(screen.getByRole('button', { name: 'Project sources for Fixture shop' }));
+  const add = screen.getByRole('button', { name: 'Add source' });
+  await user.hover(add);
+  let actions = within(screen.getByRole('group', { name: 'Source actions' }));
+  expect(actions.getByRole('button', { name: 'Add repository' })).toBeInTheDocument();
+  await user.unhover(add);
+  expect(screen.queryByRole('group', { name: 'Source actions' })).not.toBeInTheDocument();
+  add.focus();
+  await user.keyboard('{Enter}');
+  actions = within(screen.getByRole('group', { name: 'Source actions' }));
+  await user.click(actions.getByRole('button', { name: 'Add documents' }));
+  const picker = within(screen.getByRole('dialog', { name: 'Add Document' }));
+  const file = new File(['release scope'], 'notes.md');
+  const entry = { isFile: true, fullPath: '/release/notes.md', file: (resolve: (file: File) => void) => resolve(file) };
+  const readEntries = vi.fn().mockImplementationOnce(resolve => resolve([entry])).mockImplementation(resolve => resolve([]));
+  const folder = { isDirectory: true, fullPath: '/release', createReader: () => ({ readEntries }) };
+  const saved = { id: 'notes', projectId: project.id, fileName: 'release/notes.md' } as Artifact;
+  vi.mocked(api.uploadArtifact).mockResolvedValueOnce(saved);
+  vi.mocked(api.listArtifacts).mockResolvedValue([...artifacts, saved]);
+  fireEvent.drop(picker.getByText('Drop files or a folder here').parentElement!, {
+    dataTransfer: { types: ['Files'], items: [{ kind: 'file', webkitGetAsEntry: () => folder }], files: [] },
+  });
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add Document' })).not.toBeInTheDocument());
+  expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, { fileName: 'release/notes.md', content: 'cmVsZWFzZSBzY29wZQ==', type: 'other' });
+  await user.click(screen.getByRole('button', { name: 'Project sources for Fixture shop' }));
+  const library = within(screen.getByRole('region', { name: 'Library' }));
+  expect(await library.findByText('notes.md')).toBeInTheDocument();
+});
+
+it('closes the source flow on repository cancel and still imports a selection', async () => {
+  saveCheck({ id: 'prior', projectId: project.id, projectName: project.name, createdAt: '', updatedAt: '',
+    mode: 'code', phase: 'done', focus: '', documents: [], notes: [] });
+  const user = userEvent.setup();
+  render(<CheckScreen checkId="prior" projects={projects} onNavigate={vi.fn()} />);
+  const openRepository = async () => {
+    const sources = screen.getByRole('button', { name: 'Project sources for Fixture shop' });
+    if (sources.getAttribute('aria-expanded') === 'false') await user.click(sources);
+    within(screen.getByRole('dialog', { name: 'Project sources' })).getByRole('button', { name: 'Add source' }).focus();
+    await user.keyboard('{Enter}');
+    screen.getByRole('button', { name: 'Add repository' }).focus();
+    await user.keyboard('{Enter}');
+    return within(screen.getByRole('dialog', { name: 'Add Repository' }));
+  };
+
+  const picker = await openRepository();
+  await user.click(picker.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog', { name: /^(Add Repository|Add source)$/i })).not.toBeInTheDocument();
+  expect(api.importConnectedSource).not.toHaveBeenCalled();
+
+  vi.mocked(api.browseConnectedSources).mockImplementation(async (_, options) => ({
+    items: [{
+      id: options?.query ? 'example/shop' : 'example/catalog',
+      name: options?.query ? 'example/shop' : 'example/catalog',
+      kind: 'repository',
+      metadata: { private: Boolean(options?.query) },
+    }],
+    nextCursor: null,
+  }));
+  const reopened = await openRepository();
+  await user.click(reopened.getByRole('button', { name: 'GitHub' }));
+  const addRepository = reopened.getByRole('button', { name: 'Add repository' });
+  expect(addRepository).toBeDisabled();
+  await reopened.findByRole('button', { name: 'example/catalog' });
+  await user.type(reopened.getByRole('searchbox', { name: 'Filter your repositories' }), 'shop');
+  await user.click(await reopened.findByRole('button', { name: 'example/shop (private)' }));
+  expect(api.importConnectedSource).not.toHaveBeenCalled();
+  await user.click(reopened.getByRole('button', { name: 'Refresh repositories' }));
+  const repo = await reopened.findByRole('button', { name: 'example/shop (private)' });
+  expect(repo).toHaveAttribute('aria-pressed', 'false');
+  expect(addRepository).toBeDisabled();
+  await user.click(repo);
+  await user.click(addRepository);
+  expect(await screen.findByText(/GitHub import requested/)).toBeInTheDocument();
+  expect(api.importConnectedSource).toHaveBeenCalledExactlyOnceWith(project.id, expect.objectContaining({ remoteId: 'example/shop' }));
 });
 
 it('preserves the draft and library selection when switching to an incompatible mode', async () => {

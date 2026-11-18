@@ -183,8 +183,8 @@ describe('AppShell module launch', () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     window.localStorage.setItem('centinel:checks:local', JSON.stringify([
-      { id: 'c2', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:05:00.000Z', projectName: 'sample-shop', documents: [], focus: '', mode: 'both', phase: 'done', problemCount: 5, notes: [] },
-      { id: 'c1', createdAt: '2026-11-11T10:00:00.000Z', updatedAt: '2026-11-11T10:05:00.000Z', projectName: 'portfolio-site', documents: [], focus: '', mode: 'code', phase: 'done', problemCount: 0, notes: [] },
+      { id: 'c2', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:05:00.000Z', projectName: 'sample-shop', title: 'Checkout Pricing', documents: [], focus: '', mode: 'both', phase: 'done', problemCount: 5, notes: [] },
+      { id: 'c1', createdAt: '2026-11-11T10:00:00.000Z', updatedAt: '2026-11-11T10:05:00.000Z', projectName: 'portfolio-site', title: 'Contact Form Review', documents: [], focus: '', mode: 'code', phase: 'done', problemCount: 0, notes: [] },
     ]));
     renderShell({ name: 'new-check' }, onNavigate);
 
@@ -192,7 +192,7 @@ describe('AppShell module launch', () => {
     expect(nav.getByRole('button', { name: 'New Check' })).toHaveAttribute('aria-current', 'page');
     expect(nav.getByText('5 problems')).toBeInTheDocument();
     expect(nav.getByText('No problems')).toBeInTheDocument();
-    await user.click(nav.getByRole('button', { name: /sample-shop/ }));
+    await user.click(nav.getByRole('button', { name: /Checkout Pricing/ }));
     expect(onNavigate).toHaveBeenCalledWith({ name: 'check', checkId: 'c2' });
 
     const search = screen.getByRole('button', { name: 'Search projects and checks' });
@@ -203,9 +203,9 @@ describe('AppShell module launch', () => {
     expect(input).toHaveFocus();
     await user.type(input, 'portfolio');
     expect(dialog.getByText('No matching projects')).toBeInTheDocument();
-    expect(dialog.queryByText('sample-shop')).not.toBeInTheDocument();
-    expect(nav.getByText('sample-shop')).toBeInTheDocument();
-    await user.click(dialog.getByRole('button', { name: /portfolio-site/ }));
+    expect(dialog.queryByText('Checkout Pricing')).not.toBeInTheDocument();
+    expect(nav.getByText('Checkout Pricing')).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: /Contact Form Review/ }));
     expect(onNavigate).toHaveBeenLastCalledWith({ name: 'check', checkId: 'c1' });
 
     await user.click(search);

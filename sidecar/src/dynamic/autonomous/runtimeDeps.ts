@@ -11,9 +11,10 @@ import { launchRepository } from './launcher.js';
 import type { AutoTestDeps, AutoTestSession } from './orchestrator.js';
 import { buildRepoDigest } from './repoDigest.js';
 import { autoTestLiveRuns, type AutoTestStore } from './store.js';
+import { randomUUID } from 'node:crypto';
 
 export type AutoTestUsage = {
-  stage: string; provider: string; model: string; outcome: 'success' | 'failure';
+  id?: string; stage: string; provider: string; model: string; outcome: 'in_progress' | 'success' | 'failure';
   inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; durationMs: number; errorCode?: string;
 };
 
@@ -45,16 +46,20 @@ export function createAutoTestDeps(input: {
     const client = await model();
     const settings = await client.getSettings();
     const started = Date.now();
+    const id = randomUUID();
+    await input.recordUsage({ id, stage, provider: settings?.provider ?? 'unknown', model: settings?.model ?? 'unknown',
+      outcome: 'in_progress', durationMs: 0 });
+    let result;
     try {
-      const result = await client.analyze(modelRequest);
-      await input.recordUsage({ stage, provider: result.settings?.provider ?? settings?.provider ?? 'unknown', model: result.settings?.model ?? settings?.model ?? 'unknown', outcome: 'success',
-        inputTokens: result.usage?.inputTokens, outputTokens: result.usage?.outputTokens, cacheReadTokens: result.usage?.cacheReadTokens, durationMs: Date.now() - started }).catch(() => undefined);
-      return result.result;
+      result = await client.analyze(modelRequest);
     } catch (error) {
-      await input.recordUsage({ stage, provider: settings?.provider ?? 'unknown', model: settings?.model ?? 'unknown', outcome: 'failure', durationMs: Date.now() - started,
-        errorCode: (error as { code?: string })?.code ?? 'model_error' }).catch(() => undefined);
+      await input.recordUsage({ id, stage, provider: settings?.provider ?? 'unknown', model: settings?.model ?? 'unknown', outcome: 'failure', durationMs: Date.now() - started,
+        errorCode: (error as { code?: string })?.code ?? 'model_error' });
       throw error;
     }
+    await input.recordUsage({ id, stage, provider: result.settings?.provider ?? settings?.provider ?? 'unknown', model: result.settings?.model ?? settings?.model ?? 'unknown', outcome: 'success',
+      inputTokens: result.usage?.inputTokens, outputTokens: result.usage?.outputTokens, cacheReadTokens: result.usage?.cacheReadTokens, durationMs: Date.now() - started });
+    return result.result;
   };
   const route = async (method: string, pathname: string, body: Record<string, unknown> = {}) => {
     const response = await handleDynamicRoute({ method, pathname, readBody: async () => body }, input.dynamicRouteDeps);

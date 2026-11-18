@@ -4,14 +4,14 @@ import { api } from '../../api/client';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { ProjectCreateModal } from '../../components/ProjectCreateModal';
-import { documentType, githubRepositoryName } from '../../check/runner';
+import { uploadLocalSources, type LocalSourceFile } from '../../components/projectLocalFiles';
+import { githubRepositoryName, saveCheckDocuments } from '../../check/runner';
 import type { Artifact, ProjectRepositoryInput } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
-import { CheckDocumentPicker, readCheckDocuments } from './CheckDocumentPicker';
+import { CheckDocumentPicker } from './CheckDocumentPicker';
 
 export function useCheckLibrary(projectId?: string) {
-  const [items, setItems] = useState<Artifact[] | null>(null);
-  const [error, setError] = useState(false);
+  const [result, setResult] = useState<{ projectId: string; items: Artifact[] | null; error: boolean } | null>(null);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
@@ -19,12 +19,14 @@ export function useCheckLibrary(projectId?: string) {
     let active = true;
     void api.listArtifacts(projectId).then(result => {
       if (!active) return;
-      setItems(result.filter(item => item.projectId === projectId && !item.currency?.deprecated));
-      setError(false);
-    }).catch(() => { if (active) setError(true); });
+      setResult({ projectId, items: result.filter(item => item.projectId === projectId && !item.currency?.deprecated), error: false });
+    }).catch(() => {
+      if (active) setResult(current => ({ projectId, items: current?.projectId === projectId ? current.items : null, error: true }));
+    });
     return () => { active = false; };
   }, [projectId, revision]);
-  return { items, error, refresh };
+  const current = result?.projectId === projectId ? result : null;
+  return { items: current?.items ?? null, error: current?.error ?? false, refresh };
 }
 
 export type CheckLibrary = ReturnType<typeof useCheckLibrary>;
@@ -32,7 +34,7 @@ export type CheckLibrary = ReturnType<typeof useCheckLibrary>;
 export function CheckLibraryList({ library, onAttach, attached = [], filter, compact = false }: {
   library: CheckLibrary;
   onAttach?: (artifact: Artifact) => void;
-  attached?: Artifact[];
+  attached?: Pick<Artifact, 'id'>[];
   filter?: string;
   compact?: boolean;
 }) {
@@ -58,8 +60,10 @@ export function CheckLibraryList({ library, onAttach, attached = [], filter, com
   </>;
 }
 
-export function CheckAddSource({ projectId, onClose, onSaved }: { projectId: string; onClose: () => void; onSaved: () => void }) {
-  const [step, setStep] = useState<'choose' | 'documents' | 'repository' | 'saving'>('choose');
+export type CheckSourceChoice = 'documents' | 'repository';
+
+export function CheckAddSource({ projectId, onClose, onSaved, initialChoice }: { projectId: string; onClose: () => void; onSaved: () => void; initialChoice?: CheckSourceChoice }) {
+  const [step, setStep] = useState<'choose' | CheckSourceChoice | 'saving'>(initialChoice ?? 'choose');
   const [message, setMessage] = useState<string | null>(null);
   const save = async (work: () => Promise<string | null>) => {
     setStep('saving');
@@ -84,6 +88,10 @@ export function CheckAddSource({ projectId, onClose, onSaved }: { projectId: str
     await api.importConnectedSource(projectId, { provider: 'github', kind: 'github_repository', remoteId: repository, remoteUrl: source.repoUrl, name: repository, sync: true });
     return 'GitHub import requested. Files appear once import finishes.';
   });
+  const importFiles = (files: LocalSourceFile[]) => void save(async () => {
+    const warnings = await uploadLocalSources(projectId, files);
+    return warnings.length ? warnings.join(' ') : null;
+  });
   return <>
     <Modal isOpen={step === 'choose' || step === 'saving'} onClose={step === 'saving' ? () => undefined : onClose} title="Add source">
       <div className="ck-document-actions">
@@ -93,12 +101,11 @@ export function CheckAddSource({ projectId, onClose, onSaved }: { projectId: str
       {step === 'saving' && <p role="status">Adding sources…</p>}
       {message && <p role="status">{message}</p>}
     </Modal>
-    <CheckDocumentPicker open={step === 'documents'} onClose={onClose} onSelect={files => void save(async () => {
-      const { accepted, message: note } = await readCheckDocuments(files);
-      for (const document of accepted) await api.uploadArtifact(projectId, { fileName: document.name, content: document.base64, type: documentType(document.name) });
-      return note;
+    <CheckDocumentPicker open={step === 'documents'} onClose={onClose} onSelect={({ accepted, message: note }) => save(async () => {
+      const { failed } = await saveCheckDocuments(api, projectId, accepted);
+      return [note, failed.length ? `Could not add ${failed.join(', ')}.` : null].filter(Boolean).join(' ') || null;
     })} closeOnSelect={false} />
-    <ProjectCreateModal isOpen={step === 'repository'} onClose={() => setStep(current => current === 'repository' ? 'choose' : current)}
-      onCreate={async () => undefined} onRepositorySelected={importRepository} />
+    <ProjectCreateModal isOpen={step === 'repository'} onClose={onClose}
+      onCreate={async () => undefined} onRepositorySelected={importRepository} onLocalFilesSelected={importFiles} />
   </>;
 }

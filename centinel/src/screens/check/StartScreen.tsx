@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, ChevronDown, FileText, Folder, GitBranch, History, Maximize2, Minimize2, Plus, TriangleAlert, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, FileText, Folder, History, Maximize2, Minimize2, Plus, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useChecks } from '../../check/store';
 import { useAttention, type AttentionItem } from '../../check/attention';
@@ -10,12 +10,15 @@ import { ProjectCreateModal } from '../../components/ProjectCreateModal';
 import { Select } from '../../components/Select';
 import { isWorkflowProviderConfigured } from '../../providerReadiness';
 import { folderName, githubRepositoryName, startCheck } from '../../check/runner';
+import { checkName } from '../../check/checkName';
 import { CHECK_MODES, type CheckDocument, type CheckMode, type CheckRecord } from '../../check/types';
-import type { AiProviderSetting, Project, ProjectCreationResult, ProjectRepositoryInput, Screen } from '../../types';
+import type { AiProviderSetting, Artifact, Project, ProjectCreationResult, ProjectRepositoryInput, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import { CheckPermission } from './CheckPermission';
 import { rememberComposerPosition } from './composerTransition';
-import { CheckDocumentPicker, readCheckDocuments } from './CheckDocumentPicker';
+import { attachCheckDocuments, CheckDocumentPicker, readDroppedCheckDocuments, type CheckDocumentBatch } from './CheckDocumentPicker';
+import { CheckAddOptions } from './CheckAddOptions';
+import { CheckAddSource, CheckLibraryList, useCheckLibrary, type CheckSourceChoice } from './CheckSourceLibrary';
 import { CheckAurora } from './CheckAurora';
 import { handleComposerEnter } from './composerKeys';
 import { findCheckMention } from './checkMention';
@@ -36,7 +39,6 @@ type Props = {
 
 type Attached = { kind: 'project'; id: string } | { kind: 'folder'; path: string } | { kind: 'github'; url: string };
 
-const DOCUMENT_TYPES = /\.(md|markdown|txt|pdf|json|csv|ya?ml|docx?)$/i;
 const TITLE = 'What should Centinel check?';
 const ATTENTION_PROMPTS = {
   1: 'Recheck the areas flagged in the last result.',
@@ -64,6 +66,9 @@ function looksLikeFolder(text: string) {
 export function StartScreen({ projects, aiSettings, initialCreate = false, initialDraft, onNavigate, onProjectCreated, onCreateProject }: Props) {
   const [attached, setAttached] = useState<Attached | null>(() => initialDraft ? { kind: 'project', id: initialDraft.projectId } : null);
   const [documents, setDocuments] = useState<CheckDocument[]>(() => initialDraft?.documents ?? []);
+  const [libraryAttachments, setLibraryAttachments] = useState<Artifact[]>([]);
+  const [addingSource, setAddingSource] = useState<CheckSourceChoice | null>(null);
+  const [readingDocuments, setReadingDocuments] = useState(false);
   const [focus, setFocus] = useState(() => initialDraft?.focus ?? '');
   const [mode, setMode] = useState<CheckMode>(() => initialDraft?.mode ?? 'both');
   const [menu, setMenu] = useState<'add' | 'projects' | null>(null);
@@ -185,12 +190,16 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
     return () => { active = false; window.removeEventListener('focus', refresh); };
   }, [githubRelevant]);
   const savedProject = attached?.kind === 'project' ? projects.find(project => project.id === attached.id) : undefined;
+  const library = useCheckLibrary(menu === 'add' ? savedProject?.id : undefined);
+  const sources = libraryAttachments.filter(source => source.projectId === savedProject?.id);
+  const libraryRequiresCode = mode === 'browser' && sources.length > 0;
   const projectPrefs = useProjectPrefs(savedProject?.id ?? '');
   const projectLabel = attached?.kind === 'project' ? savedProject?.name ?? 'Saved project'
     : attached?.kind === 'folder' ? folderName(attached.path) : attached ? githubRepositoryName(attached.url) : null;
   const browserNeedsFolder = mode !== 'code' && (attached?.kind === 'github' || (attached?.kind === 'project' && !projectLocalFolder(savedProject)));
 
   const notices: ComposerNotice[] = [];
+  if (libraryRequiresCode) notices.push({ title: 'Library files need a code check', description: 'Choose Code or Code and browser, or remove the attached library files.', tone: 'warning' });
   if (message) notices.push({ title: 'Check setup needs attention', description: message, tone: 'warning' });
   const aiAction = { label: 'Open AI settings', run: () => onNavigate({ name: 'settings' }) };
   if (needsText || needsVision) notices.push({
@@ -239,6 +248,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
   };
 
   const replaceRecommendation = (source: Attached | null, nextMode: CheckMode, prompt: string, check?: CheckRecord) => {
+    setLibraryAttachments([]);
     recommendationVersion.current += 1;
     setMenu(null);
     setMention(null);
@@ -272,17 +282,17 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
   const matchingProjects = projects.filter(project => project.name.toLowerCase().includes(projectQuery.trim().toLowerCase()));
   const mentionProjects = rankMentionProjects(projects, recentChecks, mentionKey ?? '');
   const matchingChecks = rankMentionChecks(recentChecks.filter(check => check.projectId && projects.some(project => project.id === check.projectId)
-    && [check.projectName, check.focus].join(' ').toLowerCase().includes(mentionKey ?? '')));
+    && [checkName(check), check.projectName, check.focus].join(' ').toLowerCase().includes(mentionKey ?? '')));
   const selectMention = useMentionSelection(menuRef, mention?.query);
-  const showAddAction = (name: string) => !mentionKey || name.toLowerCase().includes(mentionKey);
-  const openAddAction = (open: (value: boolean) => void) => {
+  const finishAddAction = (action: () => void) => {
     if (mention) setFocus(value => value.slice(0, mention.start) + value.slice(mention.end));
     setMention(null);
     setMenu(null);
-    open(true);
+    action();
   };
 
   const attachRepository = (source: ProjectRepositoryInput) => {
+    setRepoOpen(false);
     recommendationVersion.current += 1;
     setReferences([]);
     if (source.type === 'github') attachLink(source.repoUrl);
@@ -292,12 +302,21 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
     }
   };
 
-  const addDocuments = async (files: FileList | File[]) => {
+  const addDocuments = async (read: () => Promise<CheckDocumentBatch>) => {
+    if (readingDocuments) return;
     const version = recommendationVersion.current;
-    const { accepted, message } = await readCheckDocuments(files);
-    if (version !== recommendationVersion.current) return;
-    setDocuments(current => [...current, ...accepted.filter(item => !current.some(existing => existing.name === item.name))]);
-    setMessage(message);
+    setReadingDocuments(true);
+    try {
+      const batch = await read();
+      if (version !== recommendationVersion.current) return;
+      const result = await attachCheckDocuments(batch, documents, savedProject?.id);
+      if (version !== recommendationVersion.current) return;
+      setDocuments(current => [...current, ...result.documents]);
+      setMessage(result.message);
+      if (savedProject) library.refresh();
+    } catch {
+      setMessage('The dropped documents could not be read. Try the Add Document picker.');
+    } finally { setReadingDocuments(false); }
   };
 
   const attachLink = (value: string) => {
@@ -317,12 +336,9 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
   const onDrop = (event: React.DragEvent) => {
     event.preventDefault();
     setDragging(false);
-    const items = Array.from(event.dataTransfer.items ?? []);
-    const hasFolder = items.some(item => (item as DataTransferItem & { webkitGetAsEntry?: () => { isDirectory?: boolean } | null }).webkitGetAsEntry?.()?.isDirectory);
-    const files = Array.from(event.dataTransfer.files).filter(file => file.size > 0 || DOCUMENT_TYPES.test(file.name));
-    if (files.length) void addDocuments(files);
-    if (hasFolder) setMessage('Use + → Add Repository to choose a local folder, or Add Document to choose a reference folder.');
-    const text = event.dataTransfer.getData('text');
+    const transfer = event.dataTransfer;
+    if (transfer.types.includes('Files')) void addDocuments(() => readDroppedCheckDocuments(transfer));
+    const text = transfer.getData('text');
     if (text && githubRepositoryName(text)) attachLink(text);
   };
 
@@ -342,7 +358,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
   };
 
   const start = () => {
-    if (starting || preparingSample) return;
+    if (starting || preparingSample || readingDocuments || libraryRequiresCode) return;
     if (!attached) {
       setMessage('Add your project first. Choose one below or add a repository.');
       return;
@@ -355,6 +371,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
       documents, focus, mode,
       ...(mode === 'browser' && focus.trim() ? { browserRequest: focus.trim() } : {}),
       ...(references.length ? { referenceCheckIds: references.map(check => check.id) } : {}),
+      ...(sources.length ? { sourceArtifactIds: sources.map(source => source.id) } : {}),
     }, { api, projects: () => projects, onProjectCreated: project => {
       if (draftPermission) savePermissionMode(project.id, draftPermission);
       onProjectCreated(project);
@@ -404,10 +421,10 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
         >
           <button type="button" className="ck-composer-expand" aria-label={expanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={expanded}
             onClick={() => setExpanded(value => !value)}><Icon icon={expanded ? Minimize2 : Maximize2} /></button>
-          {(references.length > 0 || documents.length > 0) && (
+          {(references.length > 0 || documents.length > 0 || sources.length > 0) && (
             <ul className="ck-attached" aria-label="Added to this check">
-              {references.map(check => <li key={check.id} className="ck-chip"><Icon icon={History} /><span>{check.projectName}</span>
-                <button type="button" aria-label={`Remove check ${check.projectName}`} onClick={() => setReferences(items => items.filter(item => item.id !== check.id))}><Icon icon={X} /></button>
+              {references.map(check => <li key={check.id} className="ck-chip"><Icon icon={History} /><span>{checkName(check)}</span>
+                <button type="button" aria-label={`Remove check ${checkName(check)}`} onClick={() => setReferences(items => items.filter(item => item.id !== check.id))}><Icon icon={X} /></button>
               </li>)}
               {documents.map(document => (
                 <li key={document.name} className="ck-chip">
@@ -416,6 +433,9 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
                   <button type="button" onClick={() => setDocuments(current => current.filter(item => item.name !== document.name))} aria-label={`Remove ${document.name}`}><Icon icon={X} /></button>
                 </li>
               ))}
+              {sources.map(source => <li key={source.id} className="ck-chip"><Icon icon={FileText} /><span>{source.fileName}</span>
+                <button type="button" aria-label={`Remove source ${source.fileName}`} onClick={() => setLibraryAttachments(items => items.filter(item => item.id !== source.id))}><Icon icon={X} /></button>
+              </li>)}
             </ul>
           )}
           <label className="ck-visually-hidden" htmlFor="ck-focus">{attached ? 'Anything to focus on (optional)' : 'Project folder path or GitHub link'}</label>
@@ -448,27 +468,21 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
             </button>
             <CheckPermission value={savedProject ? projectPrefs.mode : draftPermission ?? 'auto'}
               onChange={value => savedProject ? savePermissionMode(savedProject.id, value) : setDraftPermission(value)} />
-            <button type="button" className={`ck-button ck-send is-primary${focus ? ' is-icon' : ''}`} aria-label="Conduct the Check" onClick={start} disabled={starting || preparingSample || (mode === 'browser' && browserNeedsFolder)} title={attached ? 'Start check' : 'Add your project first'}>
+            <button type="button" className={`ck-button ck-send is-primary${focus ? ' is-icon' : ''}`} aria-label="Conduct the Check" onClick={start} disabled={starting || preparingSample || readingDocuments || libraryRequiresCode || (mode === 'browser' && browserNeedsFolder)} title={attached ? 'Start check' : 'Add your project first'}>
               <span className="ck-send-label" aria-hidden="true">Conduct the Check</span>
               <ArrowUp className="ck-send-arrow" size={16} aria-hidden="true" />
             </button>
           </div>
           {menu === 'add' && (
             <div className="ck-menu ck-attachment-menu" role="dialog" aria-label="Add to check" ref={menuRef}>
-              {(showAddAction('Add Document') || showAddAction('Add Repository')) && <>
-                <h2>Add</h2>
-                {showAddAction('Add Document') && <button type="button" onClick={() => openAddAction(setDocumentsOpen)}>
-                  <Icon icon={FileText} /><span>Add Document <small>Add any files and folders as reference for your project</small></span>
-                </button>}
-                {showAddAction('Add Repository') && <button type="button" onClick={() => openAddAction(setRepoOpen)}>
-                  <Icon icon={GitBranch} /><span>Add Repository <small>Choose a GitHub repository, paste a link, or use a local folder</small></span>
-                </button>}
-              </>}
+              <CheckAddOptions query={mentionKey ?? ''} onDocument={() => finishAddAction(() => setDocumentsOpen(true))}
+                onRepository={savedProject ? undefined : () => finishAddAction(() => setRepoOpen(true))}
+                onSource={savedProject ? choice => finishAddAction(() => setAddingSource(choice)) : undefined} />
               <section className="ck-recent-attachments" aria-labelledby="ck-recent-attachments-title">
                 <h2 id="ck-recent-attachments-title">Recent Checks</h2>
                 {matchingChecks.length ? matchingChecks.map(check => (
                   <button type="button" key={check.id} onClick={() => attachCheck(check)}>
-                    <Icon icon={History} /><span>{check.projectName}</span>
+                    <Icon icon={History} /><span>{checkName(check)}</span>
                     <CheckAttachmentCount check={check} />
                   </button>
                 )) : <p>{mention?.query.trim() ? 'No matching checks' : 'No recent checks to attach'}</p>}
@@ -483,6 +497,10 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
                   )) : <p>{mention.query.trim() ? 'No matching projects' : 'No saved projects yet'}</p>}
                 </section>
               )}
+              {savedProject && <section aria-label="Library"><h2>Library</h2>
+                {mode === 'browser' ? <p>Choose Code or Code and browser to attach library files.</p> : <CheckLibraryList library={library} attached={sources}
+                  filter={mention?.query} onAttach={source => finishAddAction(() => setLibraryAttachments(current => [...current, source]))} />}
+              </section>}
             </div>
           )}
         </div>
@@ -515,7 +533,9 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
         <div className="ck-attention" role="group" aria-label="Recommendations">{attentionRows}</div>
       </div>
     </div>
-    <CheckDocumentPicker open={documentsOpen} onClose={() => setDocumentsOpen(false)} onSelect={files => void addDocuments(files)} />
+    <CheckDocumentPicker open={documentsOpen} onClose={() => setDocumentsOpen(false)} onSelect={batch => addDocuments(async () => batch)} />
+    {addingSource && savedProject && <CheckAddSource projectId={savedProject.id} initialChoice={addingSource}
+      onClose={() => setAddingSource(null)} onSaved={library.refresh} />}
     <ProjectCreateModal isOpen={repoOpen} onClose={() => setRepoOpen(false)} onCreate={onCreateProject} onRepositorySelected={attachRepository} />
     <ProjectCreateModal isOpen={createOpen} onClose={() => setCreateOpen(false)} onCreate={onCreateProject} onCreated={project => attachProject(project.id)} />
     </>

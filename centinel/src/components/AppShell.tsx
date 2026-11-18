@@ -5,6 +5,7 @@ import type { Project, Screen } from '../types';
 import { PageBreadcrumbs } from './PageBreadcrumbs';
 import { WindowHeader } from './WindowHeader';
 import { useChecks } from '../check/store';
+import { checkName } from '../check/checkName';
 import { useBackgroundCheckSync } from '../check/sync';
 import type { CheckRecord } from '../check/types';
 import { Icon } from './Icon';
@@ -141,7 +142,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
   const detailsProject = projects.find(project => project.id === detailsProjectId);
   const query = search.trim().toLowerCase();
   const matchingProjects = searchOpen ? rankMentionProjects(recentProjects, checks, query, 8, true) : [];
-  const matchingChecks = searchOpen ? rankMentionChecks(checks.filter(check => [check.projectName, check.focus].join(' ').toLowerCase().includes(query)), 8) : [];
+  const matchingChecks = searchOpen ? rankMentionChecks(checks.filter(check => [checkName(check), check.projectName, check.focus].join(' ').toLowerCase().includes(query)), 8) : [];
 
   const openSearchResult = (result: Screen) => {
     setSearchOpen(false);
@@ -211,9 +212,9 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                           className={`sidebar-check ${current ? 'active' : ''}`}
                           aria-current={current ? 'page' : undefined}
                           onClick={() => onNavigate({ name: 'check', checkId: check.id })}
-                          title={check.projectName}
+                          title={checkName(check)}
                         >
-                          <span className="sidebar-check-name">{check.projectName}</span>
+                          <span className="sidebar-check-name">{checkName(check)}</span>
                           <CheckOutcome check={check} />
                         </button>
                       </li>
@@ -334,7 +335,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               {matchingChecks.length ? <ul className="sidebar-check-list">
                 {matchingChecks.map(check => <li key={check.id}>
                   <button type="button" className="sidebar-check" onClick={() => openSearchResult({ name: 'check', checkId: check.id })}>
-                    <span className="sidebar-check-name">{check.projectName}</span>
+                    <span className="sidebar-check-name">{checkName(check)}</span>
                     <CheckOutcome check={check} />
                   </button>
                 </li>)}

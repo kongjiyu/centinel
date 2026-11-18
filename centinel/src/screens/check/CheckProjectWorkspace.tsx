@@ -5,21 +5,27 @@ import { api } from '../../api/client';
 import { Icon } from '../../components/Icon';
 import { Select } from '../../components/Select';
 import { useImportSources } from '../../components/RecentProjectDetails';
-import { useChecks } from '../../check/store';
+import { getCheck, useChecks } from '../../check/store';
+import { checkName } from '../../check/checkName';
 import { CHECK_MODES, type CheckDocument, type CheckMode, type CheckRecord, type StartCheckInput } from '../../check/types';
 import { startCheck } from '../../check/runner';
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import { setMode as savePermission, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
-import type { Artifact, Project, Screen } from '../../types';
+import type { Project, Screen } from '../../types';
 import { CheckPermission } from './CheckPermission';
-import { CheckDocumentPicker, readCheckDocuments } from './CheckDocumentPicker';
+import { attachCheckDocuments, CheckDocumentPicker, readDroppedCheckDocuments, type CheckDocumentBatch } from './CheckDocumentPicker';
+import { CheckAddOptions, SourceActions } from './CheckAddOptions';
 import { animateComposerArrival } from './composerTransition';
-import { CheckAddSource, CheckLibraryList, type CheckLibrary } from './CheckSourceLibrary';
+import { CheckAddSource, CheckLibraryList, type CheckLibrary, type CheckSourceChoice } from './CheckSourceLibrary';
 import { handleComposerEnter } from './composerKeys';
 import { findCheckMention } from './checkMention';
 import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
 import { CheckAttachmentCount } from './CheckAttachmentCount';
 import { CheckComposerNotices } from './CheckComposerNotices';
+import { checkReference, draftContentSignature, readConversationDraft, rememberAcknowledgedRequest, writeConversationDraft } from '../../check/conversation';
+import { useProblemMentions } from '../../check/problemMentions';
+import { rememberCheckTransition } from '../../check/checkTransition';
+import { rememberConversationReturn } from '../../check/projectNavigation';
 import './Check.css';
 
 type Navigate = (screen: Screen) => void;
@@ -33,22 +39,24 @@ type ConversationComposer = {
   setPermission?(mode: PermissionMode): void;
 };
 
-export function CheckProjectLayout({ header, children, composer, sidebar, expanded, onCloseSidebar, contentKey }: {
+export function CheckProjectLayout({ header, children, composer, sidebar, expanded, onCloseSidebar }: {
   header: ReactNode; children: ReactNode; composer: ReactNode; sidebar?: ReactNode;
-  expanded?: boolean; onCloseSidebar?(): void; contentKey?: string;
+  expanded?: boolean; onCloseSidebar?(): void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const pane = contentRef.current;
-    const panel = pane?.querySelector<HTMLElement>('.ck-panel');
     const layout = pane?.parentElement;
-    if (!panel || !layout) return;
-    const measure = () => layout.style.setProperty('--ck-docked-width', panel.getBoundingClientRect().width + 'px');
+    if (!pane || !layout || expanded) return;
+    // Layout width excludes the scroll gutters and stays stable during the card transition.
+    const measure = () => {
+      if (pane.clientWidth > 0) layout.style.setProperty('--ck-response-pane-width', `${pane.clientWidth}px`);
+    };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(panel);
-    return () => { observer?.disconnect(); layout.style.removeProperty('--ck-docked-width'); };
-  }, [contentKey, expanded]);
+    observer?.observe(pane);
+    return () => { observer?.disconnect(); layout.style.removeProperty('--ck-response-pane-width'); };
+  }, [expanded]);
   useEffect(() => {
     if (!expanded || !onCloseSidebar) return;
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('[aria-modal=true]')) onCloseSidebar(); };
@@ -64,24 +72,13 @@ export function CheckProjectLayout({ header, children, composer, sidebar, expand
   </div>;
 }
 
-const historyDate = new Intl.DateTimeFormat('en-US', {
-  day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
-
-function checkDateLabel(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return 'Date unavailable';
-  const parts = Object.fromEntries(historyDate.formatToParts(date).map(({ type, value }) => [type, value]));
-  return `${parts.day} ${parts.month} ${parts.year} ${parts.hour}:${parts.minute}`;
-}
-
 export function CheckProjectHeader({ check, project, onNavigate, library }: {
   check: Pick<CheckRecord, 'projectName' | 'projectId' | 'folder' | 'githubUrl'> & { id?: string };
   project?: Project; onNavigate: Navigate; library: CheckLibrary;
 }) {
   const [panel, setPanel] = useState<'sources' | 'history' | null>(null);
   const [query, setQuery] = useState('');
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<CheckSourceChoice | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const header = useRef<HTMLElement>(null);
   const sourcesButton = useRef<HTMLButtonElement>(null);
@@ -90,7 +87,7 @@ export function CheckProjectHeader({ check, project, onNavigate, library }: {
   const result = useImportSources(panel === 'sources' ? check.projectId : undefined);
   const checks = useChecks();
   const matching = checks.filter(item => check.projectId && item.projectId === check.projectId
-    && (item.focus?.trim() || item.projectName).toLowerCase().includes(query.trim().toLowerCase()));
+    && checkName(item).toLowerCase().includes(query.trim().toLowerCase()));
   const folder = project?.workspacePath || project?.managedWorkspacePath || check.folder;
   const goToProject = () => { if (project) onNavigate({ name: 'project', projectId: project.id }); };
 
@@ -127,14 +124,14 @@ export function CheckProjectHeader({ check, project, onNavigate, library }: {
         {matching.length ? <ul>{matching.map(item => <li key={item.id}><button type="button" className="ck-history-row"
           aria-current={item.id === check.id ? 'page' : undefined}
           onClick={() => { setPanel(null); onNavigate({ name: 'check', checkId: item.id }); }}>
-          <span>{item.focus?.trim() || item.projectName}</span><time dateTime={item.createdAt}>{checkDateLabel(item.createdAt)}</time>
+          <span>{checkName(item)}</span>
         </button></li>)}</ul> : <p>{query.trim() ? 'No matching checks.' : 'No checks saved for this project.'}</p>}
       </div>
     </div>}
     {panel === 'sources' && <div className="ck-menu ck-header-popover ck-detail-sources" role="dialog" aria-label="Project sources">
+      <div className="ck-library-heading ck-source-heading"><strong>Sources</strong>{check.projectId && <SourceActions onChoose={setAdding} />}</div>
       <div className="ck-header-scroll">
         <section className="ck-source-section" aria-label="Project locations">
-          <div className="ck-library-heading"><strong>Sources</strong>{check.projectId && <button type="button" className="ck-round" aria-label="Add source" title="Add source" onClick={() => setAdding(true)}><Icon icon={Plus} /></button>}</div>
           {folder && <div className="ck-source-row">
             <Icon icon={Folder} /><div><strong>Workspace folder</strong><small title={folder}>{folder}</small></div>
             <button type="button" className="ck-round" aria-label="Open workspace folder" title="Open workspace folder" onClick={() => {
@@ -160,26 +157,33 @@ export function CheckProjectHeader({ check, project, onNavigate, library }: {
         </section>
       </div>
     </div>}
-    {adding && check.projectId && <CheckAddSource projectId={check.projectId} onClose={() => { setAdding(false); sourcesButton.current?.focus(); }}
+    {adding && check.projectId && <CheckAddSource projectId={check.projectId} initialChoice={adding} onClose={() => { setAdding(null); sourcesButton.current?.focus(); }}
       onSaved={() => { library.refresh(); setPanel(null); }} />}
   </header>;
 }
 
 export function CheckFollowUp({ check, projects, onNavigate, available, library, conversation }: { check: Pick<CheckRecord, 'id' | 'projectId' | 'mode' | 'folder'>; projects: Project[]; onNavigate: Navigate; available: boolean; library: CheckLibrary; conversation?: ConversationComposer }) {
-  const [draft, setDraft] = useState('');
-  const [mode, setMode] = useState<CheckMode>(check.mode);
+  // Check and Project render this composer with a key for the current route.
+  const [saved] = useState(() => readConversationDraft(check.projectId ?? '', check.id));
+  const [draft, setDraft] = useState(saved.text);
+  const [mode, setMode] = useState<CheckMode>(() => saved.mode ?? check.mode);
   const [expanded, setExpanded] = useState(false);
   const [sending, setSending] = useState(false);
   const [picker, setPicker] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [mention, setMention] = useState<ReturnType<typeof findCheckMention>>(null);
-  const [attachedChecks, setAttachedChecks] = useState<CheckRecord[]>([]);
-  const [addingSource, setAddingSource] = useState(false);
+  const [attachedChecks, setAttachedChecks] = useState<CheckRecord[]>(() => [...new Set([...saved.checkIds, ...(check.id ? [check.id] : [])])]
+    .map(getCheck).filter((item): item is CheckRecord => !!item && item.projectId === check.projectId && (!!item.reviewId || !!item.autoTestId)));
+  const [attachedProblems, setAttachedProblems] = useState(saved.problems);
+  const [addingSource, setAddingSource] = useState<CheckSourceChoice | null>(null);
   const recent = useChecks();
-  const [sources, setSources] = useState<Artifact[]>([]);
-  const [documents, setDocuments] = useState<CheckDocument[]>([]);
+  const [sourceIds, setSourceIds] = useState(saved.sourceIds ?? []);
+  const sources = sourceIds.map(id => library.items?.find(item => item.id === id) ?? { id, fileName: 'Saved source' });
+  const [documents, setDocuments] = useState<CheckDocument[]>(saved.documents ?? []);
+  const [readingDocuments, setReadingDocuments] = useState(false);
   const [attachmentMessage, setAttachmentMessage] = useState<string | null>(null);
   const composer = useRef<HTMLFormElement>(null);
+  const mounted = useRef(false);
   const addTrigger = useRef<HTMLButtonElement>(null);
   const addMenu = useRef<HTMLDivElement>(null);
   const ownInput = useRef<HTMLTextAreaElement>(null);
@@ -198,21 +202,29 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
   }, [addOpen, Boolean(mention)]);
   const prefs = useProjectPrefs(check.projectId ?? '');
   useLayoutEffect(() => {
+    mounted.current = true;
     if (composer.current) animateComposerArrival(check.id, composer.current);
+    return () => { mounted.current = false; };
   }, [check.id]);
   const project = projects.find(item => item.id === check.projectId);
+  useLayoutEffect(() => {
+    if (!check.projectId) return;
+    writeConversationDraft(check.projectId, { ...readConversationDraft(check.projectId, check.id), text: draft, mode,
+      checkIds: attachedChecks.map(item => item.id), problems: attachedProblems,
+      documents: documents.filter(item => item.saved).map(item => ({ ...item, base64: '' })), sourceIds }, check.id);
+  }, [check.id, check.projectId, draft, mode, attachedChecks, attachedProblems, documents, sourceIds]);
   const hasFolder = !!(projectLocalFolder(project) || check.folder);
   const effectiveMode = conversation?.editing ? 'browser' : hasFolder || conversation ? mode : 'code';
   const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0;
   const revisionHasAttachments = !!conversation?.editing && (documents.length > 0 || sources.length > 0 || attachedChecks.length > 0);
-  const canSend = available && project && draft.trim() && !sending && !conversation?.sending && !libraryRequiresCode && !revisionHasAttachments && !mention;
+  const canSend = project && draft.trim() && !sending && !readingDocuments && !conversation?.sending && !libraryRequiresCode && !revisionHasAttachments && !mention;
+  const problemOptions = useProblemMentions(check.projectId, [...attachedChecks, ...recent.filter(item => !attachedChecks.some(attached => attached.id === item.id))], addOpen);
   const query = mention?.query.trim().toLowerCase() ?? '';
   const matchingChecks = rankMentionChecks(recent.filter(item => check.projectId && item.projectId === check.projectId
     && item.id !== check.id && !attachedChecks.some(attached => attached.id === item.id)
-    && [item.projectName, item.focus].join(' ').toLowerCase().includes(query)));
+    && [checkName(item), item.projectName, item.focus].join(' ').toLowerCase().includes(query)));
   const mentionProjects = rankMentionProjects(projects.filter(item => item.id !== check.projectId), recent, query);
   const selectMention = useMentionSelection(addMenu, mention?.query);
-  const showAddAction = (name: string) => !query || name.toLowerCase().includes(query);
   const changeDraft = (value: string, caret: number) => {
     setDraft(value);
     const next = conversation?.editing ? null : findCheckMention(value, caret);
@@ -225,10 +237,71 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     closeMenu();
     input.current?.focus({ preventScroll: true });
   };
-  return <><form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onSubmit={event => {
+  const addDocuments = async (read: () => Promise<CheckDocumentBatch>) => {
+    if (readingDocuments) return;
+    setReadingDocuments(true);
+    try {
+      const result = await attachCheckDocuments(await read(), documents, project?.id);
+      setDocuments(current => [...current, ...result.documents]);
+      setAttachmentMessage(result.message);
+      if (project) library.refresh();
+    } catch {
+      setAttachmentMessage('The dropped documents could not be read. Try the Add Document picker.');
+    } finally { setReadingDocuments(false); }
+  };
+  return <><form ref={composer} className={`ck-composer ck-follow-up${expanded ? ' is-expanded' : ''}`} onDragOver={event => {
+    if (!conversation?.editing && event.dataTransfer.types.includes('Files')) event.preventDefault();
+  }} onDrop={event => {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    if (!conversation?.editing) void addDocuments(() => readDroppedCheckDocuments(event.dataTransfer));
+  }} onSubmit={async event => {
     event.preventDefault();
     if (!canSend) return;
     const focus = draft.trim();
+    if (!conversation?.editing && typeof api.sendConversationRequest === 'function') {
+      setSending(true);
+      try {
+        const owner = sessionStorage.getItem('centinel:supabase-user-id');
+        const current = readConversationDraft(project.id, check.id);
+        const checkReferences = attachedChecks.filter(item => item.projectId === project.id).map(checkReference).map(reference => ({
+          ...(reference.reviewId && !attachedProblems.some(item => item.reference.reviewId === reference.reviewId) ? { reviewId: reference.reviewId } : {}),
+          ...(reference.autoTestId && !attachedProblems.some(item => item.reference.autoTestId === reference.autoTestId) ? { autoTestId: reference.autoTestId } : {}),
+        })).filter(reference => Object.keys(reference).length > 0);
+        const references = [...checkReferences,
+          ...attachedProblems.map(item => item.reference), ...sources.map(item => ({ artifactId: item.id })),
+          ...documents.filter(item => item.saved?.projectId === project.id).map(item => ({ artifactId: item.saved!.artifactId }))];
+        if (documents.some(item => item.saved?.projectId !== project.id)) throw new Error('Some documents are not saved yet. Add them again before sending.');
+        if (references.some(ref => !Object.keys(ref).length)) throw new Error('An attached check has no saved evidence yet.');
+        const requestSignature = JSON.stringify({ focus, mode: effectiveMode, permission: prefs.mode, references });
+        const id = current.requestSignature === requestSignature && current.requestId ? current.requestId : crypto.randomUUID();
+        writeConversationDraft(project.id, { ...current, requestId: id, requestSignature }, check.id);
+        const accepted = await api.sendConversationRequest(project.id, { id, text: focus, mode: effectiveMode, permission: prefs.mode, references });
+        if (owner !== sessionStorage.getItem('centinel:supabase-user-id')) return;
+        rememberAcknowledgedRequest(project.id, accepted);
+        if (!mounted.current) return;
+        const latest = readConversationDraft(project.id, check.id);
+        if (latest.requestId === id) {
+          if (draftContentSignature(latest) === draftContentSignature(current)) {
+            writeConversationDraft(project.id, { text: '', checkIds: [], problems: [], mode }, check.id);
+            setDraft(''); setDocuments([]); setSourceIds([]); setAttachedChecks([]); setAttachedProblems([]);
+          } else {
+            writeConversationDraft(project.id, { ...latest, requestId: undefined, requestSignature: undefined }, check.id);
+          }
+        }
+        setAttachmentMessage(null);
+        if (check.id) {
+          rememberCheckTransition(check.id, composer.current?.closest('.ck-detail-layout')?.querySelector('.ck-detail-content .ck-panel') ?? null);
+          rememberConversationReturn(project.id);
+          onNavigate({ name: 'project', projectId: project.id });
+        }
+      } catch (error) {
+        if (mounted.current) setAttachmentMessage(error instanceof Error && 'status' in error && error.status === 404 && error.message === 'Not found'
+          ? 'The local service does not support chat messages yet. Restart Centinel’s development service and resend. Your draft is saved.'
+          : error instanceof Error ? error.message : 'The request could not be sent. Your draft is saved.');
+      } finally { if (mounted.current) setSending(false); }
+      return;
+    }
     const request: StartCheckInput = { projectId: project.id, documents, focus, mode: effectiveMode,
       ...(effectiveMode === 'code' ? {} : { browserRequest: focus }),
       referenceCheckIds: [...(conversation ? [] : [check.id]), ...attachedChecks.map(item => item.id)],
@@ -237,7 +310,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       conversation.send(request);
       setDraft('');
       setDocuments([]);
-      setSources([]);
+      setSourceIds([]);
       setAttachedChecks([]);
       setAttachmentMessage(null);
       return;
@@ -249,14 +322,17 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     <button type="button" className="ck-composer-expand" aria-label={expanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={expanded}
       onClick={() => setExpanded(value => !value)}><Icon icon={expanded ? Minimize2 : Maximize2} /></button>
     {conversation?.editing}
+    {!!attachedProblems.length && <ul className="ck-attached">{attachedProblems.map((item, index) => <li className="ck-chip" key={JSON.stringify(item.reference)}>
+      <Icon icon={FileText} /><span>@{item.label}</span><button type="button" aria-label={'Remove problem ' + item.label} onClick={() => setAttachedProblems(current => current.filter((_, at) => at !== index))}><Icon icon={X} /></button>
+    </li>)}</ul>}
     {!!documents.length && <ul className="ck-attached">{documents.map(document => <li className="ck-chip" key={document.name}>
       <Icon icon={FileText} /><span>{document.name}</span><button type="button" aria-label={`Remove ${document.name}`} onClick={() => setDocuments(current => current.filter(item => item.name !== document.name))}><Icon icon={X} /></button>
     </li>)}</ul>}
     {!!sources.length && <ul className="ck-attached">{sources.map(source => <li className="ck-chip" key={source.id}>
-      <Icon icon={FileText} /><span>{source.fileName}</span><button type="button" aria-label={`Remove source ${source.fileName}`} onClick={() => setSources(current => current.filter(item => item.id !== source.id))}><Icon icon={X} /></button>
+      <Icon icon={FileText} /><span>{source.fileName}</span><button type="button" aria-label={`Remove source ${source.fileName}`} onClick={() => setSourceIds(current => current.filter(id => id !== source.id))}><Icon icon={X} /></button>
     </li>)}</ul>}
     {!!attachedChecks.length && <ul className="ck-attached">{attachedChecks.map(item => <li className="ck-chip" key={item.id}>
-      <Icon icon={Clock} /><span>{item.focus || item.projectName}</span><button type="button" aria-label={'Remove check ' + (item.focus || item.projectName)} onClick={() => setAttachedChecks(current => current.filter(entry => entry.id !== item.id))}><Icon icon={X} /></button>
+      <Icon icon={Clock} /><span>@{checkName(item)}</span><button type="button" aria-label={'Remove check ' + checkName(item)} onClick={() => setAttachedChecks(current => current.filter(entry => entry.id !== item.id))}><Icon icon={X} /></button>
     </li>)}</ul>}
     <textarea ref={input} className="ck-focus" rows={2} maxLength={2000} aria-label={conversation ? "Message to Centinel" : "Follow-up check"} value={draft} onFocus={conversation?.onFocus}
       placeholder={conversation?.placeholder ?? (available ? 'What should Centinel check next?' : 'Prepare a follow-up while this check runs')}
@@ -268,7 +344,15 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       }} />
     <div className="ck-input-actions">
       <button type="button" ref={addTrigger} disabled={!!conversation?.editing} className="ck-round ck-add-trigger" aria-label="Add to check" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => { if (!addOpen) library.refresh(); setMention(null); setAddOpen(!addOpen || !!mention); }}><Icon icon={Plus} /></button>
-      <CheckPermission value={prefs.mode} onChange={mode => { if (conversation?.setPermission) { conversation.setPermission(mode); return; } if (check.projectId) savePermission(check.projectId, mode); }} />
+      <CheckPermission value={prefs.mode} onChange={mode => {
+        void (async () => {
+          try {
+            if (check.projectId && typeof api.setConversationPermission === 'function') await api.setConversationPermission(check.projectId, mode);
+            if (conversation?.setPermission) conversation.setPermission(mode);
+            else if (check.projectId) savePermission(check.projectId, mode);
+          } catch { setAttachmentMessage('Permission mode could not be saved. Try again.'); }
+        })();
+      }} />
       <Select aria-label="Check mode" className="ck-mode-select" value={effectiveMode} disabled={!!conversation?.editing}
         options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && (conversation ? option.value === 'both' : option.value !== 'code') }))}
         onChange={value => setMode(value as CheckMode)} />
@@ -287,16 +371,22 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
         event.preventDefault();
         buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
       }}>
-      {(showAddAction('Add Document') || (project && showAddAction('Add source'))) && <section aria-label="Add">
-        <h2>Add</h2>
-        {showAddAction('Add Document') && <button type="button" onClick={() => { finishAttachment(); setPicker(true); }}><Icon icon={FileText} />Add Document</button>}
-        {project && showAddAction('Add source') && <button type="button" onClick={() => { finishAttachment(); setAddingSource(true); }}><Icon icon={Plus} />Add source</button>}
-      </section>}
+      <CheckAddOptions query={query} onDocument={() => { finishAttachment(); setPicker(true); }}
+        onSource={project ? choice => { finishAttachment(); setAddingSource(choice); } : undefined} />
+      <section aria-label="Problems"><h2>Problems</h2>
+        {problemOptions.error ? <p>Problems could not be loaded.</p> : problemOptions.problems.filter(item => item.label.toLowerCase().includes(query)
+          && !attachedProblems.some(attached => JSON.stringify(attached.reference) === JSON.stringify(item.reference))).slice(0, 12).map(item =>
+          <button type="button" key={JSON.stringify(item.reference)} onClick={() => { setAttachedProblems(current => [...current, item]); finishAttachment(); }}>
+            <Icon icon={FileText} /><span>{item.label}</span>
+          </button>)}
+        {!problemOptions.error && !problemOptions.problems.length && <p>No saved problems in recent checks.</p>}
+        <p>Showing problems from attached checks and recent checks. Open an older check to include its problems.</p>
+      </section>
       <section aria-label="Recent Checks"><h2>Recent Checks</h2>
         {matchingChecks.length ? matchingChecks.map(item => <button key={item.id} type="button" onClick={() => {
           setAttachedChecks(current => [...current, item]);
           finishAttachment();
-        }}><Icon icon={Clock} /><span>{item.focus || item.projectName}</span>
+        }}><Icon icon={Clock} /><span>{checkName(item)}</span>
           <CheckAttachmentCount check={item} />
         </button>) : <p>No matching checks for this project.</p>}
       </section>
@@ -311,7 +401,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       </section>}
       <section aria-label="Library"><h2>Library</h2>
         {!check.projectId ? <p>No project library available.</p> : effectiveMode === 'browser' ? <p>Choose Code or Code and browser to attach library files.</p> :
-          <CheckLibraryList library={library} attached={sources} filter={mention?.query} onAttach={source => { setSources(current => current.some(item => item.id === source.id) ? current : [...current, source]); finishAttachment(); }} />}
+          <CheckLibraryList library={library} attached={sources} filter={mention?.query} onAttach={source => { setSourceIds(current => [...new Set([...current, source.id])]); finishAttachment(); }} />}
       </section>
     </div>}
     {!addOpen && <CheckComposerNotices notices={[
@@ -319,11 +409,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       ...(revisionHasAttachments ? [{ title: 'Attachments need a new check', description: 'Remove the attachments to revise this browser test, or stop editing the test to send them with a new check.', tone: 'warning' as const }] : []),
       ...(attachmentMessage ? [{ title: 'Check attachments', description: attachmentMessage, tone: 'warning' as const }] : []),
     ]} />}
-  </form><CheckDocumentPicker open={picker} onClose={() => setPicker(false)} onSelect={files => {
-    void readCheckDocuments(files).then(({ accepted, message }) => {
-      setDocuments(current => [...current, ...accepted.filter(item => !current.some(existing => existing.name === item.name))]);
-      setAttachmentMessage(message);
-    });
-  }} />{addingSource && project && <CheckAddSource projectId={project.id} onClose={() => setAddingSource(false)} onSaved={library.refresh} />}</>;
+  </form><CheckDocumentPicker open={picker} onClose={() => setPicker(false)} onSelect={batch => addDocuments(async () => batch)} />
+    {addingSource && project && <CheckAddSource projectId={project.id} initialChoice={addingSource} onClose={() => setAddingSource(null)} onSaved={library.refresh} />}</>;
 }
 

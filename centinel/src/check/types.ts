@@ -20,6 +20,7 @@ export type CheckRecord = {
   updatedAt: string;
   projectId?: string;
   projectName: string;
+  title?: string;
   referenceCheckIds?: string[];
   sourceArtifactIds?: string[];
   folder?: string;
@@ -41,7 +42,7 @@ export type CheckRecord = {
   viewedAt?: string;
 };
 
-export type CheckDocument = { name: string; base64: string };
+export type CheckDocument = { name: string; base64: string; saved?: { projectId: string; artifactId: string } };
 
 export type StartCheckInput = {
   sourceArtifactIds?: string[];

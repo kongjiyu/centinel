@@ -87,6 +87,7 @@ export function startCheck(input: StartCheckInput, deps: RunnerDeps): CheckRecor
 
 async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps, selectedProject?: Project) {
   const { api } = deps;
+  let titleProjectId: string | undefined;
   const note = (text: string) => updateCheck(checkId, { notes: [...(getCheck(checkId)?.notes ?? []), text] });
   try {
     if (input.mode === 'browser' && input.sourceArtifactIds?.length) {
@@ -123,10 +124,13 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
     }
     if (!project) throw new Error('Add a project folder or a GitHub link to start.');
     updateCheck(checkId, { projectId: project.id, projectName: project.name, prepStep: 'documents' });
+    titleProjectId = project.id;
 
     // 2. Documents.
     const uploadedIds: string[] = [];
-    for (const document of input.documents) uploadedIds.push((await uploadDocument(api, project.id, document)).id);
+    for (const document of input.documents) {
+      uploadedIds.push(document.saved?.projectId === project.id ? document.saved.artifactId : (await uploadDocument(api, project.id, document)).id);
+    }
 
     // 3. GitHub import finishes in the background; wait for it before reviewing.
     if (input.githubUrl && !input.folder) {
@@ -139,7 +143,8 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
     const wantsBrowser = input.mode !== 'code';
     if (wantsCode) {
       updateCheck(checkId, { prepStep: 'review' });
-      const review = await startReview(api, project.id, project.name, input.focus.trim(), input.sourceArtifactIds, uploadedIds);
+      const focus = input.focus.trim();
+      const review = await startReview(api, project.id, project.name, focus, input.sourceArtifactIds, uploadedIds);
       updateCheck(checkId, { reviewId: review.id });
     }
 
@@ -167,11 +172,35 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
     updateCheck(checkId, { phase: 'running', prepStep: undefined });
   } catch (cause) {
     updateCheck(checkId, { phase: 'failed', error: userFacingError(cause, 'The check could not start. Try again.'), finishedAt: new Date().toISOString() });
+  } finally {
+    if (titleProjectId && typeof api.generateCheckTitle === 'function') {
+      const projectId = titleProjectId;
+      void api.generateCheckTitle(projectId, { focus: input.focus.trim(), mode: input.mode, documents: input.documents.slice(0, 8).map(document => folderName(document.name).slice(0, 100)) })
+        .then(({ title }) => {
+          if (title && getCheck(checkId)?.projectId === projectId) updateCheck(checkId, { title });
+        })
+        .catch(() => undefined);
+    }
   }
 }
 
 async function uploadDocument(api: Api, projectId: string, document: CheckDocument) {
-  return api.uploadArtifact(projectId, { fileName: document.name, content: document.base64, type: documentType(document.name) });
+  return api.uploadArtifact(projectId, { fileName: document.name, content: document.base64, type: documentType(folderName(document.name)) });
+}
+
+export async function saveCheckDocuments(api: Api, projectId: string, documents: CheckDocument[]) {
+  const failed: string[] = [];
+  const saved: CheckDocument[] = [];
+  for (const document of documents) {
+    try {
+      const artifact = await uploadDocument(api, projectId, document);
+      saved.push({ ...document, saved: { projectId, artifactId: artifact.id } });
+    } catch {
+      failed.push(document.name);
+      saved.push(document);
+    }
+  }
+  return { documents: saved, failed };
 }
 
 async function waitForGithubImport(api: Api, projectId: string) {
@@ -186,7 +215,7 @@ async function waitForGithubImport(api: Api, projectId: string) {
   throw new Error('The GitHub repository is still importing. Open the project under Details to follow it, then start the check again.');
 }
 
-async function startReview(api: Api, projectId: string, projectName: string, focus: string, sources: string[] = [], uploadedIds: string[] = []) {
+async function startReview(api: Api, projectId: string, name: string, focus: string, sources: string[] = [], uploadedIds: string[] = []) {
   const [artifacts, requirements] = await Promise.all([
     api.listArtifacts(projectId),
     typeof api.listRequirements === 'function' ? api.listRequirements(projectId).catch(() => []) : Promise.resolve([]),
@@ -203,7 +232,7 @@ async function startReview(api: Api, projectId: string, projectName: string, foc
   const standardIds = active.filter(artifact => artifact.type === 'coding_standard').map(artifact => artifact.id);
   const requirementIds = requirements.map(requirement => requirement.id);
   const payload: CreateStaticSessionPayload = {
-    name: `Check · ${projectName}`,
+    name,
     instructions: focus,
     reviewMode: 'regular',
     reviewer: 'Project owner',

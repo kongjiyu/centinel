@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useActiveReviewState } from '../context/ActiveReviewContext';
+import { useChecks } from '../check/store';
 import { ReviewToastCollapsed } from './ReviewToastCollapsed';
 import { ReviewToastExpanded } from './ReviewToastExpanded';
 import { ReviewToastComplete } from './ReviewToastComplete';
@@ -8,7 +9,8 @@ import './ReviewToast.css';
 
 export function ReviewToast({ onOpenReview, hidden = false }: { onOpenReview?: (projectId: string, sessionId: string, reviewName: string) => void; hidden?: boolean }) {
   const { state, controls } = useActiveReviewState();
-  if (!state || hidden) return null;
+  const checks = useChecks();
+  if (!state || hidden || checks.some(check => check.reviewId === state.session.id)) return null;
   if (state.dismissed) return null;
   if (state.connectionLost) {
     return (

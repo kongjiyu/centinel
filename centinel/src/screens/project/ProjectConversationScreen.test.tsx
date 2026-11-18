@@ -32,6 +32,7 @@ function renderScreen(onNavigate = vi.fn(), item = project) {
 
 describe('project conversation', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     vi.clearAllMocks();
     window.localStorage.clear();
     resetProjectPrefs();
@@ -67,7 +68,6 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session({ repository: { fingerprint: 'f', files: 10, routes: 4, forms: 1, requirements: true, truncated: false, persistence: [] }, launch: { recipeId: 'r', label: 'node server.js', framework: 'node', url: 'http://localhost:4101', portHonored: true, installing: false, log: '' }, exploration: { pages: [{ path: '/', controls: 8 }], controls: 8 } })]);
     const onNavigate = renderScreen();
-    await user.click(await screen.findByRole('button', { name: 'Back to the conversation' }));
     expect(await screen.findByText('Test that two mugs cost $24.00')).toBeInTheDocument();
     const reply = screen.getByRole('region', { name: "Centinel's reply" });
     expect(within(reply).getByText('“Two mugs total $24.00” found a problem. I expected the page to show “$24.00”, but it was not shown on the page.')).toBeInTheDocument();
@@ -92,8 +92,7 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     renderScreen();
-    await user.click(await screen.findByRole('button', { name: 'Back to the conversation' }));
-    await user.click(screen.getByRole('button', { name: 'Save for every check' }));
+    await user.click(await screen.findByRole('button', { name: 'Save for every check' }));
     expect(readPrefs('p1').pinned).toMatchObject([{ testId: test().id, name: 'Two mugs total $24.00' }]);
     const side = screen.getByRole('complementary', { name: 'What Centinel knows' });
     await user.click(within(side).getByRole('button', { name: 'Show the whole project' }));
@@ -109,8 +108,7 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     renderScreen();
-    await user.click(await screen.findByRole('button', { name: 'Back to the conversation' }));
-    await user.click(screen.getByRole('button', { name: 'Change it' }));
+    await user.click(await screen.findByRole('button', { name: 'Change it' }));
     expect(screen.getByText('Changing “Two mugs total $24.00”')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Message to Centinel'), 'Also check three mugs{Enter}');
     expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Also check three mugs', base: { sessionId: session().id, testId: test().id }, lanes: 1 });
@@ -158,6 +156,7 @@ describe('project conversation', () => {
     const onNavigate = renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What Centinel knows' });
     expect(await within(panel).findByText('1 problem')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
     expect(within(panel).getByRole('button', { name: 'Back to the conversation' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByRole('textbox', { name: 'Message to Centinel' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save for every check' })).not.toBeInTheDocument();
@@ -183,6 +182,7 @@ describe('project conversation', () => {
     vi.mocked(api.autoTests).mockResolvedValue([full]);
     renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What Centinel knows' });
+    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
     expect(await within(panel).findByText('Browser tests · 1 of 2 failed')).toBeInTheDocument();
     expect(within(panel).getByTitle('Sign in works: passed')).toBeInTheDocument();
   });

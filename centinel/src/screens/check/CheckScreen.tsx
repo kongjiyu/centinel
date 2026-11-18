@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { laneNumber } from '../../autotest/presentation';
 import { Icon } from '../../components/Icon';
 import type { CheckProblem, CheckResult } from '../../check/result';
-import { getCheck, markCheckViewed, useCheck } from '../../check/store';
+import { markCheckViewed, useCheck } from '../../check/store';
 import { type CheckRecord } from '../../check/types';
 import { useCheckData, type CheckData } from '../../check/useCheckData';
 import type { RiskLevel } from '../../riskPolicy';
@@ -16,6 +16,7 @@ import type { Artifact } from '../../types';
 import { CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from './CheckProjectWorkspace';
 import { CheckProjectSidebar } from '../project/ProjectSidePanel';
 import './Check.css';
+import { animateCheckTransition } from '../../check/checkTransition';
 
 type Navigate = (screen: Screen) => void;
 
@@ -56,6 +57,9 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
   const library = useCheckLibrary(projects ? check?.projectId : undefined);
   const data = useCheckData(check);
   const showResult = !!check && !!data && (check.phase === 'failed' || check.phase === 'done' || data.result.finished);
+  useLayoutEffect(() => {
+    if (data) animateCheckTransition(checkId, document.querySelector<HTMLElement>('.ck-detail-content'));
+  }, [checkId, !!data]);
   useEffect(() => {
     if (!showResult) return;
     const markVisible = () => {
@@ -75,21 +79,15 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
     );
   }
   if (!data) return null;
-  const references = (check.referenceCheckIds ?? []).map(getCheck)
-    .filter((reference): reference is CheckRecord => !!check.projectId && reference?.projectId === check.projectId);
-  const content = <>
-    {references.length > 0 && <nav className="ck-check-references" aria-label="Referenced checks">
-      {references.map(reference => <button type="button" key={reference.id} className="ck-link" onClick={() => onNavigate({ name: 'check', checkId: reference.id })}>{reference.focus || reference.projectName}{typeof reference.problemCount === 'number' && (' · ' + reference.problemCount + (reference.problemCount === 1 ? ' problem' : ' problems'))}</button>)}
-    </nav>}
-    {showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} /> : <LiveView check={check} data={data} onNavigate={onNavigate} />}
-  </>;
+  const content = showResult && !data.evidenceLoaded
+    ? <div className="ck-screen"><section className="ck-panel" role="status">Loading the saved result…{data.loadError && <p>{data.loadError}</p>}</section></div>
+    : showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} /> : <LiveView check={check} data={data} onNavigate={onNavigate} />;
   if (!projects) return content;
   const project = projects.find(item => item.id === check.projectId);
   return <CheckProjectLayout
     expanded={expanded} onCloseSidebar={() => setExpanded(false)}
-    contentKey={check.id + ':' + showResult}
     header={<CheckProjectHeader check={check} project={project} onNavigate={onNavigate} library={library} />}
-    composer={<CheckFollowUp check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />}
+    composer={<CheckFollowUp key={check.id} check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />}
     sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)} />}>
     {content}
   </CheckProjectLayout>;
@@ -176,7 +174,7 @@ function LiveView({ check, data, onNavigate }: { check: CheckRecord; data: Check
       <div className="ck-glow is-low" aria-hidden="true" />
       <div className="ck-panel">
         <header className="ck-live-head">
-          <h1 className="ck-title">Checking {check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>
+          <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>
           {check.phase === 'running' && <button type="button" className="ck-button" onClick={() => void stop()} disabled={stopping}><Icon icon={Square} />{stopping ? 'Stopping…' : 'Stop'}</button>}
         </header>
         <StageStrip steps={liveSteps(check, data)} />
@@ -396,7 +394,9 @@ function ResultView({ check, data, onNavigate }: { check: CheckRecord; data: Che
               <NumberCard icon={Code} label="Found in code">
                 {result.codeState === 'not_requested' || result.codeState === 'not_started' ? <span className="ck-number-text">Not run</span> : <b>{result.foundInCode.length}</b>}
               </NumberCard>
-              <NumberCard icon={ListX} label="Requirements not met"><RequirementsValue result={result} /></NumberCard>
+              <NumberCard icon={ListX} label="Requirements not met">{data.requirementsState === 'unavailable'
+                ? <span className="ck-number-text">Requirements unavailable</span>
+                : data.requirementsState === 'loading' ? <span className="ck-number-text">Loading…</span> : <RequirementsValue result={result} />}</NumberCard>
             </div>
 
             {groups.filter(group => group.items.length).map(group => (
