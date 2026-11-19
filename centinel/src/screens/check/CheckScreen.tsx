@@ -2,18 +2,21 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { laneNumber } from '../../autotest/presentation';
+import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
-import type { CheckProblem, CheckResult } from '../../check/result';
+import { checkProblemSummary, type CheckProblem, type CheckResult } from '../../check/result';
+import { checkName } from '../../check/checkName';
+import { exportCheckSummary } from '../../check/exportCheckSummary';
 import { markCheckViewed, useCheck } from '../../check/store';
 import { type CheckRecord } from '../../check/types';
 import { useCheckData, type CheckData } from '../../check/useCheckData';
 import type { RiskLevel } from '../../riskPolicy';
 import type { Project, Screen } from '../../types';
-import { userFacingError } from '../../utils/userFacingError';
+import { reviewFailureMessage, userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from './BrowserTiles';
 import { useCheckLibrary } from './CheckSourceLibrary';
 import type { Artifact } from '../../types';
-import { CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from './CheckProjectWorkspace';
+import { CheckActionLabel, CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from './CheckProjectWorkspace';
 import { CheckProjectSidebar } from '../project/ProjectSidePanel';
 import './Check.css';
 import { animateCheckTransition } from '../../check/checkTransition';
@@ -79,14 +82,23 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
     );
   }
   if (!data) return null;
+  const project = projects?.find(item => item.id === check.projectId);
+  const header = projects && <CheckProjectHeader check={check} project={project} onNavigate={onNavigate} library={library} checkHeading={{
+    name: checkName(check),
+    duration: showResult && data.evidenceLoaded && check.phase !== 'failed' ? resultDuration(check, data) : undefined,
+    problems: showResult && data.evidenceLoaded && check.phase !== 'failed' ? checkProblemSummary(data.result) : undefined,
+    report: showResult && data.evidenceLoaded && <CheckReportAction key={check.id} check={check} data={data} toolbar />,
+  }} />;
   const content = showResult && !data.evidenceLoaded
-    ? <div className="ck-screen"><section className="ck-panel" role="status">Loading the saved result…{data.loadError && <p>{data.loadError}</p>}</section></div>
-    : showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} /> : <LiveView check={check} data={data} onNavigate={onNavigate} />;
+    ? <div className="ck-screen"><section className="ck-panel">{header}
+      <CheckInterruptionNotices check={check} data={data} onNavigate={onNavigate} />
+      {data.loadError ? <p role="status">{data.loadError}</p>
+      : <LoadingSkeleton className="ck-result-skeleton" label="Loading the saved result" />}</section></div>
+    : showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} header={header} />
+      : <LiveView check={check} data={data} onNavigate={onNavigate} header={header} />;
   if (!projects) return content;
-  const project = projects.find(item => item.id === check.projectId);
-  return <CheckProjectLayout
+  return <CheckProjectLayout projectHeader
     expanded={expanded} onCloseSidebar={() => setExpanded(false)}
-    header={<CheckProjectHeader check={check} project={project} onNavigate={onNavigate} library={library} />}
     composer={<CheckFollowUp key={check.id} check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />}
     sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)} />}>
     {content}
@@ -137,7 +149,33 @@ function StageStrip({ steps }: { steps: ReturnType<typeof liveSteps> }) {
   );
 }
 
-function LiveView({ check, data, onNavigate }: { check: CheckRecord; data: CheckData; onNavigate: Navigate }) {
+function CheckInterruptionNotices({ check, data, onNavigate }: { check: CheckRecord; data: CheckData; onNavigate: Navigate }) {
+  const { review, autoTest, result } = data;
+  const reviewReason = review?.failureReason ?? '';
+  const paused = result.codeState === 'paused' || /assessment_paused|source_index.*paused|indexing.*paused/i.test(reviewReason);
+  const blocked = review?.status === 'blocked';
+  const hasReviewInterruption = !!review && (paused || blocked || result.codeState === 'failed');
+  const browserFailed = autoTest?.stage === 'failed';
+  if (!hasReviewInterruption && !browserFailed) return null;
+  return <div className="ck-interruption-notices" aria-label="Check interruptions">
+    {hasReviewInterruption && <div className="ck-setup-step" role="status">
+      <Icon icon={paused ? Info : TriangleAlert} />
+      <div><strong>{paused ? 'Code review paused' : blocked ? 'Code review blocked' : 'Code review stopped'}</strong>
+        <p>{reviewFailureMessage(reviewReason || (paused ? 'The AI provider paused the review. Resume it when provider access is available.' : ''))}</p>
+      </div>
+      {check.projectId && check.reviewId && <button type="button" className="ck-button is-small"
+        onClick={() => onNavigate({ name: 'review-activity', projectId: check.projectId!, sessionId: check.reviewId! })}>Open review</button>}
+    </div>}
+    {browserFailed && <div className="ck-setup-step" role="status">
+      <Icon icon={TriangleAlert} />
+      <div><strong>{autoTest.launch?.url ? 'Browser tests stopped' : 'Browser check blocked before startup'}</strong>
+        <p>{userFacingError(autoTest.error?.message, 'The browser run ended without recording a reason.')}</p>
+      </div>
+    </div>}
+  </div>;
+}
+
+function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode }) {
   const now = useNow(true);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -173,19 +211,15 @@ function LiveView({ check, data, onNavigate }: { check: CheckRecord; data: Check
     <div className="ck-screen ck-live">
       <div className="ck-glow is-low" aria-hidden="true" />
       <div className="ck-panel">
+        {header}
         <header className="ck-live-head">
-          <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>
+          {header ? <h2 className="ck-live-status">Checking <span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h2>
+            : <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>}
           {check.phase === 'running' && <button type="button" className="ck-button" onClick={() => void stop()} disabled={stopping}><Icon icon={Square} />{stopping ? 'Stopping…' : 'Stop'}</button>}
         </header>
         <StageStrip steps={liveSteps(check, data)} />
         {stopError && <p className="ck-inline-message" role="alert"><Icon icon={TriangleAlert} shape="triangle" />{stopError}</p>}
-        {result.codeState === 'paused' && check.projectId && check.reviewId && (
-          <div className="ck-setup-step" role="status">
-            <Icon icon={Info} />
-            <span>The code review is paused because the AI provider reached a limit. Nothing resumes by itself.</span>
-            <button type="button" className="ck-button" onClick={() => onNavigate({ name: 'review-activity', projectId: check.projectId!, sessionId: check.reviewId! })}>Open the review to resume</button>
-          </div>
-        )}
+        <CheckInterruptionNotices check={check} data={data} onNavigate={onNavigate} />
         {check.notes.length > 0 && <ul className="ck-notes">{check.notes.map(note => <li key={note}><Icon icon={Info} />{note}</li>)}</ul>}
         {data.loadError && <p className="ck-inline-message is-quiet" role="status"><Icon icon={Info} />{data.loadError}</p>}
 
@@ -326,23 +360,24 @@ function RequirementsValue({ result }: { result: CheckResult }) {
   return <><b>{tally.notMet}</b><small>of {tally.total}{tally.notChecked ? ` · ${tally.notChecked} not checked` : ''}</small></>;
 }
 
-function ResultView({ check, data, onNavigate }: { check: CheckRecord; data: CheckData; onNavigate: Navigate }) {
-  const { result } = data;
-  const firstKey = (result.proven[0] ?? result.foundInCode[0])?.key ?? null;
-  const [openKey, setOpenKey] = useState<string | null>(firstKey);
-  const userToggled = useRef(false);
-  // Results arrive after the first render; open the top problem once, unless the person already chose.
-  useEffect(() => { if (!userToggled.current && firstKey) setOpenKey(current => current ?? firstKey); }, [firstKey]);
+function resultDuration(check: CheckRecord, data: CheckData) {
+  const finished = Date.parse(check.finishedAt ?? data.review?.updatedAt ?? data.autoTest?.updatedAt ?? check.updatedAt);
+  const elapsed = finished - Date.parse(check.createdAt);
+  return Number.isFinite(elapsed) ? formatDuration(Math.max(0, elapsed)) : undefined;
+}
+
+function CheckReportAction({ check, data, toolbar }: { check: CheckRecord; data: CheckData; toolbar?: boolean }) {
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
-  const finishedAt = check.finishedAt ? Date.parse(check.finishedAt) : Date.parse(data.review?.updatedAt ?? data.autoTest?.updatedAt ?? check.updatedAt);
-  const duration = formatDuration(Math.max(0, finishedAt - Date.parse(check.createdAt)));
 
   const exportReport = async () => {
-    if (!check.projectId || !check.reviewId) return;
     setExporting(true);
     setExportMessage(null);
     try {
+      if (!check.projectId || !check.reviewId || data.result.codeState !== 'done') {
+        if (await exportCheckSummary(check, data)) setExportMessage('Check report exported.');
+        return;
+      }
       const report = await api.exportProjectReport(check.projectId, { reviewId: check.reviewId });
       const target = report.downloads.pdf ?? report.downloads.markdown;
       if (!target) throw new Error('The report has no download link.');
@@ -356,31 +391,51 @@ function ResultView({ check, data, onNavigate }: { check: CheckRecord; data: Che
     }
   };
 
+  if (!data.review && !data.autoTest) return null;
+  return <div className="ck-report-action">
+    <button type="button" className={toolbar ? "ck-toolbar-item" : "ck-button"} aria-label="Export" onClick={() => void exportReport()} disabled={exporting}>
+      <Icon icon={Download} />{toolbar ? <CheckActionLabel>{exporting ? 'Creating report…' : 'Export'}</CheckActionLabel> : <span>{exporting ? 'Creating report…' : 'Export'}</span>}
+    </button>
+    {exportMessage && <p className="ck-report-status" role="status">{exportMessage}</p>}
+  </div>;
+}
+
+function ResultView({ check, data, onNavigate, header }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode }) {
+  const { result } = data;
+  const duration = resultDuration(check, data);
+  const firstKey = (result.proven[0] ?? result.foundInCode[0])?.key ?? null;
+  const [openKey, setOpenKey] = useState<string | null>(firstKey);
+  const userToggled = useRef(false);
+  // Results arrive after the first render; open the top problem once, unless the person already chose.
+  useEffect(() => { if (!userToggled.current && firstKey) setOpenKey(current => current ?? firstKey); }, [firstKey]);
   const toggle = (key: string) => { userToggled.current = true; setOpenKey(current => current === key ? null : key); };
   const groups: Array<{ id: string; label: string; icon: typeof Info; items: CheckProblem[] }> = [
     { id: 'proven', label: 'Proven in the browser', icon: MonitorCheck, items: result.proven },
     { id: 'code', label: 'Found in code', icon: Code, items: result.foundInCode },
   ];
-  const canExport = !!check.reviewId && result.codeState === 'done';
+
 
   return (
     <div className="ck-screen ck-result">
       <div className="ck-glow is-low" aria-hidden="true" />
       <div className="ck-panel">
+        {header}
         <header className="ck-result-head">
           <div>
-            <p className="ck-context">
+            {!header && <p className="ck-context">
               <span className="ci-pair"><Icon icon={Folder} /><span className="ci-text">{check.projectName}</span></span>
-              <span aria-hidden="true">·</span>
-              <span className="ci-pair"><Icon icon={Clock} /><span className="ci-text">{check.phase === 'failed' ? 'did not start' : `checked in ${duration}`}</span></span>
-            </p>
-            <h1 className="ck-verdict">{result.verdict}</h1>
+              {(check.phase === 'failed' || duration) && <>
+                <span aria-hidden="true">·</span>
+                <span className="ci-pair"><Icon icon={Clock} /><span className="ci-text">{check.phase === 'failed' ? 'did not start' : `checked in ${duration}`}</span></span>
+              </>}
+            </p>}
+            {header ? <h2 className="ck-verdict">{result.verdict}</h2> : <h1 className="ck-verdict">{result.verdict}</h1>}
             {result.verdictDetail && <p className="ck-sub is-left">{result.verdictDetail}</p>}
           </div>
-          {canExport && <button type="button" className="ck-button" onClick={() => void exportReport()} disabled={exporting}><Icon icon={Download} />{exporting ? 'Creating report…' : 'Export report'}</button>}
+          {!header && <CheckReportAction check={check} data={data} />}
         </header>
-        {exportMessage && <p className="ck-inline-message is-quiet" role="status"><Icon icon={Info} />{exportMessage}</p>}
 
+        <CheckInterruptionNotices check={check} data={data} onNavigate={onNavigate} />
         {check.phase === 'failed' ? (
           <div className="ck-actions-row">
             <button type="button" className="ck-button is-primary" onClick={() => onNavigate({ name: 'new-check' })}><Icon icon={Plus} />Start a new check</button>

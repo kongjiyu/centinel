@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Check, Code, Download, FileText, Folder, Info, LayoutList, LoaderCircle, Lock, MonitorCheck, TriangleAlert, OctagonAlert, X, Minus, Globe, ShieldCheck } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestRef } from '../../autotest/types';
+import { checkProblemSummary } from '../../check/result';
+import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
 import { Icon } from '../../components/Icon';
 import { CornersIn, CornersOut } from '../../components/cornerIcons';
 import { MODE_LABEL, unpinTest, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
@@ -35,6 +37,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
   const [message, setMessage] = useState<string | null>(null);
   const { result, review, autoTest } = latest;
   const problems = result ? [...result.proven, ...result.foundInCode] : [];
+  const problemSummary = result ? checkProblemSummary(result) : {};
   const running = !!result && !result.finished;
   const reviewDone = !!review && result?.codeState === 'done';
   const tally = result?.requirements ?? null;
@@ -64,22 +67,25 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
   const toggleLabel = open ? 'Back to the conversation' : 'Show the whole project';
 
   return (
-    <aside className={`pc-side${open ? ' is-open' : ''}`} aria-label="What Centinel knows">
+    <aside className={`pc-side${open ? ' is-open' : ''}`} aria-label="What ORIN knows">
       <div className="pc-side-top">
-        <h2>{open ? project.name : latestLabel}</h2>
+        <div className="pc-side-titles">
+          <h2 className="pc-side-title-compact" aria-hidden={open}>{latestLabel}</h2>
+          <h2 className="pc-side-title-full" aria-hidden={!open}>{project.name}</h2>
+        </div>
         <button type="button" className="pc-side-toggle" onClick={onToggle} aria-expanded={open} aria-controls="pc-side-more"
           aria-label={toggleLabel} title={toggleLabel}>
           <Icon icon={open ? CornersIn : CornersOut} />
         </button>
       </div>
-      <div className="pc-side-body">
+      <div className="pc-side-body" id="pc-side-more">
         <section className="pc-side-col pc-side-latest">
-          {open && <h2>{latestLabel}</h2>}
+          <h2 className="pc-side-latest-label" aria-hidden={!open}>{latestLabel}</h2>
           {latest.loading ? <p className="pc-empty"><Icon icon={LoaderCircle} className="ci-spin" /> Loading…</p>
             : !result ? <p className="pc-empty">No check has run yet. Use Run a full check.</p>
             : <>
-              <p className="pc-latest-verdict">
-                {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : problems.length ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : <Icon icon={Check} />}
+              <p className={`pc-latest-verdict${!running && problems.length ? ` problem-count-tone is-${problemCountTone(problemSummary)}` : ''}`}>
+                {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : <ProblemCountIcon summary={problemSummary} />}
                 <span>{running ? 'A check is running' : problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'No problems found'}</span>
               </p>
               {!running && result.proven.length > 0 && <p className="pc-latest-sub">{result.proven.length} proven in the browser</p>}
@@ -102,8 +108,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
               <button type="button" className="ck-link pc-open-result" onClick={onOpen}><Icon icon={LayoutList} />Open the full result</button>
             </>}
         </section>
-        {open && <>
-          <section className="pc-side-col pc-side-extra" id="pc-side-more">
+          <section className="pc-side-col pc-side-extra" aria-hidden={!open} ref={node => { if (node) node.inert = !open; }}>
             {tally && tally.total > 0 && <>
               <h2>Requirements</h2>
               <ul>
@@ -127,7 +132,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
             </>}
             {!(tally && tally.total) && !browserTests.length && <p className="pc-empty">No requirements or browser tests yet.</p>}
           </section>
-          <section className="pc-side-col pc-side-extra">
+          <section className="pc-side-col pc-side-extra" aria-hidden={!open} ref={node => { if (node) node.inert = !open; }}>
             <h2>Sources</h2>
             <ul>
               {project.workspacePath ? <li><Icon icon={Folder} /><span title={project.workspacePath}>{folderName(project.workspacePath)}{codeFiles ? ` · ${codeFiles} files` : ''}</span></li> : <li><Icon icon={Code} /><span>{codeFiles} code files</span></li>}
@@ -150,7 +155,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
             ) : <p className="pc-empty">None yet. Use Save for every check on a test.</p>}
             <h2>How it is tested</h2>
             <ul>
-              <li><Icon icon={Globe} /><span>{hasFolder ? 'Centinel starts the app itself' : 'No folder on this computer, so browser tests cannot run'}</span></li>
+              <li><Icon icon={Globe} /><span>{hasFolder ? 'ORIN starts the app itself' : 'No folder on this computer, so browser tests cannot run'}</span></li>
               <li><Icon icon={ShieldCheck} /><span>{MODE_LABEL[mode]} mode</span></li>
               {accountGiven && <li><Icon icon={Lock} /><span>Test account given in the conversation</span></li>}
             </ul>
@@ -160,8 +165,8 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
                 {checks.slice(0, 5).map(check => (
                   <li key={check.id}>
                     <button type="button" className="ck-link pc-check-link" onClick={() => onNavigate({ name: 'check', checkId: check.id })}>
-                      {check.phase === 'done' && check.problemCount ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : check.phase === 'done' ? <Icon icon={Check} /> : <Icon icon={LoaderCircle} />}
-                      {new Date(check.createdAt).toLocaleDateString(undefined, DAY)} · {check.phase === 'done' ? `${check.problemCount ?? 0} problems` : check.phase === 'failed' ? 'did not start' : 'running'}
+                      {check.phase === 'done' ? <ProblemCountIcon summary={check} /> : <Icon icon={LoaderCircle} />}
+                      {new Date(check.createdAt).toLocaleDateString(undefined, DAY)} · <span className={check.phase === 'done' ? `problem-count-tone is-${problemCountTone(check)}` : undefined}>{check.phase === 'done' ? `${check.problemCount ?? 0} problems` : check.phase === 'failed' ? 'did not start' : 'running'}</span>
                     </button>
                   </li>
                 ))}
@@ -169,9 +174,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
             ) : <p className="pc-empty">No checks on this computer yet.</p>}
             {reviewDone && <button type="button" className="ck-button is-primary is-small pc-download" onClick={() => void download()} disabled={exporting}><Icon icon={Download} />{exporting ? 'Creating report…' : 'Download report'}</button>}
             {message && <p className="pc-empty">{message}</p>}
-            <button type="button" className="ck-link pc-details" onClick={() => onNavigate({ name: 'project-detail', projectId: project.id, details: true })}>Details: findings, sources, settings</button>
           </section>
-        </>}
       </div>
     </aside>
   );

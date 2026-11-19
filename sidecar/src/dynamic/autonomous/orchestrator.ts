@@ -244,11 +244,11 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
             name: `Auto test – ${session.folder.split(/[\\/]/).filter(Boolean).pop() ?? 'app'} · ${lane.id.replace('lane-', 'lane ')}`,
             targetUrl: origin + '/', allowedOrigins: [origin], viewport: { width: 1280, height: 720 },
             accountRole: 'Visitor', requiredVariables: [], targetVersion: digest.fingerprint.slice(0, 12),
-            startupInstructions: `Started automatically by Centinel Auto test with "${first.recipe.label}".`,
+            startupInstructions: `Started automatically by ORIN Auto test with "${first.recipe.label}".`,
             actionPolicy: { schemaVersion: 1, interactions: test.controls.map(control => ({ selector: control.selector, actions: control.actions, ...(control.repeatable ? { repeatable: true } : {}) })), allowCoordinates: false },
           }, lane.environmentId ?? undefined);
           lane.environmentId = environment.id;
-          await deps.recordData(environment.id, 'preparation', 'Centinel started a fresh copy of the app for this test; its in-memory state is new.');
+          await deps.recordData(environment.id, 'preparation', 'ORIN started a fresh copy of the app for this test; its in-memory state is new.');
           const saved = await deps.saveMission(mission);
           entry.missionId = saved.missionId;
           entry.revisionId = saved.revisionId;
@@ -276,7 +276,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           entry.state = verdictState(run);
           entry.reason = run.reason;
           entry.checkResults = run.checks;
-          await deps.recordData(environment.id, 'cleanup', 'Centinel stopped this copy of the app after the test; nothing persists outside its process.').catch(() => undefined);
+          await deps.recordData(environment.id, 'cleanup', 'ORIN stopped this copy of the app after the test; nothing persists outside its process.').catch(() => undefined);
           if (entry.state === 'failed' && deps.explainFailure && !signal.aborted) {
             try {
               entry.explanation = await deps.explainFailure({ test: entry, run, excerpts: excerptsFor(entry, digest), signal });
@@ -309,7 +309,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     const count = (state: AutoTestState) => session.tests.filter(test => test.state === state).length;
     const limitations = [
       'Only the journeys listed were tested; this is not a complete test of the app.',
-      'Pass and fail come from Centinel\'s own checks on the page, not from the AI\'s opinion.',
+      'Pass and fail come from ORIN\'s own checks on the page, not from the AI\'s opinion.',
       ...(session.dropped.length ? [`${session.dropped.length} proposed test(s) were dropped because they could not be checked safely.`] : []),
       ...(digest.truncated ? ['The repository was larger than what the AI could read at once; some files were not considered.'] : []),
       ...(session.laneNote ? [session.laneNote] : []),

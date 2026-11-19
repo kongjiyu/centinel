@@ -51,6 +51,12 @@ Final checks ran successfully against the working tree on 18 November 2026:
 
 Screenshots were inspected for desktop and narrow layouts; the narrow composer overlap found during verification was corrected. Fixture screenshots are local temporary evidence, not committed product assets. No live provider quality or hosted persistence acceptance follows from these checks.
 
+## Project header and compact check card
+
+Project Sources, history and Run a full check remain above the conversation when it scrolls. The compact card's Not checked badge opens the coverage entries. Export report saves a Markdown summary from the card's own saved Check, including browser-only checks. A cancelled native save leaves no file.
+
+The four targeted frontend suites passed 32 tests, including mocked native save and cancellation. With fixture data, Edge verified scroll position, Sources, history, the gap disclosure, downloaded report contents and View at 1440×900, 1200×900, 720×900, 390×844 and 375×812. Live Windows save and the reported browser runs were not exercised.
+
 ## Remaining release verification
 
 Use a fictional, frozen eight-case corpus, repeated three times (24 complete live cases): saved code explanation; saved browser explanation; suggested fix; scoped code recheck; saved browser rerun; explicit positive-message browser check; ambiguous/negative criterion clarification; adversarial source instructions. Freeze fixture versions, expected action/scope, relevant evidence and expected assertions before running. Record provider/model/policy provenance, real usage, child IDs and validation outcomes. Score action, evidence relevance, criterion relevance and unsupported claims separately; execution failures cannot count as semantic passes. Any unauthorized action, unrelated verification or unsupported resolution blocks acceptance. This live corpus has **not run**.

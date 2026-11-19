@@ -11,7 +11,7 @@ export function hasDesktopUpdater(): boolean {
 
 /**
  * Asks the Tauri updater whether a newer signed release is published
- * (latest.json on GitHub Releases). Returns null when Centinel is current,
+ * (latest.json on GitHub Releases). Returns null when ORIN is current,
  * the updater is unavailable, or the check fails; it never installs anything.
  */
 export async function checkForAppUpdate(): Promise<AppUpdate | null> {

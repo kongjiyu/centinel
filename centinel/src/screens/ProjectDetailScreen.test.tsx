@@ -249,9 +249,9 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     await user.click(screen.getByRole('button', { name: 'Add collaborator' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add collaborator' });
     await user.type(within(dialog).getByLabelText('Find a collaborator'), 'new@example.com');
-    await user.click(await within(dialog).findByRole('button', { name: 'new@example.com Centinel' }));
+    await user.click(await within(dialog).findByRole('button', { name: 'new@example.com ORIN' }));
     expect(api.addProjectCollaborator).toHaveBeenCalledWith(project.id, account);
-    expect(await within(dialog).findByRole('button', { name: 'new@example.com Centinel Joined' })).toBeDisabled();
+    expect(await within(dialog).findByRole('button', { name: 'new@example.com ORIN Joined' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument();
     expect(api.syncGithubCollaborators).not.toHaveBeenCalled();
     expect(within(dialog).getByText('Disconnected')).toBeInTheDocument();
@@ -504,7 +504,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
     expect(screen.getByRole('heading', { name: 'Assessment' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Risk Summary' })).toBeInTheDocument();
     expect(screen.queryByText(/Current unresolved project risk derived from persisted Severity and Priority/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Risk Level is derived using the Centinel Severity \+ Priority policy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Risk Level is derived using the ORIN Severity \+ Priority policy/i)).not.toBeInTheDocument();
     expect(screen.getByText('Requirement traceability attention')).toBeInTheDocument();
   });
 
@@ -636,7 +636,7 @@ describe('ProjectDetailScreen refinement surfaces', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Issues' }));
     await user.click(await screen.findByRole('row', { name: /Missing Order Ownership Check/ }));
-    expect(await screen.findByText(/Not found in “Pre-release review” \(.+\)\. Centinel couldn't prove it is fixed, so it stays open\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Not found in “Pre-release review” \(.+\)\. ORIN couldn't prove it is fixed, so it stays open\./)).toBeInTheDocument();
     expect(api.getReviewCorrelations).toHaveBeenCalledWith(project.id, 'review-2');
     vi.mocked(api.updateFinding).mockResolvedValue(undefined as never);
     await user.click(screen.getByRole('button', { name: 'I fixed it — mark as resolved' }));

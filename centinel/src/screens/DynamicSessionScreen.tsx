@@ -109,13 +109,13 @@ function sessionOutcome(status: DynamicSession['status']) {
     case 'failure':
       return { title: 'Test found a blocking issue', copy: 'The requested journey could not be completed.', icon: CircleX, tone: 'danger' };
     case 'blocked':
-      return { title: 'Test could not continue', copy: 'Centinel was blocked before it could complete the goal.', icon: ShieldAlert, tone: 'warning' };
+      return { title: 'Test could not continue', copy: 'ORIN was blocked before it could complete the goal.', icon: ShieldAlert, tone: 'warning' };
     case 'cancelled':
       return { title: 'Test cancelled', copy: 'This run was stopped before completion.', icon: CircleX, tone: 'neutral' };
     case 'queued':
-      return { title: 'Preparing the browser', copy: 'Centinel is preparing an isolated browser and the test plan.', icon: LoaderCircle, tone: 'active' };
+      return { title: 'Preparing the browser', copy: 'ORIN is preparing an isolated browser and the test plan.', icon: LoaderCircle, tone: 'active' };
     default:
-      return { title: 'Testing the website', copy: 'Centinel is navigating the website and recording evidence.', icon: LoaderCircle, tone: 'active' };
+      return { title: 'Testing the website', copy: 'ORIN is navigating the website and recording evidence.', icon: LoaderCircle, tone: 'active' };
   }
 }
 
@@ -123,13 +123,13 @@ function sessionOutcome(status: DynamicSession['status']) {
 function failureRecovery(reason: string, status: DynamicSession['status']): string {
   const normalized = reason.toLowerCase();
   if (/playwright|browsertype\.launch|executable.*(?:doesn.t|not) exist|chromium/.test(normalized)) {
-    return 'Centinel could not start its test browser. Install or repair the Playwright browser, then rerun the test.';
+    return 'ORIN could not start its test browser. Install or repair the Playwright browser, then rerun the test.';
   }
   if (/network|econnrefused|timeout|failed to fetch|connection refused/.test(normalized)) {
-    return 'Centinel could not reach the target website. Confirm that the site is available, then rerun the test.';
+    return 'ORIN could not reach the target website. Confirm that the site is available, then rerun the test.';
   }
   if (/permission|access denied|http\s*403/.test(normalized)) {
-    return 'Centinel could not access the target website. Check the target permissions or sign-in requirements, then rerun the test.';
+    return 'ORIN could not access the target website. Check the target permissions or sign-in requirements, then rerun the test.';
   }
   return status === 'blocked'
     ? 'The test could not continue. Check the target website and test setup, then rerun the test.'

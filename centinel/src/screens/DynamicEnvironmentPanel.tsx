@@ -755,7 +755,7 @@ export function DynamicEnvironmentPanel({
                       />
                     </div>
                     <p className="dw-muted">
-                      This records your manual work. Centinel does not perform or independently verify the data
+                      This records your manual work. ORIN does not perform or independently verify the data
                       operation.
                     </p>
                     <button type="submit" className="btn-secondary" disabled={dataState.resource?.available === false}>

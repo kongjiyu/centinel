@@ -230,7 +230,7 @@ export function buildCheckResult(input: {
   } else if (!total) {
     verdict = 'No problems found.';
     const parts = [codeState === 'done' ? 'the code' : null, browserState === 'done' ? plural(tests.length, 'browser test') : null].filter(Boolean);
-    verdictDetail = parts.length ? `Centinel checked ${parts.join(' and ')}.` : null;
+    verdictDetail = parts.length ? `ORIN checked ${parts.join(' and ')}.` : null;
   } else if (proven.length) {
     verdict = `${plural(total, 'problem')} found. ${proven.length} proven in the browser.`;
   } else {
@@ -259,5 +259,5 @@ export function checkProblemSummary(result: CheckResult) {
   const problems = [...result.proven, ...result.foundInCode];
   const problemRisk = problems.reduce<RiskLevel | undefined>((highest, { risk }) =>
     risk && (!highest || riskLevelRank(risk) < riskLevelRank(highest)) ? risk : highest, undefined);
-  return { problemCount: problems.length, problemRisk };
+  return { problemCount: problems.length, problemRisk, highProblemCount: problems.filter(problem => problem.risk === 'high').length };
 }

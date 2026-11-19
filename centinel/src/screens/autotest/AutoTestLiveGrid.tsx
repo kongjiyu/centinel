@@ -7,7 +7,7 @@ import type { AutoTestEntry, AutoTestLane, LiveActionEvent } from '../../autotes
 type LaneView = { frame: string | null; event: LiveActionEvent | null; pressKey: number; steps: LiveActionEvent[] };
 const EMPTY: LaneView = { frame: null, event: null, pressKey: 0, steps: [] };
 
-/** Cursor arrow drawn by Centinel over the streamed frame; the website itself is never modified. */
+/** Cursor arrow drawn by ORIN over the streamed frame; the website itself is never modified. */
 function CursorArrow({ color }: { color: string }) {
   return (
     <svg className="at-cursor-arrow" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">

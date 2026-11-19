@@ -6,7 +6,7 @@ import { buildCheckResult, type CheckResult } from './result';
 import type { CheckRecord } from './types';
 
 /**
- * The project's latest result for the "What Centinel knows" panel, read from the
+ * The project's latest result for the "What ORIN knows" panel, read from the
  * service (not this device's check list), so every member and device sees the same.
  * Code problems come from the latest code review; browser proof from the latest
  * full Auto test (conversation requests are excluded). Nothing is estimated.

@@ -67,7 +67,7 @@ describe('Supabase social authentication', () => {
     expect(JSON.stringify(authMocks.signInWithOAuth.mock.calls)).not.toContain('repo');
   });
 
-  it('restores an implicit OAuth session delivered by the Centinel deep link', async () => {
+  it('restores an implicit OAuth session delivered by the ORIN deep link', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://centinel-test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'sb_publishable_test');
     const session = { access_token: 'access-token', user: { id: 'user-1' } };
@@ -89,7 +89,7 @@ describe('Supabase social authentication', () => {
     const { completeDeepLinkSignIn } = await import('./supabaseAuth');
 
     await expect(completeDeepLinkSignIn('centinel://wrong/callback#access_token=access&refresh_token=refresh'))
-      .rejects.toThrow('not a Centinel authentication callback');
+      .rejects.toThrow('not a ORIN authentication callback');
   });
 
   it('starts explicit Google linking with identity-only scopes for the current session', async () => {

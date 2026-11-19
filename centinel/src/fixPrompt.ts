@@ -9,7 +9,7 @@ import { displayPath } from './utils/displayPath';
  *
  * It contains only this finding's public content: title, risk, location,
  * a short evidence excerpt, the recorded explanation and remedy, and the linked
- * requirement sentence. It never includes Centinel IDs, model reasoning,
+ * requirement sentence. It never includes ORIN IDs, model reasoning,
  * other findings or secret-looking values.
  */
 
@@ -79,7 +79,7 @@ function capitalize(value: string): string {
 }
 
 export function buildFixPrompt(finding: Finding, options: { title?: string } = {}): string {
-  const title = prose(options.title || finding.title) || 'Issue reported by Centinel';
+  const title = prose(options.title || finding.title) || 'Issue reported by ORIN';
   const riskLevel = finding.riskLevel ?? deriveRiskLevelWithFallback(finding.severity, finding.priority);
   const riskParts = [riskLevel ? capitalize(riskLevel) : null, finding.severity ? `severity ${finding.severity.toLowerCase()}` : null, finding.priority?.trim() ? `priority ${finding.priority.trim().toLowerCase()}` : null].filter(Boolean);
   const references = findingSourceReferences(finding);

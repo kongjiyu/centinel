@@ -241,7 +241,7 @@ function modelSettingPayload(userId: string, id: ModelProviderSettingId, input: 
   validateModelProviderUpdate(input, existing, id);
   const meta = metadata(existing ?? {});
   const quotaProject = input.geminiOAuth ? geminiOAuthProject(userId) : null;
-  if (input.geminiOAuth && !quotaProject) throw new Error('Configure Gemini OAuth for this Centinel account first.');
+  if (input.geminiOAuth && !quotaProject) throw new Error('Configure Gemini OAuth for this ORIN account first.');
   const primarySecret = input.provider === 'codex' || quotaProject ? null : input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
   const previousFallbackSecret = text(existing ?? {}, 'fallback_secret_ciphertext') || text(meta, 'fallbackSecretCiphertext');
   const fallbackSecret = input.fallbackEnabled

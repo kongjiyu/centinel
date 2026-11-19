@@ -69,7 +69,7 @@ describe('check result', () => {
   it('says no problems only after both parts finished, and names what was checked', () => {
     const result = buildCheckResult({ check: check(), review: review(), findings: [], autoTest: session([test({ state: 'passed', checkResults: [] })]), requirements: [] });
     expect(result.verdict).toBe('No problems found.');
-    expect(result.verdictDetail).toBe('Centinel checked the code and 1 browser test.');
+    expect(result.verdictDetail).toBe('ORIN checked the code and 1 browser test.');
   });
 
   it('is not finished while a part is running', () => {
@@ -104,7 +104,7 @@ describe('check result', () => {
   it('marks parts that were not requested', () => {
     const result = buildCheckResult({ check: check({ mode: 'code', autoTestId: undefined }), review: review(), findings: [], autoTest: null, requirements: [] });
     expect(result.browserState).toBe('not_requested');
-    expect(result.verdictDetail).toBe('Centinel checked the code.');
+    expect(result.verdictDetail).toBe('ORIN checked the code.');
   });
 });
 

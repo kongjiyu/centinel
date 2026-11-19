@@ -119,5 +119,6 @@
   border: 0;
   background: transparent;
 }
+.workspace-mode:not(.dashboard-mode) .profile-screen.profile-embedded { width: 100%; margin: 0; }
 .workspace-mode:not(.dashboard-mode) .profile-card > .status-badge { margin-left: 0; }
 .workspace-mode:not(.dashboard-mode) .profile-card > .profile-provider-action { margin-inline-start: auto; }

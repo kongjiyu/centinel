@@ -5,7 +5,7 @@ describe('integration OAuth callback page', () => {
   it('offers a desktop return action after a successful connection', () => {
     const html = renderCallbackPage('github', true, 'Connected as Octocat.');
     expect(html).toContain('href="centinel://integrations/connected"');
-    expect(html).toContain('Open Centinel');
+    expect(html).toContain('Open ORIN');
     expect(html).toContain('window.close()');
     expect(html).not.toContain('setTimeout');
   });

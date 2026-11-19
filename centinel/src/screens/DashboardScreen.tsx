@@ -307,7 +307,7 @@ export function DashboardScreen({ projects, aiSettings, onNavigate, accountId, o
               <button type="button" className="recommendation-action" onClick={recommendation.onClick} aria-label={`${recommendation.actionLabel}: ${recommendation.summary}`}>
                 {recommendation.actionLabel}
               </button>
-              <img className="recommendation-watermark" src="/assets/centinel-shield.svg" alt="" aria-hidden="true" />
+              <img className="recommendation-watermark" src="/assets/orin-aperture.svg" alt="" aria-hidden="true" />
             </div>
           </section>
 

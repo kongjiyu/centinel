@@ -124,13 +124,13 @@ function normalizeIdentityLinkError(error: unknown, provider?: LinkableIdentityP
     return new IdentityLinkError('Linking was cancelled. No sign-in method was changed.', 'cancelled', provider);
   }
   if (/already.?linked|identity.?already|identity_already|duplicate|conflict|already exists|already registered/.test(lower)) {
-    return new IdentityLinkError('This sign-in method could not be linked because the provider identity is already associated with another Centinel account. Nothing was changed; sign in to that account or use a different provider identity.', 'conflict', provider);
+    return new IdentityLinkError('This sign-in method could not be linked because the provider identity is already associated with another ORIN account. Nothing was changed; sign in to that account or use a different provider identity.', 'conflict', provider);
   }
   if (/manual.?link|linking.*disabled|disabled.*link/.test(lower)) {
     return new IdentityLinkError('Identity linking is not enabled for this Supabase project. Ask an administrator to enable manual linking, then try again.', 'callback_error', provider);
   }
   if (/session|jwt|not authenticated|unauthenticated|sign in/.test(lower)) {
-    return new IdentityLinkError('Your Centinel session is no longer active. Sign in again before linking a sign-in method.', 'unauthenticated', provider);
+    return new IdentityLinkError('Your ORIN session is no longer active. Sign in again before linking a sign-in method.', 'unauthenticated', provider);
   }
   return new IdentityLinkError(raw && raw.length <= 300 ? raw : 'The sign-in method could not be linked. No account identities were changed.', 'unknown', provider);
 }
@@ -298,12 +298,12 @@ export async function linkIdentity(provider: LinkableIdentityProvider): Promise<
   const sessionResult = await supabase.auth.getSession();
   if (sessionResult.error) throw normalizeIdentityLinkError(sessionResult.error, provider);
   if (!sessionResult.data.session?.user?.id) {
-    throw new IdentityLinkError('Your Centinel session is no longer active. Sign in again before linking a sign-in method.', 'unauthenticated', provider);
+    throw new IdentityLinkError('Your ORIN session is no longer active. Sign in again before linking a sign-in method.', 'unauthenticated', provider);
   }
 
   const identities = await getLinkedIdentities();
   if (identities.some(identity => identity.provider === provider)) {
-    throw new IdentityLinkError(`${provider === 'google' ? 'Google' : 'GitHub'} is already linked to this Centinel account.`, 'already_linked', provider);
+    throw new IdentityLinkError(`${provider === 'google' ? 'Google' : 'GitHub'} is already linked to this ORIN account.`, 'already_linked', provider);
   }
 
   setPendingIdentityLink(provider, sessionResult.data.session.user.id);
@@ -349,7 +349,7 @@ export async function completeDeepLinkSignIn(callbackUrl: string): Promise<Sessi
 
   const callback = new URL(callbackUrl);
   if (callback.protocol !== 'centinel:' || callback.hostname !== 'auth' || callback.pathname !== '/callback') {
-    throw new Error('This link is not a Centinel authentication callback.');
+    throw new Error('This link is not a ORIN authentication callback.');
   }
 
   const callbackHash = new URLSearchParams(callback.hash.slice(1));
@@ -372,7 +372,7 @@ export async function completeDeepLinkSignIn(callbackUrl: string): Promise<Sessi
   const priorSession = pending ? await supabase.auth.getSession() : null;
   if (pending && (!pending.userId || priorSession?.error || priorSession?.data.session?.user.id !== pending.userId)) {
     clearPendingIdentityLink();
-    const error = new IdentityLinkError('Your signed-in account changed while linking. No identity was linked in Centinel; sign in to the intended account and try again.', 'unauthenticated', pending.provider);
+    const error = new IdentityLinkError('Your signed-in account changed while linking. No identity was linked in ORIN; sign in to the intended account and try again.', 'unauthenticated', pending.provider);
     publishIdentityLinkResult({ provider: pending.provider, status: 'error', message: error.message });
     throw error;
   }
@@ -411,7 +411,7 @@ export async function completeDeepLinkSignIn(callbackUrl: string): Promise<Sessi
       cacheSession(null);
     }
     clearPendingIdentityLink();
-    const error = new IdentityLinkError('The provider returned a different Centinel account. Linking was stopped; no accounts were merged.', 'conflict', pending.provider);
+    const error = new IdentityLinkError('The provider returned a different ORIN account. Linking was stopped; no accounts were merged.', 'conflict', pending.provider);
     publishIdentityLinkResult({ provider: pending.provider, status: 'error', message: error.message });
     throw error;
   }
@@ -421,7 +421,7 @@ export async function completeDeepLinkSignIn(callbackUrl: string): Promise<Sessi
       identity.provider === pending.provider && identity.user_id === pending.userId)) {
       clearPendingIdentityLink();
       const error = new IdentityLinkError(
-        'The provider callback finished, but Centinel could not confirm that the sign-in method is linked. Refresh your account methods before trying again.',
+        'The provider callback finished, but ORIN could not confirm that the sign-in method is linked. Refresh your account methods before trying again.',
         'callback_error', pending.provider,
       );
       publishIdentityLinkResult({ provider: pending.provider, status: 'error', message: error.message });

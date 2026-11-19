@@ -65,6 +65,33 @@ describe('Check screen', () => {
     expect(api.cancelAutoTest).toHaveBeenCalledWith('p1', 'a1');
   });
 
+  it('shows the saved pause reason while the browser lane is still live', async () => {
+    saveCheck(record());
+    vi.mocked(api.getStaticSession).mockResolvedValue({
+      ...reviewSession('blocked', { stage: 'provider_paused' }), failureReason: 'Paused: the Model Provider reached its usage limit.',
+    } as never);
+    vi.mocked(api.listStaticFindings).mockResolvedValue([]);
+    vi.mocked(api.autoTest).mockResolvedValue(autoSession('testing', []) as never);
+    const navigate = vi.fn();
+    render(<CheckScreen checkId="c1" onNavigate={navigate} />);
+    expect(await screen.findByText('Code review paused')).toBeInTheDocument();
+    expect(screen.getByText('Paused: the Model Provider reached its usage limit.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(navigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: 'p1', sessionId: 'r1' });
+  });
+
+  it('shows the browser startup error while code review continues', async () => {
+    saveCheck(record());
+    vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('running') as never);
+    vi.mocked(api.autoTest).mockResolvedValue({
+      ...autoSession('failed', []), error: { reason: 'exited', message: 'The app stopped while starting (exit code 1).' },
+    } as never);
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+    expect(await screen.findByText('Browser check blocked before startup')).toBeInTheDocument();
+    expect(screen.getByText('The app stopped while starting (exit code 1).')).toBeInTheDocument();
+    expect(screen.getByText('The app did not start.')).toBeInTheDocument();
+  });
+
   it('switches to Result when both parts finish, opens the top problem and records the outcome', async () => {
     saveCheck(record());
     vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('completed') as never);
@@ -85,6 +112,18 @@ describe('Check screen', () => {
     expect(within(code).getByText('Critical')).toBeInTheDocument();
     expect(within(code).queryByText('Browser')).not.toBeInTheDocument();
     expect(getCheck('c1')).toMatchObject({ phase: 'done', problemCount: 2 });
+  });
+
+  it('keeps the blocking reason visible above the final measurements', async () => {
+    saveCheck(record({ mode: 'code', autoTestId: undefined }));
+    vi.mocked(api.getStaticSession).mockResolvedValue({
+      ...reviewSession('blocked'), failureReason: 'The required repository snapshot is missing.',
+    } as never);
+    vi.mocked(api.listStaticFindings).mockResolvedValue([]);
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+    expect(await screen.findByRole('heading', { name: 'The check stopped before it finished.' })).toBeInTheDocument();
+    expect(screen.getByText('Code review blocked')).toBeInTheDocument();
+    expect(screen.getByText('The required repository snapshot is missing.', { exact: true })).toBeInTheDocument();
   });
 
   it('explains a check that could not start and offers a new one', async () => {

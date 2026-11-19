@@ -40,7 +40,7 @@ export function ProfileScreen({ accountEmail = null, authProvider = null, embedd
   const openProviderAccount = async () => {
     if (!provider?.accountUrl) return;
     const opened = await openExternalUrl(provider.accountUrl);
-    setMessage(opened ? null : 'Centinel could not open the provider account page. Check your default browser and try again.');
+    setMessage(opened ? null : 'ORIN could not open the provider account page. Check your default browser and try again.');
   };
 
   return (
@@ -48,14 +48,14 @@ export function ProfileScreen({ accountEmail = null, authProvider = null, embedd
       {!embedded && <CommandPageHeader
         eyebrow="Account"
         title="Manage account"
-        description="Your Centinel account is associated with the service you used to sign in."
+        description="Your ORIN account is associated with the service you used to sign in."
       />}
 
       <section className="profile-card" aria-labelledby="profile-account-title">
         <div className="profile-avatar" aria-hidden="true"><UserRound size={24} strokeWidth={1.6} /></div>
         <div className="profile-account-copy">
           <h2 id="profile-account-title">{accountEmail || 'Account email unavailable'}</h2>
-          <p>Centinel account</p>
+          <p>ORIN account</p>
         </div>
         <StatusBadge label={authProvider ? `Signed in with ${provider!.label}` : 'Provider unavailable'} tone={authProvider ? 'success' : 'neutral'} />
         {provider?.manageLabel && <button type="button" className="btn-secondary profile-provider-action" onClick={() => void openProviderAccount()}>

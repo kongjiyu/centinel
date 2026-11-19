@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { FileText } from 'lucide-react';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
@@ -8,8 +9,8 @@ import { saveCheckDocuments } from '../../check/runner';
 import { api } from '../../api/client';
 import '../../components/ProjectCreateModal.css';
 
-const ACCEPT = '.md,.markdown,.txt,.pdf,.json,.csv,.yaml,.yml,.doc,.docx';
-const extensions = new Set(ACCEPT.split(','));
+export const CHECK_DOCUMENT_ACCEPT = '.md,.markdown,.txt,.pdf,.json,.csv,.yaml,.yml,.doc,.docx';
+const extensions = new Set(CHECK_DOCUMENT_ACCEPT.split(','));
 
 export type CheckDocumentBatch = { accepted: CheckDocument[]; message: string | null };
 
@@ -22,10 +23,10 @@ export async function attachCheckDocuments(batch: CheckDocumentBatch, existing: 
   });
   if (!projectId || !additions.length) return { documents: additions, message: batch.message };
   const { documents, failed } = await saveCheckDocuments(api, projectId, additions);
-  return { documents, message: [batch.message, failed.length ? `Could not save ${failed.length} documents to the library. Centinel will try again when you send the check.` : null].filter(Boolean).join(' ') || null };
+  return { documents, message: [batch.message, failed.length ? `Could not save ${failed.length} documents to the library. ORIN will try again when you send the check.` : null].filter(Boolean).join(' ') || null };
 }
 
-async function readCheckDocuments(files: LocalSourceFile[], limited = false): Promise<CheckDocumentBatch> {
+export async function readCheckDocuments(files: LocalSourceFile[], limited = false): Promise<CheckDocumentBatch> {
   const accepted: CheckDocument[] = [];
   const rejected: string[] = [];
   for (const source of files) {
@@ -106,10 +107,84 @@ export function CheckDocumentPicker({ open, onClose, onSelect, closeOnSelect = t
         <button type="button" className="btn-link" data-autofocus disabled={busy} onClick={() => fileInput.current?.click()}>Choose files</button>
         <button type="button" className="btn-link" disabled={busy} onClick={() => folderInput.current?.click()}>Choose folder</button>
       </div>
-      <input ref={fileInput} type="file" multiple hidden accept={ACCEPT} aria-label="Document files" onChange={event => choose(event.target)} />
+      <input ref={fileInput} type="file" multiple hidden accept={CHECK_DOCUMENT_ACCEPT} aria-label="Document files" onChange={event => choose(event.target)} />
       <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} aria-label="Document folder" onChange={event => choose(event.target)} />
     </div>
     {busy && <p role="status">Adding documents…</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
   </Modal>;
+}
+
+export function usePageDocumentDrop(
+  anchor: RefObject<HTMLElement>,
+  enabled: boolean,
+  onFiles: (read: () => Promise<CheckDocumentBatch>) => void,
+) {
+  const [dragging, setDragging] = useState(false);
+  const latest = useRef(onFiles);
+  latest.current = onFiles;
+  useEffect(() => {
+    setDragging(false);
+    if (!enabled) return;
+    const area = anchor.current?.closest('main') ?? anchor.current?.closest('.ck-start, .ck-detail-layout') ?? anchor.current;
+    if (!area) return;
+    const allowDrop = (event: DragEvent) => {
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files') || document.querySelector('[aria-modal=true]')) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setDragging(true);
+    };
+    const end = () => setDragging(false);
+    const leave = (event: DragEvent) => {
+      if (!(event.relatedTarget instanceof Node) || !area.contains(event.relatedTarget)) {
+        // Chromium can omit relatedTarget as the pointer crosses a child.
+        const bounds = area.getBoundingClientRect();
+        if (event.relatedTarget || event.clientX <= bounds.left || event.clientX >= bounds.right
+          || event.clientY <= bounds.top || event.clientY >= bounds.bottom) end();
+      }
+    };
+    const drop = (event: DragEvent) => {
+      end();
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files') || document.querySelector('[aria-modal=true]')) return;
+      event.preventDefault();
+      const transfer = event.dataTransfer;
+      latest.current(() => readDroppedCheckDocuments(transfer));
+    };
+    area.addEventListener('dragover', allowDrop);
+    area.addEventListener('dragleave', leave);
+    area.addEventListener('drop', drop);
+    window.addEventListener('drop', end);
+    window.addEventListener('dragend', end);
+    window.addEventListener('blur', end);
+    return () => {
+      area.removeEventListener('dragover', allowDrop);
+      area.removeEventListener('dragleave', leave);
+      area.removeEventListener('drop', drop);
+      window.removeEventListener('drop', end);
+      window.removeEventListener('dragend', end);
+      window.removeEventListener('blur', end);
+    };
+  }, [anchor, enabled]);
+  return dragging;
+}
+
+export function PageDocumentDropIndicator({ anchor }: { anchor: RefObject<HTMLElement> }) {
+  const area = anchor.current?.closest('main') ?? anchor.current?.closest('.ck-start, .ck-detail-layout');
+  const bounds = area?.getBoundingClientRect();
+  return createPortal(<div className="ck-page-file-drop" role="status"
+    style={bounds ? { inset: `${bounds.top}px ${window.innerWidth - bounds.right}px ${window.innerHeight - bounds.bottom}px ${bounds.left}px` } : undefined}>
+    <Icon icon={FileText} /><span>Drop documents anywhere on this page</span>
+  </div>, document.body);
+}
+
+export function CheckDocumentInput({ input, onFiles }: {
+  input: RefObject<HTMLInputElement>;
+  onFiles: (read: () => Promise<CheckDocumentBatch>) => void;
+}) {
+  return <input ref={input} type="file" multiple hidden accept={CHECK_DOCUMENT_ACCEPT} aria-label="Document files"
+    onChange={event => {
+      const files = Array.from(event.currentTarget.files ?? [], file => ({ file, path: file.name }));
+      event.currentTarget.value = '';
+      if (files.length) onFiles(() => readCheckDocuments(files));
+    }} />;
 }

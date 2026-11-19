@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Autonomous launch recipes. Every command Centinel may run is built here from a
+ * Autonomous launch recipes. Every command ORIN may run is built here from a
  * fixed table matched to repository files. A model can only choose a recipe by id;
  * it never supplies program names, arguments or shell text.
  */
@@ -86,7 +86,7 @@ function nodeFramework(manifest: Manifest, scriptCommand: string): Framework {
 
 const hasDependencies = (manifest: Manifest) => Object.keys(manifest.dependencies ?? {}).length + Object.keys(manifest.devDependencies ?? {}).length > 0;
 const SERVER_SOURCE = /\b(createServer|\.listen\s*\(|express\s*\(|fastify\s*\(|new\s+Koa\s*\()/;
-/** "node server.js" style scripts run with Centinel's own Node runtime, no package manager. */
+/** "node server.js" style scripts run with ORIN's own Node runtime, no package manager. */
 const PLAIN_NODE_SCRIPT = /^node\s+(\.\/)?([\w./-]+\.(?:c|m)?js)$/;
 
 function detectNode(folder: string, manifest: Manifest): LaunchRecipe[] {
@@ -189,7 +189,7 @@ export function detectLaunchRecipes(folder: string): RecipeDetection {
       return { folder: root, recipes: [], unsupported: { reason: 'monorepo', message: 'This repository contains several apps. Choose the folder of the web app you want to test.', candidates } };
     }
     if (exists(root, 'docker-compose.yml') || exists(root, 'docker-compose.yaml') || exists(root, 'compose.yaml') || exists(root, 'Dockerfile')) {
-      return { folder: root, recipes: [], unsupported: { reason: 'docker_only', message: 'This app starts with Docker, which Centinel does not run automatically. Start it yourself and test it by URL.' } };
+      return { folder: root, recipes: [], unsupported: { reason: 'docker_only', message: 'This app starts with Docker, which ORIN does not run automatically. Start it yourself and test it by URL.' } };
     }
     return { folder: root, recipes: [], unsupported: { reason: 'no_entry_point', message: 'No web app start command was found in this folder.', candidates } };
   }

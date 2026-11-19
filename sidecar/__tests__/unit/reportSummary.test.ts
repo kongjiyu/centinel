@@ -53,8 +53,8 @@ describe('plain-language report summary', () => {
     expect(summary).toMatchObject({ tone: 'neutral', headline: 'Not checked yet', openIssues: 0, seriousIssues: 0 });
     expect(summary.codeReview.label).toBe('Not run');
     expect(summary.nextSteps).toEqual([
-      'Run a code review so Centinel can check your source files.',
-      'Run a browser test so Centinel can check your website in a real browser.',
+      'Run a code review so ORIN can check your source files.',
+      'Run a browser test so ORIN can check your website in a real browser.',
     ]);
   });
 
@@ -92,7 +92,7 @@ describe('plain-language report summary', () => {
     expect(summary.browserTest.detail).toBe('The pay button did nothing. Recorded 2 steps, 1 failed.');
     expect(summary.codeReview.label).toBe('Approved');
     expect(summary.requirements).toEqual({ complete: 3, incomplete: 1, missing: 2 });
-    expect(summary.nextSteps).toContain('Link 2 requirements to the code that implements them, so Centinel can check coverage.');
+    expect(summary.nextSteps).toContain('Link 2 requirements to the code that implements them, so ORIN can check coverage.');
   });
 
   it('reads the Supabase Review lifecycle and shows a repeated issue once, explained issues first', () => {

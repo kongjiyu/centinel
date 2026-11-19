@@ -92,7 +92,7 @@ describe('RequirementsScreen grounding workspace', () => {
     expect(screen.getByRole('button', { name: 'Enable' })).toBeInTheDocument();
   });
 
-  it('lets the reviewer confirm or reject Centinel-suggested code links', async () => {
+  it('lets the reviewer confirm or reject ORIN-suggested code links', async () => {
     const user = userEvent.setup();
     const requirement = { id: 'req-1', projectId: 'project-1', title: 'Pay once', description: 'Charge an order once.', category: 'functional', priority: 'high', createdAt: '', updatedAt: '' };
     const code = { ...artifacts[0], id: 'code-1', type: 'source_code' as const, fileName: 'checkout.ts', filePath: 'src/checkout.ts' };

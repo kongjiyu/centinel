@@ -38,7 +38,7 @@ export function UpdatePrompt({ check = checkForAppUpdate, install = installUpdat
       <span className="update-prompt-icon" aria-hidden="true"><RefreshCw size={18} /></span>
       <div className="update-prompt-copy">
         <h2 id="update-prompt-title">Update available</h2>
-        <p role="status">{installing ? `Downloading Centinel ${update.version}… Centinel restarts when it is ready.` : `Centinel ${update.version} is ready to install. Restart to update.`}</p>
+        <p role="status">{installing ? `Downloading ORIN ${update.version}… ORIN restarts when it is ready.` : `ORIN ${update.version} is ready to install. Restart to update.`}</p>
         {error && <p className="update-prompt-error" role="alert">{error}</p>}
         <div className="update-prompt-actions">
           <button type="button" className="btn-primary" disabled={installing} onClick={() => void restart()}>{installing ? 'Updating…' : 'Restart'}</button>

@@ -150,7 +150,7 @@ function SessionView({ session, onCancel, cancelling, onOpenRun }: { session: Au
 }
 
 /**
- * Auto test: give a folder, Centinel reads it, starts the app, writes tests and runs them
+ * Auto test: give a folder, ORIN reads it, starts the app, writes tests and runs them
  * while the user watches live. Starting is automatic by the user's decision (12 Nov 2026).
  */
 export function AutoTestPanel({ projectId, defaultFolder, onOpenRun }: { projectId: string; defaultFolder?: string; onOpenRun?(runId: string): void }) {
@@ -221,7 +221,7 @@ export function AutoTestPanel({ projectId, defaultFolder, onOpenRun }: { project
       <div className="at-panel-head">
         <div>
           <h2 id="at-title">Auto test</h2>
-          <p>Give Centinel your app’s folder. It reads the code, starts the app, writes tests from your requirements and runs them while you watch.</p>
+          <p>Give ORIN your app’s folder. It reads the code, starts the app, writes tests from your requirements and runs them while you watch.</p>
         </div>
       </div>
       <form className="at-start" onSubmit={event => { event.preventDefault(); void start(); }}>
@@ -231,7 +231,7 @@ export function AutoTestPanel({ projectId, defaultFolder, onOpenRun }: { project
           <button type="button" className="btn-secondary" onClick={() => void browse()} disabled={running || starting}><FolderOpen size={16} /> Browse</button>
           <button type="submit" className="btn-primary" disabled={running || starting || !folder.trim()}><Play size={16} /> {starting ? 'Starting…' : 'Start Auto test'}</button>
         </div>
-        <p className="at-hint">Centinel starts the app with its own start command (for example <code>npm run dev</code>) on this computer and stops it when the test ends.</p>
+        <p className="at-hint">ORIN starts the app with its own start command (for example <code>npm run dev</code>) on this computer and stops it when the test ends.</p>
       </form>
       {error && <p className="at-inline-error" role="alert">{error}</p>}
       {session && <SessionView session={session} onCancel={() => void cancel()} cancelling={cancelling} onOpenRun={onOpenRun} />}

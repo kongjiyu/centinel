@@ -9,9 +9,14 @@ import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Finding, Project, Screen, StaticSession } from '../../types';
 import { ProjectConversationScreen } from './ProjectConversationScreen';
 import { CheckScreen } from '../check/CheckScreen';
+import { save } from '@tauri-apps/api/dialog';
+import { writeTextFile } from '@tauri-apps/api/fs';
+
+vi.mock('@tauri-apps/api/dialog', () => ({ save: vi.fn() }));
+vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
 
 vi.mock('../../api/client', () => ({ api: {
-  autoTests: vi.fn(), autoTest: vi.fn(), listArtifacts: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
+  autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
   listRequirements: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
   sendConversationRequest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
 } }));
@@ -29,6 +34,7 @@ function Workspace() {
 }
 beforeEach(() => {
   vi.resetAllMocks(); resetCheckStore(); sessionStorage.clear();
+  vi.mocked(api.getConnectedSourceStatus).mockResolvedValue({ connected: true, sources: [] } as never);
   sessionStorage.setItem('centinel:supabase-user-id', 'owner');
   const review = { id: reviewId, projectId: project.id, name: 'Checkout review', status: 'completed', progressJson: '{}',
     createdAt: '2026-11-18T01:00:00Z', updatedAt: '2026-11-18T01:10:00Z' } as StaticSession;
@@ -83,15 +89,15 @@ it('restores each draft when switching checks and posts only the sent draft to t
   vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => accepted(input));
   const user = userEvent.setup();
   render(<Workspace />);
-  await user.type(screen.getByRole('textbox', { name: 'Message to Centinel' }), 'My project draft');
+  await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'My project draft');
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
   const prompt = () => screen.getByRole('textbox', { name: 'Follow-up check' });
   expect(prompt()).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
   await user.type(prompt(), 'My first check draft');
   const open = async (name: string) => {
-    await user.click(screen.getByRole('button', { name: 'Check history' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Check history' })).getByRole('button', { name }));
+    await user.click(screen.getByRole('button', { name: 'History' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'History' })).getByRole('button', { name }));
   };
   await open('Catalog Browse');
   expect(prompt()).toHaveValue('');
@@ -104,7 +110,7 @@ it('restores each draft when switching checks and posts only the sent draft to t
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   const body = within(await screen.findByRole('region', { name: 'Conversation about Sample shop' }));
   expect(body.getByText('abc')).toHaveClass('is-me');
-  expect(screen.getByRole('textbox', { name: 'Message to Centinel' })).toHaveValue('My project draft');
+  expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('My project draft');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('My first check draft');
   expect(readConversationDraft(project.id, 'check-two').text).toBe('');
 });
@@ -114,6 +120,46 @@ it('uses frozen requirements and displays unavailable evidence without a fabrica
   const card = within(screen.getByRole('region', { name: 'Check Order Access' }));
   expect(await card.findByText('Requirements unavailable')).toBeInTheDocument();
   expect(api.getReviewTraceability).toHaveBeenCalledWith(project.id, reviewId);
+});
+
+it('opens coverage gaps and exports the exact browser-only card as a saved Markdown report', async () => {
+  const timestamp = '2026-11-18T02:15:00Z';
+  const browserId = 'browser-result';
+  saveCheck({ id: 'browser-card', projectId: project.id, projectName: project.name, title: 'Catalog Filters',
+    autoTestId: browserId, createdAt: timestamp, updatedAt: timestamp, mode: 'browser', phase: 'done',
+    documents: [], focus: '', notes: [] });
+  vi.mocked(api.autoTest).mockResolvedValue({
+    schemaVersion: 1, id: browserId, projectId: project.id, ownerId: 'owner', folder: '/shop',
+    createdAt: timestamp, updatedAt: timestamp, stage: 'completed', error: null, repository: null, launch: null, exploration: null,
+    lanes: [], laneLimit: 1, laneNote: null, dropped: [], summary: null,
+    tests: [{ id: 'test', name: 'Filter by size', goal: 'Filter products', rationale: '', requirementRef: null,
+      sourceRefs: [], checks: [], startPath: '/', state: 'blocked', reason: 'Control permission was missing' }],
+  });
+  vi.mocked(save).mockResolvedValueOnce(null).mockResolvedValueOnce('C:/reports/catalog.md');
+  vi.stubGlobal('__TAURI_IPC__', () => {});
+  try {
+    const user = userEvent.setup();
+    render(<Workspace />);
+    const card = within(screen.getByRole('region', { name: 'Check Catalog Filters' }));
+    const gaps = await card.findByRole('button', { name: '1 unchecked' });
+    expect(gaps).toHaveAttribute('aria-expanded', 'false');
+    await user.click(gaps);
+    expect(gaps).toHaveAttribute('aria-expanded', 'true');
+    expect(card.getByRole('listitem')).toHaveTextContent('Control permission was missing');
+    const exportButton = await card.findByRole('button', { name: 'Export' });
+    await user.click(exportButton);
+    expect(writeTextFile).not.toHaveBeenCalled();
+    await user.click(exportButton);
+    await waitFor(() => expect(writeTextFile).toHaveBeenCalledOnce());
+    const [destination, markdown] = vi.mocked(writeTextFile).mock.calls[0];
+    expect(destination).toBe('C:/reports/catalog.md');
+    expect(markdown).toContain('# Catalog Filters');
+    expect(markdown).toContain('## Not checked');
+    expect(markdown).toContain('Filter by size: blocked');
+    expect(markdown).not.toContain('Order ownership check is missing');
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 it('retains a newer draft typed while a previous send is awaiting acknowledgement', async () => {
   let acknowledge!: () => void;
@@ -128,7 +174,7 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   await user.clear(prompt);
   await user.type(prompt, 'Now explain the ownership evidence');
   acknowledge();
-  const next = await screen.findByRole('textbox', { name: 'Message to Centinel' });
+  const next = await screen.findByRole('textbox', { name: 'Message to ORIN' });
   expect(next).toHaveValue('');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('Now explain the ownership evidence');
 });

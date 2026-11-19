@@ -578,7 +578,7 @@ describe('ReviewActivityScreen', () => {
       await waitFor(() => expect(exportButton).toBeEnabled());
       expect(api.exportProjectReport).toHaveBeenCalledWith(project.id, { reviewId: baseSession.id });
       expect(save).toHaveBeenCalledWith({
-        title: 'Save Review report', defaultPath: `Centinel_${project.name}_${baseSession.name}_report.md`, filters: [{ name: 'Markdown', extensions: ['md'] }],
+        title: 'Save Review report', defaultPath: `ORIN_${project.name}_${baseSession.name}_report.md`, filters: [{ name: 'Markdown', extensions: ['md'] }],
       });
       expect(writeTextFile).not.toHaveBeenCalled();
 

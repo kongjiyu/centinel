@@ -1,6 +1,6 @@
 import { rankMentionChecks, rankMentionProjects } from '../screens/check/checkMentionSelection';
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, CircleHelp, CircleUserRound, FolderOpen, LoaderCircle, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Repeat2, Search, Settings, TriangleAlert } from 'lucide-react';
+import { ChevronDown, CircleHelp, CircleUserRound, FolderOpen, LoaderCircle, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Repeat2, Search, Settings, SquareChartGantt, TriangleAlert } from 'lucide-react';
 import type { Project, Screen } from '../types';
 import { PageBreadcrumbs } from './PageBreadcrumbs';
 import { WindowHeader } from './WindowHeader';
@@ -8,10 +8,12 @@ import { useChecks } from '../check/store';
 import { checkName } from '../check/checkName';
 import { useBackgroundCheckSync } from '../check/sync';
 import type { CheckRecord } from '../check/types';
+import { ProblemCountIcon } from './ProblemCountIcon';
 import { Icon } from './Icon';
 import { ProjectCreateModal } from './ProjectCreateModal';
 import type { ProjectCreationResult, ProjectRepositoryInput } from '../types';
 import { Modal } from './Modal';
+import { OverflowText } from './OverflowText';
 import { RecentProjectDetails } from './RecentProjectDetails';
 import './CheckSidebar.css';
 
@@ -19,6 +21,7 @@ type Props = {
   screen: Screen;
   onNavigate: (screen: Screen) => void;
   projects: Project[];
+  onProjectUpdated?: (project: Project) => void;
   onCreateProject?: (name: string, description: string, sources: ProjectRepositoryInput[]) => Promise<ProjectCreationResult | void>;
   accountEmail: string | null;
   githubLogin: string | null;
@@ -31,14 +34,14 @@ type Props = {
 
 /** A recent check's outcome in a few words (DESIGN.md §6). */
 function CheckOutcome({ check }: { check: CheckRecord }) {
-  if (check.phase === 'preparing' || check.phase === 'running') {
-    return <span className="sidebar-check-outcome is-running"><Icon icon={LoaderCircle} className="ci-spin" /><span>Checking…</span></span>;
-  }
-  if (check.phase === 'failed') return <span className="sidebar-check-outcome is-bad"><Icon icon={TriangleAlert} shape="triangle" /><span>Did not start</span></span>;
+  const active = check.phase === 'preparing' || check.phase === 'running';
+  const failed = check.phase === 'failed';
   const count = check.problemCount ?? 0;
-  return count
-    ? <span className="sidebar-check-outcome is-bad"><Icon icon={TriangleAlert} shape="triangle" /><span>{count} problem{count === 1 ? '' : 's'}</span></span>
-    : <span className="sidebar-check-outcome"><Icon icon={Check} /><span>No problems</span></span>;
+  const label = active ? 'Checking' : failed ? 'Did not start' : count ? `${count} ${count === 1 ? 'problem' : 'problems'}` : 'No problems';
+  return <span className={`sidebar-check-outcome${active ? ' is-running' : failed || count ? ' is-bad' : ''}`}>
+    {active ? <Icon icon={LoaderCircle} className="ci-spin" /> : failed ? <Icon icon={TriangleAlert} /> : <ProblemCountIcon summary={check} />}
+    <span className="sidebar-outcome-label">{label}</span>
+  </span>;
 }
 
 function isTauriRuntime(): boolean {
@@ -58,17 +61,53 @@ const SEARCH_SECTIONS = [
   ] },
 ] as const;
 
-export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, onCreateProject, onSwitchAccount, onLogOut, children }: Props) {
+export function AppShell({ screen, onNavigate, projects, accountEmail, githubLogin, accountGithubLogin = null, onCreateProject, onProjectUpdated, onSwitchAccount, onLogOut, children }: Props) {
   const nav = (name: Screen['name']) => onNavigate({ name } as Screen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [showAllProjects, setShowAllProjects] = useState(false);
+  const [projectLimit, setProjectLimit] = useState(5);
   const [checksExpanded, setChecksExpanded] = useState(true);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [recentsScrolled, setRecentsScrolled] = useState(false);
   const [detailsProjectId, setDetailsProjectId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ id: string; anchor: DOMRect } | null>(null);
+  const closePreviewTimer = useRef<ReturnType<typeof setTimeout>>();
+  const closePreview = () => {
+    clearTimeout(closePreviewTimer.current);
+    setPreview(null);
+  };
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => { if (event.key === 'Escape') closePreview(); };
+    window.addEventListener('keydown', dismiss);
+    window.addEventListener('resize', closePreview);
+    return () => {
+      clearTimeout(closePreviewTimer.current);
+      window.removeEventListener('keydown', dismiss);
+      window.removeEventListener('resize', closePreview);
+    };
+  }, []);
+  const openProjectDetails = (projectId: string) => {
+    closePreview();
+    setSearchOpen(false);
+    setDetailsProjectId(projectId);
+  };
+  const projectOptions = (project: Project) => (
+    <button type="button" className="sidebar-project-options"
+      aria-label={`Details for ${project.name}`} aria-haspopup="dialog"
+      onPointerEnter={event => {
+        if (event.pointerType === 'touch' || detailsProjectId) return;
+        clearTimeout(closePreviewTimer.current);
+        setPreview({ id: project.id, anchor: event.currentTarget.getBoundingClientRect() });
+      }}
+      onPointerLeave={event => {
+        if (event.relatedTarget instanceof Element && event.relatedTarget.closest('.recent-project-preview')) return;
+        closePreviewTimer.current = setTimeout(closePreview, 160);
+      }}
+      onClick={() => openProjectDetails(project.id)}
+    ><Icon icon={MoreHorizontal} /></button>
+  );
   const checks = useChecks();
   useBackgroundCheckSync(true);
   const visibleChecks = checks.slice(0, 20);
@@ -139,7 +178,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
   }, []);
 
   const recentProjects = [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const detailsProject = projects.find(project => project.id === detailsProjectId);
+  const detailsProject = projects.find(project => project.id === (detailsProjectId ?? preview?.id));
   const query = search.trim().toLowerCase();
   const matchingProjects = searchOpen ? rankMentionProjects(recentProjects, checks, query, 8, true) : [];
   const matchingChecks = searchOpen ? rankMentionChecks(checks.filter(check => [checkName(check), check.projectName, check.focus].join(' ').toLowerCase().includes(query)), 8) : [];
@@ -183,7 +222,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                 aria-label="New Check"
                 title="New Check"
               >
-                <Plus size={18} aria-hidden="true" />
+                <SquareChartGantt size={18} aria-hidden="true" />
                 <span>New Check</span>
               </button>
             </div>
@@ -194,7 +233,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <Search size={18} strokeWidth={1.7} aria-hidden="true" /><span>Search</span>
             </button>
             </div>
-            <div className="sidebar-recents" onScroll={event => setRecentsScrolled(event.currentTarget.scrollTop > 0)}>
+            <div className="sidebar-recents" onScroll={event => { closePreview(); setRecentsScrolled(event.currentTarget.scrollTop > 0); }}>
             <div className="sidebar-nav-group sidebar-checks">
               <button type="button" className="sidebar-category sidebar-recent-toggle"
                 aria-expanded={checksExpanded} aria-controls="sidebar-recent-checks-content" onClick={() => setChecksExpanded(value => !value)}>
@@ -209,12 +248,12 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                       <li key={check.id}>
                         <button
                           type="button"
-                          className={`sidebar-check ${current ? 'active' : ''}`}
+                          className={`sidebar-check sidebar-check-item ${current ? 'active' : ''}`}
                           aria-current={current ? 'page' : undefined}
                           onClick={() => onNavigate({ name: 'check', checkId: check.id })}
-                          title={checkName(check)}
                         >
-                          <span className="sidebar-check-name">{checkName(check)}</span>
+                          <Icon icon={SquareChartGantt} />
+                          <OverflowText text={checkName(check)} />
                           <CheckOutcome check={check} />
                         </button>
                       </li>
@@ -242,16 +281,10 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               {recentProjects.length ? (
                 <>
                   <ul className="sidebar-check-list" id="sidebar-recent-projects-list">
-                    {(showAllProjects ? recentProjects : recentProjects.slice(0, 6)).map(project => {
+                    {recentProjects.slice(0, projectLimit).map(project => {
                       const current = (screen.name === 'project' || screen.name === 'project-detail') && screen.projectId === project.id;
                       return (
-                        <li className={`sidebar-project-row${current ? ' active' : ''}`} key={project.id}
-                          onPointerEnter={event => {
-                            const label = event.currentTarget.querySelector('.sidebar-project-label');
-                            if (label?.firstElementChild) {
-                              event.currentTarget.style.setProperty('--project-overflow', `${Math.max(0, label.firstElementChild.scrollWidth - label.clientWidth)}px`);
-                            }
-                          }}>
+                        <li className={`sidebar-project-row${current ? ' active' : ''}`} key={project.id}>
                           <button
                             type="button"
                             className={`sidebar-check sidebar-project${current ? ' active' : ''}`}
@@ -259,19 +292,16 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
                             onClick={() => onNavigate({ name: 'project', projectId: project.id })}
                           >
                             <Icon icon={FolderOpen} />
-                            <span className="sidebar-project-label"><span>{project.name}</span></span>
+                            <OverflowText text={project.name} />
                           </button>
-                          <button type="button" className="sidebar-project-options"
-                            aria-label={`Details for ${project.name}`} aria-haspopup="dialog" title="Project details"
-                            onClick={() => setDetailsProjectId(project.id)}
-                          ><Icon icon={MoreHorizontal} /></button>
+                          {projectOptions(project)}
                         </li>
                       );
                     })}
                   </ul>
-                  {recentProjects.length > 6 && (
-                    <button type="button" className="sidebar-project-more" aria-expanded={showAllProjects} aria-controls="sidebar-recent-projects-list" onClick={() => setShowAllProjects(value => !value)}>
-                      {showAllProjects ? 'Show fewer projects' : 'Show all projects'}
+                  {recentProjects.length > projectLimit && (
+                    <button type="button" className="sidebar-project-more" aria-controls="sidebar-recent-projects-list" onClick={() => setProjectLimit(value => value + 5)}>
+                      Show more
                     </button>
                   )}
                 </>
@@ -316,7 +346,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
         </aside>
 
         <section className="page-content-container" aria-label="Page content">
-          {screen.name !== 'new-check' && screen.name !== 'check' && screen.name !== 'project' && <PageBreadcrumbs
+          {screen.name !== 'new-check' && screen.name !== 'check' && screen.name !== 'project' && screen.name !== 'settings' && <PageBreadcrumbs
             screen={screen}
             projects={projects}
             onNavigate={onNavigate}
@@ -326,7 +356,7 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
           </main>
         </section>
       </div>
-      <Modal isOpen={searchOpen} onClose={() => setSearchOpen(false)} title="Search projects and checks" width={720} overlayClassName="sidebar-search-overlay"
+      <Modal isOpen={searchOpen} onClose={() => { closePreview(); setSearchOpen(false); }} title="Search projects and checks" width={720} overlayClassName="sidebar-search-overlay"
         headerContent={<div className="sidebar-search-header"><input className="sidebar-search-field" type="search" data-autofocus aria-label="Search checks, projects, settings, and guides" placeholder="Search checks, projects, settings, and guides" value={search} onChange={event => setSearch(event.target.value)} /><Search size={17} aria-hidden="true" /></div>}>
         <div className="sidebar-search-dialog">
           <div className="sidebar-search-results">
@@ -334,8 +364,9 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
               <h4 id="sidebar-search-checks">Checks</h4>
               {matchingChecks.length ? <ul className="sidebar-check-list">
                 {matchingChecks.map(check => <li key={check.id}>
-                  <button type="button" className="sidebar-check" onClick={() => openSearchResult({ name: 'check', checkId: check.id })}>
-                    <span className="sidebar-check-name">{checkName(check)}</span>
+                  <button type="button" className="sidebar-check sidebar-check-item" onClick={() => openSearchResult({ name: 'check', checkId: check.id })}>
+                    <Icon icon={SquareChartGantt} />
+                    <OverflowText text={checkName(check)} />
                     <CheckOutcome check={check} />
                   </button>
                 </li>)}
@@ -344,10 +375,11 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
             <section aria-labelledby="sidebar-search-projects">
               <h4 id="sidebar-search-projects">Projects</h4>
               {matchingProjects.length ? <ul className="sidebar-check-list">
-                {matchingProjects.map(project => <li key={project.id}>
+                {matchingProjects.map(project => <li key={project.id} className="sidebar-project-row">
                   <button type="button" className="sidebar-check sidebar-project" onClick={() => openSearchResult({ name: 'project', projectId: project.id })}>
-                    <Icon icon={FolderOpen} /><span className="sidebar-check-name">{project.name}</span>
+                    <Icon icon={FolderOpen} /><OverflowText text={project.name} />
                   </button>
+                  {projectOptions(project)}
                 </li>)}
               </ul> : <p>{query ? 'No matching projects' : 'No projects yet'}</p>}
             </section>
@@ -366,11 +398,11 @@ export function AppShell({ screen, onNavigate, projects, accountEmail, githubLog
       {onCreateProject && <ProjectCreateModal isOpen={createProjectOpen} onClose={() => setCreateProjectOpen(false)} onCreate={onCreateProject} />}
       {detailsProject && (
         <RecentProjectDetails key={detailsProject.id} project={detailsProject}
-          onClose={() => setDetailsProjectId(null)}
-          onEdit={() => {
-            setDetailsProjectId(null);
-            onNavigate({ name: 'project-detail', projectId: detailsProject.id, initialSection: 'settings' });
-          }}
+          anchor={detailsProjectId ? null : preview?.anchor ?? null}
+          onClose={() => { closePreview(); setDetailsProjectId(null); }}
+          onEdit={() => openProjectDetails(detailsProject.id)}
+          onPreviewEnter={() => clearTimeout(closePreviewTimer.current)}
+          onUpdated={onProjectUpdated}
         />
       )}
     </div>

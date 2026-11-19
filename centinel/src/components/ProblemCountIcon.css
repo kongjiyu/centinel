@@ -1,0 +1,4 @@
+.problem-count-tone.is-critical { color: var(--color-level-critical); }
+.problem-count-tone.is-high { color: var(--color-level-high); }
+.problem-count-tone.is-medium { color: var(--color-level-medium); }
+.problem-count-tone:is(.is-low, .is-unknown) { color: var(--color-level-low); }

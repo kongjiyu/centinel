@@ -42,7 +42,7 @@ export function ruleCheckExplanation(finding: Finding): string | null {
   if (finding.verifier === 'model' || finding.verifier === 'readiness') return null;
   const rule = ruleIdOf(finding);
   if (!rule) return null;
-  return RULE_EXPLANATIONS[rule] ?? 'Centinel\'s built-in pattern check matched this line. Read the code to confirm whether it is a real problem.';
+  return RULE_EXPLANATIONS[rule] ?? 'ORIN\'s built-in pattern check matched this line. Read the code to confirm whether it is a real problem.';
 }
 
 /** Repeats of the same issue that its Review kept as evidence on this finding. */

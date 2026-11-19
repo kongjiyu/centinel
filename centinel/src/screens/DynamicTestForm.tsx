@@ -45,7 +45,7 @@ export function DynamicTestForm({ onSubmit, onCancel }: Props) {
         <span className="dynamic-automation-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
         <div>
           <strong>Automatic browser test</strong>
-          <p>Centinel will navigate the website, capture visual evidence, and produce a result without pausing for approval at each step.</p>
+          <p>ORIN will navigate the website, capture visual evidence, and produce a result without pausing for approval at each step.</p>
         </div>
       </div>
 

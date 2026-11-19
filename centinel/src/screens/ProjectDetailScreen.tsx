@@ -743,7 +743,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
           const when = new Date(result.child.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
           for (const correlation of result.snapshot.correlations ?? []) {
             if (correlation.classification !== 'carried_over' || correlation.method !== 'unmatched' || !correlation.parentFindingId || next.has(correlation.parentFindingId)) continue;
-            next.set(correlation.parentFindingId, `Not found in “${result.child.name}” (${when}). Centinel couldn't prove it is fixed, so it stays open. If you fixed it, mark it as resolved.`);
+            next.set(correlation.parentFindingId, `Not found in “${result.child.name}” (${when}). ORIN couldn't prove it is fixed, so it stays open. If you fixed it, mark it as resolved.`);
           }
         }
         setNotFoundAgain(next);
@@ -1026,7 +1026,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       if (state === 'joined') setMembershipRevision(revision => revision + 1);
       setCollaboratorNotice(state === 'available' ? 'Pending Viewer access cancelled.'
         : state === 'joined' ? `${match.name} has project Viewer access.`
-          : `@${match.name} has 30 days to link their GitHub account to Centinel and open Projects.`);
+          : `@${match.name} has 30 days to link their GitHub account to ORIN and open Projects.`);
     } catch (cause) {
       if (currentProjectId.current === projectId) setCollaboratorError(userFacingError(cause, 'Collaborator access could not be updated.'));
     } finally {
@@ -1358,7 +1358,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
             <span className="collaborator-query-control">
               <input id="collaborator-query" type="search" value={collaboratorQuery} maxLength={320}
                 onChange={event => { setCollaboratorQuery(event.target.value); setCollaboratorNotice(null); }}
-                placeholder={githubConnection === 'disconnected' || githubConnection === 'unavailable' ? 'Centinel email' : 'GitHub username, name, or Centinel email'}
+                placeholder={githubConnection === 'disconnected' || githubConnection === 'unavailable' ? 'ORIN email' : 'GitHub username, name, or ORIN email'}
                 disabled={collaboratorAddLoading} />
               <Search size={16} aria-hidden="true" />
             </span>
@@ -1373,7 +1373,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
               <button type="button" className="collaborator-result"
                 disabled={match.state !== 'available' || collaboratorAddLoading} onClick={() => void changeCollaboratorAccess(match)}>
                 {match.avatarUrl ? <img src={match.avatarUrl} alt="" /> : <span className="collaborator-avatar" aria-hidden="true"><Users size={16} /></span>}
-                <span className="collaborator-result-account"><strong>{match.name}</strong><small>{match.provider === 'github' ? 'GitHub' : 'Centinel'}</small></span>
+                <span className="collaborator-result-account"><strong>{match.name}</strong><small>{match.provider === 'github' ? 'GitHub' : 'ORIN'}</small></span>
                 {match.state === 'joined' && <StatusBadge label="Joined" tone="success" />}
                 {match.state === 'pending' && <StatusBadge label="Pending" tone="neutral" />}
                 {match.state === 'available' && <UserPlus size={16} aria-hidden="true" />}
@@ -1393,7 +1393,7 @@ export function ProjectDetailScreen({ project, onNavigate, onProjectUpdated, ini
       >
         <div className="confirm-dialog-content">
           <span className="confirm-dialog-icon" aria-hidden="true"><Trash2 size={20} /></span>
-          <p>Remove <strong>{currentProject.name}</strong> and its indexed records from Centinel? Files in <span className="project-workspace">{currentProject.workspacePath}</span> will be retained.</p>
+          <p>Remove <strong>{currentProject.name}</strong> and its indexed records from ORIN? Files in <span className="project-workspace">{currentProject.workspacePath}</span> will be retained.</p>
         </div>
         <div className="form-actions confirm-dialog-actions">
           <button type="button" className="btn-secondary" onClick={() => setShowDeleteProject(false)} disabled={deletingProject} data-autofocus>Cancel</button>
@@ -1440,7 +1440,7 @@ function AssessmentInfoDialog({
       </div>
       {activePage === 'severity' && <section id="assessment-info-panel-severity" role="tabpanel" aria-labelledby="assessment-info-tab-severity" tabIndex={0}><h3 id="assessment-info-severity">Severity</h3><p>Severity represents the potential impact of an identified finding.</p><dl className="assessment-info-definitions"><div><dt>Critical</dt><dd>Severe impact requiring immediate attention, such as major security, correctness, integrity, or production-impacting concerns.</dd></div><div><dt>High</dt><dd>Significant impact that should be remediated promptly.</dd></div><div><dt>Medium</dt><dd>Material concern that should be addressed but does not normally require immediate intervention.</dd></div><div><dt>Low</dt><dd>Limited-impact concern or lower-urgency improvement.</dd></div></dl><p className="assessment-info-note">Informational findings remain visible in Findings when supported, but are not silently converted into Low Risk.</p></section>}
       {activePage === 'priority' && <section id="assessment-info-panel-priority" role="tabpanel" aria-labelledby="assessment-info-tab-priority" tabIndex={0}><h3 id="assessment-info-priority">Priority</h3><p>Priority represents remediation and review urgency. It is independent from Severity.</p><dl className="assessment-info-definitions"><div><dt>High</dt><dd>Respond promptly because delay materially increases exposure or blocks important work.</dd></div><div><dt>Medium</dt><dd>Schedule remediation in the normal project flow.</dd></div><div><dt>Low</dt><dd>Address when practical or as part of routine improvement.</dd></div></dl><p className="assessment-info-note">Example: a finding can be Severity <strong>High</strong> and Priority <strong>Medium</strong>. Severity describes impact; Priority describes urgency.</p></section>}
-      {activePage === 'risk' && <section id="assessment-info-panel-risk" role="tabpanel" aria-labelledby="assessment-info-tab-risk" tabIndex={0}><h3 id="assessment-info-risk">Risk Measurement</h3><p>Centinel determines a finding's Risk Level by evaluating the combination of its Severity and Priority. Severity represents potential impact, while Priority represents remediation urgency. The resulting classification is evaluated using Centinel's predefined risk matrix.</p><div className="assessment-risk-matrix-wrap"><table className="assessment-risk-matrix" aria-label="Centinel Risk Matrix v1"><thead><tr><th scope="col">Severity / Priority</th><th scope="col">High</th><th scope="col">Medium</th><th scope="col">Low</th></tr></thead><tbody>{RISK_MATRIX_ROWS.map(row => <tr key={row.severity}><th scope="row">{row.severity}</th><td>{row.high}</td><td>{row.medium}</td><td>{row.low}</td></tr>)}</tbody></table></div><p className="assessment-info-note"><strong>Severity ≠ Priority ≠ Risk Category ≠ Risk Level.</strong> Risk Category describes the type or domain of concern, such as Security or Requirement. This deterministic matrix is Centinel policy; it is not claimed as a direct ISO/IEEE mandate.</p></section>}
+      {activePage === 'risk' && <section id="assessment-info-panel-risk" role="tabpanel" aria-labelledby="assessment-info-tab-risk" tabIndex={0}><h3 id="assessment-info-risk">Risk Measurement</h3><p>ORIN determines a finding's Risk Level by evaluating the combination of its Severity and Priority. Severity represents potential impact, while Priority represents remediation urgency. The resulting classification is evaluated using ORIN's predefined risk matrix.</p><div className="assessment-risk-matrix-wrap"><table className="assessment-risk-matrix" aria-label="ORIN Risk Matrix v1"><thead><tr><th scope="col">Severity / Priority</th><th scope="col">High</th><th scope="col">Medium</th><th scope="col">Low</th></tr></thead><tbody>{RISK_MATRIX_ROWS.map(row => <tr key={row.severity}><th scope="row">{row.severity}</th><td>{row.high}</td><td>{row.medium}</td><td>{row.low}</td></tr>)}</tbody></table></div><p className="assessment-info-note"><strong>Severity ≠ Priority ≠ Risk Category ≠ Risk Level.</strong> Risk Category describes the type or domain of concern, such as Security or Requirement. This deterministic matrix is ORIN policy; it is not claimed as a direct ISO/IEEE mandate.</p></section>}
       <div className="assessment-info-navigation"><button type="button" className="btn-secondary" onClick={() => onPageChange(pages[Math.max(0, pages.findIndex(item => item.id === activePage) - 1)].id)} disabled={activePage === pages[0].id}>Previous</button><span>{pages.findIndex(item => item.id === activePage) + 1} of {pages.length}</span><button type="button" className="btn-secondary" onClick={() => onPageChange(pages[Math.min(pages.length - 1, pages.findIndex(item => item.id === activePage) + 1)].id)} disabled={activePage === pages[pages.length - 1].id}>Next</button></div>
     </div>
   </Modal>;

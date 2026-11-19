@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, ChevronDown, FileText, Folder, History, Maximize2, Minimize2, Plus, TriangleAlert, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, FileText, Folder, Maximize2, Minimize2, Plus, SquareChartGantt, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useChecks } from '../../check/store';
 import { useAttention, type AttentionItem } from '../../check/attention';
@@ -16,7 +16,7 @@ import type { AiProviderSetting, Artifact, Project, ProjectCreationResult, Proje
 import { userFacingError } from '../../utils/userFacingError';
 import { CheckPermission } from './CheckPermission';
 import { rememberComposerPosition } from './composerTransition';
-import { attachCheckDocuments, CheckDocumentPicker, readDroppedCheckDocuments, type CheckDocumentBatch } from './CheckDocumentPicker';
+import { attachCheckDocuments, CheckDocumentInput, PageDocumentDropIndicator, usePageDocumentDrop, type CheckDocumentBatch } from './CheckDocumentPicker';
 import { CheckAddOptions } from './CheckAddOptions';
 import { CheckAddSource, CheckLibraryList, useCheckLibrary, type CheckSourceChoice } from './CheckSourceLibrary';
 import { CheckAurora } from './CheckAurora';
@@ -39,7 +39,7 @@ type Props = {
 
 type Attached = { kind: 'project'; id: string } | { kind: 'folder'; path: string } | { kind: 'github'; url: string };
 
-const TITLE = 'What should Centinel check?';
+const TITLE = 'What should ORIN check?';
 const ATTENTION_PROMPTS = {
   1: 'Recheck the areas flagged in the last result.',
   2: 'Check what changed in the latest commits.',
@@ -64,7 +64,12 @@ function looksLikeFolder(text: string) {
 
 
 export function StartScreen({ projects, aiSettings, initialCreate = false, initialDraft, onNavigate, onProjectCreated, onCreateProject }: Props) {
-  const [attached, setAttached] = useState<Attached | null>(() => initialDraft ? { kind: 'project', id: initialDraft.projectId } : null);
+  const [attached, setAttached] = useState<Attached | null>(() => {
+    if (initialDraft?.projectId) return { kind: 'project', id: initialDraft.projectId };
+    if (initialDraft?.folder) return { kind: 'folder', path: initialDraft.folder };
+    if (initialDraft?.githubUrl) return { kind: 'github', url: initialDraft.githubUrl };
+    return null;
+  });
   const [documents, setDocuments] = useState<CheckDocument[]>(() => initialDraft?.documents ?? []);
   const [libraryAttachments, setLibraryAttachments] = useState<Artifact[]>([]);
   const [addingSource, setAddingSource] = useState<CheckSourceChoice | null>(null);
@@ -73,7 +78,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
   const [mode, setMode] = useState<CheckMode>(() => initialDraft?.mode ?? 'both');
   const [menu, setMenu] = useState<'add' | 'projects' | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
-  const [documentsOpen, setDocumentsOpen] = useState(false);
+  const documentInput = useRef<HTMLInputElement>(null);
   const [projectQuery, setProjectQuery] = useState('');
   const [references, setReferences] = useState<CheckRecord[]>([]);
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
@@ -81,7 +86,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
   const attention = useAttention(projects, recentChecks);
   const [createOpen, setCreateOpen] = useState(initialCreate);
   const [message, setMessage] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
+
   const [starting, setStarting] = useState(false);
   const [nextCheckId, setNextCheckId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -139,7 +144,10 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
     const fit = () => {
       if (!popover || !anchor) return;
       const top = scrollArea?.getBoundingClientRect().top ?? 0;
-      popover.style.setProperty('--ck-popover-room', `${Math.max(0, anchor.getBoundingClientRect().top - top - 26)}px`);
+      const rect = anchor.getBoundingClientRect();
+      const bottom = Math.min(window.innerHeight, scrollArea?.getBoundingClientRect().bottom ?? window.innerHeight);
+      const room = menu === 'projects' ? Math.max(102, bottom - rect.bottom - 16) : Math.max(0, rect.top - top - 26);
+      popover.style.setProperty('--ck-popover-room', room + 'px');
     };
     fit();
     if (!mention) popover?.querySelector<HTMLElement>(menu === 'projects' ? 'input' : 'button')?.focus({ preventScroll: true });
@@ -333,13 +341,14 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
     if (!attached && looksLikeFolder(text)) { event.preventDefault(); setAttached({ kind: 'folder', path: text.trim() }); setMessage(null); }
   };
 
+  const dragging = usePageDocumentDrop(composerRef, !starting, addDocuments);
   const onDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    setDragging(false);
-    const transfer = event.dataTransfer;
-    if (transfer.types.includes('Files')) void addDocuments(() => readDroppedCheckDocuments(transfer));
-    const text = transfer.getData('text');
-    if (text && githubRepositoryName(text)) attachLink(text);
+    if (event.dataTransfer.types.includes('Files')) return;
+    const text = event.dataTransfer.getData('text');
+    if (text && githubRepositoryName(text)) {
+      event.preventDefault();
+      attachLink(text);
+    }
   };
 
   const sample = async () => {
@@ -404,26 +413,34 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
     <>
     <div className={`ck-screen ck-start${starting ? ' is-launching' : ''}`}>
       <CheckAurora />
+      {dragging && <PageDocumentDropIndicator anchor={composerRef} />}
       <div className={`ck-start-column${titleLength === TITLE.length ? ' is-intro-ready' : ''}`}>
         <h1 className="ck-headline" aria-label={TITLE}>
-          <span className="ck-title-space" aria-hidden="true">{TITLE}_</span>
-          <span aria-hidden="true">{TITLE.slice(0, titleLength)}{titleLength === TITLE.length && <span className="ck-title-caret">_</span>}</span>
+          <svg className="ck-agent-icon" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false">
+            <path d="M4 10V6a2 2 0 0 1 2-2h4m12 0h4a2 2 0 0 1 2 2v4m0 12v4a2 2 0 0 1-2 2h-4m-12 0H6a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            <path d="M8 16a8 8 0 0 1 9-8c-1 4-4 7-9 8Zm16 0a8 8 0 0 1-9 8c1-4 4-7 9-8Z" fill="currentColor" />
+            <path d="M17 8a8 8 0 0 1 7 8c-4-1-7-4-7-8Zm-2 16a8 8 0 0 1-7-8c4 1 7 4 7 8Z" fill="currentColor" opacity=".4" />
+            <circle cx="16" cy="16" r="1.3" fill="currentColor" />
+          </svg>
+          <span className="ck-headline-copy" aria-hidden="true">
+            <span className="ck-title-space">{TITLE}_</span>
+            <span>{TITLE.slice(0, titleLength)}{titleLength === TITLE.length && <span className="ck-title-caret">_</span>}</span>
+          </span>
         </h1>
-        <p className="ck-sub">Add your code and your documents. Centinel does the rest.</p>
+        <p className="ck-sub">Add your code and your documents. ORIN does the rest.</p>
 
         <CheckComposerNotices notices={notices} covered={menu !== null} />
         <div className={`ck-composer${expanded ? ' is-expanded' : ''}`} ref={composerRef}>
         <div
-          className={`ck-input${dragging ? ' is-dragging' : ''}`}
-          onDragOver={event => { event.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
+          className="ck-input"
+          onDragOver={event => { if (!event.dataTransfer.types.includes('Files') && event.dataTransfer.types.includes('text/plain')) event.preventDefault(); }}
           onDrop={onDrop}
         >
           <button type="button" className="ck-composer-expand" aria-label={expanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={expanded}
             onClick={() => setExpanded(value => !value)}><Icon icon={expanded ? Minimize2 : Maximize2} /></button>
           {(references.length > 0 || documents.length > 0 || sources.length > 0) && (
             <ul className="ck-attached" aria-label="Added to this check">
-              {references.map(check => <li key={check.id} className="ck-chip"><Icon icon={History} /><span>{checkName(check)}</span>
+              {references.map(check => <li key={check.id} className="ck-chip"><Icon icon={SquareChartGantt} /><span>{checkName(check)}</span>
                 <button type="button" aria-label={`Remove check ${checkName(check)}`} onClick={() => setReferences(items => items.filter(item => item.id !== check.id))}><Icon icon={X} /></button>
               </li>)}
               {documents.map(document => (
@@ -475,14 +492,14 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
           </div>
           {menu === 'add' && (
             <div className="ck-menu ck-attachment-menu" role="dialog" aria-label="Add to check" ref={menuRef}>
-              <CheckAddOptions query={mentionKey ?? ''} onDocument={() => finishAddAction(() => setDocumentsOpen(true))}
+              <CheckAddOptions query={mentionKey ?? ''} onDocument={() => finishAddAction(() => documentInput.current?.click())}
                 onRepository={savedProject ? undefined : () => finishAddAction(() => setRepoOpen(true))}
                 onSource={savedProject ? choice => finishAddAction(() => setAddingSource(choice)) : undefined} />
               <section className="ck-recent-attachments" aria-labelledby="ck-recent-attachments-title">
                 <h2 id="ck-recent-attachments-title">Recent Checks</h2>
                 {matchingChecks.length ? matchingChecks.map(check => (
                   <button type="button" key={check.id} onClick={() => attachCheck(check)}>
-                    <Icon icon={History} /><span>{checkName(check)}</span>
+                    <Icon icon={SquareChartGantt} /><span>{checkName(check)}</span>
                     <CheckAttachmentCount check={check} />
                   </button>
                 )) : <p>{mention?.query.trim() ? 'No matching checks' : 'No recent checks to attach'}</p>}
@@ -510,30 +527,29 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
               onClick={() => { setMention(null); setProjectQuery(''); setMenu(value => value === 'projects' ? null : 'projects'); }}>
               <Icon icon={Folder} /><span>{projectLabel ?? 'Choose project'}</span><ChevronDown size={14} aria-hidden="true" />
             </button>
-            {menu === 'projects' && (
-              <div className="ck-menu ck-project-menu" role="dialog" aria-label="Choose a project" ref={menuRef}>
-                <input type="search" aria-label="Search projects" placeholder="Search projects" value={projectQuery} onChange={event => setProjectQuery(event.target.value)} />
+            <div className="ck-menu ck-project-menu" role="dialog" aria-label="Choose a project"
+              aria-hidden={menu !== 'projects'} data-open={menu === 'projects'} ref={menu === 'projects' ? menuRef : null}>
+                <input type="search" aria-label="Search projects" disabled={menu !== 'projects'} placeholder="Search projects" value={projectQuery} onChange={event => setProjectQuery(event.target.value)} />
                 <div className="ck-project-list" role="group" aria-label="Saved projects">
                   {matchingProjects.map(project => (
-                    <button key={project.id} type="button" onClick={() => attachProject(project.id)}><Icon icon={Folder} /><span>{project.name}</span></button>
+                    <button key={project.id} type="button" disabled={menu !== 'projects'} onClick={() => attachProject(project.id)}><Icon icon={Folder} /><span>{project.name}</span></button>
                   ))}
                   {!matchingProjects.length && <p>{projectQuery.trim() ? 'No matching projects' : 'No saved projects yet'}</p>}
                 </div>
                 <div className="ck-project-menu-footer">
-                  <button type="button" onClick={() => { projectButton.current?.focus(); setMenu(null); setCreateOpen(true); }}><Icon icon={Plus} />Add a project</button>
+                  <button type="button" disabled={menu !== 'projects'} onClick={() => { projectButton.current?.focus(); setMenu(null); setCreateOpen(true); }}><Icon icon={Plus} />Add a project</button>
                 </div>
-              </div>
-            )}
+            </div>
           </div>
           {attached && <button type="button" className="ck-project-clear" aria-label={`Remove ${projectLabel}`} onClick={() => { setAttached(null); setReferences([]); }}><Icon icon={X} /></button>}
-          <Select aria-label="Check mode" className="ck-mode-select" value={mode} options={CHECK_MODES} onChange={value => setMode(value as CheckMode)} />
+          <Select aria-label="Check mode" className="ck-mode-select" animated value={mode} options={CHECK_MODES} onChange={value => setMode(value as CheckMode)} />
         </div>
         </div>
 
         <div className="ck-attention" role="group" aria-label="Recommendations">{attentionRows}</div>
       </div>
     </div>
-    <CheckDocumentPicker open={documentsOpen} onClose={() => setDocumentsOpen(false)} onSelect={batch => addDocuments(async () => batch)} />
+    <CheckDocumentInput input={documentInput} onFiles={addDocuments} />
     {addingSource && savedProject && <CheckAddSource projectId={savedProject.id} initialChoice={addingSource}
       onClose={() => setAddingSource(null)} onSaved={library.refresh} />}
     <ProjectCreateModal isOpen={repoOpen} onClose={() => setRepoOpen(false)} onCreate={onCreateProject} onRepositorySelected={attachRepository} />

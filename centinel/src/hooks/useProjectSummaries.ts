@@ -120,7 +120,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
         state: paused ? 'Paused' : 'Failed',
         action: 'Inspect',
         tone: paused ? 'warning' : 'danger',
-        reason: reviewFailureMessage(session.failureReason) || `${session.name} stopped before Centinel could produce a result.`,
+        reason: reviewFailureMessage(session.failureReason) || `${session.name} stopped before ORIN could produce a result.`,
         updatedAt: sessionUpdatedAt(session),
         sessionId: session.id,
         sessionName: session.name,
@@ -175,7 +175,7 @@ function getStaticAction(project: Project, sessions: StaticSession[], hasSources
       state: 'Setup required',
       action: 'Set up',
       tone: 'warning',
-      reason: 'No sources have been added, so Centinel cannot start the first review.',
+      reason: 'No sources have been added, so ORIN cannot start the first review.',
       updatedAt: project.updatedAt || project.createdAt,
     };
   }

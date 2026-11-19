@@ -100,7 +100,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     expect(screen.getByText('Current version')).toBeInTheDocument();
     expect(screen.getByText('Latest version')).toBeInTheDocument();
     // The current version comes from the app; the latest one is shown only after a check.
-    expect(await screen.findByText('Centinel v0.0.1')).toBeInTheDocument();
+    expect(await screen.findByText('ORIN v0.0.1')).toBeInTheDocument();
     expect(screen.getByText('Not checked yet')).toBeInTheDocument();
     expect(screen.queryByText('Versions')).not.toBeInTheDocument();
     expect(screen.queryByText('Provider credentials')).not.toBeInTheDocument();
@@ -369,7 +369,7 @@ describe('SettingsScreen information architecture and capability boundary', () =
     render(<SettingsScreen settings={settings} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
     await user.click(screen.getByRole('button', { name: 'Check for updates' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Centinel could not reach the local service');
+    expect(await screen.findByRole('alert')).toHaveTextContent('ORIN could not reach the local service');
     expect(screen.queryByRole('button', { name: 'Open update' })).not.toBeInTheDocument();
   });
 

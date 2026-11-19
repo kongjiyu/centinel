@@ -24,7 +24,7 @@ function appendBrowserTests(lines: string[], snapshot: ProjectReportSnapshot) {
     lines.push('');
     if (test.reason && test.result !== 'passed') lines.push('**Note:** ' + plainText(test.reason), '');
     if (test.sourceRefs.length) lines.push('**Related code:** ' + test.sourceRefs.map(inlineCode).join(', '), '');
-    if (test.runId) lines.push('**Run ID:** ' + inlineCode(test.runId) + '. Screenshots and the action trace are kept with this Run in Centinel.', '');
+    if (test.runId) lines.push('**Run ID:** ' + inlineCode(test.runId) + '. Screenshots and the action trace are kept with this Run in ORIN.', '');
   });
   auto.limitations.forEach(item => lines.push('- ' + plainText(item)));
   if (auto.limitations.length) lines.push('');
@@ -186,7 +186,7 @@ function summaryLines(snapshot: ProjectReportSnapshot): string[] {
     });
     lines.push('```', '');
   }
-  lines.push('### What Centinel checked', '');
+  lines.push('### What ORIN checked', '');
   lines.push('- **Code review — ' + summary.codeReview.label + '.** ' + (snapshot.latestReview ? '"' + plainText(snapshot.latestReview.session.name) + '". ' : '') + plainText(summary.codeReview.detail));
   if (summary.unverifiedParts.length) {
     lines.push('  - Parts that could not be verified:');
@@ -244,7 +244,7 @@ export function renderProjectReportMarkdown(snapshot: ProjectReportSnapshot): st
     '| ---: | ---: | ---: | ---: | ---: |',
     '| ' + snapshot.riskAssessment.critical + ' | ' + snapshot.riskAssessment.high + ' | ' + snapshot.riskAssessment.medium + ' | ' + snapshot.riskAssessment.low + ' | ' + snapshot.riskAssessment.unclassified + ' |',
     '',
-    'The risk summary uses the shared Centinel assessment policy. Dynamic findings remain in the finding inventory and are not included in this static risk summary.',
+    'The risk summary uses the shared ORIN assessment policy. Dynamic findings remain in the finding inventory and are not included in this static risk summary.',
     '',
   ];
 
