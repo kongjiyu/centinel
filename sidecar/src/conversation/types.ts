@@ -34,6 +34,7 @@ export type ConversationRequest = {
   citations?: string[];
   /** Names derived from authorized, reference-bound evidence, aligned with input.references. */
   resolvedAttachmentNames?: Array<string | null>;
+  recall?: { status: "recalled" | "missing" | "unavailable"; turns: 0 | 1 };
   context?: Array<{ id: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean }>;
   scope?: string[];
   executionSources?: Array<{ id: string; versionId?: string; hash: string }>;

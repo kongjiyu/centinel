@@ -16,6 +16,11 @@ vi.mock('../../src/conversation/evidence.js', () => ({ resolveConversationEviden
 vi.mock('../../src/conversation/store.js', () => ({
   SupabaseConversationStore: class {
     async list(project: string) { return [...rows.values()].filter(record => record.projectId === project).map(record => structuredClone(record)); }
+    async listEarlierCompleted(project: string, owner: string, before: string, limit: number) {
+      return [...rows.values()].filter(row => row.projectId === project && row.ownerId === owner
+        && row.state === "completed" && row.createdAt < before)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(row => structuredClone(row));
+    }
     async get(project: string, id: string) { const row = rows.get(id); return row?.projectId === project ? structuredClone(row) : null; }
     async create(record: ConversationRequest) { if (rows.has(record.id)) return false; rows.set(record.id, structuredClone(record)); return true; }
     async update(record: ConversationRequest, revision: number) {
@@ -70,6 +75,23 @@ it('authenticates the public route and returns the same persisted request after 
   expect(read.status).toBe(200);
   expect(await read.json()).toMatchObject([{ id: input.id, reply: 'This is a saved code observation.', replyFormat: 'markdown', state: 'completed' }]);
   expect((await post(path, { ...input, text: 'A different request' })).status).toBe(409);
+});
+it('quotes an owner-scoped saved reply through the HTTP path without asking the planner', async () => {
+  const id = randomUUID();
+  const earlier = '2000-01-01T00:00:00.000Z';
+  rows.set(id, { id, projectId, ownerId: 'owner', revision: 1, inputHash: 'fixture', createdAt: earlier, updatedAt: earlier,
+    input: { id, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [] },
+    state: 'completed', reply: 'Synthetic earlier answer.', policyVersion: 'fixture', events: [] });
+  const nextId = randomUUID();
+  expect((await post('/projects/' + projectId + '/conversation-requests', {
+    id: nextId, text: 'Quote your previous reply', mode: 'code', permission: 'ask', references: [],
+  })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(nextId)).toMatchObject({
+    state: 'completed', action: 'explain', reply: 'Synthetic earlier answer.', citations: ['conversation:' + id],
+    recall: { status: 'recalled', turns: 1 },
+  }));
+  expect(plan).not.toHaveBeenCalled();
+  expect(resolveEvidence).not.toHaveBeenCalled();
 });
 it('rejects a forged evidence reference on the HTTP entry point', async () => {
   const response = await post('/projects/' + projectId + '/conversation-requests', {

@@ -77,6 +77,30 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
   return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)] };
 }
 
+function previousReplyRequested(text: string) {
+  return /^(?:please\s+)?(?:repeat|quote)\s+(?:the\s+|your\s+)?(?:exact\s+)?(?:previous|last)\s+(?:answer|reply|response)[.!?]?$/i.test(text.trim());
+}
+
+const MAX_RECALLED_REPLY = 6_000;
+
+async function quotePreviousReply(record: ConversationRequest, store: ConversationStore): Promise<Partial<ConversationRequest>> {
+  try {
+    if (!store.listEarlierCompleted) throw new Error("Recall unavailable");
+    const [row] = await store.listEarlierCompleted(record.projectId, record.ownerId, record.createdAt, 1);
+    if (row && row.projectId === record.projectId && row.ownerId === record.ownerId
+      && row.id !== record.id && row.state === "completed" && Date.parse(row.createdAt) < Date.parse(record.createdAt)
+      && typeof row.reply === "string" && row.reply.trim() && row.reply.length <= MAX_RECALLED_REPLY) {
+      return { action: "explain", reply: row.reply, citations: ["conversation:" + row.id], scope: [],
+        recall: { status: "recalled", turns: 1 }, state: "completed" };
+    }
+    return { action: "clarify", reply: "No earlier completed reply is available to quote in this project. Paste it here if you want me to use it.",
+      citations: [], scope: [], recall: { status: "missing", turns: 0 }, state: "completed" };
+  } catch {
+    return { action: "clarify", reply: "The previous reply could not be loaded. Paste it here if you want me to use it.",
+      citations: [], scope: [], recall: { status: "unavailable", turns: 0 }, state: "completed" };
+  }
+}
+
 function explicitVerification(text: string) {
   const request = text.trim().replace(/^(?:please\s+|(?:can|could|would)\s+you\s+)/i, '');
   return /^(?:run|rerun|re-run|test|retest|recheck|verify|check)\b/i.test(request)
@@ -200,6 +224,13 @@ export class ConversationRuntime {
       if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
       if (!confirmed) {
         await checkpoint({ state: 'planning' });
+        if (!record.input.references.length && previousReplyRequested(record.input.text)) {
+          const recalled = await quotePreviousReply(record, deps.store);
+          signal.throwIfAborted();
+          await deps.authorize(record.projectId);
+          await checkpoint(recalled);
+          return;
+        }
         resolvingAttachments = record.input.references.length > 0;
         const evidence = await deps.resolve(record.projectId, record.input.references, signal);
         resolvingAttachments = false;
