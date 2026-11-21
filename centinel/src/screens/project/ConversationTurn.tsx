@@ -39,7 +39,7 @@ export function ConversationTurn({ request, onNavigate, onReplyTo, replySourceEx
     {request.context?.some(item => item.unavailable) && <p className="pc-sub">Some attached evidence was unavailable. Attachment names show what was sent, not what could be verified.</p>}
     {request.reply && <>
       <p className="pc-label pc-reply-heading">
-        <span>{recalled ? 'Quoted previous reply' : 'AI analysis'}</span>
+        {recalled ? 'Quoted previous reply' : 'AI analysis'}
         {onReplyTo && <button type="button" className="pc-reply-action" onClick={onReplyTo}>
           <Reply size={14} aria-hidden="true" /> Reply to
         </button>}
