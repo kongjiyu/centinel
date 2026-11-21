@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
@@ -7,6 +7,7 @@ import { resetCheckStore, saveCheck } from '../../check/store';
 import { readConversationDraft, writeConversationDraft } from '../../check/conversation';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Finding, Project, Screen, StaticSession } from '../../types';
+import { ConversationTurn } from './ConversationTurn';
 import { ProjectConversationScreen } from './ProjectConversationScreen';
 import { CheckScreen } from '../check/CheckScreen';
 import { save } from '@tauri-apps/api/dialog';
@@ -310,4 +311,72 @@ it('keeps a saved check explanation readable through Ask, quote and project relo
   expect(quote.getByText('inconclusive').tagName).toBe('STRONG');
   expect(quote.getByText('Earlier reply in this project')).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'Check Order Access' })).toBeVisible();
+});
+
+it.each([0, 1, 3, 4, 5])('shows a top-of-message preview of at most three of %i saved attachments', count => {
+  const references = Array.from({ length: count }, (_, index) => ({ artifactId: 'opaque-' + index }));
+  const labels = ['private-folder/Duplicate.md', 'elsewhere\\Duplicate.md', 'Long'.repeat(35) + '.txt', 'Audit.md', 'Last.txt'];
+  const input: ConversationRequest['input'] = { id: 'preview', text: 'Original message body', mode: 'code',
+    permission: 'ask', references, referenceLabels: labels.slice(0, count) };
+  render(<ConversationTurn request={accepted(input)} onNavigate={vi.fn()} />);
+  const bubble = screen.getByText(input.text);
+  if (!count) {
+    expect(bubble.querySelector('.pc-sent-attachments')).toBeNull();
+    return;
+  }
+  expect(bubble.firstChild).toHaveClass('pc-sent-attachments');
+  expect(bubble.lastChild?.textContent).toBe(input.text);
+  const preview = within(bubble).getByRole('list', { name: 'Included with this message' });
+  expect(within(preview).getAllByRole('listitem')).toHaveLength(Math.min(3, count));
+  expect(within(preview).getAllByText(/Duplicate\.md/)).toHaveLength(Math.min(2, count));
+  expect(bubble).not.toHaveTextContent(/private-folder|elsewhere|opaque-/);
+  expect(within(bubble).queryByRole('list', { name: 'Additional attachments' })).not.toBeInTheDocument();
+  if (count > 3) expect(within(bubble).getByRole('button', { name: 'Show all ' + count + ' attachments' })).toHaveTextContent('…');
+  else expect(within(bubble).queryByRole('button')).not.toBeInTheDocument();
+});
+
+it('reveals every included attachment by mouse hover, keyboard, and touch and resets on reloading the same saved turn', async () => {
+  const user = userEvent.setup();
+  const names = ['First.md', 'Second.md', 'Third.md', 'Fourth.md', 'Fifth.md'];
+  const input: ConversationRequest['input'] = { id: 'preview', text: 'Saved message body', mode: 'code',
+    permission: 'ask', references: names.map((_, index) => ({ artifactId: 'opaque-' + index })), referenceLabels: names };
+  const turn = { ...accepted(input), state: 'completed' as const,
+    resolvedAttachmentNames: ['First.md', null, null, 'Saved-fourth.md', null] };
+  const mount = () => render(<ConversationTurn request={turn} onNavigate={vi.fn()} />);
+  const view = mount();
+  const more = screen.getByRole('button', { name: 'Show all 5 attachments' });
+  const extras = () => screen.queryByRole('list', { name: 'Additional attachments' });
+  await user.hover(more);
+  expect(more).toHaveAttribute('aria-expanded', 'true');
+  expect(extras()).toHaveTextContent('Fourth.md');
+  expect(extras()).toHaveTextContent('Saved name: Saved-fourth.md');
+  expect(extras()).toHaveTextContent('Fifth.md');
+  await user.unhover(more);
+  expect(extras()).not.toBeInTheDocument();
+  await user.tab();
+  expect(more).toHaveFocus();
+  await user.keyboard('{Enter}');
+  expect(extras()).toBeVisible();
+  await user.keyboard('{Escape}');
+  expect(extras()).not.toBeInTheDocument();
+  expect(more).toHaveFocus();
+  await user.pointer([{ keys: '[TouchA>]', target: more }, { keys: '[/TouchA]', target: more }]);
+  expect(extras()).toBeVisible();
+  fireEvent.click(more);
+  expect(extras()).not.toBeInTheDocument();
+  view.unmount();
+  mount();
+  expect(screen.getByText(/First\.md/)).toBeVisible();
+  expect(extras()).not.toBeInTheDocument();
+});
+
+it('handles old evidence with type-only references, verified names, and opaque metadata distinctly', () => {
+  const input: ConversationRequest['input'] = { id: 'legacy', text: 'A historical message', mode: 'code',
+    permission: 'ask', references: [{ reviewId }, { reviewId, findingId }, { artifactId: 'source' }] };
+  render(<ConversationTurn request={{ ...accepted(input), resolvedAttachmentNames: [reviewId, 'Saved issue', '/private/Source.md'] }} onNavigate={vi.fn()} />);
+  const included = screen.getByRole('list', { name: 'Included with this message' });
+  expect(within(included).getByText('Check attached')).toBeVisible();
+  expect(within(included).getByText('Saved name: Saved issue')).toBeVisible();
+  expect(within(included).getByText('Saved name: Source.md')).toBeVisible();
+  expect(included).not.toHaveTextContent(/private|22222222/);
 });

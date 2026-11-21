@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../api/client';
@@ -22,23 +22,8 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
   const active = ['accepted', 'planning', 'running', 'awaiting_permission'].includes(request.state);
   return <div className="pc-turn pc-conversation-request">
     <div className="pc-msg is-me">
+      <SentAttachments request={request} />
       {request.input.text}
-      {!!request.input.references.length && <>
-        <span className="pc-sent-context-caption">Attachments · names as sent</span>
-        <ul className="pc-sent-context" aria-label="Included with this message">
-        {request.input.references.map((reference, index) => {
-          const kind = reference.findingId ? 'Code problem' : reference.testId ? 'Browser problem'
-            : reference.artifactId ? 'Source' : 'Check';
-          const sent = request.input.referenceLabels?.[index];
-          const saved = request.resolvedAttachmentNames?.[index];
-          const label = sent || saved;
-          return <li key={JSON.stringify(reference)}>
-            <span>{kind}{label ? ':' : ' attached'}</span>{label && <> {label}</>}
-            {saved && sent && saved !== sent && <small>Saved name: {saved}</small>}
-          </li>;
-        })}
-        </ul>
-      </>}
     </div>
     {request.context?.some(item => item.unavailable) && <p className="pc-sub">Some attached evidence was unavailable. Attachment names show what was sent, not what could be verified.</p>}
     {request.reply && <>
@@ -72,5 +57,61 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
       <button type="button" className="ck-button is-small" disabled={busy} onClick={() => void act(true)}>Cancel</button>
     </div>}
     {error && <p role="alert">{error}</p>}
+  </div>;
+}
+
+const attachmentPreviewLimit = 3;
+
+function SentAttachments({ request }: { request: ConversationRequest }) {
+  const listId = useId();
+  const [pinned, setPinned] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const count = request.input.references.length;
+  const hiddenCount = Math.max(0, count - attachmentPreviewLimit);
+  const expanded = hiddenCount > 0 && (pinned || hovering);
+  if (!count) return null;
+  const renderAttachment = (reference: ConversationRequest['input']['references'][number], index: number) => {
+    const kind = reference.findingId ? 'Code problem' : reference.testId ? 'Browser problem'
+      : reference.artifactId ? 'Source' : 'Check';
+    const safeName = (value: string | null | undefined) => {
+      const name = reference.artifactId ? value?.split(/[\\/]/).pop() : value;
+      return name && !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(name) ? name : undefined;
+    };
+    const sent = safeName(request.input.referenceLabels?.[index]);
+    const saved = safeName(request.resolvedAttachmentNames?.[index]);
+    return <li key={index}>
+      <span>{kind}{sent ? ':' : ' attached'}</span>{sent && <> {sent}</>}
+      {saved && saved !== sent && <small>Saved name: {saved}</small>}
+    </li>;
+  };
+  return <div className="pc-sent-attachments"
+    onPointerLeave={() => setHovering(false)}
+    onKeyDown={event => {
+      if (event.key === 'Escape' && expanded) {
+        event.stopPropagation();
+        setPinned(false);
+        setHovering(false);
+      }
+    }}
+  >
+    <div className="pc-sent-context-heading">
+      <span className="pc-sent-context-caption">Attachments · names as sent</span>
+      {hiddenCount > 0 && <button type="button" className="pc-sent-context-more"
+        aria-label={expanded ? 'Hide additional attachments' : 'Show all ' + count + ' attachments'}
+        aria-expanded={expanded} aria-controls={listId}
+        onPointerEnter={event => { if (event.pointerType === 'mouse') setHovering(true); }}
+        onClick={() => {
+          if (pinned) setHovering(false);
+          setPinned(!pinned);
+        }}
+      >…</button>}
+    </div>
+    <ul className="pc-sent-context" aria-label="Included with this message">
+      {request.input.references.slice(0, attachmentPreviewLimit).map(renderAttachment)}
+    </ul>
+    {hiddenCount > 0 && <ul id={listId} className="pc-sent-context" aria-label="Additional attachments" hidden={!expanded}>
+      {expanded && request.input.references.slice(attachmentPreviewLimit).map((reference, index) =>
+        renderAttachment(reference, index + attachmentPreviewLimit))}
+    </ul>}
   </div>;
 }
