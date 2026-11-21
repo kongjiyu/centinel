@@ -40,6 +40,12 @@ it('rejects a cross-project Review before reading findings or source content', a
   expect(mocks.findings).not.toHaveBeenCalled();
   expect(mocks.read).not.toHaveBeenCalled();
 });
+it('resolves an entire saved check with 56 findings without reading individual source excerpts', async () => {
+  mocks.findings.mockResolvedValue(Array.from({ length: 56 }, (_, i) => ({ id: `finding-${i}`, title: `Saved problem ${i}`, status: 'new' })));
+  const resolved = await resolveConversationEvidence(client, 'owner', 'project', [{ reviewId: 'review' }], signal);
+  expect(JSON.parse(resolved.find(item => item.id === 'review:review')!.text)).toMatchObject({ findingCount: 56, moreFindings: 48 });
+  expect(mocks.read).not.toHaveBeenCalled();
+});
 it('rejects a finding that is absent from the selected Review', async () => {
   await expect(resolveConversationEvidence(client, 'owner', 'project', [{ reviewId: 'review', findingId: 'unrelated' }], signal)).rejects.toThrow('unavailable');
   expect(mocks.read).not.toHaveBeenCalled();

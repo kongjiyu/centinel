@@ -24,13 +24,15 @@ export async function resolveConversationEvidence(client: SupabaseClient, ownerI
       const review = await repository.getReview(reference.reviewId);
       if (!review || review.projectId !== projectId) throw new DynamicContractError(404, 'The attached Review is unavailable in this project.');
       const manifest = review.sourceManifestId ? await repository.loadSourceManifestArtifacts(review.sourceManifestId) : null;
-      const traceability = await repository.getTraceabilitySnapshot(review.id);
+      const traceability = reference.findingId ? await repository.getTraceabilitySnapshot(review.id) : null;
       const all = await new SupabaseCentinelStore(client).listFindings(projectId, review.id);
-      const selected = reference.findingId ? all.filter(finding => finding.id === reference.findingId) : all;
+      const selected = reference.findingId ? all.filter(finding => finding.id === reference.findingId) : [];
       if (reference.findingId && selected.length !== 1) throw new DynamicContractError(404, 'The attached problem is unavailable in this Review.');
-      if (selected.length > 12) throw new DynamicContractError(400, 'This Review has many problems. Attach individual problems instead.');
-      add('review:' + review.id, { name: review.name, status: review.status, summary: review.summary, manifestId: review.sourceManifestId,
-        sources: (manifest ?? []).map(item => ({ artifactId: item.id, versionId: item.versionId, hash: item.contentHash, path: item.filePath })) },
+      const scopedSources = (manifest ?? []).filter(source => !reference.findingId || selected.some(finding => finding.artifactId === source.id && finding.artifactVersionId === source.versionId));
+      add('review:' + review.id, { name: review.name, status: review.status, summary: review.summary?.slice(0, 1800),
+        findingCount: all.length, sourceCount: manifest?.length ?? null,
+        findingExamples: all.slice(0, 8).map(finding => ({ title: finding.title.slice(0, 200), status: finding.status })),
+        moreFindings: Math.max(0, all.length - 8), omittedSourceCount: Math.max(0, scopedSources.length - 16), manifestId: review.sourceManifestId },
       { unavailable: !manifest });
       for (const finding of selected) {
         const source = manifest?.find(item => item.id === finding.artifactId && item.versionId === finding.artifactVersionId);
@@ -47,8 +49,7 @@ export async function resolveConversationEvidence(client: SupabaseClient, ownerI
         { artifactId: source?.id, versionId: source?.versionId, unavailable: !excerpt });
       }
       // Bind scoped code execution to the selected frozen source identities.
-      for (const source of manifest ?? []) {
-        if (selected.length && !selected.some(finding => finding.artifactId === source.id)) continue;
+      for (const source of scopedSources.slice(0, 16)) {
         add('source:' + source.id + ':' + source.versionId, { path: source.filePath, hash: source.contentHash, versionId: source.versionId },
           { artifactId: source.id, versionId: source.versionId, unavailable: !source.versionId });
       }
@@ -61,7 +62,7 @@ export async function resolveConversationEvidence(client: SupabaseClient, ownerI
       add('browser:' + session.id + (reference.testId ? ':' + reference.testId : ''), {
         repository: session.repository, stage: session.stage, tests: tests.map(test => ({ id: test.id, name: test.name, goal: test.goal,
           runId: test.runId, state: test.state, checks: test.checkResults ?? [], definitions: test.checks,
-          controls: test.controls ?? [], startPath: test.startPath, requirementRef: test.requirementRef, sources: test.sourceRefs })),
+          controls: test.controls, startPath: test.startPath, requirementRef: test.requirementRef, sources: test.sourceRefs })),
       }, { unavailable: tests.some(test => !test.runId || !test.checkResults?.length) });
     }
     if (reference.artifactId) {

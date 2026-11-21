@@ -18,7 +18,7 @@ const normalizedCheck = (value: unknown) => {
   if (row.kind === 'url' && typeof expected === 'string') {
     try { const url = new URL(expected); expected = url.pathname + url.search; } catch { /* preserved for exact comparison */ }
   }
-  return JSON.stringify({ kind: row.kind, expected: expected ?? null, selector: row.selector ?? null });
+  return JSON.stringify({ kind: row.kind, expected: expected ?? null, selector: row.selector ?? null, required: row.required === true });
 };
 const controlKey = (value: unknown) => {
   const row = value as { selector: string; actions: string[]; repeatable?: boolean };
@@ -30,12 +30,13 @@ export function browserTargets(evidence: Evidence[], request: string): BrowserTa
   const targets: BrowserTarget[] = [];
   const withoutQuotes = (text: string) => text.replace(/"[^"]*"|“[^”]*”|(?<!\w)'[^']*'/g, '');
   const negative = (text: string) => /\b(?:not|never|without|cannot)\b|\b\w+n['’]t\b/i.test(withoutQuotes(text));
-  if (evidence.some(item => item.id.startsWith('finding:') || item.id.startsWith('browser:')) && negative(request)) {
+  const attachedSource = (item: Evidence) => item.id.startsWith('artifact:') && !!item.artifactId && !item.unavailable;
+  if (evidence.some(item => item.id.startsWith('finding:') || item.id.startsWith('browser:') || attachedSource(item)) && negative(request)) {
     throw new Error('This request needs an explicit assertion polarity. Use a saved test or specify a positive expected message.');
   }
   for (const item of evidence) {
     const data = JSON.parse(item.text);
-    if (item.id.startsWith('finding:')) {
+    if (item.id.startsWith('finding:') || attachedSource(item)) {
       const requirement = [data.requirement?.title, data.requirement?.description].filter(Boolean).join('\n');
       if (negative(requirement)) throw new Error('A negated requirement needs an independently defined saved browser test.');
       const requested = [...new Set(expectedMessages(request))];
@@ -47,12 +48,13 @@ export function browserTargets(evidence: Evidence[], request: string): BrowserTa
     }
     if (item.id.startsWith('browser:')) {
       for (const test of data.tests) {
-        if (!test.definitions?.length || !test.controls?.length || !test.startPath) throw new Error('This historical browser test lacks reusable assertions or controls. State a new verification goal.');
+        if (!test.definitions?.length || !Array.isArray(test.controls) || !test.startPath) throw new Error('This historical browser test lacks reusable assertions or a saved action boundary. State a new verification goal.');
         targets.push({ evidenceId: item.id + ':' + test.id, paths: (test.sources ?? []).map((ref: { path: string }) => path(ref.path)),
           expected: [], checks: test.definitions, controls: test.controls, startPath: test.startPath });
       }
     }
   }
+  if (!targets.length) throw new Error('Browser verification needs a saved browser test or a source with an explicit expected message.');
   return targets;
 }
 
@@ -64,7 +66,8 @@ export function validateBrowserTargets(tests: AutoTest[], targets: BrowserTarget
         && same(test.mission.checks.map(normalizedCheck), target.checks.map(normalizedCheck))
         && same(test.controls.map(controlKey), (target.controls ?? []).map(controlKey));
     }
-    return target.expected.every(expected => test.mission.checks.some(check => check.kind === 'visible_text' && check.expected === expected));
+    return test.mission.checks.length === target.expected.length
+      && target.expected.every(expected => test.mission.checks.some(check => check.required && check.kind === 'visible_text' && check.expected === expected));
   };
   for (const target of targets) {
     if (!tests.some(test => matches(test, target))) throw new Error('The proposed browser tests do not cover the selected evidence with independent expected behavior.');
