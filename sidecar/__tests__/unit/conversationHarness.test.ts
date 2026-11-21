@@ -46,6 +46,7 @@ describe('conversation request harness', () => {
   it('rejects malformed and unbound problem references', () => {
     const { input } = fixture();
     expect(() => parseConversationInput({ ...input, references: [{ findingId: randomUUID() }] })).toThrow();
+    expect(() => parseConversationInput({ ...input, replyToTurnId: 'not-a-turn' })).toThrow();
     expect(() => parseConversationInput({ ...input, references: [{ reviewId: randomUUID(), text: 'forged evidence' }] })).toThrow();
     expect(parseConversationInput({ ...input, references: [{ reviewId: randomUUID(), findingId: randomUUID() }] })).toMatchObject({ text: input.text });
   });
@@ -157,7 +158,7 @@ describe('conversation request harness', () => {
     expect(deps.plan).toHaveBeenCalledOnce();
     await runtime.close();
   });
-  it.each(['What does that mean?', 'What about the first issue?'])(
+  it.each(['What about the first issue?'])(
     'documents the bounded recall gap for %s', async text => {
       const { runtime, deps, store, input } = fixture();
       const earlier = { ...input, text: 'Explain the original issue' };
@@ -234,6 +235,55 @@ describe('conversation request harness', () => {
     expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', recall: { status: 'missing', turns: 0 } });
     expect(deps.plan).not.toHaveBeenCalled();
     await runtime.close();
+  });
+  it.each(['What does that mean?', 'Which one failed?', 'Can you explain it?'])('clarifies an unattached ambiguous %s', async text => {
+    const { runtime, deps, store, input } = fixture();
+    await runtime.accept('project', { ...input, text }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', citations: [], reply: expect.stringContaining('Reply to') });
+    expect(deps.resolve).not.toHaveBeenCalled();
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+
+  it.each(['older', 'wrong-project', 'wrong-owner', 'missing', 'incomplete', 'new-attachment', 'current-cited', 'check'])('handles an explicit %s reply against persisted synthetic history', async kind => {
+    const { runtime, deps, store, input } = fixture();
+    await runtime.close();
+    const restarted = new ConversationRuntime();
+    const target = randomUUID();
+    const text = 'The selected synthetic answer contains fixture label DELTA.';
+    const row = { id: target, projectId: kind === 'wrong-project' ? 'other' : 'project',
+      ownerId: kind === 'wrong-owner' ? 'other' : 'owner', revision: 0, input, inputHash: 'fixture',
+      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z',
+      state: kind === 'incomplete' ? 'running' as const : 'completed' as const, reply: text, policyVersion: 'fixture', events: [] };
+    if (kind !== 'missing') await store.create(row);
+    const newest = randomUUID();
+    await store.create({ ...row, id: newest, projectId: 'project', ownerId: 'owner', state: 'completed',
+      createdAt: '2000-01-02T00:00:00.000Z', reply: 'Unselected synthetic answer OTHER.' });
+    const id = 'conversation:' + target;
+    const citeCurrent = ['check', 'current-cited'].includes(kind);
+    const cites = citeCurrent ? evidence[0].id : id;
+    vi.mocked(deps.resolve).mockResolvedValue(['new-attachment', 'current-cited', 'check'].includes(kind) ? evidence : []);
+    vi.mocked(deps.plan).mockResolvedValue({ action: kind === 'check' ? 'code' : 'explain', reply: 'Synthetic selected explanation.',
+      scope: kind === 'check' ? ['source-1'] : [], citations: [cites],
+      claims: [{ citation: cites, excerpt: citeCurrent ? 'Expected the generic sign-in error.' : 'fixture label DELTA' }] });
+    const references = ['new-attachment', 'current-cited', 'check'].includes(kind) ? [{ artifactId: randomUUID() }] : [];
+    await restarted.accept('project', { ...input, text: kind === 'check' ? 'Verify this selection' : 'What does that mean?', references,
+      replyToTurnId: target }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    if (['wrong-project', 'wrong-owner', 'missing', 'incomplete'].includes(kind)) {
+      expect(saved).toMatchObject({ action: 'clarify', citations: [], replyTo: { turnId: target, status: 'unavailable' } });
+      expect(deps.plan).not.toHaveBeenCalled();
+    } else {
+      expect(saved.replyTo).toEqual({ turnId: target, status: 'resolved' });
+      const modelEvidence = vi.mocked(deps.plan).mock.calls[0][1];
+      expect(modelEvidence).toContainEqual(expect.objectContaining({ id, text, kind: 'prior_reply' }));
+      expect(modelEvidence).not.toContainEqual(expect.objectContaining({ id: 'conversation:' + newest }));
+      expect(JSON.stringify(saved)).not.toContain(text);
+      expect(saved).toMatchObject(['older', 'current-cited'].includes(kind) ? { action: 'explain', citations: [cites] } : { action: 'clarify', citations: [] });
+    }
+    expect(deps.execute).not.toHaveBeenCalled();
+    await restarted.close();
   });
   it('coalesces concurrent sends and rejects a changed request under the same ID', async () => {
     const { store, runtime, deps, input } = fixture();

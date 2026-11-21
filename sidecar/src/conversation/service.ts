@@ -6,7 +6,7 @@ import { resolveAttachmentNames } from './attachmentNames.js';
 import { browserTargets } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 
-export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean };
+export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean; kind?: 'prior_reply' };
 export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; replyFormat?: 'markdown'; citations: string[]; scope: string[] };
 export type ConversationDeps = {
   ownerId: string;
@@ -25,6 +25,7 @@ export const hash = (value: unknown) => createHash('sha256').update(compactCanon
 export function parseConversationInput(body: Record<string, unknown>): ConversationInput {
   if (typeof body.id !== 'string' || !uuid.test(body.id) || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 2000
     || !['code', 'browser', 'both'].includes(String(body.mode)) || !['ask', 'auto', 'bypass'].includes(String(body.permission))
+    || body.replyToTurnId !== undefined && (typeof body.replyToTurnId !== 'string' || !uuid.test(body.replyToTurnId))
     || !Array.isArray(body.references) || body.references.length > 12) throw new DynamicContractError(400, 'Supply a message and up to twelve check or problem references.');
   const references = body.references.map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new DynamicContractError(400, 'Invalid evidence reference.');
@@ -48,6 +49,7 @@ export function parseConversationInput(body: Record<string, unknown>): Conversat
   });
   const ordered = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, item]) => item);
   return { id: body.id.toLowerCase(), text: body.text.trim(), mode: body.mode as ConversationInput['mode'], permission: body.permission as ConversationInput['permission'],
+    ...(typeof body.replyToTurnId === 'string' ? { replyToTurnId: body.replyToTurnId.toLowerCase() } : {}),
     references: ordered.map(item => item.reference),
     ...(ordered.some(item => item.label) ? { referenceLabels: ordered.map(item => item.label) } : {}) };
 }
@@ -101,6 +103,25 @@ async function quotePreviousReply(record: ConversationRequest, store: Conversati
   } catch {
     return { action: "clarify", reply: "The previous reply could not be loaded. Paste it here if you want me to use it.",
       citations: [], scope: [], recall: { status: "unavailable", turns: 0 }, state: "completed" };
+  }
+}
+
+function ambiguousUnattachedFollowUp(text: string) {
+  return /^(?:what (?:does (?:that|it) mean|about (?:that|it))|(?:can you )?explain (?:that|it)|which one failed)[.!?]?$/i.test(text.trim());
+}
+
+async function loadExplicitReply(record: ConversationRequest, store: ConversationStore): Promise<Evidence | null> {
+  const id = record.input.replyToTurnId;
+  if (!id || id === record.id) return null;
+  try {
+    const row = await store.get(record.projectId, id);
+    const accepted = Date.parse(record.createdAt);
+    if (!row || row.id !== id || row.projectId !== record.projectId || row.ownerId !== record.ownerId
+      || row.state !== 'completed' || !(Date.parse(row.createdAt) < accepted && Date.parse(row.updatedAt) <= accepted)
+      || typeof row.reply !== 'string' || !row.reply.trim() || row.reply.length > MAX_RECALLED_REPLY) return null;
+    return { id: 'conversation:' + id, text: row.reply, hash: hash(row.reply), kind: 'prior_reply' };
+  } catch {
+    return null;
   }
 }
 
@@ -227,27 +248,57 @@ export class ConversationRuntime {
       if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
       if (!confirmed) {
         await checkpoint({ state: 'planning' });
-        if (!record.input.references.length && previousReplyRequested(record.input.text)) {
+        if (!record.input.replyToTurnId && !record.input.references.length && previousReplyRequested(record.input.text)) {
           const recalled = await quotePreviousReply(record, deps.store);
           signal.throwIfAborted();
           await deps.authorize(record.projectId);
           await checkpoint(recalled);
           return;
         }
-        if (!record.input.references.length && olderReplyRequested(record.input.text)) {
+        if (!record.input.replyToTurnId && !record.input.references.length && olderReplyRequested(record.input.text)) {
           await checkpoint({ action: 'clarify', reply: 'Paste the earlier reply you mean so I can use the right one.',
             citations: [], scope: [], state: 'completed' });
           return;
         }
+        const target = record.input.replyToTurnId;
+        if (!target && !record.input.references.length && ambiguousUnattachedFollowUp(record.input.text)) {
+          await checkpoint({ action: 'clarify', reply: 'Which earlier reply or saved check do you mean? Select Reply to or attach the saved evidence.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        const prior = target ? await loadExplicitReply(record, deps.store) : null;
+        if (target && !prior) {
+          await checkpoint({ replyTo: { turnId: target, status: 'unavailable' }, action: 'clarify',
+            reply: 'That earlier reply is unavailable. Select another reply or send the question with the relevant evidence.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        if (prior && target && !record.input.references.length && previousReplyRequested(record.input.text)) {
+          await checkpoint({ replyTo: { turnId: target, status: 'resolved' }, action: 'explain', reply: prior.text,
+            citations: [prior.id], scope: [], state: 'completed' });
+          return;
+        }
         resolvingAttachments = record.input.references.length > 0;
-        const evidence = await deps.resolve(record.projectId, record.input.references, signal);
+        const current = await deps.resolve(record.projectId, record.input.references, signal);
         resolvingAttachments = false;
+        const evidence = prior ? [...current, prior] : current;
         if (JSON.stringify(evidence).length > 64000) throw new Error('The selected evidence exceeds the context limit. Select fewer problems.');
-        const names = resolveAttachmentNames(record.input.references, evidence);
-        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item),
-          ...(names.some(Boolean) ? { resolvedAttachmentNames: names } : {}) });
+        const names = resolveAttachmentNames(record.input.references, current);
+        await checkpoint({ context: current.map(({ text: _, ...item }) => item),
+          ...(names.some(Boolean) ? { resolvedAttachmentNames: names } : {}),
+          ...(prior && target ? { replyTo: { turnId: target, status: 'resolved' } as const } : {}) });
         const raw = await deps.plan(record, evidence, signal);
         let plan = validateConversationPlan(raw, evidence, record.input.mode);
+        if (prior && ['code', 'browser'].includes(plan.action)) {
+          plan = { action: 'clarify', reply: 'A reply cannot start a check. Send a separate Check request with the intended evidence.',
+            citations: [], scope: [] };
+        }
+        if (prior && plan.action !== 'clarify' && record.input.references.length
+          && !plan.citations.some(id => current.some(item => item.id === id && !item.unavailable))) {
+          plan = { action: 'clarify',
+            reply: 'I could not ground that answer in the newly selected evidence. Select a readable attachment or say if you mean only the earlier reply.',
+            citations: [], scope: [] };
+        }
         if (['code', 'browser'].includes(plan.action) && !explicitVerification(record.input.text)) {
           plan = { action: 'clarify', reply: 'Would you like an explanation, a suggested fix, or a verification run for the attached evidence?', citations: [], scope: [] };
         }
