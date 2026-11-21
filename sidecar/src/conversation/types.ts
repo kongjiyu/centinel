@@ -28,6 +28,7 @@ export type ConversationRequest = {
   state: 'accepted' | 'planning' | 'awaiting_permission' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted' | 'cancelled';
   action?: 'explain' | 'suggest' | 'code' | 'browser' | 'clarify';
   reply?: string;
+  replyFormat?: 'markdown';
   citations?: string[];
   context?: Array<{ id: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean }>;
   scope?: string[];
