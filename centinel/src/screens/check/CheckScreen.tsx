@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MessageCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { laneNumber } from '../../autotest/presentation';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { checkProblemSummary, type CheckProblem, type CheckResult } from '../../check/result';
+import type { ProblemAttachment } from '../../check/conversation';
 import { checkName } from '../../check/checkName';
 import { exportCheckSummary } from '../../check/exportCheckSummary';
 import { markCheckViewed, useCheck } from '../../check/store';
@@ -57,6 +58,7 @@ function useNow(active: boolean) {
 export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string; onNavigate: Navigate; projects?: Project[] }) {
   const check = useCheck(checkId);
   const [expanded, setExpanded] = useState(false);
+  const [explanation, setExplanation] = useState<{ checkId: string; attachment: ProblemAttachment }>();
   const library = useCheckLibrary(projects ? check?.projectId : undefined);
   const data = useCheckData(check);
   const showResult = !!check && !!data && (check.phase === 'failed' || check.phase === 'done' || data.result.finished);
@@ -94,12 +96,15 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
       <CheckInterruptionNotices check={check} data={data} onNavigate={onNavigate} />
       {data.loadError ? <p role="status">{data.loadError}</p>
       : <LoadingSkeleton className="ck-result-skeleton" label="Loading the saved result" />}</section></div>
-    : showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} header={header} />
+    : showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} header={header}
+      onExplain={project && typeof api.sendConversationRequest === 'function'
+        ? attachment => setExplanation({ checkId, attachment }) : undefined} />
       : <LiveView check={check} data={data} onNavigate={onNavigate} header={header} />;
   if (!projects) return content;
   return <CheckProjectLayout projectHeader
     expanded={expanded} onCloseSidebar={() => setExpanded(false)}
-    composer={<CheckFollowUp key={check.id} check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />}
+    composer={<CheckFollowUp key={check.id} check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library}
+      explainProblem={explanation?.checkId === checkId ? explanation.attachment : undefined} />}
     sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)} />}>
     {content}
   </CheckProjectLayout>;
@@ -287,7 +292,12 @@ const RISK: Record<RiskLevel, { label: string; icon: typeof Info; shape?: 'trian
   low: { label: 'Low', icon: Info },
 };
 
-function ProblemRow({ problem, open, onToggle, check, onNavigate }: { problem: CheckProblem; open: boolean; onToggle(): void; check: CheckRecord; onNavigate: Navigate }) {
+function ProblemRow({ problem, open, onToggle, check, onNavigate, onExplain }: {
+  problem: CheckProblem; open: boolean; onToggle(): void; check: CheckRecord; onNavigate: Navigate;
+  onExplain?(attachment: ProblemAttachment): void;
+}) {
+  const reference = problem.findingId && check.reviewId ? { findingId: problem.findingId, reviewId: check.reviewId }
+    : problem.testId && check.autoTestId ? { testId: problem.testId, autoTestId: check.autoTestId } : undefined;
   const risk = problem.risk ? RISK[problem.risk] : null;
   const bodyId = `ck-problem-${problem.key.replace(/[^\w-]/g, '')}`;
   return (
@@ -324,6 +334,9 @@ function ProblemRow({ problem, open, onToggle, check, onNavigate }: { problem: C
             )}
           </div>
           <div className="ck-links">
+            {onExplain && reference && <button type="button" className="ck-button is-small" onClick={() => onExplain({ label: problem.title, reference })}>
+              <Icon icon={MessageCircle} />Ask about this problem
+            </button>}
             {problem.runId && check.projectId && <>
               <button type="button" className="ck-button is-small" onClick={() => onNavigate({ name: 'dynamic-testing', projectId: check.projectId, runId: problem.runId })}><Icon icon={Image} />Screenshot</button>
               <button type="button" className="ck-button is-small" onClick={() => onNavigate({ name: 'dynamic-testing', projectId: check.projectId, runId: problem.runId })}><Icon icon={Play} shape="play" />Replay the test</button>
@@ -400,7 +413,10 @@ function CheckReportAction({ check, data, toolbar }: { check: CheckRecord; data:
   </div>;
 }
 
-function ResultView({ check, data, onNavigate, header }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode }) {
+function ResultView({ check, data, onNavigate, header, onExplain }: {
+  check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode;
+  onExplain?(attachment: ProblemAttachment): void;
+}) {
   const { result } = data;
   const duration = resultDuration(check, data);
   const firstKey = (result.proven[0] ?? result.foundInCode[0])?.key ?? null;
@@ -458,7 +474,7 @@ function ResultView({ check, data, onNavigate, header }: { check: CheckRecord; d
               <section key={group.id} className="ck-group" aria-label={group.label}>
                 <h2 className="ck-group-title ci-pair"><Icon icon={group.icon} /><span className="ci-text">{group.label}</span></h2>
                 <ul className="ck-rows">
-                  {group.items.map(problem => <ProblemRow key={problem.key} problem={problem} open={openKey === problem.key} onToggle={() => toggle(problem.key)} check={check} onNavigate={onNavigate} />)}
+                  {group.items.map(problem => <ProblemRow key={problem.key} problem={problem} open={openKey === problem.key} onToggle={() => toggle(problem.key)} check={check} onNavigate={onNavigate} onExplain={onExplain} />)}
                 </ul>
               </section>
             ))}

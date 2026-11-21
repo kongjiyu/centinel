@@ -25,7 +25,8 @@ import { findCheckMention } from './checkMention';
 import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
 import { CheckAttachmentCount } from './CheckAttachmentCount';
 import { CheckComposerNotices } from './CheckComposerNotices';
-import { checkReference, draftContentSignature, readConversationDraft, rememberAcknowledgedRequest, writeConversationDraft } from '../../check/conversation';
+import { checkReference, draftContentSignature, readConversationDraft, rememberAcknowledgedRequest, writeConversationDraft, type ProblemAttachment } from '../../check/conversation';
+import type { ConversationReference } from '../../check/conversationTypes';
 import { useProblemMentions } from '../../check/problemMentions';
 import { rememberCheckTransition } from '../../check/checkTransition';
 import { rememberConversationReturn } from '../../check/projectNavigation';
@@ -198,7 +199,10 @@ export function CheckProjectHeader({ check, project, onNavigate, library, projec
   </header>;
 }
 
-export function CheckFollowUp({ check, projects, onNavigate, available, library, conversation }: { check: Pick<CheckRecord, 'id' | 'projectId' | 'mode' | 'folder'>; projects: Project[]; onNavigate: Navigate; available: boolean; library: CheckLibrary; conversation?: ConversationComposer }) {
+export function CheckFollowUp({ check, projects, onNavigate, available, library, conversation, explainProblem }: {
+  check: Pick<CheckRecord, 'id' | 'projectId' | 'mode' | 'folder'>; projects: Project[]; onNavigate: Navigate; available: boolean; library: CheckLibrary;
+  conversation?: ConversationComposer; explainProblem?: ProblemAttachment;
+}) {
   // Check and Project render this composer with a key for the current route.
   const [saved] = useState(() => readConversationDraft(check.projectId ?? '', check.id));
   const [draft, setDraft] = useState(saved.text);
@@ -243,6 +247,17 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     return () => { mounted.current = false; };
   }, [check.id]);
   const project = projects.find(item => item.id === check.projectId);
+  useLayoutEffect(() => {
+    if (saved.text === 'Explain the attached check.') input.current?.focus({ preventScroll: true });
+  }, [input, saved.text]);
+  useEffect(() => {
+    if (!explainProblem) return;
+    setAttachedProblems(current => current.some(item => JSON.stringify(item.reference) === JSON.stringify(explainProblem.reference))
+      ? current : [...current, explainProblem]);
+    setDraft(current => current.trim() ? current : 'Explain the attached problem.');
+    closeMenu();
+    input.current?.focus();
+  }, [explainProblem, input]);
   useLayoutEffect(() => {
     if (!check.projectId) return;
     writeConversationDraft(check.projectId, { ...readConversationDraft(check.projectId, check.id), text: draft, mode,
@@ -295,19 +310,31 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       try {
         const owner = sessionStorage.getItem('centinel:supabase-user-id');
         const current = readConversationDraft(project.id, check.id);
-        const checkReferences = attachedChecks.filter(item => item.projectId === project.id).map(checkReference).map(reference => ({
-          ...(reference.reviewId && !attachedProblems.some(item => item.reference.reviewId === reference.reviewId) ? { reviewId: reference.reviewId } : {}),
-          ...(reference.autoTestId && !attachedProblems.some(item => item.reference.autoTestId === reference.autoTestId) ? { autoTestId: reference.autoTestId } : {}),
-        })).filter(reference => Object.keys(reference).length > 0);
-        const references = [...checkReferences,
-          ...attachedProblems.map(item => item.reference), ...sources.map(item => ({ artifactId: item.id })),
-          ...documents.filter(item => item.saved?.projectId === project.id).map(item => ({ artifactId: item.saved!.artifactId }))];
+        const checkReferences = attachedChecks.filter(item => item.projectId === project.id).map(item => {
+          const reference = checkReference(item);
+          return { label: checkName(item), reference: {
+            ...(reference.reviewId && !attachedProblems.some(problem => problem.reference.reviewId === reference.reviewId) ? { reviewId: reference.reviewId } : {}),
+            ...(reference.autoTestId && !attachedProblems.some(problem => problem.reference.autoTestId === reference.autoTestId) ? { autoTestId: reference.autoTestId } : {}),
+          } };
+        }).filter(item => Object.keys(item.reference).length > 0);
+        const fileName = (name: string) => name.split(/[\\/]/).pop() ?? '';
+        const attachments: Array<{ label: string; reference: ConversationReference }> = [
+          ...checkReferences, ...attachedProblems,
+          ...sources.map(item => ({ label: fileName(item.fileName), reference: { artifactId: item.id } })),
+          ...documents.filter(item => item.saved?.projectId === project.id)
+            .map(item => ({ label: fileName(item.name), reference: { artifactId: item.saved!.artifactId } })),
+        ];
+        const references = attachments.map(item => item.reference);
+        const referenceLabels = attachments.map(item => item.label.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 160) || null);
         if (documents.some(item => item.saved?.projectId !== project.id)) throw new Error('Some documents are not saved yet. Add them again before sending.');
         if (references.some(ref => !Object.keys(ref).length)) throw new Error('An attached check has no saved evidence yet.');
-        const requestSignature = JSON.stringify({ focus, mode: effectiveMode, permission: prefs.mode, references });
+        const payload = { text: focus, mode: effectiveMode, permission: prefs.mode, references,
+          ...(referenceLabels.some(Boolean) ? { referenceLabels } : {}) };
+        const requestSignature = JSON.stringify({ focus, mode: effectiveMode, permission: prefs.mode, references,
+          ...(payload.referenceLabels ? { referenceLabels } : {}) });
         const id = current.requestSignature === requestSignature && current.requestId ? current.requestId : crypto.randomUUID();
         writeConversationDraft(project.id, { ...current, requestId: id, requestSignature }, check.id);
-        const accepted = await api.sendConversationRequest(project.id, { id, text: focus, mode: effectiveMode, permission: prefs.mode, references });
+        const accepted = await api.sendConversationRequest(project.id, { id, ...payload });
         if (owner !== sessionStorage.getItem('centinel:supabase-user-id')) return;
         rememberAcknowledgedRequest(project.id, accepted);
         if (!mounted.current) return;

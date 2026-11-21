@@ -34,6 +34,7 @@ export type CheckProblem = {
   browserChecks?: Array<{ expected: string; observed: string }>;
   aiExplanation?: string | null;
   findingId?: string;
+  testId?: string;
   runId?: string;
   requirementRef?: string | null;
   needsCitationCheck?: boolean;
@@ -139,6 +140,7 @@ export function browserProblem(test: AutoTestEntry): CheckProblem {
     marks: ['browser'],
     browserChecks: checks.length ? checks : [{ expected: test.goal, observed: test.reason?.trim() || 'The browser test failed.' }],
     aiExplanation: test.explanation ?? null,
+    testId: test.id,
     runId: test.runId,
     requirementRef: test.requirementRef,
   };

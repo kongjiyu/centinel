@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { ConversationRuntime, parseConversationInput, validateConversationPlan, type ConversationDeps } from '../../src/conversation/service.js';
 import type { ConversationRequest, ConversationInput } from '../../src/conversation/types.js';
+import { DynamicContractError } from '../../src/dynamic/types.js';
 import type { ConversationStore } from '../../src/conversation/store.js';
 
 class MemoryStore implements ConversationStore {
@@ -46,6 +47,50 @@ describe('conversation request harness', () => {
     expect(() => parseConversationInput({ ...input, references: [{ findingId: randomUUID() }] })).toThrow();
     expect(() => parseConversationInput({ ...input, references: [{ reviewId: randomUUID(), text: 'forged evidence' }] })).toThrow();
     expect(parseConversationInput({ ...input, references: [{ reviewId: randomUUID(), findingId: randomUUID() }] })).toMatchObject({ text: input.text });
+  });
+  it('keeps attachment labels aligned after canonicalizing references and rejects malformed labels', () => {
+    const { input } = fixture();
+    const review = { reviewId: randomUUID(), findingId: randomUUID() };
+    const document = { artifactId: randomUUID() };
+    const normalized = parseConversationInput({ ...input,
+      references: [review, document, review], referenceLabels: ['Specific issue', 'Design.md', 'Duplicate label'] });
+    expect(normalized.references).toEqual([document, review]);
+    expect(normalized.referenceLabels).toEqual(['Design.md', 'Specific issue']);
+    expect(parseConversationInput(input)).not.toHaveProperty('referenceLabels');
+    expect(() => parseConversationInput({ ...input, references: [review], referenceLabels: [] })).toThrow('Invalid attachment labels');
+    expect(() => parseConversationInput({ ...input, references: [review], referenceLabels: ['x'.repeat(161)] })).toThrow('Invalid attachment labels');
+    expect(() => parseConversationInput({ ...input, references: [review], referenceLabels: ['a\nb'] })).toThrow('Invalid attachment labels');
+  });
+  it('persists display labels but only sends exact scoped IDs to the evidence resolver and never executes a check for explanation', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const reference = { reviewId: randomUUID(), findingId: randomUUID() };
+    const request = parseConversationInput({ ...input, references: [reference], referenceLabels: ['A different issue name'] });
+    const boundEvidence = { ...evidence[0], id: 'finding:' + reference.findingId,
+      text: JSON.stringify({ title: 'Actual saved issue', reviewId: reference.reviewId, excerpt: 'Expected the generic sign-in error.' }) };
+    vi.mocked(deps.resolve).mockResolvedValue([boundEvidence]);
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'The saved finding concerns the sign-in error.',
+      citations: [boundEvidence.id], claims: [{ citation: boundEvidence.id, excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    await runtime.accept('project', request, deps);
+    const saved = await waitFor(store, request.id, 'completed');
+    expect(saved.input.referenceLabels).toEqual(['A different issue name']);
+    expect(deps.resolve).toHaveBeenCalledWith('project', [reference], expect.any(AbortSignal));
+    expect(saved.citations).toEqual([boundEvidence.id]);
+    expect(saved.resolvedAttachmentNames).toEqual(['Actual saved issue']);
+    expect(saved.reply).toBe('The saved finding concerns the sign-in error.');
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+  it('safely discloses a stale attachment without using its label, guessing evidence, or executing', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const reference = { reviewId: randomUUID(), findingId: randomUUID() };
+    const request = parseConversationInput({ ...input, references: [reference], referenceLabels: ['Stale selection'] });
+    vi.mocked(deps.resolve).mockRejectedValue(new DynamicContractError(404, 'A private internal reference detail'));
+    await runtime.accept('project', request, deps);
+    const saved = await waitFor(store, request.id, 'failed');
+    expect(saved.error).toBe('An attached item could not be found in this project. Open the saved check or select the attachment again.');
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.close();
   });
   it('checks membership before storing or reading evidence', async () => {
     const { store, runtime, deps, input } = fixture();

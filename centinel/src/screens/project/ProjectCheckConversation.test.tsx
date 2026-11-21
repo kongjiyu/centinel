@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import { resetCheckStore, saveCheck } from '../../check/store';
-import { readConversationDraft } from '../../check/conversation';
+import { readConversationDraft, writeConversationDraft } from '../../check/conversation';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Finding, Project, Screen, StaticSession } from '../../types';
 import { ProjectConversationScreen } from './ProjectConversationScreen';
@@ -81,6 +81,62 @@ it('opens a saved card, keeps the result while typing, attaches a problem and re
   expect(readConversationDraft(project.id)).toMatchObject({ text: '', checkIds: [], problems: [] });
   expect(readConversationDraft(project.id, 'check-one').text).toBe('');
   expect(screen.getByRole('region', { name: 'Check Order Access' })).toBeInTheDocument();
+});
+
+it('asks about a named check without sending or overwriting a draft', async () => {
+  const user = userEvent.setup();
+  const view = render(<Workspace />);
+  const card = within(await screen.findByRole('region', { name: 'Check Order Access' }));
+  await user.click(await card.findByRole('button', { name: 'Ask about this check' }));
+  const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
+  expect(prompt).toHaveValue('Explain the attached check.');
+  expect(prompt).toHaveFocus();
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  await user.clear(prompt);
+  await user.type(prompt, 'Keep this draft');
+  view.unmount();
+
+  render(<Workspace />);
+  await user.click(await within(screen.getByRole('region', { name: 'Check Order Access' })).findByRole('button', { name: 'Ask about this check' }));
+  expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Keep this draft');
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+});
+
+it('asks about the exact result and shows the saved problem and both documents after a fresh load', async () => {
+  const user = userEvent.setup();
+  const docA = '44444444-4444-4444-8444-444444444444';
+  const docB = '55555555-5555-4555-8555-555555555555';
+  writeConversationDraft(project.id, { text: '', checkIds: [], problems: [], documents: [
+    { name: 'Design notes.md', base64: '', saved: { projectId: project.id, artifactId: docA } },
+    { name: 'Acceptance examples.md', base64: '', saved: { projectId: project.id, artifactId: docB } },
+  ] }, 'check-one');
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => accepted(input));
+  const view = render(<Workspace />);
+  await user.click(within(await screen.findByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  await user.click(await screen.findByRole('button', { name: 'Ask about this problem' }));
+  expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Explain the attached problem.');
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
+  const expected = { text: 'Explain the attached problem.',
+    references: [{ reviewId, findingId }, { artifactId: docA }, { artifactId: docB }],
+    referenceLabels: ['Order ownership check is missing', 'Design notes.md', 'Acceptance examples.md'] };
+  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id, expect.objectContaining(expected)));
+  const input = vi.mocked(api.sendConversationRequest).mock.calls[0][1];
+  const result: ConversationRequest = { ...accepted(input), reply: 'A saved explanation.', state: 'completed',
+    resolvedAttachmentNames: ['One exact saved issue', 'Design notes.md', 'Acceptance examples.md'] };
+  const noAttachments = { ...result, id: 'older-turn', resolvedAttachmentNames: undefined,
+    input: { ...input, text: 'Hello', references: [], referenceLabels: undefined } };
+  view.unmount();
+  vi.mocked(api.conversationRequests).mockResolvedValue([result, noAttachments]);
+  render(<Workspace />);
+  const included = within(within(await screen.findByText('Explain the attached problem.')).getByRole('list', { name: 'Included with this message' }));
+  expect(included.getAllByRole('listitem')).toHaveLength(3);
+  expect(within(screen.getByText('Explain the attached problem.')).getByText('Attachments · names as sent')).toBeVisible();
+  expect(included.getByText(/Order ownership check is missing/)).toBeVisible();
+  expect(included.getByText('Saved name: One exact saved issue')).toBeVisible();
+  expect(included.getByText(/Design notes.md/)).toBeVisible();
+  expect(included.getByText(/Acceptance examples.md/)).toBeVisible();
+  expect(within(screen.getByText('Hello')).queryByRole('list')).not.toBeInTheDocument();
 });
 
 it('restores each draft when switching checks and posts only the sent draft to the project', async () => {

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ConversationInput, ConversationReference, ConversationRequest } from './types.js';
 import type { ConversationStore } from './store.js';
 import { DynamicContractError } from '../dynamic/types.js';
+import { resolveAttachmentNames } from './attachmentNames.js';
 import { browserTargets } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 
@@ -34,9 +35,21 @@ export function parseConversationInput(body: Record<string, unknown>): Conversat
       || !ref.reviewId && !ref.autoTestId && !ref.artifactId) throw new DynamicContractError(400, 'Invalid evidence reference.');
     return Object.fromEntries(['reviewId', 'autoTestId', 'findingId', 'testId', 'artifactId'].filter(key => ref[key]).map(key => [key, String(ref[key]).toLowerCase()])) as ConversationReference;
   });
-  const unique = new Map(references.map(reference => [JSON.stringify(reference), reference]));
+  const labels = body.referenceLabels;
+  if (labels !== undefined && (!Array.isArray(labels) || labels.length !== references.length
+    || labels.some(label => label !== null && (typeof label !== 'string' || label.length > 160 || /[\u0000-\u001f\u007f]/.test(label))))) {
+    throw new DynamicContractError(400, 'Invalid attachment labels.');
+  }
+  const unique = new Map<string, { reference: ConversationReference; label: string | null }>();
+  references.forEach((reference, index) => {
+    const key = JSON.stringify(reference);
+    const label = Array.isArray(labels) && typeof labels[index] === 'string' ? labels[index].trim() || null : null;
+    if (!unique.has(key) || (!unique.get(key)?.label && label)) unique.set(key, { reference, label });
+  });
+  const ordered = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, item]) => item);
   return { id: body.id.toLowerCase(), text: body.text.trim(), mode: body.mode as ConversationInput['mode'], permission: body.permission as ConversationInput['permission'],
-    references: [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, reference]) => reference) };
+    references: ordered.map(item => item.reference),
+    ...(ordered.some(item => item.label) ? { referenceLabels: ordered.map(item => item.label) } : {}) };
 }
 
 export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode']): ConversationPlan {
@@ -182,13 +195,18 @@ export class ConversationRuntime {
       await deps.authorize(record.projectId);
       await this.patch(record, patch, deps);
     };
+    let resolvingAttachments = false;
     try {
       if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
       if (!confirmed) {
         await checkpoint({ state: 'planning' });
+        resolvingAttachments = record.input.references.length > 0;
         const evidence = await deps.resolve(record.projectId, record.input.references, signal);
+        resolvingAttachments = false;
         if (JSON.stringify(evidence).length > 64000) throw new Error('The selected evidence exceeds the context limit. Select fewer problems.');
-        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item) });
+        const names = resolveAttachmentNames(record.input.references, evidence);
+        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item),
+          ...(names.some(Boolean) ? { resolvedAttachmentNames: names } : {}) });
         const raw = await deps.plan(record, evidence, signal);
         let plan = validateConversationPlan(raw, evidence, record.input.mode);
         if (['code', 'browser'].includes(plan.action) && !explicitVerification(record.input.text)) {
@@ -217,7 +235,11 @@ export class ConversationRuntime {
       if (signal.aborted) return;
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
       const paused = /quota|credit|billing|rate_limit|capacity|assessment_paused|provider_paused|provider_unavailable/.test(code);
-      try { await this.patch(record, { state: paused ? 'paused' : 'failed', error: paused ? 'The provider paused this request. Resume through a new request when available.' : 'This request could not finish. Its saved evidence and child executions remain available.' }, deps); } catch { /* failed checkpoint remains nonterminal for interruption recovery */ }
+      const unavailable = resolvingAttachments && error instanceof DynamicContractError && error.status === 404;
+      const message = paused ? 'The provider paused this request. Resume through a new request when available.'
+        : unavailable ? 'An attached item could not be found in this project. Open the saved check or select the attachment again.'
+          : 'This request could not finish. Its saved evidence and child executions remain available.';
+      try { await this.patch(record, { state: paused ? 'paused' : 'failed', error: message }, deps); } catch { /* failed checkpoint remains nonterminal for interruption recovery */ }
     }
   }
   async close() {

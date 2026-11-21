@@ -18,11 +18,13 @@ export function readConversationDraft(projectId: string, checkId?: string): Conv
 export function writeConversationDraft(projectId: string, value: ConversationDraft, checkId?: string) {
   try { sessionStorage.setItem(key(projectId, checkId), JSON.stringify(value)); } catch { /* the active composer retains its state */ }
 }
-export function attachConversationCheck(check: CheckRecord) {
+export function attachConversationCheck(check: CheckRecord, explain = false) {
   if (!check.projectId) return;
   const draft = readConversationDraft(check.projectId, check.id);
-  if (draft.checkIds.includes(check.id)) return;
-  writeConversationDraft(check.projectId, { ...draft, checkIds: [...draft.checkIds, check.id] }, check.id);
+  const checkIds = draft.checkIds.includes(check.id) ? draft.checkIds : [...draft.checkIds, check.id];
+  const text = explain && !draft.text.trim() ? 'Explain the attached check.' : draft.text;
+  if (checkIds === draft.checkIds && text === draft.text) return;
+  writeConversationDraft(check.projectId, { ...draft, checkIds, text }, check.id);
 }
 export function checkReference(check: CheckRecord): ConversationReference {
   return { ...(check.reviewId ? { reviewId: check.reviewId } : {}), ...(check.autoTestId ? { autoTestId: check.autoTestId } : {}) };

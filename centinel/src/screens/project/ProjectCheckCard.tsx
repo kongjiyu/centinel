@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
-import { Code, ListX, MonitorCheck, SquareChartGantt, ArrowUpRight, Download } from 'lucide-react';
+import { Code, ListX, MonitorCheck, SquareChartGantt, ArrowUpRight, Download, MessageCircle } from 'lucide-react';
+import { api } from '../../api/client';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { useCheckData } from '../../check/useCheckData';
@@ -37,9 +38,9 @@ export function ProjectCheckCard({ check, onNavigate }: { check: CheckRecord; on
       setExporting(false);
     }
   };
-  const open = () => {
+  const open = (explain = false) => {
     rememberProjectPosition(check.projectId!, card.current);
-    attachConversationCheck(check);
+    attachConversationCheck(check, explain);
     rememberCheckTransition(check.id, card.current);
     onNavigate({ name: 'check', checkId: check.id });
   };
@@ -56,7 +57,12 @@ export function ProjectCheckCard({ check, onNavigate }: { check: CheckRecord; on
         {exportable && <button type="button" className="ck-toolbar-item" aria-label="Export" disabled={exporting} onClick={() => void download()}>
           <Icon icon={Download} /><CheckActionLabel>{exporting ? 'Exporting…' : 'Export'}</CheckActionLabel>
         </button>}
-        <button type="button" className="ck-toolbar-item" aria-label="View" onClick={open}>
+        {ready && result?.finished && check.projectId && (check.reviewId || check.autoTestId)
+          && typeof api.sendConversationRequest === 'function' && <button type="button" className="ck-toolbar-item"
+            aria-label="Ask about this check" onClick={() => open(true)}>
+            <Icon icon={MessageCircle} /><CheckActionLabel>Ask</CheckActionLabel>
+          </button>}
+        <button type="button" className="ck-toolbar-item" aria-label="View" onClick={() => open()}>
           <Icon icon={ArrowUpRight} /><CheckActionLabel>View</CheckActionLabel>
         </button>
       </div>

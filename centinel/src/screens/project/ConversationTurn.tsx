@@ -20,7 +20,26 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
   const owner = sessionStorage.getItem('centinel:supabase-user-id');
   const active = ['accepted', 'planning', 'running', 'awaiting_permission'].includes(request.state);
   return <div className="pc-turn pc-conversation-request">
-    <p className="pc-msg is-me">{request.input.text}</p>
+    <div className="pc-msg is-me">
+      {request.input.text}
+      {!!request.input.references.length && <>
+        <span className="pc-sent-context-caption">Attachments · names as sent</span>
+        <ul className="pc-sent-context" aria-label="Included with this message">
+        {request.input.references.map((reference, index) => {
+          const kind = reference.findingId ? 'Code problem' : reference.testId ? 'Browser problem'
+            : reference.artifactId ? 'Source' : 'Check';
+          const sent = request.input.referenceLabels?.[index];
+          const saved = request.resolvedAttachmentNames?.[index];
+          const label = sent || saved;
+          return <li key={JSON.stringify(reference)}>
+            <span>{kind}{label ? ':' : ' attached'}</span>{label && <> {label}</>}
+            {saved && sent && saved !== sent && <small>Saved name: {saved}</small>}
+          </li>;
+        })}
+        </ul>
+      </>}
+    </div>
+    {request.context?.some(item => item.unavailable) && <p className="pc-sub">Some attached evidence was unavailable. Attachment names show what was sent, not what could be verified.</p>}
     {request.reply && <>
       <p className="pc-label">AI analysis</p>
       {request.replyFormat === 'markdown'

@@ -12,6 +12,8 @@ export type ConversationInput = {
   mode: 'code' | 'browser' | 'both';
   permission: 'ask' | 'auto' | 'bypass';
   references: ConversationReference[];
+  /** Optional display names, aligned with references. Never used to resolve evidence. */
+  referenceLabels?: Array<string | null>;
 };
 
 export type ConversationRequest = {
@@ -30,6 +32,8 @@ export type ConversationRequest = {
   reply?: string;
   replyFormat?: 'markdown';
   citations?: string[];
+  /** Names derived from authorized, reference-bound evidence, aligned with input.references. */
+  resolvedAttachmentNames?: Array<string | null>;
   context?: Array<{ id: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean }>;
   scope?: string[];
   executionSources?: Array<{ id: string; versionId?: string; hash: string }>;
