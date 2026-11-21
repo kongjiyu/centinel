@@ -90,7 +90,7 @@ async function quotePreviousReply(record: ConversationRequest, store: Conversati
     if (row && row.projectId === record.projectId && row.ownerId === record.ownerId
       && row.id !== record.id && row.state === "completed" && Date.parse(row.createdAt) < Date.parse(record.createdAt)
       && typeof row.reply === "string" && row.reply.trim() && row.reply.length <= MAX_RECALLED_REPLY) {
-      return { action: "explain", reply: row.reply, citations: ["conversation:" + row.id], scope: [],
+      return { action: "explain", reply: row.reply, ...(row.replyFormat === "markdown" && { replyFormat: "markdown" as const }), citations: ["conversation:" + row.id], scope: [],
         recall: { status: "recalled", turns: 1 }, state: "completed" };
     }
     return { action: "clarify", reply: "No earlier completed reply is available to quote in this project. Paste it here if you want me to use it.",

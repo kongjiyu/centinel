@@ -262,3 +262,52 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   expect(next).toHaveValue('');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('Now explain the ownership evidence');
 });
+
+it('keeps a saved check explanation readable through Ask, quote and project reload', async () => {
+  const user = userEvent.setup();
+  const saved: ConversationRequest[] = [];
+  const explanation = 'The saved check is **inconclusive**.\n\n| Outcome | Evidence |\n| --- | --- |\n| Total | Visible |';
+  vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(saved));
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
+    const quoting = input.text === 'Quote your previous reply.';
+    const prior = saved[0];
+    if (quoting && !prior) throw new Error('Missing synthetic prior response');
+    const result: ConversationRequest = {
+      ...accepted(input), state: 'completed', action: 'explain',
+      reply: quoting ? prior.reply : explanation, replyFormat: 'markdown',
+      citations: [quoting ? 'conversation:' + prior.id : 'review:' + reviewId],
+      ...(quoting && { recall: { status: 'recalled', turns: 1 } }),
+    };
+    saved.unshift(result);
+    return structuredClone(result);
+  });
+
+  const first = render(<Workspace />);
+  const check = within(await screen.findByRole('region', { name: 'Check Order Access' }));
+  await user.click(check.getByRole('button', { name: 'Ask about this check' }));
+  expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Explain the attached check.');
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
+  const originalLabel = await screen.findByText('AI analysis');
+  expect(within(originalLabel.parentElement!).getByRole('table')).toBeVisible();
+  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(1, project.id,
+    expect.objectContaining({ references: [{ reviewId }] }));
+
+  const followup = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.clear(followup);
+  await user.type(followup, 'Quote your previous reply.');
+  await user.click(screen.getByRole('button', { name: /^Send$/ }));
+  const quoteLabel = await screen.findByText('Quoted previous reply');
+  expect(within(quoteLabel.parentElement!).getByRole('table')).toBeVisible();
+  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(2, project.id,
+    expect.objectContaining({ text: 'Quote your previous reply.', references: [] }));
+  expect(api.startAutoTest).not.toHaveBeenCalled();
+
+  first.unmount();
+  render(<Workspace />);
+  const quote = within((await screen.findByText('Quoted previous reply')).parentElement!);
+  expect(quote.getByRole('table')).toBeVisible();
+  expect(quote.getByText('inconclusive').tagName).toBe('STRONG');
+  expect(quote.getByText('Earlier reply in this project')).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Check Order Access' })).toBeVisible();
+});

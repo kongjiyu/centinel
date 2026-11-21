@@ -81,13 +81,13 @@ it('quotes an owner-scoped saved reply through the HTTP path without asking the 
   const earlier = '2000-01-01T00:00:00.000Z';
   rows.set(id, { id, projectId, ownerId: 'owner', revision: 1, inputHash: 'fixture', createdAt: earlier, updatedAt: earlier,
     input: { id, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [] },
-    state: 'completed', reply: 'Synthetic earlier answer.', policyVersion: 'fixture', events: [] });
+    state: 'completed', reply: '**Synthetic** earlier answer.', replyFormat: 'markdown', policyVersion: 'fixture', events: [] });
   const nextId = randomUUID();
   expect((await post('/projects/' + projectId + '/conversation-requests', {
     id: nextId, text: 'Quote your previous reply', mode: 'code', permission: 'ask', references: [],
   })).status).toBe(202);
   await vi.waitFor(() => expect(rows.get(nextId)).toMatchObject({
-    state: 'completed', action: 'explain', reply: 'Synthetic earlier answer.', citations: ['conversation:' + id],
+    state: 'completed', action: 'explain', reply: '**Synthetic** earlier answer.', replyFormat: 'markdown', citations: ['conversation:' + id],
     recall: { status: 'recalled', turns: 1 },
   }));
   expect(plan).not.toHaveBeenCalled();
@@ -115,4 +115,30 @@ it('adopts a newer same-owner session without letting an older poll revert it', 
   complete({ action: 'explain', reply: 'This is a saved code observation.', citations: ['review:one'],
     claims: [{ citation: 'review:one', excerpt: 'saved evidence' }], scope: [] });
   await vi.waitFor(() => expect(rows.get(input.id)?.state).toBe('completed'));
+});
+
+it('uses a newly attached source even when the request resembles an earlier-reply quote', async () => {
+  const previousId = randomUUID();
+  const artifactId = randomUUID();
+  const requestId = randomUUID();
+  const earlier = '2000-01-01T00:00:00.000Z';
+  rows.set(previousId, { id: previousId, projectId, ownerId: 'owner', revision: 1,
+    inputHash: 'fixture', createdAt: earlier, updatedAt: earlier, input: {
+      id: previousId, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [],
+    }, state: 'completed', reply: 'Old fixture result.', policyVersion: 'fixture', events: [] });
+  const id = 'artifact:' + artifactId;
+  const evidence = [{ id, text: 'A newer synthetic layout note.', hash: 'fixture', artifactId }];
+  resolveEvidence.mockResolvedValue(evidence);
+  plan.mockResolvedValue({ action: 'explain', reply: '**New attachment:** a synthetic layout note.', scope: [],
+    citations: [id], claims: [{ citation: id, excerpt: 'synthetic layout note' }] });
+  expect((await post('/projects/' + projectId + '/conversation-requests', {
+    id: requestId, text: 'Quote your previous reply.', mode: 'code', permission: 'ask', references: [{ artifactId }],
+  })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(requestId)).toMatchObject({
+    state: 'completed', replyFormat: 'markdown', citations: [id],
+    reply: '**New attachment:** a synthetic layout note.',
+  }));
+  expect(rows.get(requestId)?.recall).toBeUndefined();
+  expect(resolveEvidence).toHaveBeenCalledOnce();
+  expect(plan).toHaveBeenCalledOnce();
 });

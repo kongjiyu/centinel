@@ -42,7 +42,7 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
     </div>
     {request.context?.some(item => item.unavailable) && <p className="pc-sub">Some attached evidence was unavailable. Attachment names show what was sent, not what could be verified.</p>}
     {request.reply && <>
-      <p className="pc-label"> {recalled ? "Quoted previous reply" : "AI analysis"}</p>
+      <p className="pc-label">{recalled ? "Quoted previous reply" : "AI analysis"}</p>
       {request.replyFormat === 'markdown'
         ? <div className="pc-ai-reply"><ReactMarkdown
             remarkPlugins={[remarkGfm]}
