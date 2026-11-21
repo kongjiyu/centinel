@@ -24,7 +24,7 @@ import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
-import { useConversationRequests } from '../../check/conversation';
+import { eligibleReplySource, replyExcerpt, useConversationRequests } from '../../check/conversation';
 import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
 import './ProjectConversation.css';
 
@@ -259,6 +259,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(check => check.projectId === project.id);
   const conversationRequests = useConversationRequests(project.id, project.name);
+  const historyOwner = sessionStorage.getItem('centinel:supabase-user-id');
+  const replySources = useMemo(() => new Map(conversationRequests.records
+    .filter(request => eligibleReplySource(request, project.id, historyOwner))
+    .map(request => [request.id, replyExcerpt(request)])), [conversationRequests.records, project.id, historyOwner]);
+  const [replySelection, setReplySelection] = useState<{ projectId: string; ownerId: string | null; turnId: string } | null>(null);
+  const clearReplySelection = useCallback(() => setReplySelection(null), []);
   const [sessions, setSessions] = useState<AutoTestSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -407,9 +413,11 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         : 'This project’s Google Drive sources cannot sync. Connect Google Drive in ORIN to resume syncing.'}</p>
     </Modal>
     <CheckProjectLayout projectHeader expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
-    composer={<CheckFollowUp key={project.id} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
+    composer={<CheckFollowUp key={historyOwner + ':' + project.id} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
       onNavigate={onNavigate} available library={library} conversation={{
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
+        clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
+        replySelection: replySelection?.projectId === project.id && replySelection.ownerId === historyOwner ? replySelection : null,
         inputRef, sending, send, onFocus: () => setSideChoice(false),
         placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
@@ -437,7 +445,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
                 {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
                 <ProjectCheckCard check={item.check} onNavigate={onNavigate} />
               </div>
-              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate} />
+              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate}
+                  replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
+                  onReplyTo={replySources.has(item.request.id) ? () => {
+                    setBase(null);
+                    setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
+                  } : undefined} />
               : 'session' in item
               ? <SessionTurn key={item.key} session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}

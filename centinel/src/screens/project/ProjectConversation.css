@@ -356,3 +356,28 @@
   vertical-align: top;
   overflow-wrap: anywhere;
 }
+
+
+.pc-label.pc-reply-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0; }
+.pc-reply-action, .pc-reply-chip button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex: none;
+  min-block-size: 30px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--color-text-muted); font: inherit; font-size: 12px; text-transform: none; letter-spacing: normal; cursor: pointer;
+}
+.pc-reply-action:hover, .pc-reply-chip button:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.pc-reply-action:focus-visible, .pc-reply-chip button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.pc-reply-chip, .pc-reply-attribution {
+  display: flex; align-items: center; gap: 8px; min-inline-size: 0;
+  color: var(--color-text-muted); white-space: normal; font-size: 12px; line-height: 1.35;
+}
+.pc-reply-chip { margin: 0 28px var(--space-2) 0; padding: 4px 5px 4px 9px; border-radius: 8px; background: var(--color-surface-subtle); }
+.pc-reply-attribution { margin-block-end: var(--space-2); padding: 4px 8px; border-inline-start: 2px solid var(--color-border); }
+.pc-reply-chip > svg, .pc-reply-attribution > svg { flex: none; }
+.pc-reply-chip > div, .pc-reply-attribution > div { flex: 1; min-inline-size: 0; }
+.pc-reply-chip strong, .pc-reply-attribution strong { display: block; color: var(--color-text); font-weight: 600; }
+.pc-reply-chip span, .pc-reply-attribution span { display: block; margin-block-start: 2px; overflow-wrap: anywhere; }
+.pc-reply-chip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (pointer: coarse) {
+  .pc-label.pc-reply-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0; }
+.pc-reply-action, .pc-reply-chip button { min-block-size: 44px; min-inline-size: 44px; }
+}

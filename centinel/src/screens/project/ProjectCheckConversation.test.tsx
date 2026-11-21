@@ -396,3 +396,86 @@ it('handles old evidence with type-only references, verified names, and opaque m
   expect(within(included).getByText('Saved name: Source.md')).toBeVisible();
   expect(included).not.toHaveTextContent(/private|22222222/);
 });
+
+it('binds a selected saved reply by ID, keeps new attachments, and restores visible attribution from history', async () => {
+  const user = userEvent.setup();
+  const one = '11111111-2222-4222-8222-111111111111';
+  const two = '22222222-2222-4222-8222-111111111111';
+  const artifactId = '77777777-7777-4777-8777-777777777777';
+  const reply = (id: string, text: string): ConversationRequest => ({
+    ...accepted({ id, text: 'Original request ' + text, mode: 'code', permission: 'ask', references: [] }),
+    state: 'completed', reply: text,
+  });
+  const prior = reply(one, 'The first assistant response');
+  const target = reply(two, 'The selected assistant response');
+  const records: ConversationRequest[] = [prior, target,
+    { ...reply('pending', 'An in-progress response'), state: 'running' },
+    { ...reply('other-owner', 'Different owner response'), ownerId: 'other' },
+    { ...reply('other-project', 'Different project response'), projectId: 'another' }];
+  vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(records));
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
+    const sent: ConversationRequest = { ...accepted(input), state: 'completed', reply: 'Here is the follow-up.',
+      replyTo: { turnId: two, status: 'resolved' } };
+    records.unshift(sent);
+    return sent;
+  });
+  writeConversationDraft(project.id, { text: 'Use this new note in your answer.', checkIds: [], problems: [], mode: 'code',
+    documents: [{ name: 'New note.md', base64: '', saved: { projectId: project.id, artifactId } }] });
+  const mount = () => render(<Workspace />);
+  const view = mount();
+  const buttons = await screen.findAllByRole('button', { name: 'Reply to' });
+  expect(buttons).toHaveLength(2);
+  const pick = (response: string) => within(screen.getByText(response).closest('.pc-turn')!).getByRole('button', { name: 'Reply to' });
+  const prompt = () => screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.click(pick(prior.reply!));
+  expect(screen.getByText('Replying to ORIN').parentElement).toHaveTextContent(prior.reply!);
+  expect(prompt()).toHaveFocus();
+  await user.click(pick(target.reply!));
+  expect(screen.getByText('Replying to ORIN').parentElement).toHaveTextContent(target.reply!);
+  await user.click(screen.getByRole('button', { name: 'Remove reply target' }));
+  expect(screen.queryByText('Replying to ORIN')).not.toBeInTheDocument();
+  expect(prompt()).toHaveValue('Use this new note in your answer.');
+  expect(screen.getByRole('button', { name: 'Remove New note.md' })).toBeVisible();
+  await user.click(pick(target.reply!));
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  view.unmount();
+  const reloaded = mount();
+  expect(await screen.findByText('Replying to ORIN')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: /^Send$/ }));
+  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledOnce());
+  const input = vi.mocked(api.sendConversationRequest).mock.calls[0][1];
+  expect(input).toMatchObject({
+    text: 'Use this new note in your answer.', replyToTurnId: two,
+    references: [{ artifactId }], referenceLabels: ['New note.md'],
+  });
+  expect(JSON.stringify(input)).not.toContain(target.reply);
+  expect(api.startAutoTest).not.toHaveBeenCalled();
+  expect(await screen.findByText('In reply to ORIN')).toBeVisible();
+  expect(screen.getByText('Use this new note in your answer.')).toHaveTextContent('In reply to ORIN');
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove reply target' })).not.toBeInTheDocument());
+  reloaded.unmount();
+  mount();
+  expect(await screen.findByText('In reply to ORIN')).toBeVisible();
+});
+
+it('blocks stale selected context until it is removed and never borrows it from another project', async () => {
+  const other = { ...project, id: 'another', name: 'Other shop' };
+  const user = userEvent.setup();
+  const priorId = '33333333-3333-4333-8333-222222222222';
+  vi.mocked(api.conversationRequests).mockImplementation(async projectId => projectId === project.id
+    ? [] : [{ ...accepted({ id: priorId, text: '', mode: 'code', permission: 'ask', references: [] }),
+      projectId: other.id, state: 'completed', reply: 'Only in the other project.' }]);
+  writeConversationDraft(project.id, { text: 'My current draft', checkIds: [], problems: [], replyToTurnId: priorId });
+  const view = render(<ProjectConversationScreen project={project} projects={[project, other]} onNavigate={vi.fn()} />);
+  expect(await screen.findByText('Selected reply unavailable')).toBeVisible();
+  expect(screen.getByRole('button', { name: /^Send$/ })).toBeDisabled();
+  view.rerender(<ProjectConversationScreen project={other} projects={[project, other]} onNavigate={vi.fn()} />);
+  expect(await screen.findByRole('button', { name: 'Reply to' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Remove reply target' })).not.toBeInTheDocument();
+  view.rerender(<ProjectConversationScreen project={project} projects={[project, other]} onNavigate={vi.fn()} />);
+  expect(await screen.findByText('Selected reply unavailable')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Remove reply target' }));
+  expect(screen.getByRole('button', { name: /^Send$/ })).toBeEnabled();
+  expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('My current draft');
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+});

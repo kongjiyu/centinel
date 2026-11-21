@@ -1,12 +1,14 @@
 import { useId, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Braces, ClipboardCheck, Ellipsis, FileText, Image, Monitor, Paperclip, ScanSearch } from 'lucide-react';
+import { Braces, ClipboardCheck, Ellipsis, FileText, Image, Monitor, Paperclip, Reply, ScanSearch } from 'lucide-react';
 import { api } from '../../api/client';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Screen } from '../../types';
 
-export function ConversationTurn({ request, onNavigate }: { request: ConversationRequest; onNavigate: (screen: Screen) => void }) {
+export function ConversationTurn({ request, onNavigate, onReplyTo, replySourceExcerpt }: {
+  request: ConversationRequest; onNavigate: (screen: Screen) => void; onReplyTo?: () => void; replySourceExcerpt?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const act = async (cancel: boolean) => {
@@ -23,12 +25,25 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
   const active = ['accepted', 'planning', 'running', 'awaiting_permission'].includes(request.state);
   return <div className="pc-turn pc-conversation-request">
     <div className="pc-msg is-me">
+      {(request.replyTo || request.input.replyToTurnId) && <div className="pc-reply-attribution">
+        <Reply size={14} aria-hidden="true" />
+        <div>
+          <strong>{request.replyTo?.status === 'resolved' ? 'In reply to ORIN'
+            : request.replyTo?.status === 'unavailable' ? 'Selected reply unavailable' : 'Reply target selected'}</strong>
+          {request.replyTo?.status === 'resolved' && replySourceExcerpt && <span>{replySourceExcerpt}</span>}
+        </div>
+      </div>}
       <SentAttachments request={request} />
       {request.input.text}
     </div>
     {request.context?.some(item => item.unavailable) && <p className="pc-sub">Some attached evidence was unavailable. Attachment names show what was sent, not what could be verified.</p>}
     {request.reply && <>
-      <p className="pc-label">{recalled ? "Quoted previous reply" : "AI analysis"}</p>
+      <p className="pc-label pc-reply-heading">
+        <span>{recalled ? 'Quoted previous reply' : 'AI analysis'}</span>
+        {onReplyTo && <button type="button" className="pc-reply-action" onClick={onReplyTo}>
+          <Reply size={14} aria-hidden="true" /> Reply to
+        </button>}
+      </p>
       {request.replyFormat === 'markdown'
         ? <div className="pc-ai-reply"><ReactMarkdown
             remarkPlugins={[remarkGfm]}

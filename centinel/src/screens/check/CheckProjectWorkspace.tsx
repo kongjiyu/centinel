@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { ArrowUp, Clock, ChevronDown, ExternalLink, FileText, Folder, History, Search, Maximize2, Minimize2, Plus, SquareChartGantt, X } from 'lucide-react';
+import { ArrowUp, Clock, ChevronDown, ExternalLink, FileText, Folder, History, Search, Maximize2, Minimize2, Plus, Reply, SquareChartGantt, X } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { api } from '../../api/client';
 import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
@@ -35,6 +35,10 @@ import './Check.css';
 type Navigate = (screen: Screen) => void;
 type ConversationComposer = {
   editing?: ReactNode;
+  replySources?: ReadonlyMap<string, string>;
+  replySourcesLoaded?: boolean;
+  replySelection?: { turnId: string } | null;
+  clearReplySelection?(): void;
   inputRef: RefObject<HTMLTextAreaElement>;
   placeholder: string;
   sending: boolean;
@@ -206,6 +210,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
   // Check and Project render this composer with a key for the current route.
   const [saved] = useState(() => readConversationDraft(check.projectId ?? '', check.id));
   const [draft, setDraft] = useState(saved.text);
+  const [replyToTurnId, setReplyToTurnId] = useState(conversation ? saved.replyToTurnId : undefined);
   const [mode, setMode] = useState<CheckMode>(() => saved.mode ?? check.mode);
   const [expanded, setExpanded] = useState(false);
   const [sending, setSending] = useState(false);
@@ -258,17 +263,30 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     closeMenu();
     input.current?.focus();
   }, [explainProblem, input]);
+  const replySelection = conversation?.replySelection;
+  const clearReplySelection = conversation?.clearReplySelection;
+  useEffect(() => {
+    if (!replySelection) return;
+    setReplyToTurnId(replySelection.turnId);
+    setAddOpen(false);
+    setMention(null);
+    input.current?.focus({ preventScroll: true });
+    clearReplySelection?.();
+  }, [input, replySelection, clearReplySelection]);
+  const replyTargetAvailable = !!replyToTurnId && conversation?.replySources?.has(replyToTurnId);
+
   useLayoutEffect(() => {
     if (!check.projectId) return;
     writeConversationDraft(check.projectId, { ...readConversationDraft(check.projectId, check.id), text: draft, mode,
       checkIds: attachedChecks.map(item => item.id), problems: attachedProblems,
-      documents: documents.filter(item => item.saved).map(item => ({ ...item, base64: '' })), sourceIds }, check.id);
-  }, [check.id, check.projectId, draft, mode, attachedChecks, attachedProblems, documents, sourceIds]);
+      documents: documents.filter(item => item.saved).map(item => ({ ...item, base64: '' })), sourceIds, replyToTurnId }, check.id);
+  }, [check.id, check.projectId, draft, mode, attachedChecks, attachedProblems, documents, sourceIds, replyToTurnId]);
   const hasFolder = !!(projectLocalFolder(project) || check.folder);
   const effectiveMode = conversation?.editing ? 'browser' : hasFolder || conversation ? mode : 'code';
   const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0;
   const revisionHasAttachments = !!conversation?.editing && (documents.length > 0 || sources.length > 0 || attachedChecks.length > 0);
-  const canSend = project && draft.trim() && !sending && !readingDocuments && !conversation?.sending && !libraryRequiresCode && !revisionHasAttachments && !mention;
+  const replyTargetBlocksSend = !!replyToTurnId && (!replyTargetAvailable || !!conversation?.editing || typeof api.sendConversationRequest !== 'function');
+  const canSend = !replyTargetBlocksSend && project && draft.trim() && !sending && !readingDocuments && !conversation?.sending && !libraryRequiresCode && !revisionHasAttachments && !mention;
   const problemOptions = useProblemMentions(check.projectId, [...attachedChecks, ...recent.filter(item => !attachedChecks.some(attached => attached.id === item.id))], addOpen);
   const query = mention?.query.trim().toLowerCase() ?? '';
   const matchingChecks = rankMentionChecks(recent.filter(item => check.projectId && item.projectId === check.projectId
@@ -329,9 +347,9 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
         if (documents.some(item => item.saved?.projectId !== project.id)) throw new Error('Some documents are not saved yet. Add them again before sending.');
         if (references.some(ref => !Object.keys(ref).length)) throw new Error('An attached check has no saved evidence yet.');
         const payload = { text: focus, mode: effectiveMode, permission: prefs.mode, references,
-          ...(referenceLabels.some(Boolean) ? { referenceLabels } : {}) };
+          ...(referenceLabels.some(Boolean) ? { referenceLabels } : {}), ...(replyToTurnId ? { replyToTurnId } : {}) };
         const requestSignature = JSON.stringify({ focus, mode: effectiveMode, permission: prefs.mode, references,
-          ...(payload.referenceLabels ? { referenceLabels } : {}) });
+          ...(payload.referenceLabels ? { referenceLabels } : {}), ...(payload.replyToTurnId ? { replyToTurnId } : {}) });
         const id = current.requestSignature === requestSignature && current.requestId ? current.requestId : crypto.randomUUID();
         writeConversationDraft(project.id, { ...current, requestId: id, requestSignature }, check.id);
         const accepted = await api.sendConversationRequest(project.id, { id, ...payload });
@@ -342,7 +360,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
         if (latest.requestId === id) {
           if (draftContentSignature(latest) === draftContentSignature(current)) {
             writeConversationDraft(project.id, { text: '', checkIds: [], problems: [], mode }, check.id);
-            setDraft(''); setDocuments([]); setSourceIds([]); setAttachedChecks([]); setAttachedProblems([]);
+            setDraft(''); setDocuments([]); setSourceIds([]); setAttachedChecks([]); setAttachedProblems([]); setReplyToTurnId(undefined);
           } else {
             writeConversationDraft(project.id, { ...latest, requestId: undefined, requestSignature: undefined }, check.id);
           }
@@ -380,6 +398,19 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     <button type="button" className="ck-composer-expand" aria-label={expanded ? 'Collapse composer' : 'Expand composer'} aria-expanded={expanded}
       onClick={() => setExpanded(value => !value)}><Icon icon={expanded ? Minimize2 : Maximize2} /></button>
     {conversation?.editing}
+    {replyToTurnId && <div className="pc-reply-chip">
+      <Reply size={15} aria-hidden="true" />
+      <div>
+        <strong>{replyTargetAvailable ? 'Replying to ORIN' : conversation?.replySourcesLoaded ? 'Selected reply unavailable' : 'Loading selected reply'}</strong>
+        {conversation?.editing
+          ? <span>Remove the reply target to change this test.</span>
+          : replyTargetAvailable ? <span>{conversation?.replySources?.get(replyToTurnId)}</span> : null}
+      </div>
+      <button type="button" aria-label="Remove reply target" onClick={() => {
+        setReplyToTurnId(undefined);
+        input.current?.focus({ preventScroll: true });
+      }}><Icon icon={X} /></button>
+    </div>}
     {!!attachedProblems.length && <ul className="ck-attached">{attachedProblems.map((item, index) => <li className="ck-chip" key={JSON.stringify(item.reference)}>
       <Icon icon={FileText} /><span>{item.label}</span><button type="button" aria-label={'Remove problem ' + item.label} onClick={() => setAttachedProblems(current => current.filter((_, at) => at !== index))}><Icon icon={X} /></button>
     </li>)}</ul>}
