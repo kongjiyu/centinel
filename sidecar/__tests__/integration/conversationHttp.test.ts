@@ -142,3 +142,86 @@ it('uses a newly attached source even when the request resembles an earlier-repl
   expect(resolveEvidence).toHaveBeenCalledOnce();
   expect(plan).toHaveBeenCalledOnce();
 });
+
+
+function savedConversationFixture(
+  id: string, createdAt: string, properties: Partial<ConversationRequest> = {},
+): ConversationRequest {
+  return { id, projectId, ownerId: 'owner', revision: 1, inputHash: 'fixture', createdAt, updatedAt: createdAt,
+    input: { id, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [] },
+    state: 'completed', reply: 'An earlier synthetic response.', policyVersion: 'fixture', events: [], ...properties };
+}
+
+it.each(['failed', 'missing', 'other owner', 'other project'] as const)(
+  'does not substitute some other eligible reply for an explicitly selected %s source',
+  async selection => {
+    const decoyId = randomUUID();
+    const targetId = randomUUID();
+    rows.set(decoyId, savedConversationFixture(decoyId, '2000-01-01T00:05:00Z', { reply: 'This unrelated fixture is available.' }));
+    if (selection !== 'missing') rows.set(targetId, savedConversationFixture(targetId, '2000-01-01T00:00:00Z', {
+      ...(selection === 'failed' ? { state: 'failed' } : {}),
+      ...(selection === 'other owner' ? { ownerId: 'different fixture owner' } : {}),
+      ...(selection === 'other project' ? { projectId: randomUUID() } : {}),
+    }));
+    const id = randomUUID();
+    const path = '/projects/' + projectId + '/conversation-requests';
+    expect((await post(path, { id, text: 'Explain this more clearly.', mode: 'code', permission: 'ask',
+      references: [], replyToTurnId: targetId })).status).toBe(202);
+    await vi.waitFor(() => expect(rows.get(id)).toMatchObject({
+      state: 'completed', action: 'clarify', replyTo: { turnId: targetId, status: 'unavailable' },
+    }));
+    expect(rows.get(id)?.reply).not.toContain('unrelated fixture');
+    expect(rows.get(id)?.citations).not.toContain('conversation:' + decoyId);
+    expect(plan).not.toHaveBeenCalled();
+    const response = await fetch(base + path, { headers: { Authorization: 'Bearer fixture' } });
+    expect(await response.json()).toEqual(expect.arrayContaining([expect.objectContaining({
+      id, replyTo: { turnId: targetId, status: 'unavailable' },
+    })]));
+  },
+);
+
+it('quotes the explicitly selected older Markdown response instead of the recent one', async () => {
+  const older = randomUUID(), recent = randomUUID(), id = randomUUID();
+  const expected = '**The earlier result** is inconclusive.';
+  rows.set(older, savedConversationFixture(older, '2000-01-01T00:00:00Z', { reply: expected, replyFormat: 'markdown' }));
+  rows.set(recent, savedConversationFixture(recent, '2000-01-01T00:10:00Z', { reply: 'Unrelated recent fixture.' }));
+  const path = '/projects/' + projectId + '/conversation-requests';
+  expect((await post(path, { id, text: 'Quote your previous reply.', mode: 'code',
+    permission: 'ask', references: [], replyToTurnId: older })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'completed', reply: expected, replyFormat: 'markdown',
+    replyTo: { turnId: older, status: 'resolved' }, citations: ['conversation:' + older] }));
+  expect(plan).not.toHaveBeenCalled();
+  expect(resolveEvidence).not.toHaveBeenCalled();
+});
+
+it('requires a source for an ambiguous question, then uses both chosen reply and new attachment when supplied', async () => {
+  const older = randomUUID(), recent = randomUUID(), artifactId = randomUUID();
+  rows.set(older, savedConversationFixture(older, '2000-01-01T00:00:00Z', { reply: 'The earlier review covered checkout totals.' }));
+  rows.set(recent, savedConversationFixture(recent, '2000-01-01T00:10:00Z', { reply: 'Unrelated recent fixture.' }));
+  const path = '/projects/' + projectId + '/conversation-requests';
+  const ambiguousId = randomUUID();
+  const input = { text: 'What does that mean?', mode: 'code', permission: 'ask' };
+  expect((await post(path, { ...input, id: ambiguousId, references: [] })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(ambiguousId)).toMatchObject({ state: 'completed', action: 'clarify', citations: [] }));
+  expect(plan).not.toHaveBeenCalled();
+  expect(resolveEvidence).not.toHaveBeenCalled();
+
+  const source = 'artifact:' + artifactId;
+  const prior = 'conversation:' + older;
+  resolveEvidence.mockResolvedValue([{ id: source, text: JSON.stringify({ path: 'checkout-note.md', content: 'New fixture layout note.' }),
+    hash: 'fixture', artifactId }]);
+  plan.mockResolvedValue({ action: 'explain', reply: '**New note:** it adds layout context to the earlier review.', scope: [],
+    citations: [source, prior], claims: [{ citation: source, excerpt: 'fixture layout note' },
+      { citation: prior, excerpt: 'review covered checkout totals' }] });
+  const id = randomUUID();
+  expect((await post(path, { ...input, id, references: [{ artifactId }], referenceLabels: ['Checkout note.md'],
+    replyToTurnId: older })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'completed', action: 'explain', replyFormat: 'markdown',
+    input: { referenceLabels: ['Checkout note.md'] }, resolvedAttachmentNames: ['checkout-note.md'],
+    replyTo: { turnId: older, status: 'resolved' }, citations: [source, prior] }));
+  expect(plan).toHaveBeenCalledOnce();
+  expect(plan.mock.calls[0][2]).toEqual([
+    expect.objectContaining({ id: source }),
+    expect.objectContaining({ id: prior, kind: 'prior_reply', text: 'The earlier review covered checkout totals.' }),
+  ]);
+});

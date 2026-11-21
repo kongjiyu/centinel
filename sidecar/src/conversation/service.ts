@@ -110,7 +110,7 @@ function ambiguousUnattachedFollowUp(text: string) {
   return /^(?:what (?:does (?:that|it) mean|about (?:that|it))|(?:can you )?explain (?:that|it)|which one failed)[.!?]?$/i.test(text.trim());
 }
 
-async function loadExplicitReply(record: ConversationRequest, store: ConversationStore): Promise<Evidence | null> {
+async function loadExplicitReply(record: ConversationRequest, store: ConversationStore): Promise<{ evidence: Evidence; replyFormat?: "markdown" } | null> {
   const id = record.input.replyToTurnId;
   if (!id || id === record.id) return null;
   try {
@@ -119,7 +119,8 @@ async function loadExplicitReply(record: ConversationRequest, store: Conversatio
     if (!row || row.id !== id || row.projectId !== record.projectId || row.ownerId !== record.ownerId
       || row.state !== 'completed' || !(Date.parse(row.createdAt) < accepted && Date.parse(row.updatedAt) <= accepted)
       || typeof row.reply !== 'string' || !row.reply.trim() || row.reply.length > MAX_RECALLED_REPLY) return null;
-    return { id: 'conversation:' + id, text: row.reply, hash: hash(row.reply), kind: 'prior_reply' };
+    return { evidence: { id: 'conversation:' + id, text: row.reply, hash: hash(row.reply), kind: 'prior_reply' },
+      ...(row.replyFormat === "markdown" && { replyFormat: "markdown" as const }) };
   } catch {
     return null;
   }
@@ -266,7 +267,8 @@ export class ConversationRuntime {
             citations: [], scope: [], state: 'completed' });
           return;
         }
-        const prior = target ? await loadExplicitReply(record, deps.store) : null;
+        const selected = target ? await loadExplicitReply(record, deps.store) : null;
+        const prior = selected?.evidence;
         if (target && !prior) {
           await checkpoint({ replyTo: { turnId: target, status: 'unavailable' }, action: 'clarify',
             reply: 'That earlier reply is unavailable. Select another reply or send the question with the relevant evidence.',
@@ -275,7 +277,7 @@ export class ConversationRuntime {
         }
         if (prior && target && !record.input.references.length && previousReplyRequested(record.input.text)) {
           await checkpoint({ replyTo: { turnId: target, status: 'resolved' }, action: 'explain', reply: prior.text,
-            citations: [prior.id], scope: [], state: 'completed' });
+            ...(selected?.replyFormat === "markdown" && { replyFormat: "markdown" as const }), citations: [prior.id], scope: [], state: 'completed' });
           return;
         }
         resolvingAttachments = record.input.references.length > 0;
