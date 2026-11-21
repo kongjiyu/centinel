@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Braces, ClipboardCheck, Ellipsis, FileText, Image, Monitor, Paperclip, ScanSearch } from 'lucide-react';
 import { api } from '../../api/client';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Screen } from '../../types';
@@ -79,9 +80,17 @@ function SentAttachments({ request }: { request: ConversationRequest }) {
     };
     const sent = safeName(request.input.referenceLabels?.[index]);
     const saved = safeName(request.resolvedAttachmentNames?.[index]);
-    return <li key={index}>
-      <span>{kind}{sent ? ':' : ' attached'}</span>{sent && <> {sent}</>}
-      {saved && saved !== sent && <small>Saved name: {saved}</small>}
+    const isImage = reference.artifactId && /\.(avif|bmp|gif|heic|ico|jpe?g|png|svg|tiff?|webp)$/i.test(sent ?? saved ?? '');
+    const isCode = reference.artifactId && /\.(c|cpp|cs|css|go|html|java|js|json|jsx|kt|php|py|rb|rs|sh|sql|ts|tsx|vue|ya?ml)$/i.test(sent ?? saved ?? '');
+    const Icon = reference.findingId ? ScanSearch : reference.testId ? Monitor : isImage ? Image
+      : isCode ? Braces : reference.artifactId ? FileText : ClipboardCheck;
+    return <li key={index} className="pc-sent-attachment">
+      <span className="pc-sent-attachment-icon" aria-hidden="true"><Icon size={14} strokeWidth={1.65} /></span>
+      <div className="pc-sent-attachment-detail">
+        {sent && <span className="pc-sent-attachment-kind">{kind}: </span>}
+        <span className="pc-sent-attachment-name">{sent || kind + ' attached'}</span>
+        {saved && saved !== sent && <small>Saved name: {saved}</small>}
+      </div>
     </li>;
   };
   return <div className="pc-sent-attachments"
@@ -95,7 +104,11 @@ function SentAttachments({ request }: { request: ConversationRequest }) {
     }}
   >
     <div className="pc-sent-context-heading">
-      <span className="pc-sent-context-caption">Attachments · names as sent</span>
+      <div className="pc-sent-context-caption">
+        <Paperclip size={13} strokeWidth={1.75} aria-hidden="true" />
+        <span>Attachments</span><span className="pc-sent-context-count">{count}</span>
+        <span className="pc-sent-context-provenance">Names as sent</span>
+      </div>
       {hiddenCount > 0 && <button type="button" className="pc-sent-context-more"
         aria-label={expanded ? 'Hide additional attachments' : 'Show all ' + count + ' attachments'}
         aria-expanded={expanded} aria-controls={listId}
@@ -104,7 +117,7 @@ function SentAttachments({ request }: { request: ConversationRequest }) {
           if (pinned) setHovering(false);
           setPinned(!pinned);
         }}
-      >…</button>}
+      ><Ellipsis size={17} strokeWidth={1.8} aria-hidden="true" /><span aria-hidden="true">+{hiddenCount}</span></button>}
     </div>
     <ul className="pc-sent-context" aria-label="Included with this message">
       {request.input.references.slice(0, attachmentPreviewLimit).map(renderAttachment)}

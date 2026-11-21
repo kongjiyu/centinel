@@ -280,21 +280,48 @@
 .pc-check-card-counts small { font-size: 12px; }
 .pc-check-card-actions { justify-content: flex-end; padding: 0; border: 0; background: transparent; backdrop-filter: none; }
 .pc-conversation-request { display: grid; gap: var(--space-3); }
-.pc-sent-attachments { margin-block-end: var(--space-2); padding-block-end: var(--space-2); border-block-end: 1px solid var(--color-border); white-space: normal; }
-.pc-sent-context-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.pc-sent-context-caption { color: var(--color-text-muted); font-size: 12px; }
-.pc-sent-context-more {
-  display: grid; place-items: center; flex: none; min-inline-size: 32px; min-block-size: 28px;
-  padding: 0 var(--space-1); border: 1px solid var(--color-border); border-radius: 6px;
-  background: var(--color-surface); color: var(--color-text); font: inherit; line-height: 1; cursor: pointer;
+.pc-conversation-request .pc-msg.is-me:has(.pc-sent-attachments) { inline-size: clamp(20rem, 36vw, 25rem); }
+.pc-sent-attachments {
+  margin-block-end: 10px; padding-block-end: 8px;
+  border-block-end: 1px solid var(--color-border);
+  white-space: normal;
 }
-.pc-sent-context-more:hover, .pc-sent-context-more[aria-expanded="true"] { background: var(--color-surface-hover); }
-.pc-sent-context-more:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-.pc-sent-context { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-1) 0 0; padding: 0; list-style: none; }
+.pc-sent-context-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-1); min-block-size: 28px; margin-block-end: var(--space-1);
+}
+.pc-sent-context-caption {
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 5px;
+  color: var(--color-text-muted); font-size: 11px; font-weight: 600; line-height: 1.35;
+}
+.pc-sent-context-caption svg { flex: none; }
+.pc-sent-context-count { font-variant-numeric: tabular-nums; }
+.pc-sent-context-provenance { margin-inline-start: 2px; font-weight: 400; white-space: nowrap; }
+.pc-sent-context-provenance::before { content: '·'; margin-inline-end: 6px; }
+.pc-sent-context-more {
+  display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  flex: none; min-inline-size: 36px; min-block-size: 28px; padding: 0 5px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--color-text-muted);
+  font: inherit; font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pc-sent-context-more:hover, .pc-sent-context-more[aria-expanded="true"] { background: var(--color-surface-hover); color: var(--color-text); }
+.pc-sent-context-more:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.pc-sent-context { display: grid; margin: 0; padding: 0; list-style: none; }
 .pc-sent-context[hidden] { display: none; }
-.pc-sent-context li { min-inline-size: 0; max-inline-size: 100%; padding: 0 var(--space-2); border: 1px solid var(--color-border); border-radius: 6px; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
-.pc-sent-context li > span { color: var(--color-text-muted); }
-.pc-sent-context li > small { display: block; font-size: 11px; color: var(--color-text-muted); }
+.pc-sent-context .pc-sent-attachment {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 8px;
+  min-inline-size: 0; padding-block: 3px;
+}
+.pc-sent-attachment-icon {
+  display: grid; place-items: center; inline-size: 24px; block-size: 24px;
+  color: var(--color-text-muted); background: var(--color-surface); border-radius: 6px;
+}
+.pc-sent-attachment-detail { align-self: center; min-inline-size: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.pc-sent-attachment-name { display: block; color: var(--color-text); font-size: 12px; font-weight: 550; }
+.pc-sent-attachment-kind { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pc-sent-attachment-detail small { display: block; margin-block-start: 2px; color: var(--color-text-muted); font-size: 11px; }
+@media (pointer: coarse) { .pc-sent-context-more { min-inline-size: 44px; min-block-size: 44px; } }
 @media (max-width: 600px) { .pc-conversation-request .pc-msg.is-me { max-inline-size: 92%; } }
 @media (max-width: 720px) {
   .ck-panel.pc-response { --pc-header-inset: var(--space-4); }

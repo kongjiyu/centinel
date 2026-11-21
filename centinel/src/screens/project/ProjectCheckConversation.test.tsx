@@ -132,7 +132,7 @@ it('asks about the exact result and shows the saved problem and both documents a
   render(<Workspace />);
   const included = within(within(await screen.findByText('Explain the attached problem.')).getByRole('list', { name: 'Included with this message' }));
   expect(included.getAllByRole('listitem')).toHaveLength(3);
-  expect(within(screen.getByText('Explain the attached problem.')).getByText('Attachments · names as sent')).toBeVisible();
+  expect(within(screen.getByText('Explain the attached problem.')).getByText('Names as sent')).toBeVisible();
   expect(included.getByText(/Order ownership check is missing/)).toBeVisible();
   expect(included.getByText('Saved name: One exact saved issue')).toBeVisible();
   expect(included.getByText(/Design notes.md/)).toBeVisible();
@@ -347,7 +347,7 @@ it.each([0, 1, 3, 4, 5])('shows a top-of-message preview of at most three of %i 
   expect(within(preview).getAllByText(/Duplicate\.md/)).toHaveLength(Math.min(2, count));
   expect(bubble).not.toHaveTextContent(/private-folder|elsewhere|opaque-/);
   expect(within(bubble).queryByRole('list', { name: 'Additional attachments' })).not.toBeInTheDocument();
-  if (count > 3) expect(within(bubble).getByRole('button', { name: 'Show all ' + count + ' attachments' })).toHaveTextContent('…');
+  if (count > 3) expect(within(bubble).getByRole('button', { name: 'Show all ' + count + ' attachments' })).toHaveTextContent('+' + (count - 3));
   else expect(within(bubble).queryByRole('button')).not.toBeInTheDocument();
 });
 
