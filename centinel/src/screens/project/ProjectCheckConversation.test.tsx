@@ -194,7 +194,7 @@ it('routes an explicit quote through saved conversation and attributes it after 
   first.unmount();
   render(<Workspace />);
   const reply = await screen.findByText('Quoted previous reply');
-  const turn = reply.closest('.pc-turn')!;
+  const turn = reply.closest<HTMLElement>('.pc-turn')!;
   expect(within(turn).getByText('Synthetic project answer. Second line.').textContent).toBe('Synthetic project answer.\nSecond line.');
   expect(within(turn).getByText('Earlier reply in this project')).toBeInTheDocument();
   expect(within(turn).queryByText('AI analysis')).not.toBeInTheDocument();
