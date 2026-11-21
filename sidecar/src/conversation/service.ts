@@ -78,22 +78,25 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
 }
 
 function previousReplyRequested(text: string) {
-  return /^(?:please\s+)?(?:repeat|quote)\s+(?:the\s+|your\s+)?(?:exact\s+)?(?:previous|last)\s+(?:answer|reply|response)[.!?]?$/i.test(text.trim());
+  return /^(?:(?:please|(?:can|could|would)\s+you)\s+)?(?:repeat|quote)\s+(?:the\s+|your\s+)?(?:exact\s+)?(?:previous|last)\s+(?:answer|reply|response)[.!?]?$/i.test(text.trim());
 }
 
+function olderReplyRequested(text: string) {
+  return /^(?:(?:please|(?:can|could|would)\s+you)\s+)?(?:repeat|quote|explain)\s+(?:the\s+|your\s+)?(?:(?:first|second|third|older|earlier)\s+(?:answer|reply|response)|(?:answer|reply|response)\s+before\s+(?:the\s+)?last)[.!?]?$/i.test(text.trim());
+}
 const MAX_RECALLED_REPLY = 6_000;
 
 async function quotePreviousReply(record: ConversationRequest, store: ConversationStore): Promise<Partial<ConversationRequest>> {
   try {
-    if (!store.listEarlierCompleted) throw new Error("Recall unavailable");
-    const [row] = await store.listEarlierCompleted(record.projectId, record.ownerId, record.createdAt, 1);
-    if (row && row.projectId === record.projectId && row.ownerId === record.ownerId
+    if (!store.listEarlierTurns) throw new Error("Recall unavailable");
+    const [row] = await store.listEarlierTurns(record.projectId, record.ownerId, record.createdAt, 1);
+    if (row && Date.parse(row.updatedAt) <= Date.parse(record.createdAt) && row.projectId === record.projectId && row.ownerId === record.ownerId
       && row.id !== record.id && row.state === "completed" && Date.parse(row.createdAt) < Date.parse(record.createdAt)
       && typeof row.reply === "string" && row.reply.trim() && row.reply.length <= MAX_RECALLED_REPLY) {
       return { action: "explain", reply: row.reply, ...(row.replyFormat === "markdown" && { replyFormat: "markdown" as const }), citations: ["conversation:" + row.id], scope: [],
         recall: { status: "recalled", turns: 1 }, state: "completed" };
     }
-    return { action: "clarify", reply: "No earlier completed reply is available to quote in this project. Paste it here if you want me to use it.",
+    return { action: "clarify", reply: "The immediately preceding reply is not available to quote in this project. Paste it here if you want me to use it.",
       citations: [], scope: [], recall: { status: "missing", turns: 0 }, state: "completed" };
   } catch {
     return { action: "clarify", reply: "The previous reply could not be loaded. Paste it here if you want me to use it.",
@@ -229,6 +232,11 @@ export class ConversationRuntime {
           signal.throwIfAborted();
           await deps.authorize(record.projectId);
           await checkpoint(recalled);
+          return;
+        }
+        if (!record.input.references.length && olderReplyRequested(record.input.text)) {
+          await checkpoint({ action: 'clarify', reply: 'Paste the earlier reply you mean so I can use the right one.',
+            citations: [], scope: [], state: 'completed' });
           return;
         }
         resolvingAttachments = record.input.references.length > 0;

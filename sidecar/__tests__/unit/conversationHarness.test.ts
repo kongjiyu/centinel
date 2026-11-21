@@ -8,7 +8,7 @@ import type { ConversationStore } from '../../src/conversation/store.js';
 class MemoryStore implements ConversationStore {
   records = new Map<string, ConversationRequest>();
   failUpdate = false;
-  listEarlierCompleted = vi.fn<NonNullable<ConversationStore["listEarlierCompleted"]>>().mockResolvedValue([]);
+  listEarlierTurns = vi.fn<NonNullable<ConversationStore["listEarlierTurns"]>>().mockResolvedValue([]);
   async get(projectId: string, id: string) {
     const row = this.records.get(id);
     return row?.projectId === projectId ? structuredClone(row) : null;
@@ -115,7 +115,7 @@ describe('conversation request harness', () => {
     const earlier = await waitFor(store, input.id, 'completed');
     await runtime.close();
     earlier.createdAt = '2000-01-01T00:00:00.000Z';
-    store.listEarlierCompleted.mockResolvedValue([earlier]);
+    store.listEarlierTurns.mockResolvedValue([earlier]);
     vi.mocked(deps.plan).mockClear();
     const restarted = new ConversationRuntime();
     const next = { ...input, id: randomUUID(), text: 'Repeat your exact last answer.' };
@@ -123,20 +123,21 @@ describe('conversation request harness', () => {
     const saved = await waitFor(store, next.id, 'completed');
     expect(saved).toMatchObject({ action: 'explain', reply: earlier.reply, citations: ['conversation:' + earlier.id],
       recall: { status: 'recalled', turns: 1 }, scope: [] });
-    expect(store.listEarlierCompleted).toHaveBeenCalledWith('project', 'owner', saved.createdAt, 1);
+    expect(store.listEarlierTurns).toHaveBeenCalledWith('project', 'owner', saved.createdAt, 1);
     expect(deps.plan).not.toHaveBeenCalled();
     expect(deps.execute).not.toHaveBeenCalled();
     await restarted.close();
   });
-  it.each(['missing', 'wrong-project', 'wrong-owner', 'unfinished', 'future', 'unavailable'])(
+  it.each(['missing', 'wrong-project', 'wrong-owner', 'unfinished', 'cancelled', 'late-completion', 'future', 'unavailable'])(
     'fails closed when a prior reply is %s', async kind => {
       const { runtime, deps, store, input } = fixture();
-      if (kind === 'unavailable') store.listEarlierCompleted.mockRejectedValueOnce(new Error('fixture outage'));
-      else if (kind !== 'missing') store.listEarlierCompleted.mockResolvedValueOnce([{
+      if (kind === 'unavailable') store.listEarlierTurns.mockRejectedValueOnce(new Error('fixture outage'));
+      else if (kind !== 'missing') store.listEarlierTurns.mockResolvedValueOnce([{
         id: randomUUID(), projectId: kind === 'wrong-project' ? 'different' : 'project',
         ownerId: kind === 'wrong-owner' ? 'different' : 'owner', revision: 0, input, inputHash: 'fixture',
         createdAt: kind === 'future' ? '2999-01-01T00:00:00.000Z' : '2000-01-01T00:00:00.000Z',
-        updatedAt: '2000-01-01T00:00:00.000Z', state: kind === 'unfinished' ? 'planning' : 'completed',
+        updatedAt: kind === 'late-completion' ? '2999-01-01T00:00:00.000Z' : '2000-01-01T00:00:00.000Z',
+        state: kind === 'unfinished' ? 'planning' : kind === 'cancelled' ? 'cancelled' : 'completed',
         reply: 'Synthetic reply not eligible for this request.', policyVersion: 'fixture', events: [],
       }]);
       await runtime.accept('project', { ...input, text: 'Quote the previous answer.' }, deps);
@@ -152,8 +153,86 @@ describe('conversation request harness', () => {
     const { runtime, deps, store, input } = fixture();
     await runtime.accept('project', { ...input, text: 'Quote the previous answer.', references: [{ artifactId: randomUUID() }] }, deps);
     await waitFor(store, input.id, 'completed');
-    expect(store.listEarlierCompleted).not.toHaveBeenCalled();
+    expect(store.listEarlierTurns).not.toHaveBeenCalled();
     expect(deps.plan).toHaveBeenCalledOnce();
+    await runtime.close();
+  });
+  it.each(['What does that mean?', 'What about the first issue?'])(
+    'documents the bounded recall gap for %s', async text => {
+      const { runtime, deps, store, input } = fixture();
+      const earlier = { ...input, text: 'Explain the original issue' };
+      await runtime.accept('project', earlier, deps);
+      await waitFor(store, earlier.id, 'completed');
+      await runtime.close();
+      const restarted = new ConversationRuntime();
+      vi.mocked(deps.resolve).mockResolvedValue([]);
+      vi.mocked(deps.plan).mockClear();
+      vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'A plausible answer without the earlier context.', citations: [], scope: [] });
+      const next = { ...input, id: randomUUID(), text };
+      await restarted.accept('project', next, deps);
+      const saved = await waitFor(store, next.id, 'completed');
+      expect(saved).toMatchObject({ action: 'explain', reply: 'A plausible answer without the earlier context.', citations: [], context: [] });
+      expect(saved.recall).toBeUndefined();
+      expect(store.listEarlierTurns).not.toHaveBeenCalled();
+      expect(deps.plan).toHaveBeenCalledWith(expect.objectContaining({ input: next }), [], expect.any(AbortSignal));
+      expect(deps.execute).not.toHaveBeenCalled();
+      await restarted.close();
+    });
+
+  it.each(['Repeat the answer before last.', 'Can you quote the first reply?', 'Explain your second response.'])(
+    'asks for the earlier text rather than guessing for %s', async text => {
+      const { runtime, deps, store, input } = fixture();
+      await runtime.accept('project', { ...input, text }, deps);
+      expect(await waitFor(store, input.id, 'completed')).toMatchObject({
+        action: 'clarify', reply: expect.stringContaining('Paste the earlier reply'), citations: [],
+      });
+      expect(deps.plan).not.toHaveBeenCalled();
+      expect(deps.execute).not.toHaveBeenCalled();
+      await runtime.close();
+    });
+
+  it('does not substitute a completed older answer when the immediately prior request is still running', async () => {
+    const { runtime, deps, store, input } = fixture();
+    const base = { id: randomUUID(), projectId: 'project', ownerId: 'owner', revision: 0, input, inputHash: 'fixture',
+      updatedAt: '2000-01-01T00:00:00.000Z', policyVersion: 'fixture', events: [] };
+    store.listEarlierTurns.mockResolvedValue([
+      { ...base, state: 'running', createdAt: '2000-01-02T00:00:00.000Z' },
+      { ...base, id: randomUUID(), state: 'completed', createdAt: '2000-01-01T00:00:00.000Z', reply: 'Wrong older answer.' },
+    ]);
+    await runtime.accept('project', { ...input, text: 'Can you repeat your last reply?' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({
+      action: 'clarify', recall: { status: 'missing', turns: 0 }, citations: [],
+    });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+  it('uses only the most recent eligible reply and does not depend on the visible history listing', async () => {
+    const { runtime, deps, store, input } = fixture();
+    await runtime.accept('project', input, deps);
+    const sample = await waitFor(store, input.id, 'completed');
+    const older = { ...sample, id: randomUUID(), createdAt: '2000-01-01T00:00:00.000Z', reply: 'Older synthetic answer.' };
+    const newest = { ...sample, id: randomUUID(), createdAt: '2000-01-02T00:00:00.000Z', reply: 'Newest synthetic answer.' };
+    const list = vi.spyOn(store, 'list').mockResolvedValue([]);
+    store.listEarlierTurns.mockResolvedValue([newest, older]);
+    vi.mocked(deps.plan).mockClear();
+    const next = { ...input, id: randomUUID(), text: 'Repeat the last reply.' };
+    await runtime.accept('project', next, deps);
+    expect(await waitFor(store, next.id, 'completed')).toMatchObject({ reply: newest.reply, citations: ['conversation:' + newest.id] });
+    expect(list).not.toHaveBeenCalled();
+    expect(deps.plan).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+
+  it('fails closed if the prior reply timestamp ties with the new request', async () => {
+    const { runtime, deps, store, input } = fixture();
+    store.listEarlierTurns.mockImplementation(async (_project, _owner, cutoff) => [{
+      id: randomUUID(), projectId: 'project', ownerId: 'owner', revision: 0, input, inputHash: 'fixture',
+      createdAt: cutoff, updatedAt: cutoff, state: 'completed', reply: 'Synthetic tied reply.', policyVersion: 'fixture', events: [],
+    }]);
+    await runtime.accept('project', { ...input, text: 'Quote the previous answer.' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', recall: { status: 'missing', turns: 0 } });
+    expect(deps.plan).not.toHaveBeenCalled();
     await runtime.close();
   });
   it('coalesces concurrent sends and rejects a changed request under the same ID', async () => {

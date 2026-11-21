@@ -16,9 +16,9 @@ vi.mock('../../src/conversation/evidence.js', () => ({ resolveConversationEviden
 vi.mock('../../src/conversation/store.js', () => ({
   SupabaseConversationStore: class {
     async list(project: string) { return [...rows.values()].filter(record => record.projectId === project).map(record => structuredClone(record)); }
-    async listEarlierCompleted(project: string, owner: string, before: string, limit: number) {
+    async listEarlierTurns(project: string, owner: string, before: string, limit: number) {
       return [...rows.values()].filter(row => row.projectId === project && row.ownerId === owner
-        && row.state === "completed" && row.createdAt < before)
+        && row.createdAt < before)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(row => structuredClone(row));
     }
     async get(project: string, id: string) { const row = rows.get(id); return row?.projectId === project ? structuredClone(row) : null; }
