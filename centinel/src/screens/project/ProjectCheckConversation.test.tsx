@@ -348,7 +348,7 @@ it.each([0, 1, 3, 4, 5])('shows a top-of-message preview of at most three of %i 
   expect(bubble).not.toHaveTextContent(/private-folder|elsewhere|opaque-/);
   expect(within(bubble).queryByRole('list', { name: 'Additional attachments' })).not.toBeInTheDocument();
   if (count > 3) expect(within(bubble).getByRole('button', { name: 'Show all ' + count + ' attachments' })).toHaveTextContent('+' + (count - 3));
-  else expect(within(bubble).queryByRole('button')).not.toBeInTheDocument();
+  else expect(within(bubble).getAllByRole('button')).toHaveLength(1);
 });
 
 it('reveals every included attachment by mouse hover, keyboard, and touch and resets on reloading the same saved turn', async () => {
@@ -370,6 +370,8 @@ it('reveals every included attachment by mouse hover, keyboard, and touch and re
   await user.unhover(more);
   expect(extras()).not.toBeInTheDocument();
   await user.tab();
+  expect(screen.getByRole('button', { name: /Attachments 5 Names as sent/ })).toHaveFocus();
+  await user.tab();
   expect(more).toHaveFocus();
   await user.keyboard('{Enter}');
   expect(extras()).toBeVisible();
@@ -386,6 +388,29 @@ it('reveals every included attachment by mouse hover, keyboard, and touch and re
   expect(extras()).not.toBeInTheDocument();
 });
 
+it('collapses all sent cards, restores the preview, and makes the horizontal rail keyboard focusable', async () => {
+  const user = userEvent.setup();
+  const labels = ['Recorded.png', 'Example.ts', 'Checklist.md', 'Notes.pdf'];
+  const input: ConversationRequest['input'] = { id: 'disclosure', text: 'Message stays visible', mode: 'code', permission: 'ask',
+    references: labels.map((_, index) => ({ artifactId: 'source-' + index })), referenceLabels: labels };
+  render(<ConversationTurn request={{ ...accepted(input), state: 'completed' }} onNavigate={vi.fn()} />);
+  const disclosure = screen.getByRole('button', { name: /Attachments 4 Names as sent/ });
+  await user.tab();
+  expect(disclosure).toHaveFocus();
+  expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  await user.keyboard('{Enter}');
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('region', { name: 'Attachment cards' })).not.toBeInTheDocument();
+  expect(screen.getByText(input.text)).toBeVisible();
+  await user.keyboard('{Enter}');
+  expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  const rail = screen.getByRole('region', { name: 'Attachment cards' });
+  await user.tab();
+  await user.tab();
+  expect(rail).toHaveFocus();
+  expect(within(rail).getByText('Recorded.png')).toBeVisible();
+  expect(within(rail).queryByText('Notes.pdf')).not.toBeInTheDocument();
+});
 it('handles old evidence with type-only references, verified names, and opaque metadata distinctly', () => {
   const input: ConversationRequest['input'] = { id: 'legacy', text: 'A historical message', mode: 'code',
     permission: 'ask', references: [{ reviewId }, { reviewId, findingId }, { artifactId: 'source' }] };
