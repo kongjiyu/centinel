@@ -18,6 +18,7 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
     finally { setBusy(false); }
   };
   const owner = sessionStorage.getItem('centinel:supabase-user-id');
+  const recalled = request.recall?.status === "recalled";
   const active = ['accepted', 'planning', 'running', 'awaiting_permission'].includes(request.state);
   return <div className="pc-turn pc-conversation-request">
     <div className="pc-msg is-me">
@@ -41,7 +42,7 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
     </div>
     {request.context?.some(item => item.unavailable) && <p className="pc-sub">Some attached evidence was unavailable. Attachment names show what was sent, not what could be verified.</p>}
     {request.reply && <>
-      <p className="pc-label">AI analysis</p>
+      <p className="pc-label"> {recalled ? "Quoted previous reply" : "AI analysis"}</p>
       {request.replyFormat === 'markdown'
         ? <div className="pc-ai-reply"><ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -56,13 +57,13 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
           >{request.reply}</ReactMarkdown></div>
         : <p className="pc-ai-text pc-ai-reply-literal">{request.reply}</p>}
     </>}
-    {request.citations?.length ? <details><summary>Saved evidence</summary><ul>{request.citations.map(id => {
+    {request.citations?.length ? <details><summary>{recalled ? "Source" : "Saved evidence"}</summary><ul>{request.citations.map(id => {
       const [kind, value] = id.split(':');
       const reference = request.input.references.find(ref => ref.findingId === value || ref.reviewId === value || ref.autoTestId === value);
       return <li key={id}>{kind === 'finding' && reference?.reviewId
         ? <button type="button" className="ck-link" onClick={() => onNavigate({ name: 'review-finding', projectId: request.projectId, sessionId: reference.reviewId!, findingId: value })}>Open code evidence</button>
         : kind === 'review' ? <button type="button" className="ck-link" onClick={() => onNavigate({ name: 'review-activity', projectId: request.projectId, sessionId: value })}>Open saved Review</button>
-          : <span>{kind === 'browser' ? 'Saved browser observations' : 'Saved source context'}</span>}</li>;
+          : <span>{kind === 'browser' ? 'Saved browser observations' : kind === 'conversation' ? 'Earlier reply in this project' : 'Saved source context'}</span>}</li>;
     })}</ul></details> : null}
     <p className="pc-label" role="status">{request.state === 'completed' && !request.reviewId && !request.autoTestId ? 'Response saved' : request.state.replaceAll('_', ' ')}</p>
     {request.error && <p role="status">{request.error}</p>}

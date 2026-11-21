@@ -18,7 +18,7 @@ vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
 vi.mock('../../api/client', () => ({ api: {
   autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
   listRequirements: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
-  sendConversationRequest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
+  sendConversationRequest: vi.fn(), startAutoTest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
 } }));
 const project: Project = { id: '11111111-1111-4111-8111-111111111111', name: 'Sample shop', description: '', workspacePath: '/shop', createdAt: '', updatedAt: '' };
 const reviewId = '22222222-2222-4222-8222-222222222222';
@@ -169,6 +169,34 @@ it('restores each draft when switching checks and posts only the sent draft to t
   expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('My project draft');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('My first check draft');
   expect(readConversationDraft(project.id, 'check-two').text).toBe('');
+});
+it('routes an explicit quote through saved conversation and attributes it after a fresh render', async () => {
+  const text = 'Quote your previous reply.';
+  const priorId = '44444444-4444-4444-8444-444444444444';
+  let saved: ConversationRequest[] = [];
+  vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(saved));
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
+    const quote: ConversationRequest = {
+      ...accepted(input), state: 'completed', action: 'explain', reply: 'Synthetic project answer.\nSecond line.',
+      citations: ['conversation:' + priorId], recall: { status: 'recalled', turns: 1 },
+    };
+    saved = [quote];
+    return quote;
+  });
+  const user = userEvent.setup();
+  const first = render(<Workspace />);
+  await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), text);
+  await user.click(screen.getByRole('button', { name: /^Send$/ }));
+  await screen.findByText('Quoted previous reply');
+  expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id, expect.objectContaining({ text, references: [] }));
+  expect(api.startAutoTest).not.toHaveBeenCalled();
+  first.unmount();
+  render(<Workspace />);
+  const reply = await screen.findByText('Quoted previous reply');
+  const turn = reply.parentElement!;
+  expect(within(turn).getByText('Synthetic project answer. Second line.').textContent).toBe('Synthetic project answer.\nSecond line.');
+  expect(within(turn).getByText('Earlier reply in this project')).toBeInTheDocument();
+  expect(within(turn).queryByText('AI analysis')).not.toBeInTheDocument();
 });
 it('uses frozen requirements and displays unavailable evidence without a fabricated zero', async () => {
   vi.mocked(api.getReviewTraceability).mockRejectedValue(new Error('snapshot unavailable'));
