@@ -194,7 +194,7 @@ it('routes an explicit quote through saved conversation and attributes it after 
   first.unmount();
   render(<Workspace />);
   const reply = await screen.findByText('Quoted previous reply');
-  const turn = reply.parentElement!;
+  const turn = reply.closest('.pc-turn')!;
   expect(within(turn).getByText('Synthetic project answer. Second line.').textContent).toBe('Synthetic project answer.\nSecond line.');
   expect(within(turn).getByText('Earlier reply in this project')).toBeInTheDocument();
   expect(within(turn).queryByText('AI analysis')).not.toBeInTheDocument();
@@ -306,7 +306,7 @@ it('starts a Check from a project prompt and keeps its explanation readable thro
   expect(api.sendConversationRequest).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   const originalLabel = await screen.findByText('AI analysis');
-  expect(within(originalLabel.parentElement!).getByRole('table')).toBeVisible();
+  expect(within(originalLabel.closest('.pc-turn')!).getByRole('table')).toBeVisible();
   expect(api.sendConversationRequest).toHaveBeenNthCalledWith(2, project.id,
     expect.objectContaining({ references: [{ reviewId }] }));
 
@@ -315,14 +315,14 @@ it('starts a Check from a project prompt and keeps its explanation readable thro
   await user.type(followup, 'Quote your previous reply.');
   await user.click(screen.getByRole('button', { name: /^Send$/ }));
   const quoteLabel = await screen.findByText('Quoted previous reply');
-  expect(within(quoteLabel.parentElement!).getByRole('table')).toBeVisible();
+  expect(within(quoteLabel.closest('.pc-turn')!).getByRole('table')).toBeVisible();
   expect(api.sendConversationRequest).toHaveBeenNthCalledWith(3, project.id,
     expect.objectContaining({ text: 'Quote your previous reply.', references: [] }));
   expect(api.startAutoTest).not.toHaveBeenCalled();
 
   first.unmount();
   render(<Workspace />);
-  const quote = within((await screen.findByText('Quoted previous reply')).parentElement!);
+  const quote = within((await screen.findByText('Quoted previous reply')).closest('.pc-turn')!);
   expect(quote.getByRole('table')).toBeVisible();
   expect(quote.getByText('inconclusive').tagName).toBe('STRONG');
   expect(quote.getByText('Earlier reply in this project')).toBeInTheDocument();
@@ -404,7 +404,7 @@ it('binds a selected saved reply by ID, keeps new attachments, and restores visi
   const artifactId = '77777777-7777-4777-8777-777777777777';
   const reply = (id: string, text: string): ConversationRequest => ({
     ...accepted({ id, text: 'Original request ' + text, mode: 'code', permission: 'ask', references: [] }),
-    state: 'completed', reply: text,
+    state: 'completed', reply: text, createdAt: id === one ? '2026-11-18T01:00:00Z' : '2026-11-18T01:30:00Z',
   });
   const prior = reply(one, 'The first assistant response');
   const target = reply(two, 'The selected assistant response');
@@ -414,8 +414,8 @@ it('binds a selected saved reply by ID, keeps new attachments, and restores visi
     { ...reply('other-project', 'Different project response'), projectId: 'another' }];
   vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(records));
   vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
-    const sent: ConversationRequest = { ...accepted(input), state: 'completed', reply: 'Here is the follow-up.',
-      replyTo: { turnId: two, status: 'resolved' } };
+    const sent: ConversationRequest = { ...accepted(input), state: 'completed', reply: 'Here is the **follow-up**.', replyFormat: 'markdown',
+      replyTo: { turnId: one, status: 'resolved' }, citations: ['conversation:' + one, 'artifact:' + artifactId] };
     records.unshift(sent);
     return sent;
   });
@@ -436,7 +436,7 @@ it('binds a selected saved reply by ID, keeps new attachments, and restores visi
   expect(screen.queryByText('Replying to ORIN')).not.toBeInTheDocument();
   expect(prompt()).toHaveValue('Use this new note in your answer.');
   expect(screen.getByRole('button', { name: 'Remove New note.md' })).toBeVisible();
-  await user.click(pick(target.reply!));
+  await user.click(pick(prior.reply!));
   expect(api.sendConversationRequest).not.toHaveBeenCalled();
   view.unmount();
   const reloaded = mount();
@@ -445,17 +445,24 @@ it('binds a selected saved reply by ID, keeps new attachments, and restores visi
   await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledOnce());
   const input = vi.mocked(api.sendConversationRequest).mock.calls[0][1];
   expect(input).toMatchObject({
-    text: 'Use this new note in your answer.', replyToTurnId: two,
+    text: 'Use this new note in your answer.', replyToTurnId: one,
     references: [{ artifactId }], referenceLabels: ['New note.md'],
   });
-  expect(JSON.stringify(input)).not.toContain(target.reply);
+  expect(JSON.stringify(input)).not.toContain(prior.reply);
   expect(api.startAutoTest).not.toHaveBeenCalled();
   expect(await screen.findByText('In reply to ORIN')).toBeVisible();
   expect(screen.getByText('Use this new note in your answer.')).toHaveTextContent('In reply to ORIN');
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove reply target' })).not.toBeInTheDocument());
   reloaded.unmount();
   mount();
-  expect(await screen.findByText('In reply to ORIN')).toBeVisible();
+  const attribution = await screen.findByText('In reply to ORIN');
+  expect(attribution).toBeVisible();
+  expect(attribution.parentElement).toHaveTextContent(prior.reply!);
+  expect(attribution.parentElement).not.toHaveTextContent(target.reply!);
+  const sentTurn = within(attribution.closest('.pc-turn')!);
+  expect(sentTurn.getByText('follow-up').tagName).toBe('STRONG');
+  expect(sentTurn.getByText('Earlier reply in this project')).toBeInTheDocument();
+  expect(sentTurn.getByText('New note.md')).toBeInTheDocument();
 });
 
 it('blocks stale selected context until it is removed and never borrows it from another project', async () => {
