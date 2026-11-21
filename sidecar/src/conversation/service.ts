@@ -6,7 +6,7 @@ import { browserTargets } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 
 export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean };
-export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; citations: string[]; scope: string[] };
+export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; replyFormat?: 'markdown'; citations: string[]; scope: string[] };
 export type ConversationDeps = {
   ownerId: string;
   store: ConversationStore;
@@ -61,7 +61,7 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
     throw new Error('The proposed action exceeds the selected check mode or available scope.');
   }
   if (['code', 'browser'].includes(plan.action) && evidence.some(item => item.unavailable)) throw new Error('Required historical evidence is unavailable. Explain the evidence or choose a readable check.');
-  return { action: plan.action, reply: plan.reply.trim(), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)] };
+  return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)] };
 }
 
 function explicitVerification(text: string) {

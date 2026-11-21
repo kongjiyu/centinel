@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '../../api/client';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Screen } from '../../types';
@@ -19,7 +21,22 @@ export function ConversationTurn({ request, onNavigate }: { request: Conversatio
   const active = ['accepted', 'planning', 'running', 'awaiting_permission'].includes(request.state);
   return <div className="pc-turn pc-conversation-request">
     <p className="pc-msg is-me">{request.input.text}</p>
-    {request.reply && <><p className="pc-label">AI analysis</p><p className="pc-ai-text">{request.reply}</p></>}
+    {request.reply && <>
+      <p className="pc-label">AI analysis</p>
+      {request.replyFormat === 'markdown'
+        ? <div className="pc-ai-reply"><ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            skipHtml
+            disallowedElements={['a', 'img', 'input']}
+            unwrapDisallowed
+            components={{
+              h1: ({ children }) => <h3>{children}</h3>,
+              h2: ({ children }) => <h3>{children}</h3>,
+              table: ({ children }) => <div className="pc-ai-table"><table>{children}</table></div>,
+            }}
+          >{request.reply}</ReactMarkdown></div>
+        : <p className="pc-ai-text pc-ai-reply-literal">{request.reply}</p>}
+    </>}
     {request.citations?.length ? <details><summary>Saved evidence</summary><ul>{request.citations.map(id => {
       const [kind, value] = id.split(':');
       const reference = request.input.references.find(ref => ref.findingId === value || ref.reviewId === value || ref.autoTestId === value);

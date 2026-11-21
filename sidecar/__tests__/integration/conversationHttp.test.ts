@@ -68,7 +68,7 @@ it('authenticates the public route and returns the same persisted request after 
   expect(plan).toHaveBeenCalledOnce();
   const read = await fetch(base + path, { headers: { Authorization: 'Bearer fixture' } });
   expect(read.status).toBe(200);
-  expect(await read.json()).toMatchObject([{ id: input.id, reply: 'This is a saved code observation.', state: 'completed' }]);
+  expect(await read.json()).toMatchObject([{ id: input.id, reply: 'This is a saved code observation.', replyFormat: 'markdown', state: 'completed' }]);
   expect((await post(path, { ...input, text: 'A different request' })).status).toBe(409);
 });
 it('rejects a forged evidence reference on the HTTP entry point', async () => {
