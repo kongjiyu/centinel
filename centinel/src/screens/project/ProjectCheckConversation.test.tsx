@@ -19,7 +19,7 @@ vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
 vi.mock('../../api/client', () => ({ api: {
   autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
   listRequirements: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
-  sendConversationRequest: vi.fn(), startAutoTest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
+  sendConversationRequest: vi.fn(), startAutoTest: vi.fn(), generateCheckTitle: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
 } }));
 const project: Project = { id: '11111111-1111-4111-8111-111111111111', name: 'Sample shop', description: '', workspacePath: '/shop', createdAt: '', updatedAt: '' };
 const reviewId = '22222222-2222-4222-8222-222222222222';
@@ -264,12 +264,22 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   expect(readConversationDraft(project.id, 'check-one').text).toBe('Now explain the ownership evidence');
 });
 
-it('keeps a saved check explanation readable through Ask, quote and project reload', async () => {
+it('starts a Check from a project prompt and keeps its explanation readable through Ask, quote and reload', async () => {
+  resetCheckStore();
   const user = userEvent.setup();
+  const focus = 'Review the checkout total calculation.';
+  const title = 'Checkout totals fixture';
+
+  vi.mocked(api.generateCheckTitle).mockResolvedValue({ title });
   const saved: ConversationRequest[] = [];
   const explanation = 'The saved check is **inconclusive**.\n\n| Outcome | Evidence |\n| --- | --- |\n| Total | Visible |';
   vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(saved));
   vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
+    if (input.text === focus) {
+      const checkRun: ConversationRequest = { ...accepted(input), state: 'completed', action: 'code', reviewId };
+      saved.unshift(checkRun);
+      return structuredClone(checkRun);
+    }
     const quoting = input.text === 'Quote your previous reply.';
     const prior = saved[0];
     if (quoting && !prior) throw new Error('Missing synthetic prior response');
@@ -284,14 +294,20 @@ it('keeps a saved check explanation readable through Ask, quote and project relo
   });
 
   const first = render(<Workspace />);
-  const check = within(await screen.findByRole('region', { name: 'Check Order Access' }));
-  await user.click(check.getByRole('button', { name: 'Ask about this check' }));
+  await user.click(screen.getByRole('combobox', { name: 'Check mode' }));
+  await user.click(screen.getByRole('option', { name: 'Code' }));
+  await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), focus);
+  await user.click(screen.getByRole('button', { name: /^Send$/ }));
+  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenNthCalledWith(1, project.id,
+    expect.objectContaining({ text: focus, mode: 'code', references: [] })));
+  const check = within(await screen.findByRole('region', { name: 'Check ' + title }, { timeout: 4500 }));
+  await user.click(await check.findByRole('button', { name: 'Ask about this check' }));
   expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Explain the attached check.');
-  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  expect(api.sendConversationRequest).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   const originalLabel = await screen.findByText('AI analysis');
   expect(within(originalLabel.parentElement!).getByRole('table')).toBeVisible();
-  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(1, project.id,
+  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(2, project.id,
     expect.objectContaining({ references: [{ reviewId }] }));
 
   const followup = screen.getByRole('textbox', { name: 'Message to ORIN' });
@@ -300,7 +316,7 @@ it('keeps a saved check explanation readable through Ask, quote and project relo
   await user.click(screen.getByRole('button', { name: /^Send$/ }));
   const quoteLabel = await screen.findByText('Quoted previous reply');
   expect(within(quoteLabel.parentElement!).getByRole('table')).toBeVisible();
-  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(2, project.id,
+  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(3, project.id,
     expect.objectContaining({ text: 'Quote your previous reply.', references: [] }));
   expect(api.startAutoTest).not.toHaveBeenCalled();
 
@@ -310,8 +326,8 @@ it('keeps a saved check explanation readable through Ask, quote and project relo
   expect(quote.getByRole('table')).toBeVisible();
   expect(quote.getByText('inconclusive').tagName).toBe('STRONG');
   expect(quote.getByText('Earlier reply in this project')).toBeInTheDocument();
-  expect(screen.getByRole('region', { name: 'Check Order Access' })).toBeVisible();
-});
+  expect(screen.getByRole('region', { name: 'Check ' + title })).toBeVisible();
+}, 12000);
 
 it.each([0, 1, 3, 4, 5])('shows a top-of-message preview of at most three of %i saved attachments', count => {
   const references = Array.from({ length: count }, (_, index) => ({ artifactId: 'opaque-' + index }));
