@@ -29,6 +29,7 @@ export type ConversationRequest = {
   action?: 'explain' | 'suggest' | 'code' | 'browser' | 'clarify';
   reply?: string;
   citations?: string[];
+  recall?: { status: "recalled" | "missing" | "unavailable"; turns: 0 | 1 };
   context?: Array<{ id: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean }>;
   scope?: string[];
   executionSources?: Array<{ id: string; versionId?: string; hash: string }>;
