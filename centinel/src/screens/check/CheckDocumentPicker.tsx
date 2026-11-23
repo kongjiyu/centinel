@@ -25,7 +25,7 @@ export async function attachCheckDocuments(batch: CheckDocumentBatch, existing: 
   return { documents, message: [batch.message, failed.length ? `Could not save ${failed.length} documents to the library. Centinel will try again when you send the check.` : null].filter(Boolean).join(' ') || null };
 }
 
-async function readCheckDocuments(files: LocalSourceFile[], limited = false): Promise<CheckDocumentBatch> {
+export async function readCheckDocuments(files: LocalSourceFile[], limited = false): Promise<CheckDocumentBatch> {
   const accepted: CheckDocument[] = [];
   const rejected: string[] = [];
   for (const source of files) {

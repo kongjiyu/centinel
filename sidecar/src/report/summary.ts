@@ -152,8 +152,8 @@ function codeReviewStatus(snapshot: ProjectReportSnapshot): ReportSummary['codeR
   switch (String(review.session.status)) {
     case 'success':
     case 'pending_approval': return gaps
-      ? { label: COMPLETED_WITH_GAPS_LABEL, tone: 'warning', detail: checked + '.' + gaps + ' It is waiting for someone to approve it.' }
-      : { label: 'Needs approval', tone: 'neutral', detail: checked + '. It is waiting for someone to approve it.' };
+      ? { label: COMPLETED_WITH_GAPS_LABEL, tone: 'warning', detail: checked + '.' + gaps }
+      : { label: 'Completed', tone: 'good', detail: checked + '.' };
     case 'completed':
     case 'approved': return { label: 'Approved', tone: gaps ? 'warning' : 'good', detail: checked + ' and a reviewer approved the result.' + gaps };
     case 'changes_requested': return { label: 'Changes requested', tone: 'warning', detail: checked + '. A reviewer asked for changes.' };
@@ -262,7 +262,6 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
   if (codeReview.tone === 'critical') nextSteps.push('Run the code review again after checking why it failed.');
   if (!snapshot.latestReview) nextSteps.push('Run a code review so Centinel can check your source files.');
   if (!snapshot.latestDynamicTest && !snapshot.browserTests) nextSteps.push('Run a browser test so Centinel can check your website in a real browser.');
-  if (['success', 'pending_approval'].includes(snapshot.latestReview?.session.status ?? '') && !snapshot.latestReview?.decision) nextSteps.push('Open the latest code review and approve it or request changes.');
   if (requirements && requirements.missing > 0) nextSteps.push('Link ' + plural(requirements.missing, 'requirement') + ' to the code that implements ' + (requirements.missing === 1 ? 'it' : 'them') + ', so Centinel can check coverage.');
   if (nextSteps.length < 3 && sorted.length > seriousIssues) nextSteps.push('Work through the ' + plural(sorted.length - seriousIssues, 'remaining medium or low issue') + ' listed below.');
   if (!nextSteps.length) nextSteps.push('Run a new review and browser test after your next change to keep this result up to date.');

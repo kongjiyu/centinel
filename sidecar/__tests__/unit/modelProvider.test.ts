@@ -84,6 +84,20 @@ describe('ConfiguredTextModelProvider', () => {
     expect(body.messages[0]).toEqual({ role: 'system', content: 'Return JSON' });
   });
 
+  it('gives API providers the required JSON Schema in the prompt, since only Codex has a schema channel', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ tests: [] }) } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const provider = new ConfiguredTextModelProvider({
+      settings: { provider: 'mimo', apiFormat: 'openai-compatible', apiKey: 'secret', baseUrl: 'https://example.test/v1/chat/completions', model: 'mimo-v2.6-pro' }, fetchImpl,
+    });
+    const outputSchema = { type: 'object', required: ['tests'], properties: { tests: { type: 'array', items: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } } } };
+    await provider.analyze({ ...request, outputSchema });
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(body.messages[1].content).toContain(request.prompt);
+    expect(body.messages[1].content).toContain(JSON.stringify(outputSchema));
+  });
+
   it('retains known provider usage when structured JSON parsing fails', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: 'this is not json' } }],

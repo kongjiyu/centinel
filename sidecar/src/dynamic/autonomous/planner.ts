@@ -135,6 +135,9 @@ export function buildPlanPrompt(input: { appUrl: string; digest: RepoDigest; dis
     '- checks: 1-5 observable outcomes after the journey, written from the requirement (what SHOULD happen), not from guesses about bugs. kinds: visible_text (expected = exact text that must appear), url (expected = path or full URL), element_visible (selector), field_value (selector + expected). selector must come from Allowed controls when used.',
     '- requirementRef: the requirement id (e.g. "REQ-1") the test verifies, or null. sourceRefs: files/lines from the digest that implement the journey.',
     '- Do not assume the app is correct or broken; write the expected behaviour.',
+    // 19 Nov 2026: a test once expected "Sign in to view orders." from an API route the page never calls.
+    '- Every expected text must be something the page itself shows during the journey you describe, reached only through the allowed controls. Do not expect error messages from server routes the page never calls, and do not test pages or routes that no allowed control leads to.',
+    '- Say exactly how many times to press each control (for example "click Add to cart for Ceramic Mug twice"), and make checks match those counts.',
     '',
     `Allowed controls (selector: actions — visible label):\n${[...selectors].map(([selector, actions]) => `${selector}: ${[...actions].join(', ')}${labels.get(selector) ? ` — ${labels.get(selector)}` : ''}`).join('\n') || '(none found)'}`,
     `Pages scanned:\n${discovery.pages.map(page => `${new URL(page.finalUrl).pathname} (${page.controls} controls${page.redirected ? ', redirected' : ''})`).join('\n')}`,

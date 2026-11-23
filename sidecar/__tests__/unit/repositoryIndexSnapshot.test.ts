@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { encodeRepositorySnapshot, repositoryIndexIdentity, restoreRepositorySnapshot } from '../../src/review/repositoryIndexSnapshot.js';
+import { encodeRepositorySnapshot, repositoryIndexIdentity, restoreRepositorySnapshot, uploadRepositorySnapshot } from '../../src/review/repositoryIndexSnapshot.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const directories: string[] = [];
 async function temp() { const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'centinel-snapshot-')); directories.push(directory); return directory; }
@@ -53,5 +54,25 @@ describe('portable repository index snapshot', () => {
 
     await expect(restoreRepositorySnapshot(archive, target, identity)).rejects.toThrow(/real local directory/);
     expect(await fs.readdir(outside)).toEqual([]);
+  });
+
+  it('uploads a large project index with its metadata in the body, not one oversized header', async () => {
+    const many = repositoryIndexIdentity({ ...identity, sources: Array.from({ length: 600 }, (_, index) => ({
+      artifactId: crypto.randomUUID(), versionId: 'v', filePath: `src/file-${index}.js`, contentHash: 'c'.repeat(64) })) });
+    const directory = await temp();
+    await fs.writeFile(path.join(directory, 'index.db'), Buffer.from([1, 2, 3]));
+    const snapshot = await encodeRepositorySnapshot(directory, many, ['index.db']);
+    const calls: Array<{ body: unknown; options: Record<string, unknown> }> = [];
+    const client = { storage: { from: () => ({ upload: async (_path: string, body: unknown, options: Record<string, unknown>) => {
+      calls.push({ body, options });
+      return { data: {}, error: null };
+    } }) } } as unknown as SupabaseClient;
+    await expect(uploadRepositorySnapshot(client, many, snapshot)).resolves.toMatchObject({ uploaded: true, archiveBytes: snapshot.length });
+    expect(calls).toHaveLength(1);
+    // supabase-js sends a Blob as multipart with a metadata field; a Buffer would become an x-metadata header.
+    expect(calls[0]!.body).toBeInstanceOf(Blob);
+    expect(Buffer.from(await (calls[0]!.body as Blob).arrayBuffer())).toEqual(snapshot);
+    expect((calls[0]!.body as Blob).type).toBe('application/gzip');
+    expect((calls[0]!.options.metadata as { artifactIds: string[] }).artifactIds).toHaveLength(600);
   });
 });

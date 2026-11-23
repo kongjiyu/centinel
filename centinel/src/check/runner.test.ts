@@ -123,7 +123,7 @@ describe('check runner', () => {
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.importRepoArtifacts).toHaveBeenCalledWith('p-old', '/work/shop');
     expect(api.startAutoTest).not.toHaveBeenCalled();
-    expect(getCheck(check.id)?.notes).toEqual(['1 files in the folder were skipped (unsupported type or too large).']);
+    expect(getCheck(check.id)?.notes).toEqual(['1 file in the folder was not reviewed (unsupported type or too large): logo.png.']);
   });
 
   it('reviews a GitHub link only after its import is ready, and explains that browser tests need a folder', async () => {

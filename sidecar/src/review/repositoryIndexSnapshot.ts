@@ -171,7 +171,11 @@ export async function uploadRepositorySnapshot(client: SupabaseClient, identity:
   throwIfAborted(signal);
   if (bytes.length > MAX_REPOSITORY_INDEX_ARCHIVE_BYTES) throw new Error('Repository snapshot exceeds the upload limit.');
   await validateRepositorySnapshotArchive(bytes, identity, signal);
-  const result = await client.storage.from('project-artifacts').upload(repositorySnapshotPath(identity), bytes,
+  // Send a Blob so supabase-js puts the metadata in the multipart body. As a Buffer it becomes one
+  // x-metadata header listing every artifact ID, which the Supabase gateway rejects above 8 KB
+  // (about 150 source files; reproduced 17 Nov 2026 with the 199-file Cypress RWA project).
+  const body = new Blob([new Uint8Array(bytes)], { type: 'application/gzip' });
+  const result = await client.storage.from('project-artifacts').upload(repositorySnapshotPath(identity), body,
     { contentType: 'application/gzip', cacheControl: '31536000', upsert: false,
       metadata: { schemaVersion: 1, fingerprint: identity.fingerprint, engine: identity.engine, policy: identity.policy,
         archiveSha256: digest(bytes), artifactIds: identity.sources.map(source => source.artifactId) } });

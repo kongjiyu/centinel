@@ -24,8 +24,12 @@ const accepted = (input: ConversationRequest['input']): ConversationRequest => (
 });
 function Workspace() {
   const [route, navigate] = useState<Screen>({ name: 'project', projectId: project.id });
+  // The app sidebar's Checks list opens a check's own page; a project card's View opens it in the side panel (19 Nov 2026).
   return route.name === 'check' ? <CheckScreen checkId={route.checkId} projects={[project]} onNavigate={navigate} />
-    : <ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} />;
+    : <>
+      <nav aria-label="Checks"><button type="button" onClick={() => navigate({ name: 'check', checkId: 'check-one' })}>Open Order Access</button></nav>
+      <ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} />
+    </>;
 }
 beforeEach(() => {
   vi.resetAllMocks(); resetCheckStore(); sessionStorage.clear();
@@ -54,7 +58,12 @@ it('opens a saved card, keeps the result while typing, attaches a problem and re
   render(<Workspace />);
   const card = within(await screen.findByRole('region', { name: 'Check Order Access' }));
   expect(card.getByText('Found in code')).toBeInTheDocument();
+  // View opens the full result in the expanded side panel, not another page.
   await user.click(card.getByRole('button', { name: 'View' }));
+  expect(await screen.findByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
+  expect(screen.getByRole('complementary', { name: 'What Centinel knows' })).toHaveClass('is-open');
+  await user.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
   expect(await screen.findByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain @ownership');
@@ -84,7 +93,7 @@ it('restores each draft when switching checks and posts only the sent draft to t
   const user = userEvent.setup();
   render(<Workspace />);
   await user.type(screen.getByRole('textbox', { name: 'Message to Centinel' }), 'My project draft');
-  await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
   const prompt = () => screen.getByRole('textbox', { name: 'Follow-up check' });
   expect(prompt()).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
@@ -120,8 +129,8 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   vi.mocked(api.sendConversationRequest).mockImplementation((_, input) => new Promise(resolve => { acknowledge = () => resolve(accepted(input)); }));
   const user = userEvent.setup();
   render(<Workspace />);
-  await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
-  const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
+  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
+  const prompt = await screen.findByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain this check');
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledOnce());

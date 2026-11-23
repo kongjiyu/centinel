@@ -11,7 +11,27 @@ export type AutoTestEntry = {
   state: AutoTestState; laneId?: string; missionId?: string; revisionId?: string; runId?: string;
   reason?: string | null; checkResults?: AutoTestCheckResult[]; explanation?: string | null; startedAt?: string; finishedAt?: string;
   controls?: Array<{ selector: string; actions: string[] }>;
+  /** Fixed full-check tests (18 Nov 2026). Absent for tests the AI wrote. */
+  kind?: AutoTestKind;
+  smoke?: { pages: Array<{ path: string; status: number | null; ok: boolean; problem: string | null }> };
+  /** untried: distinct allowed controls not pressed; outOfScope: distinct controls exploration may not press. */
+  exploration?: { screens: number; actions: number; untried: number; truncated: boolean; outOfScope?: number; seen?: number };
+  unit?: UnitTestSummary;
+  firstAttempt?: FirstAttempt;
+  usability?: { sampled: number; failures: Array<{ rule: string; expected: string; observed: string; count: number }>; uncertain: number; limitations: string[] };
 };
+export type AutoTestKind = 'smoke' | 'exploratory' | 'usability' | 'unit';
+export const TEST_KIND_LABEL: Record<AutoTestKind, string> = { smoke: 'Smoke', exploratory: 'Exploratory', usability: 'Usability', unit: 'Unit tests' };
+/** Mirrors sidecar/src/dynamic/autonomous/unitTests.ts UnitSummary. */
+export type UnitTestSummary = {
+  outcome: string; script: string | null; framework: string | null;
+  counts: { total: number; passed: number; failed: number; skipped: number } | null;
+  failures: Array<{ file: string; name: string; message: string }>; reason: string;
+  /** False when the project has no unit tests at all. */
+  present?: boolean;
+};
+/** The first attempt of a test that was run again after it could not run. */
+export type FirstAttempt = { runId: string | null; reason: string | null; state?: AutoTestState };
 export type AutoTestLane = { id: string; url: string | null; environmentId: string | null; state: 'starting' | 'idle' | 'running' | 'stopped' | 'failed'; currentTestId: string | null };
 
 export type AutoTestSession = {
@@ -29,6 +49,7 @@ export type AutoTestSession = {
   reply?: string | null;
   presets?: AutoTestPreset[];
   planning?: boolean;
+  suite?: { smoke: boolean; exploratory: boolean; usability: boolean; unit?: boolean };
 };
 
 export type AutoTestPreset = { name: string; goal: string; startPath: string; requirementRef: string | null; sourceRefs: Array<{ path: string; line: number }>; checks: AutoTestCheck[]; controls: Array<{ selector: string; actions: string[] }> };
@@ -43,3 +64,7 @@ export type LiveFrameEvent = { laneId: string; seq: number; capturedAt: string; 
 
 export const ACTIVE_STAGES: AutoTestStage[] = ['reading', 'starting', 'exploring', 'planning', 'testing', 'summarizing'];
 export const isActive = (session: AutoTestSession | null | undefined) => !!session && ACTIVE_STAGES.includes(session.stage);
+
+/** Mirrors sidecar/src/dynamic/runSteps.ts RunTimeline. */
+export type RunStep = { step: number; action: string; target: string | null; page: string | null; result: 'success' | 'failure' | 'blocked'; error: string | null; typedLength: number | null; screenshot: boolean };
+export type RunTimeline = { runId: string; state: string; verdict: string; reason: string | null; steps: RunStep[]; truncated: boolean; finalScreenshot?: boolean };

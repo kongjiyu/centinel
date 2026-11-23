@@ -9,6 +9,11 @@ import { CentinelApplicationRepository } from './applicationRepository.js';
 import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType, type SourceCurrency } from './artifacts.js';
 import type { StoreArtifact, StoreArtifactVersion } from './store/types.js';
 
+/** Files the operating system writes into folders (Finder, Explorer); never part of a project. */
+export function isOsMetadataFile(name: string): boolean {
+  return name === '.DS_Store' || name === 'Thumbs.db' || name === 'desktop.ini' || name.startsWith('._');
+}
+
 export const SKIP_DIRS: ReadonlySet<string> = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'vendor', 'target', 'bin', 'obj', '.idea', '.vscode']);
 const MAX_IMPORT_FILES = 2_000;
 const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
@@ -337,6 +342,8 @@ export async function importLocalRepositoryArtifacts(
         continue;
       }
       if (!entry.isFile()) continue;
+      // Operating-system metadata is not project content: ignore it instead of reporting it as skipped.
+      if (isOsMetadataFile(entry.name)) continue;
       if (!isImportableLocalFile(entry.name)) { skipped.push(relativePath); continue; }
       if (++eligibleCount > MAX_IMPORT_FILES) { skipped.push(relativePath); completeContentInventory = false; continue; }
       const fileStat = await fs.stat(fullPath);

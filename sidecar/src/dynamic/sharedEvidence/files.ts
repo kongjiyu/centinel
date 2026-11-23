@@ -5,10 +5,10 @@ import { DynamicContractError, type DynamicRun, type EvidenceReference } from '.
 import { MAX_SHARED_EVIDENCE_BYTES } from './types.js';
 const names = { screenshot: 'criterion-page.png', checks: 'checks.json', file_manifest: 'file-manifest.json', usability:'usability.json' };
 /** Clients provide Run IDs only. Local filenames come from verified artifact kinds. */
-export function readBoundedArtifactSlot(workspace: string, run: DynamicRun, name: string): Buffer {
+export function readBoundedArtifactSlot(workspace: string, run: DynamicRun, name: string, folder: 'logs' | 'screenshots' = 'logs'): Buffer {
     if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !(/^[a-z0-9-]+\.(json|png)$/.test(name)))
         throw new DynamicContractError(409, 'Recorded artifact slot is unavailable.');
-    const file = path.join(workspace, 'sessions', run.legacySessionId, 'logs', name);
+    const file = path.join(workspace, 'sessions', run.legacySessionId, folder, name);
     let data: Buffer;
     let fd: number | undefined;
     try {

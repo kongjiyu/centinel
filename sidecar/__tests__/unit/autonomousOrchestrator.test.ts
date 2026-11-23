@@ -7,10 +7,13 @@ import { buildPlanPrompt, knownSelectors, validatePlan, type AutoTestPreset, typ
 import { newAutoTestSession, presetFromEntry, runAutoTest, scanPaths, type AutoTestDeps, type AutoTestSession } from '../../src/dynamic/autonomous/orchestrator.js';
 import { handleAutoTestRoute, AutoTestRuntime } from '../../src/dynamic/autonomous/routes.js';
 import { MemoryAutoTestStore } from '../../src/dynamic/autonomous/store.js';
+import { vitestScript, type UnitSummary } from '../../src/dynamic/autonomous/unitTests.js';
+import { autoRepeatable, exploratoryTests } from '../../src/dynamic/autonomous/suite.js';
 import type { RepoDigest } from '../../src/dynamic/autonomous/repoDigest.js';
 import { ModelProviderError } from '../../src/review/retry.js';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
+const NO_SUITE = { smoke: false, exploratory: false, usability: false };
 const digest = (overrides: Partial<RepoDigest> = {}): RepoDigest => ({
   entries: [{ path: 'server.js', kind: 'route', startLine: 40, endLine: 50, text: "if (url.pathname === '/api/login') { send(401, 'No account uses this email.') }" },
     { path: 'docs/requirements.md', kind: 'doc', startLine: 1, endLine: 5, text: 'REQ-1 Sign-in errors must say "Email or password is incorrect."' }],
@@ -128,7 +131,7 @@ describe('Auto test orchestrator', () => {
     fake.deps.explainFailure = vi.fn().mockRejectedValue(new ModelProviderError('Capacity unavailable', { code: 'quota_exhausted', retryable: false }));
     const original = fake.deps.getRun;
     fake.deps.getRun = async id => ({ ...await original(id), state: 'completed', verdict: 'failed' });
-    const result = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1 }), fake.deps, new AbortController().signal);
+    const result = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), fake.deps, new AbortController().signal);
     expect(result.stage).toBe('failed');
     expect(result.error?.reason).toBe('provider_paused');
     expect(fake.deps.explainFailure).toHaveBeenCalledOnce();
@@ -143,19 +146,20 @@ describe('Auto test orchestrator', () => {
     expect(fake.missions).toHaveLength(0);
   });
   it('runs every test in isolated parallel lanes and summarises from Run verdicts', async () => {
-    const fake = fakes();
-    const session = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal);
+    // The fifth run confirms the failed test.
+    const fake = fakes({ verdicts: ['passed', 'failed', 'passed', 'passed', 'failed'] });
+    const session = await runAutoTest(newAutoTestSession({ id: 'a'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', suite: NO_SUITE }), fake.deps, new AbortController().signal);
     expect(session.stage).toBe('completed');
     expect(session.lanes.map(lane => lane.id)).toEqual(['lane-1', 'lane-2', 'lane-3']);
     expect(new Set(session.tests.map(test => test.laneId)).size).toBe(3);
     expect(session.summary).toMatchObject({ passed: 3, failed: 1, blocked: 0 });
     expect(session.tests.find(test => test.state === 'failed')?.explanation).toContain('server.js:45');
     // Each lane test after the first restarts that lane's app on the same port, and every app is stopped.
-    expect(fake.launches.filter(launch => launch.port !== undefined)).toHaveLength(1);
+    expect(fake.launches.filter(launch => launch.port !== undefined)).toHaveLength(2);
     expect(fake.stopped.length).toBe(fake.launches.length);
-    // Every run is prepared before and cleaned after.
-    expect(fake.data.filter(entry => entry.startsWith('preparation'))).toHaveLength(4);
-    expect(fake.data.filter(entry => entry.startsWith('cleanup'))).toHaveLength(4);
+    // Every run is prepared before and cleaned after, including the confirming run.
+    expect(fake.data.filter(entry => entry.startsWith('preparation'))).toHaveLength(5);
+    expect(fake.data.filter(entry => entry.startsWith('cleanup'))).toHaveLength(5);
     // Missions point at the lane's own app.
     expect(new Set(fake.missions.map(mission => new URL(mission.targetUrl).port)).size).toBe(3);
     expect(fake.saved.at(-1)?.stage).toBe('completed');
@@ -163,7 +167,7 @@ describe('Auto test orchestrator', () => {
 
   it('falls back to one lane when the app keeps data outside its process or ignores PORT', async () => {
     for (const option of [{ persistence: true }, { portHonored: false }]) {
-      const session = await runAutoTest(newAutoTestSession({ id: 'b'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fakes(option).deps, new AbortController().signal);
+      const session = await runAutoTest(newAutoTestSession({ id: 'b'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', suite: NO_SUITE }), fakes(option).deps, new AbortController().signal);
       expect(session.lanes).toHaveLength(1);
       expect(session.laneNote).toBeTruthy();
       expect(session.summary?.limitations).toContain(session.laneNote);
@@ -171,16 +175,16 @@ describe('Auto test orchestrator', () => {
   });
 
   it('reports blocked runs honestly and fails with the start-up log when the app cannot start', async () => {
-    const blocked = await runAutoTest(newAutoTestSession({ id: 'c'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1 }), fakes({ verdicts: ['blocked'], tests: 2 }).deps, new AbortController().signal);
+    const blocked = await runAutoTest(newAutoTestSession({ id: 'c'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), fakes({ verdicts: ['blocked'], tests: 2 }).deps, new AbortController().signal);
     expect(blocked.summary).toMatchObject({ passed: 0, failed: 0, blocked: 2 });
-    const failed = await runAutoTest(newAutoTestSession({ id: 'd'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fakes({ failLaunch: true }).deps, new AbortController().signal);
+    const failed = await runAutoTest(newAutoTestSession({ id: 'd'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', suite: NO_SUITE }), fakes({ failLaunch: true }).deps, new AbortController().signal);
     expect(failed).toMatchObject({ stage: 'failed', error: { message: 'Missing DATABASE_URL' } });
   });
 
   it('fails clearly when the AI writes no usable test', async () => {
     const fake = fakes();
     fake.deps.generate = async () => ({ tests: [signInTest({ controls: [{ selector: '#nope', actions: ['click'] }] })] });
-    const session = await runAutoTest(newAutoTestSession({ id: 'e'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal);
+    const session = await runAutoTest(newAutoTestSession({ id: 'e'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', suite: NO_SUITE }), fake.deps, new AbortController().signal);
     expect(session).toMatchObject({ stage: 'failed', dropped: [{ reason: 'Used controls Centinel did not find in the app.' }] });
     expect(fake.stopped).toHaveLength(1);
   });
@@ -191,7 +195,7 @@ describe('Auto test orchestrator', () => {
     const getRun = fake.deps.getRun;
     fake.deps.getRun = async id => { controller.abort(); const run = fake.runs.get(id)!; return run.state === 'cancelled' ? structuredClone(run) : { ...structuredClone(run), state: 'running' } as DynamicRun; };
     void getRun;
-    const session = await runAutoTest(newAutoTestSession({ id: 'f'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, controller.signal);
+    const session = await runAutoTest(newAutoTestSession({ id: 'f'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', suite: NO_SUITE }), fake.deps, controller.signal);
     expect(session.stage).toBe('cancelled');
     expect(session.tests.every(test => test.state === 'cancelled')).toBe(true);
     expect(fake.stopped.length).toBe(fake.launches.length);
@@ -325,3 +329,206 @@ describe('Auto test from the project conversation', () => {
       { ownerId: 'u', store: new MemoryAutoTestStore(), runtime: new AutoTestRuntime(), requireMember: async () => undefined, defaultFolder: async () => process.cwd(), createDeps: async () => fakes().deps, ...extra });
   }
 });
+
+describe('Full check fixed tests (smoke, exploratory, usability)', () => {
+  const healthy = { status: 200, pageErrors: 0, consoleErrors: 0, serverErrors: 0, messages: [] };
+  const scanned = (home = healthy, other = healthy): DiscoveryResult => ({
+    controls: [
+      { selector: '#discount-code', label: 'Discount', actions: ['type'], kind: 'Text field', page: '/' },
+      { selector: 'a[href="/orders"]', label: 'Orders', actions: ['click'], kind: 'Link', page: '/' },
+      { selector: '#buy', label: 'Buy now', actions: ['click'], kind: 'Button', page: '/' },
+      { selector: '#logout', label: 'Log out', actions: ['click'], kind: 'Button', page: '/' },
+      { selector: '#checkout', label: 'Place order', actions: ['click'], kind: 'Button', page: '/' },
+    ],
+    pages: [
+      { url: 'http://localhost:6000/', finalUrl: 'http://localhost:6000/', controls: 4, redirected: false, health: home },
+      { url: 'http://localhost:6000/orders', finalUrl: 'http://localhost:6000/orders', controls: 0, redirected: false, health: other },
+    ],
+  });
+  function withSuite(discoveryResult: DiscoveryResult, usabilityFailures = 0) {
+    const fake = fakes({ verdicts: ['passed'], tests: 1 });
+    const healthRequests: Array<boolean | undefined> = [];
+    fake.deps.discover = async (_url, _paths, options) => { healthRequests.push(options?.collectHealth); return discoveryResult; };
+    const explain = vi.fn(async () => 'AI text');
+    fake.deps.explainFailure = explain;
+    const start = fake.deps.startRun;
+    fake.deps.startRun = async input => {
+      const id = await start(input);
+      const mission = fake.missions.at(-1)!;
+      const run = fake.runs.get(id)!;
+      if (mission.mode === 'exploratory') run.exploration = {
+        // The same Orders link appears on every screen; it is one control, not three.
+        states: ['s1', 's2', 's3'].map(id => ({ id, controls: [{ ref: 'e1', role: 'link', name: 'Orders', selector: 'a[href="/orders"]' }, { ref: 'e2', role: 'textbox', name: 'Discount', selector: '#discount-code' }] })),
+        actions: [{ status: 'dispatched', beforeStateId: 's1', targetRef: 'e1' }, { status: 'blocked', beforeStateId: 's2' }], unvisitedControls: [{}, {}, {}, {}, {}], truncated: false,
+      } as unknown as DynamicRun['exploration'];
+      if (mission.usability) run.usability = { schemaVersion: 1, config: mission.usability, keyboardActions: 3, assessedAt: '', limitations: ['Persona simulation is not a real-user study.'],
+        observations: [
+          ...Array.from({ length: usabilityFailures }, (_, index) => ({ ruleId: 'labels', persona: 'first_time', kind: 'deterministic', verdict: 'failed', expected: '', observed: '', controlRef: `c${index}`, evidenceIds: [] })),
+          { ruleId: 'focus', persona: 'first_time', kind: 'deterministic', verdict: 'uncertain', expected: '', observed: '', controlRef: 'c9', evidenceIds: [] },
+        ] } as unknown as DynamicRun['usability'];
+      return id;
+    };
+    return { fake, healthRequests, explain };
+  }
+
+  it('adds a smoke test, one exploration and one usability run to a full check', async () => {
+    const { fake, healthRequests, explain } = withSuite(scanned(healthy, { status: 500, pageErrors: 1, consoleErrors: 0, serverErrors: 0, messages: ['TypeError: x is undefined'] }), 2);
+    const session = await runAutoTest(newAutoTestSession({ id: '5'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1 }), fake.deps, new AbortController().signal);
+    expect(session.suite).toEqual({ smoke: true, exploratory: true, usability: true, unit: true });
+    expect(healthRequests).toEqual([true]);
+    expect(session.tests.map(test => [test.kind ?? 'planned', test.state])).toEqual([['smoke', 'failed'], ['exploratory', 'passed'], ['planned', 'passed'], ['usability', 'failed']]);
+    const [smoke, explore, , usability] = session.tests;
+    expect(smoke.smoke?.pages).toEqual([
+      { path: '/', status: 200, ok: true, problem: null },
+      { path: '/orders', status: 500, ok: false, problem: 'The page answered with HTTP 500. 1 script error on the page. First message: TypeError: x is undefined' },
+    ]);
+    expect(smoke.runId).toBeUndefined();
+    const exploreMission = fake.missions.find(mission => mission.mode === 'exploratory')!;
+    expect(exploreMission.maxSteps).toBe(25);
+    expect(explore.exploration).toEqual({ screens: 3, actions: 1, untried: 0, outOfScope: 1, seen: 2, truncated: false });
+    expect(explore.controls).toBeUndefined();
+    expect(usability.usability?.failures).toEqual([{ rule: 'labels', expected: expect.any(String), observed: '2 controls have no label or name.', count: 2 }]);
+    expect(fake.missions.find(mission => mission.usability)?.usability).toMatchObject({ persona: 'first_time', rules: ['labels', 'keyboard', 'focus'] });
+    expect(explain).not.toHaveBeenCalled();
+    expect(presetFromEntry(usability)).toBeNull();
+    expect(session.summary).toMatchObject({ passed: 2, failed: 2 });
+    expect(session.summary?.limitations.join(' ')).toMatch(/Exploration is bounded/);
+  });
+
+  it('lets the exploration click only safe controls', async () => {
+    const { fake } = withSuite(scanned());
+    const policies: unknown[] = [];
+    const save = fake.deps.saveEnvironment;
+    fake.deps.saveEnvironment = async (value, id) => { policies.push(value.actionPolicy); return save(value, id); };
+    await runAutoTest(newAutoTestSession({ id: '6'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1 }), fake.deps, new AbortController().signal);
+    expect(policies[0]).toMatchObject({ interactions: [{ selector: 'a[href="/orders"]', actions: ['click'], repeatable: true }] });
+  });
+
+  it('stops before writing tests when the first page answers with a server error', async () => {
+    const { fake } = withSuite(scanned({ status: 502, pageErrors: 0, consoleErrors: 0, serverErrors: 0, messages: [] }));
+    const generate = vi.fn(fake.deps.generate);
+    fake.deps.generate = generate;
+    const session = await runAutoTest(newAutoTestSession({ id: '7'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal);
+    expect(generate).not.toHaveBeenCalled();
+    expect(fake.runs.size).toBe(0);
+    expect(session.stage).toBe('completed');
+    expect(session.tests.map(test => [test.kind, test.state])).toEqual([['smoke', 'failed']]);
+    expect(session.summary).toMatchObject({ failed: 1 });
+  });
+
+  it('runs no fixed tests for a typed request', async () => {
+    const session = newAutoTestSession({ id: '8'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', request: { text: 'Test sign-in', base: null, history: [] } });
+    expect(session.suite).toBeUndefined();
+  });
+});
+
+describe('Full check smoke result when planning fails', () => {
+  it('keeps the smoke test result when the model is unavailable', async () => {
+    const fake = fakes();
+    fake.deps.discover = async () => ({ controls: [], pages: [{ url: 'http://localhost:6000/', finalUrl: 'http://localhost:6000/', controls: 0, redirected: false, health: { status: 200, pageErrors: 0, consoleErrors: 0, serverErrors: 0, messages: [] } }] });
+    fake.deps.generate = async () => { throw new Error('The selected Codex model is unavailable.'); };
+    const session = await runAutoTest(newAutoTestSession({ id: '9a'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal);
+    expect(session.stage).toBe('failed');
+    expect(session.tests.map(test => [test.kind, test.state])).toEqual([['smoke', 'passed']]);
+  });
+});
+
+describe('Full check project unit tests', () => {
+  const summary = (outcome: UnitSummary['outcome'], failures: UnitSummary['failures'] = []): UnitSummary => ({ outcome, script: 'test:unit', framework: 'Vitest 3.2.4', counts: { total: 3, passed: 3 - failures.length, failed: failures.length, skipped: 0 }, failures, reason: 'r' });
+  it('runs them beside the browser tests and records Vitest’s own result', async () => {
+    const fake = fakes({ verdicts: ['passed'], tests: 1 });
+    const folders: string[] = [];
+    fake.deps.runUnitTests = async ({ folder }) => { folders.push(folder); return summary('failed', [{ file: 'src/a.test.ts', name: 'adds', message: 'expected 2 to be 3' }]); };
+    const session = await runAutoTest(newAutoTestSession({ id: 'ab'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: { smoke: false, exploratory: false, usability: false, unit: true } }), fake.deps, new AbortController().signal);
+    expect(folders).toEqual(['/repo']);
+    const unit = session.tests.find(test => test.kind === 'unit')!;
+    expect(unit).toMatchObject({ state: 'failed', name: 'Project unit tests', unit: { failures: [{ file: 'src/a.test.ts' }] } });
+    expect(presetFromEntry(unit)).toBeNull();
+    expect(session.summary).toMatchObject({ passed: 1, failed: 1 });
+  });
+
+  it('reports an unsupported test setup as not tested, never as a pass', async () => {
+    const fake = fakes({ verdicts: ['passed'], tests: 1 });
+    fake.deps.runUnitTests = async () => ({ ...summary('unsupported'), counts: null });
+    const session = await runAutoTest(newAutoTestSession({ id: 'ac'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: { smoke: false, exploratory: false, usability: false, unit: true } }), fake.deps, new AbortController().signal);
+    expect(session.tests.find(test => test.kind === 'unit')?.state).toBe('not_tested');
+  });
+
+  it('picks a plain Vitest script and ignores shell-wrapped ones', () => {
+    expect(vitestScript({ scriptNames: ['test', 'test:unit', 'test:unit:ci', 'lint'], scriptDefinitions: { test: 'yarn cypress:open', 'test:unit': 'vitest', 'test:unit:ci': 'vitest --run', lint: 'eslint .' } })).toBe('test:unit:ci');
+    expect(vitestScript({ scriptNames: ['test'], scriptDefinitions: { test: 'vitest --coverage && echo done' } })).toBeNull();
+    expect(vitestScript({ scriptNames: ['test'], scriptDefinitions: { test: 'jest' } })).toBeNull();
+  });
+});
+
+
+describe('Covering more of the app (19 Nov 2026)', () => {
+  it('lets ordinary buttons be pressed more than once, but keeps one click for orders, payment and submit', () => {
+    expect(autoRepeatable({ selector: '#product-list > li:nth-of-type(1) > button', actions: ['click'] }, 'Add to cart — Ceramic Mug')).toBe(true);
+    expect(autoRepeatable({ selector: '#checkout', actions: ['click'] }, 'Place order')).toBe(false);
+    expect(autoRepeatable({ selector: '#pay', actions: ['click'] }, 'Pay now')).toBe(false);
+    expect(autoRepeatable({ selector: 'form button[type="submit"]', actions: ['click'] }, undefined)).toBe(false);
+    expect(autoRepeatable({ selector: '#email', actions: ['type'] }, 'Email')).toBe(false);
+  });
+
+  it('passes the repeat-click rule to each test’s permissions', async () => {
+    const fake = fakes({ tests: 1 });
+    fake.deps.discover = async () => ({ ...discovery, controls: [...discovery.controls, { selector: '#signin-form button[type="submit"]', label: 'Sign in', actions: ['click'], kind: 'Button', page: '/' }] });
+    const saved: unknown[] = [];
+    const save = fake.deps.saveEnvironment;
+    fake.deps.saveEnvironment = async (value, id) => { saved.push(value.actionPolicy); return save(value, id); };
+    await runAutoTest(newAutoTestSession({ id: 'ad'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), fake.deps, new AbortController().signal);
+    expect(saved[0]).toMatchObject({ interactions: expect.arrayContaining([{ selector: '#signin-form button[type="submit"]', actions: ['click'], repeatable: true }, { selector: '#email', actions: ['type'] }]) });
+  });
+
+  it('runs a test that could not run once more on a fresh app, and keeps the first attempt', async () => {
+    const fake = fakes({ verdicts: ['blocked', 'passed'], tests: 1 });
+    const session = await runAutoTest(newAutoTestSession({ id: 'ae'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), fake.deps, new AbortController().signal);
+    const [entry] = session.tests;
+    expect(entry.state).toBe('passed');
+    expect(entry.firstAttempt).toMatchObject({ runId: 'run-1', reason: null, state: 'blocked' });
+    expect(entry.runId).toBe('run-2');
+    expect([...fake.runs.values()].map(run => run.idempotencyKey)).toEqual([`autotest:aeaeaeae:${entry.id}`, `autotest:aeaeaeae:${entry.id}:retry`]);
+    const twice = fakes({ verdicts: ['blocked'], tests: 1 });
+    const again = await runAutoTest(newAutoTestSession({ id: 'af'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), twice.deps, new AbortController().signal);
+    expect(again.tests[0].state).toBe('blocked');
+    expect(twice.runs.size).toBe(2);
+  });
+
+  it('splits the buttons across up to three explorations that share the navigation links', () => {
+    const controls = [
+      { selector: 'a[href="/orders"]', label: 'Orders', actions: ['click'], kind: 'Link', page: '/' },
+      ...Array.from({ length: 9 }, (_, index) => ({ selector: `#b${index}`, label: `Add ${index}`, actions: ['click'], kind: 'Button', page: '/' })),
+      { selector: '#checkout', label: 'Place order', actions: ['click'], kind: 'Button', page: '/' },
+    ] as DiscoveryResult['controls'];
+    const runs = exploratoryTests({ appUrl: 'http://localhost:5000', projectId: PROJECT, discovery: { controls, pages: [] } });
+    expect(runs.map(run => run.name)).toEqual(['Explore the app (1 of 3)', 'Explore the app (2 of 3)', 'Explore the app (3 of 3)']);
+    const buttons = runs.map(run => run.controls.map(control => control.selector).filter(selector => selector.startsWith('#b')));
+    expect(buttons).toEqual([['#b0', '#b1', '#b2'], ['#b3', '#b4', '#b5'], ['#b6', '#b7', '#b8']]);
+    expect(runs.every(run => run.controls.some(control => control.selector === 'a[href="/orders"]'))).toBe(true);
+    expect(JSON.stringify(runs)).not.toContain('#checkout');
+    expect(runs.every(run => run.mission.mode === 'exploratory' && !run.goal.includes('Add 0'))).toBe(true);
+  });
+
+  it('confirms a failure with a second run; one failure and one pass is unclear, not a problem', async () => {
+    const twice = fakes({ verdicts: ['failed'], tests: 1 });
+    const confirmed = await runAutoTest(newAutoTestSession({ id: 'b1'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), twice.deps, new AbortController().signal);
+    expect(confirmed.tests[0]).toMatchObject({ state: 'failed', runId: 'run-2', firstAttempt: { state: 'failed', runId: 'run-1' } });
+    expect(twice.runs.size).toBe(2);
+    const flaky = fakes({ verdicts: ['failed', 'passed'], tests: 1 });
+    const unclear = await runAutoTest(newAutoTestSession({ id: 'b2'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), flaky.deps, new AbortController().signal);
+    expect(unclear.tests[0].state).toBe('uncertain');
+    expect(unclear.tests[0].reason).toContain('failed once and passed once');
+    expect(unclear.summary).toMatchObject({ failed: 0, uncertain: 1 });
+    const lost = fakes({ verdicts: ['failed', 'blocked'], tests: 1 });
+    const kept = await runAutoTest(newAutoTestSession({ id: 'b3'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, suite: NO_SUITE }), lost.deps, new AbortController().signal);
+    expect(kept.tests[0]).toMatchObject({ state: 'failed', runId: 'run-1' });
+  });
+
+  it('asks the plan for text the page can show and exact click counts', () => {
+    const prompt = buildPlanPrompt({ appUrl: 'http://localhost:5000', digest: digest(), discovery });
+    expect(prompt).toContain('Do not expect error messages from server routes the page never calls');
+    expect(prompt).toContain('Say exactly how many times to press each control');
+  });
+});
+

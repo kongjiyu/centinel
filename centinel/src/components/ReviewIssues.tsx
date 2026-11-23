@@ -49,7 +49,7 @@ export function shortReviewIssueTitle(title: string) {
   return firstSentence.length <= 80 ? firstSentence : firstSentence.slice(0, 79).replace(/\s+\S*$/, '') + '…';
 }
 
-function IssueSourceContext({ projectId, reviewId, referencesJson }: {
+export function IssueSourceContext({ projectId, reviewId, referencesJson }: {
   projectId: string;
   reviewId: string | null;
   referencesJson: string;

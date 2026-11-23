@@ -545,6 +545,13 @@ export const api = {
     const token=sessionStorage.getItem('centinel:supabase-access-token');const suffix=source==='local'?`local/${id}`:`${id}/content`;
     const response=await fetch(`${BASE}/projects/${projectId}/dynamic/runs/${runId}/evidence/${suffix}`,{cache:'no-store',headers:token?{Authorization:`Bearer ${token}`}:{}});if(!response.ok)throw new ApiError('Recorded evidence is unavailable for this account or device.',response.status);return response.blob();
   },
+  /** A browser run's step timeline from its saved action trace (19 Nov 2026). */
+  dynamicRunSteps:(projectId:string,runId:string)=>request<import('../autotest/types').RunTimeline>(`/projects/${projectId}/dynamic/runs/${runId}/steps`),
+  dynamicRunStepScreenshot:async(projectId:string,runId:string,step:number|'final'):Promise<Blob>=>{
+    const token=sessionStorage.getItem('centinel:supabase-access-token');
+    const response=await fetch(`${BASE}/projects/${projectId}/dynamic/runs/${runId}/steps/${step}/screenshot`,{cache:'no-store',headers:token?{Authorization:`Bearer ${token}`}:{}});
+    if(!response.ok)throw new ApiError('This step has no saved screenshot on this device.',response.status);return response.blob();
+  },
   dynamicFindings:(projectId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/findings`),
   dynamicFinding:(projectId:string,id:string)=>request<FindingDetail>(`/projects/${projectId}/dynamic/findings/${id}`),
   collectDynamicFindings:(projectId:string,runId:string)=>request<DynamicFinding[]>(`/projects/${projectId}/dynamic/runs/${runId}/findings`,{method:'POST',body:'{}'}),

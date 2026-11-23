@@ -363,7 +363,8 @@ export type DiscoveredControl = {
   kind: string;
   page?: string;
 };
-export type DiscoveryPage = { url: string; finalUrl: string; controls: number; redirected: boolean };
+export type PageHealth = { status: number | null; pageErrors: number; consoleErrors: number; serverErrors: number; messages: string[] };
+export type DiscoveryPage = { url: string; finalUrl: string; controls: number; redirected: boolean; health?: PageHealth };
 export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryPage[] };
 
 // sidecar riskPolicy.ts
