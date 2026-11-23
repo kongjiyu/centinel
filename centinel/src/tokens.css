@@ -30,6 +30,9 @@
   --color-success-subtle: #f0fdf4;
   --color-warning: #b45309;
   --color-warning-subtle: #fffbeb;
+  /* Code lines a problem cites (project panel). */
+  --color-cited: #e0a800;
+  --color-cited-subtle: #fef6c7;
   --color-danger: #d6304a;
   --color-danger-hover: #b8243c;
   --color-danger-subtle: #fdecef;

@@ -80,7 +80,14 @@ const COLLECT_CONTROLS = String.raw`(limit) => {
   return results;
 }`;
 
-export type DiscoveryPage = { url: string; finalUrl: string; controls: number; redirected: boolean };
+/** Smoke health of one page load (Auto test, 18 Nov 2026): counts plus at most two short, redacted messages. */
+export type PageHealth = { status: number | null; pageErrors: number; consoleErrors: number; serverErrors: number; messages: string[] };
+export type DiscoveryPage = { url: string; finalUrl: string; controls: number; redirected: boolean; health?: PageHealth };
+/** Error text can carry data from the page: keep it short and withhold local paths, tokens and long numbers. */
+function shortMessage(text: string): string {
+  return text.replace(/(?:\/Users\/|\/home\/|\/private\/|\/tmp\/|[A-Za-z]:\\)[^\s"'<>]*/g, '[local path]')
+    .replace(/\b(?:eyJ[\w-]+\.[\w-]+\.[\w-]+|[A-Za-z0-9_-]{32,}|\d{9,})\b/g, '[withheld]').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
 export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryPage[] };
 
 /**
@@ -89,7 +96,7 @@ export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryP
  * read; it is used only inside this short-lived, read-only browser context.
  */
 /** maxPaths/maxControls are raised only by Autonomous testing; the manual scan keeps 5 pages and 20 controls. */
-export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState; maxPaths?: number; maxControls?: number } = {}): Promise<DiscoveryResult> {
+export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState; maxPaths?: number; maxControls?: number; collectHealth?: boolean } = {}): Promise<DiscoveryResult> {
   const maxPaths = Math.min(Math.max(options.maxPaths ?? 5, 0), 19);
   const maxControls = Math.min(Math.max(options.maxControls ?? MAX_CONTROLS, 1), 80);
   const pageUrls = [target, ...(options.paths ?? []).map(path => new URL(path, target))]
@@ -107,12 +114,22 @@ export async function discoverControls(target: URL, options: { timeoutMs?: numbe
     });
     const controls: DiscoveredControl[] = [];
     const pages: DiscoveryPage[] = [];
+    // Health counters for the page currently loading; read-only listeners, nothing is sent to the page.
+    let health: PageHealth = { status: null, pageErrors: 0, consoleErrors: 0, serverErrors: 0, messages: [] };
+    const note = (text: string) => { if (health.messages.length < 2) health.messages.push(shortMessage(text)); };
+    if (options.collectHealth) {
+      page.on('pageerror', error => { health.pageErrors++; note(error.message); });
+      page.on('console', message => { if (message.type() === 'error') { health.consoleErrors++; note(message.text()); } });
+      page.on('response', response => { if (response.status() >= 500 && new URL(response.url()).origin === target.origin) { health.serverErrors++; note(`${response.status()} from ${new URL(response.url()).pathname}`); } });
+    }
     for (const url of pageUrls) {
+      health = { status: null, pageErrors: 0, consoleErrors: 0, serverErrors: 0, messages: [] };
       try {
-        await page.goto(url.toString(), { waitUntil: 'networkidle', timeout: options.timeoutMs ?? 15_000 });
+        const response = await page.goto(url.toString(), { waitUntil: 'networkidle', timeout: options.timeoutMs ?? 15_000 });
+        health.status = response?.status() ?? null;
       } catch {
         if (url === pageUrls[0]) throw new DynamicContractError(409, 'The website could not be opened. Check that it is running and reachable, then try again.');
-        pages.push({ url: url.toString(), finalUrl: page.url(), controls: 0, redirected: true });
+        pages.push({ url: url.toString(), finalUrl: page.url(), controls: 0, redirected: true, ...(options.collectHealth ? { health: { ...health, messages: ['The page did not finish loading.', ...health.messages].slice(0, 2) } } : {}) });
         continue;
       }
       const found = await page.evaluate(`(${COLLECT_CONTROLS})(${maxControls})`) as Array<{ selector: string; label: string; actions: string[]; kind: string }>;
@@ -124,7 +141,7 @@ export async function discoverControls(target: URL, options: { timeoutMs?: numbe
         controls.push({ ...item, actions: item.actions as InteractionAction[], page: new URL(finalUrl).pathname });
         added++;
       }
-      pages.push({ url: url.toString(), finalUrl, controls: added, redirected });
+      pages.push({ url: url.toString(), finalUrl, controls: added, redirected, ...(options.collectHealth ? { health: { ...health, messages: [...health.messages] } } : {}) });
     }
     return { controls, pages };
   } finally {

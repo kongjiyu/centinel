@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MessageCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
+import { UnitTestsSummary } from './UnitTestsSummary';
+import { RunScreenshotButton, RunTimeline } from './RunTimeline';
 import { api } from '../../api/client';
 import { laneNumber } from '../../autotest/presentation';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
-import { checkProblemSummary, type CheckProblem, type CheckResult } from '../../check/result';
+import { checkProblemSummary, type StuckTest, type CheckProblem, type CheckResult } from '../../check/result';
 import type { ProblemAttachment } from '../../check/conversation';
 import { checkName } from '../../check/checkName';
 import { exportCheckSummary } from '../../check/exportCheckSummary';
@@ -333,12 +335,18 @@ function ProblemRow({ problem, open, onToggle, check, onNavigate, onExplain }: {
               </div>
             )}
           </div>
+          {problem.runId && check.projectId && (
+            <div className="ck-run-steps">
+              <small className="ci-pair"><Icon icon={MonitorCheck} /><span className="ci-text">Steps in the browser</span></small>
+              <RunTimeline projectId={check.projectId} runId={problem.runId} checkFailed checkSummary={problem.browserChecks?.[0]?.expected ?? null} />
+            </div>
+          )}
           <div className="ck-links">
             {onExplain && reference && <button type="button" className="ck-button is-small" onClick={() => onExplain({ label: problem.title, reference })}>
               <Icon icon={MessageCircle} />Ask about this problem
             </button>}
             {problem.runId && check.projectId && <>
-              <button type="button" className="ck-button is-small" onClick={() => onNavigate({ name: 'dynamic-testing', projectId: check.projectId, runId: problem.runId })}><Icon icon={Image} />Screenshot</button>
+              <RunScreenshotButton projectId={check.projectId} runId={problem.runId} />
               <button type="button" className="ck-button is-small" onClick={() => onNavigate({ name: 'dynamic-testing', projectId: check.projectId, runId: problem.runId })}><Icon icon={Play} shape="play" />Replay the test</button>
             </>}
             {problem.findingId && check.projectId && check.reviewId && (
@@ -351,6 +359,39 @@ function ProblemRow({ problem, open, onToggle, check, onNavigate, onExplain }: {
               <p><InlineText text={problem.aiExplanation} /></p>
             </div>
           )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Short lines for parts that could not be checked, shown with the part they belong to. */
+export function GapNotes({ items }: { items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <ul className="ck-gaps">
+      {items.map(item => <li key={item}><Icon icon={Info} /><span>{item}</span></li>)}
+    </ul>
+  );
+}
+
+/** A browser test that could not finish: its reason, and its steps showing where it stopped. */
+function StuckRow({ item, projectId, open, onToggle }: { item: StuckTest; projectId: string; open: boolean; onToggle(): void }) {
+  const bodyId = `ck-stuck-${item.key.replace(/[^\w-]/g, '')}`;
+  return (
+    <li className={`ck-row is-stuck${open ? ' is-open' : ''}`}>
+      <button type="button" className="ck-row-head" aria-expanded={open} aria-controls={bodyId} onClick={onToggle}>
+        <span className="ck-row-title">{item.name}<small>{item.why}</small></span>
+        <span className="ck-mark is-stuck"><Icon icon={TriangleAlert} shape="triangle" />Could not finish</span>
+        <Icon icon={open ? ChevronUp : ChevronDown} className="ck-chevron" />
+      </button>
+      {open && (
+        <div className="ck-row-body" id={bodyId}>
+          {item.reason && <p className="ck-stuck-reason">{item.reason}</p>}
+          <div className="ck-run-steps">
+            <small className="ci-pair"><Icon icon={MonitorCheck} /><span className="ci-text">Steps in the browser</span></small>
+            <RunTimeline projectId={projectId} runId={item.runId} shownReason={item.reason} />
+          </div>
         </div>
       )}
     </li>
@@ -470,14 +511,29 @@ function ResultView({ check, data, onNavigate, header, onExplain }: {
                 : data.requirementsState === 'loading' ? <span className="ck-number-text">Loading…</span> : <RequirementsValue result={result} />}</NumberCard>
             </div>
 
-            {groups.filter(group => group.items.length).map(group => (
+            {groups.filter(group => group.items.length || (group.id === 'code' && result.codeGaps.length)).map(group => (
               <section key={group.id} className="ck-group" aria-label={group.label}>
                 <h2 className="ck-group-title ci-pair"><Icon icon={group.icon} /><span className="ci-text">{group.label}</span></h2>
-                <ul className="ck-rows">
-                  {group.items.map(problem => <ProblemRow key={problem.key} problem={problem} open={openKey === problem.key} onToggle={() => toggle(problem.key)} check={check} onNavigate={onNavigate} onExplain={onExplain} />)}
-                </ul>
+                {/* Parts of the code the review could not check are shown with the code problems (19 Nov 2026). */}
+                {group.id === 'code' && <GapNotes items={result.codeGaps} />}
+                {group.items.length > 0 && (
+                  <ul className="ck-rows">
+                    {group.items.map(problem => <ProblemRow key={problem.key} problem={problem} open={openKey === problem.key} onToggle={() => toggle(problem.key)} check={check} onNavigate={onNavigate} onExplain={onExplain} />)}
+                  </ul>
+                )}
               </section>
             ))}
+            {(result.stuckTests.length > 0 || result.browserGaps.length > 0) && (
+              <section className="ck-group" aria-label="Browser tests that could not finish">
+                <h2 className="ck-group-title ci-pair"><Icon icon={TriangleAlert} shape="triangle" /><span className="ci-text">Browser tests that could not finish</span></h2>
+                <GapNotes items={result.browserGaps} />
+                {result.stuckTests.length > 0 && check.projectId && (
+                  <ul className="ck-rows">
+                    {result.stuckTests.map(item => <StuckRow key={item.key} item={item} projectId={check.projectId!} open={openKey === item.key} onToggle={() => toggle(item.key)} />)}
+                  </ul>
+                )}
+              </section>
+            )}
 
             {result.requirements && result.requirements.notMetNames.length > 0 && (
               <section className="ck-group" aria-label="Requirements not met">
@@ -489,14 +545,15 @@ function ResultView({ check, data, onNavigate, header, onExplain }: {
         )}
 
         <footer className="ck-foot">
-          {result.notChecked.length > 0 && (
-            <div className="ck-not-checked">
-              <p className="ci-pair"><Icon icon={Info} /><span className="ci-text">Not checked</span></p>
-              <ul>{result.notChecked.map(item => <li key={item}>{item}</li>)}</ul>
-            </div>
+          {/* How the check worked, folded away (19 Nov 2026: no separate Not checked section). */}
+          {result.notes.length > 0 && (
+            <details className="ck-about">
+              <summary className="ci-pair"><Icon icon={Info} /><span className="ci-text">How this was tested</span></summary>
+              <ul className="ck-method-notes">{result.notes.map(note => <li key={note}>{note}</li>)}</ul>
+            </details>
           )}
-          {result.notes.length > 0 && <ul className="ck-method-notes">{result.notes.map(note => <li key={note} className="ci-pair"><Icon icon={Info} /><span className="ci-text">{note}</span></li>)}</ul>}
           {result.browserTestCount > 0 && <p className="ci-pair"><Icon icon={Check} /><span className="ci-text">{result.passedBrowserTests} of {result.browserTestCount} browser tests passed.</span></p>}
+          {result.unitTests && <UnitTestsSummary result={result.unitTests} />}
           {check.projectId && (
             <nav className="ck-details" aria-label="Details">
               <span>Details</span>

@@ -455,7 +455,8 @@ export async function runDynamicSession(
       // If still no action after retry, try JSON repair
       if (!aiResult.action && aiResult.rawText) {
         debugLog.log('warn', 'json_parse', 'Attempting JSON repair', step);
-        aiResult = await attemptJsonRepair(sanitize(aiResult.rawText), providers.text, debugLog, step, signal, boundedCall);
+        // Runs supply only the vision model; it repairs its own reply when no separate text model is set (18 Nov 2026, MiMo).
+        aiResult = await attemptJsonRepair(sanitize(aiResult.rawText), providers.text ?? visionSetting, debugLog, step, signal, boundedCall);
         if (aiResult.action) {
           debugLog.log('info', 'json_parse', 'JSON repair successful', step);
         }
@@ -748,6 +749,8 @@ Available actions:
 - finish_success: {"action":"finish_success","summary":"...","reasoning":"..."}
 - finish_blocked: {"action":"finish_blocked","summary":"Execution limitation","reasoning":"..."}
 - finish_failure: {"action":"finish_failure","summary":"...","reasoning":"..."}
+
+Keep the selector, elementRef, text and target from the response exactly; only fix the JSON format. Do not invent a different target.
 
 Response to repair:
 ${rawText.slice(0, 2000)}`;

@@ -181,6 +181,8 @@
 .pc-side-toggle:hover { background: var(--color-surface); border-color: var(--color-border); color: var(--color-text); }
 .pc-side-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .pc-latest-sub { margin-top: 2px; padding-left: calc(1.2em + var(--space-2)); color: var(--color-text-muted); font-size: 12px; }
+.pc-side-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4, 16px) var(--space-8, 32px); min-width: 0; }
+.pc-side.is-open .pc-side-body { grid-template-columns: minmax(0, 1fr) 280px; gap: var(--space-4, 16px) var(--space-8, 32px); }
 .pc-side-body {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 0fr));
@@ -211,6 +213,14 @@
 .pc-side.is-open .pc-side-extra { opacity: 1; contain: none; visibility: visible; transition-delay: 0s; }
 .pc-side-extra .pc-download { margin-top: var(--space-4); }
 .pc-side-extra .pc-details { display: block; margin-top: var(--space-3); text-align: left; font-weight: 400; color: var(--color-text-muted); }
+@keyframes pc-side-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .pc-side-extra { animation: none; }
+}
+@media (max-width: 960px) {
+  .pc-side.is-open .pc-side-body { grid-template-columns: minmax(0, 1fr); }
+}
+
 .ck-detail-layout > .pc-side {
   position: absolute;
   inset: calc(var(--ck-layout-padding) + 40px) var(--ck-layout-padding) auto auto;
@@ -280,6 +290,120 @@
 .pc-check-card-counts small { font-size: 12px; }
 .pc-check-card-actions { justify-content: flex-end; padding: 0; border: 0; background: transparent; backdrop-filter: none; }
 .pc-conversation-request { display: grid; gap: var(--space-3); }
+@media (max-width: 600px) { .pc-check-card-counts { grid-template-columns: 1fr; } }
+/* Expanded panel content (16 Nov 2026): the Review page's information, each problem a title row that opens. */
+.pc-side-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: 0; }
+.pc-side-meta { color: var(--color-text-muted); font-size: 13px; }
+.pc-side-actions { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.pc-side-message { margin-bottom: var(--space-3); }
+.pc-side.is-open .pc-latest-verdict { font-size: 20px; }
+.pc-side.is-open .pc-latest-numbers b { font-size: 22px; }
+.pc-ov-card { margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-inner); background: var(--color-surface); }
+.pc-ov-summary { font-size: 14px; line-height: 1.6; color: var(--color-text); }
+.pc-ov-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+.pc-ov-row b { font-weight: 600; font-size: 14px; }
+.pc-ov-more { font-weight: 400; font-size: 13px; color: var(--color-text-muted); }
+.pc-ov-group { margin-top: var(--space-5); }
+.pc-side .pc-ov-group h3, .pc-side .pc-ov-tests h3, .pc-ov-rail h3 { margin: 0 0 var(--space-2); font: 600 14px/1.4 var(--font-ui); color: var(--color-text); }
+.pc-ov-group h3 span { margin-left: var(--space-1); font-weight: 400; color: var(--color-text-muted); }
+.pc-ov-issues { display: grid; gap: var(--space-2); }
+.pc-ov-issue { border: 1px solid var(--color-border); border-radius: var(--radius-inner); background: var(--color-surface); }
+.pc-ov-issue > summary { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); cursor: pointer; list-style: none; font-size: 14px; border-radius: var(--radius-inner); }
+.pc-ov-issue > summary::-webkit-details-marker { display: none; }
+.pc-ov-issue > summary:hover { background: var(--color-surface-hover); }
+.pc-ov-issue > summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.pc-ov-chevron { color: var(--color-text-muted); transition: transform var(--duration-fast, 100ms) var(--ease-standard, ease); }
+.pc-ov-issue[open] .pc-ov-chevron { transform: rotate(90deg); }
+.pc-ov-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pc-ov-risk { flex: none; font-size: 12px; font-weight: 500; }
+.pc-ov-mark { display: inline-flex; align-items: center; gap: var(--space-1); flex: none; padding: 1px var(--space-2); border-radius: var(--radius-pill); font-size: 12px; }
+.pc-ov-mark.is-browser { background: var(--color-browser-subtle); color: var(--color-browser); }
+.pc-ov-detail { display: grid; gap: var(--space-3); padding: var(--space-1) var(--space-4) var(--space-4) calc(var(--space-3) + 1.2em + var(--space-2)); font-size: 14px; }
+.pc-ov-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); color: var(--color-text-muted); font-size: 13px; }
+.pc-ov-prose { line-height: 1.6; }
+.pc-ov-prose b { font-weight: 600; }
+.pc-ov-expect { display: grid; gap: var(--space-2); padding: var(--space-3); border-radius: var(--space-2); background: var(--color-surface-subtle); }
+.pc-ov-expect small { display: block; color: var(--color-text-muted); font-size: 12px; }
+.pc-ov-code { border: 1px solid var(--color-border); border-radius: var(--space-2); overflow: hidden; }
+.pc-ov-file { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3); background: var(--color-surface-subtle); font: 400 12px/1.6 var(--font-technical); }
+.pc-side .review-issue-code { overflow: auto; max-height: 260px; background: var(--color-surface); }
+.pc-side .review-issue-code pre { margin: 0; padding: var(--space-1) 0; min-width: max-content; }
+.pc-side .review-issue-code code { font: 400 12px/1.6 var(--font-technical); }
+.pc-side .review-issue-code code > span, .pc-side .review-issue-code code > span > span { display: block; }
+.pc-side .review-issue-code code > span > span { padding-right: var(--space-3); }
+.pc-side .review-issue-code code > span > span > span { display: inline-block; width: 44px; padding-right: var(--space-3); text-align: right; color: var(--color-text-muted); user-select: none; }
+/* In the panel the cited lines are yellow (user choice, 16 Nov 2026), not green, so they read as the problem rather than a change. */
+.pc-side .review-issue-code .is-highlighted { background: var(--color-cited-subtle); box-shadow: inset 3px 0 var(--color-cited); }
+.pc-ov-code { --pc-cited: var(--color-warning); }
+.pc-ov-file small { margin-left: auto; font: 500 11px/1.4 var(--font-ui); color: var(--pc-cited); white-space: nowrap; }
+.pc-side .review-issue-code .review-issue-source-gap { padding-left: 44px; color: var(--color-text-muted); }
+.pc-ov-tests { margin-top: var(--space-5); }
+.pc-ov-tests .pc-ov-kind { margin-left: auto; padding: 0 var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-pill); font: 400 12px/18px var(--font-ui); color: var(--color-text-muted); white-space: nowrap; }
+.pc-ov-rail { display: grid; gap: var(--space-4); align-content: start; }
+.pc-ov-rail > section + section { padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.pc-ov-rail dl { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
+.pc-ov-rail dl div { display: flex; justify-content: space-between; gap: var(--space-3); }
+.pc-ov-rail dt { color: var(--color-text-muted); }
+.pc-ov-rail dd { margin: 0; text-align: right; }
+.pc-ov-rail dt.pc-risk-critical, .pc-ov-rail dt.pc-risk-high, .pc-ov-rail dt.pc-risk-medium { font-weight: 500; }
+.pc-ov-rail dt.pc-risk-critical { color: var(--color-level-critical); }
+.pc-ov-rail dt.pc-risk-high { color: var(--color-level-high); }
+.pc-ov-rail dt.pc-risk-medium { color: var(--color-level-medium); }
+.pc-ov-rail dt.pc-risk-low { color: var(--color-level-low); }
+.pc-ov-state { padding: 1px var(--space-3); border-radius: var(--radius-pill); background: var(--color-warning-subtle); color: var(--color-warning); font-size: 12px; }
+.pc-ov-state.is-done { background: var(--color-success-subtle); color: var(--color-success); }
+@media (prefers-reduced-motion: reduce) { .pc-ov-chevron { transition: none; } }
+.pc-ov-prose code { padding: 0 var(--space-1); border-radius: var(--space-1); background: var(--color-surface-subtle); font: 400 12.5px/1.5 var(--font-technical); }
+
+/* Managing sources and requirements in the expanded panel (16 Nov 2026). */
+.pc-manage li .pc-unpin { flex: none; }
+.pc-manage li .pc-unpin:hover:not(:disabled) { color: var(--color-text); }
+.pc-manage li .pc-unpin:disabled { opacity: 0.5; cursor: default; }
+.pc-manage li .pc-unpin:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 4px; }
+.pc-confirm { display: inline-flex; flex: none; gap: var(--space-2); }
+.pc-confirm .ck-link { font-weight: 500; }
+.ck-link.is-danger { color: var(--color-danger); }
+.pc-manage-add { display: inline-flex; align-items: center; gap: var(--space-1); margin-top: var(--space-2); font-weight: 400; }
+.pc-manage-sub { margin: var(--space-3) 0 var(--space-2); color: var(--color-text-muted); }
+.pc-manage-note { margin-top: var(--space-2); }
+.pc-manage-edit form { display: grid; gap: var(--space-2); width: 100%; }
+.pc-manage-edit input, .pc-manage-edit textarea {
+  width: 100%; box-sizing: border-box; padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong); border-radius: 6px; background: var(--color-surface);
+  font: inherit; color: var(--color-text); resize: vertical;
+}
+.pc-manage-edit input:focus-visible, .pc-manage-edit textarea:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.pc-manage .source-index-status { display: grid; gap: var(--space-2); margin-top: var(--space-2); color: var(--color-text-muted); }
+.pc-manage .source-index-status .btn-secondary { justify-self: start; }
+
+/* Requirement detail on hover or keyboard focus. */
+.pc-side li.pc-req { position: relative; border-radius: 4px; }
+.pc-side li.pc-req:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.pc-req-detail {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5;
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--space-2);
+  background: var(--color-surface); box-shadow: 0 6px 20px rgba(20, 16, 30, 0.12); white-space: normal; font-size: 12px;
+}
+.pc-req-detail p { margin: 0; }
+.pc-req-detail p + p { margin-top: var(--space-1); }
+.pc-req-source { color: var(--color-text-muted); }
+.pc-side li.pc-req:hover > .pc-req-detail, .pc-side li.pc-req:focus > .pc-req-detail { display: block; }
+
+/* Risk counts at the top of the expanded panel; state beside the title (17 Nov 2026). */
+.pc-ov-risks { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 0; }
+.pc-ov-risks small { font-weight: 500; }
+.pc-side-heading .pc-ov-state { align-self: center; }
+.pc-ov-risks small.pc-risk-critical { color: var(--color-level-critical); }
+.pc-ov-risks small.pc-risk-high { color: var(--color-level-high); }
+.pc-ov-risks small.pc-risk-medium { color: var(--color-level-medium); }
+.pc-ov-risks small.pc-risk-low { color: var(--color-level-low); }
+.pc-ov-steps { display: grid; gap: var(--space-2); }
+.pc-ov-steps > small { color: var(--color-text-muted); font-size: 12px; }
+.pc-ov-mark.is-stuck { color: var(--color-warning); }
+.pc-ov-gaps { margin-top: var(--space-4); }
+.pc-ov-gaps .ck-gaps { margin: 0; }
+.pc-ov-group .ck-gaps { margin-bottom: var(--space-2); }
+.pc-ov-about { margin-top: var(--space-5); }
 .pc-conversation-request .pc-msg.is-me:has(.pc-sent-attachments) { inline-size: min(100%, 41rem); max-inline-size: 100%; }
 .pc-sent-attachments {
   min-inline-size: 0; margin-block-end: 10px; padding-block-end: 8px;

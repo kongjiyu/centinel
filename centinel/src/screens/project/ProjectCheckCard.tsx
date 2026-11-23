@@ -13,7 +13,8 @@ import { CheckActionLabel } from '../check/CheckProjectWorkspace';
 import type { CheckRecord } from '../../check/types';
 import type { Screen } from '../../types';
 
-export function ProjectCheckCard({ check, onNavigate }: { check: CheckRecord; onNavigate: (screen: Screen) => void }) {
+/** A check's summary in the project conversation. With onOpen, View opens its full result in the side panel. */
+export function ProjectCheckCard({ check, onNavigate, onOpen }: { check: CheckRecord; onNavigate: (screen: Screen) => void; onOpen?(check: CheckRecord): void }) {
   const data = useCheckData(check);
   const card = useRef<HTMLElement>(null);
   const gapsId = useId();
@@ -23,7 +24,7 @@ export function ProjectCheckCard({ check, onNavigate }: { check: CheckRecord; on
   useLayoutEffect(() => { animateCheckTransition(check.id, card.current); }, [check.id]);
   const result = data?.result;
   const ready = !!data && data.evidenceLoaded === true;
-  const gaps = ready ? result?.notChecked ?? [] : [];
+  const gaps = ready && result ? [...result.notChecked, ...result.stuckTests.map(test => test.text)] : [];
   const exportable = ready && result?.finished && data.requirementsState !== 'loading'
     && Boolean(data.review || data.autoTest);
   const download = async () => {
@@ -39,6 +40,8 @@ export function ProjectCheckCard({ check, onNavigate }: { check: CheckRecord; on
     }
   };
   const open = (explain = false) => {
+    // View opens the project's side panel on this check; Ask still opens the check with the explanation draft.
+    if (onOpen && !explain) { onOpen(check); return; }
     rememberProjectPosition(check.projectId!, card.current);
     attachConversationCheck(check, explain);
     rememberCheckTransition(check.id, card.current);

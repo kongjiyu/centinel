@@ -53,7 +53,7 @@ function titleForStatus(status: string): string {
   const known: Record<string, string> = {
     new: 'New', carryover: 'Carryover', accepted: 'Accepted', dismissed: 'Dismissed', fixed: 'Fixed',
     success: 'Completed', failure: 'Failed', failed: 'Failed', blocked: 'Needs attention',
-    cancelled: 'Cancelled', pending_approval: 'Need approval', completed: 'Completed',
+    cancelled: 'Cancelled', pending_approval: 'Completed', completed: 'Completed',
     approved: 'Completed', changes_requested: 'Changes requested', queued: 'Queued', running: 'In progress',
   };
   return known[status] ?? plainText(status);
@@ -106,7 +106,7 @@ function reviewState(snapshot: ProjectReportSnapshot): string {
   if (!review) return 'Unavailable';
   if (review.decision?.decision === 'approved') return 'Completed';
   if (review.decision?.decision === 'changes_requested') return 'Changes requested';
-  if (review.session.status === 'success') return 'Need approval';
+  if (review.session.status === 'success') return 'Completed';
   return titleForStatus(review.session.status);
 }
 

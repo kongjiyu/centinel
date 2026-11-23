@@ -59,7 +59,7 @@ export async function authorizeBrowserAction(page:Page,action:AgentAction,option
   const match=await page.evaluate(({x,y,selectors})=>{const element=document.elementFromPoint(x,y);return selectors.filter(selector=>{try{return !!element?.matches(selector)&&document.querySelectorAll(selector).length===1;}catch{return false;}});},{x:proposal.x,y:proposal.y,selectors:approved.map(row=>row.selector)});
   if(match.length!==1)throw new BrowserPolicyBlocked('Coordinates must resolve to one explicitly approved control.');target=page.locator(match[0]);
  }
- if(await target.count()!==1)throw new BrowserPolicyBlocked('The approved interaction target must be unique.');
+ const matches=await target.count();if(matches===0)throw new BrowserPolicyBlocked('The interaction target is not on the page.');if(matches!==1)throw new BrowserPolicyBlocked('The approved interaction target must be unique.');
  const grants=options.policy.interactions.filter(row=>row.actions.includes(action.action as InteractionAction)).map(row=>row.selector);
  const permitted=await target.evaluate((element,selectors)=>{
   const forbidden=element.closest('input[type="file"],a[download]')||element.closest('label')?.control?.matches('input[type="file"]');

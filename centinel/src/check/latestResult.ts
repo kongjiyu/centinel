@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import type { AutoTestSession } from '../autotest/types';
 import type { Finding, Requirement, StaticSession } from '../types';
@@ -16,8 +16,12 @@ export type LatestResult = {
   autoTest: AutoTestSession | null;
   result: CheckResult | null;
   requirements: Requirement[];
+  /** The latest code review's saved findings, for the expanded panel's detail. */
+  findings: Finding[];
   at: string | null;
   loading: boolean;
+  /** Reads the review and requirements again, after the panel changes them. */
+  reload(): void;
 };
 
 const ACTIVE_REVIEW = new Set(['queued', 'prepared', 'running']);
@@ -52,6 +56,8 @@ export function useLatestResult(projectId: string, autoSessions: AutoTestSession
   const [findings, setFindings] = useState<Finding[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [version, setVersion] = useState(0);
+  const reload = useCallback(() => setVersion(value => value + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -74,10 +80,10 @@ export function useLatestResult(projectId: string, autoSessions: AutoTestSession
     };
     void load();
     return () => { active = false; };
-  }, [projectId]);
+  }, [projectId, version]);
 
   const autoTest = useMemo(() => pickLatestFullAutoTest(autoSessions), [autoSessions]);
   const result = useMemo(() => latestResultFrom({ review, findings, autoTest, requirements }), [review, findings, autoTest, requirements]);
   const at = [review?.createdAt, autoTest?.createdAt].filter((value): value is string => !!value).sort().reverse()[0] ?? null;
-  return { review, autoTest, result, requirements, at, loading };
+  return { review, autoTest, result, requirements, findings, at, loading, reload };
 }

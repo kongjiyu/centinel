@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Globe, LoaderCircle, Maximize2, Minimize2, MonitorCheck, MousePointer2, TriangleAlert, WifiOff, X } from 'lucide-react';
+import { Check, ChevronRight, Globe, LoaderCircle, Maximize2, Minimize2, Minus, MonitorCheck, MousePointer2, TriangleAlert, WifiOff, X } from 'lucide-react';
 import { openLiveStream } from '../../autotest/liveStream';
 import { actionCaption, boxRect, cursorPoint, laneNumber, stageHeadline } from '../../autotest/presentation';
 import type { AutoTestEntry, AutoTestLane, AutoTestSession, LiveActionEvent } from '../../autotest/types';
+import { TEST_KIND_LABEL } from '../../autotest/types';
+import { RunTimeline } from './RunTimeline';
 import { Icon } from '../../components/Icon';
 
 type LaneView = { frame: string | null; event: LiveActionEvent | null; pressKey: number };
@@ -63,7 +65,7 @@ const TEST_ICON: Record<string, { icon: typeof Check; tone: string; label: strin
   failed: { icon: TriangleAlert, tone: 'danger', label: 'Found a problem' },
   uncertain: { icon: TriangleAlert, tone: 'warning', label: 'Unclear result' },
   blocked: { icon: X, tone: 'warning', label: 'Could not run' },
-  not_tested: { icon: X, tone: 'muted', label: 'Not run' },
+  not_tested: { icon: Minus, tone: 'muted', label: 'Not run' },
   cancelled: { icon: X, tone: 'muted', label: 'Stopped' },
 };
 
@@ -132,18 +134,38 @@ export function BrowserTiles({ session, compact = false }: { session: AutoTestSe
       )}
       {session.tests.length > 0 && !compact && (
         <ul className="ck-test-list" aria-label="Browser tests">
-          {session.tests.map(test => {
-            const look = TEST_ICON[test.state] ?? TEST_ICON.queued;
-            return (
-              <li key={test.id} className={`tone-${look.tone}`} style={test.laneId && test.state === 'running' ? { ['--lane' as string]: laneVar(test.laneId) } : undefined}>
-                <Icon icon={look.icon} shape={look.icon === TriangleAlert ? 'triangle' : undefined} className={test.state === 'running' ? 'ci-spin' : ''} />
-                <span className="ck-test-name">{test.name}</span>
-                <span className="ck-test-state">{test.state === 'running' && test.laneId ? `Browser ${laneNumber(test.laneId)}` : look.label}</span>
-              </li>
-            );
-          })}
+          {session.tests.map(test => <TestRow key={test.id} test={test} projectId={session.projectId} />)}
         </ul>
       )}
     </div>
+  );
+}
+
+/** One browser test. A finished test with a saved run opens to its steps (19 Nov 2026). */
+function TestRow({ test, projectId }: { test: AutoTestEntry; projectId: string }) {
+  const [open, setOpen] = useState(false);
+  const look = TEST_ICON[test.state] ?? TEST_ICON.queued;
+  const finished = !['queued', 'running'].includes(test.state);
+  const canOpen = finished && !!test.runId;
+  const content = <>
+    <Icon icon={look.icon} shape={look.icon === TriangleAlert ? 'triangle' : undefined} className={test.state === 'running' ? 'ci-spin' : ''} />
+    <span className="ck-test-name">{test.name}</span>
+    {test.kind && <span className="ck-test-kind">{TEST_KIND_LABEL[test.kind]}</span>}
+    <span className="ck-test-state">{test.state === 'running' && test.laneId ? `Browser ${laneNumber(test.laneId)}` : look.label}</span>
+  </>;
+  return (
+    <li className={`tone-${look.tone}${canOpen ? ' is-openable' : ''}${open ? ' is-open' : ''}`} style={test.laneId && test.state === 'running' ? { ['--lane' as string]: laneVar(test.laneId) } : undefined}>
+      {canOpen
+        ? <button type="button" className="ck-test-toggle" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+            <Icon icon={ChevronRight} className="ck-test-chevron" />{content}
+          </button>
+        : <div className="ck-test-row">{content}</div>}
+      {open && test.runId && (
+        <div className="ck-test-steps">
+          <RunTimeline projectId={projectId} runId={test.runId} checkFailed={test.state === 'failed'}
+            checkSummary={test.state === 'failed' ? test.checks.find(check => test.checkResults?.some(result => result.checkId === check.id && result.verdict === 'failed'))?.description ?? null : null} />
+        </div>
+      )}
+    </li>
   );
 }

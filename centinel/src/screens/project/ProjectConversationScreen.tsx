@@ -2,14 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bookmark, BookmarkCheck, Check, ChevronDown, ChevronRight, RotateCcw, Search, Wrench, FileText, Globe, Info, LoaderCircle, MonitorCheck, Pencil, Play, Plus, Save, ShieldCheck, TriangleAlert, Undo2, X } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from '../../autotest/types';
-import { isActive } from '../../autotest/types';
+import { isActive, TEST_KIND_LABEL } from '../../autotest/types';
 import { stageHeadline } from '../../autotest/presentation';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
-import { browserProblem } from '../../check/result';
+import { browserProblem, type CheckProblem } from '../../check/result';
 import { addNote, isPinned, looksLikeAccount, pinTest, setMode, setSideOpen, unpinTest, updatePrefs, useProjectPrefs } from '../../check/projectPrefs';
-import { useLatestResult } from '../../check/latestResult';
+import { useLatestResult, type LatestResult } from '../../check/latestResult';
+import { useCheckData } from '../../check/useCheckData';
+import { checkName } from '../../check/checkName';
+import type { CheckRecord } from '../../check/types';
 import { startCheck } from '../../check/runner';
 import { useChecks } from '../../check/store';
 import { type CheckMode, type StartCheckInput } from '../../check/types';
@@ -24,7 +27,7 @@ import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
-import { eligibleReplySource, replyExcerpt, useConversationRequests } from '../../check/conversation';
+import { eligibleReplySource, readConversationDraft, replyExcerpt, useConversationRequests, writeConversationDraft } from '../../check/conversation';
 import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
 import './ProjectConversation.css';
 
@@ -120,10 +123,13 @@ export function turnActivities(session: AutoTestSession): Activity[] {
     for (const page of session.exploration.pages.slice(0, 8)) prep.push({ icon: Search, text: <>Looked at <span className="ck-mono">{page.path}</span>: {page.controls} control{page.controls === 1 ? '' : 's'}</> });
     done.push(`looked at ${session.exploration.pages.length} page${session.exploration.pages.length === 1 ? '' : 's'}`);
   }
-  if (session.tests.length && session.planning !== false) {
-    for (const test of session.tests) prep.push({ icon: Pencil, text: <>Wrote <b>{test.name}</b></> });
-    done.push(`wrote ${session.tests.length} test${session.tests.length === 1 ? '' : 's'}`);
+  const written = session.tests.filter(test => !test.kind);
+  if (written.length && session.planning !== false) {
+    for (const test of written) prep.push({ icon: Pencil, text: <>Wrote <b>{test.name}</b></> });
+    done.push(`wrote ${written.length} test${written.length === 1 ? '' : 's'}`);
   }
+  const fixed = session.tests.filter(test => test.kind);
+  if (fixed.length) done.push(`added ${joinList(fixed.map(test => TEST_KIND_LABEL[test.kind!].toLowerCase()))} test${fixed.length === 1 ? '' : 's'}`);
   if (session.planning === false && session.tests.length) done.push(`loaded ${session.tests.length} saved test${session.tests.length === 1 ? '' : 's'}`);
   for (const item of session.dropped) prep.push({ icon: Info, text: `Left out “${item.name}”: ${item.reason}` });
   const preparing = active && ['reading', 'starting', 'exploring', 'planning'].includes(session.stage);
@@ -307,9 +313,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     return () => { active = false; clearTimeout(timer); };
   }, [refresh, anyActive]);
 
-  useEffect(() => {
+  const loadArtifacts = useCallback(() => {
     api.listArtifacts(project.id).then(setArtifacts).catch(() => undefined);
   }, [project.id]);
+  useEffect(() => { loadArtifacts(); }, [loadArtifacts]);
+  // Bumped to reopen the composer with a draft written by the side panel's Run it again.
+  const [composerVersion, setComposerVersion] = useState(0);
 
   const timeline = useMemo(() => {
     const turns = sessions.filter(session => conversational(session) && !checks.some(check => check.autoTestId === session.id)).map(session => ({ at: session.createdAt, key: `s:${session.id}`, session }));
@@ -386,13 +395,34 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const latest = useLatestResult(project.id, sessions);
   const [sideChoice, setSideChoice] = useState<boolean | null>(null);
   const sideOpen = sideChoice ?? false;
-  const toggleSide = (open: boolean) => { setSideChoice(open); setSideOpen(project.id, open); };
+  // A check card's View focuses the panel on that check; closing the panel returns it to the latest check.
+  const [focusCheckId, setFocusCheckId] = useState<string | null>(null);
+  const toggleSide = (open: boolean) => { setSideChoice(open); setSideOpen(project.id, open); if (!open) setFocusCheckId(null); };
+  const focusCheck = focusCheckId ? checks.find(check => check.id === focusCheckId) : undefined;
+  const focusData = useCheckData(focusCheck);
+  const panelLatest: LatestResult = focusCheck && focusData ? {
+    review: focusData.review, autoTest: focusData.autoTest, requirements: focusData.requirements, findings: focusData.findings,
+    result: focusData.requirementsState === 'unavailable' ? { ...focusData.result, requirements: null } : focusData.result,
+    at: focusCheck.finishedAt ?? focusCheck.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
+  } : latest;
   const library = useCheckLibrary(project.id);
-  const openLatest = () => {
-    const local = latest.review ? checks.find(check => check.reviewId === latest.review!.id) : checks[0];
-    if (local) onNavigate({ name: 'check', checkId: local.id });
-    else if (latest.review) onNavigate({ name: 'review-activity', projectId: project.id, sessionId: latest.review.id });
-    else onNavigate({ name: 'dynamic-testing', projectId: project.id });
+  // The project page shows summaries; the full result opens in the expanded side panel, not another page (19 Nov 2026).
+  const openLatest = () => toggleSide(true);
+  const openCheck = (check: CheckRecord) => { setFocusCheckId(check.id); toggleSide(true); };
+  // Run it again (side panel): attach the problem to the message, the same as an @ mention, so the
+  // conversation's own verification checks it again in the browser. Nothing is sent until the person sends it.
+  const runAgain = (problem: CheckProblem) => {
+    const reference = problem.testRef ? { autoTestId: problem.testRef.sessionId, testId: problem.testRef.testId }
+      : problem.findingId && latest.review ? { reviewId: latest.review.id, findingId: problem.findingId } : null;
+    const draft = readConversationDraft(project.id);
+    const attached = reference && !draft.problems.some(item => JSON.stringify(item.reference) === JSON.stringify(reference))
+      ? [...draft.problems, { label: problem.title, reference }] : draft.problems;
+    writeConversationDraft(project.id, { ...draft, problems: attached, mode: 'browser',
+      text: draft.text.trim() ? draft.text : reference ? 'Run this again in the browser and check whether the problem still shows.' : `Test again: ${problem.title}` });
+    setBase(null);
+    toggleSide(false);
+    setComposerVersion(value => value + 1);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
   const latestCheck = checks[0];
   const documents = artifacts.filter(artifact => artifact.source === 'documents');
@@ -413,7 +443,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         : 'This project’s Google Drive sources cannot sync. Connect Google Drive in ORIN to resume syncing.'}</p>
     </Modal>
     <CheckProjectLayout projectHeader expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
-    composer={<CheckFollowUp key={historyOwner + ':' + project.id} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
+    composer={<CheckFollowUp key={`${historyOwner}:${project.id}:${composerVersion}`} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
       onNavigate={onNavigate} available library={library} conversation={{
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
         clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
@@ -422,9 +452,9 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
       }} />}
-    sidebar={<ProjectSidePanel project={project} latest={latest} onOpen={openLatest} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
-      documents={documents} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
-      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} />}>
+    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
+      artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
+      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} />}>
       <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
           <CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library}
             projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={runFullCheck} disabled={!hasFolder} aria-label="Run a full check"
@@ -443,7 +473,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
             {conversationRequests.error && <p role="status">{conversationRequests.error}</p>}
             {timeline.map(item => 'check' in item ? <div className="pc-turn" key={item.key}>
                 {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
-                <ProjectCheckCard check={item.check} onNavigate={onNavigate} />
+                <ProjectCheckCard check={item.check} onNavigate={onNavigate} onOpen={openCheck} />
               </div>
               : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate}
                   replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
