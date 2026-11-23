@@ -111,11 +111,14 @@ export function BrowserTiles({ session, compact = false }: { session: AutoTestSe
   const byId = useMemo(() => new Map(session.tests.map(test => [test.id, test])), [session.tests]);
   const lanes = focus ? session.lanes.filter(lane => lane.id === focus) : session.lanes;
   const beforeTesting = ['reading', 'starting', 'exploring', 'planning'].includes(session.stage);
+  const startupFailed = session.stage === 'failed' && !session.launch?.url;
 
   return (
     <div className={`ck-browsers${compact ? ' is-compact' : ''}`}>
       {!connected && active && <p className="ck-col-note"><Icon icon={WifiOff} />Reconnecting to the live view…</p>}
-      {session.lanes.length === 0 || (beforeTesting && session.lanes.every(lane => lane.state !== 'running')) ? (
+      {startupFailed ? <div className="ck-stage">
+        <div className="ck-stage-waiting"><Icon icon={TriangleAlert} /><span>The app did not start.</span></div>
+      </div> : session.lanes.length === 0 || (beforeTesting && session.lanes.every(lane => lane.state !== 'running')) ? (
         <div className="ck-stage">
           <div className="ck-stage-waiting"><Icon icon={LoaderCircle} className={active ? 'ci-spin' : ''} /><span>{stageHeadline(session)}</span></div>
           {session.launch?.url && <p className="ck-col-note"><Icon icon={Globe} /><span className="ck-mono">{session.launch.url}</span></p>}

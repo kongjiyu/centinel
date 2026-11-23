@@ -113,7 +113,7 @@ function AppVersionSection() {
           : `Version ${release.version} is available on GitHub.`);
       } else {
         setUpdateState('current');
-        setUpdateMessage('Centinel is up to date.');
+        setUpdateMessage('ORIN is up to date.');
       }
     } catch (cause) {
       setUpdateState('error');
@@ -121,7 +121,7 @@ function AppVersionSection() {
     }
   };
 
-  const formatVersion = (value: string | null, missing: string) => value ? `Centinel v${value.replace(/^v/i, '')}` : missing;
+  const formatVersion = (value: string | null, missing: string) => value ? `ORIN v${value.replace(/^v/i, '')}` : missing;
   const currentVersion = formatVersion(version, versionLoading ? 'Checking…' : 'Unknown');
   const latestVersion = formatVersion(latestRelease?.version ?? null, updateState === 'checking' ? 'Checking…' : 'Not checked yet');
 
@@ -586,7 +586,7 @@ export function SettingsScreen({ settings, onRefresh, initialSection, headingId,
         pendingConnectionRef.current = { provider, priorUpdatedAt: integrations.find(item => item.provider === provider)?.updatedAt ?? null };
         setPendingConnection(true);
       }
-      setConnectionMessage(opened ? `The ${connection.label} authorization page is open. Complete it, then return here.` : `Centinel could not open the ${connection.label} authorization page.`);
+      setConnectionMessage(opened ? `The ${connection.label} authorization page is open. Complete it, then return here.` : `ORIN could not open the ${connection.label} authorization page.`);
     } catch (cause) {
       setConnectionMessage(userFacingError(cause, `${connection.label} is not configured yet.`));
     } finally {
@@ -679,7 +679,7 @@ export function SettingsScreen({ settings, onRefresh, initialSection, headingId,
       >
         {connectionDialog && <>
           <ConnectionAccessDetails connection={connectionDialog} />
-          <p className="connection-dialog-security">You'll finish authorization in your browser. Return to Centinel after granting access.</p>
+          <p className="connection-dialog-security">You'll finish authorization in your browser. Return to ORIN after granting access.</p>
           {connectionMessage && <p className="connection-dialog-copy" role="status">{connectionMessage}</p>}
           <div className="connection-dialog-actions">
             <button type="button" className="btn-primary connection-primary-button" data-autofocus onClick={() => void beginConnection(connectionDialog)} disabled={connectionBusy}><ExternalLink size={15} aria-hidden="true" /> {connectionBusy ? 'Opening…' : `Connect ${connectionDialog.label}`}</button>
@@ -699,7 +699,7 @@ export function SettingsScreen({ settings, onRefresh, initialSection, headingId,
           <ConnectionAccountSummary connection={managedConnection} details={accountDetails(managedConnection)} />
           {connectionState(managedConnection) === 'reauthorization_required' && <p className="connection-dialog-security" role="alert">Reconnect Slack to grant the missing read scopes: {slackMissingScopes(connectedRecord(managedConnection)?.scopes ?? '').join(', ')}. Sync stays disabled until authorization is updated.</p>}
           <ConnectionAccessDetails connection={managedConnection} />
-          <p className="connection-dialog-security">You can reconnect to update access or disconnect this account from Centinel.</p>
+          <p className="connection-dialog-security">You can reconnect to update access or disconnect this account from ORIN.</p>
         </>}
         {connectionMessage && <p className="connection-dialog-copy" role="status">{connectionMessage}</p>}
         <div className="connection-dialog-actions">
@@ -757,7 +757,7 @@ const CONNECTIONS: ConnectionDefinition[] = [
     access: [
       'Read files and folders so you can import Drive content as project sources.',
       'Read file metadata such as names, owners, and modified dates to identify sources.',
-      'Centinel does not edit or delete your Google Drive content.',
+      'ORIN does not edit or delete your Google Drive content.',
     ],
   },
   {
@@ -768,7 +768,7 @@ const CONNECTIONS: ConnectionDefinition[] = [
     access: [
       'Read repository files and metadata for repositories you choose to import.',
       'Read pull-request context and GitHub account information for review workflows.',
-      'Centinel can invite collaborators to a selected project repository only when you explicitly request it.',
+      'ORIN can invite collaborators to a selected project repository only when you explicitly request it.',
     ],
   },
   {
@@ -827,7 +827,7 @@ function ConnectionStatusTag({ connected, state }: { connected?: boolean; state?
 function ConnectionAccessDetails({ connection }: { connection: ConnectionDefinition }) {
   return (
     <section className="connection-access-details" aria-labelledby={`${connection.id}-access-title`}>
-      <h4 id={`${connection.id}-access-title`}>What Centinel can access</h4>
+      <h4 id={`${connection.id}-access-title`}>What ORIN can access</h4>
       <ul>
         {connection.access.map(item => <li key={item}>{item}</li>)}
       </ul>

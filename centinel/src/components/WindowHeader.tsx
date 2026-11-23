@@ -214,7 +214,7 @@ export function WindowHeader() {
     ],
     help: [
       {
-        label: 'About Centinel',
+        label: 'About ORIN',
         onSelect: () => setAboutOpen(true),
       },
     ],
@@ -231,8 +231,8 @@ export function WindowHeader() {
         data-tauri-drag-region
         onDoubleClick={() => { void toggleMaximize(); }}
       >
-        <img src="/assets/centinel-shield.svg" alt="" aria-hidden="true" />
-        <span>Centinel</span>
+        <img src="/assets/orin-aperture.svg" alt="" aria-hidden="true" />
+        <span>ORIN</span>
       </div>
 
       <nav className="window-header-menus" aria-label="Application menu">
@@ -259,7 +259,7 @@ export function WindowHeader() {
                     key={item.label}
                     onClick={async () => {
                       await item.onSelect();
-                      closeMenu(item.label !== 'About Centinel');
+                      closeMenu(item.label !== 'About ORIN');
                     }}
                     onKeyDown={handleMenuItemKeyDown}
                   >
@@ -297,8 +297,8 @@ export function WindowHeader() {
       {aboutOpen && (
         <div className="window-about" role="dialog" aria-modal="true" aria-labelledby="window-about-title">
           <div className="window-about-card">
-            <h2 id="window-about-title">About Centinel</h2>
-            <p>Centinel is a local-first quality-assurance workspace for Review and Dynamic Testing.</p>
+            <h2 id="window-about-title">About ORIN</h2>
+            <p>ORIN is a local-first quality-assurance workspace for Review and Dynamic Testing.</p>
             <button ref={aboutCloseRef} autoFocus type="button" className="btn-secondary" onClick={() => {
               setAboutOpen(false);
               window.setTimeout(() => triggerRefs.current.help?.focus(), 0);

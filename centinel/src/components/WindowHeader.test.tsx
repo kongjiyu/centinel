@@ -56,13 +56,13 @@ describe('WindowHeader', () => {
     render(<WindowHeader />);
 
     await user.click(screen.getByRole('button', { name: 'Help' }));
-    await user.click(screen.getByRole('menuitem', { name: 'About Centinel' }));
-    const dialog = await screen.findByRole('dialog', { name: 'About Centinel' });
+    await user.click(screen.getByRole('menuitem', { name: 'About ORIN' }));
+    const dialog = await screen.findByRole('dialog', { name: 'About ORIN' });
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
 
     await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'About Centinel' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'About ORIN' })).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Help' })).toHaveFocus();
   });
 

@@ -17,7 +17,7 @@ describe('browser test steps', () => {
     render(<RunTimeline projectId="p" runId="r" />);
     expect(await screen.findByText('Typed 18 characters into Email field', { exact: false })).toBeInTheDocument();
     expect(screen.getByText('Stopped here')).toBeInTheDocument();
-    expect(screen.getByText('This control had already been pressed once, and pressing it again could change saved data, so Centinel stopped.')).toBeInTheDocument();
+    expect(screen.getByText('This control had already been pressed once, and pressing it again could change saved data, so ORIN stopped.')).toBeInTheDocument();
     expect(screen.getByText('Tried to click Add to cart', { exact: false })).toBeInTheDocument();
     expect(screen.getByText('First page')).toBeInTheDocument();
     expect(screen.queryByText('Failed here')).not.toBeInTheDocument();
@@ -45,7 +45,7 @@ describe('browser test steps', () => {
 
   it('reads a stopped step as an attempt with a plain reason', () => {
     expect(stepSentence({ step: 0, action: 'click', target: null, page: '/', result: 'blocked', error: 'x', typedLength: null, screenshot: false }, true)).toBe('Tried to click a control');
-    expect(plainReason('The approved interaction target must be unique.')).toBe('Centinel could not tell which control the AI meant, so it did not press it.');
+    expect(plainReason('The approved interaction target must be unique.')).toBe('ORIN could not tell which control the AI meant, so it did not press it.');
     expect(plainReason('The interaction target is not on the page.')).toMatch(/not on the page at that moment/);
     expect(plainReason('Something new happened.')).toBe('Something new happened.');
   });

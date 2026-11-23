@@ -4,7 +4,9 @@ import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from '../../autotest/types';
 import { isActive, TEST_KIND_LABEL } from '../../autotest/types';
 import { stageHeadline } from '../../autotest/presentation';
+import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
+import { Modal } from '../../components/Modal';
 import { browserProblem, type CheckProblem } from '../../check/result';
 import { addNote, isPinned, looksLikeAccount, pinTest, setMode, setSideOpen, unpinTest, updatePrefs, useProjectPrefs } from '../../check/projectPrefs';
 import { useLatestResult, type LatestResult } from '../../check/latestResult';
@@ -20,12 +22,12 @@ import { userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from '../check/BrowserTiles';
 import { InlineText } from '../check/CheckScreen';
 import '../check/Check.css';
-import { CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from '../check/CheckProjectWorkspace';
+import { CheckActionLabel, CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from '../check/CheckProjectWorkspace';
 import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
-import { readConversationDraft, useConversationRequests, writeConversationDraft } from '../../check/conversation';
+import { eligibleReplySource, readConversationDraft, replyExcerpt, useConversationRequests, writeConversationDraft } from '../../check/conversation';
 import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
 import './ProjectConversation.css';
 
@@ -216,7 +218,7 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
         {base && <span className="pc-about"><Icon icon={Pencil} />About “{base.name}”</span>}
         {userText}
       </div>
-      <section className="pc-turn" aria-label="Centinel's reply">
+      <section className="pc-turn" aria-label="ORIN's reply">
         {hasWork && !answerOnly && (
           <>
             <button type="button" className="pc-worked" aria-expanded={showWork} disabled={active} onClick={() => setWorkOpen(value => !value)}>
@@ -237,7 +239,7 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
         ))}
         {session.stage === 'failed' && session.error && <p className="pc-ai-text pc-error"><Icon icon={TriangleAlert} shape="triangle" /><span>{friendlyError(session.error.message)}</span></p>}
         {session.stage === 'cancelled' && !finished.length && <p className="pc-ai-text pc-sub"><Icon icon={Info} />Stopped.</p>}
-        {session.dropped.length > 0 && !active && !session.tests.length && !session.reply && <p className="pc-ai-text pc-sub"><Icon icon={Info} />The proposed test was left out because Centinel could not check it safely.</p>}
+        {session.dropped.length > 0 && !active && !session.tests.length && !session.reply && <p className="pc-ai-text pc-sub"><Icon icon={Info} />The proposed test was left out because ORIN could not check it safely.</p>}
       </section>
       {finished.map(test => {
         const ref = { sessionId: session.id, testId: test.id, name: test.name };
@@ -263,6 +265,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(check => check.projectId === project.id);
   const conversationRequests = useConversationRequests(project.id, project.name);
+  const historyOwner = sessionStorage.getItem('centinel:supabase-user-id');
+  const replySources = useMemo(() => new Map(conversationRequests.records
+    .filter(request => eligibleReplySource(request, project.id, historyOwner))
+    .map(request => [request.id, replyExcerpt(request)])), [conversationRequests.records, project.id, historyOwner]);
+  const [replySelection, setReplySelection] = useState<{ projectId: string; ownerId: string | null; turnId: string } | null>(null);
+  const clearReplySelection = useCallback(() => setReplySelection(null), []);
   const [sessions, setSessions] = useState<AutoTestSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -270,6 +278,15 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const [pending, setPending] = useState<Pending | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [driveAttention, setDriveAttention] = useState<{ projectId: string; status: string } | null>(null);
+  useEffect(() => {
+    let current = true;
+    void api.getConnectedSourceStatus('google_drive', project.id).then(connection => {
+      if (!current || connection.connected || !connection.sources.some(source => source.status !== 'removed')) return;
+      setDriveAttention({ projectId: project.id, status: connection.status });
+    }).catch(() => undefined);
+    return () => { current = false; };
+  }, [project.id]);
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const initializedScroll = useRef(false);
@@ -317,10 +334,12 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     if (!loaded || !conversationRequests.loaded) return;
     if (!initializedScroll.current) {
       initializedScroll.current = true;
-      const restored = restoreProjectPosition(project.id, endRef.current);
+      restoreProjectPosition(project.id, endRef.current);
       if (consumeConversationReturn(project.id)) {
         inputRef.current?.focus({ preventScroll: true });
-      } else if (restored) return;
+      } else {
+        return;
+      }
     }
     endRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' });
   }, [loaded, conversationRequests.loaded, lastSignature, pending, project.id]);
@@ -342,7 +361,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         : await api.startAutoTest(project.id, { request: job.text, ...(job.base ? { base: { sessionId: job.base.sessionId, testId: job.base.testId } } : {}), lanes: 1 });
       setSessions(current => [session, ...current.filter(item => item.id !== session.id)]);
     } catch (cause) {
-      addNote(project.id, userFacingError(cause, 'Centinel could not start that. Try again.'));
+      addNote(project.id, userFacingError(cause, 'ORIN could not start that. Try again.'));
     } finally {
       setSending(false);
     }
@@ -410,29 +429,39 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const codeFiles = artifacts.filter(artifact => artifact.source === 'repository').length;
   const lastStateOf = (ref: AutoTestRef) => sessions.find(session => session.id === ref.sessionId)?.tests.find(test => test.id === ref.testId)?.state;
 
-  return <CheckProjectLayout expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
-    header={<CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library} />}
-    composer={<CheckFollowUp key={`${project.id}:${composerVersion}`} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
+  return <>
+    <Modal isOpen={driveAttention?.projectId === project.id} title="Google Drive needs attention"
+      onClose={() => setDriveAttention(null)}
+      footer={<>
+        <button type="button" className="btn-primary" onClick={() => { setDriveAttention(null); onNavigate({ name: 'settings', section: 'connections' }); }}>
+          Open connections
+        </button>
+        <button type="button" className="btn-secondary" onClick={() => setDriveAttention(null)}>Dismiss</button>
+      </>}>
+      <p>{driveAttention?.status === 'expired'
+        ? 'The Google Drive connection has expired. Reconnect it to sync this project’s Drive sources.'
+        : 'This project’s Google Drive sources cannot sync. Connect Google Drive in ORIN to resume syncing.'}</p>
+    </Modal>
+    <CheckProjectLayout projectHeader expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
+    composer={<CheckFollowUp key={`${historyOwner}:${project.id}:${composerVersion}`} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
       onNavigate={onNavigate} available library={library} conversation={{
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
+        clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
+        replySelection: replySelection?.projectId === project.id && replySelection.ownerId === historyOwner ? replySelection : null,
         inputRef, sending, send, onFocus: () => setSideChoice(false),
-        placeholder: base ? 'How should this test change?' : 'Ask Centinel to test or change something',
+        placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
       }} />}
     sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
       artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
       accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} />}>
       <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
-          <header className="pc-head">
-            <div>
-              <p className="pc-kicker">Project</p>
-              <h1 className="ck-title">{project.name}</h1>
-            </div>
-            <button type="button" className="ck-button" onClick={runFullCheck} disabled={!hasFolder} title={hasFolder ? 'Review the code and test in a browser' : 'This project has no folder on this computer'}><Icon icon={Play} shape="play" />Run a full check</button>
-          </header>
+          <CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library}
+            projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={runFullCheck} disabled={!hasFolder} aria-label="Run a full check"
+              title={hasFolder ? 'Run a full check' : 'This project has no folder on this computer'}><Icon icon={Play} shape="play" /><CheckActionLabel>Run a full check</CheckActionLabel></button>} />
 
           <div className="pc-thread" aria-live="polite">
-            {!checks.length && <div className="pc-turn pc-ai-text pc-intro">
+            {loaded && conversationRequests.loaded && !checks.length && <div className="pc-turn pc-ai-text pc-intro">
               <span>{latestCheck
                 ? latestCheck.phase === 'done'
                   ? <>The last check found {latestCheck.problemCount ? `${latestCheck.problemCount} problem${latestCheck.problemCount === 1 ? '' : 's'}` : 'no problems'}. <button type="button" className="ck-link" onClick={() => onNavigate({ name: 'check', checkId: latestCheck.id })}>Open the result</button></>
@@ -440,13 +469,18 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
                 : 'No check has run on this computer yet.'}
               {' '}Ask me to test something, for example “Test that a wrong password shows an error”.</span>
             </div>}
-            {!loaded && <p className="pc-sub"><Icon icon={LoaderCircle} className="ci-spin" />Loading the conversation…</p>}
+            {(!loaded || !conversationRequests.loaded) && !error && !conversationRequests.error && !timeline.length && <LoadingSkeleton className="pc-conversation-skeleton" label="Loading the conversation" />}
             {conversationRequests.error && <p role="status">{conversationRequests.error}</p>}
             {timeline.map(item => 'check' in item ? <div className="pc-turn" key={item.key}>
                 {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
                 <ProjectCheckCard check={item.check} onNavigate={onNavigate} onOpen={openCheck} />
               </div>
-              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate} />
+              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate}
+                  replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
+                  onReplyTo={replySources.has(item.request.id) ? () => {
+                    setBase(null);
+                    setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
+                  } : undefined} />
               : 'session' in item
               ? <SessionTurn key={item.key} session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}
@@ -458,7 +492,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
               <div className="pc-turn">
                 <div className="pc-card">
                   <p className="pc-card-title"><Icon icon={ShieldCheck} />Ask first is on</p>
-                  <p className="pc-sub">{'rerun' in pending ? `Centinel will start the app and run “${pending.rerun.map(item => item.name).join('”, “')}”.` : `Centinel will start the app, write ${pending.base ? `a new version of “${pending.base.name}”` : 'a test'} for “${pending.text}” and run it.`}</p>
+                  <p className="pc-sub">{'rerun' in pending ? `ORIN will start the app and run “${pending.rerun.map(item => item.name).join('”, “')}”.` : `ORIN will start the app, write ${pending.base ? `a new version of “${pending.base.name}”` : 'a test'} for “${pending.text}” and run it.`}</p>
                   <div className="pc-actions">
                     <button type="button" className="ck-button is-small is-primary" onClick={() => { const job = pending; setPending(null); void launch(job); }}><Icon icon={Play} shape="play" />Go ahead</button>
                     <button type="button" className="ck-button is-small" onClick={() => setPending(null)}><Icon icon={X} />Cancel</button>
@@ -471,5 +505,6 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
           </div>
 
       </section></div>
-  </CheckProjectLayout>;
+  </CheckProjectLayout>
+  </>;
 }

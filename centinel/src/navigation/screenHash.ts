@@ -47,5 +47,19 @@ export function hashToScreen(hash: string): Screen | null {
   if ((name === 'review-activity' || name === 'review-finding' || name === 'dynamic-session') && typeof screen.sessionId !== 'string') return null;
   if (name === 'check' && typeof screen.checkId !== 'string') return null;
   if (name === 'review-finding' && (typeof screen.findingId !== 'string' || !screen.findingId)) return null;
-  return screen as Screen;
+  return resolveLegacyProjectRoute(screen as Screen);
+}
+
+/** Keep saved project links usable after retiring the tabbed project screen. */
+export function resolveLegacyProjectRoute(screen: Screen): Screen {
+  if (screen.name !== 'project-detail') return screen;
+  const { projectId } = screen;
+  if (screen.initialAction === 'dynamic') return { name: 'dynamic-testing', projectId };
+  const sessionId = screen.findingsReviewId || screen.initialStaticSessionId;
+  if (sessionId) {
+    return screen.findingId
+      ? { name: 'review-finding', projectId, sessionId, findingId: screen.findingId }
+      : { name: 'review-activity', projectId, sessionId };
+  }
+  return { name: 'project', projectId };
 }

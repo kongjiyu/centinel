@@ -21,7 +21,7 @@ describe('AuthScreen account modes', () => {
     const user = userEvent.setup();
     render(<AuthScreen onSignIn={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'Create an account' }));
-    expect(screen.getByRole('heading', { name: 'Create your Centinel account' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Create your ORIN account' })).toBeInTheDocument();
     await user.type(screen.getByLabelText('Email address'), 'new@example.com');
     await user.type(screen.getByLabelText('Password'), 'short');
     await user.click(screen.getByRole('button', { name: 'Create account' }));

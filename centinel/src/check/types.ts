@@ -1,5 +1,5 @@
 /**
- * A Check is everything Centinel did after one press of Start (DESIGN.md §3).
+ * A Check is everything ORIN did after one press of Start (DESIGN.md §3).
  * It is a thin, device-local index over existing records: the project, one Review
  * and one Auto test session. Results always come from those saved records.
  */
@@ -35,8 +35,9 @@ export type CheckRecord = {
   /** Plain-language notes about parts that could not run, shown on Live and Result. */
   notes: string[];
   error?: string;
-  /** Cached for the sidebar only; Result recomputes from saved records. */
+  /** Cached for compact displays; Result recomputes from saved records. */
   problemCount?: number;
+  highProblemCount?: number;
   problemRisk?: import('../riskPolicy').RiskLevel;
   finishedAt?: string;
   viewedAt?: string;

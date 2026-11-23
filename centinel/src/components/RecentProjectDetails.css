@@ -1,0 +1,100 @@
+.recent-project-details { display: grid; gap: 4px; min-width: 0; margin: 0; }
+.recent-project-details dt { font-weight: 600; }
+.recent-project-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.recent-project-details dd + dt { margin-top: var(--space-2); }
+.recent-project-description { white-space: pre-wrap; }
+.recent-project-workspace { font-family: var(--font-technical); }
+.recent-project-sources table {
+  width: 100%;
+  table-layout: fixed;
+  border: 1px solid var(--color-border);
+  border-spacing: 0;
+  border-radius: var(--radius-control, 8px);
+}
+.recent-project-sources tr + tr > * { border-top: 1px solid var(--color-border); }
+.recent-project-sources :is(th, td) { padding: 6px 8px; vertical-align: top; }
+.recent-project-sources th { text-align: start; font-weight: 600; }
+.recent-project-sources td { width: 40%; padding-inline-start: 8px; text-align: end; }
+.recent-project-sources :is(td, small, p) { color: var(--color-text-muted); font-size: 12px; }
+.recent-project-sources small { display: block; font-weight: 400; }
+.recent-project-sources p { margin: 0; }
+
+.recent-project-preview {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-card);
+}
+.recent-project-preview-body { flex: 1; min-height: 0; overflow: clip; padding: var(--space-4);
+  mask-image: linear-gradient(#000 0 calc(100% - 12px), transparent);
+}
+.recent-project-preview .recent-project-description {
+  max-height: 2.8em;
+  overflow: clip;
+  line-height: 1.4;
+}
+.recent-project-preview .recent-project-sources { min-height: 88px; max-height: 88px; overflow: clip; }
+.recent-project-preview .recent-project-sources[data-clipped] {
+  mask-image: linear-gradient(#000 0 52px, transparent);
+}
+.recent-project-preview .recent-project-sources th > :is(span, small) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-project-preview .recent-project-sources td { font-variant-numeric: tabular-nums; }
+.modal-footer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 12px 20px; border-top: 1px solid var(--color-border); }
+.recent-project-preview .modal-footer { padding-inline: var(--space-4); }
+.recent-project-dialog .modal { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
+.recent-project-dialog .modal-header { flex: none; }
+.recent-project-dialog .modal-body { min-height: 0; }
+.recent-project-edit { display: grid; gap: var(--space-3); }
+.recent-project-edit :is(label, .recent-project-edit-row) {
+  display: grid;
+  grid-template-columns: minmax(104px, 1fr) minmax(0, 3fr);
+  align-items: center;
+  gap: 12px;
+}
+.recent-project-edit :is(input, textarea, .recent-project-picker) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--workspace-border-strong, var(--color-border-strong));
+  border-radius: var(--workspace-radius-control, 8px);
+  background: var(--workspace-surface, var(--color-surface));
+  color: var(--color-text);
+  font: inherit;
+}
+.recent-project-edit textarea { min-height: 94px; resize: vertical; }
+.recent-project-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; cursor: pointer; }
+.recent-project-picker:hover:not(:disabled) { background: var(--color-surface-hover); }
+@media (max-width: 480px) {
+  .recent-project-edit :is(label, .recent-project-edit-row) { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+
+.recent-project-preview .modal-footer.is-project-action,
+.recent-project-dialog .modal-footer:has(.recent-project-edit-action) { padding: 0; }
+.recent-project-edit-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 12px var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.recent-project-edit-action:hover { background: var(--color-surface-hover); }
+.recent-project-edit-action:focus-visible { outline-offset: -3px; }
+.recent-project-workspace-note { color: var(--color-text-muted); font: 400 var(--font-size-dense)/1.5 var(--font-ui); }

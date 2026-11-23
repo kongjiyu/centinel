@@ -9,7 +9,7 @@ vi.mock('./auth/supabaseAuth', () => ({ isSupabaseAuthConfigured: () => false, s
 vi.mock('./screens/AuthScreen', () => ({ AuthScreen: ({ onSignIn }: any) => <button onClick={() => onSignIn('person@example.test')}>Sign in</button> }));
 vi.mock('./components/AppShell', () => ({ AppShell: ({ children }: any) => <main>{children}</main> }));
 vi.mock('./screens/DashboardScreen', () => ({ DashboardScreen: ({ projects }: any) => <div>{projects.map((project: any) => <p key={project.id}>{project.name}</p>)}</div> }));
-vi.mock('./screens/check/StartScreen', () => ({ StartScreen: () => <h1>What should Centinel check?</h1> }));
+vi.mock('./screens/check/StartScreen', () => ({ StartScreen: () => <h1>What should ORIN check?</h1> }));
 vi.mock('./hooks/useActiveReview', () => ({ ActiveReviewProvider: ({ children }: any) => children }));
 vi.mock('./components/ReviewToast', () => ({ ReviewToast: () => null }));
 vi.mock('./components/GithubConnectionPrompt', () => ({ GithubConnectionPrompt: () => null }));
@@ -52,6 +52,6 @@ describe('workspace metadata loading', () => {
     vi.mocked(api.aiSettings).mockResolvedValue([]);
     render(<App />);
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-    expect(await screen.findByRole('heading', { name: 'What should Centinel check?' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'What should ORIN check?' })).toBeInTheDocument();
   });
 });

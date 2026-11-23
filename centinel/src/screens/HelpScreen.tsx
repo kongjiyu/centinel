@@ -91,8 +91,8 @@ export function HelpScreen({ onOpenSetupGuide, headingId }: Props = {}) {
         <section className="help-section" aria-labelledby="help-sync-heading">
           <h2 id="help-sync-heading">Update project sources</h2>
           <ol>
-            <li>Connected sources are checked about once a minute while Centinel is running. A check may find no change or need more time to import.</li>
-            <li>Use Sync on a connected-source row for an incremental check. Imported local repositories are checked while Centinel is running; individual local file uploads still need reimport after changes.</li>
+            <li>Connected sources are checked about once a minute while ORIN is running. A check may find no change or need more time to import.</li>
+            <li>Use Sync on a connected-source row for an incremental check. Imported local repositories are checked while ORIN is running; individual local file uploads still need reimport after changes.</li>
             <li>Source updates and model-backed indexing or assessment are separate. A successful sync does not mean Review work has resumed or completed.</li>
           </ol>
         </section>
@@ -118,7 +118,7 @@ export function HelpScreen({ onOpenSetupGuide, headingId }: Props = {}) {
         <section className="help-section" aria-labelledby="help-project-heading">
           <h2 id="help-project-heading">Share a project</h2>
           <ol>
-            <li>Open the project's Collaborators tab. The owner can add a person by the e-mail of their Centinel account and remove them again.</li>
+            <li>Open the project's Collaborators tab. The owner can add a person by the e-mail of their ORIN account and remove them again.</li>
             <li>Members can open sources, Reviews, tests and shared evidence; removing a member stops their access immediately.</li>
             <li>Export a project or Review report from the project Action menu or the Review page. Reports keep their versions and limitations.</li>
           </ol>
@@ -129,15 +129,15 @@ export function HelpScreen({ onOpenSetupGuide, headingId }: Props = {}) {
           <ol>
             <li>Open Settings and choose a model for Review and one for Dynamic Testing, either with an API provider key or Codex sign-in.</li>
             <li>Embedding settings are optional and only speed up retrieval for large repositories.</li>
-            <li>Review and Dynamic Testing will not start until their model is set up; Centinel tells you where to fix it.</li>
+            <li>Review and Dynamic Testing will not start until their model is set up; ORIN tells you where to fix it.</li>
           </ol>
         </section>
 
         <section className="help-section" aria-labelledby="help-privacy-heading">
           <h2 id="help-privacy-heading">Privacy and diagnostics</h2>
           <ol>
-            <li>Projects, saved sources, findings and reports are stored in your Centinel account. Selected source excerpts and requirements are sent to the model provider you set up, only while a Review or test runs.</li>
-            <li>Centinel has no telemetry and sends no crash reports.</li>
+            <li>Projects, saved sources, findings and reports are stored in your ORIN account. Selected source excerpts and requirements are sent to the model provider you set up, only while a Review or test runs.</li>
+            <li>ORIN has no telemetry and sends no crash reports.</li>
             <li>To get help with a problem, export diagnostics and share the file yourself. It holds recent service log lines with tokens, keys, e-mail addresses and .env values removed, plus app, macOS and processor details and recent error codes. It never holds prompts, source code or provider secrets.</li>
           </ol>
           <div className="help-actions">

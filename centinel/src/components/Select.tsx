@@ -26,6 +26,7 @@ export type SelectProps = {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  animated?: boolean;
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-describedby'?: string;
@@ -33,7 +34,7 @@ export type SelectProps = {
 };
 
 /**
- * The one select primitive used by the Centinel UI.
+ * The one select primitive used by the ORIN UI.
  *
  * Radix owns the combobox/listbox interaction model, focus handling and
  * portal, while this wrapper keeps values and form semantics consistent with
@@ -51,6 +52,7 @@ export function Select({
   disabled = false,
   required = false,
   className = '',
+  animated = false,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   'aria-describedby': ariaDescribedBy,
@@ -86,7 +88,7 @@ export function Select({
       {name && <input type="hidden" name={name} value={value} disabled={disabled} required={required} />}
 
       <RadixSelect.Portal>
-        <RadixSelect.Content className="select-content" position="popper" sideOffset={4}>
+        <RadixSelect.Content className={animated ? 'select-content select-content-animated' : 'select-content'} position="popper" sideOffset={4}>
           <RadixSelect.ScrollUpButton className="select-scroll-button" aria-hidden="true">
             <ChevronUp size={14} />
           </RadixSelect.ScrollUpButton>

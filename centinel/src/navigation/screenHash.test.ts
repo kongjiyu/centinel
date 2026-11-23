@@ -21,4 +21,10 @@ describe('screen hash routing', () => {
     expect(hashToScreen('#/unknown')).toBeNull();
     expect(hashToScreen('#/reviews')).toBeNull();
   });
+  it('routes retired project tabs to the conversation and review links to their saved records', () => {
+    expect(hashToScreen('#/project-detail?projectId=p-1&initialSection=settings')).toEqual({ name: 'project', projectId: 'p-1' });
+    expect(hashToScreen('#/project-detail?projectId=p-1&findingsReviewId=r-1&findingId=f-1')).toEqual({
+      name: 'review-finding', projectId: 'p-1', sessionId: 'r-1', findingId: 'f-1',
+    });
+  });
 });

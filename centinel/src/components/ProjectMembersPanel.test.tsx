@@ -20,7 +20,7 @@ describe('ProjectMembersPanel', () => {
     vi.mocked(api.removeProjectMember).mockResolvedValue({ removed: true });
     const user = userEvent.setup();
     render(<ProjectMembersPanel projectId="project-1" />);
-    await user.type(await screen.findByRole('textbox', { name: 'E-mail of a Centinel account' }), 'tester@example.com');
+    await user.type(await screen.findByRole('textbox', { name: 'E-mail of a ORIN account' }), 'tester@example.com');
     await user.click(screen.getByRole('button', { name: 'Add member' }));
     await waitFor(() => expect(api.addProjectMember).toHaveBeenCalledWith('project-1', 'tester@example.com', 'member'));
     expect(await screen.findByText(/tester@example.com can now view and run/)).toBeInTheDocument();

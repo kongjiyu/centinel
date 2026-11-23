@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Check, Download, LayoutList, LoaderCircle, Lock, MonitorCheck, Play, RotateCcw, TriangleAlert, X, Globe, ShieldCheck } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestRef } from '../../autotest/types';
+import { checkProblemSummary } from '../../check/result';
+import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
 import { Icon } from '../../components/Icon';
 import { CornersIn, CornersOut } from '../../components/cornerIcons';
 import { MODE_LABEL, unpinTest, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
@@ -39,6 +41,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
   const [message, setMessage] = useState<string | null>(null);
   const { result, review } = latest;
   const problems = result ? [...result.proven, ...result.foundInCode] : [];
+  const problemSummary = result ? checkProblemSummary(result) : {};
   const running = !!result && !result.finished;
   const reviewDone = !!review && result?.codeState === 'done';
   const tally = result?.requirements ?? null;
@@ -84,8 +87,8 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
   const summary = latest.loading ? <p className="pc-empty"><Icon icon={LoaderCircle} className="ci-spin" /> Loading…</p>
     : !result ? <p className="pc-empty">No check has run yet. Use Run a full check.</p>
     : <>
-      <p className="pc-latest-verdict">
-        {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : problems.length ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : <Icon icon={Check} />}
+      <p className={`pc-latest-verdict${!running && problems.length ? ` problem-count-tone is-${problemCountTone(problemSummary)}` : ''}`}>
+        {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : <ProblemCountIcon summary={problemSummary} />}
         <span>{running ? 'A check is running' : problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'No problems found'}{open && !running && result.proven.length > 0 ? `. ${result.proven.length} proven in the browser.` : ''}</span>
       </p>
       {!open && !running && result.proven.length > 0 && <p className="pc-latest-sub">{result.proven.length} proven in the browser</p>}
@@ -99,7 +102,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
     </>;
 
   return (
-    <aside className={`pc-side${open ? ' is-open' : ''}`} aria-label="What Centinel knows">
+    <aside className={`pc-side${open ? ' is-open' : ''}`} aria-label="What ORIN knows">
       <div className="pc-side-top">
         <div className="pc-side-heading">
           <h2>{open ? project.name : latestLabel}</h2>
@@ -163,7 +166,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
               <section aria-label="How it is tested">
                 <h3>How it is tested</h3>
                 <ul>
-                  <li><Icon icon={Globe} /><span>{hasFolder ? 'Centinel starts the app itself' : 'No folder on this computer, so browser tests cannot run'}</span></li>
+                  <li><Icon icon={Globe} /><span>{hasFolder ? 'ORIN starts the app itself' : 'No folder on this computer, so browser tests cannot run'}</span></li>
                   <li><Icon icon={ShieldCheck} /><span>{MODE_LABEL[mode]} mode</span></li>
                   {accountGiven && <li><Icon icon={Lock} /><span>Test account given in the conversation</span></li>}
                 </ul>
@@ -175,8 +178,8 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
                     {checks.slice(0, 5).map(check => (
                       <li key={check.id}>
                         <button type="button" className="ck-link pc-check-link" onClick={() => onOpenCheck ? onOpenCheck(check) : onNavigate({ name: 'check', checkId: check.id })}>
-                          {check.phase === 'done' && check.problemCount ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : check.phase === 'done' ? <Icon icon={Check} /> : <Icon icon={LoaderCircle} />}
-                          {new Date(check.createdAt).toLocaleDateString(undefined, DAY)} · {check.phase === 'done' ? `${check.problemCount ?? 0} problems` : check.phase === 'failed' ? 'did not start' : 'running'}
+                          {check.phase === 'done' ? <ProblemCountIcon summary={check} /> : <Icon icon={LoaderCircle} />}
+                          {new Date(check.createdAt).toLocaleDateString(undefined, DAY)} · <span className={check.phase === 'done' ? `problem-count-tone is-${problemCountTone(check)}` : undefined}>{check.phase === 'done' ? `${check.problemCount ?? 0} problems` : check.phase === 'failed' ? 'did not start' : 'running'}</span>
                         </button>
                       </li>
                     ))}

@@ -1,6 +1,6 @@
-# Centinel Design System
+# ORIN Design System
 
-> Status: authoritative for all user-facing Centinel interfaces
+> Status: authoritative for all user-facing ORIN interfaces
 >
 > Direction: give it your project, watch it being checked, read one clear result
 >
@@ -16,23 +16,23 @@ Record a new decision by editing the section it belongs to and adding one line t
 
 ## 1. The promise
 
-Centinel should feel like the apps people already use to hand work to an AI: you give it something, you watch it work, you get the answer.
+ORIN should feel like the apps people already use to hand work to an AI: you give it something, you watch it work, you get the answer.
 
 A person does three things:
 
-1. **Give** Centinel the project folder (or a GitHub link) and any documents.
-2. **Watch** Centinel check it, live.
-3. **Read** one page that says what is wrong, where, and how Centinel knows.
+1. **Give** ORIN the project folder (or a GitHub link) and any documents.
+2. **Watch** ORIN check it, live.
+3. **Read** one page that says what is wrong, where, and how ORIN knows.
 
 Everything else is detail, and detail is opt-in.
 
-The test for every screen: a person who has never seen Centinel understands it in one look, without reading instructions.
+The test for every screen: a person who has never seen ORIN understands it in one look, without reading instructions.
 
 ## 2. Principles
 
 1. **One thing per screen.** Each screen has one job and one primary action.
 2. **Answer first.** Lead with the result in one sentence. Proof comes next. Technical detail is behind a click.
-3. **Show the work, for real.** Progress is shown by what Centinel is actually doing: the file it is reading, the button it is clicking. Never by decoration.
+3. **Show the work, for real.** Progress is shown by what ORIN is actually doing: the file it is reading, the button it is clicking. Never by decoration.
 4. **Say what was proven.** Every problem shows what evidence it has. Describe evidence that exists; do not label a problem by what it lacks.
 5. **Count problems, not successes.** Numbers say how many things need attention. The reader never has to subtract.
 6. **Plain words.** Write for someone who is not a tester. No internal names.
@@ -45,7 +45,7 @@ Use these words in UI copy, navigation, documentation and accessibility labels.
 
 | Concept | Word to use | Meaning |
 |---|---|---|
-| One start-to-result run | **Check** | Everything Centinel did after one press of Start |
+| One start-to-result run | **Check** | Everything ORIN did after one press of Start |
 | Static review of files | **Code review** | Reading code and documents without running the app |
 | Dynamic testing | **Browser test** | Using the running app in a real browser |
 | Finding | **Problem** | Something that needs attention |
@@ -59,7 +59,7 @@ Rules for wording:
 
 - On the three main screens say **problem**, **code** and **browser**. The names Static, Dynamic, Review and Finding remain on older screens under Details until those screens migrate.
 - Never write "could not be tested", "unverified" or "not reproduced" on the main screens. A problem is described by the evidence it has.
-- Sentence case everywhere. No all-caps labels.
+- Use sentence case for labels. The product name is always **ORIN**.
 - Do not use "QA node", "analysis channel", "agent thought", "autonomous validation" or similar internal terms.
 
 Status words, in sentence case: Not started, Queued, In progress, Paused, Completed, Needs attention, Failed, Stopped. Backend statuses map to these in one shared mapper.
@@ -74,12 +74,12 @@ Home follows the familiar AI-app start page (the user chose Gamma's home as the 
 
 Top to bottom, in one centred column:
 
-1. **The headline** "What should Centinel check?" and one supporting line. The glow (§7) sits behind and below this column.
+1. **The headline** "What should ORIN check?" and one supporting line. The agent's focus-framed aperture sits to the left of the first line. Reserve the full text footprint so the icon stays aligned during typing. The glow (§7) sits behind and below this column.
 2. **The check input**, at most 600 px wide, with the hero radius and the one raised shadow (§8):
    - **Attached items** on the first line, as removable pill chips. The project chip (a folder or a GitHub repository) is dark ink with white text and a folder icon; document chips are light with a file icon.
    - **A text area** for an optional focus ("check that sign-in and checkout follow the requirements"). It maps to the existing Review goal. Focusing the field keeps the card border unchanged and adds no outline around the text area.
    - **A mode dropdown** in the composer footer shows the muted selection with a chevron and no border. Its options are **Code and browser** (default), **Code** and **Browser**.
-   - **An add button** (a borderless "+" at bottom left) opens a composer-width overlay above the input. Add contains documents and repositories. Recent Checks can select the associated project and attach the earlier check. Typing @ highlights the first action without moving focus from the draft. Add comes first, followed by up to five matching checks by problem count and up to five projects by latest completed check. A typed project search can also find projects with no checks. A follow-up keeps its references and library scoped to its project. Selecting another project moves the prompt and documents to New Check for that project. Choosing a project sets it for the new check. The project selector in the footer provides project search and a fixed Add a project action.
+   - **An add button** (a borderless "+" at bottom left) opens a composer-width overlay above the input. Add contains documents and repositories. Recent Checks can select the associated project and attach the earlier check. Typing @ highlights the first action without moving focus from the draft. Add comes first, followed by up to five matching checks by problem count and up to five projects by latest completed check. A typed project search can also find projects with no checks. A follow-up keeps its references and library scoped to its project. Selecting another project moves the prompt and documents to New Check for that project. Choosing a project sets it for the new check. The project selector opens below its trigger and provides project search and a fixed Add a project action. Both footer menus move from their trigger when opening and reverse that movement when closing.
    - **Check**, a filled pill at bottom right, starts the check. When the person types, it becomes an up-arrow button with the same accessible name.
 3. **Recommendations**, four borderless translucent rows centered at 90% of the composer width. The first three use ranked project activity with at most two from any scenario and general prompts filling gaps. Try the Sample Shop is always fourth. Selecting a row replaces the draft, project and check mode. General prompts start without a project.
 
@@ -92,7 +92,7 @@ Rules:
   - once a project is attached, the placeholder changes to the optional-focus example;
   - the start button stays visible, and until a project is attached it explains what is missing instead of starting.
 - The whole input accepts dropped documents and folders of documents, and a pasted GitHub link becomes a project chip. Add Document opens a drop area with file and folder pickers. Add Repository is shared by New Check, Project and Check. Its GitHub tab has a filter, refresh button, scrollable repository list and an explicit Add repository action after selection.
-- Home can select a saved project or start from a folder or GitHub link. Add a project opens the project form on Home. Projects without a registered folder get an account-scoped folder under Centinel’s writable application data directory on the current device. Browser testing needs app files in that folder.
+- Home can select a saved project or start from a folder or GitHub link. Add a project opens the project form on Home. Projects without a registered folder get an account-scoped folder under ORIN’s writable application data directory on the current device. Browser testing needs app files in that folder.
 - No environment, permission, model or scope settings on this screen. Sensible defaults apply; settings live under Details and Settings.
 - Show setup notices directly above the composer with a left-aligned title and explanation. Place the settings button at the right, vertically centered, with a distinct hover background. Distinguish blocked steps from optional setup.
 - Documents are optional. Without them the check still runs, and the result says requirements were not provided.
@@ -135,11 +135,15 @@ Rules:
 
 ### 4.3 Result
 
-**Job:** say what is wrong, where, and how Centinel knows.
+The Check header stays at the top of the response card. A notice near the top shows the saved reason when code review is paused or blocked, or when browser startup fails. Long check names pan on hover or focus. A folder icon returns to the project conversation and shows the project name on hover. Duration, problems, history, and export appear in that order in a blurred toolbar at 60% surface opacity. Duration is the default visible label for a completed check. Hovering or focusing an item expands its label as the previous label collapses.
+
+Add Document opens the native file chooser from each composer. Dragging files over the page displays a drop indicator across the workspace. Project and Check composers offer Add Repository directly and omit empty check or problem sections.
+
+**Job:** say what is wrong, where, and how ORIN knows.
 
 Layout, top to bottom:
 
-1. **Context line:** a folder icon and the project name, a clock icon and how long the check took. **Export report** sits at the right of this block.
+1. **Context line:** a folder icon and the project name, a clock icon and how long the check took. **Export** sits at the right of this block.
 2. **Verdict:** one sentence at verdict size, for example "5 problems found. 3 proven in the browser."
 3. **Three numbers:** Proven in the browser, Found in code, Requirements not met. Each label has its icon.
 4. **Problem list** in two groups, in this order:
@@ -169,7 +173,7 @@ Verdict wording:
 | Parts not checked | The normal verdict, plus the footer line "Not checked: …" naming the parts |
 | Stopped, failed or paused | Say which, in one sentence, and show what was found before it ended |
 
-Never write that the project is "safe", "secure" or "ready". Centinel reports what it checked.
+Never write that the project is "safe", "secure" or "ready". ORIN reports what it checked.
 
 Numbers:
 
@@ -182,34 +186,38 @@ Numbers:
 
 Project conversation places each check card at the point it was requested. View expands the card into Check and attaches that Check to the composer. Typing keeps the result open. An acknowledged send returns to Project and collapses the card. Both composers accept check and problem references through @. The sidebar initially keeps its compact layout so the conversation remains visible. The [harness contract](docs/project/PROJECT_CONVERSATION_HARNESS_CONTRACT_2026-11-18.md) defines the evidence and execution boundaries. The [implementation report](docs/project/PROJECT_CONVERSATION_HARNESS_IMPLEMENTATION_2026-11-18.md) records verification and remaining live acceptance.
 
+A completed Check card offers Ask, and each saved problem offers Ask about this problem when its exact evidence is available. These actions prepare a draft and never send it; keep any draft the user already typed. Once sent, a compact strip at the top of the user's message lists the first three included checks, problems, or attachment filenames. An ellipsis reveals the rest on mouse hover or with a keyboard or touch activation. Historical messages without names show the known attachment type instead of guessing. Labels from the sent message are not verification evidence. When the authorized saved item has a different name, show that name explicitly without using the sent label to resolve scope.
+
 Project and each Check keep separate drafts with their attachments. A message sent from Check appears in the Project conversation while the Project composer restores its own draft. User messages align right and occupy up to 60% of the conversation width. Agent responses use the full width.
 
-**Job:** let a person test and change a project by talking to Centinel, instead of filling in forms.
+**Job:** let a person test and change a project by talking to ORIN, instead of filling in forms.
 
-Opening a project shows a conversation with Centinel, not tabs of settings. The user approved this direction on 13 November 2026.
+Opening a project shows a conversation with ORIN, not tabs of settings. The user approved this direction on 13 November 2026.
 
 Layout:
 
-1. **Header:** the project name and **Run a full check** (starts a check as on Start).
+1. **Header:** the project name, History, and **Run a full check** start inside the conversation card. The borderless, transparent header sticks to the top of the scrolling pane. The project name opens Sources in either position. Sources and the shared history and run toolbar use a blurred surface at 60% opacity. The run label is visible by default. Hover or keyboard focus moves the visible label to the active item. The Sources library lists repository and document groups. Opening a project with retained Google Drive sources and a disconnected Drive integration shows a dismissible attention dialog with a link to Connections. On narrow screens the toolbar can wrap below the project name.
 2. **The conversation**, newest at the bottom. It opens with one sentence about the latest check.
 3. **The message input** at the bottom, styled like the check input on Start, with the permission mode beside it (§4.5).
-4. **A side panel** (no title; accessible name "What Centinel knows"). Collapsed (the default) it is a 280 px column with the latest check only: the problem count, how many were proven in the browser, the Browser, Code and Not met numbers, every problem with its risk icon, and Open the full result. A two-corner button at its top right (corners out; corners in to return) expands it over the whole conversation area, titled with the project name, with Download report beside the button, and Retry the code review when the latest review stopped or Run a full check otherwise. Expanded it shows what the Review page shows, plus the browser's proof: the review's own summary (when saved); problems grouped as Proven in the browser, then the Review page's categories (Document, Security, Behavior, Human manual, System); and the latest full check's browser tests. Each problem starts as one title row with its risk; opening it shows its category and behavior, the saved code with the cited lines highlighted in yellow and labelled "Highlighted: where the problem is" (the Review page's source view; the panel does not use its green), the issue overview and what to do, or for browser proof what was expected, what the page showed, the labelled AI explanation and Run it again. Run it again closes the panel and puts the saved test in the message box ("Run “…” again"); the person sends it, or types how to change it. The review state sits beside the project name and four risk counts (Critical, High, Medium, Low) open the panel. A right column shows the review scope, duration, files reviewed and time, then requirements, sources, saved browser tests, how the app is tested and past checks. Requirements come only from the project's documents: requirements the model reads from a document are listed as Found in your documents with Keep and Drop, kept ones can be edited or removed, and with no document the panel says there are none. Sources can be added (documents, which are then read for requirements), synced (folder or GitHub), resumed when source search is paused, and removed after a confirm. A finished review is not held for approval, and problems are not decided by hand: the AI's own source-change comparison resolves them. Expanding grows the panel from its column in 220 ms with the standard easing while the conversation fades out; the expanded content fades in once after 180 ms; reduced motion switches instantly. While expanded the conversation cannot be reached; the button or Esc returns to it. Whether it is open is kept per project on this device. Below 960 px the panel sits above the conversation at full width and expands to replace it. Apart from managing sources and requirements, it only reads. To change a test, say it.
+4. **A side panel** (no title; accessible name "What ORIN knows"). Collapsed (the default) it is a 280 px column with the latest check only: the problem count, how many were proven in the browser, the Browser, Code and Not met numbers, every problem with its risk icon, and Open the full result. A two-corner button at its top right (corners out; corners in to return) expands it over the whole conversation area, titled with the project name, with Download report beside the button, and Retry the code review when the latest review stopped or Run a full check otherwise. Expanded it shows what the Review page shows, plus the browser's proof: the review's own summary (when saved); problems grouped as Proven in the browser, then the Review page's categories (Document, Security, Behavior, Human manual, System); and the latest full check's browser tests. Each problem starts as one title row with its risk; opening it shows its category and behavior, the saved code with the cited lines highlighted in yellow and labelled "Highlighted: where the problem is" (the Review page's source view; the panel does not use its green), the issue overview and what to do, or for browser proof what was expected, what the page showed, the labelled AI explanation and Run it again. Run it again closes the panel and puts the saved test in the message box ("Run “…” again"); the person sends it, or types how to change it. The review state sits beside the project name and four risk counts (Critical, High, Medium, Low) open the panel. A right column shows the review scope, duration, files reviewed and time, then requirements, sources, saved browser tests, how the app is tested and past checks. Requirements come only from the project's documents: requirements the model reads from a document are listed as Found in your documents with Keep and Drop, kept ones can be edited or removed, and with no document the panel says there are none. Sources can be added (documents, which are then read for requirements), synced (folder or GitHub), resumed when source search is paused, and removed after a confirm. A finished review is not held for approval, and problems are not decided by hand: the AI's own source-change comparison resolves them. Expanding grows the panel from its column in 220 ms with the standard easing while the conversation fades out; the expanded content fades in once after 180 ms; reduced motion switches instantly. While expanded the conversation cannot be reached; the button or Esc returns to it. Whether it is open is kept per project on this device. Below 960 px the panel sits above the conversation at full width and expands to replace it. Apart from managing sources and requirements, it only reads. To change a test, say it.
+
+Each compact check card shows the name, the browser, code and requirement figures, and an **unchecked** disclosure beside the name when the result lists coverage gaps. The count represents the listed coverage entries. **Export** saves a Markdown summary of that check's saved evidence. **View** opens the full result in the expanded side panel. Both actions sit as icons at the right of the title row above the measurements. Their labels expand on hover or keyboard focus.
 
 What a message can do (step 1: browser tests):
 
-- **Add a test.** "Test that coupon SAVE10 lowers the cart total." Centinel starts the app if needed, explores it, writes the test and shows a **test card**: its name, plain-language steps, and "Passes only if the page shows …". The card offers **Run now**, **Save for every check** and **Change it**.
+- **Add a test.** "Test that coupon SAVE10 lowers the cart total." ORIN starts the app if needed, explores it, writes the test and shows a **test card**: its name, plain-language steps, and "Passes only if the page shows …". The card offers **Run now**, **Save for every check** and **Change it**.
 - **Run a test.** The live browser tile from Live (§4.2) plays inside the conversation, then the result appears in place: expected, what the page showed, the AI explanation (labelled), **Screenshot** and **Replay**.
-- **Change a test.** "Also check that an expired coupon shows an error." Centinel answers with a **change card** that lists added lines in green and removed lines in red, and says where any test value came from.
+- **Change a test.** "Also check that an expired coupon shows an error." ORIN answers with a **change card** that lists added lines in green and removed lines in red, and says where any test value came from.
 - **Give test data.** "Use admin@test.com / test123." The values are kept as this project's test data.
 
 Rules:
 
-- Centinel starts the app itself, with the same fixed recipe table as Auto test. There is no address field. If the app cannot be started, the conversation says why in one sentence (no folder on this computer, several apps in one folder, a database or Docker is needed). Testing a deployed address needs the person to name it, and opening a non-local address needs their confirmation.
-- The model can only use Centinel's existing actions: write, run or change a test, add a source, record test data. It never writes commands to execute.
+- ORIN starts the app itself, with the same fixed recipe table as Auto test. There is no address field. If the app cannot be started, the conversation says why in one sentence (no folder on this computer, several apps in one folder, a database or Docker is needed). Testing a deployed address needs the person to name it, and opening a non-local address needs their confirmation.
+- The model can only use ORIN's existing actions: write, run or change a test, add a source, record test data. It never writes commands to execute.
 - Pass and fail still come only from independent checks on the page.
-- Test accounts may be filled by the AI: those in the project's seed, fixture or demo files, those it registers on the local app, and those the person types in the conversation. They are used only on local addresses, only in this project. The first time a person types an account, Centinel adds one line: "The AI will see this account. Use test accounts only."
+- Test accounts may be filled by the AI: those in the project's seed, fixture or demo files, those it registers on the local app, and those the person types in the conversation. They are used only on local addresses, only in this project. The first time a person types an account, ORIN adds one line: "The AI will see this account. Use test accounts only."
 - Every action that ran without asking leaves a **Done** card with **Undo**.
-- The conversation is saved with the project. Older project tabs stay reachable under Details.
+- The conversation is saved with the project. The tabbed project screen is retired. Project details and editing are available from the sidebar’s project options.
 - Settings that do not fit a sentence (before/after commands, file upload and download permissions) stay under Details for now.
 
 ### 4.5 Permission modes
@@ -231,7 +239,7 @@ No mode can:
 
 ## 5. Evidence
 
-Centinel double-checks. A problem the code review finds is handed to a browser test, which tries to show the same problem on the running app.
+ORIN double-checks. A problem the code review finds is handed to a browser test, which tries to show the same problem on the running app.
 
 ### Marks
 
@@ -262,15 +270,17 @@ Marks, the risk word and Live statuses are an icon or a dot plus a word. They ha
 
 - Use the operating system's window controls.
 - One sidebar, one level. **New Check** opens the check composer and stays fixed above the scrollable **Checks** and **Projects** lists. Search sits beneath New Check. The dialog opens from Search or Ctrl/Cmd+K, puts its input in the header, and shows Checks before Projects. It shares the @ menu’s ranking, shows up to eight items per list, and opens matching Help and Settings sections. The dialog uses a 75% surface with local blur and a light shadow. The page outside the dialog remains clear. Help and Settings sit beside the profile below the scroll area. The profile menu holds Switch account and Log out. Manage account lives in Settings under Account.
-- Checks and Projects use compact rows and each list collapses from its heading. The Projects heading also has an Add project action. Checks show the outcome at the right. Projects show a folder and an ellipsis on the hovered or keyboard-focused row. Long project names scroll once on hover after 500 ms. The ellipsis opens project details and editing. Recent projects shows the six most recently updated projects with a way to show the rest.
-- Do not add a second navigation column or an icon rail beside it. Centinel has few destinations; everything else is under Details.
+- Checks and Projects use compact rows and each list collapses from its heading. The Projects heading also has an Add project action. Checks show a status icon at the right with an accessible outcome label. Projects show a folder and an ellipsis on the hovered or keyboard-focused row. Long check names, project names, and workspace paths fade at the trailing edge and pan once on hover or keyboard focus. The ellipsis opens project details and editing. Recent projects shows the five most recently updated projects. Show more reveals up to five additional projects.
+- Do not add a second navigation column or an icon rail beside it. ORIN has few destinations; everything else is under Details.
 - Each recent check shows the project name and, 4 px below it, its result in a few words with an icon (a warning triangle and "5 problems" in red; a check and "No problems"). Records are separated by more space than a name and its result.
 - A running check appears at the top of the recent list with a live state and returns to Live.
 - Opening a past check opens its Result.
 
 ### Details
 
-Details is the door to the full record and to the older screens: Requirements and traceability, Activity, Sources, Usage, Reports, project settings, collaborators, approvals, and manual Review or Dynamic testing setup.
+The project row’s ellipsis shows a hover preview of its name, description, workspace, creation date, and source rows with import times. The fixed-height preview fades additional rows. Clicking opens the full information in a dialog. The entire divided footer is the Edit project action in both views. App-managed workspaces show “Workspace is not selected.”
+
+Details is the door to the full record and to the older screens: Requirements and traceability, Activity, Sources, Usage, Reports, approvals, and manual Review or Dynamic testing setup.
 
 - The three main screens never require Details to understand the result.
 - Details opens in the context of the current check or project and offers a clear way back.
@@ -282,7 +292,7 @@ The style is **Aurora**: a bright, calm page with one soft glow of colour. The u
 
 - **Light and warm.** An off-white canvas, white surfaces and dark ink text. Generous space around the one thing that matters on each screen.
 - **One glow.** A large, blurred wash of blue, pink and orange sits behind the content at the top of the page. It is atmosphere, not decoration on components: nothing else in the app has a gradient.
-- **Soft shapes.** A large rounded check input, pill buttons and chips, and rounded cards, so Centinel feels like an everyday AI app, not an admin console.
+- **Soft shapes.** A large rounded check input, pill buttons and chips, and rounded cards, so ORIN feels like an everyday AI app, not an admin console.
 - **Ink for actions.** The primary action and the selected state are dark ink with white text.
 - **Two colours carry meaning.** Blue means the browser. The risk level runs red, orange, yellow-brown, grey.
 - **Light everywhere.** The live browser tiles look like real browser windows on a light, translucent stage. There is no dark area in the app.
@@ -591,7 +601,7 @@ This document describes the target. Built on 12–13 November 2026 (frontend onl
 | Handing code-review problems to browser tests | Not built. No problem carries both marks yet |
 | Dropping a folder onto a check input | Reads the folder's documents as library files. Choose a local repository through the native folder picker to register its workspace path |
 | Migrating older screens to Aurora layouts | Not done. They keep their layouts under Details, in the new colours |
-| Project conversation, step 1: add, run, change and save browser tests by message (§4.4) | Built: `screens/project/ProjectConversationScreen.tsx`. Opening a project shows it; the older tabs are under its Details link |
+| Project conversation, step 1: add, run, change and save browser tests by message (§4.4) | Built: `screens/project/ProjectConversationScreen.tsx`. Opening a project shows it. Its sidebar options open project details and editing |
 | Permission modes (§4.5) | Built for step 1. Ask first confirms before running; Auto and Bypass run at once. Saving a test shows Undo. Mode, saved tests and notes are stored on this device (`check/projectPrefs.ts`) |
 | Latest check in the project side panel, with Download report | Built. Collapsed shows the latest check and its problems; expanding covers the conversation with the whole project (§4.4). The report includes the latest full browser check (each test, its checks and what the page showed) |
 | Saved tests in every check | Built: tests saved in the conversation run alongside newly planned tests in each full check |
@@ -601,14 +611,14 @@ This document describes the target. Built on 12–13 November 2026 (frontend onl
 Migration rules:
 
 1. Build the three screens on top of the existing services. Do not change stored data to fit the screens.
-2. Older screens stay reachable under Details and follow the legacy guide until they migrate or are retired.
+2. Remaining older screens follow the legacy guide until they migrate or are retired.
 3. Do not show a mark, group or number from §4 or §5 until the data behind it exists. Until browser proof is built, problems are shown as **Found in code** only.
 4. A migration is not complete while the same concept has two competing presentations on the main screens.
 5. Any intentional deviation from this document needs the user's approval and a line in §16.
 
 ## 15. Norman and Shneiderman rules
 
-| Rule | Centinel requirement |
+| Rule | ORIN requirement |
 |---|---|
 | Visibility and informative feedback | Live shows the current stage, the current file, the current browser action and elapsed time, all from real events. |
 | Match and natural mapping | A problem and the browser proving it share a number and a colour. Evidence sits inside the problem it supports. |
@@ -645,6 +655,10 @@ Decision log (user-approved unless noted):
 - 2026-11-18 (user decisions): Keep composers on Project and Check, place compact check cards in the Project conversation, and expand them through View. Support @ checks and problems for explanations, suggested fixes and scoped checks/browser tests. Follow the harness contract's acceptance criteria before accepting the feature.
 - 2026-11-18 (user request): Match the GitHub repository chooser across New Check, Project and Check. Keep the shared composer aligned to the response during transitions.
 - 2026-11-18 (user request): Keep independent drafts for Project and each Check. Align user messages right at up to 60% width and give agent responses the full width.
+- 2026-11-18 (user request): Keep the project name, Sources, history, and Run a full check above the scrolling conversation. Keep check cards to the name and counts, with a coverage disclosure, check report export, and View.
+- 2026-11-18 (user request): Start the Project controls inside the conversation card and pin them on scroll. Animate the results panel in both directions with its contents. Remove the Settings breadcrumb and align the account details left and the provider action right.
+- 2026-11-18 (user request): Use ORIN as the display name and retain the original logo, app icons, and palette.
+- 2026-11-18 (user request): Use the aperture compass for the app logo and a focus-framed aperture for the New Check headline. Keep the existing theme palette.
 
 - 2026-11-17 (user request): Share the Add actions and document drop area across New Check, Check and Project. When a saved project is selected, add documents immediately to its library and keep them attached to the draft. Other documents are uploaded when the check prepares its project. Open the Sources add menu to the right when space permits, with a below-trigger fallback on narrow screens.
 
@@ -697,7 +711,7 @@ Decision log (user-approved unless noted):
 - 2026-11-12: Text of different sizes on one line shares a baseline.
 - 2026-11-12: Each problem on Result shows one risk word with its icon.
 - 2026-11-14 (user choice over a full timeline): results stay out of the conversation. The side panel (no title) opens with Latest check: verdict, three numbers (Browser, Code, Not met), the top three problems, Download report and Open the full result, then each requirement as met, not met or not checked. It reads the latest code review and latest full Auto test from the service (`check/latestResult.ts`), so every device and member sees the same. Details live in the downloadable report.
-- 2026-11-14 (user request, Codex as reference): in the project conversation Centinel speaks in plain text, not bubbles. Each reply shows only the result by default; a collapsed "Worked for …" line opens the opening message and high-level activity lines ("Read the project, started the app, looked at 1 page and wrote 1 test", "Tested … in the browser"), and each line opens its detailed rows. While running the work is open, with a timer and a small live window. The result is written from the saved verdict; no AI explanation. Actions sit below the reply, outside it, as icon-only buttons with tooltips and accessible names: Replay (play), Run again (rotate), Save for every check (bookmark), Change it (pencil). This is an approved exception to the rule that icons never replace labels.
+- 2026-11-14 (user request, Codex as reference): in the project conversation ORIN speaks in plain text, not bubbles. Each reply shows only the result by default; a collapsed "Worked for …" line opens the opening message and high-level activity lines ("Read the project, started the app, looked at 1 page and wrote 1 test", "Tested … in the browser"), and each line opens its detailed rows. While running the work is open, with a timer and a small live window. The result is written from the saved verdict; no AI explanation. Actions sit below the reply, outside it, as icon-only buttons with tooltips and accessible names: Replay (play), Run again (rotate), Save for every check (bookmark), Change it (pencil). This is an approved exception to the rule that icons never replace labels.
 - 2026-11-14 (after the team redesigned the code review page): the Live screen names the file of the batch the Review reports starting, and the phase it saved (Reading the documents, Reading the code, Checking settings and other files); the counter reads "parts reviewed" because document batches now count. Result problem titles use the review page's short title. The review page's five issue categories are not shown on Result yet.
 - 2026-11-14 (user request): the project side panel collapses to the latest check only and expands, with a width animation, to show everything about the project (§4.4). This supersedes the earlier layout where the panel always listed the top three problems, requirements and sources. Motion tokens from §9 are now declared in `tokens.css`.
 - 2026-11-14 (user correction): "expand" means the panel covers the whole conversation area, not a wider column. Collapsed it keeps about its earlier width and shows the latest check with its problems; the toggle uses the user-chosen two-corner glyph (`components/cornerIcons.ts`). Supersedes the 460 px two-column expansion of the same day.
@@ -706,7 +720,7 @@ Decision log (user-approved unless noted):
 - 2026-11-16 (user decisions, later the same day): cited code lines in the panel are one yellow for every risk. Review coverage becomes behavior rows with problem counts and a filter. (Later, 17 November, the coverage card was removed again.) The sidebar history and retiring the Result page were built the same day but dropped on 17 November in favour of the teammate's check page and sidebar. Risk labels in the panel's right column keep their colours.
 - 2026-11-16 (user decisions): no detail pages in the project panel (the teammate's sidebar, which also drops Details, was kept on 17 November). A finished review is shown as Completed with no approval step (no decision is recorded for anyone); problems are resolved by the AI's source comparison, not by hand. The expanded panel gains Retry the code review / Run a full check, source management and requirement editing; requirements come only from documents. Run it again on a browser problem puts the test in the conversation's message box for the person to send. The older screens' code stays until nothing links to it; project rename, delete and collaborators are not yet moved.
 - 2026-11-16 (user request, teammate's Review page as reference): the expanded project panel carries the Review page's information (summary, coverage, issues by category, state, risk, review details) with the browser's proof, and each problem starts as a title row that opens to its code detail. Approval and feedback stay on the Review page. Demo kept at `docs/design/explorations/expanded-panel-demo.html`.
-- 2026-11-13: Projects become a conversation with Centinel (§4.4). Browser tests are added, run and changed by message, with cards instead of forms. Centinel starts the app itself; no address field.
+- 2026-11-13: Projects become a conversation with ORIN (§4.4). Browser tests are added, run and changed by message, with cards instead of forms. ORIN starts the app itself; no address field.
 - 2026-11-13: Three permission modes per project: Ask first, Auto (default) and Bypass. Bypass stays on until the person changes it. Deletion always asks.
 - 2026-11-13: The AI may fill test accounts from project files, accounts it registers locally, or accounts typed in the conversation; only on local addresses.
 - 2026-11-13: The three screens and the sidebar are built on the existing Review and Auto test services. Checks are a device-local index; results are always read from the saved records.

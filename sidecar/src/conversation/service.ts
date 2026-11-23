@@ -2,11 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ConversationInput, ConversationReference, ConversationRequest } from './types.js';
 import type { ConversationStore } from './store.js';
 import { DynamicContractError } from '../dynamic/types.js';
+import { resolveAttachmentNames } from './attachmentNames.js';
 import { browserTargets } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 
-export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean };
-export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; citations: string[]; scope: string[] };
+export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean; kind?: 'prior_reply' };
+export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; replyFormat?: 'markdown'; citations: string[]; scope: string[] };
 export type ConversationDeps = {
   ownerId: string;
   store: ConversationStore;
@@ -24,6 +25,7 @@ export const hash = (value: unknown) => createHash('sha256').update(compactCanon
 export function parseConversationInput(body: Record<string, unknown>): ConversationInput {
   if (typeof body.id !== 'string' || !uuid.test(body.id) || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 2000
     || !['code', 'browser', 'both'].includes(String(body.mode)) || !['ask', 'auto', 'bypass'].includes(String(body.permission))
+    || body.replyToTurnId !== undefined && (typeof body.replyToTurnId !== 'string' || !uuid.test(body.replyToTurnId))
     || !Array.isArray(body.references) || body.references.length > 12) throw new DynamicContractError(400, 'Supply a message and up to twelve check or problem references.');
   const references = body.references.map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new DynamicContractError(400, 'Invalid evidence reference.');
@@ -34,9 +36,22 @@ export function parseConversationInput(body: Record<string, unknown>): Conversat
       || !ref.reviewId && !ref.autoTestId && !ref.artifactId) throw new DynamicContractError(400, 'Invalid evidence reference.');
     return Object.fromEntries(['reviewId', 'autoTestId', 'findingId', 'testId', 'artifactId'].filter(key => ref[key]).map(key => [key, String(ref[key]).toLowerCase()])) as ConversationReference;
   });
-  const unique = new Map(references.map(reference => [JSON.stringify(reference), reference]));
+  const labels = body.referenceLabels;
+  if (labels !== undefined && (!Array.isArray(labels) || labels.length !== references.length
+    || labels.some(label => label !== null && (typeof label !== 'string' || label.length > 160 || /[\u0000-\u001f\u007f]/.test(label))))) {
+    throw new DynamicContractError(400, 'Invalid attachment labels.');
+  }
+  const unique = new Map<string, { reference: ConversationReference; label: string | null }>();
+  references.forEach((reference, index) => {
+    const key = JSON.stringify(reference);
+    const label = Array.isArray(labels) && typeof labels[index] === 'string' ? labels[index].trim() || null : null;
+    if (!unique.has(key) || (!unique.get(key)?.label && label)) unique.set(key, { reference, label });
+  });
+  const ordered = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, item]) => item);
   return { id: body.id.toLowerCase(), text: body.text.trim(), mode: body.mode as ConversationInput['mode'], permission: body.permission as ConversationInput['permission'],
-    references: [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, reference]) => reference) };
+    ...(typeof body.replyToTurnId === 'string' ? { replyToTurnId: body.replyToTurnId.toLowerCase() } : {}),
+    references: ordered.map(item => item.reference),
+    ...(ordered.some(item => item.label) ? { referenceLabels: ordered.map(item => item.label) } : {}) };
 }
 
 export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode']): ConversationPlan {
@@ -61,7 +76,54 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
     throw new Error('The proposed action exceeds the selected check mode or available scope.');
   }
   if (['code', 'browser'].includes(plan.action) && evidence.some(item => item.unavailable)) throw new Error('Required historical evidence is unavailable. Explain the evidence or choose a readable check.');
-  return { action: plan.action, reply: plan.reply.trim(), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)] };
+  return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)] };
+}
+
+function previousReplyRequested(text: string) {
+  return /^(?:(?:please|(?:can|could|would)\s+you)\s+)?(?:repeat|quote)\s+(?:the\s+|your\s+)?(?:exact\s+)?(?:previous|last)\s+(?:answer|reply|response)[.!?]?$/i.test(text.trim());
+}
+
+function olderReplyRequested(text: string) {
+  return /^(?:(?:please|(?:can|could|would)\s+you)\s+)?(?:repeat|quote|explain)\s+(?:the\s+|your\s+)?(?:(?:first|second|third|older|earlier)\s+(?:answer|reply|response)|(?:answer|reply|response)\s+before\s+(?:the\s+)?last)[.!?]?$/i.test(text.trim());
+}
+const MAX_RECALLED_REPLY = 6_000;
+
+async function quotePreviousReply(record: ConversationRequest, store: ConversationStore): Promise<Partial<ConversationRequest>> {
+  try {
+    if (!store.listEarlierTurns) throw new Error("Recall unavailable");
+    const [row] = await store.listEarlierTurns(record.projectId, record.ownerId, record.createdAt, 1);
+    if (row && Date.parse(row.updatedAt) <= Date.parse(record.createdAt) && row.projectId === record.projectId && row.ownerId === record.ownerId
+      && row.id !== record.id && row.state === "completed" && Date.parse(row.createdAt) < Date.parse(record.createdAt)
+      && typeof row.reply === "string" && row.reply.trim() && row.reply.length <= MAX_RECALLED_REPLY) {
+      return { action: "explain", reply: row.reply, ...(row.replyFormat === "markdown" && { replyFormat: "markdown" as const }), citations: ["conversation:" + row.id], scope: [],
+        recall: { status: "recalled", turns: 1 }, state: "completed" };
+    }
+    return { action: "clarify", reply: "The immediately preceding reply is not available to quote in this project. Paste it here if you want me to use it.",
+      citations: [], scope: [], recall: { status: "missing", turns: 0 }, state: "completed" };
+  } catch {
+    return { action: "clarify", reply: "The previous reply could not be loaded. Paste it here if you want me to use it.",
+      citations: [], scope: [], recall: { status: "unavailable", turns: 0 }, state: "completed" };
+  }
+}
+
+function ambiguousUnattachedFollowUp(text: string) {
+  return /^(?:what (?:does (?:that|it) mean|about (?:that|it))|(?:can you )?explain (?:that|it)|which one failed)[.!?]?$/i.test(text.trim());
+}
+
+async function loadExplicitReply(record: ConversationRequest, store: ConversationStore): Promise<{ evidence: Evidence; replyFormat?: "markdown" } | null> {
+  const id = record.input.replyToTurnId;
+  if (!id || id === record.id) return null;
+  try {
+    const row = await store.get(record.projectId, id);
+    const accepted = Date.parse(record.createdAt);
+    if (!row || row.id !== id || row.projectId !== record.projectId || row.ownerId !== record.ownerId
+      || row.state !== 'completed' || !(Date.parse(row.createdAt) < accepted && Date.parse(row.updatedAt) <= accepted)
+      || typeof row.reply !== 'string' || !row.reply.trim() || row.reply.length > MAX_RECALLED_REPLY) return null;
+    return { evidence: { id: 'conversation:' + id, text: row.reply, hash: hash(row.reply), kind: 'prior_reply' },
+      ...(row.replyFormat === "markdown" && { replyFormat: "markdown" as const }) };
+  } catch {
+    return null;
+  }
 }
 
 function explicitVerification(text: string) {
@@ -182,15 +244,63 @@ export class ConversationRuntime {
       await deps.authorize(record.projectId);
       await this.patch(record, patch, deps);
     };
+    let resolvingAttachments = false;
     try {
       if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
       if (!confirmed) {
         await checkpoint({ state: 'planning' });
-        const evidence = await deps.resolve(record.projectId, record.input.references, signal);
+        if (!record.input.replyToTurnId && !record.input.references.length && previousReplyRequested(record.input.text)) {
+          const recalled = await quotePreviousReply(record, deps.store);
+          signal.throwIfAborted();
+          await deps.authorize(record.projectId);
+          await checkpoint(recalled);
+          return;
+        }
+        if (!record.input.replyToTurnId && !record.input.references.length && olderReplyRequested(record.input.text)) {
+          await checkpoint({ action: 'clarify', reply: 'Paste the earlier reply you mean so I can use the right one.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        const target = record.input.replyToTurnId;
+        if (!target && !record.input.references.length && ambiguousUnattachedFollowUp(record.input.text)) {
+          await checkpoint({ action: 'clarify', reply: 'Which earlier reply or saved check do you mean? Select Reply to or attach the saved evidence.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        const selected = target ? await loadExplicitReply(record, deps.store) : null;
+        const prior = selected?.evidence;
+        if (target && !prior) {
+          await checkpoint({ replyTo: { turnId: target, status: 'unavailable' }, action: 'clarify',
+            reply: 'That earlier reply is unavailable. Select another reply or send the question with the relevant evidence.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        if (prior && target && !record.input.references.length && previousReplyRequested(record.input.text)) {
+          await checkpoint({ replyTo: { turnId: target, status: 'resolved' }, action: 'explain', reply: prior.text,
+            ...(selected?.replyFormat === "markdown" && { replyFormat: "markdown" as const }), citations: [prior.id], scope: [], state: 'completed' });
+          return;
+        }
+        resolvingAttachments = record.input.references.length > 0;
+        const current = await deps.resolve(record.projectId, record.input.references, signal);
+        resolvingAttachments = false;
+        const evidence = prior ? [...current, prior] : current;
         if (JSON.stringify(evidence).length > 64000) throw new Error('The selected evidence exceeds the context limit. Select fewer problems.');
-        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item) });
+        const names = resolveAttachmentNames(record.input.references, current);
+        await checkpoint({ context: current.map(({ text: _, ...item }) => item),
+          ...(names.some(Boolean) ? { resolvedAttachmentNames: names } : {}),
+          ...(prior && target ? { replyTo: { turnId: target, status: 'resolved' } as const } : {}) });
         const raw = await deps.plan(record, evidence, signal);
         let plan = validateConversationPlan(raw, evidence, record.input.mode);
+        if (prior && ['code', 'browser'].includes(plan.action)) {
+          plan = { action: 'clarify', reply: 'A reply cannot start a check. Send a separate Check request with the intended evidence.',
+            citations: [], scope: [] };
+        }
+        if (prior && plan.action !== 'clarify' && record.input.references.length
+          && !plan.citations.some(id => current.some(item => item.id === id && !item.unavailable))) {
+          plan = { action: 'clarify',
+            reply: 'I could not ground that answer in the newly selected evidence. Select a readable attachment or say if you mean only the earlier reply.',
+            citations: [], scope: [] };
+        }
         if (['code', 'browser'].includes(plan.action) && !explicitVerification(record.input.text)) {
           plan = { action: 'clarify', reply: 'Would you like an explanation, a suggested fix, or a verification run for the attached evidence?', citations: [], scope: [] };
         }
@@ -217,7 +327,11 @@ export class ConversationRuntime {
       if (signal.aborted) return;
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
       const paused = /quota|credit|billing|rate_limit|capacity|assessment_paused|provider_paused|provider_unavailable/.test(code);
-      try { await this.patch(record, { state: paused ? 'paused' : 'failed', error: paused ? 'The provider paused this request. Resume through a new request when available.' : 'This request could not finish. Its saved evidence and child executions remain available.' }, deps); } catch { /* failed checkpoint remains nonterminal for interruption recovery */ }
+      const unavailable = resolvingAttachments && error instanceof DynamicContractError && error.status === 404;
+      const message = paused ? 'The provider paused this request. Resume through a new request when available.'
+        : unavailable ? 'An attached item could not be found in this project. Open the saved check or select the attachment again.'
+          : 'This request could not finish. Its saved evidence and child executions remain available.';
+      try { await this.patch(record, { state: paused ? 'paused' : 'failed', error: message }, deps); } catch { /* failed checkpoint remains nonterminal for interruption recovery */ }
     }
   }
   async close() {

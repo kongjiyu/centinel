@@ -199,7 +199,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         smokeEntry = {
           id: crypto.randomUUID(), kind: 'smoke', name: 'Pages open without errors', state: failed ? 'failed' : 'passed', smoke,
           goal: `Open ${smoke.pages.length} page${smoke.pages.length === 1 ? '' : 's'} of the app and look for server errors and script errors.`,
-          rationale: 'Smoke test: Centinel loads each page itself and reads the status and errors. No AI is involved.',
+          rationale: 'Smoke test: ORIN loads each page itself and reads the status and errors. No AI is involved.',
           requirementRef: null, sourceRefs: [], checks: [], startPath: '/',
           reason: failed ? `${failed} of ${smoke.pages.length} pages showed an error.` : null, startedAt: now(), finishedAt: now(),
         };
@@ -321,11 +321,11 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
             name: `Auto test – ${session.folder.split(/[\\/]/).filter(Boolean).pop() ?? 'app'} · ${lane.id.replace('lane-', 'lane ')}`,
             targetUrl: origin + '/', allowedOrigins: [origin], viewport: { width: 1280, height: 720 },
             accountRole: 'Visitor', requiredVariables: [], targetVersion: digest.fingerprint.slice(0, 12),
-            startupInstructions: `Started automatically by Centinel Auto test with "${first.recipe.label}".`,
+            startupInstructions: `Started automatically by ORIN Auto test with "${first.recipe.label}".`,
             actionPolicy: { schemaVersion: 1, interactions: test.controls.map(control => ({ selector: control.selector, actions: control.actions, ...(control.repeatable || autoRepeatable(control, controlLabels.get(control.selector)) ? { repeatable: true } : {}) })), allowCoordinates: false },
           }, lane.environmentId ?? undefined);
           lane.environmentId = environment.id;
-          await deps.recordData(environment.id, 'preparation', 'Centinel started a fresh copy of the app for this test; its in-memory state is new.');
+          await deps.recordData(environment.id, 'preparation', 'ORIN started a fresh copy of the app for this test; its in-memory state is new.');
           const saved = await deps.saveMission(mission);
           entry.missionId = saved.missionId;
           entry.revisionId = saved.revisionId;
@@ -356,11 +356,11 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           if (entry.kind === 'exploratory') entry.exploration = explorationSummary(run.exploration, test.controls.map(control => control.selector));
           if (entry.kind === 'usability') {
             entry.usability = usabilitySummary(run.usability);
-            // Rule failures are Centinel's own deterministic observations, so they fail the test.
+            // Rule failures are ORIN's own deterministic observations, so they fail the test.
             if (entry.state === 'passed' && entry.usability?.failures.length) entry.state = 'failed';
             if (entry.state === 'passed' && !entry.usability) entry.state = 'uncertain';
           }
-          await deps.recordData(environment.id, 'cleanup', 'Centinel stopped this copy of the app after the test; nothing persists outside its process.').catch(() => undefined);
+          await deps.recordData(environment.id, 'cleanup', 'ORIN stopped this copy of the app after the test; nothing persists outside its process.').catch(() => undefined);
           if (entry.state === 'failed' && !entry.kind && deps.explainFailure && !signal.aborted) {
             try {
               entry.explanation = await deps.explainFailure({ test: entry, run, excerpts: excerptsFor(entry, digest), signal });
@@ -416,7 +416,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     const count = (state: AutoTestState) => session.tests.filter(test => test.state === state).length;
     const limitations = [
       'Only the journeys listed were tested; this is not a complete test of the app.',
-      'Pass and fail come from Centinel\'s own checks on the page, not from the AI\'s opinion.',
+      'Pass and fail come from ORIN\'s own checks on the page, not from the AI\'s opinion.',
       ...(session.dropped.length ? [`${session.dropped.length} proposed test(s) were dropped because they could not be checked safely.`] : []),
       ...(digest.truncated ? ['The repository was larger than what the AI could read at once; some files were not considered.'] : []),
       ...(session.laneNote ? [session.laneNote] : []),

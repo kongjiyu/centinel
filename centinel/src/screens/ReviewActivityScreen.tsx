@@ -646,7 +646,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     try {
       const { markdown } = await api.exportProjectReport(projectId, { reviewId: session.id });
       if (!markdown) throw new Error('The Review report did not contain Markdown.');
-      const filename = `Centinel_${reportNamePart(project?.name, 'Project')}_${reportNamePart(session.name, 'Review')}_report.md`;
+      const filename = `ORIN_${reportNamePart(project?.name, 'Project')}_${reportNamePart(session.name, 'Review')}_report.md`;
       if (typeof (window as Window & { __TAURI_IPC__?: unknown }).__TAURI_IPC__ === 'function') {
         const destination = await save({ title: 'Save Review report', defaultPath: filename, filters: [{ name: 'Markdown', extensions: ['md'] }] });
         if (destination) await writeTextFile(destination, markdown);
@@ -724,7 +724,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
                     <ul>{groupEvidenceGaps(evidenceAssessment.gaps).map(group => group.gaps[0].code === 'traceability_mappings_incomplete' ? <li key={group.gaps[0].id} className="review-requirement-links-gap">
                       <strong>{group.title}</strong>
                       <span>{suggestedLinks > 0
-                        ? `Centinel suggested ${suggestedLinks} link${suggestedLinks === 1 ? '' : 's'} from this review's evidence — confirm them so requirement coverage can be checked.`
+                        ? `ORIN suggested ${suggestedLinks} link${suggestedLinks === 1 ? '' : 's'} from this review's evidence — confirm them so requirement coverage can be checked.`
                         : `${group.gaps.length} requirement${group.gaps.length === 1 ? ' is' : 's are'} not linked to code yet.`}</span>
                       <button type="button" className="btn-link" onClick={() => onNavigate({ name: 'requirements', projectId })}>{suggestedLinks > 0 ? 'Confirm suggested links' : 'Link requirements to code'}</button>
                     </li> : <li key={group.gaps[0].id}>
@@ -1151,7 +1151,7 @@ function ReviewActivityContent({
           coverageInterrupted={['Failed', 'Blocked', 'Cancelled', 'Paused'].includes(state)} issuesUnavailable={Boolean(findingsError)}
           onView={onOpenFinding} onStatus={onIssueStatus} onReply={onIssueReply} />
         {harnessError && !harnessLoading && <p role="status">{narrative.active && liveUpdatesDelayed
-          ? 'Live updates delayed. Showing the last saved activity while Centinel reconnects.' : harnessError}</p>}
+          ? 'Live updates delayed. Showing the last saved activity while ORIN reconnects.' : harnessError}</p>}
         {currentDecision && (
           <div className="review-decision-recorded" role="status">
             <History size={15} aria-hidden="true" />

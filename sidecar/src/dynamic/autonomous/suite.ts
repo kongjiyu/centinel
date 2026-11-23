@@ -133,7 +133,7 @@ export function usabilityTest(input: { appUrl: string; projectId: string }): Aut
   try {
     const mission = validateMission({
       name: 'Usability of the first page', mode: 'guided', targetUrl: new URL('/', input.appUrl).href, maxSteps: USABILITY_MAX_STEPS, context: null, contextAcknowledged: false,
-      goal: 'Open the first page and wait until it has loaded. Do not click or type anything; Centinel then checks control labels, keyboard reach and focus on its own.',
+      goal: 'Open the first page and wait until it has loaded. Do not click or type anything; ORIN then checks control labels, keyboard reach and focus on its own.',
       checks: [check], usability,
     }, input.projectId);
     return { id, name: 'Usability of the first page', goal: mission.goal, rationale: 'Rule-based usability checks: labels, keyboard reach and visible focus.', startPath: '/', requirementRef: null, sourceRefs: [], controls: [], mission: { ...mission, usability } };

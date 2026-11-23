@@ -142,3 +142,21 @@
   }
 }
 
+
+@media (prefers-reduced-motion: no-preference) {
+  .select-content-animated {
+    --select-travel: -8px;
+    transform-origin: var(--radix-select-content-transform-origin);
+  }
+  .select-content-animated[data-side="top"] { --select-travel: 8px; }
+  .select-content-animated[data-state="open"] { animation: select-from-trigger 180ms var(--ease-standard) both; }
+  .select-content-animated[data-state="closed"] { animation: select-to-trigger 140ms var(--ease-standard) both; pointer-events: none; }
+  @keyframes select-from-trigger {
+    from { opacity: 0; transform: translateY(var(--select-travel)) scale(.97); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes select-to-trigger {
+    from { opacity: 1; transform: none; }
+    to { opacity: 0; transform: translateY(var(--select-travel)) scale(.97); }
+  }
+}

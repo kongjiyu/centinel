@@ -113,17 +113,11 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
 .sidebar-check:hover { background: var(--color-surface-subtle); }
 .sidebar-check.active { background: var(--color-surface-selected); }
 .sidebar-check:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.sidebar-check-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-project-row { position: relative; min-width: 0; border-radius: var(--workspace-radius-control, 8px); }
 .sidebar-project-row:hover { background: var(--color-surface-subtle); }
 .sidebar-project-row.active { background: var(--color-surface-selected); }
 .sidebar-project-row .sidebar-project { padding-inline-end: 38px; }
 .sidebar-project-row .sidebar-project:is(:hover, .active) { background: transparent; }
-.sidebar-project-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-project-label > span { display: inline-block; }
-@media (prefers-reduced-motion: no-preference) {
-  .sidebar-project-row:hover .sidebar-project-label > span { transform: translateX(calc(-1 * var(--project-overflow, 0px))); transition: transform 2s linear 500ms; }
-}
 .sidebar-project.sidebar-check { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); border: 0; }
 .sidebar-project-options, .sidebar-project-more {
   padding: var(--space-2);
@@ -143,16 +137,6 @@ div.app-shell.workspace-mode .sidebar .nav-item.nav-new-check.active {
   .sidebar-project-row:hover .sidebar-project-options,
   .sidebar-project-row:has(:focus-visible) .sidebar-project-options { opacity: 1; pointer-events: auto; }
 }
-.recent-project-details dl, .recent-project-details dd, .recent-project-details p { margin: 0; }
-.recent-project-details dl { display: grid; gap: var(--space-1); margin-bottom: var(--space-5); }
-.recent-project-details dt { font-weight: 600; }
-.recent-project-details dd + dt { margin-top: var(--space-3); }
-.recent-project-details dd { overflow-wrap: anywhere; }
-.recent-project-description { white-space: pre-wrap; }
-.recent-project-details ul { margin: 0; padding-inline-start: var(--space-5); }
-.recent-project-details li + li { margin-top: var(--space-2); }
-.recent-project-details li span { display: block; color: var(--color-text-muted); }
-.recent-project-details p { color: var(--color-text-muted); }
 .sidebar-check-outcome {
   display: flex;
   align-items: center;
@@ -213,3 +197,7 @@ div.app-shell.has-window-chrome.sidebar-collapsed .sidebar-header { padding-inli
 .app-shell .sidebar .nav-item:not(.sidebar-profile-button) { font-size: 14px; }
 .sidebar-check-outcome { font-size: 13px; }
 .sidebar-profile-username { font-weight: 400; }
+
+.sidebar-outcome-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.sidebar-check-item { grid-template-columns: auto minmax(0, 1fr) auto; }

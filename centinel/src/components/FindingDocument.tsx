@@ -26,7 +26,7 @@ function RuleCheckExplanation({ finding, explanation }: { finding: Finding; expl
   return <section className="finding-document-section finding-rule-explanation" aria-label="About this rule check">
     <h4>What this check means</h4>
     <p>{explanation}</p>
-    <p className="finding-verification-hint">The AI review did not report an issue at this location, so this result comes from Centinel's pattern check alone. Read the code to confirm it; it is not an AI-verified conclusion.</p>
+    <p className="finding-verification-hint">The AI review did not report an issue at this location, so this result comes from ORIN's pattern check alone. Read the code to confirm it; it is not an AI-verified conclusion.</p>
     {finding.requirementId
       ? <p>Linked requirement: <code>{finding.requirementId}</code></p>
       : observedRequirements.length

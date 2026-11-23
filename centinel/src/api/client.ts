@@ -298,7 +298,7 @@ async function downloadReport(endpoint:string,id:string,format:'json'|'markdown'
 /** Fetches the user-initiated local diagnostics ZIP. It is saved by the app; the sidecar uploads nothing. */
 async function exportDiagnostics(appVersion: string | null): Promise<{ bytes: Uint8Array; filename: string }> {
   const token = sessionStorage.getItem('centinel:supabase-access-token');
-  const unavailable = 'Diagnostics could not be exported. Check that Centinel is running, then try again.';
+  const unavailable = 'Diagnostics could not be exported. Check that ORIN is running, then try again.';
   let response: Response;
   try {
     response = await fetch(`${BASE}/diagnostics/export`, {
@@ -405,7 +405,7 @@ export const api = {
     request<ConnectedSource>(`/projects/${projectId}/sources/${sourceId}`, { method: 'DELETE' }),
 
   // AI Settings
-  /** Copies the bundled Sample Shop into the Centinel home folder and runs it on port 4100. */
+  /** Copies the bundled Sample Shop into the ORIN home folder and runs it on port 4100. */
   prepareSampleShop: () => request<{ path: string; url: string; server: 'started' | 'running' | 'port_in_use' }>('/samples/sample-shop', { method: 'POST', body: '{}' }),
   codexStatus: () => request<{ available: boolean; connected: boolean; accountLabel: string | null; message: string }>('/settings/codex'),
   codexSubscriptionUsage: () => request<{
@@ -595,7 +595,7 @@ export const api = {
   inspectDynamicWorkspace: (projectId:string,id:string,directory:string) => request<{inspection:WorkspaceInspection}>(`/projects/${projectId}/dynamic/environments/${id}/workspace`,{method:'POST',body:JSON.stringify({operation:'inspect',directory})}),
   authorizeDynamicWorkspace: (projectId:string,id:string,data:Omit<WorkspaceAuthorization,'fingerprint'|'authorizedAt'>&{allowScripts:boolean;expectedFingerprint:string}) => request<{authorization:WorkspaceAuthorization}>(`/projects/${projectId}/dynamic/environments/${id}/workspace`,{method:'POST',body:JSON.stringify({operation:'authorize',...data})}),
   dynamicSession: (projectId:string,id:string) => request<{session:{availability:string;reference?:string;expiresAt?:string;reason?:string;version?:string};capture:import('../dynamic/types').SessionCaptureStatus|null}>(`/projects/${projectId}/dynamic/environments/${id}/session`),
-  changeDynamicSession: (projectId:string,id:string,data:Record<string,unknown>) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Signed-in sessions require a loopback Centinel service on this device.',400);return request<unknown>(`/projects/${projectId}/dynamic/environments/${id}/session`,{method:'POST',body:JSON.stringify(data)});},
+  changeDynamicSession: (projectId:string,id:string,data:Record<string,unknown>) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Signed-in sessions require a loopback ORIN service on this device.',400);return request<unknown>(`/projects/${projectId}/dynamic/environments/${id}/session`,{method:'POST',body:JSON.stringify(data)});},
   dynamicEnvironmentData: (projectId: string,id: string) => request<EnvironmentData>(`/projects/${projectId}/dynamic/environments/${id}/data`),
   recordDynamicEnvironmentData: (projectId:string,id:string,kind:'preparation'|'cleanup',outcome:'completed'|'failed',note:string) => request<EnvironmentData>(`/projects/${projectId}/dynamic/environments/${id}/${kind}`,{method:'POST',body:JSON.stringify({outcome,note})}),
   dynamicEnvironmentValues: (projectId: string, id: string) => request<{variableNames:string[]}>(`/projects/${projectId}/dynamic/environments/${id}/values`),
@@ -603,10 +603,10 @@ export const api = {
   saveDynamicPrivateInputs: (projectId:string,id:string,version:number,grants:import('../dynamic/contracts').PrivateInputGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/private-inputs`,{method:'POST',body:JSON.stringify({version,grants})}),
   saveDynamicDownloadPermissions: (projectId:string,id:string,version:number,downloads:import('../dynamic/limits').DownloadGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/downloads`,{method:'POST',body:JSON.stringify({version,downloads})}),
   dynamicDownloadedFiles: (projectId:string,runId:string) => request<import('../dynamic/contracts').LocalDownload[]>(`/projects/${projectId}/dynamic/runs/${runId}/downloads`),
-  getDynamicDownloadedFile: (projectId:string,runId:string,id:string) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Downloaded copies require the local Centinel service on this device.',400);return request<import('../dynamic/contracts').LocalDownload&{base64:string}>(`/projects/${projectId}/dynamic/runs/${runId}/downloads/${id}`);},
+  getDynamicDownloadedFile: (projectId:string,runId:string,id:string) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Downloaded copies require the local ORIN service on this device.',400);return request<import('../dynamic/contracts').LocalDownload&{base64:string}>(`/projects/${projectId}/dynamic/runs/${runId}/downloads/${id}`);},
   forgetDynamicDownloadedFile: (projectId:string,runId:string,id:string) => request<{availability:string}>(`/projects/${projectId}/dynamic/runs/${runId}/downloads/${id}`,{method:'DELETE'}),
   dynamicUploadFixtures: (projectId:string,id:string) => request<import('../dynamic/limits').LocalUploadFixture[]>(`/projects/${projectId}/dynamic/environments/${id}/uploads`),
-  saveDynamicUploadFixture: (projectId:string,id:string,data:{name:string;mimeType:string;base64:string;publicTestData:true}) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Test files require a loopback Centinel service on this device.',400);return request<import('../dynamic/limits').LocalUploadFixture>(`/projects/${projectId}/dynamic/environments/${id}/uploads`,{method:'POST',body:JSON.stringify(data)});},
+  saveDynamicUploadFixture: (projectId:string,id:string,data:{name:string;mimeType:string;base64:string;publicTestData:true}) => {const endpoint=new URL(BASE);if(!['http:','https:'].includes(endpoint.protocol)||!['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname)||endpoint.pathname!=='/'||endpoint.search||endpoint.hash)throw new ApiError('Test files require a loopback ORIN service on this device.',400);return request<import('../dynamic/limits').LocalUploadFixture>(`/projects/${projectId}/dynamic/environments/${id}/uploads`,{method:'POST',body:JSON.stringify(data)});},
   forgetDynamicUploadFixture: (projectId:string,id:string,fixtureId:string) => request<{availability:string}>(`/projects/${projectId}/dynamic/environments/${id}/uploads/${fixtureId}`,{method:'DELETE'}),
   saveDynamicUploadPermissions: (projectId:string,id:string,version:number,uploads:import('../dynamic/limits').UploadGrant[]) => request<EnvironmentProfile>(`/projects/${projectId}/dynamic/environments/${id}/uploads/permissions`,{method:'POST',body:JSON.stringify({version,uploads})}),
   preflightDynamicEnvironment: (projectId: string, id: string) => request<EnvironmentSnapshot>(`/projects/${projectId}/dynamic/environments/${id}/preflight`, {method:'POST',body:'{}'}),
@@ -813,7 +813,7 @@ export const api = {
     }),
   listRequirementMappings: (projectId: string, reqId: string) =>
     request<RequirementMapping[]>(`/projects/${projectId}/requirements/${reqId}/mappings`),
-  /** Confirm or reject a Centinel-suggested requirement link. */
+  /** Confirm or reject a ORIN-suggested requirement link. */
   decideRequirementMappingSuggestion: (projectId: string, reqId: string, mappingId: string, decision: 'confirm' | 'reject') =>
     request<RequirementMapping>(`/projects/${projectId}/requirements/${reqId}/mappings/${mappingId}/decision`, {
       method: 'POST',

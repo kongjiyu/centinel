@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { LoadingSkeleton } from './components/LoadingSkeleton';
-import { hashToScreen, isRouteHash, screenToHash } from './navigation/screenHash';
+import { hashToScreen, isRouteHash, resolveLegacyProjectRoute, screenToHash } from './navigation/screenHash';
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import './App.css';
 import { userFacingError } from './utils/userFacingError';
@@ -27,7 +27,6 @@ import type { Session } from '@supabase/supabase-js';
 
 // Screens outside the first view load on demand so the initial bundle stays
 // small. Home and the sign-in screen stay in the main chunk.
-const ProjectDetailScreen = lazy(() => import('./screens/ProjectDetailScreen').then(module => ({ default: module.ProjectDetailScreen })));
 const DynamicWorkspaceScreen = lazy(() => import('./screens/DynamicWorkspaceScreen').then(module => ({ default: module.DynamicWorkspaceScreen })));
 const DynamicSessionScreen = lazy(() => import('./screens/DynamicSessionScreen').then(module => ({ default: module.DynamicSessionScreen })));
 const ActivityDirectoryScreen = lazy(() => import('./screens/ActivityDirectoryScreen').then(module => ({ default: module.ActivityDirectoryScreen })));
@@ -83,15 +82,19 @@ function App() {
   const [screen, setScreen] = useState<Screen>(() => (typeof window !== 'undefined' && hashToScreen(window.location.hash)) || { name: 'new-check' });
   const navigate = (next: Screen) => {
     if (next.name === 'projects') return setScreen({ name: 'new-check', initialCreate: next.initialCreate });
-    if (next.name === 'project-detail' && next.initialAction === 'dynamic') return setScreen({ name: 'dynamic-testing', projectId: next.projectId });
-    // Opening a project shows its conversation (DESIGN.md §4.4); the older tabs stay under Details.
-    const plainOpen = next.name === 'project-detail' && !next.details && !next.initialSection && !next.initialAction && !next.findingId && !next.findingsReviewId && !next.sourceArtifactId && !next.initialStaticSessionId;
-    return setScreen(plainOpen ? { name: 'project', projectId: next.projectId } : next);
+    return setScreen(resolveLegacyProjectRoute(next));
   };
   // Keep the page in the URL hash so Back/Forward, reload and shared links work.
   useEffect(() => {
     const hash = screenToHash(screen);
-    if (window.location.hash !== hash && (!window.location.hash || isRouteHash(window.location.hash))) window.location.hash = hash;
+    const currentHash = window.location.hash;
+    if (currentHash === hash || (currentHash && !isRouteHash(currentHash))) return;
+    const legacyTarget = /^#\/project-detail(?:\?|$)/.test(currentHash) ? hashToScreen(currentHash) : null;
+    if (legacyTarget && screenToHash(legacyTarget) === hash) {
+      window.history.replaceState(window.history.state, '', hash);
+    } else {
+      window.location.hash = hash;
+    }
   }, [screen]);
   useEffect(() => {
     const follow = () => {
@@ -135,7 +138,7 @@ function App() {
     } catch (e) {
       if (generation !== loadGeneration.current) return;
       setSidecarOnline(false);
-      setError(userFacingError(e, 'Centinel could not load this workspace. Try again.'));
+      setError(userFacingError(e, 'ORIN could not load this workspace. Try again.'));
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
@@ -318,7 +321,7 @@ function App() {
     return (
       <div className="error-screen" role="alert">
         <span className="error-screen-icon" aria-hidden="true"><AlertTriangle size={24} /></span>
-        <h1>Centinel</h1>
+        <h1>ORIN</h1>
         <p>The workspace could not be loaded.</p>
         <p className="error-detail">{error}</p>
         <button className="btn-primary" onClick={() => { setLoading(true); loadData(); }}>
@@ -329,14 +332,11 @@ function App() {
   }
 
   setCheckAccount(accountUserId);
-  const currentProject = screen.name === 'project-detail'
-    ? projects.find(p => p.id === screen.projectId) ?? null
-    : null;
-
   return (
     <ActiveReviewProvider key={accountUserId ?? 'local'} accountId={accountUserId}>
       <AppShell
         onCreateProject={handleCreateProject}
+        onProjectUpdated={updated => setProjects(current => current.map(project => project.id === updated.id ? updated : project))}
         screen={screen}
         onNavigate={navigate}
         projects={projects}
@@ -371,19 +371,6 @@ function App() {
             onNavigate={navigate}
             accountId={accountUserId}
             onDataChanged={loadData}
-          />
-        )}
-        {screen.name === 'project-detail' && currentProject && (
-         <ProjectDetailScreen
-            project={currentProject}
-            initialAction={screen.initialAction}
-            initialSection={screen.initialSection}
-            sourceArtifactId={screen.sourceArtifactId}
-            findingsReviewId={screen.findingsReviewId}
-            findingId={screen.findingId}
-            initialStaticSessionId={screen.initialStaticSessionId}
-            onNavigate={navigate}
-            onProjectUpdated={(updatedProject) => setProjects(prev => prev.map(project => project.id === updatedProject.id ? updatedProject : project))}
           />
         )}
         {(screen.name === 'review-directory' || screen.name === 'dynamic-directory') && (

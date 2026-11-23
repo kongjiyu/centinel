@@ -6,6 +6,7 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   title: string;
+  footer?: ReactNode;
   headerAside?: ReactNode;
   headerContent?: ReactNode;
   descriptionId?: string;
@@ -14,7 +15,7 @@ type Props = {
   children: React.ReactNode;
 };
 
-export function Modal({ isOpen, onClose, title, headerAside, headerContent, descriptionId, width = 520, overlayClassName, children }: Props) {
+export function Modal({ isOpen, onClose, title, footer, headerAside, headerContent, descriptionId, width = 520, overlayClassName, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const titleId = useId();
@@ -94,6 +95,7 @@ export function Modal({ isOpen, onClose, title, headerAside, headerContent, desc
         <div className="modal-body">
           {children}
         </div>
+        {footer && <footer className="modal-footer">{footer}</footer>}
       </div>
     </div>
   );

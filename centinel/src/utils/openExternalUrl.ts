@@ -1,6 +1,6 @@
 import { open as openExternal } from '@tauri-apps/api/shell';
 
-/** Opens a provider authorization page outside the Centinel webview. */
+/** Opens a provider authorization page outside the ORIN webview. */
 export async function openExternalUrl(url: string): Promise<boolean> {
   try {
     await openExternal(url);

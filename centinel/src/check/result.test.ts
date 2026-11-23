@@ -69,7 +69,7 @@ describe('check result', () => {
   it('says no problems only after both parts finished, and names what was checked', () => {
     const result = buildCheckResult({ check: check(), review: review(), findings: [], autoTest: session([test({ state: 'passed', checkResults: [] })]), requirements: [] });
     expect(result.verdict).toBe('No problems found.');
-    expect(result.verdictDetail).toBe('Centinel checked the code and 1 browser test.');
+    expect(result.verdictDetail).toBe('ORIN checked the code and 1 browser test.');
   });
 
   it('is not finished while a part is running', () => {
@@ -108,7 +108,7 @@ describe('check result', () => {
   it('marks parts that were not requested', () => {
     const result = buildCheckResult({ check: check({ mode: 'code', autoTestId: undefined }), review: review(), findings: [], autoTest: null, requirements: [] });
     expect(result.browserState).toBe('not_requested');
-    expect(result.verdictDetail).toBe('Centinel checked the code.');
+    expect(result.verdictDetail).toBe('ORIN checked the code.');
   });
 });
 
@@ -166,10 +166,10 @@ describe('project unit tests in a check', () => {
   });
 
   it('says why unit tests did not run', () => {
-    const skipped = unit({ state: 'not_tested', unit: { outcome: 'unsupported', script: null, framework: null, counts: null, failures: [], reason: "The project's tests use Jest. Centinel can only run a plain Vitest script for now." } });
+    const skipped = unit({ state: 'not_tested', unit: { outcome: 'unsupported', script: null, framework: null, counts: null, failures: [], reason: "The project's tests use Jest. ORIN can only run a plain Vitest script for now." } });
     const result = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([skipped]) });
-    expect(result.unitTests?.line).toBe("The unit tests did not run: The project's tests use Jest. Centinel can only run a plain Vitest script for now.");
-    expect(result.notChecked).toContain("Unit tests did not run: The project's tests use Jest. Centinel can only run a plain Vitest script for now.");
+    expect(result.unitTests?.line).toBe("The unit tests did not run: The project's tests use Jest. ORIN can only run a plain Vitest script for now.");
+    expect(result.notChecked).toContain("Unit tests did not run: The project's tests use Jest. ORIN can only run a plain Vitest script for now.");
   });
 });
 
@@ -180,8 +180,8 @@ describe('what counts as not checked', () => {
     const none = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([unit(false, 'The project has no unit tests.')]) });
     expect(none.notChecked).toEqual([]);
     expect(none.unitTests?.line).toBe('This project has no unit tests.');
-    const jest = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([unit(true, "The project's tests use Jest. Centinel can only run a plain Vitest script for now.")]) });
-    expect(jest.notChecked).toEqual(["Unit tests did not run: The project's tests use Jest. Centinel can only run a plain Vitest script for now."]);
+    const jest = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([unit(true, "The project's tests use Jest. ORIN can only run a plain Vitest script for now.")]) });
+    expect(jest.notChecked).toEqual(["Unit tests did not run: The project's tests use Jest. ORIN can only run a plain Vitest script for now."]);
   });
 });
 
@@ -192,7 +192,7 @@ describe('reruns and several explorations', () => {
     const explore = (id: string, screens: number, actions: number, untried: number) => test({ id, kind: 'exploratory', name: `Explore ${id}`, state: 'passed', exploration: { screens, actions, untried, truncated: false, seen: 10, outOfScope: 0 } });
     const result = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([rerun, stuck, explore('a', 3, 5, 4), explore('b', 2, 6, 0)]) });
     expect(result.notes).toContain('1 browser test could not run the first time and was run again on a fresh copy of the app; its result comes from the second run.');
-    expect(result.stuckTests[0].text).toBe('Browser test “Totals”: it could not run, also when run a second time (Centinel could not tell which control the AI meant, so it did not press it).');
+    expect(result.stuckTests[0].text).toBe('Browser test “Totals”: it could not run, also when run a second time (ORIN could not tell which control the AI meant, so it did not press it).');
     expect(result.notChecked).toContain('2 exploratory runs reached 5 screens and pressed 11 controls in total. 4 controls it was allowed to press were not tried.');
   });
 });

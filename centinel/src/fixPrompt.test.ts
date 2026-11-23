@@ -32,7 +32,7 @@ describe('buildFixPrompt', () => {
     expect(prompt.trimEnd().split('\n').slice(-4).join('\n')).toMatch(/smallest change[\s\S]*test that fails without the fix/);
   });
 
-  it('never includes Centinel identifiers, provenance or other findings', () => {
+  it('never includes ORIN identifiers, provenance or other findings', () => {
     const prompt = buildFixPrompt({ ...base, description: `${base.description} (review aaaaaaaa-1111-4222-8333-444455556666)` });
     for (const secret of [base.id, base.projectId, base.sessionId!, base.artifactId!, 'sha256:abc', 'REQ-7', 'Finding ID', 'confidence']) expect(prompt).not.toContain(secret);
     expect(prompt).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);

@@ -109,10 +109,10 @@ export function AuthScreen({ onSignIn, onBackToWorkspace }: Props) {
       <main className="auth-layout">
         <section className="auth-panel" aria-labelledby="auth-title">
           <div className="auth-product-row">
-            <div className="auth-product"><img src="/assets/centinel-shield.svg" alt="" aria-hidden="true" /><span>Centinel</span></div>
+            <div className="auth-product"><img src="/assets/orin-aperture.svg" alt="" aria-hidden="true" /><span>ORIN</span></div>
             {onBackToWorkspace && <button type="button" className="auth-back-button" onClick={onBackToWorkspace}>Back to workspace</button>}
           </div>
-          <header className="auth-panel-heading"><h1 id="auth-title">{mode === 'sign-up' ? 'Create your Centinel account' : mode === 'reset' ? 'Reset your password' : 'Sign in to Centinel'}</h1><p>{mode === 'reset' ? 'We will email you a link to choose a new password.' : 'Access your review and testing workspace.'}</p></header>
+          <header className="auth-panel-heading"><h1 id="auth-title">{mode === 'sign-up' ? 'Create your ORIN account' : mode === 'reset' ? 'Reset your password' : 'Sign in to ORIN'}</h1><p>{mode === 'reset' ? 'We will email you a link to choose a new password.' : 'Access your review and testing workspace.'}</p></header>
 
           {mode !== 'reset' && <><div className="auth-providers" role="group" aria-label="Social sign-in options">
             <button type="button" className="auth-provider" onClick={() => void handleSocialSignIn('google')} disabled={authBusy}>
@@ -139,7 +139,7 @@ export function AuthScreen({ onSignIn, onBackToWorkspace }: Props) {
             {mode !== 'sign-in' && <button type="button" className="btn-link" onClick={() => switchMode('sign-in')}>Back to sign in</button>}
           </div>
         </section>
-        <footer className="auth-footer">Centinel Desktop</footer>
+        <footer className="auth-footer">ORIN Desktop</footer>
       </main>
     </div>
   );

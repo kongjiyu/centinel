@@ -26,12 +26,13 @@ const projects: Project[] = [
   },
 ];
 
-function renderShell(screenState: Screen, onNavigate: (screen: Screen) => void, projectList = projects) {
+function renderShell(screenState: Screen, onNavigate: (screen: Screen) => void, projectList = projects, onProjectUpdated?: (project: Project) => void) {
   return render(
     <AppShell
       screen={screenState}
       onNavigate={onNavigate}
       projects={projectList}
+      onProjectUpdated={onProjectUpdated}
       accountEmail="avery.chen@gmail.com"
       githubLogin="centinel-demo"
       onSwitchAccount={vi.fn()}
@@ -51,6 +52,7 @@ describe('AppShell module launch', () => {
 
   it('marks the Settings shortcut beside the profile active', () => {
     renderShell({ name: 'settings' }, vi.fn());
+    expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).not.toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
     expect(within(screen.getByRole('complementary')).getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav).getByRole('button', { name: 'New Check' })).not.toHaveAttribute('aria-current');
@@ -139,13 +141,21 @@ describe('AppShell module launch', () => {
     const artifacts = vi.spyOn(api, 'listArtifacts').mockResolvedValue([
       { id: 'repo-file', source: 'repository', sourceId: 'local-1', localRepositoryName: 'payments' } as Artifact,
     ]);
-    renderShell({ name: 'project', projectId: 'project-2' }, onNavigate);
+    const onProjectUpdated = vi.fn();
+    renderShell({ name: 'project', projectId: 'project-2' }, onNavigate, projects, onProjectUpdated);
     const recent = within(screen.getByRole('region', { name: 'Projects' }));
     const rows = recent.getAllByRole('listitem');
     expect(within(rows[0]).getByRole('button', { name: 'Banking portal' })).toHaveAttribute('aria-current', 'page');
     await user.click(recent.getByRole('button', { name: 'Website refresh' }));
     expect(onNavigate).toHaveBeenLastCalledWith({ name: 'project', projectId: 'project-1' });
-    await user.click(recent.getByRole('button', { name: 'Details for Banking portal' }));
+    const options = recent.getByRole('button', { name: 'Details for Banking portal' });
+    await user.hover(options);
+    const preview = within(screen.getByRole('region', { name: 'Project details preview' }));
+    expect(preview.getByText('Payment verification')).toBeInTheDocument();
+    expect(preview.getByText('Created')).toBeInTheDocument();
+    expect(preview.getByRole('button', { name: 'Edit project' })).toBeInTheDocument();
+    await user.click(options);
+    expect(screen.queryByRole('region', { name: 'Project details preview' })).not.toBeInTheDocument();
     const details = within(screen.getByRole('dialog', { name: 'Project details' }));
     expect(details.getByText('Banking portal')).toBeInTheDocument();
     expect(details.getByText('Payment verification')).toBeInTheDocument();
@@ -155,7 +165,17 @@ describe('AppShell module launch', () => {
     expect(sources).toHaveBeenCalledWith('project-2');
     expect(artifacts).toHaveBeenCalledWith('project-2');
     await user.click(details.getByRole('button', { name: 'Edit project' }));
-    expect(onNavigate).toHaveBeenLastCalledWith({ name: 'project-detail', projectId: 'project-2', initialSection: 'settings' });
+    const editor = within(screen.getByRole('dialog', { name: 'Edit project' }));
+    const name = editor.getByRole('textbox', { name: 'Project name' });
+    const updated = { ...projects[1], name: 'Payments' };
+    const save = vi.spyOn(api, 'updateProject').mockResolvedValue(updated);
+    await user.clear(name);
+    await user.type(name, 'Payments');
+    await user.click(editor.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onProjectUpdated).toHaveBeenCalledWith(updated));
+    expect(save).toHaveBeenCalledWith(updated.id, { name: updated.name, description: updated.description, workspacePath: updated.workspacePath });
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    save.mockRestore();
     sources.mockRestore();
     artifacts.mockRestore();
   });
@@ -262,7 +282,7 @@ describe('AppShell module launch', () => {
     expect(within(menu).queryByText('GitHub repository access connected')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Signed in with GitHub')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Current account')).not.toBeInTheDocument();
-    expect(within(menu).queryByText('Local Centinel session')).not.toBeInTheDocument();
+    expect(within(menu).queryByText('Local ORIN session')).not.toBeInTheDocument();
     expect(within(menu).queryByText('GitHub')).not.toBeInTheDocument();
     expect(within(menu).queryByText('Google email')).not.toBeInTheDocument();
     expect(within(menu).queryByRole('button', { name: 'Manage account' })).not.toBeInTheDocument();

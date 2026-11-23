@@ -205,7 +205,7 @@ function reviewCoverage(progressJson: string): { coverage?: NonNullable<ReturnTy
 }
 
 function reportRequirement(requirement: Requirement, mappings: RequirementMapping[]): ReportRequirement {
-  // Centinel-suggested links count only after a person confirms them.
+  // ORIN-suggested links count only after a person confirms them.
   return { ...requirement, mappings: mappings.filter(mapping => isConfirmedMappingStatus(mapping.coverageStatus)).sort((a, b) => a.id.localeCompare(b.id)) };
 }
 

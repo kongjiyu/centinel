@@ -1,7 +1,7 @@
 import type { RequirementMapping } from './types';
 
 /**
- * Centinel-suggested requirement links are stored as unconfirmed mappings.
+ * ORIN-suggested requirement links are stored as unconfirmed mappings.
  * Only confirmed (human-entered or human-confirmed) mappings count for
  * traceability; rejected suggestions are kept so they are not proposed again.
  */

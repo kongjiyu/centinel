@@ -12,13 +12,13 @@ describe('UpdatePrompt', () => {
     render(<UpdatePrompt check={check} install={install} />);
     expect(screen.queryByRole('heading', { name: 'Update available' })).not.toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    expect(screen.getByText('Centinel 0.2.0 is ready to install. Restart to update.')).toBeInTheDocument();
+    expect(screen.getByText('ORIN 0.2.0 is ready to install. Restart to update.')).toBeInTheDocument();
     expect(install).not.toHaveBeenCalled();
     await act(async () => { screen.getByRole('button', { name: 'Restart' }).click(); });
     expect(install).toHaveBeenCalledTimes(1);
   });
 
-  it('stays hidden when Centinel is current and can be dismissed', async () => {
+  it('stays hidden when ORIN is current and can be dismissed', async () => {
     vi.useFakeTimers();
     const { rerender } = render(<UpdatePrompt check={async () => null} install={vi.fn()} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });

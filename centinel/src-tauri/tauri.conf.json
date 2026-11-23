@@ -7,7 +7,7 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "Centinel",
+    "productName": "ORIN",
     "version": "0.2.4"
   },
   "tauri": {
@@ -104,7 +104,7 @@
         "minWidth": 620,
         "resizable": true,
         "theme": "Light",
-        "title": "Centinel",
+        "title": "ORIN",
         "titleBarStyle": "Visible",
         "width": 1280
       }

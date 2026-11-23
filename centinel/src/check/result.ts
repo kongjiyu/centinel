@@ -35,6 +35,7 @@ export type CheckProblem = {
   browserChecks?: Array<{ expected: string; observed: string }>;
   aiExplanation?: string | null;
   findingId?: string;
+  testId?: string;
   runId?: string;
   /** The saved browser test, so it can be run again from the conversation. */
   testRef?: { sessionId: string; testId: string; reusable: boolean };
@@ -162,6 +163,7 @@ export function browserProblem(test: AutoTestEntry): CheckProblem {
     marks: ['browser'],
     browserChecks: fixed?.length ? fixed : checks.length ? checks : [{ expected: test.goal, observed: test.reason?.trim() || 'The browser test failed.' }],
     aiExplanation: test.explanation ?? null,
+    testId: test.id,
     runId: test.runId,
     requirementRef: test.requirementRef,
   };
@@ -281,7 +283,7 @@ export function buildCheckResult(input: {
   } else if (!total) {
     verdict = 'No problems found.';
     const parts = [codeState === 'done' ? 'the code' : null, browserState === 'done' ? plural(tests.length, 'browser test') : null].filter(Boolean);
-    verdictDetail = parts.length ? `Centinel checked ${parts.join(' and ')}.` : null;
+    verdictDetail = parts.length ? `ORIN checked ${parts.join(' and ')}.` : null;
   } else if (proven.length) {
     verdict = `${plural(total, 'problem')} found. ${proven.length} proven in the browser.`;
   } else {
@@ -339,5 +341,5 @@ export function checkProblemSummary(result: CheckResult) {
   const problems = [...result.proven, ...result.foundInCode];
   const problemRisk = problems.reduce<RiskLevel | undefined>((highest, { risk }) =>
     risk && (!highest || riskLevelRank(risk) < riskLevelRank(highest)) ? risk : highest, undefined);
-  return { problemCount: problems.length, problemRisk };
+  return { problemCount: problems.length, problemRisk, highProblemCount: problems.filter(problem => problem.risk === 'high').length };
 }

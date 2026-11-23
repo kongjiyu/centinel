@@ -27,7 +27,7 @@
 //   RELEASE_NOTES           Text for latest.json "notes" (default: a link to the release page)
 //
 // Outputs in dist/release/, per architecture: the notarized DMG,
-// Centinel_<arch>.app.tar.gz (the stapled app for in-app updates) and its
+// ORIN_<arch>.app.tar.gz (the stapled app for in-app updates) and its
 // .sig, plus one latest.json covering every architecture built for this
 // version. Upload them all to the GitHub release tagged v<version>; the app
 // reads releases/latest/download/latest.json.
@@ -50,11 +50,11 @@ const triple = targetIndex >= 0 ? process.argv[targetIndex + 1] : hostTriple;
 if (!['aarch64-apple-darwin', 'x86_64-apple-darwin'].includes(triple)) throw new Error(`Unsupported target ${triple}. Use aarch64-apple-darwin or x86_64-apple-darwin.`);
 const crossBuild = targetIndex >= 0;
 const archLabel = triple.startsWith('aarch64') ? 'aarch64' : 'x64';
-const app = path.join(tauriDir, crossBuild ? `target/${triple}/release/bundle/macos/Centinel.app` : 'target/release/bundle/macos/Centinel.app');
+const app = path.join(tauriDir, crossBuild ? `target/${triple}/release/bundle/macos/ORIN.app` : 'target/release/bundle/macos/ORIN.app');
 const outDir = path.join(root, 'dist/release');
-const dmg = path.join(outDir, `Centinel_${version}_${archLabel}.dmg`);
+const dmg = path.join(outDir, `ORIN_${version}_${archLabel}.dmg`);
 const profile = process.env.NOTARY_PROFILE?.trim() || 'centinel-notary';
-const updaterArchive = path.join(outDir, `Centinel_${archLabel}.app.tar.gz`);
+const updaterArchive = path.join(outDir, `ORIN_${archLabel}.app.tar.gz`);
 const updaterManifest = path.join(outDir, 'latest.json');
 const releaseUrl = `https://github.com/kongjiyu/centinel/releases/download/v${version}`;
 const codex = path.join(app, 'Contents/MacOS/codex');
@@ -169,9 +169,9 @@ fs.mkdirSync(outDir, { recursive: true });
 fs.rmSync(dmg, { force: true });
 const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-dmg-'));
 try {
-  run('ditto', [app, path.join(staging, 'Centinel.app')]);
+  run('ditto', [app, path.join(staging, 'ORIN.app')]);
   fs.symlinkSync('/Applications', path.join(staging, 'Applications'));
-  run('hdiutil', ['create', '-volname', 'Centinel', '-srcfolder', staging, '-ov', '-format', 'UDZO', dmg], { stdio: 'pipe' });
+  run('hdiutil', ['create', '-volname', 'ORIN', '-srcfolder', staging, '-ov', '-format', 'UDZO', dmg], { stdio: 'pipe' });
 } finally {
   fs.rmSync(staging, { recursive: true, force: true });
 }
@@ -208,7 +208,7 @@ fs.rmSync(updaterArchive, { force: true });
 fs.rmSync(`${updaterArchive}.sig`, { force: true });
 run('tar', ['-czf', updaterArchive, '-C', path.dirname(app), path.basename(app)], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 signUpdaterArchive(updaterArchive, updaterEnv);
-if (!fs.existsSync(`${updaterArchive}.sig`)) throw new Error('The Tauri signer did not write Centinel.app.tar.gz.sig.');
+if (!fs.existsSync(`${updaterArchive}.sig`)) throw new Error('The Tauri signer did not write ORIN.app.tar.gz.sig.');
 
 step('Writing latest.json');
 // Keep the other architecture's entry when it was built for the same version.

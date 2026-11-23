@@ -78,7 +78,7 @@ export async function handleAutoTestRoute(request: { method: string; pathname: s
   /** A session left running by a sidecar that has since restarted cannot continue. */
   const reconcile = async (session: AutoTestSession) => {
     if (TERMINAL.has(session.stage) || runtime.isActive(session.id) || session.ownerId !== deps.ownerId) return session;
-    const stopped: AutoTestSession = { ...session, stage: 'failed', updatedAt: new Date().toISOString(), error: { reason: 'interrupted', message: 'Centinel restarted while this Auto test was running. Start it again.' },
+    const stopped: AutoTestSession = { ...session, stage: 'failed', updatedAt: new Date().toISOString(), error: { reason: 'interrupted', message: 'ORIN restarted while this Auto test was running. Start it again.' },
       tests: session.tests.map(test => test.state === 'queued' || test.state === 'running' ? { ...test, state: 'not_tested' as const } : test),
       lanes: session.lanes.map(lane => ({ ...lane, state: 'stopped' as const, currentTestId: null })) };
     await deps.store.save(stopped);

@@ -23,7 +23,7 @@ const session = (overrides: Partial<AutoTestSession> = {}): AutoTestSession => (
       checks: [{ id: 'c2', criterionId: 'REQ-1', description: 'Generic error', required: true, kind: 'visible_text', expected: 'Email or password is incorrect.' }], startPath: '/', state: 'failed', laneId: 'lane-1', runId: 'r2',
       checkResults: [{ checkId: 'c2', criterionId: 'REQ-1', verdict: 'failed', observed: 'No account uses this email.', reason: '', evidenceIds: ['e'] }], explanation: 'The server reveals whether an email is registered (likely server.js:45).' },
   ],
-  dropped: [{ name: 'Admin page', reason: 'Used controls Centinel did not find in the app.' }],
+  dropped: [{ name: 'Admin page', reason: 'Used controls ORIN did not find in the app.' }],
   summary: { passed: 1, failed: 1, uncertain: 0, blocked: 0, notTested: 0, limitations: ['Only the journeys listed were tested; this is not a complete test of the app.'] },
   ...overrides,
 });

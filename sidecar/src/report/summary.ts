@@ -179,7 +179,7 @@ function browserTestStatus(snapshot: ProjectReportSnapshot): ReportSummary['brow
     const total = auto.tests.length;
     const failing = auto.tests.filter(test => test.result === 'failed');
     const base = { source: 'auto' as const, failingTest: failing[0]?.name ?? null };
-    if (failing.length) return { ...base, label: failing.length + ' of ' + total + ' failed', tone: 'critical', detail: 'Failed: ' + failing.slice(0, 3).map(test => '"' + clip(test.name, 70) + '"').join(', ') + (failing.length > 3 ? ' and ' + (failing.length - 3) + ' more' : '') + '. Pass and fail come from Centinel\'s own checks on the page.' };
+    if (failing.length) return { ...base, label: failing.length + ' of ' + total + ' failed', tone: 'critical', detail: 'Failed: ' + failing.slice(0, 3).map(test => '"' + clip(test.name, 70) + '"').join(', ') + (failing.length > 3 ? ' and ' + (failing.length - 3) + ' more' : '') + '. Pass and fail come from ORIN\'s own checks on the page.' };
     if (auto.unclear || auto.notRun) return { ...base, label: auto.passed + ' of ' + total + ' passed', tone: 'warning', detail: plural(auto.unclear + auto.notRun, 'test') + ' could not give a clear result.' };
     return { ...base, label: 'Passed', tone: 'good', detail: 'All ' + plural(total, 'browser test') + ' passed.' };
   }
@@ -230,7 +230,7 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
   if (seriousIssues > 0) {
     tone = 'critical';
     headline = 'Fix before release';
-    explanation = 'Centinel found ' + plural(seriousIssues, 'serious issue') + ' (critical or high risk) that ' + (seriousIssues === 1 ? 'is' : 'are') + ' still open.';
+    explanation = 'ORIN found ' + plural(seriousIssues, 'serious issue') + ' (critical or high risk) that ' + (seriousIssues === 1 ? 'is' : 'are') + ' still open.';
   } else if (nothingRan) {
     tone = 'neutral';
     headline = 'Not checked yet';
@@ -260,9 +260,9 @@ export function summarizeReport(snapshot: ProjectReportSnapshot): ReportSummary 
     nextSteps.push('Look at why the browser test "' + clip(browserTest.source === 'auto' ? browserTest.failingTest : snapshot.latestDynamicTest?.session.name, 70) + '" did not pass, fix it, then run it again.');
   }
   if (codeReview.tone === 'critical') nextSteps.push('Run the code review again after checking why it failed.');
-  if (!snapshot.latestReview) nextSteps.push('Run a code review so Centinel can check your source files.');
-  if (!snapshot.latestDynamicTest && !snapshot.browserTests) nextSteps.push('Run a browser test so Centinel can check your website in a real browser.');
-  if (requirements && requirements.missing > 0) nextSteps.push('Link ' + plural(requirements.missing, 'requirement') + ' to the code that implements ' + (requirements.missing === 1 ? 'it' : 'them') + ', so Centinel can check coverage.');
+  if (!snapshot.latestReview) nextSteps.push('Run a code review so ORIN can check your source files.');
+  if (!snapshot.latestDynamicTest && !snapshot.browserTests) nextSteps.push('Run a browser test so ORIN can check your website in a real browser.');
+  if (requirements && requirements.missing > 0) nextSteps.push('Link ' + plural(requirements.missing, 'requirement') + ' to the code that implements ' + (requirements.missing === 1 ? 'it' : 'them') + ', so ORIN can check coverage.');
   if (nextSteps.length < 3 && sorted.length > seriousIssues) nextSteps.push('Work through the ' + plural(sorted.length - seriousIssues, 'remaining medium or low issue') + ' listed below.');
   if (!nextSteps.length) nextSteps.push('Run a new review and browser test after your next change to keep this result up to date.');
 

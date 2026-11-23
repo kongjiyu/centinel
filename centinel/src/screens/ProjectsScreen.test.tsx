@@ -61,7 +61,7 @@ describe('Project creation', () => {
     expect(screen.getByLabelText('Project name *')).toHaveValue('Banking');
   });
 
-  it('creates a GitHub-backed project in the Centinel default workspace', async () => {
+  it('creates a GitHub-backed project in the ORIN default workspace', async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<ProjectsScreen projects={[]} onCreate={onCreate} onDelete={vi.fn()} onNavigate={vi.fn()} />);

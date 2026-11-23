@@ -11,7 +11,7 @@ import './ProjectMembersPanel.css';
 const ROLE_LABEL: Record<ProjectMember['role'], string> = { owner: 'Owner', member: 'Member', viewer: 'Viewer' };
 
 /**
- * Centinel account members of one project. Membership controls who can read
+ * ORIN account members of one project. Membership controls who can read
  * and run project work; only the owner can add or remove people.
  */
 export function ProjectMembersPanel({ projectId, inline = false, search = '', onOwnerProjectChange }: { projectId: string; inline?: boolean; search?: string; onOwnerProjectChange?: (projectId: string | null) => void }) {
@@ -76,7 +76,7 @@ export function ProjectMembersPanel({ projectId, inline = false, search = '', on
     <section className={inline ? undefined : 'project-members'} aria-labelledby={inline ? undefined : 'project-members-heading'}>
       {!inline && <div className="project-members-heading">
         <h3 id="project-members-heading">Project members</h3>
-        <p>People with a Centinel account who can open this project's sources, Reviews, tests and evidence.</p>
+        <p>People with a ORIN account who can open this project's sources, Reviews, tests and evidence.</p>
       </div>}
       {loadError && <p className="command-inline-alert" role="alert">{loadError} <button type="button" className="btn-link" onClick={() => void load()}>Retry</button></p>}
       {!list && !loadError && <p className="project-members-status" role="status">Loading members…</p>}
@@ -89,7 +89,7 @@ export function ProjectMembersPanel({ projectId, inline = false, search = '', on
       </ul>}
       {searchTerm && visibleMembers?.length === 0 && <p className="project-members-status" role="status">No collaborators match your search.</p>}
       {!inline && list && isOwner && <form className="project-members-form" onSubmit={event => void add(event)} aria-label="Add a project member">
-        <div className="form-field"><label htmlFor="project-member-email">E-mail of a Centinel account</label><input id="project-member-email" type="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" autoComplete="off" /></div>
+        <div className="form-field"><label htmlFor="project-member-email">E-mail of a ORIN account</label><input id="project-member-email" type="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" autoComplete="off" /></div>
         <div className="form-field"><label htmlFor="project-member-role">Access</label><Select id="project-member-role" value={role} onChange={value => setRole(value === 'viewer' ? 'viewer' : 'member')} options={[{ value: 'member', label: 'Member: view and run' }, { value: 'viewer', label: 'Viewer: view only' }]} /></div>
         <button type="submit" className="btn-primary" disabled={busy || !email.trim()}><UserPlus size={15} aria-hidden="true" /> {busy ? 'Saving…' : 'Add member'}</button>
       </form>}

@@ -9,7 +9,7 @@ describe('AuthScreen', () => {
     const onSignIn = vi.fn();
     render(<AuthScreen onSignIn={onSignIn} />);
 
-    expect(screen.getByRole('heading', { name: 'Sign in to Centinel' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sign in to ORIN' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Sign in/ }));
     expect(onSignIn).toHaveBeenCalledOnce();
     expect(onSignIn).toHaveBeenCalledWith(null);

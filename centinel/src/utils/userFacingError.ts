@@ -20,7 +20,7 @@ export function userFacingError(error: unknown, fallback = 'Something went wrong
   if (normalized.startsWith('Paused: the Model Provider ') && normalized.length <= 400 && !/[{}\n\r]/.test(normalized)) return normalized;
 
   if (/http\s*401|authentication_error|invalid api key|unauthorized/.test(lower)) {
-    return 'Centinel could not authenticate with the configured AI service. Check the provider connection in Settings, then try again.';
+    return 'ORIN could not authenticate with the configured AI service. Check the provider connection in Settings, then try again.';
   }
   if (/http\s*429|rate[_ -]?limit|token plan|usage limit|too many requests/.test(lower)) {
     return 'The AI service is temporarily rate-limited. Wait a moment or review your usage in Settings before trying again.';
@@ -32,13 +32,13 @@ export function userFacingError(error: unknown, fallback = 'Something went wrong
     return 'The local service could not complete a request to the workspace database. Try again in a moment.';
   }
   if (/^the request timed out\b/.test(lower)) {
-    return 'Centinel did not receive a response in time. Try again.';
+    return 'ORIN did not receive a response in time. Try again.';
   }
   if (/failed to fetch|fetch failed|network|econnrefused|etimedout|timeout|connection refused/.test(lower)) {
-    return 'Centinel could not reach the local service. Check that it is running, then try again.';
+    return 'ORIN could not reach the local service. Check that it is running, then try again.';
   }
   if (/permission|access denied|http\s*403/.test(lower)) {
-    return 'Centinel does not have permission to access that resource. Check the workspace or connection settings.';
+    return 'ORIN does not have permission to access that resource. Check the workspace or connection settings.';
   }
   if (/http\s*404|not found/.test(lower)) {
     return 'The requested resource could not be found. Refresh the page and try again.';

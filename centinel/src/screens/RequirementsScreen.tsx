@@ -48,7 +48,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
         api.listRequirementCandidates(projectId), api.listStandardRules(projectId),
       ]);
       setRequirements(reqs); setArtifacts(arts); setCandidates(nextCandidates); setStandardRules(nextRules); setError(null);
-      // Load every requirement's links so Centinel's suggestions can be
+      // Load every requirement's links so ORIN's suggestions can be
       // confirmed without expanding each requirement first.
       const entries = await Promise.all(reqs.map(async req => {
         try { return [req.id, await api.listRequirementMappings(projectId, req.id)] as const; }
@@ -231,7 +231,7 @@ export function RequirementsScreen({ projectId, onNavigate }: Props) {
       {!showForm && <div className="grounding-workspace">
         {suggestions.length > 0 && <section className="grounding-panel requirement-link-suggestions" aria-labelledby="requirement-link-suggestions-heading">
           <div className="grounding-panel-heading">
-            <div><span className="command-eyebrow"><Sparkles size={13} aria-hidden="true" /> Suggested by Centinel</span><h2 id="requirement-link-suggestions-heading">Suggested code links</h2><p>Centinel suggested these links from validated Review evidence. They do not count for requirement coverage until you confirm them.</p></div>
+            <div><span className="command-eyebrow"><Sparkles size={13} aria-hidden="true" /> Suggested by ORIN</span><h2 id="requirement-link-suggestions-heading">Suggested code links</h2><p>ORIN suggested these links from validated Review evidence. They do not count for requirement coverage until you confirm them.</p></div>
             <span className="grounding-count">{suggestions.length} to confirm</span>
           </div>
           <div className="grounding-list" role="list" aria-label="Suggested code links">

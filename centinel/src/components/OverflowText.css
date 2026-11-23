@@ -1,0 +1,19 @@
+.overflow-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: start;
+}
+.overflow-text > span { display: inline-block; }
+.overflow-text[data-overflow] {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 12px), transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .overflow-text[data-overflow] > span { transition: transform 180ms var(--ease-standard); }
+  .sidebar-project-row:hover .overflow-text[data-overflow] > span,
+  :is(.sidebar-check, .recent-project-workspace, .recent-project-picker, .ck-check-heading .ck-title):is(:hover, :focus-visible) .overflow-text[data-overflow] > span {
+    transform: translateX(calc(-1 * var(--text-travel)));
+    transition: transform var(--text-duration) linear 450ms;
+  }
+}

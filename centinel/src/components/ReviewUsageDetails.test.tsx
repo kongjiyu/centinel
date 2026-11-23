@@ -250,7 +250,7 @@ describe('ReviewUsageDetails', () => {
     vi.mocked(api.getReviewModelUsage).mockRejectedValueOnce(new Error('Failed to fetch'));
     render(<ReviewUsageDetails projectId="project-1" sessionId="review-7" />);
     await user.click(screen.getByText('Model usage'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Centinel could not reach the local service');
+    expect(await screen.findByRole('alert')).toHaveTextContent('ORIN could not reach the local service');
     vi.mocked(api.getReviewModelUsage).mockResolvedValueOnce(usage(projection()));
     await user.click(screen.getByRole('button', { name: 'Retry loading' }));
     expect(await screen.findByRole('table', { name: 'Usage by Review pipeline stage' })).toBeInTheDocument();

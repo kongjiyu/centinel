@@ -81,7 +81,7 @@ describe('DynamicSessionScreen', () => {
     render(<DynamicSessionScreen projectId="project-1" sessionId={session.id} onNavigate={() => {}} />);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: session.name })).toBeInTheDocument());
-    expect(screen.getByText('Centinel could not start its test browser. Install or repair the Playwright browser, then rerun the test.')).toBeInTheDocument();
+    expect(screen.getByText('ORIN could not start its test browser. Install or repair the Playwright browser, then rerun the test.')).toBeInTheDocument();
     expect(screen.queryByText(/browserType\.launch|ms-playwright|chrome\.exe/i)).not.toBeInTheDocument();
   });
 

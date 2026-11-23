@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, GitBranch, Plus, Search } from 'lucide-react';
+import { FileText, Folder, GitBranch, Plus, Search } from 'lucide-react';
 import { api } from '../../api/client';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
@@ -58,6 +58,26 @@ export function CheckLibraryList({ library, onAttach, attached = [], filter, com
     </ul>
     {matches.length > 80 && <p>Search to find more files.</p>}
   </>;
+}
+
+export function CheckLibraryGroups({ library, listedIds }: { library: CheckLibrary; listedIds: string[] }) {
+  const groups = new Map<string, { name: string; icon: typeof Folder }>();
+  const listed = new Set(listedIds);
+  for (const item of library.items ?? []) {
+    if (item.sourceId && listed.has(item.sourceId)) continue;
+    const parts = (item.filePath || item.fileName || '').split(/[\\/]/).filter(Boolean);
+    const folder = parts.length > 1 ? parts[0] : undefined;
+    const name = item.localRepositoryName ?? item.git?.repository ?? folder
+      ?? (item.source === 'repository' ? 'Repository' : item.source === 'drive' ? 'Drive documents' : 'Documents');
+    const key = item.sourceId ?? item.source + ':' + name;
+    groups.set(key, { name, icon: item.source === 'repository' ? GitBranch : folder ? Folder : FileText });
+  }
+  if (library.error && !library.items) return <p role="status">Source library could not be loaded.</p>;
+  if (!library.items) return null;
+  if (!groups.size && !listed.size) return <p>No sources in this project yet.</p>;
+  return <>{[...groups].map(([key, group]) => <div className="ck-source-row" key={key}>
+    <Icon icon={group.icon} /><div><strong>{group.name}</strong></div>
+  </div>)}</>;
 }
 
 export type CheckSourceChoice = 'documents' | 'repository';

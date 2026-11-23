@@ -1,4 +1,4 @@
-/** Client display helpers for the service-owned Centinel Risk Matrix v1.
+/** Client display helpers for the service-owned ORIN Risk Matrix v1.
  * The API returns `riskLevel`; this parity helper is used for local fixtures
  * and legacy responses that predate the derived field. */
 

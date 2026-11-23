@@ -24,7 +24,7 @@ const ready: AiProviderSetting[] = [
 
 function renderStart(settings = ready, projects: Project[] = []) {
   const onNavigate = vi.fn();
-  render(<StartScreen projects={projects} aiSettings={settings} onNavigate={onNavigate} onProjectCreated={vi.fn()} onCreateProject={vi.fn()} />);
+  render(<main><StartScreen projects={projects} aiSettings={settings} onNavigate={onNavigate} onProjectCreated={vi.fn()} onCreateProject={vi.fn()} /></main>);
   return { onNavigate };
 }
 
@@ -43,10 +43,13 @@ describe('Start screen', () => {
     await user.click(screen.getByRole('button', { name: 'Add to check' }));
     expect(await screen.findByRole('button', { name: 'requirements.md' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add Document' }));
-    const dialog = within(screen.getByRole('dialog', { name: 'Add Document' }));
-    fireEvent.drop(dialog.getByText('Drop files or a folder here').parentElement!, {
-      dataTransfer: { types: ['Files'], files: [new File(['requirement'], 'requirements.md')], items: [] },
-    });
+    expect(screen.queryByRole('dialog', { name: 'Add Document' })).not.toBeInTheDocument();
+    const main = screen.getByRole('main');
+    const dataTransfer = { types: ['Files'], files: [new File(['requirement'], 'requirements.md')], items: [] };
+    fireEvent.dragOver(main, { dataTransfer });
+    expect(screen.getByText('Drop documents anywhere on this page')).toBeInTheDocument();
+    fireEvent.drop(main, { dataTransfer });
+    expect(screen.queryByText('Drop documents anywhere on this page')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Remove requirements.md' })).toBeInTheDocument();
     expect(api.uploadArtifact).toHaveBeenCalledWith('shop', { fileName: 'requirements.md', content: 'cmVxdWlyZW1lbnQ=', type: 'requirement' });
     await user.click(screen.getByRole('button', { name: 'Conduct the Check' }));
@@ -122,7 +125,7 @@ describe('Start screen', () => {
 
   it('asks for the project before starting instead of starting an empty check', async () => {
     const { onNavigate } = renderStart();
-    expect(screen.getByRole('heading', { name: 'What should Centinel check?' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What should ORIN check?' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Conduct the Check' }));
     expect(screen.getByRole('status')).toHaveTextContent('Add your project first');
     expect(startCheck).not.toHaveBeenCalled();

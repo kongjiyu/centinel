@@ -127,7 +127,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
   const chooseModels = useCallback(async () => {
     const models = await api.codexModels();
     const text = models.find(model => model.isDefault) ?? models[0];
-    if (!text) throw new Error('Your ChatGPT account has no models available for Centinel.');
+    if (!text) throw new Error('Your ChatGPT account has no models available for ORIN.');
     const vision = screenshotCapable(text) ? text : models.find(screenshotCapable);
     const save = (role: 'text' | 'vision', model: CodexModel) => api.updateAiSetting(role, { provider: 'codex', apiFormat: 'codex-app-server', apiKey: '', baseUrl: '', model: model.id, fallbackEnabled: false });
     // Fill in only workflows without a saved model; never replace a choice made in Settings.
@@ -185,7 +185,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
     const prepared = await api.prepareSampleShop();
     if (mounted.current) setShop(prepared);
     const existing = projects.find(item => item.name === SAMPLE_PROJECT_NAME && item.workspacePath === prepared.path);
-    const created = existing ?? await api.createProject(SAMPLE_PROJECT_NAME, 'Practice web shop with planted bugs, bundled with Centinel.', prepared.path, { type: 'local-repository' });
+    const created = existing ?? await api.createProject(SAMPLE_PROJECT_NAME, 'Practice web shop with planted bugs, bundled with ORIN.', prepared.path, { type: 'local-repository' });
     update({ projectId: created.id });
     await onDataChanged();
   });
@@ -320,7 +320,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
     switch (step) {
       case 'model':
         return <>
-          <p>Centinel uses your ChatGPT plan to read code and drive the browser. You sign in to ChatGPT in your browser; no API key is needed.</p>
+          <p>ORIN uses your ChatGPT plan to read code and drive the browser. You sign in to ChatGPT in your browser; no API key is needed.</p>
           <div className="onboarding-actions">
             {loginId
               ? <button type="button" className="btn-secondary" disabled={working} onClick={() => void act('cancel', async () => { await api.codexCancelLogin(loginId); setLoginId(null); })}>Cancel sign-in</button>
@@ -338,7 +338,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
         </>;
       case 'project':
         return <>
-          <p>The Sample Shop is a tiny web shop with three bugs planted on purpose. Centinel copies it to this Mac, runs it at <code>{SAMPLE_BROWSER_TEST.url}</code> and imports its code and requirements.</p>
+          <p>The Sample Shop is a tiny web shop with three bugs planted on purpose. ORIN copies it to this Mac, runs it at <code>{SAMPLE_BROWSER_TEST.url}</code> and imports its code and requirements.</p>
           <div className="onboarding-actions">
             <button type="button" className="btn-primary" disabled={working} onClick={() => void createProject()}>{busy === 'project' ? 'Creating project…' : 'Create Sample Shop project'}</button>
           </div>
@@ -346,7 +346,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
       case 'requirements':
         if (confirmedCount === null) return <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> Checking requirements…</p>;
         return <>
-          <p>Centinel checks code only against requirements you confirm. Extract the candidates from <code>docs/requirements.md</code>, read them, and confirm the ones that are right.</p>
+          <p>ORIN checks code only against requirements you confirm. Extract the candidates from <code>docs/requirements.md</code>, read them, and confirm the ones that are right.</p>
           {candidates.length > 0 ? <>
             <fieldset className="onboarding-candidates">
               <legend>{candidates.length} candidate {candidates.length === 1 ? 'requirement' : 'requirements'} from requirements.md</legend>
@@ -403,7 +403,7 @@ export function OnboardingWizard({ accountId, projects, aiSettings, onNavigate, 
           {reviewStopped
             ? <p className="onboarding-status onboarding-status-warning" role="status">The Review stopped before it finished. Open it to see why and retry.</p>
             : reviewFinished
-              ? <p>The Review finished. Create the report to see what Centinel found, in plain language first and full detail after.</p>
+              ? <p>The Review finished. Create the report to see what ORIN found, in plain language first and full detail after.</p>
               : <p className="onboarding-status" role="status"><Loader2 size={16} aria-hidden="true" className="onboarding-spinner" /> The Review is running. A project this size takes about four minutes; you can leave this page.</p>}
           <div className="onboarding-actions">
             {reviewFinished && <button type="button" className="btn-primary" disabled={working} onClick={() => void exportReport()}>{busy === 'report' ? 'Creating report…' : 'Create report'}</button>}

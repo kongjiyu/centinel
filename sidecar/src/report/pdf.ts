@@ -116,10 +116,10 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
       margins: { top: TOP, right: MARGIN, bottom: BOTTOM, left: MARGIN },
       bufferPages: true,
       info: {
-        Title: 'Centinel quality report - ' + asciiText(snapshot.project.name),
-        Author: snapshot.metadata.actorId ? 'Centinel user ' + snapshot.metadata.actorId : 'Centinel',
+        Title: 'ORIN quality report - ' + asciiText(snapshot.project.name),
+        Author: snapshot.metadata.actorId ? 'ORIN user ' + snapshot.metadata.actorId : 'ORIN',
         Subject: 'Project quality report',
-        Creator: 'Centinel ' + snapshot.metadata.generatorVersion,
+        Creator: 'ORIN ' + snapshot.metadata.generatorVersion,
       },
     });
     const chunks: Buffer[] = [];
@@ -276,7 +276,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
       }
 
       // What was checked.
-      sectionTitle('What Centinel checked');
+      sectionTitle('What ORIN checked');
       {
         const rows: Array<{ title: string; status: { label: string; tone: SummaryTone }; lines: string[] }> = [
           {
@@ -315,7 +315,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
         const top = doc.y;
         write('Requirements', X, top + 1, { font: fonts.semibold, size: 10, width: 108 });
         if (!summary.requirements) {
-          write('No requirements were linked to the latest code review, so Centinel could not check that each one is implemented.', X + 120, top, { size: 9.5, color: C.ink, width: W - 120, lineGap: 2 });
+          write('No requirements were linked to the latest code review, so ORIN could not check that each one is implemented.', X + 120, top, { size: 9.5, color: C.ink, width: W - 120, lineGap: 2 });
           doc.y += 8;
         } else {
           const { complete, incomplete, missing } = summary.requirements;
@@ -410,7 +410,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
       if (summary.browserTest.source === 'auto' && snapshot.browserTests) {
         const auto = snapshot.browserTests;
         ensure(80);
-        sectionTitle('Browser test results', auto.passed + ' passed, ' + auto.failed + ' failed' + (auto.unclear + auto.notRun ? ', ' + (auto.unclear + auto.notRun) + ' without a clear result' : '') + '. Pass and fail come from Centinel\'s own checks on the page.');
+        sectionTitle('Browser test results', auto.passed + ' passed, ' + auto.failed + ' failed' + (auto.unclear + auto.notRun ? ', ' + (auto.unclear + auto.notRun) + ' without a clear result' : '') + '. Pass and fail come from ORIN\'s own checks on the page.');
         const label: Record<string, string> = { passed: 'Passed', failed: 'Failed', unclear: 'Unclear', not_run: 'Did not run' };
         const toneFor: Record<string, keyof typeof TONES> = { passed: 'good', failed: 'critical', unclear: 'warning', not_run: 'neutral' };
         auto.tests.forEach(test => {
@@ -701,7 +701,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
           test.checks.forEach(check => bullet(check.description + ' - expected: ' + (check.expected ?? 'n/a') + ' - result: ' + check.verdict + ' - the page showed: ' + (check.observed ?? 'n/a')));
           if (test.reason && test.result !== 'passed') line('Note: ' + test.reason, { size: 8.5, color: C.warning });
           if (test.sourceRefs.length) line('Related code: ' + test.sourceRefs.join(', '), { size: 8.5, color: C.muted });
-          if (test.runId) muted('Run ID ' + test.runId + '. Screenshots and the action trace are kept with this Run in Centinel.');
+          if (test.runId) muted('Run ID ' + test.runId + '. Screenshots and the action trace are kept with this Run in ORIN.');
         });
         auto.limitations.forEach(item => muted(item));
       }
@@ -771,7 +771,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
         const savedBottom = doc.page.margins.bottom;
         doc.page.margins.bottom = 0;
         const right = doc.page.width - MARGIN;
-        doc.font(fonts.semibold).fontSize(7.5).fillColor(C.primary).text('CENTINEL', MARGIN, 26, { lineBreak: false, characterSpacing: 1 });
+        doc.font(fonts.semibold).fontSize(7.5).fillColor(C.primary).text('ORIN', MARGIN, 26, { lineBreak: false, characterSpacing: 1 });
         doc.font(fonts.regular).fontSize(7.5).fillColor(C.subtle)
           .text(clean(pageNumber >= partTwoStart ? 'Part 2 · Technical details' : 'Part 1 · Summary'), MARGIN + 54, 26, { lineBreak: false });
         doc.text(clean(clip(snapshot.project.name, 60)), right - 260, 26, { lineBreak: false, width: 260, align: 'right' });

@@ -59,11 +59,11 @@ export function unitSummary(result: UnitExecutionResult): UnitSummary {
 export async function runProjectUnitTests(input: { folder: string; receiptRoot: string; ownerId: string; projectId: string; signal: AbortSignal }): Promise<UnitSummary> {
   const none = (reason: string, present: boolean): UnitSummary => ({ outcome: 'unsupported', script: null, framework: null, counts: null, failures: [], reason, present });
   let inspection: WorkspaceInspection;
-  try { inspection = inspectWorkspace(input.folder); } catch { return none('The project has no package.json, so it has no unit tests Centinel can find.', false); }
+  try { inspection = inspectWorkspace(input.folder); } catch { return none('The project has no package.json, so it has no unit tests ORIN can find.', false); }
   const script = vitestScript(inspection);
   if (!script) {
     const other = otherFramework(inspection);
-    return other ? none(`The project's tests use ${other}. Centinel can only run a plain Vitest script for now.`, true) : none('The project has no unit tests.', false);
+    return other ? none(`The project's tests use ${other}. ORIN can only run a plain Vitest script for now.`, true) : none('The project has no unit tests.', false);
   }
   const authorization: VerifiedUnitWorkspace['authorization'] = {
     directory: inspection.directory, packageManager: packageManager(inspection.directory), runtimeBinDirectory: '',

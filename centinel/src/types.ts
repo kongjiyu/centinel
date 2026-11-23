@@ -15,7 +15,7 @@ export type ProjectRepositoryInput =
 
 export type ProjectCreationResult = Project & { sourceImportWarnings?: string[] };
 
-/** A Centinel account with access to a project. Owners manage membership. */
+/** A ORIN account with access to a project. Owners manage membership. */
 export type ProjectMember = { userId: string; email: string; role: 'owner' | 'member' | 'viewer'; addedAt: string };
 export type ProjectMemberList = { viewerUserId: string; members: ProjectMember[] };
 
@@ -876,11 +876,11 @@ export type ProjectAssessment = {
 };
 
 export type Screen =
-  /** Start: give Centinel a project and documents (DESIGN.md §4.1). */
-  | { name: 'new-check'; initialCreate?: boolean; draft?: { projectId: string; focus: string; mode: import('./check/types').CheckMode; documents: import('./check/types').CheckDocument[] } }
+  /** Start: give ORIN a project and documents (DESIGN.md §4.1). */
+  | { name: 'new-check'; initialCreate?: boolean; draft?: { projectId?: string; folder?: string; githubUrl?: string; focus: string; mode: import('./check/types').CheckMode; documents: import('./check/types').CheckDocument[] } }
   /** Live while a check runs, then its Result (DESIGN.md §4.2, §4.3). */
   | { name: 'check'; checkId: string }
-  /** A project as a conversation with Centinel (DESIGN.md §4.4). */
+  /** A project as a conversation with ORIN (DESIGN.md §4.4). */
   | { name: 'project'; projectId: string }
   | { name: 'dashboard' }
   | {

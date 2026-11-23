@@ -5,6 +5,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import { listChecks, resetCheckStore, saveCheck } from '../../check/store';
 import type { AiProviderSetting, Artifact, Screen, StaticSession } from '../../types';
+import { CheckProjectHeader } from './CheckProjectWorkspace';
+import { useCheckLibrary } from './CheckSourceLibrary';
 import { CheckScreen } from './CheckScreen';
 import { StartScreen } from './StartScreen';
 
@@ -27,6 +29,12 @@ function Workspace() {
   return route.name === 'check'
     ? <CheckScreen key={route.checkId} checkId={route.checkId} projects={projects} onNavigate={navigate} />
     : <StartScreen projects={projects} aiSettings={settings} onNavigate={navigate} onProjectCreated={vi.fn()} onCreateProject={vi.fn()} />;
+}
+
+function ProjectSourcesFixture() {
+  const library = useCheckLibrary(project.id);
+  return <CheckProjectHeader project={project} check={{ projectId: project.id, projectName: project.name }}
+    onNavigate={vi.fn()} library={library} projectAction={<button type="button">Run a full check</button>} />;
 }
 
 beforeEach(() => {
@@ -62,8 +70,8 @@ it('carries a recent-check reference into a result and a library selection into 
 
   await waitFor(() => expect(listChecks()[0]).toMatchObject({ reviewId: 'first', phase: 'done', referenceCheckIds: ['prior'] }));
   expect(screen.queryByRole('navigation', { name: 'Referenced checks' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Check history' }));
-  const history = within(screen.getByRole('dialog', { name: 'Check history' }));
+  await user.click(screen.getByRole('button', { name: 'History' }));
+  const history = within(screen.getByRole('dialog', { name: 'History' }));
   expect(history.getByRole('button', { name: 'Catalog Navigation' })).toBeInTheDocument();
   expect(history.queryByText(/01 Oct/)).not.toBeInTheDocument();
   const firstCheck = listChecks()[0].id;
@@ -94,7 +102,7 @@ it('offers document and repository actions on source hover and keyboard activati
   saveCheck({ id: 'prior', projectId: project.id, projectName: project.name, createdAt: '', updatedAt: '',
     mode: 'code', phase: 'done', focus: '', documents: [], notes: [] });
   const user = userEvent.setup();
-  render(<CheckScreen checkId="prior" projects={projects} onNavigate={vi.fn()} />);
+  render(<ProjectSourcesFixture />);
   await user.click(screen.getByRole('button', { name: 'Project sources for Fixture shop' }));
   const add = screen.getByRole('button', { name: 'Add source' });
   await user.hover(add);
@@ -111,7 +119,7 @@ it('offers document and repository actions on source hover and keyboard activati
   const entry = { isFile: true, fullPath: '/release/notes.md', file: (resolve: (file: File) => void) => resolve(file) };
   const readEntries = vi.fn().mockImplementationOnce(resolve => resolve([entry])).mockImplementation(resolve => resolve([]));
   const folder = { isDirectory: true, fullPath: '/release', createReader: () => ({ readEntries }) };
-  const saved = { id: 'notes', projectId: project.id, fileName: 'release/notes.md' } as Artifact;
+  const saved = { id: 'notes', projectId: project.id, fileName: 'release/notes.md', filePath: 'release/notes.md', source: 'documents' } as Artifact;
   vi.mocked(api.uploadArtifact).mockResolvedValueOnce(saved);
   vi.mocked(api.listArtifacts).mockResolvedValue([...artifacts, saved]);
   fireEvent.drop(picker.getByText('Drop files or a folder here').parentElement!, {
@@ -121,14 +129,15 @@ it('offers document and repository actions on source hover and keyboard activati
   expect(api.uploadArtifact).toHaveBeenCalledWith(project.id, { fileName: 'release/notes.md', content: 'cmVsZWFzZSBzY29wZQ==', type: 'other' });
   await user.click(screen.getByRole('button', { name: 'Project sources for Fixture shop' }));
   const library = within(screen.getByRole('region', { name: 'Library' }));
-  expect(await library.findByText('notes.md')).toBeInTheDocument();
+  expect(await library.findByText('release')).toBeInTheDocument();
+  expect(library.queryByText('notes.md')).not.toBeInTheDocument();
 });
 
 it('closes the source flow on repository cancel and still imports a selection', async () => {
   saveCheck({ id: 'prior', projectId: project.id, projectName: project.name, createdAt: '', updatedAt: '',
     mode: 'code', phase: 'done', focus: '', documents: [], notes: [] });
   const user = userEvent.setup();
-  render(<CheckScreen checkId="prior" projects={projects} onNavigate={vi.fn()} />);
+  render(<ProjectSourcesFixture />);
   const openRepository = async () => {
     const sources = screen.getByRole('button', { name: 'Project sources for Fixture shop' });
     if (sources.getAttribute('aria-expanded') === 'false') await user.click(sources);

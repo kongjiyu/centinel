@@ -68,7 +68,7 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
         if (running && active) timer = setTimeout(tick, REVIEW_POLL_MS);
       } catch {
         if (!active) return;
-        setLoadError('Centinel could not refresh this check. It will keep trying.');
+        setLoadError('ORIN could not refresh this check. It will keep trying.');
         timer = setTimeout(tick, REVIEW_POLL_MS * 2);
       }
     };
@@ -130,8 +130,8 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
     if (reviewId && review && !['queued', 'prepared', 'running'].includes(review.status) && findingsLoadedFor.current === null) return;
     const summary = checkProblemSummary(result);
     if (check.phase === 'done') {
-      if (!check.problemRisk && summary.problemRisk && check.problemCount === summary.problemCount) {
-        updateCheck(check.id, { problemRisk: summary.problemRisk });
+      if (check.problemCount === summary.problemCount && (check.highProblemCount !== summary.highProblemCount || check.problemRisk !== summary.problemRisk)) {
+        updateCheck(check.id, summary);
       }
       return;
     }
