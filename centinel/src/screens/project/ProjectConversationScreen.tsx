@@ -1,25 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bookmark, BookmarkCheck, Check, ChevronDown, ChevronRight, RotateCcw, Search, Wrench, FileText, Globe, Info, LoaderCircle, MonitorCheck, Pencil, Play, Plus, Save, ShieldCheck, TriangleAlert, Undo2, X } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from '../../autotest/types';
-import { isActive, TEST_KIND_LABEL } from '../../autotest/types';
+import { isActive } from '../../autotest/types';
 import { stageHeadline } from '../../autotest/presentation';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { browserProblem, type CheckProblem } from '../../check/result';
-import { addNote, isPinned, looksLikeAccount, pinTest, setMode, setSideOpen, unpinTest, updatePrefs, useProjectPrefs } from '../../check/projectPrefs';
+import { addNote, isPinned, pinTest, setMode, setSideOpen, unpinTest, useProjectPrefs } from '../../check/projectPrefs';
 import { useLatestResult, type LatestResult } from '../../check/latestResult';
 import { useCheckData } from '../../check/useCheckData';
 import { checkName } from '../../check/checkName';
-import type { CheckRecord } from '../../check/types';
 import { startCheck } from '../../check/runner';
-import { useChecks } from '../../check/store';
-import { type CheckMode, type StartCheckInput } from '../../check/types';
+import { saveCheck, useChecks } from '../../check/store';
+import { type CheckMode, type CheckRecord, type StartCheckInput } from '../../check/types';
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import type { Artifact, Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from '../check/BrowserTiles';
+import { StartupQuestionDialog } from '../check/StartupQuestionDialog';
 import { InlineText } from '../check/CheckScreen';
 import '../check/Check.css';
 import { CheckActionLabel, CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from '../check/CheckProjectWorkspace';
@@ -27,7 +27,9 @@ import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
-import { eligibleReplySource, readConversationDraft, replyExcerpt, useConversationRequests, writeConversationDraft } from '../../check/conversation';
+import { eligibleReplySource, readConversationDraft, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
+import { ConversationQuestion } from './ConversationQuestion';
+import { ConversationFailure, conversationFailureDetails } from './ConversationFailure';
 import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
 import './ProjectConversation.css';
 
@@ -69,6 +71,14 @@ export function friendlyError(message: string): string {
 
 function conversational(session: AutoTestSession) {
   return !!session.request || session.planning === false;
+}
+
+const browserTurnCheckId = (session: AutoTestSession) => 'browser-turn-' + session.id;
+
+function browserTurnCheck(session: AutoTestSession, projectName: string): CheckRecord {
+  return { id: browserTurnCheckId(session), projectId: session.projectId, projectName, autoTestId: session.id,
+    mode: 'browser', phase: 'running', title: session.tests.length === 1 ? session.tests[0].name : 'Browser check',
+    createdAt: session.createdAt, updatedAt: session.updatedAt, documents: [], notes: [], focus: '' };
 }
 
 /** The plain result sentence for one finished test, from its saved verdict and checks only. */
@@ -123,13 +133,10 @@ export function turnActivities(session: AutoTestSession): Activity[] {
     for (const page of session.exploration.pages.slice(0, 8)) prep.push({ icon: Search, text: <>Looked at <span className="ck-mono">{page.path}</span>: {page.controls} control{page.controls === 1 ? '' : 's'}</> });
     done.push(`looked at ${session.exploration.pages.length} page${session.exploration.pages.length === 1 ? '' : 's'}`);
   }
-  const written = session.tests.filter(test => !test.kind);
-  if (written.length && session.planning !== false) {
-    for (const test of written) prep.push({ icon: Pencil, text: <>Wrote <b>{test.name}</b></> });
-    done.push(`wrote ${written.length} test${written.length === 1 ? '' : 's'}`);
+  if (session.tests.length && session.planning !== false) {
+    for (const test of session.tests) prep.push({ icon: Pencil, text: <>Wrote <b>{test.name}</b></> });
+    done.push(`wrote ${session.tests.length} test${session.tests.length === 1 ? '' : 's'}`);
   }
-  const fixed = session.tests.filter(test => test.kind);
-  if (fixed.length) done.push(`added ${joinList(fixed.map(test => TEST_KIND_LABEL[test.kind!].toLowerCase()))} test${fixed.length === 1 ? '' : 's'}`);
   if (session.planning === false && session.tests.length) done.push(`loaded ${session.tests.length} saved test${session.tests.length === 1 ? '' : 's'}`);
   for (const item of session.dropped) prep.push({ icon: Info, text: `Left out “${item.name}”: ${item.reason}` });
   const preparing = active && ['reading', 'starting', 'exploring', 'planning'].includes(session.stage);
@@ -244,7 +251,7 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
       {finished.map(test => {
         const ref = { sessionId: session.id, testId: test.id, name: test.name };
         const pinned = isPinned(prefs, ref);
-        const reusable = !!test.controls?.length;
+        const reusable = !!test.controls && test.checks.length > 0;
         if (!test.runId && !reusable) return null;
         return (
           <div key={test.id} className="pc-actions pc-turn-actions" role="group" aria-label={`Actions for ${test.name}`}>
@@ -275,9 +282,13 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const [loaded, setLoaded] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [base, setBase] = useState<(AutoTestRef & { name: string }) | null>(null);
+  const [composerVersion, setComposerVersion] = useState(0);
   const [pending, setPending] = useState<Pending | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissedFailures, setDismissedFailures] = useState<string[]>([]);
+  const [openedFailureId, setOpenedFailureId] = useState<string>();
+  const chatCardsRef = useRef<HTMLDivElement>(null);
   const [driveAttention, setDriveAttention] = useState<{ projectId: string; status: string } | null>(null);
   useEffect(() => {
     let current = true;
@@ -313,23 +324,27 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     return () => { active = false; clearTimeout(timer); };
   }, [refresh, anyActive]);
 
-  const loadArtifacts = useCallback(() => {
-    api.listArtifacts(project.id).then(setArtifacts).catch(() => undefined);
+  const loadArtifacts = useCallback(async () => {
+    try { setArtifacts(await api.listArtifacts(project.id)); } catch { /* Keep the last complete source list visible. */ }
   }, [project.id]);
-  useEffect(() => { loadArtifacts(); }, [loadArtifacts]);
-  // Bumped to reopen the composer with a draft written by the side panel's Run it again.
-  const [composerVersion, setComposerVersion] = useState(0);
+  useEffect(() => { void loadArtifacts(); }, [loadArtifacts]);
 
   const timeline = useMemo(() => {
-    const turns = sessions.filter(session => conversational(session) && !checks.some(check => check.autoTestId === session.id)).map(session => ({ at: session.createdAt, key: `s:${session.id}`, session }));
+    const turns = sessions.filter(session => conversational(session)
+      && !checks.some(check => check.autoTestId === session.id && check.id !== browserTurnCheckId(session)))
+      .map(session => ({ at: session.createdAt, key: `s:${session.id}`, session,
+        browserCard: session.tests.length ? checks.find(check => check.id === browserTurnCheckId(session)) ?? browserTurnCheck(session, project.name) : null }));
     const notes = prefs.notes.map(note => ({ at: note.at, key: `n:${note.id}`, note }));
-    const cards = checks.map(check => ({ at: check.createdAt, key: 'c:' + check.id, check }));
+    const browserCardsInTurns = new Set(turns.map(turn => turn.browserCard?.id));
+    const cards = checks.filter(check => !browserCardsInTurns.has(check.id)).map(check => ({ at: check.createdAt, key: 'c:' + check.id, check }));
     const requests = conversationRequests.records.map(request => ({ at: request.createdAt, key: 'r:' + request.id, request }));
     return [...turns, ...notes, ...cards, ...requests].sort((a, b) => a.at.localeCompare(b.at));
-  }, [sessions, prefs.notes, checks, conversationRequests.records]);
+  }, [sessions, prefs.notes, checks, conversationRequests.records, project.name]);
   const last = timeline[timeline.length - 1];
+  const latestAction = timeline.filter(item => !('note' in item)).at(-1);
   // Follow the newest reply as it grows (stage, tests and their results), not only new messages.
-  const lastSignature = last ? `${last.key}:${'session' in last ? `${last.session.stage}:${last.session.reply ?? ''}:${last.session.tests.map(test => test.state).join(',')}` : ''}` : '';
+  const lastSignature = last ? `${last.key}:${'session' in last ? `${last.session.stage}:${last.session.reply ?? ''}:${last.session.tests.map(test => test.state).join(',')}`
+    : 'request' in last ? `${last.request.state}:${last.request.reply?.length ?? 0}:${last.request.selectedOption ?? ''}` : ''}` : '';
   useEffect(() => {
     if (!loaded || !conversationRequests.loaded) return;
     if (!initializedScroll.current) {
@@ -357,8 +372,8 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     setError(null);
     try {
       const session = 'rerun' in job
-        ? await api.startAutoTest(project.id, { rerun: job.rerun.map(({ sessionId, testId }) => ({ sessionId, testId })), lanes: 1 })
-        : await api.startAutoTest(project.id, { request: job.text, ...(job.base ? { base: { sessionId: job.base.sessionId, testId: job.base.testId } } : {}), lanes: 1 });
+        ? await api.startAutoTest(project.id, { rerun: job.rerun.map(({ sessionId, testId }) => ({ sessionId, testId })), lanes: 1, startupPermission: prefs.mode })
+        : await api.startAutoTest(project.id, { request: job.text, ...(job.base ? { base: { sessionId: job.base.sessionId, testId: job.base.testId } } : {}), lanes: 1, startupPermission: prefs.mode });
       setSessions(current => [session, ...current.filter(item => item.id !== session.id)]);
     } catch (cause) {
       addNote(project.id, userFacingError(cause, 'ORIN could not start that. Try again.'));
@@ -377,10 +392,6 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   };
 
   const send = (request: StartCheckInput) => {
-    if (looksLikeAccount(request.focus) && !prefs.accountReminderShown) {
-      updatePrefs(project.id, current => ({ ...current, accountReminderShown: true }));
-      addNote(project.id, 'The AI will see this account. Use test accounts only.');
-    }
     const hasAttachments = request.documents.length || request.referenceCheckIds?.length || request.sourceArtifactIds?.length;
     submit({ text: request.focus, base, checkMode: request.mode,
       checkInput: !base && (request.mode !== 'browser' || hasAttachments) ? request : undefined });
@@ -393,44 +404,76 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   };
 
   const latest = useLatestResult(project.id, sessions);
+  const savedChecks = sessions.filter(session => session.tests.length).map(session => browserTurnCheck(session, project.name));
+  if (latest.review) savedChecks.unshift({
+    id: 'saved-review-' + latest.review.id, projectId: project.id, projectName: project.name, title: latest.review.name,
+    mode: 'code', phase: 'done', reviewId: latest.review.id, createdAt: latest.review.createdAt, updatedAt: latest.review.updatedAt,
+    documents: [], notes: [], focus: '',
+  });
   const [sideChoice, setSideChoice] = useState<boolean | null>(null);
   const sideOpen = sideChoice ?? false;
-  // A check card's View focuses the panel on that check; closing the panel returns it to the latest check.
-  const [focusCheckId, setFocusCheckId] = useState<string | null>(null);
-  const toggleSide = (open: boolean) => { setSideChoice(open); setSideOpen(project.id, open); if (!open) setFocusCheckId(null); };
-  const focusCheck = focusCheckId ? checks.find(check => check.id === focusCheckId) : undefined;
-  const focusData = useCheckData(focusCheck);
-  const panelLatest: LatestResult = focusCheck && focusData ? {
-    review: focusData.review, autoTest: focusData.autoTest, requirements: focusData.requirements, findings: focusData.findings,
-    result: focusData.requirementsState === 'unavailable' ? { ...focusData.result, requirements: null } : focusData.result,
-    at: focusCheck.finishedAt ?? focusCheck.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
-  } : latest;
+  const [focusCheck, setFocusCheck] = useState<CheckRecord | null>(null);
+  const focusData = useCheckData(focusCheck ?? undefined);
+  const panelLatest: LatestResult = focusCheck
+    ? focusData ? {
+      review: focusData.review, autoTest: focusData.autoTest, requirements: focusData.requirements, findings: focusData.findings,
+      result: focusData.requirementsState === 'unavailable' ? { ...focusData.result, requirements: null } : focusData.result,
+      at: focusCheck.finishedAt ?? focusCheck.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
+    } : { ...latest, loading: true }
+    : latest;
+  const panelCheckId = focusCheck?.id ?? checks.find(check =>
+    panelLatest.review && check.reviewId === panelLatest.review.id
+      || panelLatest.autoTest && check.autoTestId === panelLatest.autoTest.id)?.id;
+  const toggleSide = (open: boolean) => {
+    setSideChoice(open);
+    setSideOpen(project.id, open);
+    if (!open) setFocusCheck(null);
+  };
   const library = useCheckLibrary(project.id);
-  // The project page shows summaries; the full result opens in the expanded side panel, not another page (19 Nov 2026).
   const openLatest = () => toggleSide(true);
-  const openCheck = (check: CheckRecord) => { setFocusCheckId(check.id); toggleSide(true); };
-  // Run it again (side panel): attach the problem to the message, the same as an @ mention, so the
-  // conversation's own verification checks it again in the browser. Nothing is sent until the person sends it.
+  const openCheck = (check: CheckRecord) => {
+    const saved = checks.find(item => item.id === check.id);
+    if (!saved && check.projectId === project.id) saveCheck(check);
+    setFocusCheck(saved ?? check);
+    toggleSide(true);
+  };
   const runAgain = (problem: CheckProblem) => {
     const reference = problem.testRef ? { autoTestId: problem.testRef.sessionId, testId: problem.testRef.testId }
-      : problem.findingId && latest.review ? { reviewId: latest.review.id, findingId: problem.findingId } : null;
+      : problem.findingId && panelLatest.review ? { reviewId: panelLatest.review.id, findingId: problem.findingId } : null;
     const draft = readConversationDraft(project.id);
-    const attached = reference && !draft.problems.some(item => JSON.stringify(item.reference) === JSON.stringify(reference))
+    const problems = reference && !draft.problems.some(item => JSON.stringify(item.reference) === JSON.stringify(reference))
       ? [...draft.problems, { label: problem.title, reference }] : draft.problems;
-    writeConversationDraft(project.id, { ...draft, problems: attached, mode: 'browser',
-      text: draft.text.trim() ? draft.text : reference ? 'Run this again in the browser and check whether the problem still shows.' : `Test again: ${problem.title}` });
-    setBase(null);
-    toggleSide(false);
+    writeConversationDraft(project.id, { ...draft, problems, mode: 'browser',
+      text: draft.text.trim() ? draft.text : 'Run this again in the browser and check whether the problem still shows.' });
     setComposerVersion(value => value + 1);
-    setTimeout(() => inputRef.current?.focus(), 0);
+    toggleSide(false);
+    inputRef.current?.focus({ preventScroll: true });
   };
   const latestCheck = checks[0];
+  const projectCodeFallback = latestCheck?.mode === 'code' && latestCheck.requestedMode === 'both';
   const documents = artifacts.filter(artifact => artifact.source === 'documents');
   const codeFiles = artifacts.filter(artifact => artifact.source === 'repository').length;
   const lastStateOf = (ref: AutoTestRef) => sessions.find(session => session.id === ref.sessionId)?.tests.find(test => test.id === ref.testId)?.state;
 
+  const startupSession = sessions.find(session => !!session.startupQuestion);
+  const latestRequest = latestAction && 'request' in latestAction ? latestAction.request : undefined;
+  const owner = sessionStorage.getItem('centinel:supabase-user-id');
+  const latestOwnedRequest = timeline.filter(item => 'request' in item).map(item => item.request).filter(item => item.ownerId === owner).at(-1);
+  const failure = openedFailureId
+    ? conversationRequests.records.find(item => item.id === openedFailureId && item.ownerId === owner)
+    : latestOwnedRequest && !dismissedFailures.includes(latestOwnedRequest.id) && conversationFailureDetails(latestOwnedRequest) ? latestOwnedRequest : undefined;
+  const question = timeline.filter(item => 'request' in item).map(item => item.request)
+    .filter(item => item.state === 'completed' && item.selectedOption === undefined && item.ownerId === owner
+      && conversationQuestionOptions(item).length > 0).at(-1);
+  const questionOptions = question ? conversationQuestionOptions(question) : [];
+  const questionId = question?.id;
+  const failureId = failure?.id;
+  useEffect(() => {
+    if (questionId || failureId) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+  }, [questionId, failureId]);
   return <>
-    <Modal isOpen={driveAttention?.projectId === project.id} title="Google Drive needs attention"
+    <StartupQuestionDialog session={startupSession} onAnswered={() => void refresh()} />
+    <Modal isOpen={!startupSession && driveAttention?.projectId === project.id} title="Google Drive needs attention"
       onClose={() => setDriveAttention(null)}
       footer={<>
         <button type="button" className="btn-primary" onClick={() => { setDriveAttention(null); onNavigate({ name: 'settings', section: 'connections' }); }}>
@@ -443,22 +486,33 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         : 'This project’s Google Drive sources cannot sync. Connect Google Drive in ORIN to resume syncing.'}</p>
     </Modal>
     <CheckProjectLayout projectHeader expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
-    composer={<CheckFollowUp key={`${historyOwner}:${project.id}:${composerVersion}`} check={{ id: '', projectId: project.id, mode: 'browser' }} projects={projects}
+    composer={<CheckFollowUp key={`${historyOwner}:${project.id}:${composerVersion}`} check={{ id: '', projectId: project.id,
+      mode: projectCodeFallback ? 'code' : 'browser', requestedMode: projectCodeFallback ? 'both' : undefined }} projects={projects}
       onNavigate={onNavigate} available library={library} conversation={{
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
         clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
         replySelection: replySelection?.projectId === project.id && replySelection.ownerId === historyOwner ? replySelection : null,
-        inputRef, sending, send, onFocus: () => setSideChoice(false),
+        inputRef, sending, send, savedChecks, onFocus: () => setSideChoice(false),
+        latestRequest: !pending && latestRequest && (!conversationRequests.error || conversationRequests.directlyRefreshed.includes(latestRequest.id))
+          ? latestRequest : undefined,
         placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
       }} />}
-    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
+    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkId={panelCheckId} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
       artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
       accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} />}>
       <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
           <CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library}
             projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={runFullCheck} disabled={!hasFolder} aria-label="Run a full check"
               title={hasFolder ? 'Run a full check' : 'This project has no folder on this computer'}><Icon icon={Play} shape="play" /><CheckActionLabel>Run a full check</CheckActionLabel></button>} />
+
+          {(failure || question) && <div className="pc-chat-cards" ref={chatCardsRef}>
+            {failure && <ConversationFailure key={failure.id} request={failure} onClose={() => {
+              setDismissedFailures(current => current.includes(failure.id) ? current : [...current, failure.id]);
+              setOpenedFailureId(undefined);
+            }} />}
+            {question && <ConversationQuestion key={question.id} request={question} options={questionOptions} />}
+          </div>}
 
           <div className="pc-thread" aria-live="polite">
             {loaded && conversationRequests.loaded && !checks.length && <div className="pc-turn pc-ai-text pc-intro">
@@ -475,17 +529,22 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
                 {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
                 <ProjectCheckCard check={item.check} onNavigate={onNavigate} onOpen={openCheck} />
               </div>
-              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onNavigate={onNavigate}
-                  replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
-                  onReplyTo={replySources.has(item.request.id) ? () => {
-                    setBase(null);
-                    setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
-                  } : undefined} />
+              : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onOpenFailure={item.request.ownerId === owner ? id => {
+                if (id === failureId) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+                else setOpenedFailureId(id);
+              } : undefined}
+                replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
+                onReplyTo={replySources.has(item.request.id) ? () => {
+                  setBase(null);
+                  setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
+                } : undefined} />
               : 'session' in item
-              ? <SessionTurn key={item.key} session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
+              ? <Fragment key={item.key}><SessionTurn session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}
                   onRerun={ref => submit({ rerun: [ref] })}
                   onCancel={id => { void api.cancelAutoTest(project.id, id).then(() => refresh()).catch(() => undefined); }} />
+                {item.browserCard && <div className="pc-turn"><ProjectCheckCard check={item.browserCard} onNavigate={onNavigate} onOpen={openCheck} /></div>}
+              </Fragment>
               : <p key={item.key} className="pc-note"><Icon icon={Info} />{item.note.text}</p>)}
             {pending && <div className="pc-msg is-me">{'rerun' in pending ? `Run again: ${pending.rerun.map(item => item.name).join(', ')}` : pending.text}</div>}
             {pending && (

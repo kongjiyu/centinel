@@ -21,7 +21,7 @@ vi.mock('../../src/review/openCodebaseIndex.js', () => ({
 import { describeRepositoryIndex, indexFrozenArtifacts, retrieveFrozenContext } from '../../src/review/localRepositoryIndex.js';
 import { syncPublishedRepositoryIndex } from '../../src/review/repositoryIndexSync.js';
 import { selectEvidencePackets } from '../../src/review/evidencePacketSelection.js';
-import { registerVerifiedSourceTexts, verifiedSourceText } from '../../src/review/sourceText.js';
+import { PDF_TEXT_POLICY, registerVerifiedSourceTexts, verifiedSourceText } from '../../src/review/sourceText.js';
 
 const owner = '11111111-1111-4111-8111-111111111111';
 const secondOwner = '22222222-2222-4222-8222-222222222222';
@@ -111,7 +111,7 @@ describe('frozen local repository index integration', () => {
     await indexFrozenArtifacts(storage.client, owner, project, [pdf], undefined, 'pdf-review', reader, cache);
     expect(mocks.index).toHaveBeenCalledOnce();
     const root = mocks.open.mock.calls[0]![0].projectRoot;
-    const staged = (await fs.readdir(root, { recursive: true })).find(name => name.endsWith('.pdfjs-6.4.299-text-v1.txt'));
+    const staged = (await fs.readdir(root, { recursive: true })).find(name => name.endsWith(`.${PDF_TEXT_POLICY}.txt`));
     expect(staged).toBeDefined();
     expect(await fs.readFile(path.join(root, staged!), 'utf8')).toBe(result.text);
   });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import type { AssessmentSourceSegment } from '../../src/review/assessmentBatches.js';
-import { assertReviewPromptWithinContext, buildCandidateSupportPrompt, buildCandidateSupportRepairPrompt, buildCitationRepairPrompt, buildDomainCoverageRepairPrompt, CONTRACT_COMPARISON_INSTRUCTIONS, renderNumberedSource } from '../../src/review/sourcePrompt.js';
+import { assertReviewPromptWithinContext, buildCandidateSupportPrompt, buildCandidateSupportRepairPrompt, buildCitationRepairPrompt, buildDomainCoverageRepairPrompt, CONTRACT_COMPARISON_INSTRUCTIONS, extendCandidateSupportSources, renderNumberedSource } from '../../src/review/sourcePrompt.js';
+import { validateCandidateSupportResponse } from '../../src/review/assessmentValidation.js';
 import { deriveReviewAnalysisMap } from '../../src/review/featurePathAnalysis.js';
 
 const artifact: Artifact = {
@@ -15,6 +16,32 @@ const source: AssessmentSourceSegment = {
 };
 
 describe('source prompt citation reliability', () => {
+  it('supplies an exact window for a related function in a frozen segment larger than the follow-up budget', () => {
+    const caller = { ...source, content: 'return readLabel(value);', lineStart: 10, lineEnd: 10 };
+    const lines = Array.from({ length: 240 }, (_, i) => `// Fixture line ${i} ${'x'.repeat(64)}`);
+    lines[120] = 'export function readLabel(value: string) {';
+    lines[121] = '  return value.trim();';
+    lines[122] = '}';
+    const relatedArtifact = { ...artifact, id: 'related', filePath: 'src/labels.ts', contentHash: 'related-version' };
+    const segment = { ...source, artifact: relatedArtifact, content: lines.join('\n'), lineStart: 200, lineEnd: 439 };
+    expect(segment.content.length).toBeGreaterThan(8_000);
+    const expanded = extendCandidateSupportSources(caller.content, [caller], [caller, segment, segment]);
+    expect(expanded).toHaveLength(2);
+    expect(expanded[1]).toMatchObject({ artifact: relatedArtifact, lineStart: 316, lineEnd: 332, content: lines.slice(116, 133).join('\n') });
+    const candidate = { candidateId: 'label-candidate', finding: { source: 'model' as const, title: 'Label transformation',
+      description: 'The caller delegates the label transformation.', severity: 'info', category: 'technical', filePath: artifact.filePath,
+      lineNumber: 10, evidence: caller.content, recommendation: '', confidence: 'medium', artifactId: artifact.id, sourceVersion: artifact.contentHash } };
+    const prompt = buildCandidateSupportPrompt([candidate], expanded);
+    expect(prompt.prompt).toContain('320 | export function readLabel(value: string) {');
+    expect(prompt.prompt).not.toContain('Fixture line 0 ');
+    const row = { candidateId: candidate.candidateId, claimBoundary: 'selected_call_path', disposition: 'supported',
+      trigger: 'The caller invokes the helper.', consequence: 'The helper trims the label.', limitation: null, authorityReferences: [], references: [
+        { role: 'entry', artifactId: artifact.id, filePath: artifact.filePath, sourceVersion: artifact.contentHash, lineNumber: 10, evidence: caller.content },
+        { role: 'sink', artifactId: relatedArtifact.id, filePath: relatedArtifact.filePath, sourceVersion: relatedArtifact.contentHash, lineNumber: 321, evidence: lines[121] },
+      ] };
+    expect(validateCandidateSupportResponse({ candidates: [row] }, [candidate], [caller]).complete).toBe(false);
+    expect(validateCandidateSupportResponse({ candidates: [row] }, [candidate], expanded).complete).toBe(true);
+  });
   it('limits domain repair hints to trusted features, exact references and safe enums', () => {
     const map = deriveReviewAnalysisMap([{ artifact, content: 'export function inspect() { return true; }' }]);
     const feature = map.features[0];

@@ -10,7 +10,7 @@ const services = [
     try { const health = JSON.parse(body); return health.status === 'ok' && (!health.service || (health.service === 'centinel-sidecar' && path.resolve(health.workspace) === root)); } catch { return false; }
   } },
   { name: 'demo', workspace: true, port: 37702, pathname: '/', args: ['--filter', '@centinel/sidecar', 'demo'], match: body => body.includes('<title>Centinel Demo App</title>') },
-  { name: 'app', workspace: true, port: 1420, pathname: '/', args: ['--filter', 'centinel', 'tauri', 'dev'], match: body => body.includes('/@vite/client') && /<title>Centinel(?:\s|<)/i.test(body) },
+  { name: 'app', workspace: true, port: 1420, pathname: '/', args: ['--filter', 'centinel', 'tauri', 'dev'], match: body => body.includes('/@vite/client') && /<title>(?:ORIN|Centinel)(?:\s|<)/i.test(body) },
 ];
 
 async function belongsToWorkspace(port) {
@@ -41,17 +41,24 @@ async function belongsToWorkspace(port) {
 }
 
 async function hasWorkspaceDesktopApp() {
-  const executable = path.join(root, 'centinel', 'src-tauri', 'target', 'debug', process.platform === 'win32' ? 'centinel.exe' : 'centinel');
+  const debugDirectory = path.join(root, 'centinel', 'src-tauri', 'target', 'debug');
   if (process.platform === 'win32') {
     try {
-      const expected = executable.replace(/'/g, "''");
-      const command = `$expected = [System.IO.Path]::GetFullPath('${expected}'); $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'centinel.exe'" -ErrorAction Stop); $matchingProcesses = $processes | Where-Object { $_.ExecutablePath -and [System.String]::Equals([System.IO.Path]::GetFullPath($_.ExecutablePath), $expected, [System.StringComparison]::OrdinalIgnoreCase) }; if ($matchingProcesses) { 'running' } elseif ($processes | Where-Object { -not $_.ExecutablePath }) { 'unknown' } else { 'stopped' }`;
+      const expected = ['ORIN.exe', 'centinel.exe']
+        .map(name => `'${path.join(debugDirectory, name).replace(/'/g, "''")}'`).join(', ');
+      const command = `
+        $expected = @(${expected})
+        $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'ORIN.exe' OR Name = 'centinel.exe'" -ErrorAction Stop)
+        $matchingProcesses = $processes | Where-Object { $_.ExecutablePath -and [System.IO.Path]::GetFullPath($_.ExecutablePath) -in $expected }
+        if ($matchingProcesses) { 'running' } elseif ($processes | Where-Object { -not $_.ExecutablePath }) { 'unknown' } else { 'stopped' }
+      `;
       const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 10000, windowsHide: true });
       if (stdout.trim() === 'running') return true;
       if (stdout.trim() === 'stopped') return false;
       return null;
     } catch { return null; }
   }
+  const executable = path.join(debugDirectory, 'centinel');
   try {
     const { stdout } = await promisify(execFile)('ps', ['-eo', 'args='], { encoding: 'utf8', timeout: 10000 });
     const commandLines = stdout.split(/\r?\n/);

@@ -1,15 +1,14 @@
-import { readConversationDraft } from '../../check/conversation';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestSession } from '../../autotest/types';
 import { readPrefs, resetProjectPrefs } from '../../check/projectPrefs';
-import { resetCheckStore } from '../../check/store';
+import { resetCheckStore, saveCheck } from '../../check/store';
 import type { Project } from '../../types';
 import { checkSentence, friendlyError, goalSteps, ProjectConversationScreen, testChanges } from './ProjectConversationScreen';
 
-vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), exportProjectReport: vi.fn(), listRequirementCandidates: vi.fn(), updateRequirement: vi.fn(), listConnectedSources: vi.fn(), retryStaticSession: vi.fn() } }));
+vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), autoTest: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), listRequirementCandidates: vi.fn(), updateRequirement: vi.fn(), listConnectedSources: vi.fn(), retryStaticSession: vi.fn(), exportProjectReport: vi.fn(), sendConversationRequest: vi.fn() } }));
 vi.mock('../../components/SourceIndexStatus', () => ({ SourceIndexStatus: () => null }));
 vi.mock('../../autotest/liveStream', () => ({ openLiveStream: vi.fn() }));
 
@@ -40,6 +39,7 @@ describe('project conversation', () => {
     resetProjectPrefs();
     resetCheckStore();
     vi.mocked(api.autoTests).mockResolvedValue([]);
+    vi.mocked(api.autoTest).mockResolvedValue(session());
     vi.mocked(api.listArtifacts).mockResolvedValue([]);
     vi.mocked(api.listStaticSessions).mockResolvedValue([]);
     vi.mocked(api.listStaticFindings).mockResolvedValue([]);
@@ -70,6 +70,28 @@ describe('project conversation', () => {
     expect(screen.queryByRole('dialog', { name: 'Google Drive needs attention' })).not.toBeInTheDocument();
   });
 
+  it('opens a saved Check card in the project side panel without navigating away', async () => {
+    vi.mocked(api.autoTests).mockResolvedValue([session()]);
+    const navigate = renderScreen();
+    const card = within(await screen.findByRole('region', { name: 'Check Two mugs total $24.00' }));
+    expect(card.getByText('Proven in the browser')).toBeInTheDocument();
+    await userEvent.click(card.getByRole('button', { name: 'View' }));
+    expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).toHaveClass('is-open');
+    expect(within(screen.getByRole('complementary', { name: 'What ORIN knows' }))
+      .getByText('Two mugs total $24.00', { selector: '.pc-side-meta' })).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+    expect(screen.getAllByRole('region', { name: 'Check Two mugs total $24.00' })).toHaveLength(1);
+  });
+
+  it('defaults the project composer to Code after the latest combined check falls back', async () => {
+    saveCheck({ id: 'fallback', projectId: project.id, projectName: project.name, title: 'Cypress checkout', mode: 'code', requestedMode: 'both',
+      phase: 'done', createdAt: '2026-11-21T00:01:00Z', updatedAt: '2026-11-21T00:02:00Z', focus: '', notes: [], documents: [] });
+    renderScreen();
+    expect(await screen.findByRole('combobox', { name: 'Check mode' })).toHaveTextContent('Code');
+    expect(screen.getByRole('region', { name: 'Check Cypress checkout' })).toBeInTheDocument();
+  });
+
   it('splits steps, describes checks and diffs a revised test in words', () => {
     expect(goalSteps('1. Open the shop\n2. Click Add')).toEqual(['Open the shop', 'Click Add']);
     expect(goalSteps('Open the shop. Click Add to cart.')).toEqual(['Open the shop.', 'Click Add to cart.']);
@@ -85,8 +107,8 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     renderScreen();
     await user.type(screen.getByLabelText('Message to ORIN'), 'Test that two mugs cost $24.00{Enter}');
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Test that two mugs cost $24.00', lanes: 1 });
-
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Test that two mugs cost $24.00', lanes: 1, startupPermission: 'auto' });
+    expect(api.sendConversationRequest).not.toHaveBeenCalled();
   });
 
   it('collapses the work under "Worked for", shows the result in plain text and keeps actions outside the reply', async () => {
@@ -126,7 +148,7 @@ describe('project conversation', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(readPrefs('p1').pinned).toEqual([]);
     await user.click(screen.getByRole('button', { name: 'Run again' }));
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { rerun: [{ sessionId: session().id, testId: test().id }], lanes: 1 });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { rerun: [{ sessionId: session().id, testId: test().id }], lanes: 1, startupPermission: 'auto' });
   });
 
   it('changes a test by sending the request with that test as its base', async () => {
@@ -136,7 +158,7 @@ describe('project conversation', () => {
     await user.click(await screen.findByRole('button', { name: 'Change it' }));
     expect(screen.getByText('Changing “Two mugs total $24.00”')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Message to ORIN'), 'Also check three mugs{Enter}');
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Also check three mugs', base: { sessionId: session().id, testId: test().id }, lanes: 1 });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Also check three mugs', base: { sessionId: session().id, testId: test().id }, lanes: 1, startupPermission: 'auto' });
   });
 
   it('asks first in Ask first mode, records the mode change and reminds once about accounts', async () => {
@@ -149,7 +171,7 @@ describe('project conversation', () => {
     expect(screen.getByText('The AI will see this account. Use test accounts only.')).toBeInTheDocument();
     expect(api.startAutoTest).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Go ahead' }));
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Use admin@test.com / test123 to check orders', lanes: 1 });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Use admin@test.com / test123 to check orders', lanes: 1, startupPermission: 'ask' });
   });
 
   it('explains that browser tests need a folder when the project has only a GitHub link', async () => {
@@ -175,14 +197,18 @@ describe('project conversation', () => {
       { id: 'f1', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'high', priority: 'high', riskLevel: 'critical', title: 'Orders open without sign-in', description: 'd', status: 'new', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 76 },
       { id: 'f2', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'low', priority: 'low', riskLevel: 'low', title: 'Debug output', description: 'd', status: 'dismissed', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 9 },
     ] as never);
+    saveCheck({ id: 'latest-project-check', projectId: project.id, projectName: project.name, title: 'Current Review', reviewId: 'r1',
+      mode: 'code', phase: 'done', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:00:00.000Z', focus: '', documents: [], notes: [] });
     vi.mocked(api.listRequirements).mockResolvedValue([{ id: 'q1', projectId: 'p1', title: 'REQ-1 Generic sign-in error', description: '', category: '', priority: '', createdAt: '' }]);
     vi.mocked(api.exportProjectReport).mockResolvedValue({ downloads: { pdf: 'https://example.test/report.pdf', markdown: null, json: null } } as never);
     const open = vi.spyOn(globalThis, 'open').mockReturnValue(null);
     const onNavigate = renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
     expect(await within(panel).findByText('1 problem')).toBeInTheDocument();
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
+    expect(within(panel).getByRole('button', { name: 'Open the full result' })).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Open the full result' }));
     expect(within(panel).getByRole('button', { name: 'Back to the conversation' })).toHaveAttribute('aria-expanded', 'true');
+    expect(onNavigate).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox', { name: 'Message to ORIN' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save for every check' })).not.toBeInTheDocument();
     expect(within(panel).getByText('Orders open without sign-in')).toBeInTheDocument();
@@ -191,24 +217,8 @@ describe('project conversation', () => {
     await user.click(within(panel).getByRole('button', { name: 'Download report' }));
     expect(api.exportProjectReport).toHaveBeenCalledWith('p1', { reviewId: 'r1' });
     expect(open).toHaveBeenCalledWith('https://example.test/report.pdf', '_blank', 'noopener');
-    // Problems start as one title row; opening one shows its detail.
-    const issue = within(panel).getByText('Orders open without sign-in').closest('details')!;
-    expect(issue).not.toHaveAttribute('open');
-    await user.click(within(issue).getByText('Orders open without sign-in'));
-    expect(issue).toHaveAttribute('open');
-    expect(within(issue).getByText('Behavior issue')).toBeInTheDocument();
-    // Everything is here, so there is no link to the older Review page; a finished review is not held for approval.
-    expect(within(panel).queryByRole('button', { name: 'Open Review page' })).not.toBeInTheDocument();
-    expect(within(panel).getByText('Completed')).toBeInTheDocument();
-    expect(onNavigate).not.toHaveBeenCalled();
-    // Requirements are edited in place.
-    vi.mocked(api.updateRequirement).mockResolvedValue({} as never);
-    await user.click(within(panel).getByRole('button', { name: 'Edit REQ-1 Generic sign-in error' }));
-    const title = within(panel).getByLabelText('Requirement');
-    await user.clear(title);
-    await user.type(title, 'REQ-1 Same message for any sign-in error');
-    await user.click(within(panel).getByRole('button', { name: 'Save' }));
-    expect(api.updateRequirement).toHaveBeenCalledWith('p1', 'q1', { title: 'REQ-1 Same message for any sign-in error', description: '' });
+    await user.click(within(panel).getByRole('button', { name: 'Open full Check' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'check', checkId: 'latest-project-check' });
     await user.keyboard('{Escape}');
     expect(readPrefs('p1').sideOpen).toBe(false);
     expect(within(panel).queryByRole('heading', { name: 'Requirements' })).not.toBeInTheDocument();
@@ -228,39 +238,5 @@ describe('project conversation', () => {
     await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
     expect(await within(panel).findByText('Browser tests · 1 of 2 failed')).toBeInTheDocument();
     expect(within(panel).getByTitle('Sign in works: passed')).toBeInTheDocument();
-  });
-
-  it('hands a failed browser test from the panel to the conversation, ready to send', async () => {
-    const user = userEvent.setup();
-    const full = session({ id: '55555555-5555-4555-8555-555555555555', request: undefined, tests: [test()] } as never);
-    const chat = session({ tests: [test({ id: 't-chat', name: 'Coupon works', state: 'passed' })] });
-    vi.mocked(api.autoTests).mockResolvedValue([full, chat]);
-    vi.mocked(api.startAutoTest).mockResolvedValue(session({ id: 'next' } as never));
-    renderScreen();
-    const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
-    // A test the person was changing before is let go, so the message cannot change the wrong test.
-    await user.click(within(panel).getByRole('button', { name: 'Back to the conversation' }));
-    await user.click(await screen.findByRole('button', { name: 'Change it' }));
-    expect(screen.getByText('Changing “Coupon works”')).toBeInTheDocument();
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
-    const issue = (await within(panel).findAllByText(test().name)).map(node => node.closest('details')).find(Boolean)!;
-    await user.click(within(issue).getAllByText(test().name)[0]);
-    await user.click(within(issue).getByRole('button', { name: 'Run it again' }));
-    expect(readPrefs('p1').sideOpen).toBe(false);
-    // The problem is attached to the message like an @ mention; nothing is sent yet.
-    expect(await screen.findByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('Run this again in the browser and check whether the problem still shows.');
-    expect(readConversationDraft('p1').problems).toEqual([{ label: test().name, reference: { autoTestId: full.id, testId: test().id } }]);
-    expect(screen.queryByText('Changing “Coupon works”')).not.toBeInTheDocument();
-    expect(api.startAutoTest).not.toHaveBeenCalled();
-  });
-
-  it('says there are no requirements when no document lists them', async () => {
-    const user = userEvent.setup();
-    renderScreen();
-    const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
-    expect(await within(panel).findByText('No document lists requirements, so there are none. Add a document under Sources.')).toBeInTheDocument();
-    expect(within(panel).getByRole('button', { name: 'Add documents' })).toBeInTheDocument();
   });
 });

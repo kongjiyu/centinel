@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
@@ -9,7 +9,7 @@ import { CheckScreen, formatDuration, formatElapsed } from './CheckScreen';
 vi.mock('../../api/client', () => ({
   api: {
     getStaticSession: vi.fn(), listStaticFindings: vi.fn(), getReviewHarness: vi.fn(), autoTest: vi.fn(), listRequirements: vi.fn(),
-    cancelStaticSession: vi.fn(), cancelAutoTest: vi.fn(), exportProjectReport: vi.fn(),
+    cancelStaticSession: vi.fn(), cancelAutoTest: vi.fn(), startAutoTest: vi.fn(), answerAutoTestStartup: vi.fn(), exportProjectReport: vi.fn(),
   },
 }));
 vi.mock('../../autotest/liveStream', () => ({ openLiveStream: vi.fn() }));
@@ -30,6 +30,7 @@ const finding = { id: 'f1', projectId: 'p1', sessionId: 'r1', source: 'static', 
 
 describe('Check screen', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     resetCheckStore();
     vi.mocked(api.listRequirements).mockResolvedValue([]);
     vi.mocked(api.getReviewHarness).mockResolvedValue(null as never);
@@ -65,6 +66,34 @@ describe('Check screen', () => {
     expect(api.cancelAutoTest).toHaveBeenCalledWith('p1', 'a1');
   });
 
+  it('adds validated code and browser findings as polling returns new evidence', async () => {
+    vi.useFakeTimers();
+    try {
+      saveCheck(record());
+      vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('running') as never);
+      const issue = { title: 'Orders check is incomplete', filePath: 'server.js', lineNumber: 76 };
+      const event = { reviewId: 'r1', event: 'review_live_finding_titles', createdAt: '' };
+      vi.mocked(api.getReviewHarness)
+        .mockResolvedValueOnce({ events: [{ ...event, detail: { issues: [issue], provisional: true } }], analysisMap: null } as never)
+        .mockResolvedValue({ events: [{ ...event, detail: { issues: [issue, issue] } }], analysisMap: null } as never);
+      vi.mocked(api.autoTest)
+        .mockResolvedValueOnce(autoSession('testing', []) as never)
+        .mockResolvedValue(autoSession('testing', [failedTest, { ...failedTest, id: 't2', name: 'Other journey', state: 'blocked', reason: 'Typing into this control was not approved.' }]) as never);
+      await act(async () => { render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />); });
+      const code = within(screen.getByRole('region', { name: 'Found in the code' }));
+      const browser = within(screen.getByRole('region', { name: 'Proving in the browser' }));
+      expect(code.queryByText(issue.title)).not.toBeInTheDocument();
+      expect(browser.queryByRole('heading', { name: /Found in the browser/ })).not.toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      expect(code.getByText(issue.title)).toHaveTextContent('server.js:76');
+      expect(code.getByText('· 1')).toBeInTheDocument();
+      expect(browser.getByRole('heading', { name: 'Found in the browser · 1' })).toBeInTheDocument();
+      expect(browser.getByText('Typing into this control was not approved.')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows the saved pause reason while the browser lane is still live', async () => {
     saveCheck(record());
     vi.mocked(api.getStaticSession).mockResolvedValue({
@@ -89,7 +118,53 @@ describe('Check screen', () => {
     render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
     expect(await screen.findByText('Browser check blocked before startup')).toBeInTheDocument();
     expect(screen.getByText('The app stopped while starting (exit code 1).')).toBeInTheDocument();
-    expect(screen.getByText('The app did not start.')).toBeInTheDocument();
+    expect(await screen.findByText('This check switched to Code only.')).toBeInTheDocument();
+    expect(getCheck('c1')).toMatchObject({ mode: 'code', requestedMode: 'both', phase: 'running', reviewId: 'r1', autoTestId: 'a1' });
+    expect(api.cancelStaticSession).not.toHaveBeenCalled();
+  });
+
+  it('pauses a browser-only check after a startup failure and keeps manual retry available', async () => {
+    saveCheck(record({ mode: 'browser', reviewId: undefined, folder: 'C:/work/shop' }));
+    vi.mocked(api.autoTest).mockImplementation(async (_, id) => (id === 'a1'
+      ? { ...autoSession('failed', []), error: { reason: 'tool_missing', message: 'Python is missing.' } }
+      : { ...autoSession('starting', []), id }) as never);
+    vi.mocked(api.startAutoTest).mockResolvedValue({ ...autoSession('starting', []), id: 'a2' } as never);
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+    expect(await screen.findByRole('heading', { name: 'The check is paused.' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry browser startup' }));
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { folder: 'C:/work/shop', startupPermission: 'auto' });
+    expect(getCheck('c1')).toMatchObject({ autoTestId: 'a2', phase: 'running' });
+  });
+
+  it('retries an interrupted browser lane without restarting the code review', async () => {
+    saveCheck(record({ folder: 'C:/work/shop' }));
+    vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('running') as never);
+    vi.mocked(api.autoTest).mockImplementation(async (_, id) => (id === 'a1'
+      ? { ...autoSession('failed', []), launch: { url: 'http://localhost:3000' }, error: { reason: 'interrupted', message: 'The browser run was interrupted.' } }
+      : { ...autoSession('starting', []), id }) as never);
+    vi.mocked(api.startAutoTest).mockResolvedValue({ ...autoSession('starting', []), id: 'a2' } as never);
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Retry browser tests' }));
+    expect(api.startAutoTest).toHaveBeenCalledExactlyOnceWith('p1', { folder: 'C:/work/shop', startupPermission: 'auto' });
+    expect(getCheck('c1')).toMatchObject({ autoTestId: 'a2', phase: 'running', reviewId: 'r1', mode: 'both' });
+    expect(api.cancelStaticSession).not.toHaveBeenCalled();
+  });
+
+  it('shows the discovered command and sends the selected startup answer', async () => {
+    saveCheck(record());
+    vi.mocked(api.getStaticSession).mockResolvedValue(reviewSession('running') as never);
+    vi.mocked(api.autoTest).mockResolvedValue({ ...autoSession('starting', []),
+      startupQuestion: { id: 'q1', command: 'npm ci', packages: ['vite', 'react'], packageCount: 2 },
+    } as never);
+    vi.mocked(api.answerAutoTestStartup).mockResolvedValue({ accepted: true });
+    render(<CheckScreen checkId="c1" onNavigate={vi.fn()} />);
+    const dialog = within(await screen.findByRole('dialog', { name: 'Install dependencies to start the app?' }));
+    expect(dialog.getByText(/npm ci/)).toHaveTextContent('vite react');
+    expect(dialog.getByRole('radio', { name: /recommended/ })).toBeChecked();
+    await userEvent.click(dialog.getByRole('radio', { name: 'Pause browser testing' }));
+    await userEvent.click(dialog.getByRole('button', { name: 'Continue' }));
+    expect(api.answerAutoTestStartup).toHaveBeenCalledWith('p1', 'a1', 'q1', 'skip');
+    expect(getCheck('c1')).toMatchObject({ phase: 'running', reviewId: 'r1' });
   });
 
   it('switches to Result when both parts finish, opens the top problem and records the outcome', async () => {

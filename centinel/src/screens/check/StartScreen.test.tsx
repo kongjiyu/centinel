@@ -157,7 +157,7 @@ describe('Start screen', () => {
     await user.click(screen.getByRole('combobox', { name: 'Check mode' }));
     await user.click(screen.getByRole('option', { name: 'Browser' }));
     await user.click(screen.getByRole('button', { name: 'Conduct the Check' }));
-    expect(startCheck).toHaveBeenCalledWith({ projectId: 'saved-1', documents: [], focus: '', mode: 'browser' });
+    expect(startCheck).toHaveBeenCalledWith({ projectId: 'saved-1', documents: [], focus: '', mode: 'browser', startupPermission: 'auto' });
   });
 
   it('opens project creation from the project dropdown without losing the draft', async () => {

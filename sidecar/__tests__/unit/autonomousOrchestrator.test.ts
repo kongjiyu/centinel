@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DiscoveryResult } from '../../src/dynamic/environment/controlDiscovery.js';
 import type { EnvironmentProfile } from '../../src/dynamic/environment/types.js';
 import type { DynamicRun, MissionInput } from '../../src/dynamic/types.js';
-import type { LaunchedApp } from '../../src/dynamic/autonomous/launcher.js';
+import { LaunchError, type LaunchedApp } from '../../src/dynamic/autonomous/launcher.js';
 import { buildPlanPrompt, knownSelectors, validatePlan, type AutoTestPreset, type AutoTestRequest } from '../../src/dynamic/autonomous/planner.js';
 import { newAutoTestSession, presetFromEntry, runAutoTest, scanPaths, type AutoTestDeps, type AutoTestSession } from '../../src/dynamic/autonomous/orchestrator.js';
 import { handleAutoTestRoute, AutoTestRuntime } from '../../src/dynamic/autonomous/routes.js';
@@ -62,6 +62,12 @@ describe('Auto test planner validation', () => {
     expect(plan.dropped.at(-1)?.reason).toBe('Duplicate test name.');
   });
 
+  it('drops a plan whose required permissions would be incomplete', () => {
+    const plan = validatePlan({ tests: [signInTest({ controls: [{ selector: '#email', actions: ['type'] }, { selector: '#missing', actions: ['click'] }] })] }, ctx);
+    expect(plan.tests).toEqual([]);
+    expect(plan.dropped[0]?.reason).toMatch(/control or action was unavailable/);
+  });
+
   it('turns relative URL checks into app URLs and never trusts missing plans', () => {
     const plan = validatePlan({ tests: [signInTest({ checks: [{ kind: 'url', description: 'Lands on orders', expected: '/orders', selector: null }] })] }, ctx);
     expect(plan.tests[0].mission.checks[0]).toMatchObject({ kind: 'url', expected: 'http://localhost:5000/orders' });
@@ -72,7 +78,6 @@ describe('Auto test planner validation', () => {
     expect(scanPaths(digest({ routes: [...digest().routes, { method: 'GET', path: '/products/:id', kind: 'server', file: 's', line: 1 }, { method: 'GET', path: '/about', kind: 'server', file: 's', line: 2 }] }))).toEqual(['/orders', '/about']);
   });
 });
-
 type Fake = { deps: AutoTestDeps; launches: Array<{ recipeId?: string; port?: number }>; stopped: number[]; runs: Map<string, DynamicRun>; saved: AutoTestSession[]; data: string[]; missions: MissionInput[] };
 function fakes(options: { verdicts?: string[]; tests?: number; persistence?: boolean; portHonored?: boolean; failLaunch?: boolean } = {}): Fake {
   let port = 6000;
@@ -185,7 +190,7 @@ describe('Auto test orchestrator', () => {
     const fake = fakes();
     fake.deps.generate = async () => ({ tests: [signInTest({ controls: [{ selector: '#nope', actions: ['click'] }] })] });
     const session = await runAutoTest(newAutoTestSession({ id: 'e'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo', suite: NO_SUITE }), fake.deps, new AbortController().signal);
-    expect(session).toMatchObject({ stage: 'failed', dropped: [{ reason: 'Used controls Centinel did not find in the app.' }] });
+    expect(session).toMatchObject({ stage: 'failed', dropped: [{ reason: 'A required control or action was unavailable or duplicated.' }] });
     expect(fake.stopped).toHaveLength(1);
   });
 
@@ -207,6 +212,37 @@ describe('Auto test routes', () => {
     { method, pathname, readBody: async () => body },
     { ownerId: 'u', store: new MemoryAutoTestStore(), runtime: new AutoTestRuntime(), requireMember: async () => undefined, defaultFolder: async () => process.cwd(), createDeps: async () => fakes().deps, ...extra },
   );
+
+  it.each(['ask', 'auto'] as const)('publishes an owner-only startup question and accepts one matching answer in %s mode', async startupPermission => {
+    const store = new MemoryAutoTestStore();
+    const runtime = new AutoTestRuntime();
+    const fake = fakes({ tests: 1 });
+    const installed = vi.fn();
+    const launch = fake.deps.launch;
+    fake.deps.launch = async input => {
+      if (!await input.approveInstall?.({ command: 'npm ci', packages: ['vite'], packageCount: 1 })) throw new LaunchError('install_declined', 'Installation paused');
+      installed();
+      return launch(input);
+    };
+    const root = `/projects/${PROJECT}/dynamic/autonomous`;
+    const deps = { store, runtime, createDeps: async () => ({ ...fake.deps, save: (session: AutoTestSession) => store.save(session) }) };
+    const started = await route('POST', root, { startupPermission, lanes: 1 }, deps) as { status: number; body: AutoTestSession };
+    const url = `${root}/${started.body.id}`;
+    try {
+      const question = await vi.waitFor(async () => {
+        const current = await route('GET', url, {}, deps) as { body: AutoTestSession };
+        expect(current.body.startupQuestion).toMatchObject({ command: 'npm ci', packages: ['vite'] });
+        return current.body.startupQuestion!;
+      });
+      expect(installed).not.toHaveBeenCalled();
+      expect((await route('GET', url, {}, { ...deps, ownerId: 'other' }) as { body: AutoTestSession }).body.startupQuestion).toBeUndefined();
+      expect(await route('POST', `${url}/startup-answer`, { questionId: question.id, choice: 'install' }, { ...deps, ownerId: 'other' })).toMatchObject({ status: 403 });
+      expect(await route('POST', `${url}/startup-answer`, { questionId: 'stale', choice: 'install' }, deps)).toMatchObject({ status: 409 });
+      expect(await route('POST', `${url}/startup-answer`, { questionId: question.id, choice: 'install' }, deps)).toMatchObject({ status: 202 });
+      expect(await route('POST', `${url}/startup-answer`, { questionId: question.id, choice: 'install' }, deps)).toMatchObject({ status: 409 });
+      await vi.waitFor(() => expect(installed).toHaveBeenCalledOnce());
+    } finally { await runtime.stopAll(); }
+  });
 
   it('rejects non-members before anything else, including the live stream', async () => {
     const requireMember = vi.fn(async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); });
@@ -304,6 +340,42 @@ describe('Auto test from the project conversation', () => {
     expect(fake.missions[0].checks[0]).toMatchObject({ expected: `${new URL(fake.missions[0].targetUrl).origin}/login` });
   });
 
+  it('reruns saved assertion-only tests without adding fixed suite tests', async () => {
+    const entry: Parameters<typeof presetFromEntry>[0] = {
+      id: 'assertion-only', name: 'Welcome page appears', goal: 'Check the current page.', rationale: '', requirementRef: null,
+      sourceRefs: [], checks: [{ id: 'c1', criterionId: 'REQ-1', description: 'Welcome text appears.', required: true, kind: 'visible_text', expected: 'Welcome' }],
+      startPath: '/', state: 'failed', controls: [],
+    };
+    const preset = presetFromEntry(entry);
+    expect(preset).toMatchObject({ name: entry.name, controls: [] });
+    if (!preset) throw new Error('Assertion-only saved test was not reusable.');
+    for (const kind of ['smoke', 'exploratory', 'usability', 'unit'] as const) {
+      expect(presetFromEntry({ ...entry, kind })).toBeNull();
+    }
+
+    const fake = fakes();
+    const generate = vi.fn(fake.deps.generate);
+    const discover = vi.fn(fake.deps.discover);
+    fake.deps.generate = generate;
+    fake.deps.discover = discover;
+    const policies: unknown[] = [];
+    const saveEnvironment = fake.deps.saveEnvironment;
+    fake.deps.saveEnvironment = async (environment, id) => {
+      policies.push(environment.actionPolicy);
+      return saveEnvironment(environment, id);
+    };
+    const session = await runAutoTest(newAutoTestSession({ id: '5b'.repeat(18), projectId: PROJECT, ownerId: 'u', folder: '/repo', lanes: 1, presets: [preset], planning: false }), fake.deps, new AbortController().signal);
+
+    expect(session.stage).toBe('completed');
+    expect(session.suite).toBeUndefined();
+    expect(session.tests.map(test => test.name)).toEqual([entry.name]);
+    expect(session.tests[0].controls).toEqual([]);
+    expect(fake.missions[0].checks).toMatchObject([{ kind: 'visible_text', expected: 'Welcome' }]);
+    expect(policies[0]).toMatchObject({ interactions: [] });
+    expect(discover).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it('validates conversation requests and loads the test being changed', async () => {
     const store = new MemoryAutoTestStore(); const runtime = new AutoTestRuntime();
     const earlier = newAutoTestSession({ id: '66666666-6666-4666-8666-666666666666', projectId: PROJECT, ownerId: 'u', folder: '/repo', request: request('Use admin@test.com / test123') });
@@ -391,6 +463,7 @@ describe('Full check fixed tests (smoke, exploratory, usability)', () => {
     expect(fake.missions.find(mission => mission.usability)?.usability).toMatchObject({ persona: 'first_time', rules: ['labels', 'keyboard', 'focus'] });
     expect(explain).not.toHaveBeenCalled();
     expect(presetFromEntry(usability)).toBeNull();
+    expect(session.tests.filter(test => test.kind).every(test => presetFromEntry(test) === null)).toBe(true);
     expect(session.summary).toMatchObject({ passed: 2, failed: 2 });
     expect(session.summary?.limitations.join(' ')).toMatch(/Exploration is bounded/);
   });
@@ -531,4 +604,3 @@ describe('Covering more of the app (19 Nov 2026)', () => {
     expect(prompt).toContain('Say exactly how many times to press each control');
   });
 });
-

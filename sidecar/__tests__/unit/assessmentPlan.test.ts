@@ -37,6 +37,19 @@ describe('complete assessment preplanning', () => {
     expect(map.features).toHaveLength(2048);
     expect(plan.map.coverage.syntaxFeatureCount).toBe(2047);
   });
+  it('packs independent files together while preserving each complete text unit and source sweep', () => {
+    const evidence = Array.from({ length: 9 }, (_, index) => {
+      const name = `worker${index}.py`;
+      const item = source(`def worker${index}():\n    return ${index}`);
+      return { ...item, artifact: { ...item.artifact, id: name, fileName: name, filePath: `src/${name}` } };
+    });
+    const plan = prepareAssessmentPlan(deriveReviewAnalysisMap(evidence), evidence);
+    const featureBatches = plan.batches.filter(batch => batch.features.length);
+    expect(featureBatches.map(batch => batch.features.length)).toEqual([4, 4, 1]);
+    expect(featureBatches.flatMap(batch => batch.sources.map(segment => segment.content))).toEqual(evidence.map(item => item.content));
+    expect(plan.batches.filter(batch => !batch.features.length).flatMap(batch => batch.sources.map(segment => segment.artifact.id)))
+      .toEqual(evidence.map(item => item.artifact.id));
+  });
   it('retains the intact syntax map separately when bounded source text replaces oversized operation context', () => {
     const evidence = [source(Array.from({ length: 2048 }, (_, i) => `export function operation${i}() { return ${i}; }`).join('\n'))];
     const map = deriveReviewAnalysisMap(evidence);

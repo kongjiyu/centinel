@@ -55,6 +55,24 @@ describe('check result', () => {
     expect(browserProblem(test()).marks).toEqual(['browser']);
   });
 
+  it('allows saved assertion-only tests to replay but keeps fixed suite tests out of replay', () => {
+    const assertionOnly = test({ id: 'assertion-only', controls: [] });
+    const fixed = test({ id: 'fixed', kind: 'smoke', controls: [], smoke: { pages: [{ path: '/', status: 500, ok: false, problem: 'The page answered with HTTP 500.' }] } });
+    const result = buildCheckResult({ check: check(), review: review(), findings: [], autoTest: session([assertionOnly, fixed]), requirements: [] });
+    expect(result.proven.map(problem => problem.testRef?.reusable)).toEqual([true, false]);
+  });
+
+  it('keeps an earlier browser startup failure visible after falling back to Code', () => {
+    const result = buildCheckResult({
+      check: check({ mode: 'code', autoTestId: undefined, notes: ['Browser tests did not start: the browser test service was not available.'] }),
+      review: review(), findings: [], autoTest: null, requirements: [],
+    });
+    expect(result.codeState).toBe('done');
+    expect(result.browserState).toBe('not_requested');
+    expect(result.browserGaps).toEqual(['Browser tests did not start: the browser test service was not available.']);
+    expect(result.verdict).toBe('The check finished with gaps.');
+  });
+
   it('replaces the runner note with plain words and keeps real page text', () => {
     expect(browserProblem(test()).browserChecks).toEqual([{ expected: 'The generic message is shown.', observed: 'This was not shown on the page.' }]);
     const shown = browserProblem(test({ checkResults: [{ checkId: 'k1', criterionId: 'REQ-1', verdict: 'failed', observed: 'No account uses this email.', reason: '', evidenceIds: [] }] }));

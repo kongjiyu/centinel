@@ -24,6 +24,7 @@ export type LaunchRecipe = {
   appTarget?: string;
   /** Dependencies must be installed before start (node_modules missing). */
   needsInstall: boolean;
+  packages?: string[];
   /** How the assigned port reaches the app. 'none' = we detect it from output. */
   portStrategy: 'env' | 'args' | 'none';
   /** Higher is preferred. */
@@ -84,7 +85,6 @@ function nodeFramework(manifest: Manifest, scriptCommand: string): Framework {
   return 'node';
 }
 
-const hasDependencies = (manifest: Manifest) => Object.keys(manifest.dependencies ?? {}).length + Object.keys(manifest.devDependencies ?? {}).length > 0;
 const SERVER_SOURCE = /\b(createServer|\.listen\s*\(|express\s*\(|fastify\s*\(|new\s+Koa\s*\()/;
 /** "node server.js" style scripts run with ORIN's own Node runtime, no package manager. */
 const PLAIN_NODE_SCRIPT = /^node\s+(\.\/)?([\w./-]+\.(?:c|m)?js)$/;
@@ -92,7 +92,9 @@ const PLAIN_NODE_SCRIPT = /^node\s+(\.\/)?([\w./-]+\.(?:c|m)?js)$/;
 function detectNode(folder: string, manifest: Manifest): LaunchRecipe[] {
   const recipes: LaunchRecipe[] = [];
   const pm = lockfilePackageManager(folder);
-  const needsInstall = hasDependencies(manifest) && !fs.existsSync(path.join(folder, 'node_modules'));
+  const packages = [...new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})])]
+    .filter(name => /^(?:@[a-z\d._-]+\/)?[a-z\d._-]+$/i.test(name) && !name.split('/').some(part => part === '.' || part === '..')).sort();
+  const needsInstall = packages.some(name => !fs.existsSync(path.join(folder, 'node_modules', name)));
   const scripts = Object.entries(manifest.scripts ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
   for (const [name, command] of scripts) {
     const rank = SCRIPT_PREFERENCE.indexOf(name);
@@ -102,18 +104,23 @@ function detectNode(folder: string, manifest: Manifest): LaunchRecipe[] {
     if (plain && exists(folder, plain[2])) {
       recipes.push({
         id: `node-entry:${plain[2]}`, kind: 'node_entry', framework: nodeFramework(manifest, trimmed),
-        label: `node ${plain[2]}`, entry: plain[2], needsInstall, portStrategy: 'env', score: 90 - rank,
+        label: `node ${plain[2]}`, entry: plain[2], needsInstall, packages, portStrategy: 'env', score: 90 - rank,
       });
       continue;
     }
     const framework = nodeFramework(manifest, trimmed);
+    const directVite = /^(?:vite|(?:npx|pnpm exec|yarn exec)\s+vite)(?:\s|$)/.test(trimmed);
+    const parallelVite = framework === 'vite' && /\bconcurrently\b/.test(trimmed);
+    const devScript = manifest.scripts?.dev;
+    const equivalentWithoutWatch = name === 'start' && parallelVite && typeof devScript === 'string'
+      && devScript.trim() !== trimmed && devScript.trim().replace(/:watch(?=\s|$)/g, '') === trimmed;
     // Production-only scripts need a build first; prefer development servers.
     const productionOnly = framework === 'next' && /\bnext\s+start\b/.test(trimmed);
     recipes.push({
       id: `node-script:${name}`, kind: 'node_script', framework, label: `${pm} run ${name}`,
-      packageManager: pm, script: name, needsInstall,
-      portStrategy: framework === 'vite' ? 'args' : 'env',
-      score: (productionOnly ? 40 : 80) - rank,
+      packageManager: pm, script: name, needsInstall, packages,
+      portStrategy: directVite ? 'args' : parallelVite ? 'none' : 'env',
+      score: equivalentWithoutWatch ? 81 : (productionOnly ? 40 : 80) - rank,
     });
   }
   if (!recipes.length) {
@@ -121,7 +128,7 @@ function detectNode(folder: string, manifest: Manifest): LaunchRecipe[] {
     for (const candidate of [main, 'server.js', 'index.js', 'app.js', 'src/server.js', 'src/index.js'].filter((value): value is string => !!value)) {
       const source = readText(folder, candidate);
       if (source && SERVER_SOURCE.test(source)) {
-        recipes.push({ id: `node-entry:${candidate}`, kind: 'node_entry', framework: nodeFramework(manifest, ''), label: `node ${candidate}`, entry: candidate, needsInstall, portStrategy: 'env', score: 60 });
+        recipes.push({ id: `node-entry:${candidate}`, kind: 'node_entry', framework: nodeFramework(manifest, ''), label: `node ${candidate}`, entry: candidate, needsInstall, packages, portStrategy: 'env', score: 60 });
         break;
       }
     }

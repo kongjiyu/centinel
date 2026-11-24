@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CentinelApplicationRepository } from '../../src/applicationRepository.js';
+import { ApplicationRepositoryError, type CentinelApplicationRepository } from '../../src/applicationRepository.js';
 import { importLocalRepositoryArtifacts, inspectLocalRepository } from '../../src/applicationApi.js';
 
 const temporaryDirectories: string[] = [];
@@ -105,6 +105,8 @@ describe('importLocalRepositoryArtifacts readiness coverage', () => {
 
     expect(result.imported).toHaveLength(3);
     expect(result.skipped).toEqual(['asset.bin']);
+    expect(result.complete).toBe(true);
+    expect(result.failures).toEqual([]);
     expect(test.artifacts.map(artifact => artifact.path).sort()).toEqual([
       'config/tsconfig.json', 'package.json', 'src/auth.ts',
     ]);
@@ -140,6 +142,19 @@ describe('importLocalRepositoryArtifacts readiness coverage', () => {
     expect(auditPayload).not.toContain('src/auth.ts');
     expect(auditPayload).not.toContain('asset.bin');
     expect(auditPayload).not.toContain('source-body-must-not-be-audit-data');
+  });
+
+  it('distinguishes a supported file that could not reach Storage from unsupported assets', async () => {
+    const root = await createLocalRepository();
+    const test = fakeRepository();
+    test.uploadArtifactVersion.mockRejectedValueOnce(new ApplicationRepositoryError('Internal storage message', 'artifact_upload_failed', 502));
+
+    const result = await importLocalRepositoryArtifacts(test.repository, 'project-1', root);
+
+    expect(result.complete).toBe(false);
+    expect(result.skipped).toContain('asset.bin');
+    expect(result.failures).toEqual([{ filePath: 'package.json', reason: 'storage_upload_failed' }]);
+    expect(JSON.stringify(result)).not.toContain('Internal storage message');
   });
 
   it('throws a generic retryable error when the coverage event cannot be persisted', async () => {

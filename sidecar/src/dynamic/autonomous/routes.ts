@@ -11,15 +11,39 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 /** Auto test sessions running in this sidecar process. */
 export class AutoTestRuntime {
   private readonly active = new Map<string, { controller: AbortController; done: Promise<AutoTestSession>; projectId: string }>();
+  private readonly installDecisions = new Map<string, { id: string; finish(approved: boolean): void }>();
   isActive(id: string) { return this.active.has(id); }
   activeFor(projectId: string) { return [...this.active.entries()].find(([, entry]) => entry.projectId === projectId)?.[0] ?? null; }
   start(session: AutoTestSession, deps: AutoTestDeps) {
+    if (this.activeFor(session.projectId)) throw new DynamicContractError(409, 'An Auto test is already running for this project. Wait for it or cancel it first.');
     const controller = new AbortController();
-    const done = runAutoTest(session, deps, controller.signal).finally(() => this.active.delete(session.id));
+    const waitForInstallDecision: NonNullable<AutoTestDeps['waitForInstallDecision']> = (question, signal) => new Promise(resolve => {
+      const finish = (approved: boolean) => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', cancel);
+        this.installDecisions.delete(session.id);
+        resolve(approved);
+      };
+      const cancel = () => finish(false);
+      const timer = setTimeout(cancel, 15 * 60_000);
+      this.installDecisions.set(session.id, { id: question.id, finish });
+      signal.addEventListener('abort', cancel, { once: true });
+      if (signal.aborted) cancel();
+    });
+    const done = runAutoTest(session, { ...deps, waitForInstallDecision }, controller.signal).finally(() => {
+      this.installDecisions.get(session.id)?.finish(false);
+      this.active.delete(session.id);
+    });
     this.active.set(session.id, { controller, done, projectId: session.projectId });
     return done;
   }
   cancel(id: string) { this.active.get(id)?.controller.abort(); return this.active.get(id)?.done; }
+  answerInstall(id: string, questionId: string, approved: boolean) {
+    const question = this.installDecisions.get(id);
+    if (question?.id !== questionId) return false;
+    question.finish(approved);
+    return true;
+  }
   async stopAll() { const all = [...this.active.values()]; all.forEach(entry => entry.controller.abort()); await Promise.allSettled(all.map(entry => entry.done)); }
 }
 export const autoTestRuntime = new AutoTestRuntime();
@@ -70,27 +94,35 @@ function validFolder(value: unknown): string {
  * fixed recipe table and generated tests run without a review step.
  */
 export async function handleAutoTestRoute(request: { method: string; pathname: string; readBody(): Promise<Record<string, unknown>> }, deps: AutoTestRouteDeps): Promise<AutoTestRouteResult | null> {
-  const match = request.pathname.match(/^\/projects\/([a-f0-9-]+)\/dynamic\/autonomous(?:\/([a-f0-9-]{36}))?(?:\/(cancel|live))?$/);
+  const match = request.pathname.match(/^\/projects\/([a-f0-9-]+)\/dynamic\/autonomous(?:\/([a-f0-9-]{36}))?(?:\/(cancel|live|startup-answer))?$/);
   if (!match) return null;
   const [, projectId, id, action] = match;
   await deps.requireMember(projectId);
   const runtime = deps.runtime ?? autoTestRuntime;
+  const visible = (session: AutoTestSession) => {
+    if (session.ownerId === deps.ownerId || !session.startupQuestion) return session;
+    const { startupQuestion: _question, ...rest } = session;
+    return rest;
+  };
   /** A session left running by a sidecar that has since restarted cannot continue. */
   const reconcile = async (session: AutoTestSession) => {
     if (TERMINAL.has(session.stage) || runtime.isActive(session.id) || session.ownerId !== deps.ownerId) return session;
     const stopped: AutoTestSession = { ...session, stage: 'failed', updatedAt: new Date().toISOString(), error: { reason: 'interrupted', message: 'ORIN restarted while this Auto test was running. Start it again.' },
       tests: session.tests.map(test => test.state === 'queued' || test.state === 'running' ? { ...test, state: 'not_tested' as const } : test),
       lanes: session.lanes.map(lane => ({ ...lane, state: 'stopped' as const, currentTestId: null })) };
+    delete stopped.startupQuestion;
     await deps.store.save(stopped);
     return stopped;
   };
   try {
     if (!id && !action && request.method === 'GET') {
       const sessions = await deps.store.list(projectId, HISTORY_SESSIONS);
-      return { status: 200, body: await Promise.all(sessions.map(reconcile)) };
+      return { status: 200, body: (await Promise.all(sessions.map(reconcile))).map(visible) };
     }
     if (!id && !action && request.method === 'POST') {
       const body = await request.readBody();
+      const permission = body.startupPermission;
+      if (permission !== undefined && permission !== 'ask' && permission !== 'auto' && permission !== 'bypass') throw new DynamicContractError(400, 'Choose a valid startup permission mode.');
       const folder = validFolder(body.folder ?? await deps.defaultFolder(projectId));
       const lanes = body.lanes === undefined ? undefined : Number(body.lanes);
       if (lanes !== undefined && (!Number.isInteger(lanes) || lanes < 1 || lanes > MAX_LANES)) throw new DynamicContractError(400, `Run between 1 and ${MAX_LANES} tests at once.`);
@@ -118,7 +150,7 @@ export async function handleAutoTestRoute(request: { method: string; pathname: s
       }
       const presets = await Promise.all([...rerun, ...pinned].map(loadPreset));
       const conversational = typed !== null || rerun.length > 0;
-      const session = newAutoTestSession({ id: crypto.randomUUID(), projectId, ownerId: deps.ownerId, folder, lanes: lanes ?? (conversational ? 1 : undefined), request: typed, presets, planning: rerun.length ? false : undefined });
+      const session = newAutoTestSession({ id: crypto.randomUUID(), projectId, ownerId: deps.ownerId, folder, lanes: lanes ?? (conversational ? 1 : undefined), request: typed, presets, planning: rerun.length ? false : undefined, startupPermission: permission });
       await deps.store.save(session);
       const sideEffects = await deps.createDeps(projectId, session);
       void runtime.start(session, sideEffects).catch(() => undefined);
@@ -127,11 +159,20 @@ export async function handleAutoTestRoute(request: { method: string; pathname: s
     if (!id) return { status: 405, body: { error: 'Unsupported Auto test operation.' } };
     const stored = await deps.store.get(projectId, id);
     if (!stored) throw new DynamicContractError(404, 'Auto test not found.');
-    if (!action && request.method === 'GET') return { status: 200, body: await reconcile(stored) };
+    if (!action && request.method === 'GET') return { status: 200, body: visible(await reconcile(stored)) };
     if (action === 'cancel' && request.method === 'POST') {
       if (stored.ownerId !== deps.ownerId) throw new DynamicContractError(409, 'Only the person who started this Auto test can cancel it.');
       const finished = await runtime.cancel(id);
       return { status: 200, body: finished ?? await reconcile(stored) };
+    }
+    if (action === 'startup-answer' && request.method === 'POST') {
+      if (stored.ownerId !== deps.ownerId) return { status: 403, body: { error: 'Only the person who started this browser check can approve startup.' } };
+      const { questionId, choice } = await request.readBody();
+      if (typeof questionId !== 'string' || (choice !== 'install' && choice !== 'retry' && choice !== 'skip' && choice !== 'custom')) throw new DynamicContractError(400, 'Choose a startup answer.');
+      const question = stored.startupQuestion;
+      if (question?.id !== questionId || choice === 'install' && question.manualSetup || choice === 'retry' && !question.manualSetup
+        || !runtime.answerInstall(id, questionId, choice === 'install' || choice === 'retry')) throw new DynamicContractError(409, 'This startup question or answer is no longer active.');
+      return { status: 202, body: { accepted: true } };
     }
     if (action === 'live' && request.method === 'GET') return { live: { projectId, sessionId: id } };
     return { status: 405, body: { error: 'Unsupported Auto test operation.' } };

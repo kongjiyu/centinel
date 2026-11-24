@@ -1,1 +1,1 @@
-export type { ConversationInput, ConversationReference, ConversationRequest } from '../../../sidecar/src/conversation/types';
+export type { ConversationInput, ConversationReference, ConversationRequest, SavedConversationExplanation } from '../../../sidecar/src/conversation/types';

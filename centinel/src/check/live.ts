@@ -7,15 +7,15 @@ import type { StaticSession } from '../types';
  * harness journal (DESIGN.md §4.2). Nothing here is estimated: the file line is
  * the file of the batch the Review reported starting (review_assessment_batch_started),
  * or, for older Reviews without that event, the entry file of the next planned
- * batch that has not finished. Titles are the validated problem titles the
- * Review recorded while running.
+ * batch that has not finished. Live problems come from the Review's validated
+ * finding events, including locations when the event provides them.
  */
 export type ReviewLiveView = {
   stageLabel: string;
   currentFiles: string[];
   batchesDone: number;
   batchesTotal: number | null;
-  titles: string[];
+  problems: Array<{ key: string; title: string; location: string | null }>;
 };
 
 /** Model analysis runs documents, then behaviours, then remaining files (assessmentPhase). */
@@ -51,9 +51,10 @@ export function reviewLiveView(review: StaticSession | null, trace: ReviewHarnes
   const events = trace?.events ?? [];
   let planned: PlannedBatch[] = [];
   const finished = new Set<string>();
-  const titles: string[] = [];
+  const problems = new Map<string, ReviewLiveView['problems'][number]>();
   let started: { batchId: string; filePath: string | null } | null = null;
   for (const event of events) {
+    if (event.reviewId !== review?.id) continue;
     const detail = event.detail ?? {};
     if (event.event === 'review_batches_planned' && Array.isArray(detail.batches)) {
       planned = (detail.batches as unknown[]).flatMap(raw => {
@@ -64,8 +65,21 @@ export function reviewLiveView(review: StaticSession | null, trace: ReviewHarnes
       started = { batchId: detail.batchId, filePath: typeof detail.filePath === 'string' && detail.filePath ? detail.filePath : null };
     } else if (['review_analysis_batch_saved', 'review_analysis_batch_unverified', 'review_batch_cache_reused'].includes(event.event) && typeof detail.batchId === 'string') {
       finished.add(detail.batchId);
-    } else if (event.event === 'review_live_finding_titles' && Array.isArray(detail.titles)) {
-      for (const title of detail.titles) if (typeof title === 'string' && title.trim() && !titles.includes(title.trim())) titles.push(title.trim());
+    } else if (event.event === 'review_live_finding_titles' && detail.provisional !== true) {
+      const rows: unknown[] = Array.isArray(detail.issues) ? detail.issues
+        : Array.isArray(detail.titles) ? detail.titles.map(title => ({ title })) : [];
+      for (const row of rows) {
+        if (!row || typeof row !== 'object') continue;
+        const issue = row as { title?: unknown; filePath?: unknown; lineNumber?: unknown };
+        if (typeof issue.title !== 'string' || !issue.title.trim()) continue;
+        const title = issue.title.trim();
+        const location = typeof issue.filePath === 'string' && issue.filePath.trim()
+          ? [issue.filePath, typeof issue.lineNumber === 'number' && Number.isSafeInteger(issue.lineNumber) && issue.lineNumber > 0
+            ? issue.lineNumber : null].filter(part => part !== null).join(':')
+          : null;
+        const key = JSON.stringify([title, location]);
+        problems.set(key, { key, title, location });
+      }
     }
   }
   const features = new Map((trace?.analysisMap?.features ?? []).map(feature => [feature.id, feature]));
@@ -78,6 +92,6 @@ export function reviewLiveView(review: StaticSession | null, trace: ReviewHarnes
     currentFiles: running ? currentFiles : [],
     batchesDone: planned.filter(batch => finished.has(batch.id)).length,
     batchesTotal: planned.length || null,
-    titles,
+    problems: [...problems.values()],
   };
 }

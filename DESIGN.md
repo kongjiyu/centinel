@@ -122,12 +122,13 @@ Layout, top to bottom:
 - Up to four live browser tiles on a light, translucent stage (§8). Each tile looks like a real browser window: a bar with three dots, a globe and the address, and "Browser N" at the right; then the live picture with a Centinel-drawn cursor; then a one-line caption, with an icon, of the current action ("Clicking **Sign in**").
 - A tile that is proving a problem has a 2 px ring and a soft shadow in its lane colour, the same colour as that problem's status, so the eye connects the two. Other tiles have a plain border. Colour is never the only link: the status names the browser number and the tile shows the same number.
 - One tile can be enlarged; Esc returns to the grid.
+- Validated code findings and failed browser assertions update their respective counts and lists while the check runs. A blocked browser test shows its reason under the test name.
 
 Rules:
 
 - Problems appear while the check runs. A long code review must never leave the screen unchanged for minutes; the current file line and elapsed time always move.
 - If only one kind of check runs, its column takes the full width.
-- If the app cannot be started, the browser column says so in one sentence with the reason. The code review continues.
+- If browser startup needs an install, Ask first and Auto show a questionnaire with the detected command, declared packages, a recommended answer, and an optional custom note. Bypass uses the detected recipe directly. A missing runtime or package manager can be set up manually and retried. The code review continues while browser startup waits or pauses. If browser startup fails, a combined check and its composer switch to Code only. A browser-only check stays paused with a manual retry action. When a combined check's browser lane is interrupted after startup, Retry browser tests starts a new browser run on the same check and preserves the code review.
 - A pause (for example the AI provider's limit) replaces the stage highlight with **Paused**, one sentence of explanation, and **Resume**. Nothing resumes by itself.
 - Leaving the screen does not stop the check. A compact progress item stays in the sidebar and returns here.
 - When the check ends, the screen moves to Result by itself. If the person is elsewhere, show one toast.
@@ -135,7 +136,7 @@ Rules:
 
 ### 4.3 Result
 
-The Check header stays at the top of the response card. A notice near the top shows the saved reason when code review is paused or blocked, or when browser startup fails. Long check names pan on hover or focus. A folder icon returns to the project conversation and shows the project name on hover. Duration, problems, history, and export appear in that order in a blurred toolbar at 60% surface opacity. Duration is the default visible label for a completed check. Hovering or focusing an item expands its label as the previous label collapses.
+The Check header stays at the top of the response card. A notice near the top shows the saved reason when code review is paused or blocked, or when browser startup fails. Long check names pan on hover or focus. A folder icon returns to the project conversation and shows the project name on hover. Duration, problems, history, and export appear in that order in a blurred toolbar at 60% surface opacity. Duration is the default visible label for a completed check. Hover or keyboard focus expands the item's label. The previous label closes faster, and a stationary pointer keeps its active label while the toolbar resizes.
 
 Add Document opens the native file chooser from each composer. Dragging files over the page displays a drop indicator across the workspace. Project and Check composers offer Add Repository directly and omit empty check or problem sections.
 
@@ -190,6 +191,20 @@ A completed Check card offers Ask, and each saved problem offers Ask about this 
 
 Project and each Check keep separate drafts with their attachments. A message sent from Check appears in the Project conversation while the Project composer restores its own draft. User messages align right and occupy up to 60% of the conversation width. Agent responses use the full width.
 
+An explicit module Review sent in Browser mode switches the composer to Code after the request is saved. The mode control shows a brief outline and announces the change. Reduced motion uses a steady outline. Under Ask first, “proceed” or “go ahead” approves the latest saved plan shown in the conversation through the same revision check as **Run this scope**. “Proceed with Code only first” approves only a waiting Code plan with no Browser attempt. If that plan is missing, ask for the folder or files to review.
+
+Show a clarification with choices in a card at the top of the chat container. The composer and other controls remain available. After the person selects an option and it is saved, show the question and the chosen answer in the original conversation turn. Answer later collapses the card and leaves the question available at the top of chat. Open-ended clarification stays in the conversation.
+
+Selecting Code review only continues an explicitly requested module Review on the same turn. Show its current file scope for approval. When scope or the intended result is unclear, ask for the missing detail in the current conversation. An older saved Code choice can be continued from its turn.
+
+Show the newest response failure in a non-blocking card at the top of chat. Explain what stopped in plain language and give a next step based on the saved failure stage or reason. The original turn keeps its evidence and a control to reopen the error.
+
+During local harness assessment, an opt-in **Harness trace** disclosure appears on the request owner's evidence-backed conversation turns. It shows counts and saved stage timings for context, selected action, and child execution. It contains only allowlisted stage labels and metadata counts.
+
+An explanation of an attached check or problem cites the saved record and labels missing historical evidence. If Browser cannot start for a combined request, ORIN can switch to Code only when the same attached evidence identifies the source scope. Ask first requests a fresh approval for that scope. The Browser attempt remains visible as a coverage gap.
+
+Show attachments on the sent message. Keep explanations and evidence in the conversation. Show the saved Code excerpt, Browser assertion results and available snapshots before the generated answer to the user's question. Use Markdown tables for comparable information such as project modules and bullets for distinct points. Older turns can load evidence in place. Label a frozen source window separately when the original cited excerpt cannot be verified.
+
 **Job:** let a person test and change a project by talking to ORIN, instead of filling in forms.
 
 Opening a project shows a conversation with ORIN, not tabs of settings. The user approved this direction on 13 November 2026.
@@ -201,7 +216,7 @@ Layout:
 3. **The message input** at the bottom, styled like the check input on Start, with the permission mode beside it (§4.5).
 4. **A side panel** (no title; accessible name "What ORIN knows"). Collapsed (the default) it is a 280 px column with the latest check only: the problem count, how many were proven in the browser, the Browser, Code and Not met numbers, every problem with its risk icon, and Open the full result. A two-corner button at its top right (corners out; corners in to return) expands it over the whole conversation area, titled with the project name, with Download report beside the button, and Retry the code review when the latest review stopped or Run a full check otherwise. Expanded it shows what the Review page shows, plus the browser's proof: the review's own summary (when saved); problems grouped as Proven in the browser, then the Review page's categories (Document, Security, Behavior, Human manual, System); and the latest full check's browser tests. Each problem starts as one title row with its risk; opening it shows its category and behavior, the saved code with the cited lines highlighted in yellow and labelled "Highlighted: where the problem is" (the Review page's source view; the panel does not use its green), the issue overview and what to do, or for browser proof what was expected, what the page showed, the labelled AI explanation and Run it again. Run it again closes the panel and puts the saved test in the message box ("Run “…” again"); the person sends it, or types how to change it. The review state sits beside the project name and four risk counts (Critical, High, Medium, Low) open the panel. A right column shows the review scope, duration, files reviewed and time, then requirements, sources, saved browser tests, how the app is tested and past checks. Requirements come only from the project's documents: requirements the model reads from a document are listed as Found in your documents with Keep and Drop, kept ones can be edited or removed, and with no document the panel says there are none. Sources can be added (documents, which are then read for requirements), synced (folder or GitHub), resumed when source search is paused, and removed after a confirm. A finished review is not held for approval, and problems are not decided by hand: the AI's own source-change comparison resolves them. Expanding grows the panel from its column in 220 ms with the standard easing while the conversation fades out; the expanded content fades in once after 180 ms; reduced motion switches instantly. While expanded the conversation cannot be reached; the button or Esc returns to it. Whether it is open is kept per project on this device. Below 960 px the panel sits above the conversation at full width and expands to replace it. Apart from managing sources and requirements, it only reads. To change a test, say it.
 
-Each compact check card shows the name, the browser, code and requirement figures, and an **unchecked** disclosure beside the name when the result lists coverage gaps. The count represents the listed coverage entries. **Export** saves a Markdown summary of that check's saved evidence. **View** opens the full result in the expanded side panel. Both actions sit as icons at the right of the title row above the measurements. Their labels expand on hover or keyboard focus.
+Each compact check card shows the name and start time, with the check mode beneath them and the applicable mode and requirement figures below. Browser-only and Code-only checks show their respective mode count, including in the expanded result. Standalone Browser runs with saved tests show the Check card beside their conversation results and replay actions. **Unchecked**, **Export**, and **View** sit at the right of the title row. Their labels expand on hover or keyboard focus. **Unchecked** shows the listed coverage gaps and their count. **Export** saves a Markdown summary of the saved evidence. **View** focuses that check in the expanded project side panel. The expanded panel also offers an action to open the dedicated Check screen.
 
 What a message can do (step 1: browser tests):
 
@@ -218,6 +233,8 @@ Rules:
 - Test accounts may be filled by the AI: those in the project's seed, fixture or demo files, those it registers on the local app, and those the person types in the conversation. They are used only on local addresses, only in this project. The first time a person types an account, ORIN adds one line: "The AI will see this account. Use test accounts only."
 - Every action that ran without asking leaves a **Done** card with **Undo**.
 - The conversation is saved with the project. The tabbed project screen is retired. Project details and editing are available from the sidebar’s project options.
+- ORIN uses a bounded set of recent completed turns for ordinary follow-ups. **Reply to** uses the selected reply as the conversation reference. Ask directly for the missing context when the reference is ambiguous. The current request and its verified evidence determine what can run.
+- Explanations and saved source excerpts appear inside the conversation. Clarification choices and response errors appear in non-blocking containers above the conversation. When a person selects an option, the question and answer appear in the conversation and the scoped request continues under the selected permission mode.
 - Settings that do not fit a sentence (before/after commands, file upload and download permissions) stay under Details for now.
 
 ### 4.5 Permission modes
@@ -652,6 +669,12 @@ Before accepting a screen:
 
 Decision log (user-approved unless noted):
 
+- 2026-11-21 (user request): Keep the Check card for single-mode runs and show counts only for the modes included (§4.4).
+
+- 2026-11-21 (user request): Add a temporary development-only harness trace to evidence-backed conversation turns (§4.4).
+
+- 2026-11-20 (user request): Keep code review independent of browser setup. Show approval for dependency setup in Ask first and Auto. Render frozen PDFs for the configured vision provider and present page coverage separately from code and browser findings.
+- 2026-11-19 (user request): Show the check start time and mode on compact cards. Place the unchecked disclosure before Export and View in the shared action group.
 - 2026-11-18 (user decisions): Keep composers on Project and Check, place compact check cards in the Project conversation, and expand them through View. Support @ checks and problems for explanations, suggested fixes and scoped checks/browser tests. Follow the harness contract's acceptance criteria before accepting the feature.
 - 2026-11-18 (user request): Match the GitHub repository chooser across New Check, Project and Check. Keep the shared composer aligned to the response during transitions.
 - 2026-11-18 (user request): Keep independent drafts for Project and each Check. Align user messages right at up to 60% width and give agent responses the full width.
@@ -737,3 +760,4 @@ Decision log (user-approved unless noted):
   - Steps are numbered circles on a thin rail, one line each, with the page as a small muted chip. A quiet image button sits at the right.
   - The stopped step and a failed check sit in a soft danger card with a "Stopped here" or "Failed here" tag.
   - Screenshots, including the problem's Screenshot button, open in place in a viewer. It covers the window, steps through the run with ‹ › or the arrow keys, and ends on the page the check saw. It never navigates to another page.
+- 2026-11-24 (user decision): Keep recent conversation context and explicit **Reply to**. Check card **View** focuses the project side panel, which offers a separate action to open the dedicated Check screen. Conversation answers and evidence stay in the chat.

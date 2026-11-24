@@ -41,7 +41,7 @@ ${secrets ? '- type_secret: {"action":"type_secret","elementRef":"e0","variable"
 - type: {"action":"type","targetDescription":"...","text":"...","elementRef":"e0","reasoning":"..."} or a unique selector
 - select_option: {"action":"select_option","elementRef":"e0","value":"...","reasoning":"..."}
 - set_checked: {"action":"set_checked","elementRef":"e0","checked":true,"reasoning":"..."}
-- press_key: {"action":"press_key","key":"Enter","reasoning":"..."}
+- press_key: {"action":"press_key","key":"${policy ? 'Tab' : 'Enter'}","reasoning":"..."}${policy ? ' Use an explicitly approved click to submit a form.' : ''}
 - scroll: {"action":"scroll","direction":"down","amount":"medium","reasoning":"..."}
 - wait: {"action":"wait","milliseconds":2000,"reasoning":"..."}
 - navigate: {"action":"navigate","url":"...","reasoning":"..."}

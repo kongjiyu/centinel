@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Download, LayoutList, LoaderCircle, Lock, MonitorCheck, Play, RotateCcw, TriangleAlert, X, Globe, ShieldCheck } from 'lucide-react';
+import { Check, Download, LayoutList, LoaderCircle, Lock, MonitorCheck, Play, RotateCcw, SquareChartGantt, TriangleAlert, X, Globe, ShieldCheck } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestRef } from '../../autotest/types';
 import { checkProblemSummary } from '../../check/result';
@@ -27,11 +27,11 @@ const DAY: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
  * Expanded over the conversation: risk counts, every problem with its evidence, requirements and sources
  * to manage, saved tests, how it is tested and checks. Everything is read from saved records.
  */
-export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, artifacts, onSourcesChanged, codeFiles, pinned, lastStateOf, mode, accountGiven, checks, onNavigate, onRunFullCheck, onRunAgain, checkLabel, onOpenCheck }: {
+export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, artifacts, onSourcesChanged, codeFiles, pinned, lastStateOf, mode, accountGiven, checks, onNavigate, onRunFullCheck, onRunAgain, checkId, checkLabel, onOpenCheck }: {
   project: Project; latest: LatestResult; onOpen(): void; open: boolean; onToggle(): void;
   artifacts: Artifact[]; onSourcesChanged(): void; codeFiles: number; pinned: ReturnType<typeof useProjectPrefs>['pinned'];
   lastStateOf(ref: AutoTestRef): string | undefined; mode: PermissionMode; accountGiven: boolean;
-  checks: ReturnType<typeof useChecks>; onNavigate: Navigate; onRunFullCheck?(): void; onRunAgain?(problem: CheckProblem): void; checkLabel?: string;
+  checks: ReturnType<typeof useChecks>; onNavigate: Navigate; onRunFullCheck?(): void; onRunAgain?(problem: CheckProblem): void; checkId?: string; checkLabel?: string;
   /** Opens a saved check in this panel instead of on its own page. */
   onOpenCheck?(check: ReturnType<typeof useChecks>[number]): void;
 }) {
@@ -110,6 +110,9 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
           {open && <span className="pc-side-meta">{latestLabel}</span>}
         </div>
         <div className="pc-side-actions">
+          {open && checkId && <button type="button" className="ck-button is-small" onClick={() => onNavigate({ name: 'check', checkId })}>
+            <Icon icon={SquareChartGantt} />Open full Check
+          </button>}
           {open && reviewDone && <button type="button" className="ck-button is-primary is-small" onClick={() => void download()} disabled={exporting}><Icon icon={Download} />{exporting ? 'Creating report…' : 'Download report'}</button>}
           {open && retryable && <button type="button" className="ck-button is-small" onClick={() => void retry()} disabled={retrying}><Icon icon={RotateCcw} />{retrying ? 'Starting…' : 'Retry the code review'}</button>}
           {open && !retryable && hasFolder && onRunFullCheck && <button type="button" className="ck-button is-small" onClick={onRunFullCheck} disabled={running}><Icon icon={Play} shape="play" />Run a full check</button>}

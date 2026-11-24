@@ -111,6 +111,29 @@ describe('source-event indexing lifecycle', () => {
     const job = await s.coordinator.notify(auth, project); await flush(s.coordinator);
     expect(published).toBe(false); expect(s.store.rows.get(job.id)?.state).toBe('superseded');
   });
+  it('lets a Review take over its exact frozen index after a joined background build is superseded', async () => {
+    const s = setup();
+    let entered!: () => void;
+    let release!: () => void;
+    const building = new Promise<void>(resolve => { entered = resolve; });
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    s.build.mockImplementationOnce(async (_auth, _project, _artifacts, _signal, guard) => {
+      entered();
+      await blocked;
+      await guard();
+    });
+    const job = await s.coordinator.notify(auth, project);
+    await building;
+    const readFrozen = vi.fn(async () => 'frozen evidence');
+    const waiting = s.coordinator.ensure(auth, project, [artifact], undefined, 'review', readFrozen);
+    await new Promise(resolve => setImmediate(resolve));
+    s.update();
+    release();
+    await expect(waiting).resolves.toBeUndefined();
+    expect(s.build).toHaveBeenCalledTimes(2);
+    expect(s.build).toHaveBeenLastCalledWith(expect.any(Function), project, [artifact], expect.anything(), expect.any(Function), 'review', readFrozen);
+    expect(s.store.rows.get(job.id)?.state).toBe('ready');
+  });
   it('persists capacity stops through source changes and GET recovery until explicit resume', async () => {
     const s = setup(); s.build.mockRejectedValueOnce(Object.assign(new Error('private provider message'), { code: 'quota_exhausted' }));
     const job = await s.coordinator.notify(auth, project); await flush(s.coordinator);

@@ -28,6 +28,7 @@ export type CheckRecord = {
   documents: string[];
   focus: string;
   mode: CheckMode;
+  requestedMode?: CheckMode;
   phase: CheckPhase;
   prepStep?: CheckPrepStep;
   reviewId?: string;
@@ -37,6 +38,7 @@ export type CheckRecord = {
   error?: string;
   /** Cached for compact displays; Result recomputes from saved records. */
   problemCount?: number;
+  coverageIncomplete?: boolean;
   highProblemCount?: number;
   problemRisk?: import('../riskPolicy').RiskLevel;
   finishedAt?: string;
@@ -46,6 +48,7 @@ export type CheckRecord = {
 export type CheckDocument = { name: string; base64: string; saved?: { projectId: string; artifactId: string } };
 
 export type StartCheckInput = {
+  startupPermission?: import('./projectPrefs').PermissionMode;
   sourceArtifactIds?: string[];
   browserRequest?: string;
   referenceCheckIds?: string[];

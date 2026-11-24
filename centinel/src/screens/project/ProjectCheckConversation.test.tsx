@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
@@ -7,7 +7,6 @@ import { resetCheckStore, saveCheck } from '../../check/store';
 import { readConversationDraft, writeConversationDraft } from '../../check/conversation';
 import type { ConversationRequest } from '../../check/conversationTypes';
 import type { Finding, Project, Screen, StaticSession } from '../../types';
-import { ConversationTurn } from './ConversationTurn';
 import { ProjectConversationScreen } from './ProjectConversationScreen';
 import { CheckScreen } from '../check/CheckScreen';
 import { save } from '@tauri-apps/api/dialog';
@@ -19,28 +18,27 @@ vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
 vi.mock('../../api/client', () => ({ api: {
   autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), autoTest: vi.fn(), listArtifacts: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(),
   listRequirements: vi.fn(), getStaticSession: vi.fn(), getReviewHarness: vi.fn(), conversationRequests: vi.fn(),
-  sendConversationRequest: vi.fn(), startAutoTest: vi.fn(), generateCheckTitle: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
+  sendConversationRequest: vi.fn(), conversationRequest: vi.fn(), confirmConversationRequest: vi.fn(), answerConversationQuestion: vi.fn(), startAutoTest: vi.fn(), exportProjectReport: vi.fn(), getReviewTraceability: vi.fn(),
 } }));
 const project: Project = { id: '11111111-1111-4111-8111-111111111111', name: 'Sample shop', description: '', workspacePath: '/shop', createdAt: '', updatedAt: '' };
 const reviewId = '22222222-2222-4222-8222-222222222222';
 const findingId = '33333333-3333-4333-8333-333333333333';
+let ownerNumber = 0;
+const testOwner = () => `owner-${ownerNumber}`;
 const accepted = (input: ConversationRequest['input']): ConversationRequest => ({
-  id: input.id, input, ownerId: 'owner', projectId: project.id, inputHash: 'fixture', revision: 1, policyVersion: 'fixture',
+  id: input.id, input, ownerId: testOwner(), projectId: project.id, inputHash: 'fixture', revision: 1, policyVersion: 'fixture',
   state: 'accepted', createdAt: '2026-11-18T02:00:00Z', updatedAt: '2026-11-18T02:00:00Z', events: [],
 });
 function Workspace() {
   const [route, navigate] = useState<Screen>({ name: 'project', projectId: project.id });
-  // The app sidebar's Checks list opens a check's own page; a project card's View opens it in the side panel (19 Nov 2026).
   return route.name === 'check' ? <CheckScreen checkId={route.checkId} projects={[project]} onNavigate={navigate} />
-    : <>
-      <nav aria-label="Checks"><button type="button" onClick={() => navigate({ name: 'check', checkId: 'check-one' })}>Open Order Access</button></nav>
-      <ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} />
-    </>;
+    : <ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} />;
 }
 beforeEach(() => {
-  vi.resetAllMocks(); resetCheckStore(); sessionStorage.clear();
+  vi.resetAllMocks(); resetCheckStore(); localStorage.clear(); sessionStorage.clear();
   vi.mocked(api.getConnectedSourceStatus).mockResolvedValue({ connected: true, sources: [] } as never);
-  sessionStorage.setItem('centinel:supabase-user-id', 'owner');
+  ownerNumber++;
+  sessionStorage.setItem('centinel:supabase-user-id', testOwner());
   const review = { id: reviewId, projectId: project.id, name: 'Checkout review', status: 'completed', progressJson: '{}',
     createdAt: '2026-11-18T01:00:00Z', updatedAt: '2026-11-18T01:10:00Z' } as StaticSession;
   vi.mocked(api.autoTests).mockResolvedValue([]);
@@ -56,6 +54,7 @@ beforeEach(() => {
     status: 'new', riskLevel: 'high', description: 'Another account can retrieve an order.', evidenceText: 'return orders.get(id)', recommendation: 'Validate the owner.',
     filePath: 'orders.ts', lineNumber: 12, requirementId: 'req-1' } as Finding]);
   vi.mocked(api.conversationRequests).mockResolvedValue([]);
+  vi.mocked(api.conversationRequest).mockRejectedValue(Object.assign(new Error('Conversation request unavailable.'), { status: 404 }));
   saveCheck({ id: 'check-one', projectId: project.id, projectName: project.name, title: 'Order Access', reviewId,
     createdAt: review.createdAt, updatedAt: review.updatedAt, mode: 'code', phase: 'done', documents: [], focus: 'Review orders', notes: [] });
 });
@@ -64,13 +63,14 @@ it('opens a saved card, keeps the result while typing, attaches a problem and re
   const user = userEvent.setup();
   render(<Workspace />);
   const card = within(await screen.findByRole('region', { name: 'Check Order Access' }));
+  expect(card.getByText('Code', { exact: true })).toBeInTheDocument();
   expect(card.getByText('Found in code')).toBeInTheDocument();
-  // View opens the full result in the expanded side panel, not another page.
+  expect(card.queryByText('Proven in the browser')).toBeNull();
   await user.click(card.getByRole('button', { name: 'View' }));
   expect(await screen.findByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
   expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).toHaveClass('is-open');
-  await user.click(screen.getByRole('button', { name: 'Back to the conversation' }));
-  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
+  expect(screen.getByRole('button', { name: 'Open full Check' })).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
   expect(await screen.findByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain @ownership');
@@ -84,69 +84,190 @@ it('opens a saved card, keeps the result while typing, attaches a problem and re
   expect(prompt).toHaveValue('Explain ');
   const first = vi.mocked(api.sendConversationRequest).mock.calls[0][1];
   expect(first.references).toContainEqual({ reviewId, findingId });
+  vi.mocked(api.conversationRequest).mockRejectedValueOnce(new Error('Could not check the saved request'));
+  await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
+  await screen.findByText('Could not check the saved request');
+  expect(prompt).toHaveValue('Explain ');
+  expect(api.sendConversationRequest).toHaveBeenCalledOnce();
   vi.mocked(api.sendConversationRequest).mockResolvedValueOnce(accepted(first));
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   await screen.findByRole('region', { name: 'Conversation about Sample shop' });
+  expect(api.conversationRequest).toHaveBeenCalledWith(project.id, first.id);
   expect(vi.mocked(api.sendConversationRequest).mock.calls[1][1].id).toBe(first.id);
   expect(readConversationDraft(project.id)).toMatchObject({ text: '', checkIds: [], problems: [] });
   expect(readConversationDraft(project.id, 'check-one').text).toBe('');
   expect(screen.getByRole('region', { name: 'Check Order Access' })).toBeInTheDocument();
 });
 
-it('asks about a named check without sending or overwriting a draft', async () => {
+it('recovers an accepted message after a lost acknowledgement and restart without posting twice', async () => {
+  vi.mocked(api.sendConversationRequest).mockRejectedValueOnce(new Error('Connection lost'));
   const user = userEvent.setup();
   const view = render(<Workspace />);
-  const card = within(await screen.findByRole('region', { name: 'Check Order Access' }));
-  await user.click(await card.findByRole('button', { name: 'Ask about this check' }));
-  const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
-  expect(prompt).toHaveValue('Explain the attached check.');
-  expect(prompt).toHaveFocus();
-  expect(api.sendConversationRequest).not.toHaveBeenCalled();
-  await user.clear(prompt);
-  await user.type(prompt, 'Keep this draft');
+  const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(prompt, 'What is this project called?');
+  await user.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByText('Connection lost');
+  const [projectId, input] = vi.mocked(api.sendConversationRequest).mock.calls[0];
+  expect(input).toMatchObject({ mode: 'browser', references: [] });
+  expect(api.startAutoTest).not.toHaveBeenCalled();
   view.unmount();
-
+  sessionStorage.clear();
+  sessionStorage.setItem('centinel:supabase-user-id', testOwner());
+  vi.mocked(api.conversationRequest).mockResolvedValue({ ...accepted(input), state: 'completed', reply: 'Sample shop.' });
   render(<Workspace />);
-  await user.click(await within(screen.getByRole('region', { name: 'Check Order Access' })).findByRole('button', { name: 'Ask about this check' }));
-  expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Keep this draft');
+  expect(await screen.findByText('Sample shop.')).toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('');
+  expect(api.conversationRequest).toHaveBeenCalledWith(projectId, input.id);
+  expect(api.sendConversationRequest).toHaveBeenCalledOnce();
+});
+
+it('restores an unsent project draft only for its original account after session storage resets', () => {
+  writeConversationDraft(project.id, { text: 'Explain this problem', checkIds: [], problems: [{ label: 'Order ownership', reference: { reviewId, findingId } }] });
+  sessionStorage.clear();
+  sessionStorage.setItem('centinel:supabase-user-id', 'another-owner');
+  expect(readConversationDraft(project.id).text).toBe('');
+  sessionStorage.setItem('centinel:supabase-user-id', testOwner());
+  render(<Workspace />);
+  expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('Explain this problem');
+  expect(screen.getByRole('button', { name: 'Remove problem Order ownership' })).toBeInTheDocument();
+});
+
+it('opens a saved choice at the top and adds it to the turn only after saving the answer', async () => {
+  const legacy = { ...accepted({ id: 'older-question', text: 'Can you verify the result?', mode: 'both', permission: 'ask', references: [] }),
+    state: 'completed', action: 'clarify', reply: 'Which verification should I run: **Code review only**, or **Code and browser** verification?' } as const;
+  vi.mocked(api.conversationRequests).mockResolvedValue([legacy]);
+  vi.mocked(api.answerConversationQuestion).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ ...legacy, selectedOption: 1, revision: 2 });
+  const user = userEvent.setup();
+  render(<Workspace />);
+  const card = await screen.findByRole('region', { name: 'ORIN has a question' });
+  expect(card.closest('.pc-thread')).toBeNull();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  const composer = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(composer, 'Draft while answering');
+  expect(composer).toHaveValue('Draft while answering');
+  expect(screen.queryByText('Question', { exact: true })).toBeNull();
+  await user.click(within(card).getByRole('button', { name: 'Answer later' }));
+  expect(screen.queryByRole('region', { name: 'ORIN has a question' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Answer ORIN’s question' }));
+  await user.click(screen.getByRole('button', { name: 'Code and browser' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The answer could not be saved.');
+  expect(screen.queryByText('You selected')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Code and browser' }));
+  expect(await screen.findByText('You selected')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'ORIN has a question' })).toBeNull();
+  expect(screen.getByText('Question', { exact: true })).toBeInTheDocument();
+  expect(api.answerConversationQuestion).toHaveBeenLastCalledWith(project.id, legacy.id, legacy.revision, 1, false);
+  expect(api.confirmConversationRequest).not.toHaveBeenCalled();
+});
+
+it('opens a response failure at the top with a next step and can reopen it from the turn', async () => {
+  const failed = { ...accepted({ id: 'validation-error', text: 'Proceed with Code only first', mode: 'code', permission: 'ask', references: [] }),
+    createdAt: '2026-11-23T02:00:00Z', state: 'failed', failureStage: 'validation', error: 'Internal diagnostic text' } as const;
+  vi.mocked(api.conversationRequests).mockResolvedValue([failed]);
+  const user = userEvent.setup();
+  render(<Workspace />);
+  const card = await screen.findByRole('region', { name: 'ORIN could not verify its response' });
+  expect(card.closest('.pc-thread')).toBeNull();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(within(card).getByText('What to do next')).toBeInTheDocument();
+  expect(within(card).getByText(/specific check that failed is unavailable/i)).toBeInTheDocument();
+  expect(within(card).getByText(/select Code and name the exact folder/i)).toBeInTheDocument();
+  expect(screen.queryByText('Internal diagnostic text')).toBeNull();
+  const composer = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(composer, 'Review src/automation');
+  expect(composer).toHaveValue('Review src/automation');
+  await user.click(within(card).getByRole('button', { name: 'Dismiss error' }));
+  expect(screen.queryByRole('region', { name: 'ORIN could not verify its response' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'View response error' }));
+  expect(screen.getByRole('region', { name: 'ORIN could not verify its response' })).toBeInTheDocument();
   expect(api.sendConversationRequest).not.toHaveBeenCalled();
 });
 
-it('asks about the exact result and shows the saved problem and both documents after a fresh load', async () => {
+it('shows the original choice and the Review approval after continuing a saved Code answer', async () => {
+  const question = 'Which verification should I run for the automation module?';
+  const saved = { ...accepted({ id: 'answered-automation-question', text: 'try again', mode: 'both', permission: 'ask', references: [] }),
+    createdAt: '2026-11-23T04:00:00Z', state: 'completed', action: 'clarify', selectedOption: 0, reply: question,
+    questionOptions: ['Code review only', 'Code and browser'] } as const;
+  const waiting = { ...saved, revision: saved.revision + 1, state: 'awaiting_permission', action: 'code', reply: 'Review Cypress files.',
+    reviewContinuation: { sourceRequestId: 'saved-original', text: 'Review automation module', question } } as const;
+  vi.mocked(api.conversationRequests).mockResolvedValue([{ ...saved, questionOptions: [...saved.questionOptions] }]);
+  vi.mocked(api.answerConversationQuestion).mockResolvedValue({ ...waiting, questionOptions: [...waiting.questionOptions] });
+  vi.mocked(api.confirmConversationRequest).mockResolvedValue({ ...waiting, questionOptions: [...waiting.questionOptions], revision: 3, state: 'running' });
   const user = userEvent.setup();
-  const docA = '44444444-4444-4444-8444-444444444444';
-  const docB = '55555555-5555-4555-8555-555555555555';
-  writeConversationDraft(project.id, { text: '', checkIds: [], problems: [], documents: [
-    { name: 'Design notes.md', base64: '', saved: { projectId: project.id, artifactId: docA } },
-    { name: 'Acceptance examples.md', base64: '', saved: { projectId: project.id, artifactId: docB } },
-  ] }, 'check-one');
-  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => accepted(input));
-  const view = render(<Workspace />);
-  await user.click(await screen.findByRole('button', { name: 'Open Order Access' }));
-  await user.click(await screen.findByRole('button', { name: 'Ask about this problem' }));
-  expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Explain the attached problem.');
-  expect(api.sendConversationRequest).not.toHaveBeenCalled();
-  await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
-  const expected = { text: 'Explain the attached problem.',
-    references: [{ reviewId, findingId }, { artifactId: docA }, { artifactId: docB }],
-    referenceLabels: ['Order ownership check is missing', 'Design notes.md', 'Acceptance examples.md'] };
-  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id, expect.objectContaining(expected)));
-  const input = vi.mocked(api.sendConversationRequest).mock.calls[0][1];
-  const result: ConversationRequest = { ...accepted(input), reply: 'A saved explanation.', state: 'completed',
-    resolvedAttachmentNames: ['One exact saved issue', 'Design notes.md', 'Acceptance examples.md'] };
-  const noAttachments = { ...result, id: 'older-turn', resolvedAttachmentNames: undefined,
-    input: { ...input, text: 'Hello', references: [], referenceLabels: undefined } };
-  view.unmount();
-  vi.mocked(api.conversationRequests).mockResolvedValue([result, noAttachments]);
   render(<Workspace />);
-  const included = within(within(await screen.findByText('Explain the attached problem.')).getByRole('list', { name: 'Included with this message' }));
-  expect(included.getAllByRole('listitem')).toHaveLength(3);
-  expect(within(screen.getByText('Explain the attached problem.')).getByText('Names as sent')).toBeVisible();
-  expect(included.getByText(/Order ownership check is missing/)).toBeVisible();
-  expect(included.getByText('Saved name: One exact saved issue')).toBeVisible();
-  expect(included.getByText(/Design notes.md/)).toBeVisible();
-  expect(included.getByText(/Acceptance examples.md/)).toBeVisible();
-  expect(within(screen.getByText('Hello')).queryByRole('list')).not.toBeInTheDocument();
+  await user.click(await screen.findByRole('button', { name: 'Continue Code Review' }));
+  expect(await screen.findByText('Review Cypress files.')).toBeInTheDocument();
+  expect(screen.getByText(question)).toBeInTheDocument();
+  expect(screen.getByText('You selected')).toBeInTheDocument();
+  expect(api.answerConversationQuestion).toHaveBeenCalledWith(project.id, saved.id, saved.revision, 0, false);
+  await user.click(screen.getByRole('button', { name: 'Run this scope' }));
+  expect(api.confirmConversationRequest).toHaveBeenCalledWith(project.id, waiting.id, waiting.revision);
+});
+
+it.each(['proceed', 'proceed with Code only first'])('switches Browser to Code and confirms the saved scope revision for %s', async approval => {
+  let scope: ConversationRequest;
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
+    scope = { ...accepted(input), state: 'awaiting_permission', action: 'code', revision: 5, reply: 'Review Cypress files.' };
+    return scope;
+  });
+  vi.mocked(api.confirmConversationRequest).mockImplementation(async () => ({ ...scope, state: 'running', revision: 6 }));
+  const user = userEvent.setup();
+  render(<Workspace />);
+  const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  const mode = screen.getByRole('combobox', { name: 'Check mode' });
+  expect(mode).toHaveTextContent('Browser');
+  await user.click(screen.getByRole('combobox', { name: 'Project conversation permission' }));
+  await user.click(screen.getByRole('option', { name: /Ask first/i }));
+  await user.type(prompt, 'Conduct a review on automation module{Enter}');
+  await screen.findByRole('button', { name: 'Run this scope' });
+  expect(mode).toHaveTextContent(/^Code$/);
+  expect(mode).toHaveClass('ck-mode-changed');
+  expect(screen.getByText('ORIN changed Check mode to Code.')).toBeInTheDocument();
+  expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id, expect.objectContaining({ mode: 'code', permission: 'ask' }));
+  expect(api.confirmConversationRequest).not.toHaveBeenCalled();
+  await user.type(prompt, `${approval}{Enter}`);
+  await waitFor(() => expect(api.confirmConversationRequest).toHaveBeenCalledExactlyOnceWith(project.id, scope.id, 5));
+  expect(api.sendConversationRequest).toHaveBeenCalledOnce();
+  expect(api.startAutoTest).not.toHaveBeenCalled();
+  expect(prompt).toHaveValue('');
+});
+
+it('keeps a waiting Browser plan untouched when the user asks to proceed with Code only', async () => {
+  const waiting = { ...accepted({ id: 'browser-plan-only', text: 'Verify in Browser', mode: 'browser', permission: 'ask', references: [] }),
+    createdAt: '2026-11-23T03:00:00Z', action: 'browser', state: 'awaiting_permission', reply: 'Browser scope ready.' } as const;
+  vi.mocked(api.conversationRequests).mockResolvedValue([waiting]);
+  const user = userEvent.setup();
+  render(<Workspace />);
+  await screen.findByText('Browser scope ready.');
+  const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(prompt, 'Proceed with Code only first{Enter}');
+  expect(await screen.findByText(/There is no Code-only plan waiting for approval/)).toBeInTheDocument();
+  expect(prompt).toHaveValue('Proceed with Code only first');
+  expect(api.confirmConversationRequest).not.toHaveBeenCalled();
+  expect(api.sendConversationRequest).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Run this scope' })).toBeInTheDocument();
+});
+
+it('tracks and approves a newly submitted Review by ID when history is unavailable', async () => {
+  vi.mocked(api.conversationRequests).mockRejectedValue(new Error('History read failed (57014).'));
+  let saved: ConversationRequest;
+  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
+    saved = { ...accepted(input), state: 'awaiting_permission', action: 'code', revision: 5, reply: 'Review Cypress files.' };
+    return { ...saved, state: 'accepted', revision: 1, action: undefined, reply: undefined };
+  });
+  vi.mocked(api.conversationRequest).mockImplementation(async () => saved);
+  vi.mocked(api.confirmConversationRequest).mockImplementation(async () => ({ ...saved, state: 'running', revision: 6 }));
+  const user = userEvent.setup();
+  render(<Workspace />);
+  await screen.findByText(/Conversation history is temporarily unavailable/);
+  const prompt = screen.getByRole('textbox', { name: 'Message to ORIN' });
+  await user.type(prompt, 'proceed a review on automation module{Enter}');
+  await screen.findByRole('button', { name: 'Run this scope' });
+  expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id, expect.objectContaining({ mode: 'code' }));
+  expect(api.conversationRequest).toHaveBeenCalledWith(project.id, saved!.id);
+  await user.type(prompt, 'proceed{Enter}');
+  await waitFor(() => expect(api.confirmConversationRequest).toHaveBeenCalledWith(project.id, saved!.id, 5));
+  expect(api.sendConversationRequest).toHaveBeenCalledOnce();
 });
 
 it('restores each draft when switching checks and posts only the sent draft to the project', async () => {
@@ -156,7 +277,8 @@ it('restores each draft when switching checks and posts only the sent draft to t
   const user = userEvent.setup();
   render(<Workspace />);
   await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'My project draft');
-  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
+  await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
   const prompt = () => screen.getByRole('textbox', { name: 'Follow-up check' });
   expect(prompt()).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
@@ -175,38 +297,10 @@ it('restores each draft when switching checks and posts only the sent draft to t
   expect(prompt()).toHaveValue('abc');
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   const body = within(await screen.findByRole('region', { name: 'Conversation about Sample shop' }));
-  expect(body.getByText('abc')).toHaveClass('is-me');
+  expect(body.getByText('abc').closest('.pc-msg')).toHaveClass('is-me');
   expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('My project draft');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('My first check draft');
   expect(readConversationDraft(project.id, 'check-two').text).toBe('');
-});
-it('routes an explicit quote through saved conversation and attributes it after a fresh render', async () => {
-  const text = 'Quote your previous reply.';
-  const priorId = '44444444-4444-4444-8444-444444444444';
-  let saved: ConversationRequest[] = [];
-  vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(saved));
-  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
-    const quote: ConversationRequest = {
-      ...accepted(input), state: 'completed', action: 'explain', reply: 'Synthetic project answer.\nSecond line.',
-      citations: ['conversation:' + priorId], recall: { status: 'recalled', turns: 1 },
-    };
-    saved = [quote];
-    return quote;
-  });
-  const user = userEvent.setup();
-  const first = render(<Workspace />);
-  await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), text);
-  await user.click(screen.getByRole('button', { name: /^Send$/ }));
-  await screen.findByText('Quoted previous reply');
-  expect(api.sendConversationRequest).toHaveBeenCalledWith(project.id, expect.objectContaining({ text, references: [] }));
-  expect(api.startAutoTest).not.toHaveBeenCalled();
-  first.unmount();
-  render(<Workspace />);
-  const reply = await screen.findByText('Quoted previous reply');
-  const turn = reply.closest<HTMLElement>('.pc-turn')!;
-  expect(within(turn).getByText('Synthetic project answer. Second line.').textContent).toBe('Synthetic project answer.\nSecond line.');
-  expect(within(turn).getByText('Earlier reply in this project')).toBeInTheDocument();
-  expect(within(turn).queryByText('AI analysis')).not.toBeInTheDocument();
 });
 it('uses frozen requirements and displays unavailable evidence without a fabricated zero', async () => {
   vi.mocked(api.getReviewTraceability).mockRejectedValue(new Error('snapshot unavailable'));
@@ -236,11 +330,17 @@ it('opens coverage gaps and exports the exact browser-only card as a saved Markd
     render(<Workspace />);
     const card = within(screen.getByRole('region', { name: 'Check Catalog Filters' }));
     const gaps = await card.findByRole('button', { name: '1 unchecked' });
+    const exportButton = await card.findByRole('button', { name: 'Export' });
+    expect(card.getByText('Browser', { exact: true })).toBeInTheDocument();
+    expect(card.getByText('Proven in the browser')).toBeInTheDocument();
+    expect(card.queryByText('Found in code')).toBeNull();
+    expect(card.getByText(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(Date.parse(timestamp)))).toHaveAttribute('datetime', timestamp);
+    expect(within(card.getByRole('group', { name: 'Report actions' })).getAllByRole('button').map(button => button.getAttribute('aria-label')))
+      .toEqual(['Export', 'Ask about this check', 'View']);
     expect(gaps).toHaveAttribute('aria-expanded', 'false');
     await user.click(gaps);
     expect(gaps).toHaveAttribute('aria-expanded', 'true');
     expect(card.getByRole('listitem')).toHaveTextContent('Control permission was missing');
-    const exportButton = await card.findByRole('button', { name: 'Export' });
     await user.click(exportButton);
     expect(writeTextFile).not.toHaveBeenCalled();
     await user.click(exportButton);
@@ -260,8 +360,9 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   vi.mocked(api.sendConversationRequest).mockImplementation((_, input) => new Promise(resolve => { acknowledge = () => resolve(accepted(input)); }));
   const user = userEvent.setup();
   render(<Workspace />);
-  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
-  const prompt = await screen.findByRole('textbox', { name: 'Follow-up check' });
+  await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
+  const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain this check');
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
   await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledOnce());
@@ -271,252 +372,4 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   const next = await screen.findByRole('textbox', { name: 'Message to ORIN' });
   expect(next).toHaveValue('');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('Now explain the ownership evidence');
-});
-
-it('starts a Check from a project prompt and keeps its explanation readable through Ask, quote and reload', async () => {
-  resetCheckStore();
-  const user = userEvent.setup();
-  const focus = 'Review the checkout total calculation.';
-  const title = 'Checkout totals fixture';
-
-  vi.mocked(api.generateCheckTitle).mockResolvedValue({ title });
-  const saved: ConversationRequest[] = [];
-  const explanation = 'The saved check is **inconclusive**.\n\n| Outcome | Evidence |\n| --- | --- |\n| Total | Visible |';
-  vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(saved));
-  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
-    if (input.text === focus) {
-      const checkRun: ConversationRequest = { ...accepted(input), state: 'completed', action: 'code', reviewId };
-      saved.unshift(checkRun);
-      return structuredClone(checkRun);
-    }
-    const quoting = input.text === 'Quote your previous reply.';
-    const prior = saved[0];
-    if (quoting && !prior) throw new Error('Missing synthetic prior response');
-    const result: ConversationRequest = {
-      ...accepted(input), state: 'completed', action: 'explain',
-      reply: quoting ? prior.reply : explanation, replyFormat: 'markdown',
-      citations: [quoting ? 'conversation:' + prior.id : 'review:' + reviewId],
-      ...(quoting && { recall: { status: 'recalled', turns: 1 } }),
-    };
-    saved.unshift(result);
-    return structuredClone(result);
-  });
-
-  const first = render(<Workspace />);
-  await user.click(screen.getByRole('combobox', { name: 'Check mode' }));
-  await user.click(screen.getByRole('option', { name: 'Code' }));
-  await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), focus);
-  await user.click(screen.getByRole('button', { name: /^Send$/ }));
-  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenNthCalledWith(1, project.id,
-    expect.objectContaining({ text: focus, mode: 'code', references: [] })));
-  const check = within(await screen.findByRole('region', { name: 'Check ' + title }, { timeout: 4500 }));
-  await user.click(await check.findByRole('button', { name: 'Ask about this check' }));
-  expect(screen.getByRole('textbox', { name: 'Follow-up check' })).toHaveValue('Explain the attached check.');
-  expect(api.sendConversationRequest).toHaveBeenCalledTimes(1);
-  await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
-  const originalLabel = await screen.findByText('AI analysis');
-  expect(within(originalLabel.closest('.pc-turn')!).getByRole('table')).toBeVisible();
-  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(2, project.id,
-    expect.objectContaining({ references: [{ reviewId }] }));
-
-  const followup = screen.getByRole('textbox', { name: 'Message to ORIN' });
-  await user.clear(followup);
-  await user.type(followup, 'Quote your previous reply.');
-  await user.click(screen.getByRole('button', { name: /^Send$/ }));
-  const quoteLabel = await screen.findByText('Quoted previous reply');
-  expect(within(quoteLabel.closest('.pc-turn')!).getByRole('table')).toBeVisible();
-  expect(api.sendConversationRequest).toHaveBeenNthCalledWith(3, project.id,
-    expect.objectContaining({ text: 'Quote your previous reply.', references: [] }));
-  expect(api.startAutoTest).not.toHaveBeenCalled();
-
-  first.unmount();
-  render(<Workspace />);
-  const quote = within((await screen.findByText('Quoted previous reply')).closest('.pc-turn')!);
-  expect(quote.getByRole('table')).toBeVisible();
-  expect(quote.getByText('inconclusive').tagName).toBe('STRONG');
-  expect(quote.getByText('Earlier reply in this project')).toBeInTheDocument();
-  expect(screen.getByRole('region', { name: 'Check ' + title })).toBeVisible();
-}, 12000);
-
-it.each([0, 1, 3, 4, 5])('shows a top-of-message preview of at most three of %i saved attachments', count => {
-  const references = Array.from({ length: count }, (_, index) => ({ artifactId: 'opaque-' + index }));
-  const labels = ['private-folder/Duplicate.md', 'elsewhere\\Duplicate.md', 'Long'.repeat(35) + '.txt', 'Audit.md', 'Last.txt'];
-  const input: ConversationRequest['input'] = { id: 'preview', text: 'Original message body', mode: 'code',
-    permission: 'ask', references, referenceLabels: labels.slice(0, count) };
-  render(<ConversationTurn request={accepted(input)} onNavigate={vi.fn()} />);
-  const bubble = screen.getByText(input.text);
-  if (!count) {
-    expect(bubble.querySelector('.pc-sent-attachments')).toBeNull();
-    return;
-  }
-  expect(bubble.firstChild).toHaveClass('pc-sent-attachments');
-  expect(bubble.lastChild?.textContent).toBe(input.text);
-  const preview = within(bubble).getByRole('list', { name: 'Included with this message' });
-  expect(within(preview).getAllByRole('listitem')).toHaveLength(Math.min(3, count));
-  expect(within(preview).getAllByText(/Duplicate\.md/)).toHaveLength(Math.min(2, count));
-  expect(bubble).not.toHaveTextContent(/private-folder|elsewhere|opaque-/);
-  expect(within(bubble).queryByRole('list', { name: 'Additional attachments' })).not.toBeInTheDocument();
-  if (count > 3) expect(within(bubble).getByRole('button', { name: 'Show all ' + count + ' attachments' })).toHaveTextContent('+' + (count - 3));
-  else expect(within(bubble).getAllByRole('button')).toHaveLength(1);
-});
-
-it('reveals every included attachment by mouse hover, keyboard, and touch and resets on reloading the same saved turn', async () => {
-  const user = userEvent.setup();
-  const names = ['First.md', 'Second.md', 'Third.md', 'Fourth.md', 'Fifth.md'];
-  const input: ConversationRequest['input'] = { id: 'preview', text: 'Saved message body', mode: 'code',
-    permission: 'ask', references: names.map((_, index) => ({ artifactId: 'opaque-' + index })), referenceLabels: names };
-  const turn = { ...accepted(input), state: 'completed' as const,
-    resolvedAttachmentNames: ['First.md', null, null, 'Saved-fourth.md', null] };
-  const mount = () => render(<ConversationTurn request={turn} onNavigate={vi.fn()} />);
-  const view = mount();
-  const more = screen.getByRole('button', { name: 'Show all 5 attachments' });
-  const extras = () => screen.queryByRole('list', { name: 'Additional attachments' });
-  await user.hover(more);
-  expect(more).toHaveAttribute('aria-expanded', 'true');
-  expect(extras()).toHaveTextContent('Fourth.md');
-  expect(extras()).toHaveTextContent('Saved name: Saved-fourth.md');
-  expect(extras()).toHaveTextContent('Fifth.md');
-  await user.unhover(more);
-  expect(extras()).not.toBeInTheDocument();
-  await user.tab();
-  expect(screen.getByRole('button', { name: /Attachments 5 Names as sent/ })).toHaveFocus();
-  await user.tab();
-  expect(more).toHaveFocus();
-  await user.keyboard('{Enter}');
-  expect(extras()).toBeVisible();
-  await user.keyboard('{Escape}');
-  expect(extras()).not.toBeInTheDocument();
-  expect(more).toHaveFocus();
-  await user.pointer([{ keys: '[TouchA>]', target: more }, { keys: '[/TouchA]', target: more }]);
-  expect(extras()).toBeVisible();
-  fireEvent.click(more);
-  expect(extras()).not.toBeInTheDocument();
-  view.unmount();
-  mount();
-  expect(screen.getByText(/First\.md/)).toBeVisible();
-  expect(extras()).not.toBeInTheDocument();
-});
-
-it('collapses all sent cards, restores the preview, and makes the horizontal rail keyboard focusable', async () => {
-  const user = userEvent.setup();
-  const labels = ['Recorded.png', 'Example.ts', 'Checklist.md', 'Notes.pdf'];
-  const input: ConversationRequest['input'] = { id: 'disclosure', text: 'Message stays visible', mode: 'code', permission: 'ask',
-    references: labels.map((_, index) => ({ artifactId: 'source-' + index })), referenceLabels: labels };
-  render(<ConversationTurn request={{ ...accepted(input), state: 'completed' }} onNavigate={vi.fn()} />);
-  const disclosure = screen.getByRole('button', { name: /Attachments 4 Names as sent/ });
-  await user.tab();
-  expect(disclosure).toHaveFocus();
-  expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-  await user.keyboard('{Enter}');
-  expect(disclosure).toHaveAttribute('aria-expanded', 'false');
-  expect(screen.queryByRole('region', { name: 'Attachment cards' })).not.toBeInTheDocument();
-  expect(screen.getByText(input.text)).toBeVisible();
-  await user.keyboard('{Enter}');
-  expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-  const rail = screen.getByRole('region', { name: 'Attachment cards' });
-  await user.tab();
-  await user.tab();
-  expect(rail).toHaveFocus();
-  expect(within(rail).getByText('Recorded.png')).toBeVisible();
-  expect(within(rail).queryByText('Notes.pdf')).not.toBeInTheDocument();
-});
-it('handles old evidence with type-only references, verified names, and opaque metadata distinctly', () => {
-  const input: ConversationRequest['input'] = { id: 'legacy', text: 'A historical message', mode: 'code',
-    permission: 'ask', references: [{ reviewId }, { reviewId, findingId }, { artifactId: 'source' }] };
-  render(<ConversationTurn request={{ ...accepted(input), resolvedAttachmentNames: [reviewId, 'Saved issue', '/private/Source.md'] }} onNavigate={vi.fn()} />);
-  const included = screen.getByRole('list', { name: 'Included with this message' });
-  expect(within(included).getByText('Check attached')).toBeVisible();
-  expect(within(included).getByText('Saved name: Saved issue')).toBeVisible();
-  expect(within(included).getByText('Saved name: Source.md')).toBeVisible();
-  expect(included).not.toHaveTextContent(/private|22222222/);
-});
-
-it('binds a selected saved reply by ID, keeps new attachments, and restores visible attribution from history', async () => {
-  const user = userEvent.setup();
-  const one = '11111111-2222-4222-8222-111111111111';
-  const two = '22222222-2222-4222-8222-111111111111';
-  const artifactId = '77777777-7777-4777-8777-777777777777';
-  const reply = (id: string, text: string): ConversationRequest => ({
-    ...accepted({ id, text: 'Original request ' + text, mode: 'code', permission: 'ask', references: [] }),
-    state: 'completed', reply: text, createdAt: id === one ? '2026-11-18T01:00:00Z' : '2026-11-18T01:30:00Z',
-  });
-  const prior = reply(one, 'The first assistant response');
-  const target = reply(two, 'The selected assistant response');
-  const records: ConversationRequest[] = [prior, target,
-    { ...reply('pending', 'An in-progress response'), state: 'running' },
-    { ...reply('other-owner', 'Different owner response'), ownerId: 'other' },
-    { ...reply('other-project', 'Different project response'), projectId: 'another' }];
-  vi.mocked(api.conversationRequests).mockImplementation(async () => structuredClone(records));
-  vi.mocked(api.sendConversationRequest).mockImplementation(async (_, input) => {
-    const sent: ConversationRequest = { ...accepted(input), state: 'completed', reply: 'Here is the **follow-up**.', replyFormat: 'markdown',
-      replyTo: { turnId: one, status: 'resolved' }, citations: ['conversation:' + one, 'artifact:' + artifactId] };
-    records.unshift(sent);
-    return sent;
-  });
-  writeConversationDraft(project.id, { text: 'Use this new note in your answer.', checkIds: [], problems: [], mode: 'code',
-    documents: [{ name: 'New note.md', base64: '', saved: { projectId: project.id, artifactId } }] });
-  const mount = () => render(<Workspace />);
-  const view = mount();
-  const buttons = await screen.findAllByRole('button', { name: 'Reply to' });
-  expect(buttons).toHaveLength(2);
-  const pick = (response: string) => within(screen.getByText(response).closest('.pc-turn')!).getByRole('button', { name: 'Reply to' });
-  const prompt = () => screen.getByRole('textbox', { name: 'Message to ORIN' });
-  await user.click(pick(prior.reply!));
-  expect(screen.getByText('Replying to ORIN').parentElement).toHaveTextContent(prior.reply!);
-  expect(prompt()).toHaveFocus();
-  await user.click(pick(target.reply!));
-  expect(screen.getByText('Replying to ORIN').parentElement).toHaveTextContent(target.reply!);
-  await user.click(screen.getByRole('button', { name: 'Remove reply target' }));
-  expect(screen.queryByText('Replying to ORIN')).not.toBeInTheDocument();
-  expect(prompt()).toHaveValue('Use this new note in your answer.');
-  expect(screen.getByRole('button', { name: 'Remove New note.md' })).toBeVisible();
-  await user.click(pick(prior.reply!));
-  expect(api.sendConversationRequest).not.toHaveBeenCalled();
-  view.unmount();
-  const reloaded = mount();
-  expect(await screen.findByText('Replying to ORIN')).toBeVisible();
-  await user.click(screen.getByRole('button', { name: /^Send$/ }));
-  await waitFor(() => expect(api.sendConversationRequest).toHaveBeenCalledOnce());
-  const input = vi.mocked(api.sendConversationRequest).mock.calls[0][1];
-  expect(input).toMatchObject({
-    text: 'Use this new note in your answer.', replyToTurnId: one,
-    references: [{ artifactId }], referenceLabels: ['New note.md'],
-  });
-  expect(JSON.stringify(input)).not.toContain(prior.reply);
-  expect(api.startAutoTest).not.toHaveBeenCalled();
-  expect(await screen.findByText('In reply to ORIN')).toBeVisible();
-  expect(screen.getByText('Use this new note in your answer.')).toHaveTextContent('In reply to ORIN');
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove reply target' })).not.toBeInTheDocument());
-  reloaded.unmount();
-  mount();
-  const attribution = await screen.findByText('In reply to ORIN');
-  expect(attribution).toBeVisible();
-  expect(attribution.parentElement).toHaveTextContent(prior.reply!);
-  expect(attribution.parentElement).not.toHaveTextContent(target.reply!);
-  const sentTurn = within(attribution.closest('.pc-turn')!);
-  expect(sentTurn.getByText('follow-up').tagName).toBe('STRONG');
-  expect(sentTurn.getByText('Earlier reply in this project')).toBeInTheDocument();
-  expect(sentTurn.getByText('New note.md')).toBeInTheDocument();
-});
-
-it('blocks stale selected context until it is removed and never borrows it from another project', async () => {
-  const other = { ...project, id: 'another', name: 'Other shop' };
-  const user = userEvent.setup();
-  const priorId = '33333333-3333-4333-8333-222222222222';
-  vi.mocked(api.conversationRequests).mockImplementation(async projectId => projectId === project.id
-    ? [] : [{ ...accepted({ id: priorId, text: '', mode: 'code', permission: 'ask', references: [] }),
-      projectId: other.id, state: 'completed', reply: 'Only in the other project.' }]);
-  writeConversationDraft(project.id, { text: 'My current draft', checkIds: [], problems: [], replyToTurnId: priorId });
-  const view = render(<ProjectConversationScreen project={project} projects={[project, other]} onNavigate={vi.fn()} />);
-  expect(await screen.findByText('Selected reply unavailable')).toBeVisible();
-  expect(screen.getByRole('button', { name: /^Send$/ })).toBeDisabled();
-  view.rerender(<ProjectConversationScreen project={other} projects={[project, other]} onNavigate={vi.fn()} />);
-  expect(await screen.findByRole('button', { name: 'Reply to' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Remove reply target' })).not.toBeInTheDocument();
-  view.rerender(<ProjectConversationScreen project={project} projects={[project, other]} onNavigate={vi.fn()} />);
-  expect(await screen.findByText('Selected reply unavailable')).toBeVisible();
-  await user.click(screen.getByRole('button', { name: 'Remove reply target' }));
-  expect(screen.getByRole('button', { name: /^Send$/ })).toBeEnabled();
-  expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('My current draft');
-  expect(api.sendConversationRequest).not.toHaveBeenCalled();
 });

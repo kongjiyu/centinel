@@ -335,39 +335,42 @@ export function planAssessmentBatches(map: ReviewAnalysisMap, artifacts: Evidenc
   };
   const relatedFeatures = new Map<string, ReviewAnalysisFeature[]>();
   for (const feature of map.features) {
+    if (feature.analysisKind === 'plain_text_logic') continue;
     const key = feature.entryPoints[0]?.artifactId ?? feature.id;
     const group = relatedFeatures.get(key) ?? [];
     group.push(feature);
     relatedFeatures.set(key, group);
   }
   for (const features of relatedFeatures.values()) for (let index = 0; index < features.length; index += REVIEW_FEATURE_BATCH_SIZE) {
-    const group = features.slice(index, index + REVIEW_FEATURE_BATCH_SIZE);
-    const parsedFeatures = group.filter(feature => feature.analysisKind !== 'plain_text_logic');
-    if (parsedFeatures.length) addFeatureGroup(parsedFeatures);
-    // Text-logic units have no AST boundaries. Retain the whole exact segment,
-    // rather than sending only the first/last anchor selected by syntax ranking.
-    let textFeatures: ReviewAnalysisFeature[] = [];
-    let textSources: AssessmentSourceSegment[] = [];
-    for (const feature of group.filter(item => item.analysisKind === 'plain_text_logic')) {
-      const reference = feature.entryPoints[0];
-      const range = feature.sourceRange;
-      const source = reference && artifacts.find(item => item.artifact.id === reference.artifactId
-        && item.artifact.filePath === reference.filePath && item.artifact.contentHash === reference.sourceVersion);
-      if (!source || typeof source.content !== 'string' || source.state && source.state !== 'available'
-        || !range || !Number.isInteger(range.lineStart) || !Number.isInteger(range.lineEnd)
-        || range.lineStart < 1 || range.lineEnd < range.lineStart) throw contextLimit();
-      const lines = source.content.split('\n');
-      if (range.lineEnd > lines.length) throw contextLimit();
-      const segment: AssessmentSourceSegment = { ...source, content: lines.slice(range.lineStart - 1, range.lineEnd).join('\n'),
-        lineStart: range.lineStart, lineEnd: range.lineEnd };
-      if (segment.content.length > REVIEW_SOURCE_BATCH_CHARACTERS) throw contextLimit();
-      if (textSources.length && sourceSize([...textSources, segment]) > REVIEW_SOURCE_BATCH_CHARACTERS) {
-        add(textFeatures, textSources); textFeatures = []; textSources = [];
-      }
-      textFeatures.push(feature); textSources.push(segment);
-    }
-    add(textFeatures, textSources);
+    addFeatureGroup(features.slice(index, index + REVIEW_FEATURE_BATCH_SIZE));
   }
+  // Each text unit retains its entire exact segment. Independent units from
+  // different files can share one bounded request without changing coverage.
+  let textFeatures: ReviewAnalysisFeature[] = [];
+  let textSources: AssessmentSourceSegment[] = [];
+  for (const feature of map.features.filter(item => item.analysisKind === 'plain_text_logic')) {
+    const reference = feature.entryPoints[0];
+    const range = feature.sourceRange;
+    const source = reference && artifacts.find(item => item.artifact.id === reference.artifactId
+      && item.artifact.filePath === reference.filePath && item.artifact.contentHash === reference.sourceVersion);
+    if (!source || typeof source.content !== 'string' || source.state && source.state !== 'available'
+      || !range || !Number.isInteger(range.lineStart) || !Number.isInteger(range.lineEnd)
+      || range.lineStart < 1 || range.lineEnd < range.lineStart) throw contextLimit();
+    const lines = source.content.split('\n');
+    if (range.lineEnd > lines.length) throw contextLimit();
+    const segment: AssessmentSourceSegment = { ...source, content: lines.slice(range.lineStart - 1, range.lineEnd).join('\n'),
+      lineStart: range.lineStart, lineEnd: range.lineEnd };
+    if (segment.content.length > REVIEW_SOURCE_BATCH_CHARACTERS) throw contextLimit();
+    if (textFeatures.length === REVIEW_FEATURE_BATCH_SIZE
+      || textSources.length && sourceSize([...textSources, segment]) > REVIEW_SOURCE_BATCH_CHARACTERS) {
+      add(textFeatures, textSources);
+      textFeatures = [];
+      textSources = [];
+    }
+    textFeatures.push(feature);
+    textSources.push(segment);
+  }
+  add(textFeatures, textSources);
   // Every selected source-code segment also gets an independent semantic sweep.
   // These empty-feature batches can produce findings but never domain coverage.
   let sweep: AssessmentSourceSegment[] = [];

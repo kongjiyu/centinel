@@ -15,6 +15,14 @@ import type { CheckDocument, CheckRecord, StartCheckInput } from './types';
 
 type Api = typeof api;
 const GITHUB_IMPORT_TIMEOUT_MS = 10 * 60_000;
+const LOCAL_IMPORT_REASONS: Record<string, string> = {
+  file_limit: 'the repository import reached its file limit',
+  file_too_large: 'the file exceeds the import size limit',
+  file_unreadable: 'ORIN could not read the file',
+  storage_upload_failed: 'the file could not be uploaded to project storage',
+  version_commit_failed: 'the file version could not be recorded',
+  artifact_save_failed: 'the file could not be saved to the project',
+};
 
 function newId(): string {
   try { if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID(); } catch { /* fall through */ }
@@ -76,6 +84,7 @@ export function startCheck(input: StartCheckInput, deps: RunnerDeps): CheckRecor
     createdAt: now,
     updatedAt: now,
     projectName,
+    ...(selectedProject ? { projectId: selectedProject.id } : {}),
     ...(input.referenceCheckIds?.length ? { referenceCheckIds: input.referenceCheckIds } : {}),
     ...(input.sourceArtifactIds?.length ? { sourceArtifactIds: input.sourceArtifactIds } : {}),
     ...(folder ? { folder } : {}),
@@ -114,8 +123,20 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
       });
       if (project) {
         // Refresh the saved copy so the Review sees the folder as it is now.
-        const refreshed = await api.importRepoArtifacts(project.id, input.folder);
-        if (refreshed.skipped.length) note(skippedNote(refreshed.skipped));
+        if (input.mode !== 'browser') {
+          const refreshed = await api.importRepoArtifacts(project.id, input.folder);
+          if (refreshed.complete === false) {
+            const failures = refreshed.failures ?? [];
+            if (!failures.length) note('The local file inventory could not be completed.');
+            for (const { filePath, reason } of failures.slice(0, 5)) {
+              const description = LOCAL_IMPORT_REASONS[reason] ?? LOCAL_IMPORT_REASONS.artifact_save_failed;
+              note(`${filePath}: ${description}.`);
+            }
+            if (failures.length > 5) note(`${failures.length - 5} more source files could not be imported.`);
+          } else if (refreshed.complete === undefined && refreshed.skipped.length) {
+            note(skippedNote(refreshed.skipped));
+          }
+        }
       } else {
         const created = await api.createProject(folderName(input.folder), '', '', [{ type: 'local-repository', path: input.folder }]);
         project = created;
@@ -165,7 +186,7 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
           // Tests saved for every check in the project conversation run alongside the newly planned ones.
           const pinned = readPrefs(project.id).pinned.map(({ sessionId, testId }) => ({ sessionId, testId }));
           const request = input.browserRequest?.trim();
-          const session = await api.startAutoTest(project.id, { folder: input.folder,
+          const session = await api.startAutoTest(project.id, { folder: input.folder, startupPermission: input.startupPermission ?? readPrefs(project.id).mode,
             ...(request ? { request } : pinned.length ? { pinned } : {}) });
           updateCheck(checkId, { autoTestId: session.id });
         } catch (cause) {
@@ -176,7 +197,8 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
 
     const current = getCheck(checkId);
     if (!current?.reviewId && !current?.autoTestId) throw new Error(current?.notes[current.notes.length - 1] ?? 'Nothing could be started for this check.');
-    updateCheck(checkId, { phase: 'running', prepStep: undefined });
+    updateCheck(checkId, { phase: 'running', prepStep: undefined,
+      ...(input.mode === 'both' && !current.autoTestId ? { mode: 'code', requestedMode: 'both' } : {}) });
   } catch (cause) {
     updateCheck(checkId, { phase: 'failed', error: userFacingError(cause, 'The check could not start. Try again.'), finishedAt: new Date().toISOString() });
   } finally {

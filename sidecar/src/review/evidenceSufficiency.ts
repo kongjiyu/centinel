@@ -3,6 +3,7 @@ import { hasPlainTextSourceIntent, isReadablePlainText } from './plainTextLogic.
 import { detectArtifactType, type Artifact, type ArtifactType } from '../artifacts.js';
 import type { ConfirmedRequirement, RequirementCandidate, SourceLocator, StandardRule } from './grounding.js';
 import type { ReviewTraceabilityRecord } from './evidenceTypes.js';
+import type { PdfVisualCoverage } from './pdfVisual.js';
 
 export type EvidenceSourceState = 'available' | 'stale' | 'inaccessible' | 'deleted';
 export type EvidenceReadiness = 'ready' | 'ready_with_warnings' | 'blocked';
@@ -66,6 +67,7 @@ export type EvidenceSufficiencyAssessment = {
   confirmedRequirementCount: number;
   enabledStandardRuleCount: number;
   assessedAt: string;
+  pdfVisualCoverage?: PdfVisualCoverage[];
 };
 
 export type EvidenceSufficiencyInput = {
@@ -127,12 +129,29 @@ export function mergeEvidenceSufficiencyAssessments(
   const readiness = gaps.some(item => item.severity === 'blocking')
     ? 'blocked'
     : gaps.some(item => item.severity === 'warning') ? 'ready_with_warnings' : frozen.readiness;
-  return {
+  return withPdfVisualCoverage({
     ...frozen,
     id: stableId({ reviewId: frozen.reviewId, projectId: frozen.projectId, readiness, gaps, contradictions: frozen.contradictions }),
     readiness,
     gaps,
-  };
+  }, [...(frozen.pdfVisualCoverage ?? []), ...(update.pdfVisualCoverage ?? [])]);
+}
+
+export function withPdfVisualCoverage(assessment: EvidenceSufficiencyAssessment, coverage: PdfVisualCoverage[]): EvidenceSufficiencyAssessment {
+  if (!coverage.length) return assessment;
+  const sources = new Map<string, PdfVisualCoverage>();
+  for (const item of coverage) {
+    const key = JSON.stringify([item.artifactId, item.sourceVersion]);
+    if ((sources.get(key)?.pages.length ?? -1) <= item.pages.length) sources.set(key, item);
+  }
+  const gaps = assessment.gaps.filter(item => item.code !== 'pdf_visual_content_unverified' || !item.references?.some(ref => {
+    const source = sources.get(JSON.stringify([ref.artifactId, ref.sourceVersion]));
+    return source && source.pages.length > 0 && source.pages.every((page, index) => page.page === index + 1) && source.pages.length === source.totalPages;
+  }));
+  const readiness = gaps.length === assessment.gaps.length ? assessment.readiness : gaps.some(item => item.severity === 'blocking') ? 'blocked'
+    : gaps.length ? 'ready_with_warnings' : 'ready';
+  return { ...assessment, gaps, readiness, pdfVisualCoverage: [...sources.values()],
+    id: stableId({ reviewId: assessment.reviewId, projectId: assessment.projectId, readiness, gaps, contradictions: assessment.contradictions }) };
 }
 
 function normalizeClaim(text: string): { canonical: string; polarity: 1 | -1 } {
@@ -366,8 +385,8 @@ export function assessEvidenceSufficiency(input: EvidenceSufficiencyInput): Evid
 
   for (const item of usable.filter(source => /\.pdf$/i.test(source.artifact.fileName) && source.content?.startsWith('PDF extracted text.'))) {
     gaps.push(gap({ code: 'pdf_visual_content_unverified', severity: 'warning', title: 'PDF visual content remains unverified',
-      detail: `${item.artifact.fileName} was assessed from extracted text. Diagrams, image-only content and layout were not assessed.`,
-      remediation: 'Provide separate diagram or image evidence for visual verification.', affectedStages: ['model_analysis'], artifactId: item.artifact.id,
+      detail: `${item.artifact.fileName} does not have a complete visual assessment of all pages.`,
+      remediation: 'Check the configured vision model or provide separate evidence for the unverified pages.', affectedStages: ['model_analysis'], artifactId: item.artifact.id,
       references: [{ artifactId: item.artifact.id, filePath: item.artifact.filePath || item.artifact.fileName,
         sourceVersion: item.artifact.contentHash, relation: 'document' }] }));
   }

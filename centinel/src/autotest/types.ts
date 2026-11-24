@@ -49,6 +49,7 @@ export type AutoTestSession = {
   reply?: string | null;
   presets?: AutoTestPreset[];
   planning?: boolean;
+  startupQuestion?: { id: string; command: string; packages: string[]; packageCount: number; manualSetup?: string };
   suite?: { smoke: boolean; exploratory: boolean; usability: boolean; unit?: boolean };
 };
 

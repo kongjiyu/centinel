@@ -8,8 +8,30 @@ import { SupabaseAutoTestStore } from '../dynamic/autonomous/store.js';
 import { DynamicContractError } from '../dynamic/types.js';
 import { hash, type Evidence } from './service.js';
 import { compactCanonicalJson } from '../report/canonical.js';
+import { namedReviewScope } from './intent.js';
 
-export async function resolveConversationEvidence(client: SupabaseClient, ownerId: string, projectId: string, references: ConversationReference[], signal: AbortSignal) {
+const automationDirectories = new Set(['cypress', 'e2e', 'playwright', 'selenium', 'test-automation', 'automation']);
+
+function sourceWindow(text: string, citedLine: unknown) {
+  if (typeof citedLine !== 'number' || !Number.isSafeInteger(citedLine) || citedLine < 1) return undefined;
+  const firstLine = Math.max(1, citedLine - 2);
+  const lines: string[] = [];
+  let offset = 0;
+  for (let line = 1; line <= citedLine + 2; line++) {
+    const newline = text.indexOf('\n', offset);
+    const end = newline < 0 ? text.length : newline;
+    if (line >= firstLine) lines.push(text.slice(offset, Math.min(end, offset + 220)).replace(/\r$/, ''));
+    if (newline < 0) {
+      if (line < citedLine) return undefined;
+      break;
+    }
+    offset = newline + 1;
+  }
+  const window = lines.join('\n');
+  return window.trim() ? { text: window, firstLine, citedLine } : undefined;
+}
+
+export async function resolveConversationEvidence(client: SupabaseClient, ownerId: string, projectId: string, references: ConversationReference[], signal: AbortSignal, includeSourceWindow = false, requestText = '') {
   const repository = new SupabaseStaticReviewRepository(client);
   const application = new CentinelApplicationRepository(client, ownerId);
   const evidence = new Map<string, Evidence>();
@@ -24,31 +46,36 @@ export async function resolveConversationEvidence(client: SupabaseClient, ownerI
       const review = await repository.getReview(reference.reviewId);
       if (!review || review.projectId !== projectId) throw new DynamicContractError(404, 'The attached Review is unavailable in this project.');
       const manifest = review.sourceManifestId ? await repository.loadSourceManifestArtifacts(review.sourceManifestId) : null;
-      const traceability = await repository.getTraceabilitySnapshot(review.id);
+      const traceability = reference.findingId ? await repository.getTraceabilitySnapshot(review.id) : null;
       const all = await new SupabaseCentinelStore(client).listFindings(projectId, review.id);
-      const selected = reference.findingId ? all.filter(finding => finding.id === reference.findingId) : all;
+      const selected = reference.findingId ? all.filter(finding => finding.id === reference.findingId) : [];
       if (reference.findingId && selected.length !== 1) throw new DynamicContractError(404, 'The attached problem is unavailable in this Review.');
-      if (selected.length > 12) throw new DynamicContractError(400, 'This Review has many problems. Attach individual problems instead.');
-      add('review:' + review.id, { name: review.name, status: review.status, summary: review.summary, manifestId: review.sourceManifestId,
-        sources: (manifest ?? []).map(item => ({ artifactId: item.id, versionId: item.versionId, hash: item.contentHash, path: item.filePath })) },
+      const scopedSources = (manifest ?? []).filter(source => !reference.findingId || selected.some(finding => finding.artifactId === source.id && finding.artifactVersionId === source.versionId));
+      add('review:' + review.id, { name: review.name, status: review.status, summary: review.summary?.slice(0, 1800),
+        findingCount: all.length, sourceCount: manifest?.length ?? null,
+        findingExamples: all.slice(0, 8).map(finding => ({ title: finding.title.slice(0, 200), status: finding.status })),
+        moreFindings: Math.max(0, all.length - 8), omittedSourceCount: Math.max(0, scopedSources.length - 16), manifestId: review.sourceManifestId },
       { unavailable: !manifest });
       for (const finding of selected) {
         const source = manifest?.find(item => item.id === finding.artifactId && item.versionId === finding.artifactVersionId);
         let excerpt: string | null = null;
+        let nearby: ReturnType<typeof sourceWindow>;
         if (source?.versionId) {
           try {
             const text = await readClientArtifactContent(client, ownerId, source.id, source.versionId, signal, projectId, source.contentHash);
             if (finding.evidenceText && text.includes(finding.evidenceText)) excerpt = finding.evidenceText;
+            if (includeSourceWindow && !excerpt) nearby = sourceWindow(text, finding.location?.lineNumber);
           } catch { signal.throwIfAborted(); }
         }
         add('finding:' + finding.id, { title: finding.title, description: finding.description, recommendation: finding.recommendation,
           originalStatus: finding.status, reviewId: review.id, location: finding.location, excerpt, requirementId: finding.requirementId,
-          requirement: traceability?.records.find(record => record.requirementId === finding.requirementId) ?? null, path: source?.filePath ?? null },
+          requirement: traceability?.records.find(record => record.requirementId === finding.requirementId) ?? null,
+          path: source?.filePath ?? (includeSourceWindow && typeof finding.location?.filePath === 'string' ? finding.location.filePath : null),
+          ...(nearby ? { nearby } : {}) },
         { artifactId: source?.id, versionId: source?.versionId, unavailable: !excerpt });
       }
       // Bind scoped code execution to the selected frozen source identities.
-      for (const source of manifest ?? []) {
-        if (selected.length && !selected.some(finding => finding.artifactId === source.id)) continue;
+      for (const source of scopedSources.slice(0, 16)) {
         add('source:' + source.id + ':' + source.versionId, { path: source.filePath, hash: source.contentHash, versionId: source.versionId },
           { artifactId: source.id, versionId: source.versionId, unavailable: !source.versionId });
       }
@@ -61,7 +88,7 @@ export async function resolveConversationEvidence(client: SupabaseClient, ownerI
       add('browser:' + session.id + (reference.testId ? ':' + reference.testId : ''), {
         repository: session.repository, stage: session.stage, tests: tests.map(test => ({ id: test.id, name: test.name, goal: test.goal,
           runId: test.runId, state: test.state, checks: test.checkResults ?? [], definitions: test.checks,
-          controls: test.controls ?? [], startPath: test.startPath, requirementRef: test.requirementRef, sources: test.sourceRefs })),
+          controls: test.controls, startPath: test.startPath, requirementRef: test.requirementRef, sources: test.sourceRefs })),
       }, { unavailable: tests.some(test => !test.runId || !test.checkResults?.length) });
     }
     if (reference.artifactId) {
@@ -74,7 +101,33 @@ export async function resolveConversationEvidence(client: SupabaseClient, ownerI
   if (!references.length) {
     const project = await application.getProject(projectId);
     if (!project) throw new DynamicContractError(404, 'Project unavailable.');
-    const sources = await listClientArtifacts(application, projectId);
+    const sources = await listClientArtifacts(application, projectId, signal);
+    const module = namedReviewScope(requestText);
+    if (module) {
+      const matches = sources.flatMap(source => {
+        if (source.source !== 'repository' || !source.versionId || source.currency?.deprecated) return [];
+        const path = source.filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+        const normalized = path.toLowerCase();
+        const repositoryPrefix = /^local-repositories\/[^/]+\//.exec(normalized)?.[0] ?? '';
+        const relative = normalized.slice(repositoryPrefix.length);
+        const folders = normalized.split('/').slice(0, -1);
+        const roots = folders.flatMap((folder, index) => folder === module || module === 'automation' && automationDirectories.has(folder)
+          ? [path.split('/').slice(0, index + 1).join('/')] : []);
+        const exact = (value: string) => value === module || value.startsWith(module + '/');
+        const root = exact(normalized) ? path.slice(0, module.length)
+          : exact(relative) ? path.slice(0, repositoryPrefix.length + module.length) : roots[0];
+        return root ? [{ source, path, root }] : [];
+      });
+      const roots = [...new Set(matches.map(item => item.root))].sort();
+      add('module:' + projectId, { module, roots: roots.slice(0, 8), rootCount: roots.length, count: matches.length });
+      if (roots.length === 1 && matches.length <= 100) {
+        for (const { source, path } of matches.sort((a, b) => a.path.localeCompare(b.path))) {
+          add('module-source:' + source.id, { path, versionId: source.versionId, hash: source.contentHash },
+            { artifactId: source.id, versionId: source.versionId });
+        }
+      }
+      return [...evidence.values()];
+    }
     add('project:' + projectId, { name: project.name, description: project.description, sources: sources.slice(0, 100).map(item => ({ id: item.id, path: item.filePath })),
       limitation: 'Inventory only. Attach checks or source files for evidence-based explanations and code verification.' });
   }

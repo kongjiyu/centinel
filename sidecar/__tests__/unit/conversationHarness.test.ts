@@ -1,19 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { ConversationRuntime, parseConversationInput, validateConversationPlan, type ConversationDeps } from '../../src/conversation/service.js';
+import { ConversationBrowserStartupError, ConversationRuntime, parseConversationInput, validateConversationPlan, type ConversationDeps } from '../../src/conversation/service.js';
 import type { ConversationRequest, ConversationInput } from '../../src/conversation/types.js';
-import { DynamicContractError } from '../../src/dynamic/types.js';
 import type { ConversationStore } from '../../src/conversation/store.js';
 
 class MemoryStore implements ConversationStore {
   records = new Map<string, ConversationRequest>();
   failUpdate = false;
-  listEarlierTurns = vi.fn<NonNullable<ConversationStore["listEarlierTurns"]>>().mockResolvedValue([]);
+  listEarlierTurns = vi.fn<NonNullable<ConversationStore['listEarlierTurns']>>().mockImplementation(async (projectId, ownerId, before, limit) =>
+    (await this.list(projectId)).filter(row => row.ownerId === ownerId && row.createdAt < before)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, limit));
   async get(projectId: string, id: string) {
     const row = this.records.get(id);
     return row?.projectId === projectId ? structuredClone(row) : null;
   }
   async list(projectId: string) { return [...this.records.values()].filter(row => row.projectId === projectId).map(row => structuredClone(row)); }
+  async listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number) {
+    return (await this.list(projectId)).filter(row => row.ownerId === ownerId && row.state === 'completed' && row.createdAt < before)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
   async create(record: ConversationRequest) {
     if (this.records.has(record.id)) return false;
     this.records.set(record.id, structuredClone(record)); return true;
@@ -43,56 +48,151 @@ async function waitFor(store: MemoryStore, id: string, state: ConversationReques
 }
 
 describe('conversation request harness', () => {
+  it('answers an unbound proceed without planning or executing an earlier check', async () => {
+    const { input, runtime, deps, store } = fixture();
+    await runtime.accept('project', { ...input, text: 'proceed' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', reply: expect.stringContaining('name the repository folder') });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['Explain this saved check.', 'review:r1', { name: 'Cypress QA', findingCount: 56, findingExamples: [{ title: 'Window interface mismatch' }] }, '56 findings'],
+    ['Explain what this saved problem means.', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.', path: 'support.ts' }, 'The original source excerpt is unavailable'],
+    ['Explain what happened to this problem, how it works', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.', excerpt: 'interface Window {}' }, 'interface Window {}'],
+    ['What happend to this issue?', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.' }, 'The original source excerpt is unavailable'],
+    ['Explain', 'browser:b1', { tests: [{ name: 'Sign-in form', state: 'passed', checks: [{ observed: 'Username field visible' }] }] }, 'Username field visible'],
+  ] as const)('retains the cited record for %s when the generated answer fails validation', async (text, id, data, fragment) => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id, hash: 'saved', text: JSON.stringify(data), unavailable: id.startsWith('finding:') }]);
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'Unsupported answer', citations: [], scope: [] });
+    const references = id.startsWith('browser:') ? [{ autoTestId: 'b1' }] : [{ reviewId: 'r1' }];
+    await runtime.accept('project', { ...input, text, references }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', replyOrigin: 'saved_evidence', answerUnavailable: true, citations: [id], reply: expect.stringContaining(fragment) });
+    expect(deps.plan).toHaveBeenCalledOnce();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('generates a question-specific answer alongside the original problem details', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const saved = { id: 'finding:f1', hash: 'saved', text: JSON.stringify({ title: 'Sign-in issue', path: 'src/auth/login.ts', originalStatus: 'new' }) };
+    vi.mocked(deps.resolve).mockResolvedValue([saved]);
+    const reply = '| Module | Saved path |\n| --- | --- |\n| Authentication | `src/auth/login.ts` |';
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply, citations: [saved.id], scope: [], claims: [{ citation: saved.id, excerpt: 'src/auth/login.ts' }] });
+    await runtime.accept('project', { ...input, text: 'Explain this issue. Which module is affected?', references: [{ reviewId: 'r1', findingId: 'f1' }] }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ reply, replyFormat: 'markdown', explanation: { sections: [{ title: 'Sign-in issue', evidenceId: saved.id }] } });
+    expect(deps.plan).toHaveBeenCalledOnce();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it.each(['code', 'browser'] as const)('handles an explicit module Review in %s mode without expanding its file scope', async mode => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([
+      { id: 'module:project', text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
+      { id: 'module-source:a', artifactId: 'a', versionId: 'v1', text: '{"path":"cypress/example.ts"}', hash: 'file' },
+      { id: 'other', artifactId: 'b', text: '{}', hash: 'other' },
+    ]);
+    await runtime.accept('project', { ...input, mode, permission: 'ask', text: 'conduct a review on automation module' }, deps);
+    const saved = await waitFor(store, input.id, mode === 'code' ? 'awaiting_permission' : 'completed');
+    expect(saved).toMatchObject(mode === 'code' ? { action: 'code', scope: ['a'], reply: expect.stringContaining('cypress') }
+      : { action: 'clarify', scope: [], questionOptions: ['Code review only', 'Keep Browser mode'] });
+    expect(deps.execute).not.toHaveBeenCalled();
+    expect(deps.plan).not.toHaveBeenCalled();
+    let waiting = saved;
+    if (mode === 'browser') {
+      await runtime.answerQuestion(saved, saved.revision, 0, deps);
+      waiting = await waitFor(store, input.id, 'awaiting_permission');
+      expect(waiting).toMatchObject({ action: 'code', scope: ['a'], selectedOption: 0, reviewContinuation: { sourceRequestId: input.id } });
+      await runtime.answerQuestion(waiting, saved.revision, 0, deps);
+      expect(deps.resolve).toHaveBeenCalledTimes(2);
+    }
+    await runtime.confirm(waiting, waiting.revision, deps);
+    await waitFor(store, input.id, 'completed');
+    expect(deps.execute).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('honors the current Ask first setting when answering a new Code choice (%s)', async askFirst => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([
+      { id: 'module:project', text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
+      { id: 'module-source:a', artifactId: 'a', text: '{}', hash: 'file' },
+    ]);
+    await runtime.accept('project', { ...input, mode: 'browser', permission: 'auto', text: 'Review cypress' }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    await runtime.answerQuestion(question, question.revision, 0, deps, askFirst);
+    await waitFor(store, input.id, askFirst ? 'awaiting_permission' : 'completed');
+    expect(deps.execute).toHaveBeenCalledTimes(askFirst ? 0 : 1);
+    expect(deps.plan).not.toHaveBeenCalled();
+  });
+  it.each(['auto', 'ask'] as const)('uses only the bound source for a Code fallback after Browser startup failure (%s)', async permission => {
+    const { input, runtime, deps, store } = fixture();
+    const actions: string[] = [];
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    vi.mocked(deps.execute).mockImplementation(async (record, _signal, checkpoint) => {
+      actions.push(record.action!);
+      if (record.action === 'browser') {
+        await checkpoint({ autoTestId: 'saved-attempt' });
+        throw new ConversationBrowserStartupError('App unavailable');
+      }
+      expect(record.scope).toEqual(['source-1']);
+      await checkpoint({ reviewId: 'saved-review' });
+    });
+    await runtime.accept('project', { ...input, mode: 'both', permission, text: 'Verify the sign-in behavior' }, deps);
+    if (permission === 'ask') {
+      const initial = await waitFor(store, input.id, 'awaiting_permission');
+      await runtime.confirm(initial, initial.revision, deps);
+      await vi.waitFor(() => expect(store.records.get(input.id)).toMatchObject({ state: 'awaiting_permission', fallbackReason: 'browser_startup', action: 'code' }));
+      expect(actions).toEqual(['browser']);
+      const proposed = (await store.get('project', input.id))!;
+      await runtime.confirm(proposed, proposed.revision, deps);
+    }
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'code', fallbackReason: 'browser_startup', autoTestId: 'saved-attempt', reviewId: 'saved-review' });
+    expect(actions).toEqual(['browser', 'code']);
+  });
+
+  it.each([['browser', 'Run a browser test for sign-in'], ['both', 'Run a browser test for sign-in, no Code review']] as const)(
+    'keeps a Browser-only request in its requested mode after startup failure (%s)', async (mode, text) => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    vi.mocked(deps.execute).mockRejectedValue(new ConversationBrowserStartupError('App unavailable'));
+    await runtime.accept('project', { ...input, mode, text }, deps);
+    expect(await waitFor(store, input.id, 'failed')).toMatchObject({ action: 'browser' });
+    expect(deps.execute).toHaveBeenCalledOnce();
+  });
+
+  it('blocks a model proposal for Browser when the person explicitly requests a Code check in combined mode', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'browser', reply: 'Check the sign-in error.', citations: ['finding:f1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: [] });
+    await runtime.accept('project', { ...input, text: 'Run a code check for the sign-in error' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify' });
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('asks for a narrower scope instead of silently rerunning a subset of a whole large Review', async () => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([...evidence, { id: 'review:r1', hash: 'r1', text: '{"omittedSourceCount":11}' }]);
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'code', reply: 'Verify this Review.', citations: ['finding:f1'], scope: ['source-1'], claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }] });
+    await runtime.accept('project', { ...input, text: 'Run a code check for the attached Review' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', reply: expect.stringContaining('more source files') });
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('answers exact project-name recall from saved context even when planning is unavailable', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const priorId = randomUUID();
+    await store.create({ id: priorId, projectId: 'project', ownerId: deps.ownerId, createdAt: '2026-01-01T00:00:00Z', updatedAt: '', revision: 0,
+      input, inputHash: 'fixture', state: 'completed', action: 'explain', reply: 'The inventory names the project Cypress QA.', policyVersion: 'fixture', events: [] });
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'project:project', text: '{"name":"Cypress QA"}', hash: 'inventory' }]);
+    vi.mocked(deps.plan).mockRejectedValue(new Error('provider unavailable'));
+    await runtime.accept('project', { ...input, text: 'Repeat the exact project name from your immediately preceding reply. Cite that earlier conversation turn. Do not start a check.' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ reply: 'Cypress QA', replyOrigin: 'saved_recall', citations: ['conversation:' + priorId] });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
   it('rejects malformed and unbound problem references', () => {
     const { input } = fixture();
     expect(() => parseConversationInput({ ...input, references: [{ findingId: randomUUID() }] })).toThrow();
-    expect(() => parseConversationInput({ ...input, replyToTurnId: 'not-a-turn' })).toThrow();
     expect(() => parseConversationInput({ ...input, references: [{ reviewId: randomUUID(), text: 'forged evidence' }] })).toThrow();
     expect(parseConversationInput({ ...input, references: [{ reviewId: randomUUID(), findingId: randomUUID() }] })).toMatchObject({ text: input.text });
-  });
-  it('keeps attachment labels aligned after canonicalizing references and rejects malformed labels', () => {
-    const { input } = fixture();
-    const review = { reviewId: randomUUID(), findingId: randomUUID() };
-    const document = { artifactId: randomUUID() };
-    const normalized = parseConversationInput({ ...input,
-      references: [review, document, review], referenceLabels: ['Specific issue', 'Design.md', 'Duplicate label'] });
-    expect(normalized.references).toEqual([document, review]);
-    expect(normalized.referenceLabels).toEqual(['Design.md', 'Specific issue']);
-    expect(parseConversationInput(input)).not.toHaveProperty('referenceLabels');
-    expect(() => parseConversationInput({ ...input, references: [review], referenceLabels: [] })).toThrow('Invalid attachment labels');
-    expect(() => parseConversationInput({ ...input, references: [review], referenceLabels: ['x'.repeat(161)] })).toThrow('Invalid attachment labels');
-    expect(() => parseConversationInput({ ...input, references: [review], referenceLabels: ['a\nb'] })).toThrow('Invalid attachment labels');
-  });
-  it('persists display labels but only sends exact scoped IDs to the evidence resolver and never executes a check for explanation', async () => {
-    const { input, runtime, deps, store } = fixture();
-    const reference = { reviewId: randomUUID(), findingId: randomUUID() };
-    const request = parseConversationInput({ ...input, references: [reference], referenceLabels: ['A different issue name'] });
-    const boundEvidence = { ...evidence[0], id: 'finding:' + reference.findingId,
-      text: JSON.stringify({ title: 'Actual saved issue', reviewId: reference.reviewId, excerpt: 'Expected the generic sign-in error.' }) };
-    vi.mocked(deps.resolve).mockResolvedValue([boundEvidence]);
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'The saved finding concerns the sign-in error.',
-      citations: [boundEvidence.id], claims: [{ citation: boundEvidence.id, excerpt: 'Expected the generic sign-in error.' }], scope: [] });
-    await runtime.accept('project', request, deps);
-    const saved = await waitFor(store, request.id, 'completed');
-    expect(saved.input.referenceLabels).toEqual(['A different issue name']);
-    expect(deps.resolve).toHaveBeenCalledWith('project', [reference], expect.any(AbortSignal));
-    expect(saved.citations).toEqual([boundEvidence.id]);
-    expect(saved.resolvedAttachmentNames).toEqual(['Actual saved issue']);
-    expect(saved.reply).toBe('The saved finding concerns the sign-in error.');
-    expect(deps.execute).not.toHaveBeenCalled();
-    await runtime.close();
-  });
-  it('safely discloses a stale attachment without using its label, guessing evidence, or executing', async () => {
-    const { input, runtime, deps, store } = fixture();
-    const reference = { reviewId: randomUUID(), findingId: randomUUID() };
-    const request = parseConversationInput({ ...input, references: [reference], referenceLabels: ['Stale selection'] });
-    vi.mocked(deps.resolve).mockRejectedValue(new DynamicContractError(404, 'A private internal reference detail'));
-    await runtime.accept('project', request, deps);
-    const saved = await waitFor(store, request.id, 'failed');
-    expect(saved.error).toBe('An attached item could not be found in this project. Open the saved check or select the attachment again.');
-    expect(deps.plan).not.toHaveBeenCalled();
-    expect(deps.execute).not.toHaveBeenCalled();
-    await runtime.close();
   });
   it('checks membership before storing or reading evidence', async () => {
     const { store, runtime, deps, input } = fixture();
@@ -105,137 +205,170 @@ describe('conversation request harness', () => {
     const { store, runtime, deps, input } = fixture();
     await runtime.accept('project', input, deps);
     const saved = await waitFor(store, input.id, 'completed');
-    expect(deps.plan).toHaveBeenCalledWith(expect.anything(), evidence, expect.any(AbortSignal));
+    expect(deps.plan).toHaveBeenCalledWith(expect.anything(), evidence, expect.any(AbortSignal), []);
     expect(saved.context).toEqual([{ id: 'finding:f1', hash: 'hash', artifactId: 'source-1', versionId: 'version-1' }]);
     expect(JSON.stringify(saved)).not.toContain(evidence[0].text);
     expect(deps.execute).not.toHaveBeenCalled();
   });
-  it('can quote an exact prior reply from a recovered store without a planner or a new check', async () => {
-    const { runtime, deps, store, input } = fixture();
+
+  it('keeps a bounded history receipt and excludes history from executable scope', async () => {
+    const { store, runtime, deps, input } = fixture();
+    const rows = Array.from({ length: 7 }, (_, index): ConversationRequest => ({
+      id: randomUUID(), projectId: 'project', ownerId: 'owner', revision: 0, createdAt: `2026-01-0${index + 1}T00:00:00Z`, updatedAt: '',
+      input, inputHash: 'fixture', policyVersion: 'fixture', state: 'completed', action: 'explain', reply: 'Earlier public result', events: [],
+      scope: ['historical-asset'],
+    }));
+    for (const row of rows) await store.create(row);
     await runtime.accept('project', input, deps);
-    const earlier = await waitFor(store, input.id, 'completed');
-    await runtime.close();
-    earlier.createdAt = '2000-01-01T00:00:00.000Z';
-    store.listEarlierTurns.mockResolvedValue([earlier]);
-    vi.mocked(deps.plan).mockClear();
-    const restarted = new ConversationRuntime();
-    const next = { ...input, id: randomUUID(), text: 'Repeat your exact last answer.' };
-    await restarted.accept('project', next, deps);
-    const saved = await waitFor(store, next.id, 'completed');
-    expect(saved).toMatchObject({ action: 'explain', reply: earlier.reply, citations: ['conversation:' + earlier.id],
-      recall: { status: 'recalled', turns: 1 }, scope: [] });
-    expect(store.listEarlierTurns).toHaveBeenCalledWith('project', 'owner', saved.createdAt, 1);
-    expect(deps.plan).not.toHaveBeenCalled();
-    expect(deps.execute).not.toHaveBeenCalled();
-    await restarted.close();
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved.recall).toEqual({ turns: 6, status: 'limited' });
+    const history = vi.mocked(deps.plan).mock.calls[0][3];
+    expect(history.map(item => item.id)).toEqual(rows.slice(1).map(row => 'conversation:' + row.id));
+    expect(JSON.stringify(history)).not.toContain('historical-asset');
+    const plan = { action: 'code', reply: 'Check the attached file.', scope: ['source-1'], citations: [history[0].id],
+      claims: [{ citation: history[0].id, excerpt: 'Earlier public result' }] };
+    expect(() => validateConversationPlan(plan, evidence, 'code', history)).toThrow('selected for this request');
   });
-  it.each(['missing', 'wrong-project', 'wrong-owner', 'unfinished', 'cancelled', 'late-completion', 'future', 'unavailable'])(
-    'fails closed when a prior reply is %s', async kind => {
-      const { runtime, deps, store, input } = fixture();
-      if (kind === 'unavailable') store.listEarlierTurns.mockRejectedValueOnce(new Error('fixture outage'));
-      else if (kind !== 'missing') store.listEarlierTurns.mockResolvedValueOnce([{
-        id: randomUUID(), projectId: kind === 'wrong-project' ? 'different' : 'project',
-        ownerId: kind === 'wrong-owner' ? 'different' : 'owner', revision: 0, input, inputHash: 'fixture',
-        createdAt: kind === 'future' ? '2999-01-01T00:00:00.000Z' : '2000-01-01T00:00:00.000Z',
-        updatedAt: kind === 'late-completion' ? '2999-01-01T00:00:00.000Z' : '2000-01-01T00:00:00.000Z',
-        state: kind === 'unfinished' ? 'planning' : kind === 'cancelled' ? 'cancelled' : 'completed',
-        reply: 'Synthetic reply not eligible for this request.', policyVersion: 'fixture', events: [],
-      }]);
-      await runtime.accept('project', { ...input, text: 'Quote the previous answer.' }, deps);
-      expect(await waitFor(store, input.id, 'completed')).toMatchObject({
-        action: 'clarify', citations: [], recall: { status: kind === 'unavailable' ? 'unavailable' : 'missing', turns: 0 },
-      });
-      expect(deps.plan).not.toHaveBeenCalled();
+
+  it('stops a saturated evidence packet before model planning', async () => {
+    const { store, runtime, deps, input } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([{ id: 'artifact:large', text: 'x'.repeat(64_000), hash: 'large' }]);
+    await runtime.accept('project', input, deps);
+    const saved = await waitFor(store, input.id, 'failed');
+    expect(saved.failureStage).toBe('context');
+    expect(deps.plan).not.toHaveBeenCalled();
+  });
+
+  it.each([['Username is required', 'completed'], ['"Username is required"', 'completed'], ['An account is mandatory', 'failed']] as const)(
+    'can attach omitted evidence only when the requested repeat is verbatim (%s)', async (reply, expected) => {
+      const { store, runtime, deps, input } = fixture();
+      const priorId = randomUUID();
+      await store.create({ id: priorId, ownerId: deps.ownerId, projectId: 'project', revision: 0, createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '', input, inputHash: 'fixture', policyVersion: 'fixture', state: 'completed', action: 'explain',
+        reply: 'The validation reads "Username is required".', events: [] });
+      vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply, scope: [], citations: [], claims: [] });
+      await runtime.accept('project', { ...input, text: 'Repeat the exact wording from your previous reply.' }, deps);
+      const saved = await waitFor(store, input.id, expected);
+      if (expected === 'completed') expect(saved.citations).toEqual(['conversation:' + priorId]);
+      else expect(saved.failureStage).toBe('validation');
       expect(deps.execute).not.toHaveBeenCalled();
-      await runtime.close();
     },
   );
-  it('does not substitute old content when the user selects a current attachment', async () => {
-    const { runtime, deps, store, input } = fixture();
-    await runtime.accept('project', { ...input, text: 'Quote the previous answer.', references: [{ artifactId: randomUUID() }] }, deps);
-    await waitFor(store, input.id, 'completed');
-    expect(store.listEarlierTurns).not.toHaveBeenCalled();
-    expect(deps.plan).toHaveBeenCalledOnce();
+
+  it('quotes the latest completed reply exactly without planning or loading evidence', async () => {
+    const { store, runtime, deps, input } = fixture();
+    const priorId = randomUUID();
+    const reply = '**Synthetic** earlier answer.';
+    await store.create({ id: priorId, projectId: 'project', ownerId: deps.ownerId, revision: 0,
+      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
+      policyVersion: 'fixture', state: 'completed', action: 'explain', reply, replyFormat: 'markdown', events: [] });
+    await runtime.accept('project', { ...input, text: 'Quote your previous reply.' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', reply, replyFormat: 'markdown',
+      citations: ['conversation:' + priorId], recall: { status: 'recalled', turns: 1 } });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.resolve).not.toHaveBeenCalled();
     await runtime.close();
   });
-  it.each(['What about the first issue?'])(
-    'documents the bounded recall gap for %s', async text => {
-      const { runtime, deps, store, input } = fixture();
-      const earlier = { ...input, text: 'Explain the original issue' };
-      await runtime.accept('project', earlier, deps);
-      await waitFor(store, earlier.id, 'completed');
-      await runtime.close();
-      const restarted = new ConversationRuntime();
-      vi.mocked(deps.resolve).mockResolvedValue([]);
-      vi.mocked(deps.plan).mockClear();
-      vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'A plausible answer without the earlier context.', citations: [], scope: [] });
-      const next = { ...input, id: randomUUID(), text };
-      await restarted.accept('project', next, deps);
-      const saved = await waitFor(store, next.id, 'completed');
-      expect(saved).toMatchObject({ action: 'explain', reply: 'A plausible answer without the earlier context.', citations: [], context: [] });
-      expect(saved.recall).toBeUndefined();
-      expect(store.listEarlierTurns).not.toHaveBeenCalled();
-      expect(deps.plan).toHaveBeenCalledWith(expect.objectContaining({ input: next }), [], expect.any(AbortSignal));
-      expect(deps.execute).not.toHaveBeenCalled();
-      await restarted.close();
-    });
 
-  it.each(['Repeat the answer before last.', 'Can you quote the first reply?', 'Explain your second response.'])(
-    'asks for the earlier text rather than guessing for %s', async text => {
-      const { runtime, deps, store, input } = fixture();
-      await runtime.accept('project', { ...input, text }, deps);
-      expect(await waitFor(store, input.id, 'completed')).toMatchObject({
-        action: 'clarify', reply: expect.stringContaining('Paste the earlier reply'), citations: [],
-      });
-      expect(deps.plan).not.toHaveBeenCalled();
-      expect(deps.execute).not.toHaveBeenCalled();
-      await runtime.close();
-    });
-
-  it('does not substitute a completed older answer when the immediately prior request is still running', async () => {
-    const { runtime, deps, store, input } = fixture();
-    const base = { id: randomUUID(), projectId: 'project', ownerId: 'owner', revision: 0, input, inputHash: 'fixture',
-      updatedAt: '2000-01-01T00:00:00.000Z', policyVersion: 'fixture', events: [] };
-    store.listEarlierTurns.mockResolvedValue([
-      { ...base, state: 'running', createdAt: '2000-01-02T00:00:00.000Z' },
-      { ...base, id: randomUUID(), state: 'completed', createdAt: '2000-01-01T00:00:00.000Z', reply: 'Wrong older answer.' },
-    ]);
-    await runtime.accept('project', { ...input, text: 'Can you repeat your last reply?' }, deps);
-    expect(await waitFor(store, input.id, 'completed')).toMatchObject({
-      action: 'clarify', recall: { status: 'missing', turns: 0 }, citations: [],
-    });
+  it('does not replace an ineligible latest reply with older completed history', async () => {
+    const { store, runtime, deps, input } = fixture();
+    const base = { projectId: 'project', ownerId: deps.ownerId, revision: 0, input, inputHash: 'fixture',
+      policyVersion: 'fixture', events: [] as ConversationRequest['events'] };
+    await store.create({ ...base, id: randomUUID(), createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z',
+      state: 'completed', reply: 'Older answer.' });
+    await store.create({ ...base, id: randomUUID(), createdAt: '2000-01-02T00:00:00.000Z', updatedAt: '2000-01-02T00:00:00.000Z',
+      state: 'running', reply: 'Still running.' });
+    await runtime.accept('project', { ...input, text: 'Quote your previous reply.' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', citations: [], recall: { status: 'missing', turns: 0 } });
     expect(deps.plan).not.toHaveBeenCalled();
     expect(deps.execute).not.toHaveBeenCalled();
     await runtime.close();
   });
-  it('uses only the most recent eligible reply and does not depend on the visible history listing', async () => {
-    const { runtime, deps, store, input } = fixture();
-    await runtime.accept('project', input, deps);
-    const sample = await waitFor(store, input.id, 'completed');
-    const older = { ...sample, id: randomUUID(), createdAt: '2000-01-01T00:00:00.000Z', reply: 'Older synthetic answer.' };
-    const newest = { ...sample, id: randomUUID(), createdAt: '2000-01-02T00:00:00.000Z', reply: 'Newest synthetic answer.' };
-    const list = vi.spyOn(store, 'list').mockResolvedValue([]);
-    store.listEarlierTurns.mockResolvedValue([newest, older]);
-    vi.mocked(deps.plan).mockClear();
-    const next = { ...input, id: randomUUID(), text: 'Repeat the last reply.' };
-    await runtime.accept('project', next, deps);
-    expect(await waitFor(store, next.id, 'completed')).toMatchObject({ reply: newest.reply, citations: ['conversation:' + newest.id] });
-    expect(list).not.toHaveBeenCalled();
-    expect(deps.plan).not.toHaveBeenCalled();
+
+  it.each(['What does that mean?', 'proceed', 'conduct a review'])('uses the explicitly selected reply for %s', async text => {
+    const { store, runtime, deps, input } = fixture();
+    const selectedId = randomUUID(), newerId = randomUUID();
+    const row = { projectId: 'project', ownerId: deps.ownerId, revision: 0, input, inputHash: 'fixture',
+      updatedAt: '2000-01-01T00:00:00.000Z', policyVersion: 'fixture', state: 'completed' as const, events: [] };
+    await store.create({ ...row, id: selectedId, createdAt: '2000-01-01T00:00:00.000Z', reply: 'Selected synthetic context.' });
+    await store.create({ ...row, id: newerId, createdAt: '2000-01-02T00:00:00.000Z', reply: 'Unselected recent context.' });
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'The selected context describes the saved finding.',
+      citations: ['conversation:' + selectedId], claims: [{ citation: 'conversation:' + selectedId, excerpt: 'Selected synthetic context.' }], scope: [] });
+    await runtime.accept('project', { ...input, text, replyToTurnId: selectedId }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved.replyTo).toEqual({ turnId: selectedId, status: 'resolved' });
+    expect(saved.citations).toEqual(['conversation:' + selectedId]);
+    expect(store.listEarlierTurns).not.toHaveBeenCalled();
+    expect(deps.plan.mock.calls[0][1]).toContainEqual(expect.objectContaining({ id: 'conversation:' + selectedId, kind: 'prior_reply' }));
+    expect(deps.plan.mock.calls[0][1]).not.toContainEqual(expect.objectContaining({ id: 'conversation:' + newerId }));
+    expect(deps.execute).not.toHaveBeenCalled();
     await runtime.close();
   });
 
-  it('fails closed if the prior reply timestamp ties with the new request', async () => {
-    const { runtime, deps, store, input } = fixture();
-    store.listEarlierTurns.mockImplementation(async (_project, _owner, cutoff) => [{
-      id: randomUUID(), projectId: 'project', ownerId: 'owner', revision: 0, input, inputHash: 'fixture',
-      createdAt: cutoff, updatedAt: cutoff, state: 'completed', reply: 'Synthetic tied reply.', policyVersion: 'fixture', events: [],
-    }]);
-    await runtime.accept('project', { ...input, text: 'Quote the previous answer.' }, deps);
-    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', recall: { status: 'missing', turns: 0 } });
-    expect(deps.plan).not.toHaveBeenCalled();
+  it('validates an exact quoted phrase against the selected reply text', async () => {
+    const { store, runtime, deps, input } = fixture();
+    const selectedId = randomUUID();
+    await store.create({ id: selectedId, projectId: 'project', ownerId: deps.ownerId, revision: 0,
+      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
+      policyVersion: 'fixture', state: 'completed', reply: 'The saved reply says "Username is required".', events: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: '"Username is required"', citations: [], scope: [] });
+    await runtime.accept('project', { ...input, text: 'Repeat the exact wording from your previous reply.', replyToTurnId: selectedId }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ reply: '"Username is required"', citations: ['conversation:' + selectedId],
+      replyTo: { turnId: selectedId, status: 'resolved' } });
+    expect(deps.execute).not.toHaveBeenCalled();
     await runtime.close();
   });
+
+  it('combines the selected reply with current attachments and requires a current citation', async () => {
+    const { store, runtime, deps, input } = fixture();
+    const selectedId = randomUUID();
+    await store.create({ id: selectedId, projectId: 'project', ownerId: deps.ownerId, revision: 0,
+      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
+      policyVersion: 'fixture', state: 'completed', reply: 'Earlier synthetic review context.', events: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'The new attachment adds context to the earlier review.', scope: [],
+      citations: [evidence[0].id, 'conversation:' + selectedId], claims: [
+        { citation: evidence[0].id, excerpt: 'Expected the generic sign-in error.' },
+        { citation: 'conversation:' + selectedId, excerpt: 'Earlier synthetic review context.' },
+      ] });
+    await runtime.accept('project', { ...input, text: 'Explain this with that earlier reply.', references: [{ artifactId: randomUUID() }],
+      replyToTurnId: selectedId }, deps);
+    const saved = await waitFor(store, input.id, 'completed');
+    expect(saved).toMatchObject({ action: 'explain', replyTo: { turnId: selectedId, status: 'resolved' }, citations: [evidence[0].id, 'conversation:' + selectedId] });
+    expect(deps.plan.mock.calls[0][1].map(item => item.id)).toEqual([evidence[0].id, 'conversation:' + selectedId]);
+    expect(JSON.stringify(saved)).not.toContain('Earlier synthetic review context.');
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+
+  it.each(['code', 'browser'] as const)('does not execute a %s action through Reply to', async action => {
+    const { store, runtime, deps, input } = fixture();
+    const selectedId = randomUUID();
+    await store.create({ id: selectedId, projectId: 'project', ownerId: deps.ownerId, revision: 0,
+      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
+      policyVersion: 'fixture', state: 'completed', reply: 'Earlier synthetic context.', events: [] });
+    vi.mocked(deps.plan).mockResolvedValue({ action, reply: 'Run this selected scope.', citations: ['finding:f1'],
+      claims: [{ citation: 'finding:f1', excerpt: 'Expected the generic sign-in error.' }], scope: action === 'code' ? ['source-1'] : [] });
+    await runtime.accept('project', { ...input, text: 'Run a ' + action + ' check for this item', references: [{ artifactId: randomUUID() }],
+      replyToTurnId: selectedId }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', replyTo: { turnId: selectedId, status: 'resolved' } });
+    expect(deps.execute).not.toHaveBeenCalled();
+    await expect(runtime.confirm((await store.get('project', input.id))!, (await store.get('project', input.id))!.revision, deps)).rejects.toThrow();
+    await runtime.close();
+  });
+
+  it('fails closed for a Reply to target owned by someone else', async () => {
+    const { store, runtime, deps, input } = fixture();
+    const selectedId = randomUUID();
+    await store.create({ id: selectedId, projectId: 'project', ownerId: 'different-owner', revision: 0,
+      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
+      policyVersion: 'fixture', state: 'completed', reply: 'Private synthetic context.', events: [] });
+    await runtime.accept('project', { ...input, text: 'Explain this more clearly.', replyToTurnId: selectedId }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', citations: [], replyTo: { turnId: selectedId, status: 'unavailable' } });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+    await runtime.close();
+  });
+
   it.each(['What does that mean?', 'Which one failed?', 'Can you explain it?'])('clarifies an unattached ambiguous %s', async text => {
     const { runtime, deps, store, input } = fixture();
     await runtime.accept('project', { ...input, text }, deps);
@@ -246,45 +379,6 @@ describe('conversation request harness', () => {
     await runtime.close();
   });
 
-  it.each(['older', 'wrong-project', 'wrong-owner', 'missing', 'incomplete', 'new-attachment', 'current-cited', 'check'])('handles an explicit %s reply against persisted synthetic history', async kind => {
-    const { runtime, deps, store, input } = fixture();
-    await runtime.close();
-    const restarted = new ConversationRuntime();
-    const target = randomUUID();
-    const text = 'The selected synthetic answer contains fixture label DELTA.';
-    const row = { id: target, projectId: kind === 'wrong-project' ? 'other' : 'project',
-      ownerId: kind === 'wrong-owner' ? 'other' : 'owner', revision: 0, input, inputHash: 'fixture',
-      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z',
-      state: kind === 'incomplete' ? 'running' as const : 'completed' as const, reply: text, policyVersion: 'fixture', events: [] };
-    if (kind !== 'missing') await store.create(row);
-    const newest = randomUUID();
-    await store.create({ ...row, id: newest, projectId: 'project', ownerId: 'owner', state: 'completed',
-      createdAt: '2000-01-02T00:00:00.000Z', reply: 'Unselected synthetic answer OTHER.' });
-    const id = 'conversation:' + target;
-    const citeCurrent = ['check', 'current-cited'].includes(kind);
-    const cites = citeCurrent ? evidence[0].id : id;
-    vi.mocked(deps.resolve).mockResolvedValue(['new-attachment', 'current-cited', 'check'].includes(kind) ? evidence : []);
-    vi.mocked(deps.plan).mockResolvedValue({ action: kind === 'check' ? 'code' : 'explain', reply: 'Synthetic selected explanation.',
-      scope: kind === 'check' ? ['source-1'] : [], citations: [cites],
-      claims: [{ citation: cites, excerpt: citeCurrent ? 'Expected the generic sign-in error.' : 'fixture label DELTA' }] });
-    const references = ['new-attachment', 'current-cited', 'check'].includes(kind) ? [{ artifactId: randomUUID() }] : [];
-    await restarted.accept('project', { ...input, text: kind === 'check' ? 'Verify this selection' : 'What does that mean?', references,
-      replyToTurnId: target }, deps);
-    const saved = await waitFor(store, input.id, 'completed');
-    if (['wrong-project', 'wrong-owner', 'missing', 'incomplete'].includes(kind)) {
-      expect(saved).toMatchObject({ action: 'clarify', citations: [], replyTo: { turnId: target, status: 'unavailable' } });
-      expect(deps.plan).not.toHaveBeenCalled();
-    } else {
-      expect(saved.replyTo).toEqual({ turnId: target, status: 'resolved' });
-      const modelEvidence = vi.mocked(deps.plan).mock.calls[0][1];
-      expect(modelEvidence).toContainEqual(expect.objectContaining({ id, text, kind: 'prior_reply' }));
-      expect(modelEvidence).not.toContainEqual(expect.objectContaining({ id: 'conversation:' + newest }));
-      expect(JSON.stringify(saved)).not.toContain(text);
-      expect(saved).toMatchObject(['older', 'current-cited'].includes(kind) ? { action: 'explain', citations: [cites] } : { action: 'clarify', citations: [] });
-    }
-    expect(deps.execute).not.toHaveBeenCalled();
-    await restarted.close();
-  });
   it('coalesces concurrent sends and rejects a changed request under the same ID', async () => {
     const { store, runtime, deps, input } = fixture();
     await Promise.all([runtime.accept('project', input, deps), runtime.accept('project', input, deps)]);

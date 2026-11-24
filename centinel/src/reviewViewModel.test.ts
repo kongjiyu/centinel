@@ -56,7 +56,7 @@ describe('Completed with gaps', () => {
     expect(gaps?.total).toBe(3);
     expect(gaps?.parts).toHaveLength(2);
     expect(unverifiedPartLocation(gaps!.parts[0])).toBe('src/checkout.ts');
-    expect(unverifiedPartReason(gaps!.parts[0])).toBe('The conclusions could not be backed up with evidence from the code.');
+    expect(unverifiedPartReason(gaps!.parts[0])).toBe('The Review could not verify the proposed findings against the supplied code.');
     expect(unverifiedPartLocation(gaps!.parts[1])).toBe('refund');
     expect(unverifiedPartReason(gaps!.parts[1])).toBe('Some issues point to code that could not be matched exactly (2 issues).');
     expect(reviewCoverageGaps({ progressJson: '{}' })).toBeNull();

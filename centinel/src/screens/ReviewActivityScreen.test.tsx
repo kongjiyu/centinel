@@ -2,10 +2,12 @@ import { save } from '@tauri-apps/api/dialog';
 import { writeTextFile } from '@tauri-apps/api/fs';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
+import { hashToScreen, resolveLegacyProjectRoute } from '../navigation/screenHash';
 import { ReviewActivityScreen } from './ReviewActivityScreen';
-import type { Artifact, Finding, Project, Requirement, ReviewDecisionRecord, ReviewModelUsage, ReviewSourceManifest, ReviewTraceabilitySnapshot, StaticSession } from '../types';
+import type { Artifact, Finding, Project, Requirement, ReviewDecisionRecord, ReviewModelUsage, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
 
 vi.mock('@tauri-apps/api/dialog', () => ({ save: vi.fn() }));
 vi.mock('@tauri-apps/api/fs', () => ({ writeTextFile: vi.fn() }));
@@ -299,7 +301,7 @@ describe('ReviewActivityScreen', () => {
     expect(api.submitReviewDecision).not.toHaveBeenCalled();
   });
 
-  it('opens Project Findings scoped to the running review', async () => {
+  it('opens saved Findings scoped to the running review', async () => {
     const user = userEvent.setup();
     setup({ ...baseSession, status: 'running' });
     const navigate = vi.fn();
@@ -310,11 +312,11 @@ describe('ReviewActivityScreen', () => {
     expect(navigate).not.toHaveBeenCalled();
     await user.click(within(details).getByRole('button', { name: `Open issue detail: ${finding.title}` }));
     expect(navigate).toHaveBeenLastCalledWith({
-      name: 'project-detail', projectId: project.id, initialSection: 'findings', findingsReviewId: baseSession.id, findingId: finding.id,
+      name: 'review-finding', projectId: project.id, sessionId: baseSession.id, findingId: finding.id,
     });
     await user.click(within(details).getByRole('button', { name: 'All issues' }));
     expect(navigate).toHaveBeenLastCalledWith({
-      name: 'project-detail', projectId: project.id, initialSection: 'findings',
+      name: 'review-activity', projectId: project.id, sessionId: baseSession.id, initialTab: 'Findings',
     });
     expect(within(details).getByRole('button', { name: 'Cancel review' })).toBeEnabled();
   });
@@ -432,7 +434,7 @@ describe('ReviewActivityScreen', () => {
     const gaps = await within(details).findAllByRole('button', { name: /Open issue detail: .*requirement traceability/i });
     await user.click(gaps[0]);
     expect(navigate).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'project-detail', initialSection: 'findings', findingsReviewId: baseSession.id,
+      name: 'review-finding', sessionId: baseSession.id,
       findingId: expect.stringContaining(`traceability-${baseSession.id}-`),
     }));
   });
@@ -474,7 +476,7 @@ describe('ReviewActivityScreen', () => {
     const issue = document.getElementById(`review-finding-${finding.id}`)!;
     expect(issue.querySelector('.review-issue-overview')).toHaveTextContent(finding.description);
     await user.click(screen.getByRole('button', { name: `View issue: ${finding.title}` }));
-    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ name: 'project-detail', initialSection: 'findings', findingsReviewId: baseSession.id, findingId: finding.id }));
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ name: 'review-finding', sessionId: baseSession.id, findingId: finding.id }));
   });
 
   it('submits attached supportive documents with review feedback', async () => {
@@ -552,12 +554,53 @@ describe('ReviewActivityScreen', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
-  it('redirects a legacy finding link to Project Findings', async () => {
+  it('renders a saved finding link without navigating even when the parent rerenders', async () => {
     const navigate = vi.fn();
-    render(<ReviewActivityScreen findingId={finding.id} projectId={project.id} sessionId={baseSession.id} onNavigate={navigate} />);
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'project-detail', initialSection: 'findings', findingsReviewId: baseSession.id, findingId: finding.id,
-    })));
+    const props = { findingId: finding.id, projectId: project.id, sessionId: baseSession.id };
+    const view = render(<ReviewActivityScreen {...props} onNavigate={target => navigate(target)} />);
+    const back = await screen.findByRole('button', { name: 'Back to findings' });
+    expect(screen.queryByRole('region', { name: 'Finding detail unavailable' })).not.toBeInTheDocument();
+    view.rerender(<ReviewActivityScreen {...props} onNavigate={target => navigate(target)} />);
+    expect(navigate).not.toHaveBeenCalled();
+    await userEvent.click(back);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith({ name: 'review-activity', projectId: project.id, sessionId: baseSession.id, initialTab: 'Findings' });
+  });
+
+  it('leaves an unavailable saved finding on its own page with a way back', async () => {
+    const navigate = vi.fn();
+    render(<ReviewActivityScreen findingId="missing" projectId={project.id} sessionId={baseSession.id} onNavigate={navigate} />);
+    const missing = await screen.findByRole('region', { name: 'Finding detail unavailable' });
+    expect(within(missing).getByRole('button', { name: 'Back to findings' })).toBeEnabled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('can leave a legacy finding link for Landing, Settings, and Project', async () => {
+    const link = `#/project-detail?projectId=${project.id}&findingsReviewId=${baseSession.id}&findingId=${finding.id}`;
+    const destinations = [
+      { label: 'Landing', route: { name: 'new-check' } },
+      { label: 'Settings', route: { name: 'settings' } },
+      { label: 'Project', route: { name: 'project', projectId: project.id } },
+    ] as const;
+    function Workspace() {
+      const [page, setPage] = useState<Screen>(() => hashToScreen(link)!);
+      return <>
+        {destinations.map(({ label, route }) => <button key={label} onClick={() => setPage(route)}>{label}</button>)}
+        <button onClick={() => setPage(hashToScreen(link)!)}>Reopen finding</button>
+        {page.name === 'review-finding'
+          ? <ReviewActivityScreen projectId={page.projectId} sessionId={page.sessionId} findingId={page.findingId}
+              onNavigate={target => setPage(resolveLegacyProjectRoute(target))} />
+          : <h1>{destinations.find(item => item.route.name === page.name)?.label}</h1>}
+      </>;
+    }
+    const user = userEvent.setup();
+    render(<Workspace />);
+    for (const { label } of destinations) {
+      await screen.findByRole('button', { name: 'Back to findings' });
+      await user.click(screen.getByRole('button', { name: label }));
+      expect(screen.getByRole('heading', { name: label })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Back to findings' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Reopen finding' }));
+    }
   });
 
   it('saves a Review export as Markdown in the desktop app and respects save cancellation', async () => {
@@ -718,7 +761,7 @@ describe('ReviewActivityScreen', () => {
     await userEvent.click(summary);
     const panel = summary.closest('details')!;
     expect(within(panel).getByRole('list', { name: 'Parts that could not be verified' })).toHaveTextContent('src/cart.ts');
-    expect(panel).toHaveTextContent('The conclusions could not be backed up with evidence from the code.');
+    expect(panel).toHaveTextContent('The Review could not verify the proposed findings against the supplied code.');
     expect(panel).toHaveTextContent('cannot close earlier findings');
     expect(screen.getByText('Completed with gaps')).toBeVisible();
     expect(screen.getByTestId('review-decision-approve')).toBeInTheDocument();

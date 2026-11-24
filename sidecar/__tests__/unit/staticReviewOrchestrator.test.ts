@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import PDFDocument from 'pdfkit';
 import { verifiedTextForReader } from '../../src/review/sourceText.js';
 import { readPromptAnalysisMap } from '../fixtures/promptAnalysisMap.js';
@@ -203,15 +204,17 @@ describe('Provider capacity lifecycle', () => {
   });
   it('prepares bounded text assessment when an intact syntax inventory exceeds the request budget', async () => {
     const repository = new InMemoryStaticReviewRepository();
-    const index = vi.fn(async () => { throw new ModelProviderError('offline fixture stop', { code: 'credits_exhausted' }); });
-    const analyze = vi.fn();
-    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index,
+    const index = vi.fn();
+    const context = vi.fn();
+    const analyze = vi.fn(async () => { throw new ModelProviderError('offline fixture stop', { code: 'credits_exhausted' }); });
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), index, context,
       modelProvider: { analyze }, readArtifactContent: async () => Array.from({ length: 2048 },
         (_, i) => `export function operation${i}() { return ${i}; }`).join('\n') });
     const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [artifact], idempotencyKey: 'batch-budget-preflight' });
     expect((await started.completion).status).toBe('blocked');
-    expect(index).toHaveBeenCalledOnce();
-    expect(analyze).not.toHaveBeenCalled();
+    expect(index).not.toHaveBeenCalled();
+    expect(context).not.toHaveBeenCalled();
+    expect(analyze).toHaveBeenCalledOnce();
     const assessment = await repository.getEvidenceSufficiency(started.review.id);
     expect(assessment?.gaps.some(gap => gap.code === 'source_analysis_context_limit')).toBe(false);
     expect(assessment?.gaps.some(gap => gap.code === 'source_analysis_inventory_incomplete')).toBe(false);
@@ -280,6 +283,43 @@ describe('Provider capacity lifecycle', () => {
     const assessment = await repository.getEvidenceSufficiency(started.review.id);
     expect(assessment?.gaps.some(gap => gap.code === 'pdf_visual_content_unverified')).toBe(true);
     expect(assessment?.gaps.some(gap => gap.code === 'source_inaccessible')).toBe(false);
+  });
+
+  it.each([true, false])('sends rendered PDF pages to the configured vision provider and retains honest coverage (%s)', async readable => {
+    const bytes = await new Promise<Buffer>(resolve => {
+      const doc = new PDFDocument(); const chunks: Buffer[] = [];
+      doc.on('data', chunk => chunks.push(chunk)); doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.rect(40, 40, 120, 80).fill('#155dcc');
+      doc.addPage().rect(40, 40, 80, 120).fill('#ea931a');
+      doc.end();
+    });
+    const pdf: Artifact = { ...artifact, id: 'diagram', fileName: 'diagram.pdf', filePath: 'diagram.pdf', type: 'design',
+      versionId: 'pdf-version', contentHash: crypto.createHash('sha256').update(bytes).digest('hex') };
+    const source = Buffer.from('export function getStatus() { return "ready"; }');
+    const code = { ...artifact, versionId: 'v-code', contentHash: crypto.createHash('sha256').update(source).digest('hex') };
+    const repository = new InMemoryStaticReviewRepository();
+    const settings = { provider: 'custom', apiFormat: 'openai-compatible', model: 'vision-fixture' } as const;
+    const analyze = vi.fn<StaticAnalysisModelProvider['analyze']>(async request => {
+      if (request.imagePaths?.length !== 2) throw new Error('Expected two PDF page images');
+      for (const file of request.imagePaths) expect((await readFile(file)).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+      return { settings, result: { pages: [
+        { page: 1, readable: true, summary: 'A wide blue block.' },
+        { page: 2, readable, summary: readable ? 'A tall orange block.' : '' },
+      ] } };
+    });
+    const orchestrator = createStaticReviewOrchestrator({ ...baseDependencies(repository), readArtifactBytes: async selected => selected.id === pdf.id ? bytes : source,
+      deterministic: async () => [],
+      modelProvider: { analyze: async request => ({ settings, result: { findings: [], featureAssessments: completeFeatureAssessments(request) } }) },
+      pdfVisualProvider: async () => ({ primaryMetadata: settings, primaryProvider: { analyze } }),
+    });
+    const started = await orchestrator.start({ projectId: 'project-1', reviewType: 'code_review', artifacts: [code, pdf], idempotencyKey: 'visual-pages' });
+    expect(await started.completion).toMatchObject({ status: 'pending_approval' });
+    expect(analyze).toHaveBeenCalledOnce();
+    const assessment = await repository.getEvidenceSufficiency(started.review.id);
+    expect(assessment?.pdfVisualCoverage?.[0]).toMatchObject({ sourceVersion: pdf.contentHash, totalPages: 2, pages: expect.any(Array) });
+    expect(assessment?.pdfVisualCoverage?.[0].pages).toHaveLength(readable ? 2 : 1);
+    expect(assessment?.gaps.some(gap => gap.code === 'pdf_visual_content_unverified')).toBe(!readable);
+    expect(repository.audits.find(event => event.event === 'review_pdf_pages_assessed')?.detail).toEqual({ artifactId: 'diagram', totalPages: 2, pagesAssessed: readable ? 2 : 1 });
   });
 
   it('also stops at source indexing before deterministic checks or model analysis', async () => {

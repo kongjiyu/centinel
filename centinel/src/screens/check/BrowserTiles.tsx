@@ -149,7 +149,10 @@ function TestRow({ test, projectId }: { test: AutoTestEntry; projectId: string }
   const canOpen = finished && !!test.runId;
   const content = <>
     <Icon icon={look.icon} shape={look.icon === TriangleAlert ? 'triangle' : undefined} className={test.state === 'running' ? 'ci-spin' : ''} />
-    <span className="ck-test-name">{test.name}</span>
+    <div className="ck-test-name">
+      <span>{test.name}</span>
+      {test.state === 'blocked' && test.reason && <p className="ck-test-reason">{test.reason}</p>}
+    </div>
     {test.kind && <span className="ck-test-kind">{TEST_KIND_LABEL[test.kind]}</span>}
     <span className="ck-test-state">{test.state === 'running' && test.laneId ? `Browser ${laneNumber(test.laneId)}` : look.label}</span>
   </>;
