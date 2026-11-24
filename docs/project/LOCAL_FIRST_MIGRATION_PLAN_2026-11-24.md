@@ -2,6 +2,8 @@
 
 Proposal · 24 November 2026
 
+The [phase 0 inventory and SQLite fixture](LOCAL_FIRST_MIGRATION_PILOT_2026-11-24.md) track the first migration work.
+
 Start with one owner, one device, and one scoped Static Review. Import its project and exact source versions, run the Review from the desktop chat, restart Centinel, and reopen the saved findings, citations, and conversation with Supabase PostgREST and Storage blocked. Use this pilot to establish a local system of record before moving the remaining workflows.
 
 Keep account identity and integration callbacks hosted. The initial release assumes a single-device workspace owned by one account. Shared projects, collaborator access, and live cross-device use need an explicit product decision before any affected project moves.
