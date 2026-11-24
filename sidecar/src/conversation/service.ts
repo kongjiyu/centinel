@@ -412,7 +412,7 @@ export class ConversationRuntime {
     };
     try {
       const text = record.reviewContinuation?.text ?? record.input.text;
-      const approval = !confirmed && conversationApproval(text);
+      const approval = !confirmed && !record.input.replyToTurnId && conversationApproval(text);
       if (approval) {
         const reply = approval === 'code'
           ? 'Which folder should I review in Code mode? Name the repository folder or attach the files and ask for a Code Review.'
@@ -420,7 +420,7 @@ export class ConversationRuntime {
         await checkpoint({ state: 'completed', action: 'clarify', reply });
         return;
       }
-      if (!confirmed && !record.input.references.length && asksForUnscopedReview(text)) {
+      if (!confirmed && !record.input.replyToTurnId && !record.input.references.length && asksForUnscopedReview(text)) {
         await checkpoint({ state: 'completed', action: 'clarify', reply: 'Which repository folder or file should I review? Reply with **Review** followed by the path.' });
         return;
       }

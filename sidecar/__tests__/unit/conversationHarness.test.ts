@@ -285,7 +285,7 @@ describe('conversation request harness', () => {
     await runtime.close();
   });
 
-  it('uses the explicitly selected reply instead of newer ambient history', async () => {
+  it.each(['What does that mean?', 'proceed', 'conduct a review'])('uses the explicitly selected reply for %s', async text => {
     const { store, runtime, deps, input } = fixture();
     const selectedId = randomUUID(), newerId = randomUUID();
     const row = { projectId: 'project', ownerId: deps.ownerId, revision: 0, input, inputHash: 'fixture',
@@ -294,7 +294,7 @@ describe('conversation request harness', () => {
     await store.create({ ...row, id: newerId, createdAt: '2000-01-02T00:00:00.000Z', reply: 'Unselected recent context.' });
     vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'The selected context describes the saved finding.',
       citations: ['conversation:' + selectedId], claims: [{ citation: 'conversation:' + selectedId, excerpt: 'Selected synthetic context.' }], scope: [] });
-    await runtime.accept('project', { ...input, text: 'What does that mean?', replyToTurnId: selectedId }, deps);
+    await runtime.accept('project', { ...input, text, replyToTurnId: selectedId }, deps);
     const saved = await waitFor(store, input.id, 'completed');
     expect(saved.replyTo).toEqual({ turnId: selectedId, status: 'resolved' });
     expect(saved.citations).toEqual(['conversation:' + selectedId]);
