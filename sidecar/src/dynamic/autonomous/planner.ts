@@ -186,12 +186,12 @@ export function validatePlan(raw: unknown, input: { appUrl: string; projectId: s
       if (!allowed) { unknownControl = true; continue; }
       const wanted = Array.isArray((control as { actions?: unknown }).actions) ? (control as { actions: unknown[] }).actions : [];
       const actions = [...new Set(wanted.filter((action): action is InteractionAction => typeof action === 'string' && allowed.has(action as InteractionAction)))];
-      if (!actions.length || controls.some(existing => existing.selector === selector)) continue;
+      if (!actions.length || actions.length !== wanted.length || controls.some(existing => existing.selector === selector)) { unknownControl = true; continue; }
       // The action policy allows repeatable only on clickable grants.
       controls.push({ selector, actions, ...((control as { repeatable?: unknown }).repeatable === true && actions.includes('click') ? { repeatable: true } : {}) });
     }
-    if (unknownControl && !controls.length) { drop('Used controls Centinel did not find in the app.'); continue; }
-    if (controls.length > MAX_CONTROLS_PER_TEST) controls.length = MAX_CONTROLS_PER_TEST;
+    if (unknownControl) { drop('A required control or action was unavailable or duplicated.'); continue; }
+    if (controls.length > MAX_CONTROLS_PER_TEST) { drop('More controls than one test can use.'); continue; }
 
     const testId = crypto.randomUUID();
     const criterionId = clean(row.requirementRef, 60) || `auto-${tests.length + 1}`;
@@ -240,7 +240,7 @@ export function planReply(raw: unknown): string | null {
 /** Rebuild a saved test against the app's current address; it is validated again like a new plan. */
 export function presetToTest(preset: AutoTestPreset, input: { appUrl: string; projectId: string }): AutoTest | null {
   const target = resolvePath(input.appUrl, preset.startPath);
-  if (!target || !preset.controls.length || !preset.checks.length) return null;
+  if (!target || !Array.isArray(preset.controls) || !preset.checks.length) return null;
   const origin = new URL(input.appUrl).origin;
   const checks = preset.checks.map(check => check.kind === 'url' ? { ...check, expected: new URL(new URL(check.expected).pathname + new URL(check.expected).search, origin).href } : check);
   try {

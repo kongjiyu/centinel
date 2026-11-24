@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestSession } from '../../autotest/types';
 import { readPrefs, resetProjectPrefs } from '../../check/projectPrefs';
-import { resetCheckStore } from '../../check/store';
+import { resetCheckStore, saveCheck } from '../../check/store';
 import type { Project } from '../../types';
 import { checkSentence, friendlyError, goalSteps, ProjectConversationScreen, testChanges } from './ProjectConversationScreen';
 
-vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), exportProjectReport: vi.fn() } }));
+vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), exportProjectReport: vi.fn(), sendConversationRequest: vi.fn() } }));
 vi.mock('../../autotest/liveStream', () => ({ openLiveStream: vi.fn() }));
 
 const project: Project = { id: 'p1', name: 'sample-shop', description: '', workspacePath: '/work/sample-shop', createdAt: '', updatedAt: '' };
@@ -66,6 +66,25 @@ describe('project conversation', () => {
     expect(screen.queryByRole('dialog', { name: 'Google Drive needs attention' })).not.toBeInTheDocument();
   });
 
+  it('renders a saved standalone browser test with the Check card and preserves its View action', async () => {
+    vi.mocked(api.autoTests).mockResolvedValue([session()]);
+    const navigate = renderScreen();
+    const card = within(await screen.findByRole('region', { name: 'Check Two mugs total $24.00' }));
+    expect(card.getByText('Proven in the browser')).toBeInTheDocument();
+    expect(card.queryByText('Found in code')).toBeNull();
+    await userEvent.click(card.getByRole('button', { name: 'View' }));
+    expect(navigate).toHaveBeenCalledWith({ name: 'check', checkId: 'browser-turn-' + session().id });
+    expect(screen.getAllByRole('region', { name: 'Check Two mugs total $24.00' })).toHaveLength(1);
+  });
+
+  it('defaults the project composer to Code after the latest combined check falls back', async () => {
+    saveCheck({ id: 'fallback', projectId: project.id, projectName: project.name, title: 'Cypress checkout', mode: 'code', requestedMode: 'both',
+      phase: 'done', createdAt: '2026-11-21T00:01:00Z', updatedAt: '2026-11-21T00:02:00Z', focus: '', notes: [], documents: [] });
+    renderScreen();
+    expect(await screen.findByRole('combobox', { name: 'Check mode' })).toHaveTextContent('Code');
+    expect(screen.getByRole('region', { name: 'Check Cypress checkout' })).toBeInTheDocument();
+  });
+
   it('splits steps, describes checks and diffs a revised test in words', () => {
     expect(goalSteps('1. Open the shop\n2. Click Add')).toEqual(['Open the shop', 'Click Add']);
     expect(goalSteps('Open the shop. Click Add to cart.')).toEqual(['Open the shop.', 'Click Add to cart.']);
@@ -81,8 +100,8 @@ describe('project conversation', () => {
     const user = userEvent.setup();
     renderScreen();
     await user.type(screen.getByLabelText('Message to ORIN'), 'Test that two mugs cost $24.00{Enter}');
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Test that two mugs cost $24.00', lanes: 1 });
-
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Test that two mugs cost $24.00', lanes: 1, startupPermission: 'auto' });
+    expect(api.sendConversationRequest).not.toHaveBeenCalled();
   });
 
   it('collapses the work under "Worked for", shows the result in plain text and keeps actions outside the reply', async () => {
@@ -122,7 +141,7 @@ describe('project conversation', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(readPrefs('p1').pinned).toEqual([]);
     await user.click(screen.getByRole('button', { name: 'Run again' }));
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { rerun: [{ sessionId: session().id, testId: test().id }], lanes: 1 });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { rerun: [{ sessionId: session().id, testId: test().id }], lanes: 1, startupPermission: 'auto' });
   });
 
   it('changes a test by sending the request with that test as its base', async () => {
@@ -132,7 +151,7 @@ describe('project conversation', () => {
     await user.click(await screen.findByRole('button', { name: 'Change it' }));
     expect(screen.getByText('Changing “Two mugs total $24.00”')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Message to ORIN'), 'Also check three mugs{Enter}');
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Also check three mugs', base: { sessionId: session().id, testId: test().id }, lanes: 1 });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Also check three mugs', base: { sessionId: session().id, testId: test().id }, lanes: 1, startupPermission: 'auto' });
   });
 
   it('asks first in Ask first mode, records the mode change and reminds once about accounts', async () => {
@@ -145,7 +164,7 @@ describe('project conversation', () => {
     expect(screen.getByText('The AI will see this account. Use test accounts only.')).toBeInTheDocument();
     expect(api.startAutoTest).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Go ahead' }));
-    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Use admin@test.com / test123 to check orders', lanes: 1 });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p1', { request: 'Use admin@test.com / test123 to check orders', lanes: 1, startupPermission: 'ask' });
   });
 
   it('explains that browser tests need a folder when the project has only a GitHub link', async () => {

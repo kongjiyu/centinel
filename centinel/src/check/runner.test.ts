@@ -111,7 +111,7 @@ describe('check runner', () => {
     expect(api.uploadArtifact).toHaveBeenCalledWith('p-new', { fileName: 'requirements.md', content: 'IyBSZXE=', type: 'requirement' });
     const payload = vi.mocked(api.createStaticSession).mock.calls[0][1];
     expect(payload).toMatchObject({ instructions: 'sign-in', scopeMode: 'full', artifactIds: ['a1'], standardIds: ['a2'], requirementIds: ['req-1'] });
-    expect(api.startAutoTest).toHaveBeenCalledWith('p-new', { folder: '/work/shop' });
+    expect(api.startAutoTest).toHaveBeenCalledWith('p-new', { folder: '/work/shop', startupPermission: 'auto' });
     expect(getCheck(check.id)).toMatchObject({ projectId: 'p-new', reviewId: 'review-1', autoTestId: 'auto-1', phase: 'running' });
   });
 
@@ -124,6 +124,30 @@ describe('check runner', () => {
     expect(api.importRepoArtifacts).toHaveBeenCalledWith('p-old', '/work/shop');
     expect(api.startAutoTest).not.toHaveBeenCalled();
     expect(getCheck(check.id)?.notes).toEqual(['1 files in the folder were skipped (unsupported type or too large).']);
+  });
+
+  it('shows a saved full check during refresh and does not report excluded files as gaps', async () => {
+    const api = fakeApi({
+      importRepoArtifacts: vi.fn().mockResolvedValue({ imported: [], skipped: ['logo.png'], complete: true, failures: [] }),
+    });
+    const project = { id: 'saved', name: 'Shop', description: '', workspacePath: '/work/shop', createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'both' }, { api, projects: () => [project] });
+    expect(getCheck(check.id)).toMatchObject({ projectId: project.id, phase: 'preparing' });
+    await until(() => getCheck(check.id)?.phase === 'running');
+    expect(getCheck(check.id)).toMatchObject({ reviewId: 'review-1', autoTestId: 'auto-1', notes: [] });
+  });
+
+  it('reports the actual import failure even when an earlier copy is available for review', async () => {
+    const api = fakeApi({
+      importRepoArtifacts: vi.fn().mockResolvedValue({
+        imported: [], skipped: ['logo.png', 'src/checkout.ts'], complete: false,
+        failures: [{ filePath: 'src/checkout.ts', reason: 'storage_upload_failed' }],
+      }),
+    });
+    const project = { id: 'saved', name: 'Shop', description: '', workspacePath: '/work/shop', createdAt: '', updatedAt: '' };
+    const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'both' }, { api, projects: () => [project] });
+    await until(() => getCheck(check.id)?.phase === 'running');
+    expect(getCheck(check.id)?.notes).toEqual(['src/checkout.ts: the file could not be uploaded to project storage.']);
   });
 
   it('reviews a GitHub link only after its import is ready, and explains that browser tests need a folder', async () => {
@@ -145,7 +169,8 @@ describe('check runner', () => {
     await until(() => getCheck(check.id)?.phase === 'running');
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.createStaticSession).not.toHaveBeenCalled();
-    expect(api.startAutoTest).toHaveBeenCalledWith('saved', { folder: '/work/shop' });
+    expect(api.startAutoTest).toHaveBeenCalledWith('saved', { folder: '/work/shop', startupPermission: 'auto' });
+    expect(api.importRepoArtifacts).not.toHaveBeenCalled();
   });
 
   it('fails with a plain reason when nothing could start', async () => {
@@ -161,7 +186,7 @@ describe('check runner', () => {
       managedWorkspacePath: '/app-data/projects/account/saved', managedWorkspaceReady: true, createdAt: '', updatedAt: '' };
     const check = startCheck({ projectId: project.id, documents: [], focus: '', mode: 'browser' }, { api, projects: () => [project] });
     await until(() => getCheck(check.id)?.phase === 'running');
-    expect(api.startAutoTest).toHaveBeenCalledWith('saved', { folder: project.managedWorkspacePath });
+    expect(api.startAutoTest).toHaveBeenCalledWith('saved', { folder: project.managedWorkspacePath, startupPermission: 'auto' });
   });
 
   it('keeps the review running when the browser tests cannot start', async () => {

@@ -1,19 +1,22 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronUp, Clock, Code, Download, FileText, Flag, Folder, Image, Info, ListX, LoaderCircle, MonitorCheck, OctagonAlert, Play, Plus, Sparkles, Square, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
+import { PdfVisualCoverage } from '../../components/PdfVisualCoverage';
 import { laneNumber } from '../../autotest/presentation';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { checkProblemSummary, type CheckProblem, type CheckResult } from '../../check/result';
 import { checkName } from '../../check/checkName';
 import { exportCheckSummary } from '../../check/exportCheckSummary';
-import { markCheckViewed, useCheck } from '../../check/store';
+import { markCheckViewed, updateCheck, useCheck } from '../../check/store';
+import { readPrefs } from '../../check/projectPrefs';
 import { type CheckRecord } from '../../check/types';
 import { useCheckData, type CheckData } from '../../check/useCheckData';
 import type { RiskLevel } from '../../riskPolicy';
 import type { Project, Screen } from '../../types';
 import { reviewFailureMessage, userFacingError } from '../../utils/userFacingError';
 import { BrowserTiles } from './BrowserTiles';
+import { StartupQuestionDialog } from './StartupQuestionDialog';
 import { useCheckLibrary } from './CheckSourceLibrary';
 import type { Artifact } from '../../types';
 import { CheckActionLabel, CheckFollowUp, CheckProjectHeader, CheckProjectLayout } from './CheckProjectWorkspace';
@@ -96,13 +99,14 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
       : <LoadingSkeleton className="ck-result-skeleton" label="Loading the saved result" />}</section></div>
     : showResult ? <ResultView check={check} data={data} onNavigate={onNavigate} header={header} />
       : <LiveView check={check} data={data} onNavigate={onNavigate} header={header} />;
-  if (!projects) return content;
-  return <CheckProjectLayout projectHeader
+  const startup = <StartupQuestionDialog session={data.autoTest?.id === check.autoTestId ? data.autoTest : null} />;
+  if (!projects) return <>{startup}{content}</>;
+  return <>{startup}<CheckProjectLayout projectHeader
     expanded={expanded} onCloseSidebar={() => setExpanded(false)}
     composer={<CheckFollowUp key={check.id} check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library} />}
     sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)} />}>
     {content}
-  </CheckProjectLayout>;
+  </CheckProjectLayout></>;
 }
 
 /* ------------------------------------------------------------------ Live */
@@ -124,10 +128,11 @@ function liveSteps(check: CheckRecord, data: CheckData) {
   if (check.autoTestId) {
     const started = !!autoTest && ['exploring', 'planning', 'testing', 'summarizing', 'completed'].includes(autoTest.stage);
     const failedEarly = autoTest?.stage === 'failed' && !autoTest.launch?.url;
-    steps.push({ id: 'app', label: started ? 'Started the app' : 'Start the app', state: failedEarly ? 'failed' : started ? 'done' : check.phase === 'preparing' ? 'upcoming' : 'current' });
+    steps.push({ id: 'app', label: started ? 'Started the app' : 'Start the app', state: autoTest?.startupQuestion ? 'paused' : failedEarly ? 'failed' : started ? 'done' : check.phase === 'preparing' ? 'upcoming' : 'current' });
   }
   const paused = result.codeState === 'paused';
-  steps.push({ id: 'find', label: check.autoTestId && check.reviewId ? 'Find and prove problems' : check.autoTestId ? 'Test in the browser' : 'Find problems in the code', state: paused ? 'paused' : check.phase === 'preparing' ? 'upcoming' : steps.some(step => step.state === 'current') ? 'upcoming' : 'current' });
+  const browserActive = check.mode !== 'code' && result.browserState !== 'paused';
+  steps.push({ id: 'find', label: check.reviewId ? browserActive ? 'Find and prove problems' : 'Find problems in the code' : 'Test in the browser', state: paused ? 'paused' : check.phase === 'preparing' || !check.reviewId && steps.some(step => step.state === 'current' || step.state === 'paused') ? 'upcoming' : 'current' });
   steps.push({ id: 'result', label: 'Result', state: 'upcoming' });
   return steps;
 }
@@ -142,7 +147,7 @@ function StageStrip({ steps }: { steps: ReturnType<typeof liveSteps> }) {
           {step.state === 'failed' && <Icon icon={TriangleAlert} shape="triangle" />}
           {step.state === 'paused' && <Icon icon={Info} />}
           {step.state === 'upcoming' && step.id === 'result' && <Icon icon={Flag} />}
-          <span>{step.state === 'paused' ? 'Paused' : step.label}</span>
+          <span>{step.state === 'paused' ? step.id === 'app' ? 'Awaiting startup answer' : 'Paused' : step.label}</span>
         </li>
       ))}
     </ol>
@@ -150,12 +155,30 @@ function StageStrip({ steps }: { steps: ReturnType<typeof liveSteps> }) {
 }
 
 function CheckInterruptionNotices({ check, data, onNavigate }: { check: CheckRecord; data: CheckData; onNavigate: Navigate }) {
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const { review, autoTest, result } = data;
   const reviewReason = review?.failureReason ?? '';
   const paused = result.codeState === 'paused' || /assessment_paused|source_index.*paused|indexing.*paused/i.test(reviewReason);
   const blocked = review?.status === 'blocked';
   const hasReviewInterruption = !!review && (paused || blocked || result.codeState === 'failed');
   const browserFailed = autoTest?.stage === 'failed';
+  const browserInterrupted = browserFailed && autoTest.error?.reason === 'interrupted' && check.mode === 'both';
+  const retryStartup = result.browserState === 'paused' && check.mode === 'browser';
+  const retry = async () => {
+    if (!check.projectId || retrying) return;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const run = await api.startAutoTest(check.projectId, {
+        folder: check.folder, startupPermission: readPrefs(check.projectId).mode,
+        ...(check.focus ? { request: check.focus } : {}),
+      });
+      updateCheck(check.id, { autoTestId: run.id, phase: 'running', finishedAt: undefined, viewedAt: undefined });
+    } catch (cause) {
+      setRetryError(userFacingError(cause, 'Browser startup could not be retried.'));
+    } finally { setRetrying(false); }
+  };
   if (!hasReviewInterruption && !browserFailed) return null;
   return <div className="ck-interruption-notices" aria-label="Check interruptions">
     {hasReviewInterruption && <div className="ck-setup-step" role="status">
@@ -170,7 +193,11 @@ function CheckInterruptionNotices({ check, data, onNavigate }: { check: CheckRec
       <Icon icon={TriangleAlert} />
       <div><strong>{autoTest.launch?.url ? 'Browser tests stopped' : 'Browser check blocked before startup'}</strong>
         <p>{userFacingError(autoTest.error?.message, 'The browser run ended without recording a reason.')}</p>
+        {check.requestedMode === 'both' && <p>This check switched to Code only.</p>}
+        {retryError && <p role="alert">{retryError}</p>}
       </div>
+      {(retryStartup || browserInterrupted) && check.projectId && <button type="button" className="ck-button is-small"
+        onClick={() => void retry()} disabled={retrying}>{retrying ? 'Retrying…' : browserInterrupted ? 'Retry browser tests' : 'Retry browser startup'}</button>}
     </div>}
   </div>;
 }
@@ -182,7 +209,6 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
   const { result, review, findings, autoTest, live } = data;
   const wantsCode = check.mode !== 'browser';
   const wantsBrowser = check.mode !== 'code';
-  const codeDone = result.codeState !== 'running' && result.codeState !== 'not_started';
 
   const stop = async () => {
     if (!check.projectId) return;
@@ -200,11 +226,7 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
     }
   };
 
-  // Problems that appear live: validated titles while running, saved findings once the review ends.
-  const codeItems: Array<{ key: string; title: string; location: string | null }> = codeDone
-    ? result.foundInCode.map(problem => ({ key: problem.key, title: problem.title, location: problem.location }))
-    : live.titles.map(title => ({ key: title, title, location: null }));
-  const browserFails = (autoTest?.tests ?? []).filter(test => test.state === 'failed');
+  const codeItems = result.codeState === 'running' || !data.evidenceLoaded ? live.problems : result.foundInCode;
   const runningTests = (autoTest?.tests ?? []).filter(test => test.state === 'running');
 
   return (
@@ -227,7 +249,7 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
           {wantsCode && (
             <section className="ck-col" aria-label="Found in the code">
               <div className="ck-col-head">
-                <span className="ci-pair"><Icon icon={Code} /><span className="ci-text">Found in the code</span></span>
+                <span className="ci-pair"><Icon icon={Code} /><span className="ci-text">Found in the code{codeItems.length > 0 && <span className="ck-tabular"> · {codeItems.length}</span>}</span></span>
                 {result.codeState === 'running' && (
                   <span className="ck-reading">
                     <span className="ck-pulse" aria-hidden="true" />
@@ -239,7 +261,7 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
                 <p className="ck-col-note"><span><span className="ck-tabular">{live.batchesDone} of {live.batchesTotal}</span> parts reviewed</span></p>
               )}
               {check.phase === 'preparing' && !check.reviewId && <p className="ck-col-note"><Icon icon={LoaderCircle} className="ci-spin" />{PREP_TEXT[check.prepStep ?? 'project']}</p>}
-              {codeDone && <p className="ck-col-note"><Icon icon={Check} />Code review finished{findings.length ? '' : ' with no problems'}.</p>}
+              {result.codeState === 'done' && data.evidenceLoaded && <p className="ck-col-note"><Icon icon={Check} />Code review finished{findings.length ? '' : ' with no problems'}.</p>}
               <ul className="ck-live-list">
                 {codeItems.map(item => (
                   <li key={item.key} className="ck-live-item">
@@ -259,15 +281,20 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
               {autoTest ? <BrowserTiles session={autoTest} /> : (
                 <div className="ck-stage"><div className="ck-stage-waiting"><Icon icon={check.phase === 'preparing' ? LoaderCircle : Info} className={check.phase === 'preparing' ? 'ci-spin' : ''} /><span>{check.phase === 'preparing' ? 'Waiting for the project to be ready' : check.autoTestId ? 'Connecting to the browser tests…' : 'Browser tests are not running for this check.'}</span></div></div>
               )}
-              {browserFails.length > 0 && (
-                <ul className="ck-live-list">
-                  {browserFails.map(test => (
-                    <li key={test.id} className="ck-live-item">
-                      <span className="ck-live-title">{test.name}{test.sourceRefs[0] && <small className="ck-mono">{test.sourceRefs[0].path}:{test.sourceRefs[0].line}</small>}</span>
-                      <span className="ck-mark is-browser"><Icon icon={MonitorCheck} />Browser</span>
-                    </li>
-                  ))}
-                </ul>
+              {result.proven.length > 0 && (
+                <>
+                  <h3 className="ck-live-browser-findings ci-pair">
+                    <Icon icon={MonitorCheck} /><span>Found in the browser<span className="ck-tabular"> · {result.proven.length}</span></span>
+                  </h3>
+                  <ul className="ck-live-list">
+                    {result.proven.map(problem => (
+                      <li key={problem.key} className="ck-live-item">
+                        <span className="ck-live-title">{problem.title}{problem.location && <small className="ck-mono">{problem.location}</small>}</span>
+                        <span className="ck-mark is-browser"><Icon icon={MonitorCheck} />Browser</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
               {runningTests.length > 0 && <span className="ck-visually-hidden">{runningTests.map(test => `${test.name} in browser ${test.laneId ? laneNumber(test.laneId) : ''}`).join(', ')}</span>}
             </section>
@@ -443,12 +470,12 @@ function ResultView({ check, data, onNavigate, header }: { check: CheckRecord; d
         ) : (
           <>
             <div className="ck-numbers">
-              <NumberCard icon={MonitorCheck} label="Proven in the browser">
-                {result.browserState === 'not_requested' || result.browserState === 'not_started' ? <span className="ck-number-text">Not run</span> : <b>{result.proven.length}</b>}
-              </NumberCard>
-              <NumberCard icon={Code} label="Found in code">
+              {check.mode !== 'code' && <NumberCard icon={MonitorCheck} label="Proven in the browser">
+                {result.browserState === 'paused' ? <span className="ck-number-text">Paused</span> : result.browserState === 'not_requested' || result.browserState === 'not_started' ? <span className="ck-number-text">Not run</span> : <b>{result.proven.length}</b>}
+              </NumberCard>}
+              {check.mode !== 'browser' && <NumberCard icon={Code} label="Found in code">
                 {result.codeState === 'not_requested' || result.codeState === 'not_started' ? <span className="ck-number-text">Not run</span> : <b>{result.foundInCode.length}</b>}
-              </NumberCard>
+              </NumberCard>}
               <NumberCard icon={ListX} label="Requirements not met">{data.requirementsState === 'unavailable'
                 ? <span className="ck-number-text">Requirements unavailable</span>
                 : data.requirementsState === 'loading' ? <span className="ck-number-text">Loading…</span> : <RequirementsValue result={result} />}</NumberCard>
@@ -473,6 +500,7 @@ function ResultView({ check, data, onNavigate, header }: { check: CheckRecord; d
         )}
 
         <footer className="ck-foot">
+          <PdfVisualCoverage assessment={data.evidenceAssessment} />
           {result.notChecked.length > 0 && (
             <div className="ck-not-checked">
               <p className="ci-pair"><Icon icon={Info} /><span className="ci-text">Not checked</span></p>

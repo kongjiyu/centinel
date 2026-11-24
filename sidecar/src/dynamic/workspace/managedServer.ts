@@ -71,11 +71,12 @@ function tcpOpen(port: number, host: string): Promise<boolean> {
 }
 
 /** Any HTTP response (even 404) shows the server answers; only connection errors fail. */
-function httpAnswers(port: number, host: string, probePath: string): Promise<boolean> {
+function httpAnswers(port: number, host: string, probePath: string, requireHtml: boolean): Promise<boolean> {
   return new Promise(resolve => {
     const request = http.request({ host, port, path: probePath, method: 'GET', timeout: 3000, headers: { accept: 'text/html,*/*' } }, response => {
       response.resume();
-      resolve(typeof response.statusCode === 'number');
+      const status = response.statusCode;
+      resolve(typeof status === 'number' && (!requireHtml || status >= 200 && status < 300 && /^text\/html\b/i.test(response.headers['content-type'] ?? '')));
     });
     request.once('timeout', () => { request.destroy(); resolve(false); });
     request.once('error', () => resolve(false));
@@ -83,9 +84,9 @@ function httpAnswers(port: number, host: string, probePath: string): Promise<boo
   });
 }
 
-async function answeringHost(port: number, probePath: string): Promise<string | null> {
+async function answeringHost(port: number, probePath: string, requireHtml: boolean): Promise<string | null> {
   for (const host of ['127.0.0.1', '::1']) {
-    if (await tcpOpen(port, host) && await httpAnswers(port, host, probePath)) return host;
+    if (await tcpOpen(port, host) && await httpAnswers(port, host, probePath, requireHtml)) return host;
   }
   return null;
 }
@@ -102,6 +103,8 @@ export async function startManagedServer(input: {
   secrets?: string[];
   readyTimeoutMs?: number;
   probePath?: string;
+  preservePortConfiguration?: boolean;
+  requireHtml?: boolean;
   signal?: AbortSignal;
   onOutput?(redactedTail: string): void;
 }): Promise<ManagedServer> {
@@ -128,7 +131,7 @@ export async function startManagedServer(input: {
         CI: '1', BROWSER: 'none', NODE_ENV: 'development', FORCE_COLOR: '0',
         COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0', COREPACK_ENABLE_PROJECT_SPEC: '0',
         npm_config_manage_package_manager_versions: 'false', npm_config_update_notifier: 'false',
-        PORT: String(input.port), HOST: '127.0.0.1',
+        ...(!input.preservePortConfiguration ? { PORT: String(input.port) } : {}), HOST: '127.0.0.1',
         ...variables,
         ...(windows ? windowsRuntimeEnvironment(input.home) : {}),
       },
@@ -207,7 +210,7 @@ export async function startManagedServer(input: {
         throw new ManagedServerError('exited', `The app stopped while starting (exit code ${info.exitCode ?? 'unknown'}).`, logs());
       }
       for (const port of [input.port, ...[...detectedPorts].filter(port => port !== input.port)]) {
-        const host = await answeringHost(port, probePath);
+        const host = await answeringHost(port, probePath, input.requireHtml === true);
         if (host) {
           const server: ManagedServer = {
             url: `http://localhost:${port}`, port, portHonored: port === input.port, pid: groupPid,

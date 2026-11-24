@@ -63,10 +63,15 @@ export async function authorizeBrowserAction(page:Page,action:AgentAction,option
  const grants=options.policy.interactions.filter(row=>row.actions.includes(action.action as InteractionAction)).map(row=>row.selector);
  const permitted=await target.evaluate((element,selectors)=>{
   const forbidden=element.closest('input[type="file"],a[download]')||element.closest('label')?.control?.matches('input[type="file"]');
-  if(forbidden)return [];
+  if(forbidden)return null;
   return selectors.filter(selector=>{try{return element.matches(selector)&&document.querySelectorAll(selector).length===1;}catch{return false;}});
  },grants);
- checkStopped(options.signal);if(!permitted.length)throw new BrowserPolicyBlocked('This control/action is not approved in the frozen environment. File controls and downloads are not supported by these interaction grants.');
+ checkStopped(options.signal);
+ if(permitted===null)throw new BrowserPolicyBlocked('File controls and downloads require their own approval.');
+ if(!Array.isArray(permitted)||!permitted.length){
+  const actionLabel={click:'Clicking',type:'Typing into',select_option:'Selecting an option in',set_checked:'Changing the checked state of'}[proposal.action];
+  throw new BrowserPolicyBlocked(`${actionLabel} this control was not approved in this run’s saved interaction permissions.`);
+ }
  const location=new URL(page.url());const targetKey=crypto.createHash('sha256').update(location.origin+location.pathname+'\n'+permitted.slice().sort().join('\n')).digest('hex');
  return {targetKey,repeatable:options.policy.interactions.filter(row=>permitted.includes(row.selector)).every(row=>row.repeatable===true)};
 }

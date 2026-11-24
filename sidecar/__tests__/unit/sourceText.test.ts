@@ -30,7 +30,7 @@ describe('binary-safe frozen source text', () => {
     const bytes = await pdf('CargoChain requirement one');
     const result = await verifiedSourceText({ fileName: 'report.pdf', contentHash: hash(bytes) }, bytes);
     expect(result.text).toContain('CargoChain requirement one'); expect(result.text).toContain('[Page 1]');
-    expect(result.text).toContain('remain unverified'); expect(result.pageCount).toBe(1);
+    expect(result.text).toContain('requires a separate page review'); expect(result.pageCount).toBe(1);
     expect(hash(Buffer.from(result.text))).not.toBe(hash(bytes));
     const artifact = { id: 'pdf', projectId: 'project', versionId: 'version', fileName: 'report.pdf', filePath: 'report.pdf', contentHash: hash(bytes) } as Artifact;
     const reader = async () => result.text;
@@ -52,6 +52,8 @@ describe('binary-safe frozen source text', () => {
   it('rejects image-only or empty PDFs without inventing text', async () => {
     const bytes = await pdf('');
     await expect(verifiedSourceText({ fileName: 'empty.pdf', contentHash: hash(bytes) }, bytes)).rejects.toThrow('PDF text is unavailable');
+    const visualOnly = await verifiedSourceText({ fileName: 'empty.pdf', contentHash: hash(bytes) }, bytes, undefined, true);
+    expect(visualOnly).toMatchObject({ pageCount: 1, text: expect.stringContaining('no extractable text') });
   });
   it('preserves UTF-8 BOM bytes for subsequent frozen text hash validation', async () => {
     const bytes = Buffer.from('\ufeffexport const value = 1;');

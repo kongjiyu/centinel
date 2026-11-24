@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Code, Download, FileText, Folder, Info, LayoutList, LoaderCircle, Lock, MonitorCheck, TriangleAlert, OctagonAlert, X, Minus, Globe, ShieldCheck } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestRef } from '../../autotest/types';
-import { checkProblemSummary } from '../../check/result';
+import { checkProblemSummary, hasCoverageGaps } from '../../check/result';
 import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
 import { Icon } from '../../components/Icon';
 import { CornersIn, CornersOut } from '../../components/cornerIcons';
@@ -39,6 +39,7 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
   const problems = result ? [...result.proven, ...result.foundInCode] : [];
   const problemSummary = result ? checkProblemSummary(result) : {};
   const running = !!result && !result.finished;
+  const incomplete = !!result && hasCoverageGaps(result);
   const reviewDone = !!review && result?.codeState === 'done';
   const tally = result?.requirements ?? null;
   const browserTests = autoTest?.tests ?? [];
@@ -85,14 +86,14 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, docu
             : !result ? <p className="pc-empty">No check has run yet. Use Run a full check.</p>
             : <>
               <p className={`pc-latest-verdict${!running && problems.length ? ` problem-count-tone is-${problemCountTone(problemSummary)}` : ''}`}>
-                {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : <ProblemCountIcon summary={problemSummary} />}
-                <span>{running ? 'A check is running' : problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'No problems found'}</span>
+                {running ? <Icon icon={LoaderCircle} className="ci-spin" /> : incomplete && !problems.length ? <Icon icon={TriangleAlert} /> : <ProblemCountIcon summary={problemSummary} />}
+                <span>{running ? 'A check is running' : problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : incomplete ? 'Check incomplete' : 'No problems found'}</span>
               </p>
               {!running && result.proven.length > 0 && <p className="pc-latest-sub">{result.proven.length} proven in the browser</p>}
               {!running && (
                 <div className="pc-latest-numbers">
-                  <div><small>Browser</small><b>{result.browserState === 'not_requested' || result.browserState === 'not_started' ? '–' : result.proven.length}</b></div>
-                  <div><small>Code</small><b>{result.codeState === 'not_requested' || result.codeState === 'not_started' ? '–' : result.foundInCode.length}</b></div>
+                  <div><small>Browser</small><b>{result.browserState === 'done' || result.proven.length ? result.proven.length : '–'}</b></div>
+                  <div><small>Code</small><b>{result.codeState === 'done' || result.foundInCode.length ? result.foundInCode.length : '–'}</b></div>
                   <div><small>Not met</small><b>{tally ? tally.notMet : '–'}</b>{tally ? <small className="pc-of"> /{tally.total}</small> : null}</div>
                 </div>
               )}

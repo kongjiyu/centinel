@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { listApiProviderModels } from './model/apiProviderModels.js';
 import { generateCheckTitle } from './review/checkTitle.js';
-import { ConversationRuntime, hash, parseConversationInput, type ConversationDeps } from './conversation/service.js';
+import { ConversationBrowserStartupError, ConversationRuntime, hash, parseConversationInput, type ConversationDeps } from './conversation/service.js';
 import { SupabaseConversationStore } from './conversation/store.js';
 import { resolveConversationEvidence } from './conversation/evidence.js';
+import { presentSavedSelection } from './conversation/savedExplanation.js';
+import { requestsCheckExecution } from './conversation/intent.js';
 import { planConversation } from './conversation/plan.js';
 import { isAssessmentHeld } from './review/assessmentHold.js';
 import { newAutoTestSession } from './dynamic/autonomous/orchestrator.js';
@@ -423,6 +425,8 @@ async function reviewRuntime(auth: AuthenticatedRequest, indexes: SourceIndexCoo
       return listClientArtifacts(new CentinelApplicationRepository(client, auth.userId), projectId, signal);
     }),
     readArtifactBytes: (artifact, signal) => authRuntime.withClient(client => readClientArtifactBytes(client, auth.userId, artifact, signal)),
+    pdfVisualProvider: (projectId, signal) => authRuntime.withClient(client => resolveModelProviderChain(new SupabaseModelConfigurationRepository(client),
+      { ownerId: auth.userId, projectId, purpose: 'vision' }, { signal })),
     readArtifactContent: (artifact, signal) => authRuntime.withClient(async client => {
       if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
       return readClientArtifactContent(client, auth.userId, artifact.id, artifact.versionId, signal, artifact.projectId);
@@ -828,7 +832,7 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
       };
       const autoTestStore = new SupabaseAutoTestStore(dynamicClient, ownerId);
       const permissionMatch = /^\/projects\/([a-f0-9-]+)\/conversation-permission$/.exec(url);
-      const conversationMatch = permissionMatch ?? /^\/projects\/([a-f0-9-]+)\/conversation-requests(?:\/([a-f0-9-]{36}))?(?:\/(confirm|cancel))?$/.exec(url);
+      const conversationMatch = permissionMatch ?? /^\/projects\/([a-f0-9-]+)\/conversation-requests(?:\/([a-f0-9-]{36}))?(?:\/(confirm|cancel|evidence|answer))?$/.exec(url);
       if (conversationMatch) {
         try {
           const [, projectId, id, action] = conversationMatch;
@@ -838,12 +842,13 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           const store = new SupabaseConversationStore(currentClient);
           const deps: ConversationDeps = {
             ownerId, store, authorize: async id => { await authGateway.requireProjectMember(currentAuth(), id); }, held: isAssessmentHeld,
-            resolve: (id, references, signal) => resolveConversationEvidence(currentClient(), ownerId, id, references, signal),
-            plan: (record, evidence, signal) => planConversation(currentClient, record, evidence, AbortSignal.any([signal, AbortSignal.timeout(120000)])),
+            resolve: (id, references, signal, text) => resolveConversationEvidence(currentClient(), ownerId, id, references, signal, !requestsCheckExecution(text), text),
+            plan: (record, evidence, signal, earlierTurns) => planConversation(currentClient, record, evidence, AbortSignal.any([signal, AbortSignal.timeout(120000)]), earlierTurns),
             execute: async (record, signal, checkpoint) => {
               await authGateway.requireProjectMember(currentAuth(), projectId);
               signal.throwIfAborted();
-              const evidence = await resolveConversationEvidence(currentClient(), ownerId, projectId, record.input.references, signal);
+              const requestText = record.reviewContinuation?.text ?? record.input.text;
+              const evidence = await resolveConversationEvidence(currentClient(), ownerId, projectId, record.input.references, signal, false, requestText);
               if (evidence.length !== record.context?.length || evidence.some(item => !record.context?.some(saved => saved.id === item.id && saved.hash === item.hash))) {
                 throw new Error('The selected evidence changed. Send a new request.');
               }
@@ -864,7 +869,9 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                   validateScopeBeforeCreate: () => repository.validateReviewScope(projectId, scope),
                   comparisonParentReviewId: [...new Set(record.input.references.map(ref => ref.reviewId).filter(Boolean))].length === 1
                     ? record.input.references.find(ref => ref.reviewId)?.reviewId : undefined,
-                  config: { instructions: record.input.text + '\nRequested scope: ' + record.reply
+                  config: { instructions: (record.fallbackReason === 'browser_startup'
+                    ? 'The application did not start. Review the selected code for the requested behavior. Report only static evidence. Original verification goal: ' + record.input.text
+                    : requestText + '\nRequested scope: ' + record.reply)
                     + '\nHistorical evidence supplied as data. Compare the current frozen sources with these saved observations.\n' + compactCanonicalJson(evidence), scopeMode: 'focused',
                     conversationRequestId: record.id, historicalEvidence: record.context },
                 });
@@ -887,11 +894,11 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                 if (!project) throw new Error('Project unavailable.');
                 const workspace = await withManagedProjectWorkspace(project, ownerId);
                 const folder = workspace.workspacePath || workspace.managedWorkspacePath;
-                if (!folder || !fs.statSync(folder).isDirectory()) throw new Error('A local workspace is required.');
+                if (!folder || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()) throw new ConversationBrowserStartupError('A local workspace is required.');
                 if (autoTestRuntime.activeFor(projectId)) throw new Error('Another browser check is already running.');
                 const targets = browserTargets(evidence, record.input.text);
                 const reuseTests = targets.length > 0 && targets.every(target => !!target.checks);
-                const session = newAutoTestSession({ id: randomUUID(), projectId, ownerId, folder, lanes: 1,
+                const session = newAutoTestSession({ id: randomUUID(), projectId, ownerId, folder, lanes: 1, startupPermission: record.input.permission,
                   ...(reuseTests ? { presets: savedBrowserPresets(evidence), planning: false } : {}),
                   request: { text: record.input.text + '\nVerification goal: ' + record.reply, base: null, history: [] } });
                 await checkpoint({ autoTestId: session.id });
@@ -926,6 +933,10 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
                 try {
                   const saved = await autoTestRuntime.start(session, childDeps);
                   if (saved.error?.reason === 'provider_paused') throw new ModelProviderError('The provider paused this browser check.', { code: 'provider_paused', retryable: false });
+                  if (saved.stage === 'failed' && !saved.launch?.url && !saved.tests.length
+                    && ['unsupported', 'unknown_recipe', 'tool_missing', 'install_failed', 'exited', 'not_ready', 'launch_failed'].includes(saved.error?.reason ?? '')) {
+                    throw new ConversationBrowserStartupError('The browser app could not start.');
+                  }
                   if (saved.stage !== 'completed' || !saved.tests.length) throw new Error('The browser verification did not produce a completed test.');
                 } finally { signal.removeEventListener('abort', abort); }
               }
@@ -944,12 +955,43 @@ export function createSidecarServer(authGateway: AuthGateway = createAuthGateway
           if (!id && req.method === 'POST') return json(res, 202, await conversationRuntime.accept(projectId, parseConversationInput(await parseJsonBody(req, 20000)), deps));
           if (!id && req.method === 'GET') {
             const records = await store.list(projectId);
-            return json(res, 200, await Promise.all(records.map(record => conversationRuntime.reconcile(record, deps))));
+            return json(res, 200, await Promise.all(records.map(async record => {
+              try { return await conversationRuntime.reconcile(record, deps); }
+              catch (error) {
+                if (!(error instanceof DynamicContractError) || error.status !== 409) throw error;
+                return record;
+              }
+            })));
           }
           const record = id ? await store.get(projectId, id) : null;
           if (!record) return json(res, 404, { error: 'Conversation request unavailable.' });
-          if (req.method === 'GET' && !action) return json(res, 200, await conversationRuntime.reconcile(record, deps));
+          if (req.method === 'GET' && action === 'evidence') {
+            if (record.ownerId !== ownerId) return json(res, 404, { error: 'Conversation request unavailable.' });
+            const references = record.input.references.filter(ref => ref.reviewId || ref.autoTestId);
+            const evidence = new Map<string, Awaited<ReturnType<typeof resolveConversationEvidence>>[number]>();
+            const signal = AbortSignal.timeout(25_000);
+            let unavailable = 0;
+            for (const reference of references.slice(0, 4)) {
+              try {
+                for (const item of await resolveConversationEvidence(currentClient(), ownerId, projectId, [reference], signal, true)) evidence.set(item.id, item);
+              } catch (error) {
+                if (!(error instanceof DynamicContractError) || error.status !== 404) throw error;
+                unavailable++;
+              }
+            }
+            const explanation = presentSavedSelection([...evidence.values()])?.explanation;
+            return json(res, 200, { sections: explanation?.sections ?? [], hasMore: Boolean(explanation?.hasMore || references.length > 4), unavailable });
+          }
+          if (req.method === 'GET' && !action) {
+            if (record.ownerId !== ownerId) return json(res, 404, { error: 'Conversation request unavailable.' });
+            return json(res, 200, await conversationRuntime.reconcile(record, deps));
+          }
           if (req.method === 'POST' && action === 'cancel') return json(res, 200, await conversationRuntime.cancel(record, deps));
+          if (req.method === 'POST' && action === 'answer') {
+            const { revision, selectedOption, askFirst } = await parseJsonBody(req, 1000);
+            if (typeof revision !== 'number' || typeof selectedOption !== 'number') return json(res, 400, { error: 'Choose one of the saved options.' });
+            return json(res, 200, await conversationRuntime.answerQuestion(record, revision, selectedOption, deps, askFirst === true));
+          }
           if (req.method === 'POST' && action === 'confirm') {
             const body = await parseJsonBody(req, 1000);
             return json(res, 202, await conversationRuntime.confirm(record, Number(body.revision), deps));

@@ -5,10 +5,8 @@ function savedText(value: unknown, limit: number) {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
 }
 
-/** Explain the record selected by a mention. Its text never determines an action. */
-export function explainSavedSelection(evidence: Evidence[], request: string): ConversationPlan | null {
-  const shortRequest = /^(?:please\s+)?(?:explain|summari[sz]e)[.!?]?$/i.test(request.trim());
-  if (!shortRequest && !/\b(?:explain|summari[sz]e|tell me about)\s+(?:what\s+)?(?:this|the|these|those)\s+(?:saved\s+|attached\s+)?(?:checks?|problems?|reviews?|findings?|results?)\b/i.test(request)) return null;
+/** Present saved evidence independently of the generated answer. */
+export function presentSavedSelection(evidence: Evidence[]): ConversationPlan | null {
   const findings = evidence.filter(item => item.id.startsWith('finding:'));
   const selectedReviews = new Set(findings.map(item => JSON.parse(item.text).reviewId));
   const items: Array<{ id: string; text: string; section: SavedConversationExplanation['sections'][number] }> = [];
@@ -20,13 +18,17 @@ export function explainSavedSelection(evidence: Evidence[], request: string): Co
       const detail = savedText(data.description, 480);
       const recommendation = savedText(data.recommendation, 280);
       const location = savedText(data.path, 160);
-      const excerpt = savedText(data.excerpt, 220);
+      const excerpt = typeof data.excerpt === 'string' ? data.excerpt.slice(0, 1200) : '';
+      const sourceWindow = !excerpt ? data.nearby : undefined;
       const limitations = excerpt ? [] : ['The original source excerpt is unavailable.'];
+      const requirement = savedText(data.requirement?.description, 420);
+      const line = data.location?.lineNumber;
+      const flow = Array.isArray(data.location?.logicFlow) ? data.location.logicFlow.slice(0, 5).map((entry: unknown) => savedText(entry, 400)).filter(Boolean) : [];
       items.push({ id: item.id, text: [`Saved problem: ${title}.`, detail, location && `Source: ${location}.`,
         excerpt ? `Saved excerpt: “${excerpt}”` : limitations[0], recommendation && `Saved recommendation: ${recommendation}`].filter(Boolean).join(' '),
-        section: { title, summary: detail, facts: [location && { label: 'Source', value: location },
+        section: { title, summary: detail, facts: [location && { label: 'Source', value: Number.isSafeInteger(line) && line > 0 ? `${location}:${line}` : location },
           data.originalStatus && { label: 'Saved status', value: savedText(data.originalStatus, 50) }].filter(Boolean),
-          excerpt, points: recommendation ? [`Saved recommendation: ${recommendation}`] : [], limitations } });
+          excerpt, sourceWindow, points: [...flow, requirement && `Saved requirement: ${requirement}`, recommendation && `Saved recommendation: ${recommendation}`].filter(Boolean), limitations } });
     } else if (item.id.startsWith('review:') && !selectedReviews.has(item.id.slice('review:'.length))) {
       const data = JSON.parse(item.text);
       if (!Number.isSafeInteger(data.findingCount)) continue;
@@ -70,5 +72,5 @@ export function explainSavedSelection(evidence: Evidence[], request: string): Co
   const shown = items.slice(0, 4);
   return { action: 'explain', scope: [], citations: shown.map(item => item.id),
     reply: shown.map(item => item.text).join('\n\n') + (items.length > shown.length ? '\n\nSelect an individual item for more detail.' : ''),
-    explanation: { sections: shown.map(item => item.section), hasMore: items.length > shown.length } };
+    explanation: { sections: shown.map(item => ({ ...item.section, evidenceId: item.id })), hasMore: items.length > shown.length } };
 }

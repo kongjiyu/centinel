@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DiscoveryResult } from '../../src/dynamic/environment/controlDiscovery.js';
 import type { EnvironmentProfile } from '../../src/dynamic/environment/types.js';
 import type { DynamicRun, MissionInput } from '../../src/dynamic/types.js';
-import type { LaunchedApp } from '../../src/dynamic/autonomous/launcher.js';
+import { LaunchError, type LaunchedApp } from '../../src/dynamic/autonomous/launcher.js';
 import { buildPlanPrompt, knownSelectors, validatePlan, type AutoTestPreset, type AutoTestRequest } from '../../src/dynamic/autonomous/planner.js';
 import { newAutoTestSession, presetFromEntry, runAutoTest, scanPaths, type AutoTestDeps, type AutoTestSession } from '../../src/dynamic/autonomous/orchestrator.js';
 import { handleAutoTestRoute, AutoTestRuntime } from '../../src/dynamic/autonomous/routes.js';
@@ -57,6 +57,12 @@ describe('Auto test planner validation', () => {
     expect(plan.tests.map(test => test.name)).toEqual(['Unknown email gets the generic error']);
     expect(plan.dropped.map(entry => entry.name)).toEqual(['Off-site', 'Unknown controls', 'No checks', 'Secret', 'Cross-origin URL check', 'Unknown email gets the generic error']);
     expect(plan.dropped.at(-1)?.reason).toBe('Duplicate test name.');
+  });
+
+  it('drops a plan whose required permissions would be incomplete', () => {
+    const plan = validatePlan({ tests: [signInTest({ controls: [{ selector: '#email', actions: ['type'] }, { selector: '#missing', actions: ['click'] }] })] }, ctx);
+    expect(plan.tests).toEqual([]);
+    expect(plan.dropped[0]?.reason).toMatch(/control or action was unavailable/);
   });
 
   it('turns relative URL checks into app URLs and never trusts missing plans', () => {
@@ -181,7 +187,7 @@ describe('Auto test orchestrator', () => {
     const fake = fakes();
     fake.deps.generate = async () => ({ tests: [signInTest({ controls: [{ selector: '#nope', actions: ['click'] }] })] });
     const session = await runAutoTest(newAutoTestSession({ id: 'e'.repeat(36), projectId: PROJECT, ownerId: 'u', folder: '/repo' }), fake.deps, new AbortController().signal);
-    expect(session).toMatchObject({ stage: 'failed', dropped: [{ reason: 'Used controls Centinel did not find in the app.' }] });
+    expect(session).toMatchObject({ stage: 'failed', dropped: [{ reason: 'A required control or action was unavailable or duplicated.' }] });
     expect(fake.stopped).toHaveLength(1);
   });
 
@@ -203,6 +209,37 @@ describe('Auto test routes', () => {
     { method, pathname, readBody: async () => body },
     { ownerId: 'u', store: new MemoryAutoTestStore(), runtime: new AutoTestRuntime(), requireMember: async () => undefined, defaultFolder: async () => process.cwd(), createDeps: async () => fakes().deps, ...extra },
   );
+
+  it.each(['ask', 'auto'] as const)('publishes an owner-only startup question and accepts one matching answer in %s mode', async startupPermission => {
+    const store = new MemoryAutoTestStore();
+    const runtime = new AutoTestRuntime();
+    const fake = fakes({ tests: 1 });
+    const installed = vi.fn();
+    const launch = fake.deps.launch;
+    fake.deps.launch = async input => {
+      if (!await input.approveInstall?.({ command: 'npm ci', packages: ['vite'], packageCount: 1 })) throw new LaunchError('install_declined', 'Installation paused');
+      installed();
+      return launch(input);
+    };
+    const root = `/projects/${PROJECT}/dynamic/autonomous`;
+    const deps = { store, runtime, createDeps: async () => ({ ...fake.deps, save: (session: AutoTestSession) => store.save(session) }) };
+    const started = await route('POST', root, { startupPermission, lanes: 1 }, deps) as { status: number; body: AutoTestSession };
+    const url = `${root}/${started.body.id}`;
+    try {
+      const question = await vi.waitFor(async () => {
+        const current = await route('GET', url, {}, deps) as { body: AutoTestSession };
+        expect(current.body.startupQuestion).toMatchObject({ command: 'npm ci', packages: ['vite'] });
+        return current.body.startupQuestion!;
+      });
+      expect(installed).not.toHaveBeenCalled();
+      expect((await route('GET', url, {}, { ...deps, ownerId: 'other' }) as { body: AutoTestSession }).body.startupQuestion).toBeUndefined();
+      expect(await route('POST', `${url}/startup-answer`, { questionId: question.id, choice: 'install' }, { ...deps, ownerId: 'other' })).toMatchObject({ status: 403 });
+      expect(await route('POST', `${url}/startup-answer`, { questionId: 'stale', choice: 'install' }, deps)).toMatchObject({ status: 409 });
+      expect(await route('POST', `${url}/startup-answer`, { questionId: question.id, choice: 'install' }, deps)).toMatchObject({ status: 202 });
+      expect(await route('POST', `${url}/startup-answer`, { questionId: question.id, choice: 'install' }, deps)).toMatchObject({ status: 409 });
+      await vi.waitFor(() => expect(installed).toHaveBeenCalledOnce());
+    } finally { await runtime.stopAll(); }
+  });
 
   it('rejects non-members before anything else, including the live stream', async () => {
     const requireMember = vi.fn(async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); });

@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ConversationRequest } from './types.js';
+import { DynamicContractError } from '../dynamic/types.js';
 
 export interface ConversationStore {
   get(projectId: string, id: string): Promise<ConversationRequest | null>;
-  list(projectId: string): Promise<ConversationRequest[]>;
+  list(projectId: string, before?: { ownerId: string; createdAt: string }): Promise<ConversationRequest[]>;
   listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number): Promise<ConversationRequest[]>;
   listActive?(projectId: string, ownerId: string): Promise<ConversationRequest[]>;
   create(record: ConversationRequest): Promise<boolean>;
@@ -24,10 +25,17 @@ export class SupabaseConversationStore implements ConversationStore {
     if (result.error) throw new Error('Conversation history is unavailable.');
     return (result.data?.payload?.request ?? null) as ConversationRequest | null;
   }
-  async list(projectId: string) {
-    const result = await this.query().eq('project_id', projectId).order('created_at', { ascending: false }).limit(50);
-    if (result.error) throw new Error('Conversation history is unavailable.');
-    return (result.data ?? []).map(row => row.payload.request as ConversationRequest);
+  async list(projectId: string, before?: { ownerId: string; createdAt: string }) {
+    const base = this.query().eq('project_id', projectId);
+    const query = before ? base.eq('actor_id', before.ownerId).lt('created_at', before.createdAt) : base;
+    const result = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).limit(50);
+    if (result.error) {
+      const code = typeof result.error.code === 'string' && /^(?:[A-Z0-9]{5}|PGRST\d{3})$/.test(result.error.code)
+        ? result.error.code : 'unknown';
+      console.warn(`[conversation] History read failed (${code}).`);
+      throw new DynamicContractError(503, 'Conversation history is temporarily unavailable.');
+    }
+    return (result.data ?? []).flatMap(row => row.payload?.request ? [row.payload.request as ConversationRequest] : []);
   }
   async listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number) {
     const result = await this.query().eq('project_id', projectId).eq('actor_id', ownerId)

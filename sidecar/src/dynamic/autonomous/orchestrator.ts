@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import type { DiscoveryResult } from '../environment/controlDiscovery.js';
 import type { EnvironmentInput, EnvironmentProfile } from '../environment/types.js';
 import type { CheckDefinition, CheckResult, DynamicRun, MissionInput } from '../types.js';
-import type { LaunchedApp, LaunchEvent } from './launcher.js';
+import type { InstallPlan, LaunchedApp, LaunchEvent } from './launcher.js';
 import { LaunchError } from './launcher.js';
 import { AUTO_TEST_PLAN_SCHEMA, AUTO_TEST_SYSTEM_PROMPT, buildPlanPrompt, MAX_REQUEST_TESTS, planReply, presetToTest, validatePlan, type AutoTest, type AutoTestControl, type AutoTestPreset, type AutoTestRequest, type DroppedTest } from './planner.js';
 import type { RepoDigest } from './repoDigest.js';
@@ -13,6 +14,8 @@ import { reviewProviderPause } from '../../review/providerPause.js';
  * effects come through AutoTestDeps so the state machine is testable without a browser.
  */
 export type AutoTestStage = 'reading' | 'starting' | 'exploring' | 'planning' | 'testing' | 'summarizing' | 'completed' | 'failed' | 'cancelled';
+export type StartupPermission = 'ask' | 'auto' | 'bypass';
+export type StartupQuestion = InstallPlan & { id: string };
 export type AutoTestState = 'queued' | 'running' | 'passed' | 'failed' | 'uncertain' | 'blocked' | 'not_tested' | 'cancelled';
 export type AutoTestEntry = {
   id: string; name: string; goal: string; rationale: string; requirementRef: string | null;
@@ -39,11 +42,14 @@ export type AutoTestSession = {
   presets?: AutoTestPreset[];
   /** False when only saved tests run, without writing new ones. */
   planning?: boolean;
+  startupPermission?: StartupPermission;
+  startupQuestion?: StartupQuestion;
 };
 
 export type AutoTestDeps = {
   digest(folder: string): Promise<RepoDigest>;
-  launch(input: { folder: string; recipeId?: string; port?: number; signal: AbortSignal; onEvent?(event: LaunchEvent): void }): Promise<LaunchedApp>;
+  launch(input: { folder: string; recipeId?: string; port?: number; signal: AbortSignal; onEvent?(event: LaunchEvent): void; approveInstall?(plan: InstallPlan): Promise<boolean> }): Promise<LaunchedApp>;
+  waitForInstallDecision?(question: StartupQuestion, signal: AbortSignal): Promise<boolean>;
   discover(url: string, paths: string[]): Promise<DiscoveryResult>;
   generate(input: { systemPrompt: string; prompt: string; outputSchema: object; signal: AbortSignal }): Promise<unknown>;
   explainFailure?(input: { test: AutoTestEntry; run: DynamicRun; excerpts: string; signal: AbortSignal }): Promise<string | null>;
@@ -66,7 +72,7 @@ const TERMINAL_RUN = new Set(['completed', 'blocked', 'cancelled', 'interrupted'
 const RUN_POLL_MS = 1000;
 const RUN_WAIT_LIMIT_MS = 6 * 60_000;
 
-export function newAutoTestSession(input: { id: string; projectId: string; ownerId: string; folder: string; lanes?: number; now?: Date; request?: AutoTestRequest | null; presets?: AutoTestPreset[]; planning?: boolean }): AutoTestSession {
+export function newAutoTestSession(input: { id: string; projectId: string; ownerId: string; folder: string; lanes?: number; now?: Date; request?: AutoTestRequest | null; presets?: AutoTestPreset[]; planning?: boolean; startupPermission?: StartupPermission }): AutoTestSession {
   const at = (input.now ?? new Date()).toISOString();
   return {
     schemaVersion: 1, id: input.id, projectId: input.projectId, ownerId: input.ownerId, folder: input.folder,
@@ -76,12 +82,13 @@ export function newAutoTestSession(input: { id: string; projectId: string; owner
     ...(input.request ? { request: input.request } : {}),
     ...(input.presets?.length ? { presets: input.presets } : {}),
     ...(input.planning === false ? { planning: false } : {}),
+    ...(input.startupPermission ? { startupPermission: input.startupPermission } : {}),
   };
 }
 
 /** The saved definition of a test from an earlier session, if it can be run again. */
 export function presetFromEntry(entry: AutoTestEntry): AutoTestPreset | null {
-  if (!entry.controls?.length || !entry.checks.length) return null;
+  if (!entry.controls || !entry.checks.length) return null;
   return { name: entry.name, goal: entry.goal, startPath: entry.startPath, requirementRef: entry.requirementRef, sourceRefs: entry.sourceRefs, checks: entry.checks, controls: entry.controls };
 }
 
@@ -123,6 +130,19 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
   };
   const stage = async (value: AutoTestStage) => { session.stage = value; await persist(); };
   const checkCancelled = () => { if (signal.aborted) throw new LaunchError('cancelled', 'Cancelled.'); };
+  const approveInstall = session.startupPermission && session.startupPermission !== 'bypass' ? async (plan: InstallPlan) => {
+    if (!deps.waitForInstallDecision || session.startupQuestion) return false;
+    const question = { ...plan, id: randomUUID() };
+    const answer = deps.waitForInstallDecision(question, signal);
+    session.startupQuestion = question;
+    await persist();
+    const approved = await answer;
+    delete session.startupQuestion;
+    await persist();
+    checkCancelled();
+    if (approved) await deps.beforeAction?.();
+    return approved;
+  } : undefined;
 
   try {
     // 1. Read the repository.
@@ -142,7 +162,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
     session.lanes = [firstLane];
     await deps.beforeAction?.();
     const first = await deps.launch({
-      folder: session.folder, signal,
+      folder: session.folder, signal, approveInstall,
       onEvent: event => {
         if (event.stage === 'detected') session.launch = { recipeId: event.recipe.id, label: event.recipe.label, framework: event.recipe.framework, url: null, portHonored: null, installing: false, log: '' };
         else if (session.launch && (event.stage === 'installing' || event.stage === 'starting')) {
@@ -204,7 +224,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
       session.lanes.push(lane);
       try {
         await deps.beforeAction?.();
-        const app = await deps.launch({ folder: session.folder, recipeId: first.recipe.id, signal });
+        const app = await deps.launch({ folder: session.folder, recipeId: first.recipe.id, signal, approveInstall });
         servers.set(lane.id, app);
         lane.url = app.server.url;
         lane.state = 'idle';
@@ -235,7 +255,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           let app = servers.get(lane.id)!;
           if (finishedOnLane.get(lane.id)) {
             await app.server.stop();
-            app = await deps.launch({ folder: session.folder, recipeId: first.recipe.id, port: app.server.port, signal });
+            app = await deps.launch({ folder: session.folder, recipeId: first.recipe.id, port: app.server.port, signal, approveInstall });
             servers.set(lane.id, app);
           }
           const origin = new URL(app.server.url).origin;
@@ -328,6 +348,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         : { reason: 'internal', message: error instanceof Error ? error.message.slice(0, 500) : 'Auto test failed.' };
     }
   } finally {
+    delete session.startupQuestion;
     const cleanup = await Promise.allSettled([...servers.values()].map(app => app.server.stop()));
     if (cleanup.some(result => result.status === 'rejected')) {
       if (session.stage !== 'cancelled') session.stage = 'failed';

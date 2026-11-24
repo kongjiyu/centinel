@@ -15,7 +15,7 @@ const REASON_TEXT: Record<ReviewUnverifiedReason, string> = {
   finding_shape: 'some reported issues were incomplete',
   domain_coverage: 'not every check area (security, business rules, technical behaviour, human error) was answered',
   source_evidence: 'the quoted code did not match the saved source exactly',
-  semantic_support: 'the conclusions could not be backed up with evidence from the code',
+  semantic_support: 'the Review could not verify the proposed findings against the supplied code',
   uncertain_citation: 'some issues point to code that could not be matched exactly',
   model_timeout: 'the AI did not answer within the time limit',
 };

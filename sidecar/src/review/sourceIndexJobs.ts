@@ -116,6 +116,7 @@ export class SourceIndexCoordinator {
     reader?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>): Promise<void> {
     this.adoptSession(auth);
     const identity = await this.deps.describe(this.auth(auth.userId), projectId, artifacts, signal);
+    let reclaimFrozenIndex = Boolean(reviewId && reader);
     for (;;) {
       signal?.throwIfAborted();
       const job = await this.queue(auth.userId, projectId, identity, 'review');
@@ -124,12 +125,20 @@ export class SourceIndexCoordinator {
       if (job.state === 'running' && (job.leaseUntil ?? 0) > this.now() && !this.active.has(job.id)) {
         await delay(this.deps.pollMs ?? 2_000, signal);
         const updated = await this.store(auth.userId).get(job.id);
+        if (updated?.state === 'superseded' && updated.errorCode === 'source_superseded' && reclaimFrozenIndex) {
+          reclaimFrozenIndex = false;
+          continue;
+        }
         if (updated && ['failed', 'superseded'].includes(updated.state)) throw new SourceIndexStopped(updated.errorCode ?? 'index_failed');
         continue;
       }
       if (job.ownerId !== auth.userId) throw new SourceIndexStopped('index_owned_by_another_member');
       try { await this.execute(job, artifacts, signal, reviewId, reader); return; }
       catch (cause) {
+        if (cause instanceof SourceIndexStopped && cause.code === 'source_superseded' && reclaimFrozenIndex) {
+          reclaimFrozenIndex = false;
+          continue;
+        }
         if (!(cause instanceof SourceIndexStopped) || cause.code !== 'index_build_in_progress') throw cause;
         await delay(this.deps.pollMs ?? 2_000, signal);
       }

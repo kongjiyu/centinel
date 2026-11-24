@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { AutoTestSession } from '../autotest/types';
 import type { ReviewHarnessTrace } from '../reviewHarness';
-import type { Finding, Requirement, StaticSession } from '../types';
-import { checkProblemSummary, buildCheckResult, isTerminal, type CheckResult } from './result';
+import type { EvidenceSufficiencyAssessment, Finding, Requirement, StaticSession } from '../types';
+import { browserStartupFailed, checkProblemSummary, buildCheckResult, hasCoverageGaps, isTerminal, type CheckResult } from './result';
 import { reviewLiveView, type ReviewLiveView } from './live';
 import { updateCheck } from './store';
 import type { CheckRecord } from './types';
@@ -19,26 +19,31 @@ export type CheckData = {
   loadError: string | null;
   requirementsState?: 'loading' | 'ready' | 'unavailable';
   evidenceLoaded?: boolean;
+  evidenceAssessment?: EvidenceSufficiencyAssessment | null;
 };
 
 const REVIEW_POLL_MS = 3000;
 const BROWSER_POLL_MS = 2000;
 
 /** Polls the saved records behind one check until both parts reach a final state. */
-export function useCheckData(check: CheckRecord | undefined): CheckData | null {
+export function useCheckData(check: CheckRecord | undefined, savedBrowserSession?: AutoTestSession): CheckData | null {
   const [review, setReview] = useState<StaticSession | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [trace, setTrace] = useState<ReviewHarnessTrace | null>(null);
-  const [autoTest, setAutoTest] = useState<AutoTestSession | null>(null);
+  const [evidenceAssessment, setEvidenceAssessment] = useState<EvidenceSufficiencyAssessment | null>(null);
+  const [loadedAutoTest, setAutoTest] = useState<AutoTestSession | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [requirementsState, setRequirementsState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const projectId = check?.projectId;
   const reviewId = check?.reviewId;
   const autoTestId = check?.autoTestId;
+  const currentBrowserSession = savedBrowserSession?.id === autoTestId && savedBrowserSession?.projectId === projectId ? savedBrowserSession : undefined;
+  const hasBrowserSession = !!currentBrowserSession;
+  const autoTest = currentBrowserSession ?? loadedAutoTest;
   const findingsLoadedFor = useRef<string | null>(null);
 
-  useEffect(() => { setReview(null); setFindings([]); setTrace(null); findingsLoadedFor.current = null; }, [reviewId]);
+  useEffect(() => { setReview(null); setFindings([]); setTrace(null); setEvidenceAssessment(null); findingsLoadedFor.current = null; }, [reviewId]);
   useEffect(() => { setAutoTest(null); }, [autoTestId]);
 
   useEffect(() => {
@@ -64,6 +69,11 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
           setFindings(nextFindings);
           if (nextTrace) setTrace(nextTrace);
           findingsLoadedFor.current = `${reviewId}:${session.status}`;
+          if (typeof api.getReviewEvidenceSufficiency === 'function') {
+            void api.getReviewEvidenceSufficiency(projectId, reviewId).then(next => {
+              if (active && next?.reviewId === reviewId && next.projectId === projectId) setEvidenceAssessment(next);
+            }).catch(() => undefined);
+          }
         }
         if (running && active) timer = setTimeout(tick, REVIEW_POLL_MS);
       } catch {
@@ -77,7 +87,7 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
   }, [projectId, reviewId]);
 
   useEffect(() => {
-    if (!projectId || !autoTestId) return;
+    if (!projectId || !autoTestId || hasBrowserSession) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
@@ -92,7 +102,7 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
     };
     void tick();
     return () => { active = false; if (timer) clearTimeout(timer); };
-  }, [projectId, autoTestId]);
+  }, [projectId, autoTestId, hasBrowserSession]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -118,28 +128,32 @@ export function useCheckData(check: CheckRecord | undefined): CheckData | null {
     return () => { active = false; };
   }, [projectId, review?.status, autoTest?.stage]);
 
-  const result = useMemo(() => check ? buildCheckResult({ check, review, findings, autoTest, requirements }) : null, [check, review, findings, autoTest, requirements]);
+  const result = useMemo(() => check ? buildCheckResult({ check, review, findings, autoTest, requirements, evidenceAssessment }) : null, [check, review, findings, autoTest, requirements, evidenceAssessment]);
   const live = useMemo(() => reviewLiveView(review, trace), [review, trace]);
 
   // Record the outcome once so the sidebar can show it without loading every check.
-  const reviewReady = !reviewId || !!review;
-  const browserReady = !autoTestId || !!autoTest;
+  const reviewReady = !reviewId || review?.id === reviewId;
+  const browserReady = !autoTestId || autoTest?.id === autoTestId;
   useEffect(() => {
     if (!check || !result || !['running', 'done'].includes(check.phase) || !reviewReady || !browserReady) return;
+    const fallback = check.mode === 'both' && autoTest?.id === autoTestId && browserStartupFailed(autoTest)
+      ? { mode: 'code' as const, requestedMode: 'both' as const } : null;
+    if (fallback) updateCheck(check.id, fallback);
     if (!result.finished || !isTerminal(result.codeState) || !isTerminal(result.browserState)) return;
     if (reviewId && review && !['queued', 'prepared', 'running'].includes(review.status) && findingsLoadedFor.current === null) return;
-    const summary = checkProblemSummary(result);
+    const summary = { ...checkProblemSummary(result), coverageIncomplete: hasCoverageGaps(result) };
     if (check.phase === 'done') {
-      if (check.problemCount === summary.problemCount && (check.highProblemCount !== summary.highProblemCount || check.problemRisk !== summary.problemRisk)) {
+      if (check.problemCount === undefined || check.problemCount === summary.problemCount
+        && (check.highProblemCount !== summary.highProblemCount || check.problemRisk !== summary.problemRisk || check.coverageIncomplete !== summary.coverageIncomplete)) {
         updateCheck(check.id, summary);
       }
       return;
     }
     updateCheck(check.id, { phase: 'done', ...summary, finishedAt: new Date().toISOString() });
-  }, [check, result, reviewReady, browserReady, reviewId, review]);
+  }, [check, result, reviewReady, browserReady, reviewId, review, autoTest, autoTestId]);
 
   if (!check || !result) return null;
   const evidenceLoaded = reviewReady && browserReady && (!reviewId || !review
     || ['queued', 'prepared', 'running'].includes(review.status) || findingsLoadedFor.current === `${reviewId}:${review.status}`);
-  return { review, findings, trace, autoTest, requirements, result, live, loadError, requirementsState, evidenceLoaded };
+  return { review, findings, trace, autoTest, requirements, result, live, loadError, requirementsState, evidenceLoaded, evidenceAssessment };
 }

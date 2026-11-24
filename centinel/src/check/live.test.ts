@@ -26,7 +26,8 @@ describe('review live view', () => {
       { reviewId: 'r1', event: 'review_analysis_batch_saved', detail: { batchId: 'b1' }, createdAt: '' },
       { reviewId: 'r1', event: 'review_live_finding_titles', detail: { titles: ['Order Ownership Bypass', 'Order Ownership Bypass', ' '] }, createdAt: '' },
     ]));
-    expect(view).toEqual({ stageLabel: 'Reading the code', currentFiles: ['server.js'], batchesDone: 1, batchesTotal: 2, titles: ['Order Ownership Bypass'] });
+    expect(view).toMatchObject({ stageLabel: 'Reading the code', currentFiles: ['server.js'], batchesDone: 1, batchesTotal: 2, problems: [{ title: 'Order Ownership Bypass', location: null }] });
+    expect(view.problems).toHaveLength(1);
   });
 
   it('shows no current file once the review has stopped running', () => {
@@ -38,7 +39,7 @@ describe('review live view', () => {
   });
 
   it('uses the saved stage before any batch is planned', () => {
-    expect(reviewLiveView(review('running', 'freezing_sources'), null)).toMatchObject({ stageLabel: 'Saving a copy of the files', batchesTotal: null, titles: [] });
+    expect(reviewLiveView(review('running', 'freezing_sources'), null)).toMatchObject({ stageLabel: 'Saving a copy of the files', batchesTotal: null, problems: [] });
     expect(reviewLiveView(review('queued'), null).stageLabel).toBe('Waiting to start');
   });
   it('prefers the file of the batch the Review reported starting, including document batches', () => {

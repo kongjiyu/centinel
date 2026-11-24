@@ -5,7 +5,7 @@ import { effectiveFindingStatus } from '../findingStatus';
 import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason } from '../reviewCoverage';
 import { parseReviewProgress } from '../reviewViewModel';
 import { deriveRiskLevelWithFallback, riskLevelRank, type RiskLevel } from '../riskPolicy';
-import type { Finding, Requirement, StaticSession } from '../types';
+import type { EvidenceSufficiencyAssessment, Finding, Requirement, StaticSession } from '../types';
 import type { CheckRecord } from './types';
 
 /**
@@ -79,6 +79,9 @@ export function autoTestPartState(session: AutoTestSession | null | undefined, r
   if (session.stage === 'failed') return 'failed';
   return 'done';
 }
+
+export const browserStartupFailed = (session: AutoTestSession | null | undefined) => session?.stage === 'failed' && !session.launch?.url
+  && ['unsupported', 'unknown_recipe', 'tool_missing', 'install_failed', 'install_declined', 'exited', 'not_ready', 'launch_failed'].includes(session.error?.reason ?? '');
 
 export const isTerminal = (state: PartState) => state !== 'running';
 
@@ -187,10 +190,11 @@ export function buildCheckResult(input: {
   findings: Finding[];
   autoTest: AutoTestSession | null;
   requirements: Requirement[];
+  evidenceAssessment?: EvidenceSufficiencyAssessment | null;
 }): CheckResult {
   const { check, review, findings, autoTest, requirements } = input;
   const codeState = check.reviewId ? reviewPartState(review, true) : check.mode === 'browser' ? 'not_requested' : (check.phase === 'failed' ? 'failed' : 'not_started');
-  const browserState = check.autoTestId ? autoTestPartState(autoTest, true) : check.mode === 'code' ? 'not_requested' : 'not_started';
+  const browserState = check.autoTestId ? browserStartupFailed(autoTest) ? 'paused' : autoTestPartState(autoTest, true) : check.mode === 'code' ? 'not_requested' : 'not_started';
   const open = findings.filter(finding => OPEN_STATUSES.has(effectiveFindingStatus(finding)));
   const foundInCode = open.map(codeProblem).sort(byRisk);
   const tests = autoTest?.tests ?? [];
@@ -198,6 +202,9 @@ export function buildCheckResult(input: {
   const passedBrowserTests = tests.filter(test => test.state === 'passed').length;
 
   const notChecked: string[] = [...check.notes];
+  for (const gap of input.evidenceAssessment?.gaps ?? []) {
+    if (gap.code === 'pdf_visual_content_unverified') notChecked.push(gap.detail);
+  }
   if (review && codeState === 'failed') notChecked.push(`The code review stopped before it finished${review.failureReason ? `: ${review.failureReason}` : '.'}`);
   if (codeState === 'cancelled') notChecked.push('The code review was stopped.');
   if (codeState === 'paused') notChecked.push('The code review is paused because the AI provider reached a limit. Resume it from Details.');
@@ -206,8 +213,9 @@ export function buildCheckResult(input: {
     for (const part of gaps?.parts ?? []) notChecked.push(`${unverifiedPartLocation(part)}: ${unverifiedPartReason(part)}`);
     if (gaps && gaps.total > gaps.parts.length) notChecked.push(`${gaps.total - gaps.parts.length} more parts of the code could not be fully checked.`);
   }
-  if (autoTest?.error && browserState === 'failed') notChecked.push(`Browser tests stopped: ${autoTest.error.message}`);
+  if (autoTest?.error && (browserState === 'failed' || browserState === 'paused')) notChecked.push(`Browser tests ${browserState === 'paused' ? 'paused' : 'stopped'}: ${autoTest.error.message}`);
   if (browserState === 'cancelled') notChecked.push('The browser tests were stopped.');
+  for (const test of autoTest?.dropped ?? []) notChecked.push(`Proposed browser test “${test.name}”: ${test.reason}`);
   for (const test of tests) {
     if (['blocked', 'not_tested', 'uncertain', 'cancelled'].includes(test.state)) {
       const why = test.state === 'uncertain' ? 'the result was unclear' : test.state === 'blocked' ? 'it could not run' : 'it did not run';
@@ -225,12 +233,12 @@ export function buildCheckResult(input: {
   } else if (!finished) {
     verdict = total ? `${plural(total, 'problem')} found so far.` : 'Checking…';
   } else if ([codeState, browserState].every(state => ['failed', 'cancelled', 'not_requested', 'not_started', 'paused'].includes(state)) && !total) {
-    verdict = codeState === 'paused' ? 'The check is paused.' : codeState === 'cancelled' || browserState === 'cancelled' ? 'The check was stopped.' : 'The check stopped before it finished.';
+    verdict = codeState === 'paused' || browserState === 'paused' ? 'The check is paused.' : codeState === 'cancelled' || browserState === 'cancelled' ? 'The check was stopped.' : 'The check stopped before it finished.';
     verdictDetail = 'Nothing was found before it ended. See what was not checked below.';
   } else if (!total) {
-    verdict = 'No problems found.';
+    verdict = notChecked.length ? 'The check finished with gaps.' : 'No problems found.';
     const parts = [codeState === 'done' ? 'the code' : null, browserState === 'done' ? plural(tests.length, 'browser test') : null].filter(Boolean);
-    verdictDetail = parts.length ? `ORIN checked ${parts.join(' and ')}.` : null;
+    verdictDetail = notChecked.length ? 'Some parts were not checked. They are listed below.' : parts.length ? `ORIN checked ${parts.join(' and ')}.` : null;
   } else if (proven.length) {
     verdict = `${plural(total, 'problem')} found. ${proven.length} proven in the browser.`;
   } else {
@@ -261,3 +269,6 @@ export function checkProblemSummary(result: CheckResult) {
     risk && (!highest || riskLevelRank(risk) < riskLevelRank(highest)) ? risk : highest, undefined);
   return { problemCount: problems.length, problemRisk, highProblemCount: problems.filter(problem => problem.risk === 'high').length };
 }
+
+export const hasCoverageGaps = (result: CheckResult) => result.notChecked.length > 0 ||
+  [result.codeState, result.browserState].some(state => state === 'cancelled' || state === 'failed' || state === 'paused');

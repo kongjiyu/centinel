@@ -34,6 +34,51 @@ export type CandidateSupportRepairPromptOptions = {
   sources?: readonly AssessmentSourceSegment[];
 };
 
+/** Add exact, bounded lines around matching symbols in other frozen packets. */
+export function extendCandidateSupportSources(
+  evidence: string, supplied: readonly AssessmentSourceSegment[], available: readonly AssessmentSourceSegment[],
+): AssessmentSourceSegment[] {
+  const symbolPattern = /\b([A-Za-z_$][\w$]{2,})\s*\(/g;
+  const names = new Set([...evidence.matchAll(symbolPattern)].map(match => match[1]));
+  for (const keyword of ['function', 'return', 'throw', 'while', 'switch', 'catch', 'typeof']) names.delete(keyword);
+  if (!names.size) return [...supplied];
+  const sources = [...supplied];
+  let remaining = 8_000;
+  const maxSources = supplied.length + 8;
+  const covered = (source: AssessmentSourceSegment, lineStart: number, lineEnd = lineStart) => sources.some(existing =>
+    existing.artifact.id === source.artifact.id && existing.artifact.contentHash === source.artifact.contentHash
+    && !existing.lineWindow && existing.lineStart <= lineStart && existing.lineEnd >= lineEnd);
+  for (const source of available) {
+    if (!remaining || sources.length >= maxSources) break;
+    if (source.lineWindow || !source.content || source.state && source.state !== 'available' || covered(source, source.lineStart, source.lineEnd)) continue;
+    const lines = source.content.split('\n').slice(0, source.lineEnd - source.lineStart + 1);
+    for (const [offset, line] of lines.entries()) {
+      const anchor = source.lineStart + offset;
+      if (covered(source, anchor) || ![...line.matchAll(symbolPattern)].some(match => names.has(match[1]))) continue;
+      if (source.content.length <= remaining) {
+        remaining -= source.content.length;
+        sources.push(source);
+        break;
+      }
+      const start = Math.max(0, offset - 4);
+      const end = Math.min(lines.length, offset + 13);
+      let content = lines.slice(start, end).join('\n');
+      let first = start;
+      let last = end - 1;
+      if (content.length > remaining) {
+        if (line.length > remaining) continue;
+        content = line;
+        first = last = offset;
+      }
+      if (!content.length) continue;
+      remaining -= content.length;
+      sources.push({ ...source, content, lineStart: source.lineStart + first, lineEnd: source.lineStart + last });
+      if (!remaining || sources.length >= maxSources) break;
+    }
+  }
+  return sources;
+}
+
 export function buildCandidateSupportPrompt(
   candidates: readonly CandidateSupportCandidate[],
   sources: readonly AssessmentSourceSegment[],

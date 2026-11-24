@@ -37,9 +37,10 @@ function CheckOutcome({ check }: { check: CheckRecord }) {
   const active = check.phase === 'preparing' || check.phase === 'running';
   const failed = check.phase === 'failed';
   const count = check.problemCount ?? 0;
-  const label = active ? 'Checking' : failed ? 'Did not start' : count ? `${count} ${count === 1 ? 'problem' : 'problems'}` : 'No problems';
+  const incomplete = check.coverageIncomplete || check.notes.length > 0;
+  const label = active ? 'Checking' : failed ? 'Did not start' : count ? `${count} ${count === 1 ? 'problem' : 'problems'}` : incomplete ? 'Check incomplete' : 'No problems';
   return <span className={`sidebar-check-outcome${active ? ' is-running' : failed || count ? ' is-bad' : ''}`}>
-    {active ? <Icon icon={LoaderCircle} className="ci-spin" /> : failed ? <Icon icon={TriangleAlert} /> : <ProblemCountIcon summary={check} />}
+    {active ? <Icon icon={LoaderCircle} className="ci-spin" /> : failed || incomplete && !count ? <Icon icon={TriangleAlert} /> : <ProblemCountIcon summary={check} />}
     <span className="sidebar-outcome-label">{label}</span>
   </span>;
 }

@@ -45,18 +45,80 @@ async function waitFor(store: MemoryStore, id: string, state: ConversationReques
 }
 
 describe('conversation request harness', () => {
+  it('answers an unbound proceed without planning or executing an earlier check', async () => {
+    const { input, runtime, deps, store } = fixture();
+    await runtime.accept('project', { ...input, text: 'proceed' }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'clarify', reply: expect.stringContaining('name the repository folder') });
+    expect(deps.plan).not.toHaveBeenCalled();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
   it.each([
     ['Explain this saved check.', 'review:r1', { name: 'Cypress QA', findingCount: 56, findingExamples: [{ title: 'Window interface mismatch' }] }, '56 findings'],
     ['Explain what this saved problem means.', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.', path: 'support.ts' }, 'The original source excerpt is unavailable'],
+    ['Explain what happened to this problem, how it works', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.', excerpt: 'interface Window {}' }, 'interface Window {}'],
+    ['What happend to this issue?', 'finding:f1', { title: 'Window interface mismatch', description: 'The declared property name differs.' }, 'The original source excerpt is unavailable'],
     ['Explain', 'browser:b1', { tests: [{ name: 'Sign-in form', state: 'passed', checks: [{ observed: 'Username field visible' }] }] }, 'Username field visible'],
-  ] as const)('answers %s from the cited saved record without starting a check', async (text, id, data, fragment) => {
+  ] as const)('retains the cited record for %s when the generated answer fails validation', async (text, id, data, fragment) => {
     const { input, runtime, deps, store } = fixture();
     vi.mocked(deps.resolve).mockResolvedValue([{ id, hash: 'saved', text: JSON.stringify(data), unavailable: id.startsWith('finding:') }]);
-    vi.mocked(deps.plan).mockRejectedValue(new Error('model unavailable'));
-    await runtime.accept('project', { ...input, text }, deps);
-    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', replyOrigin: 'saved_evidence', citations: [id], reply: expect.stringContaining(fragment) });
-    expect(deps.plan).not.toHaveBeenCalled();
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply: 'Unsupported answer', citations: [], scope: [] });
+    const references = id.startsWith('browser:') ? [{ autoTestId: 'b1' }] : [{ reviewId: 'r1' }];
+    await runtime.accept('project', { ...input, text, references }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', replyOrigin: 'saved_evidence', answerUnavailable: true, citations: [id], reply: expect.stringContaining(fragment) });
+    expect(deps.plan).toHaveBeenCalledOnce();
     expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it('generates a question-specific answer alongside the original problem details', async () => {
+    const { input, runtime, deps, store } = fixture();
+    const saved = { id: 'finding:f1', hash: 'saved', text: JSON.stringify({ title: 'Sign-in issue', path: 'src/auth/login.ts', originalStatus: 'new' }) };
+    vi.mocked(deps.resolve).mockResolvedValue([saved]);
+    const reply = '| Module | Saved path |\n| --- | --- |\n| Authentication | `src/auth/login.ts` |';
+    vi.mocked(deps.plan).mockResolvedValue({ action: 'explain', reply, citations: [saved.id], scope: [], claims: [{ citation: saved.id, excerpt: 'src/auth/login.ts' }] });
+    await runtime.accept('project', { ...input, text: 'Explain this issue. Which module is affected?', references: [{ reviewId: 'r1', findingId: 'f1' }] }, deps);
+    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ reply, replyFormat: 'markdown', explanation: { sections: [{ title: 'Sign-in issue', evidenceId: saved.id }] } });
+    expect(deps.plan).toHaveBeenCalledOnce();
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  it.each(['code', 'browser'] as const)('handles an explicit module Review in %s mode without expanding its file scope', async mode => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([
+      { id: 'module:project', text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
+      { id: 'module-source:a', artifactId: 'a', versionId: 'v1', text: '{"path":"cypress/example.ts"}', hash: 'file' },
+      { id: 'other', artifactId: 'b', text: '{}', hash: 'other' },
+    ]);
+    await runtime.accept('project', { ...input, mode, permission: 'ask', text: 'conduct a review on automation module' }, deps);
+    const saved = await waitFor(store, input.id, mode === 'code' ? 'awaiting_permission' : 'completed');
+    expect(saved).toMatchObject(mode === 'code' ? { action: 'code', scope: ['a'], reply: expect.stringContaining('cypress') }
+      : { action: 'clarify', scope: [], questionOptions: ['Code review only', 'Keep Browser mode'] });
+    expect(deps.execute).not.toHaveBeenCalled();
+    expect(deps.plan).not.toHaveBeenCalled();
+    let waiting = saved;
+    if (mode === 'browser') {
+      await runtime.answerQuestion(saved, saved.revision, 0, deps);
+      waiting = await waitFor(store, input.id, 'awaiting_permission');
+      expect(waiting).toMatchObject({ action: 'code', scope: ['a'], selectedOption: 0, reviewContinuation: { sourceRequestId: input.id } });
+      await runtime.answerQuestion(waiting, saved.revision, 0, deps);
+      expect(deps.resolve).toHaveBeenCalledTimes(2);
+    }
+    await runtime.confirm(waiting, waiting.revision, deps);
+    await waitFor(store, input.id, 'completed');
+    expect(deps.execute).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('honors the current Ask first setting when answering a new Code choice (%s)', async askFirst => {
+    const { input, runtime, deps, store } = fixture();
+    vi.mocked(deps.resolve).mockResolvedValue([
+      { id: 'module:project', text: '{"roots":["cypress"],"rootCount":1,"count":1}', hash: 'module' },
+      { id: 'module-source:a', artifactId: 'a', text: '{}', hash: 'file' },
+    ]);
+    await runtime.accept('project', { ...input, mode: 'browser', permission: 'auto', text: 'Review cypress' }, deps);
+    const question = await waitFor(store, input.id, 'completed');
+    await runtime.answerQuestion(question, question.revision, 0, deps, askFirst);
+    await waitFor(store, input.id, askFirst ? 'awaiting_permission' : 'completed');
+    expect(deps.execute).toHaveBeenCalledTimes(askFirst ? 0 : 1);
+    expect(deps.plan).not.toHaveBeenCalled();
   });
   it.each(['auto', 'ask'] as const)('uses only the bound source for a Code fallback after Browser startup failure (%s)', async permission => {
     const { input, runtime, deps, store } = fixture();

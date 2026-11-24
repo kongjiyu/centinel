@@ -141,7 +141,7 @@ function SessionView({ session, onCancel, cancelling, onOpenRun }: { session: Au
           <summary>What this did not cover</summary>
           <ul className="at-limits">
             {summary?.limitations.map(item => <li key={item}>{item}</li>)}
-            {session.dropped.map(item => <li key={item.name + item.reason}>Dropped “{item.name}”: {item.reason}</li>)}
+            {session.dropped.map((item, index) => <li key={index}>Dropped “{item.name}”: {item.reason}</li>)}
           </ul>
         </details>
       )}

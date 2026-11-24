@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CentinelApplicationRepository } from './applicationRepository.js';
+import { ApplicationRepositoryError, CentinelApplicationRepository } from './applicationRepository.js';
 import { detectArtifactType, type Artifact, type ArtifactSource, type ArtifactType, type SourceCurrency } from './artifacts.js';
 import type { StoreArtifact, StoreArtifactVersion } from './store/types.js';
 
@@ -59,6 +59,7 @@ export type LocalImportCoverage = {
 };
 
 export type LocalRepositoryFile = { path: string; fullPath: string; size: number; mtimeMs: number; ctimeMs: number; symlink: boolean };
+type LocalImportFailure = { filePath: string; reason: 'file_limit' | 'file_too_large' | 'file_unreadable' | 'storage_upload_failed' | 'version_commit_failed' | 'artifact_save_failed' };
 
 const sha256 = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
 const LOCAL_OTHER_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.xml', '.toml', '.ini', '.mod', '.csproj', '.gradle', '.kts', '.swift', '.kt', '.scala', '.dart', '.vue', '.svelte', '.sql', '.sh', '.bash', '.lua']);
@@ -310,7 +311,7 @@ export async function importLocalRepositoryArtifacts(
   projectId: string,
   repoPath: string,
   options: { observedInventory?: LocalRepositoryInventory; priorCoverage?: LocalImportCoverage; pruneArtifactIds?: string[]; sourceId?: string } = {},
-): Promise<{ imported: Artifact[]; skipped: string[]; complete: boolean }> {
+): Promise<{ imported: Artifact[]; skipped: string[]; complete: boolean; failures: LocalImportFailure[] }> {
   if (typeof repoPath !== 'string' || !repoPath.trim()) throw new Error('Path is not a valid directory');
   const root = path.resolve(repoPath);
   const stat = await fs.stat(root).catch(() => null);
@@ -322,8 +323,12 @@ export async function importLocalRepositoryArtifacts(
   }
   const imported: Artifact[] = [];
   const skipped: string[] = [];
+  const failures: LocalImportFailure[] = [];
+  const recordFailure = (filePath: string, reason: LocalImportFailure['reason']) => {
+    skipped.push(filePath);
+    failures.push({ filePath, reason });
+  };
   let eligibleCount = 0;
-  let completeContentInventory = true;
   const directories = [root];
   while (directories.length > 0) {
     const current = directories.pop()!;
@@ -338,11 +343,18 @@ export async function importLocalRepositoryArtifacts(
       }
       if (!entry.isFile()) continue;
       if (!isImportableLocalFile(entry.name)) { skipped.push(relativePath); continue; }
-      if (++eligibleCount > MAX_IMPORT_FILES) { skipped.push(relativePath); completeContentInventory = false; continue; }
-      const fileStat = await fs.stat(fullPath);
-      if (fileStat.size > MAX_IMPORT_FILE_BYTES) { skipped.push(relativePath); completeContentInventory = false; continue; }
+      if (++eligibleCount > MAX_IMPORT_FILES) { recordFailure(relativePath, 'file_limit'); continue; }
+      let content: Buffer;
       try {
-        const content = await fs.readFile(fullPath);
+        const fileStat = await fs.lstat(fullPath);
+        if (!fileStat.isFile()) { recordFailure(relativePath, 'file_unreadable'); continue; }
+        if (fileStat.size > MAX_IMPORT_FILE_BYTES) { recordFailure(relativePath, 'file_too_large'); continue; }
+        content = await fs.readFile(fullPath);
+      } catch {
+        recordFailure(relativePath, 'file_unreadable');
+        continue;
+      }
+      try {
         const blob = gitSnapshot?.blobs.get(relativePath);
         const git = gitSnapshot && blob && crypto.createHash(gitSnapshot.commit.length === 64 ? 'sha256' : 'sha1')
           .update(`blob ${content.length}\0`).update(content).digest('hex') === blob
@@ -352,19 +364,21 @@ export async function importLocalRepositoryArtifacts(
           source: 'repository', sourceId: options.sourceId, originalPath: fullPath, git,
           ...(options.sourceId ? { localRepositoryName: path.basename(root) } : {}),
         }));
-      } catch {
-        skipped.push(relativePath);
-        completeContentInventory = false;
+      } catch (cause) {
+        const code = cause instanceof ApplicationRepositoryError ? cause.code : undefined;
+        const reason = code === 'artifact_upload_failed' ? 'storage_upload_failed'
+          : code === 'artifact_version_commit_failed' ? 'version_commit_failed' : 'artifact_save_failed';
+        recordFailure(relativePath, reason);
       }
     }
   }
   const importedIds = new Set(imported.map(artifact => artifact.id));
-  if (observedInventory?.complete && completeContentInventory) {
+  if (observedInventory?.complete && !failures.length) {
     for (const artifactId of new Set(options.pruneArtifactIds ?? [])) {
       if (!importedIds.has(artifactId)) await repository.deleteArtifact(projectId, artifactId);
     }
   }
-  const complete = Boolean(observedInventory?.complete && observedInventory.inventoryFingerprint && completeContentInventory);
+  const complete = Boolean(observedInventory?.complete && observedInventory.inventoryFingerprint && !failures.length);
   const contentFingerprint = complete
     ? localRepositoryContentFingerprint(imported.map(artifact => ({ filePath: artifact.filePath, contentHash: artifact.contentHash }))) : undefined;
   const coverageArtifactIds = complete ? imported.map(artifact => artifact.id)
@@ -384,7 +398,7 @@ export async function importLocalRepositoryArtifacts(
   } catch {
     throw new Error('Local import coverage could not be recorded. Retry the import before assessing readiness.');
   }
-  return { imported, skipped, complete };
+  return { imported, skipped, complete, failures };
 }
 
 /** Authenticated exact-version byte reader for binary-safe Review ingestion. */

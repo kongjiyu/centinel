@@ -553,18 +553,27 @@ export const api = {
   // `fresh` skips joining an in-flight identical read (which may predate a Run start or stop) and the HTTP cache.
   autoTests: (projectId: string) => request<AutoTestSession[]>(`/projects/${projectId}/dynamic/autonomous`, { cache: 'no-store' }),
   autoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}`, { cache: 'no-store' }),
-  startAutoTest: (projectId: string, input: { folder?: string; lanes?: number; request?: string; base?: import('../autotest/types').AutoTestRef; rerun?: import('../autotest/types').AutoTestRef[]; pinned?: import('../autotest/types').AutoTestRef[] }) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous`, { method: 'POST', body: JSON.stringify(input) }),
+  startAutoTest: (projectId: string, input: { folder?: string; lanes?: number; request?: string; base?: import('../autotest/types').AutoTestRef; rerun?: import('../autotest/types').AutoTestRef[]; pinned?: import('../autotest/types').AutoTestRef[]; startupPermission?: 'ask' | 'auto' | 'bypass' }) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous`, { method: 'POST', body: JSON.stringify(input) }),
+  answerAutoTestStartup: (projectId: string, id: string, questionId: string, choice: 'install' | 'retry' | 'skip' | 'custom') => request<{ accepted: true }>(`/projects/${projectId}/dynamic/autonomous/${id}/startup-answer`, { method: 'POST', body: JSON.stringify({ questionId, choice }) }),
   generateCheckTitle: (projectId: string, input: { focus: string; mode: import('../check/types').CheckMode; documents: string[] }) =>
     request<{ title: string | null }>(`/projects/${encodeURIComponent(projectId)}/check-title`, {
       method: 'POST', body: JSON.stringify(input), signal: AbortSignal.timeout(65_000),
     }),
   conversationRequests: (projectId: string) => request<import('../check/conversationTypes').ConversationRequest[]>(`/projects/${projectId}/conversation-requests`),
+  conversationRequest: (projectId: string, id: string) => request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}`),
+  conversationEvidence: (projectId: string, id: string) => request<import('../check/conversationTypes').SavedConversationExplanation & { unavailable: number }>(`/projects/${projectId}/conversation-requests/${id}/evidence`),
   setConversationPermission: (projectId: string, permission: 'ask' | 'auto' | 'bypass') =>
     request(`/projects/${projectId}/conversation-permission`, { method: 'POST', body: JSON.stringify({ permission }) }),
   sendConversationRequest: (projectId: string, input: import('../check/conversationTypes').ConversationInput) =>
-    request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests`, { method: 'POST', body: JSON.stringify(input) }),
+    request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests`, {
+      method: 'POST', body: JSON.stringify(input), signal: AbortSignal.timeout(30_000),
+    }),
   confirmConversationRequest: (projectId: string, id: string, revision: number) =>
     request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/confirm`, { method: 'POST', body: JSON.stringify({ revision }) }),
+  answerConversationQuestion: (projectId: string, id: string, revision: number, selectedOption: number, askFirst = false) =>
+    request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/answer`, {
+      method: 'POST', body: JSON.stringify({ revision, selectedOption, askFirst }), signal: AbortSignal.timeout(30_000),
+    }),
   cancelConversationRequest: (projectId: string, id: string) =>
     request<import('../check/conversationTypes').ConversationRequest>(`/projects/${projectId}/conversation-requests/${id}/cancel`, { method: 'POST', body: '{}' }),
   cancelAutoTest: (projectId: string, id: string) => request<AutoTestSession>(`/projects/${projectId}/dynamic/autonomous/${id}/cancel`, { method: 'POST', body: '{}' }),
@@ -653,7 +662,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   importRepoArtifacts: (projectId: string, repoPath: string) =>
-    request<{ imported: Artifact[]; skipped: string[] }>(`/projects/${projectId}/artifacts/import-repo`, {
+    request<{ imported: Artifact[]; skipped: string[]; complete?: boolean; failures?: Array<{ filePath: string; reason: string }> }>(`/projects/${projectId}/artifacts/import-repo`, {
       method: 'POST',
       body: JSON.stringify({ repoPath }),
     }),

@@ -17,7 +17,8 @@ import { mergeReviewFindings, reviewEvidenceFindings, reviewTraceabilityFindings
 import { groupFindings } from '../findingGroups';
 import { rankFindingEvidence } from '../findingEvidenceRanking';
 import type { ReviewHarnessTrace } from '../reviewHarness';
-import { findingRiskLevel } from '../components/FindingsPanel';
+import { FindingsPanel, findingRiskLevel } from '../components/FindingsPanel';
+import { findingToDynamicDraft } from '../dynamic/findingDraft';
 import { Modal } from '../components/Modal';
 import { reviewCoverageGaps, unverifiedPartLocation, unverifiedPartReason, type ReviewUnverifiedReason } from '../reviewCoverage';
 import { suggestedLinkCount } from '../requirementLinks';
@@ -33,6 +34,7 @@ import {
   type ReviewLifecycleState,
 } from '../reviewViewModel';
 import type { EvidenceSufficiencyAssessment, Finding, Project, RequirementMapping, ReviewDecisionRecord, ReviewSourceManifest, ReviewTraceabilitySnapshot, Screen, StaticSession } from '../types';
+import { PdfVisualCoverage } from '../components/PdfVisualCoverage';
 import { formatEntityId } from '../utils/entityId';
 import { reviewFailureMessage, userFacingError } from '../utils/userFacingError';
 import './ReviewActivityScreen.css';
@@ -512,13 +514,8 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
   const suggestedLinks = suggestedLinkCount(requirementMappings);
   const objective = viewModel?.objective ?? null;
   const objectiveDocuments = supportiveDocuments(config);
-  const findingsTarget = (id?: string): Screen => ({
-    name: 'project-detail', projectId, initialSection: 'findings', findingsReviewId: sessionId, ...(id ? { findingId: id } : {}),
-  });
-  const openFinding = (id: string) => onNavigate(findingsTarget(id));
-  useEffect(() => {
-    if (findingId || initialTab === 'Findings') onNavigate(findingsTarget(findingId));
-  }, [findingId, initialTab, onNavigate, projectId, sessionId]);
+  const openFindings = () => onNavigate({ name: 'review-activity', projectId, sessionId, initialTab: 'Findings' });
+  const openFinding = (id: string) => onNavigate({ name: 'review-finding', projectId, sessionId, findingId: id });
 
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -637,6 +634,20 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
     </div>;
   }
   if (!session || !viewModel) return <div className="screen review-activity-screen"><div className="command-inline-alert" role="alert"><AlertCircle size={16} aria-hidden="true" /> <span>{error || 'Review activity could not be loaded.'}</span><button type="button" className="btn-link" onClick={() => void load()}>Try again</button></div></div>;
+  if (findingId || initialTab === 'Findings') return (
+    <div className="screen command-review-activity review-activity-screen">
+      <CommandPageHeader eyebrow={`Review / ${project?.name || 'Project'}`} title={`${session.name} ${formatEntityId(session.id)}`}
+        onBack={findingId ? undefined : () => onNavigate({ name: 'review-activity', projectId, sessionId })} />
+      {findingId && (evidenceReadPending || harnessLoading) && !findings.some(finding => finding.id === findingId)
+        ? <LoadingSkeleton variant="panel" label="Loading finding evidence" />
+        : <FindingsPanel projectId={projectId} sessionId={sessionId} presentation="project" pageSize={5}
+            reviewRead={{ findings, loading: evidenceReadPending, error: findingsError, refresh: loadReviewEvidence }}
+            focusFindingId={findingId} onOpenFinding={openFinding} onBackToFindings={findingId ? openFindings : undefined}
+            readOnly={session.status === 'queued' || session.status === 'running'}
+            onOpenReview={id => onNavigate({ name: 'review-activity', projectId, sessionId: id })}
+            onVerifyWithDynamic={finding => onNavigate({ name: 'dynamic-testing', projectId, draft: findingToDynamicDraft(finding) })} />}
+    </div>
+  );
   const showApproval = awaitsReviewDecision(state) && !currentDecision;
   const executed = isExecutedReviewStatus(session.status);
   const exportReviewReport = async () => {
@@ -717,6 +728,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
                   {evidenceReadFailed && <button type="button" className="btn-secondary" onClick={() => void loadReviewEvidence()} disabled={evidenceReadPending}>{evidenceReadPending ? 'Retrying evidence…' : 'Retry evidence'}</button>}
                 </details>
               )}
+              <PdfVisualCoverage assessment={evidenceAssessment} />
               {evidenceAssessment?.readiness === 'blocked' && (
                 <details><summary>Blocking evidence</summary>
                   <div>
@@ -764,7 +776,7 @@ export function ReviewActivityScreen({ accountId, findingId, initialTab, project
             liveEvents={harnessTrace?.events}
             liveProgress={harnessTrace?.review.progress}
             liveUpdatesDelayed={Boolean(harnessError)}
-            onViewAll={() => onNavigate({ name: 'project-detail', projectId, initialSection: 'findings' })}
+            onViewAll={openFindings}
             onCancel={session.status === 'queued' || session.status === 'running' ? () => void cancelReview() : undefined}
             cancelling={cancelling}
             objective={objective}

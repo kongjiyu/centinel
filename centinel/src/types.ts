@@ -617,6 +617,7 @@ export type EvidenceSufficiencyAssessment = {
   confirmedRequirementCount: number;
   enabledStandardRuleCount: number;
   assessedAt: string;
+  pdfVisualCoverage?: Array<{ artifactId: string; sourceVersion: string; fileName: string; totalPages: number; pages: Array<{ page: number; summary: string }> }>;
 };
 
 export type FindingCorrelationClass = 'new' | 'recurring' | 'carried_over' | 'resolved' | 'regressed';

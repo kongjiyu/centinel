@@ -8,12 +8,12 @@ import { Icon } from '../../components/Icon';
 import { Select } from '../../components/Select';
 import { ProjectCreateModal } from '../../components/ProjectCreateModal';
 import { useImportSources } from '../../components/RecentProjectDetails';
-import { getCheck, useChecks } from '../../check/store';
+import { getCheck, saveCheck, useChecks } from '../../check/store';
 import { checkName } from '../../check/checkName';
 import { CHECK_MODES, type CheckDocument, type CheckMode, type CheckRecord, type StartCheckInput } from '../../check/types';
 import { startCheck } from '../../check/runner';
 import { projectLocalFolder } from '../../check/projectWorkspace';
-import { setMode as savePermission, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
+import { addNote, looksLikeAccount, setMode as savePermission, updatePrefs, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
 import type { Project, Screen } from '../../types';
 import { CheckPermission } from './CheckPermission';
 import { attachCheckDocuments, CheckDocumentInput, PageDocumentDropIndicator, usePageDocumentDrop, type CheckDocumentBatch } from './CheckDocumentPicker';
@@ -25,7 +25,8 @@ import { findCheckMention } from './checkMention';
 import { rankMentionChecks, rankMentionProjects, useMentionSelection } from './checkMentionSelection';
 import { CheckAttachmentCount } from './CheckAttachmentCount';
 import { CheckComposerNotices } from './CheckComposerNotices';
-import { checkReference, draftContentSignature, readConversationDraft, rememberAcknowledgedRequest, writeConversationDraft } from '../../check/conversation';
+import { acknowledgeConversationDraft, asksForUnscopedReview, checkReference, conversationApproval, draftContentSignature, namedReviewScope, readConversationDraft, recoverConversationRequest, rememberAcknowledgedRequest, requestsCheckExecution, sendConversationDraft, writeConversationDraft } from '../../check/conversation';
+import type { ConversationRequest } from '../../check/conversationTypes';
 import { useProblemMentions } from '../../check/problemMentions';
 import { rememberCheckTransition } from '../../check/checkTransition';
 import { rememberConversationReturn } from '../../check/projectNavigation';
@@ -33,6 +34,8 @@ import './Check.css';
 
 type Navigate = (screen: Screen) => void;
 type ConversationComposer = {
+  latestRequest?: ConversationRequest;
+  savedChecks?: CheckRecord[];
   editing?: ReactNode;
   inputRef: RefObject<HTMLTextAreaElement>;
   placeholder: string;
@@ -89,6 +92,47 @@ export function CheckActionLabel({ children }: { children: ReactNode }) {
   return <span className="ck-toolbar-label"><span>{children}</span></span>;
 }
 
+export function CheckActionToolbar({ children, label, className = '' }: { children: ReactNode; label: string; className?: string }) {
+  const stopTracking = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopTracking.current?.(), []);
+
+  return <div className={className ? `ck-header-toolbar ${className}` : 'ck-header-toolbar'} role="group" aria-label={label}
+    onPointerMove={event => {
+      if (event.pointerType === 'touch' || stopTracking.current) return;
+      const toolbar = event.currentTarget;
+      const document = toolbar.ownerDocument;
+      let hovered: HTMLElement | null = null;
+      let lastPosition: { x: number; y: number } | null = null;
+      // Layout can change hover targets with the pointer still in place.
+      // Track real movement, including the next move outside a resized toolbar.
+      const track = (pointer: PointerEvent) => {
+        if (pointer.pointerType === 'touch' || lastPosition?.x === pointer.clientX && lastPosition?.y === pointer.clientY) return;
+        lastPosition = { x: pointer.clientX, y: pointer.clientY };
+        if (!(pointer.target instanceof Element) || !toolbar.contains(pointer.target)) {
+          stopTracking.current?.();
+          return;
+        }
+        const item = pointer.target.closest<HTMLElement>('.ck-toolbar-item:not(:disabled)');
+        if (hovered === item) return;
+        hovered?.removeAttribute('data-pointer-active');
+        item?.setAttribute('data-pointer-active', '');
+        hovered = item;
+      };
+      stopTracking.current = () => {
+        document.removeEventListener('pointermove', track, true);
+        hovered?.removeAttribute('data-pointer-active');
+        stopTracking.current = null;
+      };
+      document.addEventListener('pointermove', track, { capture: true, passive: true });
+      track(event.nativeEvent);
+    }}
+    onPointerLeave={event => { if (!event.relatedTarget) stopTracking.current?.(); }}
+    onPointerCancel={() => stopTracking.current?.()}
+    onFocus={event => { if (event.target.matches(':focus-visible')) stopTracking.current?.(); }}>
+    {children}
+  </div>;
+}
+
 export function CheckProjectHeader({ check, project, onNavigate, library, projectAction, checkHeading }: {
   check: Pick<CheckRecord, 'projectName' | 'projectId' | 'folder' | 'githubUrl'> & { id?: string };
   project?: Project; onNavigate: Navigate; library: CheckLibrary; projectAction?: ReactNode;
@@ -138,7 +182,7 @@ export function CheckProjectHeader({ check, project, onNavigate, library, projec
         <h1 className="ck-title" tabIndex={0}><Icon icon={SquareChartGantt} /><OverflowText text={checkHeading.name} /></h1>
       </div>
     </div> : projectAction ? <div className="pc-project-heading"><h1 className="ck-title">{sourceTrigger}</h1></div> : sourceTrigger}
-    <div className="ck-header-toolbar" role="group" aria-label={checkHeading ? 'Check actions and details' : 'Project actions'}>
+    <CheckActionToolbar label={checkHeading ? 'Check actions and details' : 'Project actions'}>
       {checkHeading?.duration && <span className="ck-toolbar-item" tabIndex={0} data-default
         aria-label={`Check duration: ${checkHeading.duration}`}><Icon icon={Clock} /><CheckActionLabel>{checkHeading.duration}</CheckActionLabel></span>}
       {checkHeading?.problems && <span className={`ck-toolbar-item problem-count-tone is-${problemCountTone(checkHeading.problems)}`} tabIndex={0}>
@@ -153,7 +197,7 @@ export function CheckProjectHeader({ check, project, onNavigate, library, projec
         }}><Icon icon={History} /><CheckActionLabel>History</CheckActionLabel></button>}
       {projectAction}
       {checkHeading?.report}
-    </div>
+    </CheckActionToolbar>
     {panel === 'history' && <div className="ck-menu ck-header-popover ck-check-history" role="dialog" aria-label="History">
       <label className="ck-popover-search"><Icon icon={Search} /><input type="search" ref={historyInput}
         aria-label="Filter checks by name" placeholder="Filter checks by name" value={query} onChange={event => setQuery(event.target.value)} /></label>
@@ -198,18 +242,24 @@ export function CheckProjectHeader({ check, project, onNavigate, library, projec
   </header>;
 }
 
-export function CheckFollowUp({ check, projects, onNavigate, available, library, conversation }: { check: Pick<CheckRecord, 'id' | 'projectId' | 'mode' | 'folder'>; projects: Project[]; onNavigate: Navigate; available: boolean; library: CheckLibrary; conversation?: ConversationComposer }) {
+export function CheckFollowUp({ check, projects, onNavigate, available, library, conversation }: { check: Pick<CheckRecord, 'id' | 'projectId' | 'mode' | 'requestedMode' | 'folder'>; projects: Project[]; onNavigate: Navigate; available: boolean; library: CheckLibrary; conversation?: ConversationComposer }) {
   // Check and Project render this composer with a key for the current route.
   const [saved] = useState(() => readConversationDraft(check.projectId ?? '', check.id));
   const [draft, setDraft] = useState(saved.text);
   const [mode, setMode] = useState<CheckMode>(() => saved.mode ?? check.mode);
+  const [modeChangedByOrin, setModeChangedByOrin] = useState(false);
+  const codeFallback = check.mode === 'code' && check.requestedMode === 'both';
+  useEffect(() => { if (codeFallback) setMode('code'); }, [codeFallback]);
   const [expanded, setExpanded] = useState(false);
   const [sending, setSending] = useState(false);
   const documentInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [mention, setMention] = useState<ReturnType<typeof findCheckMention>>(null);
   const [attachedChecks, setAttachedChecks] = useState<CheckRecord[]>(() => [...new Set([...saved.checkIds, ...(check.id ? [check.id] : [])])]
-    .map(getCheck).filter((item): item is CheckRecord => !!item && item.projectId === check.projectId && (!!item.reviewId || !!item.autoTestId)));
+    .map(id => {
+      const snapshot = saved.checks?.find(item => item.id === id);
+      return getCheck(id) ?? (snapshot && { ...snapshot, focus: '', documents: [], notes: [] });
+    }).filter((item): item is CheckRecord => !!item && item.projectId === check.projectId && (!!item.reviewId || !!item.autoTestId)));
   const [attachedProblems, setAttachedProblems] = useState(saved.problems);
   const [addingSource, setAddingSource] = useState<CheckSourceChoice | null>(null);
   const recent = useChecks();
@@ -243,20 +293,49 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     return () => { mounted.current = false; };
   }, [check.id]);
   const project = projects.find(item => item.id === check.projectId);
+  const resetDraft = () => {
+    setDraft(''); setDocuments([]); setSourceIds([]); setAttachedChecks([]); setAttachedProblems([]);
+  };
   useLayoutEffect(() => {
     if (!check.projectId) return;
     writeConversationDraft(check.projectId, { ...readConversationDraft(check.projectId, check.id), text: draft, mode,
       checkIds: attachedChecks.map(item => item.id), problems: attachedProblems,
+      checks: attachedChecks.map(({ id, projectId, projectName, title, mode, phase, reviewId, autoTestId, createdAt, updatedAt }) =>
+        ({ id, projectId, projectName, title, mode, phase, reviewId, autoTestId, createdAt, updatedAt })),
       documents: documents.filter(item => item.saved).map(item => ({ ...item, base64: '' })), sourceIds }, check.id);
   }, [check.id, check.projectId, draft, mode, attachedChecks, attachedProblems, documents, sourceIds]);
+  useEffect(() => {
+    if (!check.projectId || !saved.requestId || typeof api.conversationRequest !== 'function') return;
+    const projectId = check.projectId;
+    const owner = sessionStorage.getItem('centinel:supabase-user-id');
+    let active = true;
+    setSending(true);
+    void recoverConversationRequest(projectId, saved.requestId).then(record => {
+      if (!active || owner !== sessionStorage.getItem('centinel:supabase-user-id')) return;
+      if (!record) return;
+      if (acknowledgeConversationDraft(projectId, record, check.id)) {
+        resetDraft();
+        if (saved.mode === 'browser' && record.input.mode === 'code' && namedReviewScope(record.input.text)) {
+          setMode('code');
+          setModeChangedByOrin(true);
+        }
+      }
+      if (check.id) setAttachmentMessage('The sent message was recovered in the project conversation.');
+    }).catch(() => {
+      if (active) setAttachmentMessage('The saved request could not be checked. Your draft is saved.');
+    }).finally(() => { if (active) setSending(false); });
+    return () => { active = false; };
+  }, [check.id, check.projectId, saved.requestId]);
   const hasFolder = !!(projectLocalFolder(project) || check.folder);
   const effectiveMode = conversation?.editing ? 'browser' : hasFolder || conversation ? mode : 'code';
   const libraryRequiresCode = effectiveMode === 'browser' && sources.length > 0;
   const revisionHasAttachments = !!conversation?.editing && (documents.length > 0 || sources.length > 0 || attachedChecks.length > 0);
   const canSend = project && draft.trim() && !sending && !readingDocuments && !conversation?.sending && !libraryRequiresCode && !revisionHasAttachments && !mention;
-  const problemOptions = useProblemMentions(check.projectId, [...attachedChecks, ...recent.filter(item => !attachedChecks.some(attached => attached.id === item.id))], addOpen);
+  const candidates = [...recent, ...(conversation?.savedChecks ?? []).filter(item => !recent.some(existing => existing.id === item.id ||
+    item.reviewId && existing.reviewId === item.reviewId || item.autoTestId && existing.autoTestId === item.autoTestId))];
+  const problemOptions = useProblemMentions(check.projectId, [...attachedChecks, ...candidates.filter(item => !attachedChecks.some(attached => attached.id === item.id))], addOpen);
   const query = mention?.query.trim().toLowerCase() ?? '';
-  const matchingChecks = rankMentionChecks(recent.filter(item => check.projectId && item.projectId === check.projectId
+  const matchingChecks = rankMentionChecks(candidates.filter(item => check.projectId && item.projectId === check.projectId
     && item.id !== check.id && !attachedChecks.some(attached => attached.id === item.id)
     && [checkName(item), item.projectName, item.focus].join(' ').toLowerCase().includes(query)));
   const mentionProjects = rankMentionProjects(projects.filter(item => item.id !== check.projectId), recent, query);
@@ -290,11 +369,21 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
     event.preventDefault();
     if (!canSend) return;
     const focus = draft.trim();
-    if (!conversation?.editing && typeof api.sendConversationRequest === 'function') {
+    const moduleReview = namedReviewScope(focus);
+    const includesAccount = looksLikeAccount(focus);
+    if (includesAccount && !prefs.accountReminderShown) {
+      updatePrefs(project.id, current => ({ ...current, accountReminderShown: true }));
+      addNote(project.id, 'The AI will see this account. Use test accounts only.');
+    }
+    const standaloneBrowser = conversation && effectiveMode === 'browser' && !check.id && !documents.length
+      && !moduleReview && !asksForUnscopedReview(focus)
+      && (requestsCheckExecution(focus) || includesAccount && /\bto\s+(?:test|check|verify|run)\b/i.test(focus))
+      && !readConversationDraft(project.id, check.id).requestId
+      && !attachedChecks.length && !attachedProblems.length && !sources.length;
+    if (!standaloneBrowser && !conversation?.editing && typeof api.sendConversationRequest === 'function') {
       setSending(true);
       try {
         const owner = sessionStorage.getItem('centinel:supabase-user-id');
-        const current = readConversationDraft(project.id, check.id);
         const checkReferences = attachedChecks.filter(item => item.projectId === project.id).map(checkReference).map(reference => ({
           ...(reference.reviewId && !attachedProblems.some(item => item.reference.reviewId === reference.reviewId) ? { reviewId: reference.reviewId } : {}),
           ...(reference.autoTestId && !attachedProblems.some(item => item.reference.autoTestId === reference.autoTestId) ? { autoTestId: reference.autoTestId } : {}),
@@ -304,21 +393,36 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
           ...documents.filter(item => item.saved?.projectId === project.id).map(item => ({ artifactId: item.saved!.artifactId }))];
         if (documents.some(item => item.saved?.projectId !== project.id)) throw new Error('Some documents are not saved yet. Add them again before sending.');
         if (references.some(ref => !Object.keys(ref).length)) throw new Error('An attached check has no saved evidence yet.');
-        const requestSignature = JSON.stringify({ focus, mode: effectiveMode, permission: prefs.mode, references });
-        const id = current.requestSignature === requestSignature && current.requestId ? current.requestId : crypto.randomUUID();
-        writeConversationDraft(project.id, { ...current, requestId: id, requestSignature }, check.id);
-        const accepted = await api.sendConversationRequest(project.id, { id, text: focus, mode: effectiveMode, permission: prefs.mode, references });
-        if (owner !== sessionStorage.getItem('centinel:supabase-user-id')) return;
-        rememberAcknowledgedRequest(project.id, accepted);
-        if (!mounted.current) return;
-        const latest = readConversationDraft(project.id, check.id);
-        if (latest.requestId === id) {
-          if (draftContentSignature(latest) === draftContentSignature(current)) {
-            writeConversationDraft(project.id, { text: '', checkIds: [], problems: [], mode }, check.id);
-            setDraft(''); setDocuments([]); setSourceIds([]); setAttachedChecks([]); setAttachedProblems([]);
-          } else {
-            writeConversationDraft(project.id, { ...latest, requestId: undefined, requestSignature: undefined }, check.id);
+        const previous = conversation?.latestRequest;
+        const current = readConversationDraft(project.id, check.id);
+        const approval = conversationApproval(focus);
+        if (approval && !references.length && !current.requestId && previous && previous.projectId === project.id && previous.ownerId === owner) {
+          if (previous.state === 'accepted' || previous.state === 'planning') {
+            setAttachmentMessage('The plan is still being prepared. Send “proceed” when the scope appears.');
+            return;
           }
+          if (previous.state === 'awaiting_permission') {
+            if (approval === 'code' && (previous.action !== 'code' || previous.autoTestId)) {
+              setAttachmentMessage('There is no Code-only plan waiting for approval. Ask for a Code Review and name the folder you want to review.');
+              return;
+            }
+            const confirmed = await api.confirmConversationRequest(project.id, previous.id, previous.revision);
+            if (owner !== sessionStorage.getItem('centinel:supabase-user-id')) return;
+            rememberAcknowledgedRequest(project.id, confirmed);
+            if (mounted.current && draftContentSignature(current) === draftContentSignature(readConversationDraft(project.id, check.id))) resetDraft();
+            if (mounted.current) setAttachmentMessage(null);
+            return;
+          }
+        }
+        const sendMode = moduleReview && effectiveMode === 'browser' && !references.length ? 'code' : effectiveMode;
+        const accepted = await sendConversationDraft(project.id, { text: focus, mode: sendMode, permission: prefs.mode, references }, check.id);
+        if (owner !== sessionStorage.getItem('centinel:supabase-user-id')) return;
+        const clear = acknowledgeConversationDraft(project.id, accepted, check.id);
+        if (!mounted.current) return;
+        if (clear) resetDraft();
+        if (sendMode !== effectiveMode && accepted.input.mode === sendMode) {
+          setMode(sendMode);
+          setModeChangedByOrin(true);
         }
         setAttachmentMessage(null);
         if (check.id) {
@@ -329,6 +433,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       } catch (error) {
         if (mounted.current) setAttachmentMessage(error instanceof Error && 'status' in error && error.status === 404 && error.message === 'Not found'
           ? 'The local service does not support chat messages yet. Restart ORIN’s development service and resend. Your draft is saved.'
+          : error instanceof Error && error.name === 'TimeoutError' ? 'The local service did not acknowledge the send. Your draft is saved. Send again to check whether it arrived.'
           : error instanceof Error ? error.message : 'The request could not be sent. Your draft is saved.');
       } finally { if (mounted.current) setSending(false); }
       return;
@@ -384,9 +489,10 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
           } catch { setAttachmentMessage('Permission mode could not be saved. Try again.'); }
         })();
       }} />
-      <Select aria-label="Check mode" className="ck-mode-select" value={effectiveMode} disabled={!!conversation?.editing}
+      <Select aria-label="Check mode" className={`ck-mode-select${modeChangedByOrin ? ' ck-mode-changed' : ''}`} value={effectiveMode} disabled={!!conversation?.editing || sending}
         options={CHECK_MODES.map(option => ({ ...option, disabled: !hasFolder && (conversation ? option.value === 'both' : option.value !== 'code') }))}
-        onChange={value => setMode(value as CheckMode)} />
+        onChange={value => { setModeChangedByOrin(false); setMode(value as CheckMode); }} />
+      {modeChangedByOrin && <span className="visually-hidden" role="status">ORIN changed Check mode to Code.</span>}
       <button type="submit" aria-label={conversation ? "Send" : "Send follow-up"} className="ck-round ck-follow-up-send" disabled={!canSend}><Icon icon={ArrowUp} /></button>
     </div>
     {addOpen && <div ref={addMenu} className="ck-menu ck-attachment-menu ck-follow-up-menu" role="dialog" aria-label="Add to check"
@@ -414,6 +520,7 @@ export function CheckFollowUp({ check, projects, onNavigate, available, library,
       </section>}
       {!!matchingChecks.length && <section aria-label="Recent Checks"><h2>Recent Checks</h2>
         {matchingChecks.map(item => <button key={item.id} type="button" onClick={() => {
+          if (!getCheck(item.id)) saveCheck(item);
           setAttachedChecks(current => [...current, item]);
           finishAttachment();
         }}><Icon icon={SquareChartGantt} /><span>{checkName(item)}</span>

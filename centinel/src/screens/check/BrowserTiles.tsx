@@ -137,7 +137,10 @@ export function BrowserTiles({ session, compact = false }: { session: AutoTestSe
             return (
               <li key={test.id} className={`tone-${look.tone}`} style={test.laneId && test.state === 'running' ? { ['--lane' as string]: laneVar(test.laneId) } : undefined}>
                 <Icon icon={look.icon} shape={look.icon === TriangleAlert ? 'triangle' : undefined} className={test.state === 'running' ? 'ci-spin' : ''} />
-                <span className="ck-test-name">{test.name}</span>
+                <div className="ck-test-name">
+                  <span>{test.name}</span>
+                  {test.state === 'blocked' && test.reason && <p className="ck-test-reason">{test.reason}</p>}
+                </div>
                 <span className="ck-test-state">{test.state === 'running' && test.laneId ? `Browser ${laneNumber(test.laneId)}` : look.label}</span>
               </li>
             );

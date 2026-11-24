@@ -12,7 +12,7 @@ describe('Frozen browser action permissions',()=>{
    const policy=normalizeActionPolicy({schemaVersion:1,interactions:[{selector:'#name',actions:['type']},{selector:'#save',actions:['click']}],allowCoordinates:false});const options={policy,origins:['https://fixture.test'],bindings:new Map([['e0','#name'],['e1','#delete']])};
    await authorizeBrowserAction(page,{action:'type',elementRef:'e0',targetDescription:'name',text:'Fixture',reasoning:''},options);
    await expect(authorizeBrowserAction(page,{action:'click',elementRef:'e1',targetDescription:'Safe read-only',reasoning:''},options)).rejects.toThrow('not approved');
-   await expect(authorizeBrowserAction(page,{action:'click',selector:'#name',targetDescription:'name',reasoning:''},options)).rejects.toThrow('not approved');
+   await expect(authorizeBrowserAction(page,{action:'click',selector:'#name',targetDescription:'name',reasoning:''},options)).rejects.toThrow('Clicking this control was not approved in this run’s saved interaction permissions.');
    expect(await page.locator('#name').inputValue()).toBe('');
   }finally{await page.close();}
  });

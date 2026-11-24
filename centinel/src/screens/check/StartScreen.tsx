@@ -378,6 +378,7 @@ export function StartScreen({ projects, aiSettings, initialCreate = false, initi
       ...(attached.kind === 'project' ? { projectId: attached.id }
         : attached.kind === 'folder' ? { folder: attached.path } : { githubUrl: attached.url }),
       documents, focus, mode,
+      ...(mode !== 'code' ? { startupPermission: attached.kind === 'project' ? projectPrefs.mode : draftPermission ?? 'auto' } : {}),
       ...(mode === 'browser' && focus.trim() ? { browserRequest: focus.trim() } : {}),
       ...(references.length ? { referenceCheckIds: references.map(check => check.id) } : {}),
       ...(sources.length ? { sourceArtifactIds: sources.map(source => source.id) } : {}),

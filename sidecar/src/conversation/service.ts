@@ -4,16 +4,17 @@ import type { ConversationStore } from './store.js';
 import { DynamicContractError } from '../dynamic/types.js';
 import { browserTargets } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
-import { explainSavedSelection } from './savedExplanation.js';
+import { presentSavedSelection } from './savedExplanation.js';
+import { asksForUnscopedReview, conversationApproval, conversationQuestionOptions, isCodeReviewChoice, namedReviewScope, requestsCheckExecution } from './intent.js';
 
 export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean };
-export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; citations: string[]; scope: string[]; explanation?: ConversationRequest['explanation'] };
+export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; citations: string[]; scope: string[]; explanation?: ConversationRequest['explanation']; questionOptions?: string[] };
 export class ConversationBrowserStartupError extends Error {}
 export type ConversationDeps = {
   ownerId: string;
   store: ConversationStore;
   authorize(projectId: string): Promise<void>;
-  resolve(projectId: string, references: ConversationReference[], signal: AbortSignal): Promise<Evidence[]>;
+  resolve(projectId: string, references: ConversationReference[], signal: AbortSignal, text: string): Promise<Evidence[]>;
   plan(record: ConversationRequest, evidence: Evidence[], signal: AbortSignal, earlierTurns: Evidence[]): Promise<unknown>;
   execute(record: ConversationRequest, signal: AbortSignal, checkpoint: (patch: Partial<ConversationRequest>) => Promise<void>): Promise<void>;
   cancel(record: ConversationRequest): Promise<void>;
@@ -35,7 +36,9 @@ async function recallEarlierTurns(record: ConversationRequest, store: Conversati
       if (row.ownerId !== record.ownerId || row.projectId !== record.projectId || row.state !== 'completed'
         || row.id === record.id || !(Date.parse(row.createdAt) < Date.parse(record.createdAt)) || !row.reply) continue;
       // Keep prior discussion separate from executable evidence and frozen sources.
-      const turn = { request: row.input.text, reply: row.reply };
+      const options = conversationQuestionOptions(row);
+      if (options.length && row.selectedOption === undefined) continue;
+      const turn = { request: row.input.text, reply: row.reply, ...(row.selectedOption !== undefined ? { selectedOption: options[row.selectedOption] } : {}) };
       const item = { id: 'conversation:' + row.id, text: compactCanonicalJson(turn), hash: hash(turn) };
       if (earlierTurns.length >= MAX_RECALLED_TURNS || compactCanonicalJson([item, ...earlierTurns]).length > budget) {
         status = 'limited';
@@ -68,6 +71,10 @@ export function parseConversationInput(body: Record<string, unknown>): Conversat
     references: [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, reference]) => reference) };
 }
 
+class ConversationValidationError extends Error {
+  constructor(readonly reason: NonNullable<ConversationRequest['validationReason']>, message: string) { super(message); }
+}
+
 export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode'], earlierTurns: Evidence[] = []): ConversationPlan {
   const plan = raw as (ConversationPlan & { claims?: Array<{ citation: string; excerpt: string }> }) | null;
   const supported = [...evidence, ...earlierTurns];
@@ -75,26 +82,39 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
   const artifacts = new Set(evidence.filter(item => !item.unavailable).map(item => item.artifactId).filter(Boolean));
   if (!plan || !['explain', 'suggest', 'code', 'browser', 'clarify'].includes(plan.action) || typeof plan.reply !== 'string'
     || !plan.reply.trim() || plan.reply.length > 6000 || !Array.isArray(plan.citations) || plan.citations.length > 24
-    || plan.citations.some(id => typeof id !== 'string' || !ids.has(id)) || !Array.isArray(plan.scope) || plan.scope.length > 200
-    || plan.scope.some(id => typeof id !== 'string' || !artifacts.has(id))) throw new Error('The agent response could not be validated.');
-  if (supported.length && plan.action !== 'clarify' && !plan.citations.length) throw new Error('The response needs saved evidence references.');
+    || !Array.isArray(plan.scope) || plan.scope.length > 200) throw new ConversationValidationError('response_format', 'The agent response could not be validated.');
+  if (plan.citations.some(id => typeof id !== 'string' || !ids.has(id))) {
+    throw new ConversationValidationError('citation_unknown', 'The response referenced evidence that was not supplied.');
+  }
+  if (plan.scope.some(id => typeof id !== 'string' || !artifacts.has(id))) {
+    throw new ConversationValidationError('scope_unbound', 'The proposed scope is not bound to supplied files.');
+  }
+  if (supported.length && plan.action !== 'clarify' && !plan.citations.length) throw new ConversationValidationError('citation_missing', 'The response needs saved evidence references.');
   if (plan.action !== 'clarify' && supported.length) {
     if (!Array.isArray(plan.claims) || !plan.claims.length || plan.claims.length > 24
       || plan.claims.some(claim => !claim || typeof claim.excerpt !== 'string' || claim.excerpt.length < 2 || claim.excerpt.length > 512
         || !plan.citations.includes(claim.citation) || !supported.some(item => item.id === claim.citation && item.text.includes(claim.excerpt)))
-      || plan.citations.some(id => !plan.claims!.some(claim => claim.citation === id))) throw new Error('The response lacks exact supporting evidence quotes.');
+      || plan.citations.some(id => !plan.claims!.some(claim => claim.citation === id))) throw new ConversationValidationError('quote_unmatched', 'The response lacks exact supporting evidence quotes.');
   }
   if (/\b(?:i|we|centinel|this (?:check|request)|the (?:problem|issue|bug|code|app|test))\s+(?:(?:is|was|has been|have been|have|has)\s+)?(?:fixed|repaired|resolved|verified|passed)\b/i.test(plan.reply)) {
-    throw new Error('Conversation analysis cannot establish a new verification or resolution outcome.');
+    throw new ConversationValidationError('outcome_unverified', 'Conversation analysis cannot establish a new verification or resolution outcome.');
   }
-  if (plan.action === 'code' && (mode === 'browser' || !plan.scope.length) || plan.action === 'browser' && mode === 'code') {
-    throw new Error('The proposed action exceeds the selected check mode or available scope.');
+  if (plan.action === 'code' && mode === 'browser' || plan.action === 'browser' && mode === 'code') {
+    throw new ConversationValidationError('mode_conflict', 'The proposed action exceeds the selected check mode.');
   }
-  if (['code', 'browser'].includes(plan.action) && evidence.some(item => item.unavailable)) throw new Error('Required historical evidence is unavailable. Explain the evidence or choose a readable check.');
+  if (plan.action === 'code' && !plan.scope.length) throw new ConversationValidationError('scope_unbound', 'The Code Review plan needs a file scope.');
+  if (['code', 'browser'].includes(plan.action) && evidence.some(item => item.unavailable)) throw new ConversationValidationError('evidence_unavailable', 'Required historical evidence is unavailable. Explain the evidence or choose a readable check.');
   if (['code', 'browser'].includes(plan.action) && earlierTurns.length && !evidence.some(item => plan.citations.includes(item.id))) {
-    throw new Error('Execution requires a citation to the evidence selected for this request.');
+    throw new ConversationValidationError('current_evidence_required', 'Execution requires a citation to the evidence selected for this request.');
   }
-  return { action: plan.action, reply: plan.reply.trim(), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)] };
+  const options = plan.questionOptions;
+  if (options !== undefined && (!Array.isArray(options) || options.length > 4 || options.length === 1
+    || options.some(option => typeof option !== 'string' || !option.trim() || option.length > 100 || /[\r\n]/.test(option))
+    || new Set(options.map(option => option.trim().toLowerCase())).size !== options.length || options.length && plan.action !== 'clarify')) {
+    throw new ConversationValidationError('question_options', 'The question options could not be validated.');
+  }
+  return { action: plan.action, reply: plan.reply.trim(), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)],
+    ...(options?.length ? { questionOptions: options.map(option => option.trim()) } : {}) };
 }
 
 function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest, evidence: Evidence[], earlierTurns: Evidence[]) {
@@ -116,15 +136,26 @@ function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest
   }
 }
 
-function explicitVerification(text: string) {
-  const request = text.trim().replace(/^(?:please\s+|(?:can|could|would)\s+you\s+)/i, '');
-  return /^(?:run|rerun|re-run|test|retest|recheck|verify|check)\b/i.test(request)
-    && !/^(?:run|test|check|verify)\s+(?:suggestions?|ideas?|options?)\b/i.test(request);
-}
-
 function requestedCheckMode(text: string): 'code' | 'browser' | undefined {
+  if (namedReviewScope(text)) return 'code';
   const mode = /\b(?:run|rerun|re-run|test|retest|recheck|verify|check)\s+(?:(?:this|that|a|the)\s+)?(code|browser)\s+(?:check|review|test|verification)\b/i.exec(text)?.[1]?.toLowerCase();
   return mode === 'code' || mode === 'browser' ? mode : undefined;
+}
+
+function planNamedReview(record: ConversationRequest, evidence: Evidence[]): ConversationPlan | null {
+  if (!namedReviewScope(record.reviewContinuation?.text ?? record.input.text)) return null;
+  const clarify = (reply: string): ConversationPlan => ({ action: 'clarify', reply, citations: [], scope: [] });
+  if (record.input.mode === 'browser' && !record.reviewContinuation) return { ...clarify('Run a Code Review of the requested module?'),
+    questionOptions: ['Code review only', 'Keep Browser mode'] };
+  const inventory = evidence.find(item => item.id === 'module:' + record.projectId);
+  if (!inventory) return clarify('Send the folder name without the saved Check or problem attachment so I can scope the Review to that folder.');
+  const { roots, rootCount, count } = JSON.parse(inventory.text) as { roots: string[]; rootCount: number; count: number };
+  const sources = evidence.filter(item => item.id.startsWith('module-source:') && item.artifactId && !item.unavailable);
+  if (!count) return clarify('I couldn’t match that module to a saved repository folder. Which folder should I review?');
+  if (rootCount > 1) return clarify(`Which folder should I review? I found these matches:\n\n${roots.map(root => `- \`${root.replaceAll('`', '')}\``).join('\n')}`);
+  if (sources.length !== count) return clarify('That module exceeds the scoped Review limit. Which subfolder should I review?');
+  return { action: 'code', citations: [inventory.id], scope: sources.map(item => item.artifactId!),
+    reply: `**Code Review scope**\n\n- Folder or file: \`${roots[0].replaceAll('`', '')}\`\n- Saved repository files: **${count}**` };
 }
 
 function recallProjectName(record: ConversationRequest, evidence: Evidence[], earlierTurns: Evidence[]): unknown {
@@ -156,6 +187,7 @@ function browserFallbackScope(evidence: Evidence[], record: ConversationRequest)
 function eventStage(patch: Partial<ConversationRequest>) {
   if (patch.state) return patch.state;
   if (patch.input) return 'permission_changed';
+  if (patch.selectedOption !== undefined) return 'question_answered';
   if (patch.context) return 'context_resolved';
   if (patch.action) return 'scope_validated';
   if (patch.executionSources) return 'current_sources_frozen';
@@ -175,7 +207,7 @@ export class ConversationRuntime {
     const record: ConversationRequest = {
       id: input.id, projectId, ownerId: deps.ownerId, input, inputHash: hash(input), revision: 0,
       state: 'accepted', workerId: this.workerId, leaseUntil: new Date(Date.now() + 120_000).toISOString(),
-      policyVersion: 'conversation-2026-11-21.2', createdAt: now, updatedAt: now, events: [{ stage: 'accepted', at: now }],
+      policyVersion: 'conversation-2026-11-23.1', createdAt: now, updatedAt: now, events: [{ stage: 'accepted', at: now }],
     };
     if (!await deps.store.create(record)) {
       const existing = await deps.store.get(projectId, input.id);
@@ -216,6 +248,52 @@ export class ConversationRuntime {
     this.start(record, deps, true);
     return record;
   }
+  async answerQuestion(record: ConversationRequest, revision: number, selectedOption: number, deps: ConversationDeps, askFirst = false) {
+    if (record.ownerId !== deps.ownerId) throw new DynamicContractError(409, 'This question is unavailable.');
+    const options = conversationQuestionOptions(record);
+    if (!Number.isInteger(selectedOption) || options[selectedOption] === undefined) throw new DynamicContractError(400, 'Choose one of the saved options.');
+    await deps.authorize(record.projectId);
+    const sameAnswer = record.selectedOption === selectedOption;
+    if (sameAnswer && record.reviewContinuation) return record;
+    const codeReview = isCodeReviewChoice(record.reply, options[selectedOption]);
+    if (sameAnswer && !codeReview) return record;
+    if (record.state !== 'completed' || record.revision !== revision || (record.selectedOption !== undefined && !sameAnswer)) {
+      throw new DynamicContractError(409, 'This question changed. Check the saved response.');
+    }
+    if (!codeReview || record.reviewId || record.autoTestId) return this.patch(record, { selectedOption, questionOptions: options }, deps);
+
+    let source: ConversationRequest | undefined;
+    let historyUnavailable = false;
+    try { source = await this.findQuestionReviewSource(record, deps); }
+    catch (error) {
+      if (!(error instanceof DynamicContractError) || error.status !== 503) throw error;
+      historyUnavailable = true;
+    }
+    const reviewContinuation = { question: record.reply!, ...(source ? { sourceRequestId: source.id, text: source.input.text } : {}) };
+    if (!source) return this.patch(record, { selectedOption, questionOptions: options, reviewContinuation,
+      reply: `${historyUnavailable ? 'I couldn’t load the earlier scope. ' : ''}Which repository folder should I review? Reply with **Review** followed by the folder path, for example **Review cypress**.` }, deps);
+
+    await this.patch(record, { selectedOption, questionOptions: options, reviewContinuation, reply: undefined, replyOrigin: undefined,
+      ...(askFirst || source.id !== record.id ? { input: { ...record.input, permission: 'ask' as const } } : {}),
+      action: undefined, citations: undefined, state: 'accepted', workerId: this.workerId, leaseUntil: new Date(Date.now() + 120_000).toISOString() }, deps);
+    this.start(record, deps, false);
+    return record;
+  }
+  private async findQuestionReviewSource(record: ConversationRequest, deps: ConversationDeps) {
+    if (record.input.references.length) return undefined;
+    if (namedReviewScope(record.input.text)) return record;
+    // A saved question can match a user's earlier explicit module request. Its wording never supplies scope by itself.
+    const match = /^Which verification should I run for the ([\w./-]+) module\?$/i.exec(record.reply?.trim() ?? '');
+    if (!match) return undefined;
+    const module = match[1].toLowerCase();
+    const candidates = (await deps.store.list(record.projectId, { ownerId: record.ownerId, createdAt: record.createdAt })).filter(item => item.projectId === record.projectId
+      && item.ownerId === record.ownerId && item.createdAt < record.createdAt && !item.input.references.length
+      && namedReviewScope(item.input.text) === module).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const latest = candidates[0];
+    if (!latest || latest.createdAt === candidates[1]?.createdAt || latest.reviewId || latest.autoTestId
+      || !['completed', 'failed', 'interrupted'].includes(latest.state)) return undefined;
+    return latest;
+  }
   async permission(projectId: string, permission: ConversationInput['permission'], deps: ConversationDeps) {
     const saved = deps.store.listActive ? await deps.store.listActive(projectId, deps.ownerId) : await deps.store.list(projectId);
     const records = new Map(saved.map(record => [record.id, record]));
@@ -255,34 +333,72 @@ export class ConversationRuntime {
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30 * 60_000)]);
     const work = this.run(record, deps, signal, confirmed).finally(() => {
       clearInterval(heartbeat);
-      this.active.delete(record.id); this.activeRecords.delete(record.id); this.pending.delete(work);
+      if (this.active.get(record.id) === controller) { this.active.delete(record.id); this.activeRecords.delete(record.id); }
+      this.pending.delete(work);
     });
     this.pending.add(work);
   }
   private async run(record: ConversationRequest, deps: ConversationDeps, signal: AbortSignal, confirmed: boolean) {
     let failureStage: NonNullable<ConversationRequest['failureStage']> = confirmed ? 'execution' : 'context';
+    let validationReason: ConversationRequest['validationReason'];
     const checkpoint = async (patch: Partial<ConversationRequest>) => {
       signal.throwIfAborted();
       await deps.authorize(record.projectId);
       await this.patch(record, patch, deps);
     };
     try {
-      if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
+      const text = record.reviewContinuation?.text ?? record.input.text;
+      const approval = !confirmed && conversationApproval(text);
+      if (approval) {
+        const reply = approval === 'code'
+          ? 'Which folder should I review in Code mode? Name the repository folder or attach the files and ask for a Code Review.'
+          : 'What should I run? For a Code Review, name the repository folder or file. For a Browser Check, tell me which behavior you want to verify.';
+        await checkpoint({ state: 'completed', action: 'clarify', reply });
+        return;
+      }
+      if (!confirmed && !record.input.references.length && asksForUnscopedReview(text)) {
+        await checkpoint({ state: 'completed', action: 'clarify', reply: 'Which repository folder or file should I review? Reply with **Review** followed by the path.' });
+        return;
+      }
+      if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', failureReason: 'assessment_hold', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
       if (!confirmed) {
         await checkpoint({ state: 'planning' });
-        const evidence = await deps.resolve(record.projectId, record.input.references, signal);
-        const promptLength = compactCanonicalJson({ request: record.input.text, mode: record.input.mode, evidence, earlierTurns: [] }).length;
-        if (promptLength > MAX_CONTEXT_CHARACTERS) throw new Error('The selected evidence exceeds the context limit. Select fewer problems.');
-        const { earlierTurns, recall } = await recallEarlierTurns(record, deps.store, Math.min(MAX_RECALL_CHARACTERS, MAX_CONTEXT_CHARACTERS - promptLength + 2));
-        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item), recall });
+        const evidence = await deps.resolve(record.projectId, record.input.references, signal, text);
+        const promptLength = compactCanonicalJson({ request: text, mode: record.reviewContinuation ? 'code' : record.input.mode, evidence, earlierTurns: [] }).length;
+        if (promptLength > MAX_CONTEXT_CHARACTERS) {
+          await checkpoint({ state: 'failed', failureStage: 'context', failureReason: 'context_limit', error: 'The selected evidence exceeds the context limit.' });
+          return;
+        }
+        const namedReview = planNamedReview(record, evidence);
+        const { earlierTurns, recall } = namedReview ? { earlierTurns: [], recall: undefined }
+          : await recallEarlierTurns(record, deps.store, Math.min(MAX_RECALL_CHARACTERS, MAX_CONTEXT_CHARACTERS - promptLength + 2));
+        const executionRequested = requestsCheckExecution(text);
+        const savedSelection = !executionRequested && record.input.references.length ? presentSavedSelection(evidence) : null;
+        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item), recall,
+          ...(savedSelection?.explanation ? { explanation: savedSelection.explanation } : {}) });
         failureStage = 'planning';
-        const explanation = !explicitVerification(record.input.text) ? explainSavedSelection(evidence, record.input.text) : null;
         const recalled = recallProjectName(record, evidence, earlierTurns);
-        const raw = explanation ?? recalled ?? await deps.plan(record, evidence, signal, earlierTurns);
+        const raw = namedReview ?? recalled ?? await deps.plan(record, evidence, signal, earlierTurns);
         failureStage = 'validation';
-        let plan = explanation ?? validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns);
-        const requested = requestedCheckMode(record.input.text);
-        if (['code', 'browser'].includes(plan.action) && (!explicitVerification(record.input.text) || requested && plan.action !== requested)) {
+        let savedReply = false;
+        let plan: ConversationPlan;
+        try {
+          plan = namedReview ?? validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns);
+        } catch (error) {
+          if (error instanceof ConversationValidationError) {
+            validationReason = error.reason;
+            console.warn(`[conversation] Response validation rejected request ${record.id} (${validationReason}).`);
+            if (executionRequested && validationReason === 'scope_unbound') {
+              await checkpoint({ state: 'completed', action: 'clarify', reply: 'Which repository folder or file should I review? Reply with **Review** followed by the path.' });
+              return;
+            }
+          }
+          if (!savedSelection) throw error;
+          savedReply = true;
+          plan = savedSelection;
+        }
+        const requested = requestedCheckMode(text);
+        if (['code', 'browser'].includes(plan.action) && (!executionRequested || requested && plan.action !== requested)) {
           plan = { action: 'clarify', reply: 'Would you like an explanation, a suggested fix, or a verification run for the attached evidence?', citations: [], scope: [] };
         }
         if (plan.action === 'code' && evidence.some(item => item.id.startsWith('review:') && JSON.parse(item.text).omittedSourceCount > 0)) {
@@ -292,11 +408,11 @@ export class ConversationRuntime {
           try {
             browserTargets(evidence, record.input.text);
           } catch {
-            plan = { action: 'clarify', reply: 'Attach a saved browser test, or attach the relevant source and state the expected message in quotation marks.', citations: [], scope: [] };
+            plan = { action: 'clarify', reply: 'Which page or behavior should I verify in the browser, and what should the page show when it works?', citations: [], scope: [] };
           }
         }
         const fallbackScope = plan.action === 'browser' ? browserFallbackScope(evidence, record) : [];
-        await checkpoint({ ...plan, ...(explanation ? { replyOrigin: 'saved_evidence' } : recalled ? { replyOrigin: 'saved_recall' }
+        await checkpoint({ ...plan, ...(savedReply ? { replyOrigin: 'saved_evidence', answerUnavailable: true, validationReason } : recalled && !namedReview ? { replyOrigin: 'saved_recall' }
           : { replyFormat: 'markdown' }), ...(fallbackScope.length ? { fallbackScope } : {}) });
         if (!['code', 'browser'].includes(plan.action)) { await checkpoint({ state: 'completed' }); return; }
         if (record.input.permission === 'ask') { await checkpoint({ state: 'awaiting_permission' }); return; }
@@ -305,7 +421,7 @@ export class ConversationRuntime {
       failureStage = 'execution';
       signal.throwIfAborted();
       if (deps.held(record.projectId)) {
-        await checkpoint({ state: 'paused', error: 'AI assessment was paused before execution. Send a new request after resuming.' });
+        await checkpoint({ state: 'paused', failureStage, failureReason: 'assessment_hold', error: 'AI assessment was paused before execution. Send a new request after resuming.' });
         return;
       }
       try {
@@ -322,8 +438,15 @@ export class ConversationRuntime {
       if (signal.aborted) return;
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
       const paused = /quota|credit|billing|rate_limit|capacity|assessment_paused|provider_paused|provider_unavailable/.test(code);
+      const missingReference = failureStage === 'context' && record.input.references.length > 0
+        && error instanceof DynamicContractError && error.status === 404;
+      const failureReason = paused ? 'provider_paused' : missingReference ? 'missing_reference'
+        : error instanceof ConversationBrowserStartupError ? 'browser_startup' : undefined;
       try { await this.patch(record, { state: paused ? 'paused' : 'failed', failureStage,
+        ...(validationReason ? { validationReason } : {}),
+        ...(failureReason ? { failureReason } : {}),
         error: paused ? 'The provider paused this request. Resume through a new request when available.'
+          : missingReference ? 'An attached record is unavailable. Reattach the saved Check or problem and send a new message.'
           : error instanceof ConversationBrowserStartupError ? 'The app could not start. Inspect the saved Browser attempt or try again after the app starts.'
             : 'This request could not finish. Its saved evidence and child executions remain available.' }, deps); } catch { /* failed checkpoint remains nonterminal for interruption recovery */ }
     }

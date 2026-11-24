@@ -29,6 +29,7 @@ export type AutoTestSession = {
   reply?: string | null;
   presets?: AutoTestPreset[];
   planning?: boolean;
+  startupQuestion?: { id: string; command: string; packages: string[]; packageCount: number; manualSetup?: string };
 };
 
 export type AutoTestPreset = { name: string; goal: string; startPath: string; requirementRef: string | null; sourceRefs: Array<{ path: string; line: number }>; checks: AutoTestCheck[]; controls: Array<{ selector: string; actions: string[] }> };

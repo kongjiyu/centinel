@@ -16,11 +16,13 @@ export type ConversationInput = {
 
 export type SavedConversationExplanation = {
   sections: Array<{
+    evidenceId?: string;
     title: string;
     summary?: string;
     facts?: Array<{ label: string; value: string }>;
     points?: string[];
     excerpt?: string;
+    sourceWindow?: { text: string; firstLine: number; citedLine: number };
     limitations?: string[];
     checks?: Array<{ test: string; check: string; expected?: string; observed?: string; verdict: string; runId?: string }>;
   }>;
@@ -47,6 +49,10 @@ export type ConversationRequest = {
   context?: Array<{ id: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean }>;
   recall?: { turns: number; status: 'loaded' | 'limited' | 'unavailable' };
   replyOrigin?: 'saved_recall' | 'saved_evidence';
+  answerUnavailable?: boolean;
+  questionOptions?: string[];
+  selectedOption?: number;
+  reviewContinuation?: { question: string; sourceRequestId?: string; text?: string };
   fallbackScope?: string[];
   fallbackReason?: 'browser_startup';
   scope?: string[];
@@ -56,6 +62,9 @@ export type ConversationRequest = {
   reviewId?: string;
   autoTestId?: string;
   failureStage?: 'context' | 'planning' | 'validation' | 'execution';
+  validationReason?: 'response_format' | 'citation_missing' | 'citation_unknown' | 'quote_unmatched' | 'outcome_unverified'
+    | 'scope_unbound' | 'mode_conflict' | 'evidence_unavailable' | 'current_evidence_required' | 'question_options';
+  failureReason?: 'context_limit' | 'missing_reference' | 'browser_startup' | 'assessment_hold' | 'provider_paused';
   error?: string;
   events: Array<{ stage: string; at: string; permission?: ConversationInput['permission'] }>;
 };

@@ -30,6 +30,13 @@ export function checkSummaryMarkdown(check: CheckRecord, data: CheckData): strin
   if (autoTest?.tests.length) {
     lines.push('', '## Browser tests', '', ...autoTest.tests.map(test => `- ${markdownText(test.name)}: ${test.state.replaceAll('_', ' ')}`));
   }
+  if (data.evidenceAssessment?.pdfVisualCoverage?.length) {
+    lines.push('', '## PDF visual review');
+    for (const file of data.evidenceAssessment.pdfVisualCoverage) {
+      lines.push('', `### ${markdownText(file.fileName)} · ${file.pages.length} of ${file.totalPages} pages reviewed`, '',
+        ...file.pages.map(page => `- Page ${page.page} · ${markdownText(page.summary)}`));
+    }
+  }
   if (result.notChecked.length) lines.push('', '## Not checked', '', ...result.notChecked.map(item => `- ${markdownText(item)}`));
   if (result.notes.length) lines.push('', '## Notes', '', ...result.notes.map(note => `- ${markdownText(note)}`));
   return lines.join('\n') + '\n';

@@ -8,6 +8,7 @@ import { detectLaunchRecipes, type LaunchRecipe, type NodePackageManager, type R
 import { startStaticServer } from './staticServer.js';
 
 export type LaunchCommand = { executable: string; args: string[]; runtimeBinDirectory?: string };
+export type InstallPlan = { command: string; packages: string[]; packageCount: number; manualSetup?: string };
 
 export type LaunchEvent =
   | { stage: 'detected'; detection: RecipeDetection; recipe: LaunchRecipe }
@@ -15,7 +16,7 @@ export type LaunchEvent =
   | { stage: 'starting'; command: string; port: number; log?: string }
   | { stage: 'ready'; url: string; portHonored: boolean };
 
-export type LaunchFailureReason = 'unsupported' | 'unknown_recipe' | 'tool_missing' | 'install_failed' | ManagedServerError['reason'];
+export type LaunchFailureReason = 'unsupported' | 'unknown_recipe' | 'tool_missing' | 'install_failed' | 'install_declined' | ManagedServerError['reason'];
 export class LaunchError extends Error {
   constructor(readonly reason: LaunchFailureReason, message: string, readonly logs = '', readonly detection?: RecipeDetection) { super(message); }
 }
@@ -23,7 +24,7 @@ export class LaunchError extends Error {
 export type LaunchedApp = { recipe: LaunchRecipe; detection: RecipeDetection; server: ManagedServer; install?: ProcessResult };
 
 type Resolvers = {
-  packageManager(program: NodePackageManager): string;
+  packageManager(program: NodePackageManager, folder?: string): string;
   python(folder: string): string | null;
 };
 
@@ -65,7 +66,7 @@ export function buildLaunchCommand(recipe: LaunchRecipe, folder: string, port: n
     }
     case 'node_script': {
       if (!recipe.script || !recipe.packageManager) throw new LaunchError('unknown_recipe', 'Recipe has no script.');
-      const executable = resolvers.packageManager(recipe.packageManager);
+      const executable = resolvers.packageManager(recipe.packageManager, folder);
       const extra = recipe.portStrategy === 'args' ? ['--port', portText, '--strictPort', '--host', '127.0.0.1'] : [];
       // npm needs "--" before script arguments; pnpm and yarn pass them through.
       const args = recipe.packageManager === 'npm'
@@ -92,7 +93,7 @@ export function buildInstallCommand(recipe: LaunchRecipe, folder: string, resolv
   if (!recipe.needsInstall) return null;
   const manager: NodePackageManager = recipe.packageManager
     ?? (fs.existsSync(path.join(folder, 'pnpm-lock.yaml')) ? 'pnpm' : fs.existsSync(path.join(folder, 'yarn.lock')) ? 'yarn' : 'npm');
-  const executable = resolvers.packageManager(manager);
+  const executable = resolvers.packageManager(manager, folder);
   const locked = manager === 'npm' ? fs.existsSync(path.join(folder, 'package-lock.json')) : true;
   const args = manager === 'npm'
     ? (locked ? ['ci', '--no-audit', '--no-fund'] : ['install', '--no-audit', '--no-fund', '--no-package-lock'])
@@ -101,12 +102,20 @@ export function buildInstallCommand(recipe: LaunchRecipe, folder: string, resolv
 }
 
 const describe = (command: LaunchCommand) => [path.basename(command.executable), ...command.args.map(arg => path.isAbsolute(arg) ? path.basename(arg) : arg)].join(' ');
+const dependencyInputs = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', '.npmrc', '.yarnrc.yml', 'pnpm-workspace.yaml'];
+
+function dependencyRevision(folder: string) {
+  return JSON.stringify(dependencyInputs.map(file => {
+    const stat = fs.statSync(path.join(folder, file), { throwIfNoEntry: false });
+    return stat ? [stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs] : null;
+  }));
+}
 
 /**
  * Detect, install (if needed) and start the app in `folder`, returning once it answers HTTP.
  * Fully automatic by the user's choice (12 Nov 2026), within the fixed recipe table.
  */
-export async function launchRepository(input: {
+type LaunchRepositoryInput = {
   folder: string;
   /** Private writable home for the app process and package caches. */
   home: string;
@@ -117,13 +126,44 @@ export async function launchRepository(input: {
   installTimeoutMs?: number;
   readyTimeoutMs?: number;
   onEvent?(event: LaunchEvent): void;
+  approveInstall?(plan: InstallPlan): Promise<boolean>;
   resolvers?: Resolvers;
-}): Promise<LaunchedApp> {
-  const resolvers = input.resolvers ?? defaultResolvers;
-  const detection = detectLaunchRecipes(input.folder);
+};
+
+export async function launchRepository(input: LaunchRepositoryInput): Promise<LaunchedApp> {
+  let detection = detectLaunchRecipes(input.folder);
+  const root = detection.folder;
+  if (!detection.recipes.length && detection.unsupported?.candidates?.length === 1) {
+    const nested = detectLaunchRecipes(path.join(root, detection.unsupported.candidates[0]));
+    const relative = path.relative(root, nested.folder);
+    if (nested.recipes.length && relative && !path.isAbsolute(relative) && relative.split(path.sep)[0] !== '..') detection = nested;
+  }
   if (!detection.recipes.length) throw new LaunchError('unsupported', detection.unsupported?.message ?? 'No start command found.', '', detection);
-  const recipe = input.recipeId ? detection.recipes.find(candidate => candidate.id === input.recipeId) : detection.recipes[0];
-  if (!recipe) throw new LaunchError('unknown_recipe', 'The selected start command is not available in this folder.', '', detection);
+  const recipes = input.recipeId ? detection.recipes.filter(candidate => candidate.id === input.recipeId) : detection.recipes.slice(0, 3);
+  if (!recipes.length) throw new LaunchError('unknown_recipe', 'The selected start command is not available in this folder.', '', detection);
+  const attempted: string[] = [];
+  for (const recipe of recipes) {
+    input.signal?.throwIfAborted();
+    const candidate = detectLaunchRecipes(detection.folder).recipes.find(current => current.id === recipe.id);
+    if (!candidate) throw new LaunchError('unknown_recipe', 'The startup recipe changed on disk. Start a new check.', '', detection);
+    try {
+      return await launchRecipe(input, detection, candidate);
+    } catch (error) {
+      if (!(error instanceof LaunchError) || !['exited', 'not_ready', 'launch_failed'].includes(error.reason)) throw error;
+      attempted.push(candidate.label);
+      if (attempted.length === recipes.length) {
+        const missing = [...new Set([...error.logs.matchAll(/\b[Mm]issing (?:required )?(?:environment variable )?([A-Z][A-Z0-9_]{2,})\b/g)].map(match => match[1]))].slice(0, 6);
+        throw new LaunchError(error.reason, [error.message,
+          missing.length ? `The app reported missing configuration (${missing.join(', ')}).` : '',
+          attempted.length > 1 ? `Tried ${attempted.join(', ')}.` : ''].filter(Boolean).join(' '), error.logs, detection);
+      }
+    }
+  }
+  throw new LaunchError('unsupported', 'No start command succeeded.', '', detection);
+}
+
+async function launchRecipe(input: LaunchRepositoryInput, detection: RecipeDetection, recipe: LaunchRecipe): Promise<LaunchedApp> {
+  const resolvers = input.resolvers ?? defaultResolvers;
   input.onEvent?.({ stage: 'detected', detection, recipe });
   const folder = detection.folder;
   const port = input.port ?? await findFreePort();
@@ -135,17 +175,31 @@ export async function launchRepository(input: {
   }
 
   let install: ProcessResult | undefined;
-  let installCommand: LaunchCommand | null;
-  let command: LaunchCommand;
-  try {
-    installCommand = buildInstallCommand(recipe, folder, resolvers);
-    command = buildLaunchCommand(recipe, folder, port, resolvers);
-  } catch (error) {
-    if (error instanceof LaunchError) throw error;
-    throw new LaunchError('tool_missing', error instanceof Error ? error.message : 'A required tool is missing.', '', detection);
-  }
+  const commands = () => {
+    try {
+      return { installCommand: buildInstallCommand(recipe, folder, resolvers), command: buildLaunchCommand(recipe, folder, port, resolvers) };
+    } catch (error) {
+      if (error instanceof LaunchError) throw error;
+      throw new LaunchError('tool_missing', error instanceof Error ? error.message : 'A required tool is missing.', '', detection);
+    }
+  };
+  const { installCommand, command } = await Promise.resolve().then(commands).catch(async error => {
+    if (!(error instanceof LaunchError) || error.reason !== 'tool_missing' || !input.approveInstall) throw error;
+    if (!await input.approveInstall({ command: recipe.label, packages: [], packageCount: 0, manualSetup: error.message })) throw error;
+    input.signal?.throwIfAborted();
+    return commands();
+  });
   if (installCommand) {
     const label = describe(installCommand);
+    if (input.approveInstall) {
+      const packages = recipe.packages ?? [];
+      const revision = dependencyRevision(folder);
+      if (!await input.approveInstall({ command: label, packages: packages.slice(0, 100), packageCount: packages.length })) {
+        throw new LaunchError('install_declined', 'Browser testing paused because dependency installation was not approved.', '', detection);
+      }
+      if (revision !== dependencyRevision(folder)) throw new LaunchError('unknown_recipe', 'Dependency files changed after the approval question was shown. Retry startup to review the updated packages.', '', detection);
+    }
+    input.signal?.throwIfAborted();
     input.onEvent?.({ stage: 'installing', command: label });
     install = await runBoundedProcess({
       ...installCommand, cwd: folder, home: input.home, allowNetwork: true,
@@ -160,6 +214,7 @@ export async function launchRepository(input: {
   try {
     const server = await startManagedServer({
       ...command, cwd: folder, home: input.home, port, variables: input.variables,
+      preservePortConfiguration: recipe.portStrategy === 'none', requireHtml: recipe.portStrategy === 'none',
       readyTimeoutMs: input.readyTimeoutMs, signal: input.signal,
       onOutput: log => input.onEvent?.({ stage: 'starting', command: label, port, log: log.slice(-4000) }),
     });
