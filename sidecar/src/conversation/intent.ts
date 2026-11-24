@@ -37,4 +37,3 @@ export function isCodeReviewChoice(question: string | undefined, option: string 
   return Boolean(question && option && /\b(?:verification|review|check mode)\b/i.test(question)
     && /^(?:run\s+)?(?:code(?:\s+review)?\s+only|code\s+review|code)$/i.test(option.trim()));
 }
-

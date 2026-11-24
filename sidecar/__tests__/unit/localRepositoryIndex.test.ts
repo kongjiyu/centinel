@@ -34,7 +34,7 @@ async function temp() { const directory = await fs.mkdtemp(path.join(os.tmpdir()
 function client() {
   const objects = new Map<string, Buffer>();
   const events = new Map<string, Record<string, unknown>>();
-  const upload = vi.fn(async (name: string, bytes: Buffer) => { objects.set(name, Buffer.from(bytes)); return { error: null }; });
+  const upload = vi.fn(async (name: string, bytes: Buffer | Blob) => { objects.set(name, bytes instanceof Blob ? Buffer.from(await bytes.arrayBuffer()) : Buffer.from(bytes)); return { error: null }; });
   const download = vi.fn(async (name: string) => objects.has(name) ? { data: new Blob([objects.get(name)!]), error: null }
     : { data: null, error: { statusCode: '404' } });
   const client = {

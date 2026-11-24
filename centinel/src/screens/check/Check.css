@@ -544,6 +544,17 @@
 /* Evidence marks and risk words: an icon and a word, no fill (DESIGN.md §5). */
 .ck-mark { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-text-muted); font-size: 13px; white-space: nowrap; }
 .ck-mark.is-browser { color: var(--color-browser); font-weight: 600; }
+.ck-mark.is-stuck { color: var(--color-warning); font-weight: 600; }
+/* Gaps shown with their part (19 Nov 2026): replaces the separate Not checked section. */
+.ck-gaps { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-inner); background: var(--color-surface-subtle); list-style: none; }
+.ck-gaps li { display: flex; align-items: flex-start; gap: var(--space-2); font-size: 13px; line-height: 1.5; color: var(--color-text-muted); }
+.ck-gaps li .ci { flex: none; margin-top: 2px; }
+.ck-stuck-reason { margin: 0 0 var(--space-3); font-size: 14px; line-height: 1.5; color: var(--color-text); }
+.ck-about { font-size: 13px; color: var(--color-text-muted); }
+.ck-about > summary { cursor: pointer; list-style: none; }
+.ck-about > summary::-webkit-details-marker { display: none; }
+.ck-about > summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.ck-about .ck-method-notes { margin: var(--space-2) 0 0; padding-left: var(--space-6); list-style: disc; }
 .ck-risk { display: inline-flex; align-items: center; gap: var(--space-1); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .ck-risk.is-critical { color: var(--color-level-critical); }
 .ck-risk.is-high { color: var(--color-level-high); }
@@ -611,6 +622,72 @@
 .ck-test-reason { margin-top: var(--space-1); color: var(--color-text-muted); overflow-wrap: anywhere; }
 .ck-test-list li:has(.ck-test-reason) { align-items: flex-start; }
 .ck-test-state { white-space: nowrap; }
+/* Fixed full-check test kind (smoke, exploratory, usability): a quiet label, never colour alone. */
+.ck-test-kind { flex: none; padding: 0 var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-pill); font: 400 12px/18px var(--font-ui); color: var(--color-text-muted); }
+
+/* Project unit tests (18 Nov 2026): Vitest results, kept apart from Code and Browser problems. */
+.ck-unit { display: grid; gap: var(--space-2); }
+.ck-unit .ci-pair.is-failed { color: var(--color-danger); }
+.ck-unit-failures { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.ck-unit-failures li { display: grid; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); font-size: 14px; }
+.ck-unit-name { color: var(--color-text); font-weight: 500; overflow-wrap: anywhere; }
+.ck-unit-file { font-size: 12px; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.ck-unit-message { font-size: 13px; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.ck-unit-more { border: 0 !important; padding: 0 !important; font-size: 13px; color: var(--color-text-muted); }
+
+/* Browser test steps (19 Nov 2026, user request): the step where a test stopped or failed its check is marked
+   with an icon and the words "Stopped here" / "Failed here", never colour alone. */
+.ck-test-list li.is-openable, .ck-test-list li.is-open { display: block; padding: 0; }
+.ck-test-toggle, .ck-test-row { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-1); border: 0; border-radius: var(--radius-inner); background: transparent; color: inherit; font: inherit; text-align: left; }
+.ck-test-toggle { cursor: pointer; }
+.ck-test-toggle:hover { background: var(--color-surface-hover); }
+.ck-test-toggle:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.ck-test-chevron { flex: none; color: var(--color-text-muted); transition: transform var(--duration-fast, 100ms) var(--ease-standard, ease); }
+.ck-test-list li.is-open .ck-test-chevron { transform: rotate(90deg); }
+.ck-test-steps { padding: var(--space-1) var(--space-2) var(--space-3) calc(var(--space-2) + 1.5em); }
+.ck-stuck summary { cursor: pointer; }
+.ck-stuck summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.ck-stuck .ck-run-steps { margin: var(--space-2) 0 var(--space-3); }
+.ck-run-steps { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+/* Step timeline (19 Nov 2026, redesigned on request): numbered markers on a thin rail, one line per step,
+   a quiet image button at the right; the step that stopped the test sits in a soft danger card. */
+.ck-tl { display: grid; gap: var(--space-2); }
+.ck-tl-summary { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.ck-tl-list { position: relative; display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.ck-tl-list > .ck-tl-step { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: var(--space-3); align-items: start; padding: 6px 0; }
+/* The rail joins each marker to the next; it stops at the last step. */
+.ck-tl-list > .ck-tl-step:not(:last-child)::after { content: ''; position: absolute; left: 11.5px; top: 32px; bottom: -8px; width: 1px; background: var(--color-border); }
+.ck-tl-marker { position: relative; z-index: 1; display: grid; place-items: center; width: 24px; height: 24px; margin-top: 2px; border: 1px solid var(--color-border); border-radius: 50%; background: var(--color-surface); color: var(--color-text-muted); font: 500 12px/1 var(--font-technical); font-variant-numeric: tabular-nums; }
+.ck-tl-body { display: grid; gap: var(--space-1); min-width: 0; }
+.ck-tl-line { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; min-width: 0; }
+.ck-tl-text { flex: 1; min-width: 0; font-size: 14px; line-height: 1.45; color: var(--color-text); overflow-wrap: anywhere; }
+.ck-tl-page { margin-left: var(--space-2); padding: 1px 6px; border-radius: 6px; background: var(--color-surface-subtle); color: var(--color-text-muted); font: 400 12px/1.5 var(--font-technical); white-space: nowrap; }
+.ck-tl-shot { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.ck-tl-shot:hover { border-color: var(--color-border); background: var(--color-surface); color: var(--color-text); }
+.ck-tl-shot:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.ck-tl-step.is-skipped .ck-tl-text, .ck-tl-step.is-skipped .ck-tl-marker { opacity: .55; }
+/* The step where the test stopped, and a failed check. */
+.ck-tl-list > .ck-tl-step.is-stopped { margin: 4px 0; padding: var(--space-2) var(--space-3) var(--space-3) calc(var(--space-3) - 1px); margin-left: calc(-1 * var(--space-3) + 1px); border-radius: var(--radius-inner); background: var(--color-danger-subtle); }
+.ck-tl-list > .ck-tl-step.is-stopped::after { display: none; }
+.ck-tl-step.is-stopped .ck-tl-marker { border-color: transparent; background: var(--color-danger); color: var(--color-on-primary, #fff); }
+.ck-tl-step.is-stopped .ck-tl-text { font-weight: 600; }
+.ck-tl-tag { flex: none; padding: 1px var(--space-2); border-radius: var(--radius-pill); background: var(--color-surface); color: var(--color-danger); font: 600 12px/18px var(--font-ui); white-space: nowrap; }
+.ck-tl-reason { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-text); overflow-wrap: anywhere; }
+.ck-tl-step.is-stopped .ck-tl-shot:hover { background: var(--color-surface); }
+
+/* Screenshot viewer (in place, 19 Nov 2026). */
+.ck-viewer { display: grid; gap: var(--space-3); }
+.ck-viewer-detail { margin: 0; font: 400 12px/1.5 var(--font-technical); color: var(--color-text-muted); }
+.ck-viewer-count { font-size: 13px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ck-viewer-stage { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); }
+.ck-viewer-stage:not(:has(.ck-viewer-nav)) { grid-template-columns: minmax(0, 1fr); }
+.ck-viewer-frame { display: grid; place-items: center; min-height: 240px; border: 1px solid var(--color-border); border-radius: var(--radius-inner); background: var(--color-surface-subtle); overflow: hidden; }
+.ck-viewer-frame img { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; }
+.ck-viewer-nav { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--color-border); border-radius: 50%; background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.ck-viewer-nav:hover:not(:disabled) { background: var(--color-surface-hover); }
+.ck-viewer-nav:disabled { opacity: .35; cursor: default; }
+.ck-viewer-nav:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+@media (max-width: 720px) { .ck-viewer-stage { gap: var(--space-1); } .ck-viewer-nav { width: 30px; height: 30px; } }
 
 /* ---------- Result ---------- */
 .ck-result-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-6); }
@@ -847,6 +924,14 @@
 .ck-source-row small { color: var(--color-text-muted); font-size: 12px; }
 .ck-menu .ck-source-row > button { flex: none; width: 34px; height: 34px; justify-content: center; padding: 0; }
 .ck-library-list.is-compact strong { font-weight: 400; }
+/* Type scale (DESIGN.md §9 Typography), preview 17 Nov 2026: snap Start and the check page to the fixed steps.
+   Body 15–16/400, buttons and dense lists 14/400–500, labels 13, panel titles 22/700. */
+.ck-attention > button { font-size: 15px; font-weight: 400; }
+.ck-project-trigger, .ck-project-clear { font-size: 14px; }
+.ck-start .ck-send { font-size: 14px; }
+@media (max-width: 720px) { .ck-start .ck-send { font-size: 13px; } }
+.ck-detail-sidebar h2 { font: 700 22px/28px var(--font-ui); }
+.ck-detail-sources strong, .ck-library-heading strong { font-weight: 600; }
 
 .pc-conversation-skeleton .loading-skeleton-panel-heading {
   justify-self: end;

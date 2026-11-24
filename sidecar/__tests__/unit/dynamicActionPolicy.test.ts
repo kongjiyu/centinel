@@ -1,6 +1,7 @@
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import {chromium,type Browser} from 'playwright';
 import {authorizeBrowserAction,normalizeActionPolicy} from '../../src/dynamic/browser/actionPolicy.js';
+import {parseActionFromText} from '../../src/dynamic/browser/planner.js';
 let browser:Browser;beforeAll(async()=>{browser=await chromium.launch({headless:true});});afterAll(async()=>{await browser?.close();});
 describe('Frozen browser action permissions',()=>{
  it('defaults to no interaction grants and rejects unbounded or invented permissions',()=>{
@@ -14,7 +15,12 @@ describe('Frozen browser action permissions',()=>{
    await expect(authorizeBrowserAction(page,{action:'click',elementRef:'e1',targetDescription:'Safe read-only',reasoning:''},options)).rejects.toThrow('not approved');
    await expect(authorizeBrowserAction(page,{action:'click',selector:'#name',targetDescription:'name',reasoning:''},options)).rejects.toThrow('Clicking this control was not approved in this run’s saved interaction permissions.');
    expect(await page.locator('#name').inputValue()).toBe('');
+   await expect(authorizeBrowserAction(page,{action:'click',selector:'#missing',targetDescription:'gone',reasoning:''},options)).rejects.toThrow('not on the page');
   }finally{await page.close();}
+ });
+ it('reads an observation reference written as a selector as that reference',()=>{
+  expect(parseActionFromText('{"action":"click","targetDescription":"e6","selector":"e6","reasoning":""}').action).toEqual({action:'click',targetDescription:'e6',elementRef:'e6',reasoning:''});
+  expect(parseActionFromText('{"action":"click","targetDescription":"Save","selector":"#save","reasoning":""}').action).toMatchObject({selector:'#save'});
  });
  it('blocks file controls, their nested labels and download links even with a click grant',async()=>{
   const page=await browser.newPage();try{await page.setContent('<input id="file" type="file"><label for="file"><span id="label">Upload</span></label><a id="download" download href="/file">Download</a>');const policy=normalizeActionPolicy({schemaVersion:1,interactions:['#file','#label','#download'].map(selector=>({selector,actions:['click']})),allowCoordinates:false});

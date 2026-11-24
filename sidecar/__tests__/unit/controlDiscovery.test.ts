@@ -12,6 +12,8 @@ beforeAll(async () => {
   server = http.createServer((request, response) => {
     if (request.url === '/private') { response.writeHead(302, { Location: '/signin' }); response.end(); return; }
     if (request.url === '/shop') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<ul id="products"><li><span>Ceramic Mug</span><button type="button">Add to cart</button></li><li><span>Notebook</span><button type="button">Add to cart</button></li></ul>'); return; }
+    if (request.url === '/broken') { response.writeHead(500, { 'Content-Type': 'text/html' }); response.end('<script>fetch("/api/fail"); throw new Error("Cannot read token eyJabc.def.ghi at /Users/me/app.js")</script>'); return; }
+    if (request.url === '/api/fail') { response.writeHead(503); response.end(); return; }
     if (request.url === '/signin') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<button data-test="signin-submit">Sign In</button>'); return; }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(html);
   });
@@ -54,4 +56,15 @@ describe('read-only control discovery', () => {
     expect(() => discoveryTargetUrl('http://user:secret@example.com')).toThrow();
     expect(discoveryTargetUrl('http://localhost:37702/').origin).toBe('http://localhost:37702');
   });
+
+  it('records page health only when asked, without tokens or local paths', async () => {
+    const plain = await discoverControls(new URL(`${origin}/`), { paths: ['/broken'] });
+    expect(plain.pages[0].health).toBeUndefined();
+    const result = await discoverControls(new URL(`${origin}/`), { paths: ['/broken'], collectHealth: true });
+    expect(result.pages[0].health).toMatchObject({ status: 200, pageErrors: 0, serverErrors: 0 });
+    const broken = result.pages[1].health!;
+    expect(broken).toMatchObject({ status: 500, pageErrors: 1 });
+    expect(broken.serverErrors).toBeGreaterThanOrEqual(1);
+    expect(broken.messages.join(' ')).not.toMatch(/eyJabc|\/Users\/me/);
+  }, 30_000);
 });

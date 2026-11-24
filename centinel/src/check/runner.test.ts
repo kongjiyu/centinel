@@ -123,7 +123,7 @@ describe('check runner', () => {
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.importRepoArtifacts).toHaveBeenCalledWith('p-old', '/work/shop');
     expect(api.startAutoTest).not.toHaveBeenCalled();
-    expect(getCheck(check.id)?.notes).toEqual(['1 files in the folder were skipped (unsupported type or too large).']);
+    expect(getCheck(check.id)?.notes).toEqual(['1 file in the folder was not reviewed (unsupported type or too large): logo.png.']);
   });
 
   it('shows a saved full check during refresh and does not report excluded files as gaps', async () => {
@@ -193,7 +193,7 @@ describe('check runner', () => {
     const api = fakeApi({ startAutoTest: vi.fn().mockRejectedValue(new Error('Auto test is busy')) });
     const check = startCheck({ folder: '/work/shop', documents: [], focus: '', mode: 'both' }, { api, projects: () => [] });
     await until(() => getCheck(check.id)?.phase === 'running');
-    expect(getCheck(check.id)?.reviewId).toBe('review-1');
+    expect(getCheck(check.id)).toMatchObject({ reviewId: 'review-1', mode: 'code', requestedMode: 'both', phase: 'running' });
     expect(getCheck(check.id)?.notes[0]).toMatch(/^Browser tests did not start/);
   });
 });

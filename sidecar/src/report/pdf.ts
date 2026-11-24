@@ -85,7 +85,7 @@ function statusLabel(status: string): string {
   const labels: Record<string, string> = {
     new: 'New', carryover: 'Carryover', accepted: 'Accepted', dismissed: 'Dismissed', fixed: 'Fixed',
     success: 'Completed', failure: 'Failed', failed: 'Failed', blocked: 'Needs attention',
-    cancelled: 'Cancelled', pending_approval: 'Need approval', completed: 'Completed',
+    cancelled: 'Cancelled', pending_approval: 'Completed', completed: 'Completed',
     approved: 'Completed', changes_requested: 'Changes requested', queued: 'Queued', running: 'In progress',
   };
   return labels[status] ?? status;
@@ -624,7 +624,7 @@ export function renderProjectReportPdf(snapshot: ProjectReportSnapshot): Promise
           ? 'Completed'
           : review.decision?.decision === 'changes_requested'
             ? 'Changes requested'
-            : review.session.status === 'success' ? 'Need approval' : statusLabel(review.session.status);
+            : review.session.status === 'success' ? 'Completed' : statusLabel(review.session.status);
         keyValues([
           ['Review', review.session.name],
           ['Review ID', review.session.id],

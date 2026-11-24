@@ -87,3 +87,41 @@ Verified live on 13 November 2026 against the Sample Shop: "Test that adding the
 ## Browser tests in the project report (14 November 2026)
 
 Report generator `project-report-v5` adds an optional `browserTests` section to the snapshot JSON (older saved reports stay valid). It holds the latest finished full Auto test only; conversation requests and reruns are excluded. Each test keeps its name, steps, requirement, related code, Run ID and, per check, the expected value, verdict and what the page showed (the runner's "Expected visible text absent." note becomes "Not shown on the page."). AI explanations are not included. Part 1 of the report summarises this full check whenever it exists ("1 of 3 failed"); a single test run later still appears in Part 2 under the existing Dynamic Test section. Verified by generating a report for the Sample Shop project against local Supabase.
+
+## Fixed tests in a full check (18 November 2026)
+
+At the user's request, a full check (no typed request, new tests planned) adds three fixed tests to the ones the AI writes. They live in `sidecar/src/dynamic/autonomous/suite.ts`, and the session records them in `suite`.
+
+| Test | How it runs | What can fail it |
+|---|---|---|
+| **Smoke** – "Pages open without errors" | Read from the page scan Centinel already does (`discoverControls` with `collectHealth`). It adds no AI call and no extra browser. | A 5xx page status, a script error on the page, or a same-origin request answering 5xx. A 404 alone does not fail it. |
+| **Exploratory** – "Explore the app" | One Run in the existing exploratory mode, up to 25 steps, first in the queue. It may press only click controls the scan saw. Controls that sign out, delete, pay, place orders, send, save or submit are left out. | Only its own check, that a page is still shown after exploring. Screens visited are never a pass. The result reports screens reached, controls pressed and controls seen but not tried. |
+| **Usability** – "Usability of the first page" | One Run on `/` that does not click. It applies the existing rule-based checks: labels, keyboard reach and focus, as a first-time persona. | Deterministic `labels` or `keyboard` failures. Focus results stay uncertain. There are no AI suggestions. |
+
+Rules:
+- If the first page answers 5xx, planning and the other browser tests are skipped, and the session says why.
+- The smoke result is saved as soon as the scan finishes, so it survives a later planning failure.
+- Fixed tests carry `kind`.
+  - They are not saved presets, and they get no AI failure explanation.
+  - Their failures become Browser problems, using Expected and Observed lines built from the smoke pages or the usability rules.
+- Typed requests in the project conversation do not run fixed tests.
+- Older sessions without `suite` are unchanged. No migration was needed.
+
+**Unit tests (user decision, later on 18 November 2026).** A full check also runs the project's own unit tests (`sidecar/src/dynamic/autonomous/unitTests.ts`).
+- **Which script.** A `package.json` script that is exactly `vitest`, `vitest run` or `vitest --run`. Names containing unit, ci or run are preferred.
+- **How it runs.** Through the existing `runVitestWorkspace`, which uses the installed Vitest CLI and a JSON reporter. It runs beside the browser lanes, after the app start has installed dependencies. The time limit is five minutes. No shell text, extra flags or repository `.env` values are used.
+- **Authorisation.** It uses the check's own inspection of the folder (fingerprint, script). Nothing is written to the manual workspace registry.
+- **Results.**
+  - Pass and fail come only from Vitest's report.
+  - Jest, Mocha or a wrapped Vitest command is reported as "not run" with the reason.
+  - The Result shows a Unit tests block, apart from Code and Browser problems.
+  - The real run on Cypress RWA (`test:unit:ci`) took 10 seconds: 54 tests, 44 passed, 10 skipped, 0 failed.
+
+Not included yet:
+- **Browser verification of code-review problems.** This needs the finished Review.
+
+Verification:
+- **Unit tests:** `autonomousOrchestrator.test.ts`, `controlDiscovery.test.ts` (page health with a real headless browser) and the frontend `check/result.test.ts`.
+- **Real-browser scan of Sample Shop:** 3 pages returned 200 or 404 and none failed. The exploration controls excluded "Place order".
+- **Live run on Sample Shop:** it stopped at planning because the selected Codex model was unavailable. No end-to-end run with the model was completed.
+

@@ -103,10 +103,10 @@ describe('plain-language report summary', () => {
       latestReview: pending,
       currentFindings: { status: 'available', reason: null, items: [current(rule), current({ ...rule, id: 'rule-again' }), current(finding('idor', 'critical', { title: 'Order Ownership Check Missing' }))] },
     }));
-    expect(summary.codeReview.label).toBe('Needs approval');
+    expect(summary.codeReview.label).toBe('Completed');
     expect(summary.topIssues.map(issue => issue.id)).toEqual(['idor', 'rule']);
     expect(summary.remainingIssues).toBe(0);
-    expect(summarizeReport(snapshot({ latestReview: pending })).nextSteps).toContain('Open the latest code review and approve it or request changes.');
+    expect(summarizeReport(snapshot({ latestReview: pending })).nextSteps.join(' ')).not.toMatch(/approve/i);
   });
 
   it('reports "Looking good" only when checks ran and nothing is open', () => {

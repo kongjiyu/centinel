@@ -33,9 +33,9 @@ async function temp(): Promise<string> {
 function backend() {
   const objects = new Map<string, Buffer>();
   const events = new Map<string, Record<string, unknown>>();
-  const upload = vi.fn(async (key: string, bytes: Buffer) => {
+  const upload = vi.fn(async (key: string, body: Buffer | Blob) => {
     if (objects.has(key)) return { data: null, error: { statusCode: '409', message: 'already exists' } };
-    objects.set(key, Buffer.from(bytes));
+    objects.set(key, body instanceof Blob ? Buffer.from(await body.arrayBuffer()) : Buffer.from(body));
     return { data: { path: key }, error: null };
   });
   const download = vi.fn(async (key: string) => {

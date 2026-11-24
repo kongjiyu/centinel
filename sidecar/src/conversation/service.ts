@@ -6,9 +6,10 @@ import { browserTargets } from './verification.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 import { presentSavedSelection } from './savedExplanation.js';
 import { asksForUnscopedReview, conversationApproval, conversationQuestionOptions, isCodeReviewChoice, namedReviewScope, requestsCheckExecution } from './intent.js';
+import { resolveAttachmentNames } from './attachmentNames.js';
 
-export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean };
-export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; citations: string[]; scope: string[]; explanation?: ConversationRequest['explanation']; questionOptions?: string[] };
+export type Evidence = { id: string; text: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean; kind?: 'prior_reply' };
+export type ConversationPlan = { action: NonNullable<ConversationRequest['action']>; reply: string; replyFormat?: 'markdown'; citations: string[]; scope: string[]; explanation?: ConversationRequest['explanation']; questionOptions?: string[] };
 export class ConversationBrowserStartupError extends Error {}
 export type ConversationDeps = {
   ownerId: string;
@@ -56,6 +57,7 @@ async function recallEarlierTurns(record: ConversationRequest, store: Conversati
 export function parseConversationInput(body: Record<string, unknown>): ConversationInput {
   if (typeof body.id !== 'string' || !uuid.test(body.id) || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 2000
     || !['code', 'browser', 'both'].includes(String(body.mode)) || !['ask', 'auto', 'bypass'].includes(String(body.permission))
+    || body.replyToTurnId !== undefined && (typeof body.replyToTurnId !== 'string' || !uuid.test(body.replyToTurnId))
     || !Array.isArray(body.references) || body.references.length > 12) throw new DynamicContractError(400, 'Supply a message and up to twelve check or problem references.');
   const references = body.references.map(value => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new DynamicContractError(400, 'Invalid evidence reference.');
@@ -66,9 +68,22 @@ export function parseConversationInput(body: Record<string, unknown>): Conversat
       || !ref.reviewId && !ref.autoTestId && !ref.artifactId) throw new DynamicContractError(400, 'Invalid evidence reference.');
     return Object.fromEntries(['reviewId', 'autoTestId', 'findingId', 'testId', 'artifactId'].filter(key => ref[key]).map(key => [key, String(ref[key]).toLowerCase()])) as ConversationReference;
   });
-  const unique = new Map(references.map(reference => [JSON.stringify(reference), reference]));
+  const labels = body.referenceLabels;
+  if (labels !== undefined && (!Array.isArray(labels) || labels.length !== references.length
+    || labels.some(label => label !== null && (typeof label !== 'string' || label.length > 160 || /[\u0000-\u001f\u007f]/.test(label))))) {
+    throw new DynamicContractError(400, 'Invalid attachment labels.');
+  }
+  const unique = new Map<string, { reference: ConversationReference; label: string | null }>();
+  references.forEach((reference, index) => {
+    const key = JSON.stringify(reference);
+    const label = Array.isArray(labels) && typeof labels[index] === 'string' ? labels[index].trim() || null : null;
+    if (!unique.has(key) || (!unique.get(key)?.label && label)) unique.set(key, { reference, label });
+  });
+  const ordered = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, item]) => item);
   return { id: body.id.toLowerCase(), text: body.text.trim(), mode: body.mode as ConversationInput['mode'], permission: body.permission as ConversationInput['permission'],
-    references: [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, reference]) => reference) };
+    ...(typeof body.replyToTurnId === 'string' ? { replyToTurnId: body.replyToTurnId.toLowerCase() } : {}),
+    references: ordered.map(item => item.reference),
+    ...(ordered.some(item => item.label) ? { referenceLabels: ordered.map(item => item.label) } : {}) };
 }
 
 class ConversationValidationError extends Error {
@@ -113,7 +128,7 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
     || new Set(options.map(option => option.trim().toLowerCase())).size !== options.length || options.length && plan.action !== 'clarify')) {
     throw new ConversationValidationError('question_options', 'The question options could not be validated.');
   }
-  return { action: plan.action, reply: plan.reply.trim(), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)],
+  return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)],
     ...(options?.length ? { questionOptions: options.map(option => option.trim()) } : {}) };
 }
 
@@ -122,17 +137,66 @@ function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest
     return validateConversationPlan(raw, evidence, record.input.mode, earlierTurns);
   } catch (error) {
     const plan = raw as Partial<ConversationPlan> | null;
-    const previous = earlierTurns.at(-1);
+    const previous = evidence.find(item => item.kind === 'prior_reply') ?? earlierTurns.at(-1);
     const reply = typeof plan?.reply === 'string' ? plan.reply.trim() : '';
     if (!previous || plan?.action !== 'explain' || !Array.isArray(plan.scope) || plan.scope.length
       || reply.length < 2 || reply.length > 512 || !/\b(?:repeat|quote)\b/i.test(record.input.text)
       || !/\b(?:previous|preceding|earlier|last)\s+(?:answer|reply|turn|response)\b/i.test(record.input.text)) throw error;
-    const historicalReply: unknown = JSON.parse(previous.text).reply;
-    const excerpt = JSON.stringify(reply).slice(1, -1);
+    const historicalReply: unknown = previous.kind === 'prior_reply' ? previous.text : JSON.parse(previous.text).reply;
+    const excerpt = previous.kind === 'prior_reply' ? reply : JSON.stringify(reply).slice(1, -1);
     if (typeof historicalReply !== 'string' || !historicalReply.includes(reply) || excerpt.length > 512) throw error;
     // A literal echo is independently quotable. Keep the same plan validator and never repair execution.
     return validateConversationPlan({ ...plan, citations: [previous.id], claims: [{ citation: previous.id, excerpt }] },
       evidence, record.input.mode, earlierTurns);
+  }
+}
+
+function previousReplyRequested(text: string) {
+  return /^(?:(?:please|(?:can|could|would)\s+you)\s+)?(?:repeat|quote)\s+(?:the\s+|your\s+)?(?:exact\s+)?(?:previous|last)\s+(?:answer|reply|response)[.!?]?$/i.test(text.trim());
+}
+
+function olderReplyRequested(text: string) {
+  return /^(?:(?:please|(?:can|could|would)\s+you)\s+)?(?:repeat|quote|explain)\s+(?:the\s+|your\s+)?(?:(?:first|second|third|older|earlier)\s+(?:answer|reply|response)|(?:answer|reply|response)\s+before\s+(?:the\s+)?last)[.!?]?$/i.test(text.trim());
+}
+
+const MAX_RECALLED_REPLY = 6_000;
+
+async function quotePreviousReply(record: ConversationRequest, store: ConversationStore): Promise<Partial<ConversationRequest>> {
+  try {
+    const [row] = await store.listEarlierTurns(record.projectId, record.ownerId, record.createdAt, 1);
+    const acceptedAt = Date.parse(record.createdAt);
+    if (row && row.projectId === record.projectId && row.ownerId === record.ownerId && row.id !== record.id
+      && row.state === 'completed' && Date.parse(row.createdAt) < acceptedAt && Date.parse(row.updatedAt) <= acceptedAt
+      && typeof row.reply === 'string' && row.reply.trim() && row.reply.length <= MAX_RECALLED_REPLY) {
+      return { action: 'explain', reply: row.reply, ...(row.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }),
+        citations: ['conversation:' + row.id], scope: [], replyOrigin: 'saved_recall',
+        recall: { status: 'recalled', turns: 1 }, state: 'completed' };
+    }
+    return { action: 'clarify', reply: 'The immediately preceding reply is not available to quote in this project. Paste it here if you want me to use it.',
+      citations: [], scope: [], recall: { status: 'missing', turns: 0 }, state: 'completed' };
+  } catch {
+    return { action: 'clarify', reply: 'The previous reply could not be loaded. Paste it here if you want me to use it.',
+      citations: [], scope: [], recall: { status: 'unavailable', turns: 0 }, state: 'completed' };
+  }
+}
+
+function ambiguousUnattachedFollowUp(text: string) {
+  return /^(?:what (?:does (?:that|it) mean|about (?:that|it))|(?:can you )?explain (?:that|it)|which one failed)[.!?]?$/i.test(text.trim());
+}
+
+async function loadExplicitReply(record: ConversationRequest, store: ConversationStore): Promise<{ evidence: Evidence; replyFormat?: 'markdown' } | null> {
+  const id = record.input.replyToTurnId;
+  if (!id || id === record.id) return null;
+  try {
+    const row = await store.get(record.projectId, id);
+    const acceptedAt = Date.parse(record.createdAt);
+    if (!row || row.id !== id || row.projectId !== record.projectId || row.ownerId !== record.ownerId
+      || row.state !== 'completed' || !(Date.parse(row.createdAt) < acceptedAt && Date.parse(row.updatedAt) <= acceptedAt)
+      || typeof row.reply !== 'string' || !row.reply.trim() || row.reply.length > MAX_RECALLED_REPLY) return null;
+    return { evidence: { id: 'conversation:' + id, text: row.reply, hash: hash(row.reply), kind: 'prior_reply' },
+      ...(row.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }) };
+  } catch {
+    return null;
   }
 }
 
@@ -242,7 +306,7 @@ export class ConversationRuntime {
     try { return await write; } finally { if (this.writes.get(record.id) === write) this.writes.delete(record.id); }
   }
   async confirm(record: ConversationRequest, revision: number, deps: ConversationDeps) {
-    if (record.ownerId !== deps.ownerId || record.state !== 'awaiting_permission' || revision !== record.revision) throw new DynamicContractError(409, 'The request changed. Review its scope again.');
+    if (record.ownerId !== deps.ownerId || record.state !== 'awaiting_permission' || revision !== record.revision || record.input.replyToTurnId) throw new DynamicContractError(409, 'The request changed. Review its scope again.');
     await deps.authorize(record.projectId);
     await this.patch(record, { state: 'running', workerId: this.workerId, leaseUntil: new Date(Date.now() + 120_000).toISOString() }, deps);
     this.start(record, deps, true);
@@ -363,43 +427,91 @@ export class ConversationRuntime {
       if (deps.held(record.projectId)) { await checkpoint({ state: 'paused', failureReason: 'assessment_hold', error: 'AI assessment is paused. Send a new request after resuming.' }); return; }
       if (!confirmed) {
         await checkpoint({ state: 'planning' });
-        const evidence = await deps.resolve(record.projectId, record.input.references, signal, text);
+        const targetId = record.input.replyToTurnId;
+        if (!targetId && !record.input.references.length && previousReplyRequested(record.input.text)) {
+          await checkpoint(await quotePreviousReply(record, deps.store));
+          return;
+        }
+        if (!targetId && !record.input.references.length && olderReplyRequested(record.input.text)) {
+          await checkpoint({ action: 'clarify', reply: 'Paste the earlier reply you mean so I can use the right one.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        if (!targetId && !record.input.references.length && ambiguousUnattachedFollowUp(record.input.text)) {
+          await checkpoint({ action: 'clarify', reply: 'Which earlier reply or saved check do you mean? Select Reply to or attach the saved evidence.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        const selected = targetId ? await loadExplicitReply(record, deps.store) : null;
+        if (targetId && !selected) {
+          await checkpoint({ replyTo: { turnId: targetId, status: 'unavailable' }, action: 'clarify',
+            reply: 'That earlier reply is unavailable. Select another reply or send the question with the relevant evidence.',
+            citations: [], scope: [], state: 'completed' });
+          return;
+        }
+        const prior = selected?.evidence;
+        if (prior && !record.input.references.length
+          && (previousReplyRequested(record.input.text) || olderReplyRequested(record.input.text))) {
+          await checkpoint({ replyTo: { turnId: targetId!, status: 'resolved' }, action: 'explain', reply: prior.text,
+            ...(selected?.replyFormat === 'markdown' && { replyFormat: 'markdown' as const }), citations: [prior.id], scope: [], state: 'completed' });
+          return;
+        }
+        const current = await deps.resolve(record.projectId, record.input.references, signal, text);
+        const evidence = prior ? [...current, prior] : current;
         const promptLength = compactCanonicalJson({ request: text, mode: record.reviewContinuation ? 'code' : record.input.mode, evidence, earlierTurns: [] }).length;
         if (promptLength > MAX_CONTEXT_CHARACTERS) {
           await checkpoint({ state: 'failed', failureStage: 'context', failureReason: 'context_limit', error: 'The selected evidence exceeds the context limit.' });
           return;
         }
-        const namedReview = planNamedReview(record, evidence);
-        const { earlierTurns, recall } = namedReview ? { earlierTurns: [], recall: undefined }
+        // An explicitly selected Reply to always takes priority over ambient recent-turn recall.
+        const namedReview = prior ? null : planNamedReview(record, current);
+        const { earlierTurns, recall } = namedReview || prior ? { earlierTurns: [], recall: undefined }
           : await recallEarlierTurns(record, deps.store, Math.min(MAX_RECALL_CHARACTERS, MAX_CONTEXT_CHARACTERS - promptLength + 2));
+        if (compactCanonicalJson({ request: text, mode: record.reviewContinuation ? 'code' : record.input.mode, evidence, earlierTurns }).length > MAX_CONTEXT_CHARACTERS) {
+          await checkpoint({ state: 'failed', failureStage: 'context', failureReason: 'context_limit', error: 'The selected evidence exceeds the context limit.' });
+          return;
+        }
         const executionRequested = requestsCheckExecution(text);
-        const savedSelection = !executionRequested && record.input.references.length ? presentSavedSelection(evidence) : null;
-        await checkpoint({ context: evidence.map(({ text: _, ...item }) => item), recall,
+        const savedSelection = !executionRequested && record.input.references.length ? presentSavedSelection(current) : null;
+        const attachmentNames = resolveAttachmentNames(record.input.references, current);
+        await checkpoint({ context: current.map(({ text: _, ...item }) => item), recall,
+          ...(attachmentNames.some(Boolean) ? { resolvedAttachmentNames: attachmentNames } : {}),
+          ...(prior && targetId ? { replyTo: { turnId: targetId, status: 'resolved' } as const } : {}),
           ...(savedSelection?.explanation ? { explanation: savedSelection.explanation } : {}) });
         failureStage = 'planning';
-        const recalled = recallProjectName(record, evidence, earlierTurns);
+        const recalled = prior ? null : recallProjectName(record, current, earlierTurns);
         const raw = namedReview ?? recalled ?? await deps.plan(record, evidence, signal, earlierTurns);
         failureStage = 'validation';
         let savedReply = false;
         let plan: ConversationPlan;
-        try {
-          plan = namedReview ?? validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns);
-        } catch (error) {
-          if (error instanceof ConversationValidationError) {
-            validationReason = error.reason;
-            console.warn(`[conversation] Response validation rejected request ${record.id} (${validationReason}).`);
-            if (executionRequested && validationReason === 'scope_unbound') {
-              await checkpoint({ state: 'completed', action: 'clarify', reply: 'Which repository folder or file should I review? Reply with **Review** followed by the path.' });
-              return;
+        const proposedAction = (raw as Partial<ConversationPlan> | null)?.action;
+        if (prior && (proposedAction === 'code' || proposedAction === 'browser')) {
+          plan = { action: 'clarify', reply: 'A Reply to request cannot start a check. Send a separate Check request with the intended evidence.', citations: [], scope: [] };
+        } else {
+          try {
+            plan = namedReview ?? validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns);
+          } catch (error) {
+            if (error instanceof ConversationValidationError) {
+              validationReason = error.reason;
+              console.warn(`[conversation] Response validation rejected request ${record.id} (${validationReason}).`);
+              if (executionRequested && validationReason === 'scope_unbound') {
+                await checkpoint({ state: 'completed', action: 'clarify', reply: 'Which repository folder or file should I review? Reply with **Review** followed by the path.' });
+                return;
+              }
             }
+            if (!savedSelection) throw error;
+            savedReply = true;
+            plan = savedSelection;
           }
-          if (!savedSelection) throw error;
-          savedReply = true;
-          plan = savedSelection;
         }
         const requested = requestedCheckMode(text);
         if (['code', 'browser'].includes(plan.action) && (!executionRequested || requested && plan.action !== requested)) {
           plan = { action: 'clarify', reply: 'Would you like an explanation, a suggested fix, or a verification run for the attached evidence?', citations: [], scope: [] };
+        }
+        if (prior && plan.action !== 'clarify' && record.input.references.length > 0
+          && !plan.citations.some(id => current.some(item => item.id === id && !item.unavailable))) {
+          plan = { action: 'clarify', reply: 'I could not ground that answer in the newly selected evidence. Select a readable attachment or say if you mean only the earlier reply.',
+            citations: [], scope: [] };
         }
         if (plan.action === 'code' && evidence.some(item => item.id.startsWith('review:') && JSON.parse(item.text).omittedSourceCount > 0)) {
           plan = { action: 'clarify', reply: 'This saved Check covers more source files than a scoped follow-up can verify. Attach the specific problems or source files to check.', citations: [], scope: [] };
@@ -412,14 +524,19 @@ export class ConversationRuntime {
           }
         }
         const fallbackScope = plan.action === 'browser' ? browserFallbackScope(evidence, record) : [];
-        await checkpoint({ ...plan, ...(savedReply ? { replyOrigin: 'saved_evidence', answerUnavailable: true, validationReason } : recalled && !namedReview ? { replyOrigin: 'saved_recall' }
-          : { replyFormat: 'markdown' }), ...(fallbackScope.length ? { fallbackScope } : {}) });
+        await checkpoint({ ...plan, replyFormat: plan.replyFormat ?? 'markdown',
+          ...(savedReply ? { replyOrigin: 'saved_evidence', answerUnavailable: true, validationReason } : recalled && !namedReview ? { replyOrigin: 'saved_recall' } : {}),
+          ...(fallbackScope.length ? { fallbackScope } : {}) });
         if (!['code', 'browser'].includes(plan.action)) { await checkpoint({ state: 'completed' }); return; }
         if (record.input.permission === 'ask') { await checkpoint({ state: 'awaiting_permission' }); return; }
         await checkpoint({ state: 'running' });
       }
       failureStage = 'execution';
       signal.throwIfAborted();
+      if (record.input.replyToTurnId && ['code', 'browser'].includes(record.action ?? '')) {
+        await checkpoint({ state: 'completed', action: 'clarify', reply: 'A Reply to request cannot start a check. Send a separate Check request with the intended evidence.', citations: [], scope: [] });
+        return;
+      }
       if (deps.held(record.projectId)) {
         await checkpoint({ state: 'paused', failureStage, failureReason: 'assessment_hold', error: 'AI assessment was paused before execution. Send a new request after resuming.' });
         return;

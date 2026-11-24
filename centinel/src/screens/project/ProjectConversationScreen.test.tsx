@@ -8,7 +8,8 @@ import { resetCheckStore, saveCheck } from '../../check/store';
 import type { Project } from '../../types';
 import { checkSentence, friendlyError, goalSteps, ProjectConversationScreen, testChanges } from './ProjectConversationScreen';
 
-vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), exportProjectReport: vi.fn(), sendConversationRequest: vi.fn() } }));
+vi.mock('../../api/client', () => ({ api: { autoTests: vi.fn(), autoTest: vi.fn(), getConnectedSourceStatus: vi.fn().mockResolvedValue({ connected: true, sources: [] }), listArtifacts: vi.fn(), startAutoTest: vi.fn(), cancelAutoTest: vi.fn(), listStaticSessions: vi.fn(), listStaticFindings: vi.fn(), listRequirements: vi.fn(), listRequirementCandidates: vi.fn(), updateRequirement: vi.fn(), listConnectedSources: vi.fn(), retryStaticSession: vi.fn(), exportProjectReport: vi.fn(), sendConversationRequest: vi.fn() } }));
+vi.mock('../../components/SourceIndexStatus', () => ({ SourceIndexStatus: () => null }));
 vi.mock('../../autotest/liveStream', () => ({ openLiveStream: vi.fn() }));
 
 const project: Project = { id: 'p1', name: 'sample-shop', description: '', workspacePath: '/work/sample-shop', createdAt: '', updatedAt: '' };
@@ -38,10 +39,13 @@ describe('project conversation', () => {
     resetProjectPrefs();
     resetCheckStore();
     vi.mocked(api.autoTests).mockResolvedValue([]);
+    vi.mocked(api.autoTest).mockResolvedValue(session());
     vi.mocked(api.listArtifacts).mockResolvedValue([]);
     vi.mocked(api.listStaticSessions).mockResolvedValue([]);
     vi.mocked(api.listStaticFindings).mockResolvedValue([]);
     vi.mocked(api.listRequirements).mockResolvedValue([]);
+    vi.mocked(api.listRequirementCandidates).mockResolvedValue([]);
+    vi.mocked(api.listConnectedSources).mockResolvedValue([]);
     vi.mocked(api.startAutoTest).mockResolvedValue(session({ stage: 'reading', tests: [], reply: null }));
   });
 
@@ -66,14 +70,17 @@ describe('project conversation', () => {
     expect(screen.queryByRole('dialog', { name: 'Google Drive needs attention' })).not.toBeInTheDocument();
   });
 
-  it('renders a saved standalone browser test with the Check card and preserves its View action', async () => {
+  it('opens a saved Check card in the project side panel without navigating away', async () => {
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     const navigate = renderScreen();
     const card = within(await screen.findByRole('region', { name: 'Check Two mugs total $24.00' }));
     expect(card.getByText('Proven in the browser')).toBeInTheDocument();
-    expect(card.queryByText('Found in code')).toBeNull();
     await userEvent.click(card.getByRole('button', { name: 'View' }));
-    expect(navigate).toHaveBeenCalledWith({ name: 'check', checkId: 'browser-turn-' + session().id });
+    expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).toHaveClass('is-open');
+    expect(within(screen.getByRole('complementary', { name: 'What ORIN knows' }))
+      .getByText('Two mugs total $24.00', { selector: '.pc-side-meta' })).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
     expect(screen.getAllByRole('region', { name: 'Check Two mugs total $24.00' })).toHaveLength(1);
   });
 
@@ -190,14 +197,18 @@ describe('project conversation', () => {
       { id: 'f1', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'high', priority: 'high', riskLevel: 'critical', title: 'Orders open without sign-in', description: 'd', status: 'new', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 76 },
       { id: 'f2', projectId: 'p1', sessionId: 'r1', source: 'static', severity: 'low', priority: 'low', riskLevel: 'low', title: 'Debug output', description: 'd', status: 'dismissed', createdAt: '', artifactId: null, category: '', evidenceText: '', recommendation: '', confidence: '', fromRemarks: false, filePath: 'server.js', lineNumber: 9 },
     ] as never);
+    saveCheck({ id: 'latest-project-check', projectId: project.id, projectName: project.name, title: 'Current Review', reviewId: 'r1',
+      mode: 'code', phase: 'done', createdAt: '2026-11-12T10:00:00.000Z', updatedAt: '2026-11-12T10:00:00.000Z', focus: '', documents: [], notes: [] });
     vi.mocked(api.listRequirements).mockResolvedValue([{ id: 'q1', projectId: 'p1', title: 'REQ-1 Generic sign-in error', description: '', category: '', priority: '', createdAt: '' }]);
     vi.mocked(api.exportProjectReport).mockResolvedValue({ downloads: { pdf: 'https://example.test/report.pdf', markdown: null, json: null } } as never);
     const open = vi.spyOn(globalThis, 'open').mockReturnValue(null);
     const onNavigate = renderScreen();
     const panel = screen.getByRole('complementary', { name: 'What ORIN knows' });
     expect(await within(panel).findByText('1 problem')).toBeInTheDocument();
-    await user.click(within(panel).getByRole('button', { name: 'Show the whole project' }));
+    expect(within(panel).getByRole('button', { name: 'Open the full result' })).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Open the full result' }));
     expect(within(panel).getByRole('button', { name: 'Back to the conversation' })).toHaveAttribute('aria-expanded', 'true');
+    expect(onNavigate).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox', { name: 'Message to ORIN' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save for every check' })).not.toBeInTheDocument();
     expect(within(panel).getByText('Orders open without sign-in')).toBeInTheDocument();
@@ -206,8 +217,8 @@ describe('project conversation', () => {
     await user.click(within(panel).getByRole('button', { name: 'Download report' }));
     expect(api.exportProjectReport).toHaveBeenCalledWith('p1', { reviewId: 'r1' });
     expect(open).toHaveBeenCalledWith('https://example.test/report.pdf', '_blank', 'noopener');
-    await user.click(within(panel).getByRole('button', { name: 'Open the full result' }));
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'review-activity', projectId: 'p1', sessionId: 'r1' });
+    await user.click(within(panel).getByRole('button', { name: 'Open full Check' }));
+    expect(onNavigate).toHaveBeenCalledWith({ name: 'check', checkId: 'latest-project-check' });
     await user.keyboard('{Escape}');
     expect(readPrefs('p1').sideOpen).toBe(false);
     expect(within(panel).queryByRole('heading', { name: 'Requirements' })).not.toBeInTheDocument();

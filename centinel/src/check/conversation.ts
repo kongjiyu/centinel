@@ -17,13 +17,23 @@ export type ConversationDraft = {
   mode?: CheckRecord['mode'];
   documents?: CheckDocument[];
   sourceIds?: string[];
+  replyToTurnId?: string;
 };
 const projectKey = (projectId: string) => sessionStorage.getItem('centinel:supabase-user-id') + ':' + projectId;
 const key = (projectId: string, checkId = '') => 'centinel:conversation-draft:' + projectKey(projectId) + (checkId ? ':check:' + checkId : '');
 export function draftContentSignature(draft: ConversationDraft) {
-  return JSON.stringify([draft.text, draft.mode, draft.checkIds, draft.problems, draft.documents ?? [], draft.sourceIds ?? []]);
+  return JSON.stringify([draft.text, draft.mode, draft.checkIds, draft.problems, draft.documents ?? [], draft.sourceIds ?? [], draft.replyToTurnId]);
 }
 export { asksForUnscopedReview, conversationApproval, conversationQuestionOptions, isCodeReviewChoice, namedReviewScope, requestsCheckExecution } from '../../../sidecar/src/conversation/intent';
+export function eligibleReplySource(request: ConversationRequest, projectId: string, ownerId: string | null) {
+  return request.projectId === projectId && request.ownerId === ownerId && request.state === 'completed'
+    && typeof request.reply === 'string' && !!request.reply.trim() && request.reply.length <= 6000;
+}
+export function replyExcerpt(request: ConversationRequest) {
+  const plain = (request.reply ?? '').trim()
+    .replace(/^#{1,6}\s+/gm, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+  return plain.length > 136 ? plain.slice(0, 135).trimEnd() + '…' : plain;
+}
 export function readConversationDraft(projectId: string, checkId?: string): ConversationDraft {
   try {
     const draftKey = key(projectId, checkId);
@@ -52,7 +62,8 @@ export async function recoverConversationRequest(projectId: string, id: string) 
 export async function sendConversationDraft(projectId: string, input: Omit<ConversationInput, 'id'>, draftId?: string) {
   const scope = projectKey(projectId);
   const current = readConversationDraft(projectId, draftId);
-  const requestSignature = JSON.stringify({ focus: input.text, mode: input.mode, permission: input.permission, references: input.references });
+  const requestSignature = JSON.stringify({ focus: input.text, mode: input.mode, permission: input.permission,
+    references: input.references, replyToTurnId: input.replyToTurnId ?? null });
   if (current.requestId) {
     const recovered = await recoverConversationRequest(projectId, current.requestId);
     if (recovered) return recovered;
@@ -74,11 +85,13 @@ export function acknowledgeConversationDraft(projectId: string, record: Conversa
     : { ...latest, requestId: undefined, requestSignature: undefined, submittedDraft: undefined }, draftId);
   return sameDraft;
 }
-export function attachConversationCheck(check: CheckRecord) {
+export function attachConversationCheck(check: CheckRecord, explain = false) {
   if (!check.projectId) return;
   const draft = readConversationDraft(check.projectId, check.id);
-  if (draft.checkIds.includes(check.id)) return;
-  writeConversationDraft(check.projectId, { ...draft, checkIds: [...draft.checkIds, check.id] }, check.id);
+  const checkIds = draft.checkIds.includes(check.id) ? draft.checkIds : [...draft.checkIds, check.id];
+  const text = explain && !draft.text.trim() ? 'Explain the attached check.' : draft.text;
+  if (checkIds === draft.checkIds && text === draft.text) return;
+  writeConversationDraft(check.projectId, { ...draft, checkIds, text }, check.id);
 }
 export function checkReference(check: CheckRecord): ConversationReference {
   return { ...(check.reviewId ? { reviewId: check.reviewId } : {}), ...(check.autoTestId ? { autoTestId: check.autoTestId } : {}) };

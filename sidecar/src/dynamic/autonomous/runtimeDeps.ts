@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { ConfiguredTextModelProvider } from '../../review/modelProvider.js';
 import type { ModelProviderSettings } from '../../review/types.js';
 import { cancelSession } from '../../dynamicRunner.js';
@@ -10,6 +11,7 @@ import { DynamicContractError, type DynamicRun } from '../types.js';
 import { launchRepository } from './launcher.js';
 import type { AutoTestDeps, AutoTestSession } from './orchestrator.js';
 import { buildRepoDigest } from './repoDigest.js';
+import { runProjectUnitTests } from './unitTests.js';
 import { autoTestLiveRuns, type AutoTestStore } from './store.js';
 import { randomUUID } from 'node:crypto';
 
@@ -69,8 +71,9 @@ export function createAutoTestDeps(input: {
   return Promise.resolve({
     digest: folder => buildRepoDigest(folder),
     launch: options => launchRepository({ ...options, home: input.home }),
-    discover: (url, paths) => discoverControls(new URL(url), { paths, maxPaths: 19, maxControls: 60 }),
+    discover: (url, paths, options) => discoverControls(new URL(url), { paths, maxPaths: 19, maxControls: 60, ...(options?.collectHealth ? { collectHealth: true } : {}) }),
     generate: request => analyze('autotest-plan', request),
+    runUnitTests: ({ folder, signal }) => runProjectUnitTests({ folder, signal, ownerId: input.ownerId, projectId, receiptRoot: path.join(path.dirname(input.home), 'autotest-unit') }),
     explainFailure: async ({ test, run, excerpts, signal }) => {
       const checks = (run.checks ?? []).map(result => {
         const definition = test.checks.find(check => check.id === result.checkId);

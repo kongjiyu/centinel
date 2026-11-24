@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { workspaceAuthorizationId, type WorkspaceRegistry } from '../workspace/registry.js';
+import { workspaceAuthorizationId, type WorkspaceAuthorization, type WorkspaceRegistry } from '../workspace/registry.js';
 import { runBoundedProcess } from '../workspace/process.js';
 import { MAX_UNIT_REPORT_BYTES, parseVitestReport, unitText } from './parser.js';
 import type { UnitExecutionResult, UnitOutcome } from './types.js';
@@ -10,15 +10,22 @@ export class UnitPrerequisiteError extends Error {
     constructor(readonly outcome: 'configuration_error' | 'missing_dependencies', message: string) { super(message); }
 }
 /** Honor only the selected plain Vitest script; never evaluate a repository shell command. */
+/** A workspace already checked by the caller: a registry authorization, or a full check's own inspection (Auto test). */
+export type VerifiedUnitWorkspace = Omit<ReturnType<WorkspaceRegistry['verify']>, 'authorization'> & {
+    authorization: Omit<WorkspaceAuthorization, 'packageManager'> & { packageManager: WorkspaceAuthorization['packageManager'] | 'npm' };
+};
 export function resolveVitestWorkspace(input: {
-    registry: WorkspaceRegistry;
+    registry?: WorkspaceRegistry;
+    verified?: VerifiedUnitWorkspace;
     ownerId: string;
     projectId: string;
     environmentId: string;
 }) {
-    let verified: ReturnType<WorkspaceRegistry['verify']>;
+    let verified: VerifiedUnitWorkspace;
     try {
-        verified = input.registry.verify(input.ownerId, input.projectId, input.environmentId, 'unit');
+        if (input.verified) verified = input.verified;
+        else if (input.registry) verified = input.registry.verify(input.ownerId, input.projectId, input.environmentId, 'unit');
+        else throw Error();
     }
     catch {
         throw new UnitPrerequisiteError('configuration_error', 'Inspect and authorize the current local unit script first.');
@@ -64,7 +71,8 @@ export function resolveVitestWorkspace(input: {
     return { ...verified, version: manifest.version as string, executable, cli, nodeVersion, cliSha256 };
 }
 export async function runVitestWorkspace(input: {
-    registry: WorkspaceRegistry;
+    registry?: WorkspaceRegistry;
+    verified?: VerifiedUnitWorkspace;
     ownerId: string;
     projectId: string;
     environmentId: string;

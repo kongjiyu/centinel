@@ -24,6 +24,10 @@ vi.mock('../../src/conversation/store.js', () => ({
       return (await this.list(project)).filter(row => row.ownerId === owner && row.createdAt < before && row.state === 'completed')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
     }
+    async listEarlierTurns(project: string, owner: string, before: string, limit: number) {
+      return [...rows.values()].filter(row => row.projectId === project && row.ownerId === owner && row.createdAt < before)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, limit).map(row => structuredClone(row));
+    }
     async get(project: string, id: string) { const row = rows.get(id); return row?.projectId === project ? structuredClone(row) : null; }
     async create(record: ConversationRequest) { if (rows.has(record.id)) return false; rows.set(record.id, structuredClone(record)); return true; }
     async update(record: ConversationRequest, revision: number) {
@@ -78,6 +82,75 @@ it('authenticates the public route and returns the same persisted request after 
   expect(read.status).toBe(200);
   expect(await read.json()).toMatchObject([{ id: input.id, reply: 'This is a saved code observation.', state: 'completed' }]);
   expect((await post(path, { ...input, text: 'A different request' })).status).toBe(409);
+});
+
+it('quotes the immediately preceding saved reply over HTTP without planning or evidence resolution', async () => {
+  const priorId = randomUUID();
+  const earlier = '2000-01-01T00:00:00.000Z';
+  const reply = '**Synthetic** earlier answer.';
+  rows.set(priorId, { id: priorId, projectId, ownerId: 'owner', revision: 1, inputHash: 'fixture', createdAt: earlier, updatedAt: earlier,
+    input: { id: priorId, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [] },
+    state: 'completed', action: 'explain', reply, replyFormat: 'markdown', policyVersion: 'fixture', events: [] });
+  const id = randomUUID();
+  const path = '/projects/' + projectId + '/conversation-requests';
+  expect((await post(path, { id, text: 'Quote your previous reply.', mode: 'code', permission: 'ask', references: [] })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'completed', action: 'explain', reply,
+    replyFormat: 'markdown', citations: ['conversation:' + priorId], recall: { status: 'recalled', turns: 1 } }));
+  expect(plan).not.toHaveBeenCalled();
+  expect(resolveEvidence).not.toHaveBeenCalled();
+});
+
+it('honors an explicitly selected older Reply to target instead of the recent answer', async () => {
+  const olderId = randomUUID(), recentId = randomUUID(), id = randomUUID();
+  const saved = (turnId: string, createdAt: string, text: string): ConversationRequest => ({
+    id: turnId, projectId, ownerId: 'owner', revision: 1, inputHash: 'fixture', createdAt, updatedAt: createdAt,
+    input: { id: turnId, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [] },
+    state: 'completed', action: 'explain', reply: text, replyFormat: 'markdown', policyVersion: 'fixture', events: [],
+  });
+  rows.set(olderId, saved(olderId, '2000-01-01T00:00:00.000Z', '**The selected older answer.**'));
+  rows.set(recentId, saved(recentId, '2000-01-02T00:00:00.000Z', 'Unselected recent answer.'));
+  const path = '/projects/' + projectId + '/conversation-requests';
+  expect((await post(path, { id, text: 'Quote your previous reply.', mode: 'code', permission: 'ask', references: [], replyToTurnId: olderId })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'completed', reply: '**The selected older answer.**', replyFormat: 'markdown',
+    citations: ['conversation:' + olderId], replyTo: { turnId: olderId, status: 'resolved' } }));
+  expect(rows.get(id)?.reply).not.toContain('Unselected recent answer.');
+  expect(plan).not.toHaveBeenCalled();
+  expect(resolveEvidence).not.toHaveBeenCalled();
+});
+
+it('uses a newly attached source when the request resembles a previous-reply quote', async () => {
+  const previousId = randomUUID(), artifactId = randomUUID(), requestId = randomUUID();
+  const earlier = '2000-01-01T00:00:00.000Z';
+  rows.set(previousId, { id: previousId, projectId, ownerId: 'owner', revision: 1, inputHash: 'fixture', createdAt: earlier, updatedAt: earlier,
+    input: { id: previousId, text: 'Earlier synthetic request', mode: 'code', permission: 'ask', references: [] },
+    state: 'completed', reply: 'Old fixture result.', policyVersion: 'fixture', events: [] });
+  const source = 'artifact:' + artifactId;
+  resolveEvidence.mockResolvedValue([{ id: source, text: JSON.stringify({ path: 'checkout-note.md', note: 'A newer synthetic layout note.' }), hash: 'fixture', artifactId }]);
+  plan.mockResolvedValue({ action: 'explain', reply: '**New attachment:** a synthetic layout note.', scope: [],
+    citations: [source], claims: [{ citation: source, excerpt: 'synthetic layout note' }] });
+  expect((await post('/projects/' + projectId + '/conversation-requests', { id: requestId, text: 'Quote your previous reply.', mode: 'code', permission: 'ask',
+    references: [{ artifactId }], referenceLabels: ['Checkout note.md'] })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(requestId)).toMatchObject({ state: 'completed', replyFormat: 'markdown', citations: [source],
+    input: { referenceLabels: ['Checkout note.md'] }, resolvedAttachmentNames: ['checkout-note.md'], reply: '**New attachment:** a synthetic layout note.' }));
+  expect(plan).toHaveBeenCalledOnce();
+  expect(resolveEvidence).toHaveBeenCalledOnce();
+});
+
+it('marks an explicitly selected reply unavailable without using another eligible turn', async () => {
+  const decoyId = randomUUID(), targetId = randomUUID(), id = randomUUID();
+  const saved = (turnId: string, createdAt: string, ownerId = 'owner') => ({
+    id: turnId, projectId, ownerId, revision: 1, inputHash: 'fixture', createdAt, updatedAt: createdAt,
+    input: { id: turnId, text: 'Earlier synthetic request', mode: 'code' as const, permission: 'ask' as const, references: [] },
+    state: 'completed' as const, reply: 'Unrelated synthetic reply.', policyVersion: 'fixture', events: [],
+  });
+  rows.set(decoyId, saved(decoyId, '2000-01-02T00:00:00.000Z'));
+  rows.set(targetId, saved(targetId, '2000-01-01T00:00:00.000Z', 'different-owner'));
+  const path = '/projects/' + projectId + '/conversation-requests';
+  expect((await post(path, { id, text: 'Explain this more clearly.', mode: 'code', permission: 'ask', references: [], replyToTurnId: targetId })).status).toBe(202);
+  await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'completed', action: 'clarify', replyTo: { turnId: targetId, status: 'unavailable' } }));
+  expect(rows.get(id)?.reply).not.toContain('Unrelated synthetic reply.');
+  expect(rows.get(id)?.citations).not.toContain('conversation:' + decoyId);
+  expect(plan).not.toHaveBeenCalled();
 });
 it('rejects a forged evidence reference on the HTTP entry point', async () => {
   const response = await post('/projects/' + projectId + '/conversation-requests', {

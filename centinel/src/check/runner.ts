@@ -29,6 +29,13 @@ function newId(): string {
   return `check-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/** Names the skipped files (up to three) so the person can tell whether they matter. */
+export function skippedNote(paths: string[]): string {
+  const shown = paths.slice(0, 3).join(', ');
+  const more = paths.length > 3 ? ` and ${paths.length - 3} more` : '';
+  return `${paths.length === 1 ? '1 file in the folder was' : `${paths.length} files in the folder were`} not reviewed (unsupported type or too large): ${shown}${more}.`;
+}
+
 export function folderName(path: string): string {
   const parts = path.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
   return parts[parts.length - 1] || path;
@@ -127,7 +134,7 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
             }
             if (failures.length > 5) note(`${failures.length - 5} more source files could not be imported.`);
           } else if (refreshed.complete === undefined && refreshed.skipped.length) {
-            note(`${refreshed.skipped.length} files in the folder were skipped (unsupported type or too large).`);
+            note(skippedNote(refreshed.skipped));
           }
         }
       } else {

@@ -12,6 +12,9 @@ export type ConversationInput = {
   mode: 'code' | 'browser' | 'both';
   permission: 'ask' | 'auto' | 'bypass';
   references: ConversationReference[];
+  replyToTurnId?: string;
+  /** Optional display names, aligned with references. Never used to resolve evidence. */
+  referenceLabels?: Array<string | null>;
 };
 
 export type SavedConversationExplanation = {
@@ -46,8 +49,11 @@ export type ConversationRequest = {
   explanation?: SavedConversationExplanation;
   replyFormat?: 'markdown';
   citations?: string[];
+  /** Names derived from authorized, reference-bound evidence, aligned with input.references. */
+  resolvedAttachmentNames?: Array<string | null>;
   context?: Array<{ id: string; hash: string; artifactId?: string; versionId?: string; unavailable?: boolean }>;
-  recall?: { turns: number; status: 'loaded' | 'limited' | 'unavailable' };
+  recall?: { turns: number; status: 'loaded' | 'limited' | 'unavailable' | 'recalled' | 'missing' };
+  replyTo?: { turnId: string; status: 'resolved' | 'unavailable' };
   replyOrigin?: 'saved_recall' | 'saved_evidence';
   answerUnavailable?: boolean;
   questionOptions?: string[];

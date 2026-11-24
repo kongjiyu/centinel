@@ -1,4 +1,5 @@
-import type { AutoTestEntry, AutoTestSession } from '../autotest/types';
+import type { AutoTestEntry, AutoTestSession, AutoTestState, UnitTestSummary } from '../autotest/types';
+import { plainReason } from './plainReason';
 import { shortReviewIssueTitle } from '../components/ReviewIssues';
 import { isActive as autoTestActive } from '../autotest/types';
 import { effectiveFindingStatus } from '../findingStatus';
@@ -34,7 +35,10 @@ export type CheckProblem = {
   browserChecks?: Array<{ expected: string; observed: string }>;
   aiExplanation?: string | null;
   findingId?: string;
+  testId?: string;
   runId?: string;
+  /** The saved browser test, so it can be run again from the conversation. */
+  testRef?: { sessionId: string; testId: string; reusable: boolean };
   requirementRef?: string | null;
   needsCitationCheck?: boolean;
 };
@@ -43,7 +47,16 @@ export type RequirementTally = { total: number; notMet: number; met: number; not
 
 export type PartState = 'not_requested' | 'running' | 'paused' | 'done' | 'failed' | 'cancelled' | 'not_started';
 
+/** The project's own unit tests: Vitest's report only, kept apart from browser problems. */
+export type UnitTestsResult = { state: AutoTestState; line: string; failures: UnitTestSummary['failures']; failureTotal: number };
+
+/** A browser test that did not finish, with its saved run so its steps can be opened (19 Nov 2026). */
+export type StuckTest = { key: string; text: string; runId: string; name: string; why: string; reason: string | null; kind?: string };
+
 export type CheckResult = {
+  unitTests: UnitTestsResult | null;
+  /** Browser tests that stopped or were unclear with saved timelines, shown in the browser gap section. */
+  stuckTests: StuckTest[];
   codeState: PartState;
   browserState: PartState;
   proven: CheckProblem[];
@@ -52,6 +65,9 @@ export type CheckResult = {
   browserTestCount: number;
   requirements: RequirementTally | null;
   notChecked: string[];
+  /** Where each gap is shown (19 Nov 2026, no separate Not checked section): under Found in code, and with the browser tests. */
+  codeGaps: string[];
+  browserGaps: string[];
   /** Statements about how the browser tests work, recorded with the session. */
   notes: string[];
   verdict: string;
@@ -122,7 +138,15 @@ function describe(value: unknown): string {
   try { return JSON.stringify(value); } catch { return String(value); }
 }
 
+/** What a fixed full-check test saw, as Expected/Observed lines. Null for tests the AI wrote. */
+function fixedTestChecks(test: AutoTestEntry): Array<{ expected: string; observed: string }> | null {
+  if (test.kind === 'smoke' && test.smoke) return test.smoke.pages.filter(page => !page.ok).map(page => ({ expected: `${page.path} opens without errors.`, observed: page.problem ?? 'The page showed an error.' }));
+  if (test.kind === 'usability' && test.usability?.failures.length) return test.usability.failures.map(failure => ({ expected: failure.expected, observed: failure.observed }));
+  return null;
+}
+
 export function browserProblem(test: AutoTestEntry): CheckProblem {
+  const fixed = fixedTestChecks(test);
   const failed = (test.checkResults ?? []).filter(result => result.verdict === 'failed');
   const checks = failed.map(result => {
     const definition = test.checks.find(check => check.id === result.checkId);
@@ -140,8 +164,9 @@ export function browserProblem(test: AutoTestEntry): CheckProblem {
     location: ref ? `${ref.path}:${ref.line}` : null,
     risk: null,
     marks: ['browser'],
-    browserChecks: checks.length ? checks : [{ expected: test.goal, observed: test.reason?.trim() || 'The browser test failed.' }],
+    browserChecks: fixed?.length ? fixed : checks.length ? checks : [{ expected: test.goal, observed: test.reason?.trim() || 'The browser test failed.' }],
     aiExplanation: test.explanation ?? null,
+    testId: test.id,
     runId: test.runId,
     requirementRef: test.requirementRef,
   };
@@ -197,32 +222,61 @@ export function buildCheckResult(input: {
   const browserState = check.autoTestId ? browserStartupFailed(autoTest) ? 'paused' : autoTestPartState(autoTest, true) : check.mode === 'code' ? 'not_requested' : 'not_started';
   const open = findings.filter(finding => OPEN_STATUSES.has(effectiveFindingStatus(finding)));
   const foundInCode = open.map(codeProblem).sort(byRisk);
-  const tests = autoTest?.tests ?? [];
-  const proven = tests.filter(test => test.state === 'failed').map(browserProblem);
+  const allTests = autoTest?.tests ?? [];
+  const unitEntry = allTests.find(test => test.kind === 'unit') ?? null;
+  const tests = allTests.filter(test => test.kind !== 'unit');
+  const unitTests = unitEntry ? unitTestsResult(unitEntry) : null;
+  const proven = tests.filter(test => test.state === 'failed').map(test => ({ ...browserProblem(test), ...(autoTest ? { testRef: { sessionId: autoTest.id, testId: test.id, reusable: !test.kind && Array.isArray(test.controls) && test.checks.length > 0 } } : {}) }));
   const passedBrowserTests = tests.filter(test => test.state === 'passed').length;
 
-  const notChecked: string[] = [...check.notes];
-  for (const gap of input.evidenceAssessment?.gaps ?? []) {
-    if (gap.code === 'pdf_visual_content_unverified') notChecked.push(gap.detail);
-  }
-  if (review && codeState === 'failed') notChecked.push(`The code review stopped before it finished${review.failureReason ? `: ${review.failureReason}` : '.'}`);
-  if (codeState === 'cancelled') notChecked.push('The code review was stopped.');
-  if (codeState === 'paused') notChecked.push('The code review is paused because the AI provider reached a limit. Resume it from Details.');
+  const codeGaps: string[] = check.notes.filter(note => !/^Browser tests/i.test(note));
+  const browserGaps: string[] = check.notes.filter(note => /^Browser tests/i.test(note));
+  if (review && codeState === 'failed') codeGaps.push(`The code review stopped before it finished${review.failureReason ? `: ${review.failureReason}` : '.'}`);
+  if (codeState === 'cancelled') codeGaps.push('The code review was stopped.');
+  if (codeState === 'paused') codeGaps.push('The code review is paused because the AI provider reached a limit. Resume it from Details.');
   if (review) {
     const gaps = reviewCoverageGaps(review);
-    for (const part of gaps?.parts ?? []) notChecked.push(`${unverifiedPartLocation(part)}: ${unverifiedPartReason(part)}`);
-    if (gaps && gaps.total > gaps.parts.length) notChecked.push(`${gaps.total - gaps.parts.length} more parts of the code could not be fully checked.`);
+    for (const part of gaps?.parts ?? []) codeGaps.push(`${unverifiedPartLocation(part)}: ${unverifiedPartReason(part)}`);
+    if (gaps && gaps.total > gaps.parts.length) codeGaps.push(`${gaps.total - gaps.parts.length} more parts of the code could not be fully checked.`);
   }
-  if (autoTest?.error && (browserState === 'failed' || browserState === 'paused')) notChecked.push(`Browser tests ${browserState === 'paused' ? 'paused' : 'stopped'}: ${autoTest.error.message}`);
-  if (browserState === 'cancelled') notChecked.push('The browser tests were stopped.');
-  for (const test of autoTest?.dropped ?? []) notChecked.push(`Proposed browser test “${test.name}”: ${test.reason}`);
+  for (const gap of input.evidenceAssessment?.gaps ?? []) {
+    if (gap.code === 'pdf_visual_content_unverified') codeGaps.push(gap.detail);
+  }
+  if (autoTest?.error && (browserState === 'failed' || browserState === 'paused')) browserGaps.push(`Browser tests ${browserState === 'paused' ? 'paused' : 'stopped'}: ${autoTest.error.message}`);
+  if (browserState === 'cancelled') browserGaps.push('The browser tests were stopped.');
+  for (const test of autoTest?.dropped ?? []) browserGaps.push(`Proposed browser test “${test.name}”: ${test.reason}`);
+  const unitGaps: string[] = [];
+  // A project without unit tests is not a gap; tests Centinel could not run are.
+  if (unitEntry && ['blocked', 'not_tested'].includes(unitEntry.state) && unitEntry.unit?.present !== false) unitGaps.push(`Unit tests did not run: ${unitEntry.unit?.reason ?? unitEntry.reason ?? 'they could not start.'}`);
+  // Exploration (19 Nov 2026): a gap only when it left controls it was allowed to press untried.
+  const explorations = tests.filter(test => test.kind === 'exploratory' && test.exploration).map(test => test.exploration!);
+  const explorationNotes: string[] = [];
+  if (explorations.length) {
+    const sum = (key: 'screens' | 'actions' | 'untried') => explorations.reduce((total, item) => total + item[key], 0);
+    const outOfScope = Math.max(0, ...explorations.map(item => item.outOfScope ?? 0));
+    const who = explorations.length === 1 ? 'The exploratory test' : `${explorations.length} exploratory runs`;
+    const reached = `${who} reached ${plural(sum('screens'), 'screen')} and pressed ${plural(sum('actions'), 'control')}${explorations.length > 1 ? ' in total' : ''}.`;
+    const skipped = outOfScope ? ` ${plural(outOfScope, 'control')} that need${outOfScope === 1 ? 's' : ''} typing or would order, pay, delete or send ${outOfScope === 1 ? 'is' : 'are'} never pressed by exploration.` : '';
+    // Records saved before 19 Nov 2026 count a control once per screen, without separating controls exploration may not press.
+    const legacy = explorations.some(item => item.seen === undefined);
+    const untriedText = legacy ? `${plural(sum('untried'), 'control')} it saw on the screens it reached ${sum('untried') === 1 ? 'was' : 'were'} not pressed.`
+      : `${plural(sum('untried'), 'control')} it was allowed to press ${sum('untried') === 1 ? 'was' : 'were'} not tried.`;
+    if (sum('untried')) browserGaps.push(`${reached} ${untriedText}${skipped}`);
+    else explorationNotes.push(`${reached} It tried every control it was allowed to press.${skipped}`);
+  }
+  const stuckTests: StuckTest[] = [];
   for (const test of tests) {
     if (['blocked', 'not_tested', 'uncertain', 'cancelled'].includes(test.state)) {
       const why = test.state === 'uncertain' ? 'the result was unclear' : test.state === 'blocked' ? 'it could not run' : 'it did not run';
-      notChecked.push(`Browser test “${test.name}”: ${why}${test.reason ? ` (${test.reason})` : ''}.`);
+      const again = test.firstAttempt ? ', also when run a second time' : '';
+      const reason = plainReason(test.reason);
+      const text = `Browser test “${test.name}”: ${why}${again}${reason ? ` (${reason.replace(/\.$/, '')})` : ''}.`;
+      if (test.runId) stuckTests.push({ key: `test:${test.id}`, text, runId: test.runId, name: test.name, why: `${why[0].toUpperCase()}${why.slice(1)}${again}`, reason, ...(test.kind ? { kind: test.kind } : {}) });
+      else browserGaps.push(text);
     }
   }
 
+  const notChecked = [...codeGaps, ...browserGaps, ...unitGaps];
   const finished = isTerminal(codeState) && isTerminal(browserState) && check.phase !== 'preparing';
   const total = proven.length + foundInCode.length;
   let verdict: string;
@@ -244,9 +298,11 @@ export function buildCheckResult(input: {
   } else {
     verdict = `${plural(total, 'problem')} found in the code.`;
   }
-  if (finished && notChecked.length && check.phase !== 'failed') verdictDetail = verdictDetail ?? 'Some parts were not checked. They are listed below.';
+  if (finished && (notChecked.length || stuckTests.length) && check.phase !== 'failed') verdictDetail = verdictDetail ?? 'Some parts could not be checked. Each is shown with its part below.';
 
   return {
+    unitTests,
+    stuckTests,
     codeState,
     browserState,
     proven,
@@ -255,11 +311,37 @@ export function buildCheckResult(input: {
     browserTestCount: tests.length,
     requirements: tallyRequirements(requirements, tests, open),
     notChecked,
-    notes: autoTest?.summary?.limitations ?? [],
+    codeGaps,
+    browserGaps,
+    notes: [
+      ...(autoTest?.summary?.limitations ?? []),
+      ...explorationNotes,
+      ...(() => {
+        const rerun = tests.filter(test => test.firstAttempt && test.firstAttempt.state !== 'failed' && !['blocked', 'not_tested', 'cancelled'].includes(test.state)).length;
+        const confirmed = tests.filter(test => test.firstAttempt?.state === 'failed' && test.state === 'failed').length;
+        return [
+          ...(rerun ? [`${plural(rerun, 'browser test')} could not run the first time and ${rerun === 1 ? 'was' : 'were'} run again on a fresh copy of the app; ${rerun === 1 ? 'its' : 'their'} result comes from the second run.`] : []),
+          ...(confirmed ? [`Every browser problem is run a second time on a fresh copy of the app before it is listed; ${plural(confirmed, 'problem')} failed both times.`] : []),
+        ];
+      })(),
+    ],
     verdict,
     verdictDetail,
     finished,
   };
+}
+
+export function unitTestsResult(entry: AutoTestEntry): UnitTestsResult {
+  const unit = entry.unit;
+  const counts = unit?.counts;
+  const skipped = counts?.skipped ? `, ${counts.skipped} skipped` : '';
+  const line = entry.state === 'running' || entry.state === 'queued' ? 'Running the project\u2019s unit tests…'
+    : counts && ['passed', 'failed'].includes(entry.state) ? `${counts.passed} of ${counts.total} unit tests passed${skipped}${counts.failed ? `, ${counts.failed} failed` : ''}.`
+    : entry.state === 'cancelled' ? 'The unit tests were stopped.'
+    : entry.state === 'failed' ? 'Some unit test files could not run.'
+    : unit?.present === false ? 'This project has no unit tests.'
+    : unit?.reason ? `The unit tests did not run: ${unit.reason}` : 'The unit tests did not run.';
+  return { state: entry.state, line, failures: unit?.failures ?? [], failureTotal: Math.max(counts?.failed ?? 0, unit?.failures.length ?? 0) };
 }
 
 /** Cached presentation only; historical records without a known risk remain neutral. */

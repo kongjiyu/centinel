@@ -6,6 +6,7 @@ export interface ConversationStore {
   get(projectId: string, id: string): Promise<ConversationRequest | null>;
   list(projectId: string, before?: { ownerId: string; createdAt: string }): Promise<ConversationRequest[]>;
   listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number): Promise<ConversationRequest[]>;
+  listEarlierTurns(projectId: string, ownerId: string, before: string, limit: number): Promise<ConversationRequest[]>;
   listActive?(projectId: string, ownerId: string): Promise<ConversationRequest[]>;
   create(record: ConversationRequest): Promise<boolean>;
   update(record: ConversationRequest, revision: number): Promise<boolean>;
@@ -40,6 +41,13 @@ export class SupabaseConversationStore implements ConversationStore {
   async listEarlierCompleted(projectId: string, ownerId: string, before: string, limit: number) {
     const result = await this.query().eq('project_id', projectId).eq('actor_id', ownerId)
       .eq('payload->request->>state', 'completed').lt('created_at', before)
+      .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit);
+    if (result.error) throw new Error('Earlier conversation turns are unavailable.');
+    return (result.data ?? []).map(row => row.payload.request as ConversationRequest);
+  }
+  async listEarlierTurns(projectId: string, ownerId: string, before: string, limit: number) {
+    const result = await this.query().eq('project_id', projectId).eq('actor_id', ownerId)
+      .lt('created_at', before)
       .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit);
     if (result.error) throw new Error('Earlier conversation turns are unavailable.');
     return (result.data ?? []).map(row => row.payload.request as ConversationRequest);

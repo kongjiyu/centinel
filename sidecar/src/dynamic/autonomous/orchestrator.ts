@@ -7,6 +7,9 @@ import { LaunchError } from './launcher.js';
 import { AUTO_TEST_PLAN_SCHEMA, AUTO_TEST_SYSTEM_PROMPT, buildPlanPrompt, MAX_REQUEST_TESTS, planReply, presetToTest, validatePlan, type AutoTest, type AutoTestControl, type AutoTestPreset, type AutoTestRequest, type DroppedTest } from './planner.js';
 import type { RepoDigest } from './repoDigest.js';
 import { reviewProviderPause } from '../../review/providerPause.js';
+import { unitState, type UnitSummary } from './unitTests.js';
+import { autoRepeatable } from './suite.js';
+import { explorationSummary, exploratoryTests, FULL_SUITE, smokeBlocksTesting, smokeResult, usabilitySummary, usabilityTest, type AutoTestKind, type AutoTestSuite, type ExplorationSummary, type SmokeResult, type UsabilitySummary } from './suite.js';
 
 /**
  * Autonomous Dynamic testing: read a folder, start its app, plan tests, run them in
@@ -24,6 +27,14 @@ export type AutoTestEntry = {
   reason?: string | null; checkResults?: CheckResult[]; explanation?: string | null; startedAt?: string; finishedAt?: string;
   /** Allowed controls, kept so the test can be run again from the conversation. Absent on older sessions. */
   controls?: AutoTestControl[];
+  /** Fixed full-check tests (18 Nov 2026); absent for tests the AI wrote. */
+  kind?: AutoTestKind;
+  smoke?: SmokeResult;
+  exploration?: ExplorationSummary;
+  usability?: UsabilitySummary;
+  unit?: UnitSummary;
+  /** The first attempt of a test that was run again: after it could not run, or to confirm a failure (19 Nov 2026). */
+  firstAttempt?: { runId: string | null; reason: string | null; state?: AutoTestState; checkResults?: CheckResult[]; explanation?: string | null };
 };
 export type AutoTestLane = { id: string; url: string | null; environmentId: string | null; state: 'starting' | 'idle' | 'running' | 'stopped' | 'failed'; currentTestId: string | null };
 export type AutoTestSession = {
@@ -44,14 +55,18 @@ export type AutoTestSession = {
   planning?: boolean;
   startupPermission?: StartupPermission;
   startupQuestion?: StartupQuestion;
+  /** Fixed tests added to a full check: smoke, exploratory and usability. Absent on older sessions and requests. */
+  suite?: AutoTestSuite;
 };
 
 export type AutoTestDeps = {
   digest(folder: string): Promise<RepoDigest>;
   launch(input: { folder: string; recipeId?: string; port?: number; signal: AbortSignal; onEvent?(event: LaunchEvent): void; approveInstall?(plan: InstallPlan): Promise<boolean> }): Promise<LaunchedApp>;
   waitForInstallDecision?(question: StartupQuestion, signal: AbortSignal): Promise<boolean>;
-  discover(url: string, paths: string[]): Promise<DiscoveryResult>;
+  discover(url: string, paths: string[], options?: { collectHealth?: boolean }): Promise<DiscoveryResult>;
   generate(input: { systemPrompt: string; prompt: string; outputSchema: object; signal: AbortSignal }): Promise<unknown>;
+  /** The project's own unit tests (plain Vitest only). Absent: the full check skips them. */
+  runUnitTests?(input: { folder: string; signal: AbortSignal }): Promise<UnitSummary>;
   explainFailure?(input: { test: AutoTestEntry; run: DynamicRun; excerpts: string; signal: AbortSignal }): Promise<string | null>;
   saveEnvironment(input: EnvironmentInput, id?: string): Promise<EnvironmentProfile>;
   recordData(environmentId: string, kind: 'preparation' | 'cleanup', note: string): Promise<void>;
@@ -72,7 +87,7 @@ const TERMINAL_RUN = new Set(['completed', 'blocked', 'cancelled', 'interrupted'
 const RUN_POLL_MS = 1000;
 const RUN_WAIT_LIMIT_MS = 6 * 60_000;
 
-export function newAutoTestSession(input: { id: string; projectId: string; ownerId: string; folder: string; lanes?: number; now?: Date; request?: AutoTestRequest | null; presets?: AutoTestPreset[]; planning?: boolean; startupPermission?: StartupPermission }): AutoTestSession {
+export function newAutoTestSession(input: { id: string; projectId: string; ownerId: string; folder: string; lanes?: number; now?: Date; request?: AutoTestRequest | null; presets?: AutoTestPreset[]; planning?: boolean; startupPermission?: StartupPermission; suite?: AutoTestSuite }): AutoTestSession {
   const at = (input.now ?? new Date()).toISOString();
   return {
     schemaVersion: 1, id: input.id, projectId: input.projectId, ownerId: input.ownerId, folder: input.folder,
@@ -83,12 +98,14 @@ export function newAutoTestSession(input: { id: string; projectId: string; owner
     ...(input.presets?.length ? { presets: input.presets } : {}),
     ...(input.planning === false ? { planning: false } : {}),
     ...(input.startupPermission ? { startupPermission: input.startupPermission } : {}),
+    // A full check (no typed request, new tests planned) also runs the fixed smoke, exploratory and usability tests.
+    ...(input.suite ? { suite: input.suite } : !input.request && input.planning !== false ? { suite: { ...FULL_SUITE } } : {}),
   };
 }
 
 /** The saved definition of a test from an earlier session, if it can be run again. */
 export function presetFromEntry(entry: AutoTestEntry): AutoTestPreset | null {
-  if (!entry.controls || !entry.checks.length) return null;
+  if (entry.kind || !entry.controls || !entry.checks.length) return null;
   return { name: entry.name, goal: entry.goal, startPath: entry.startPath, requirementRef: entry.requirementRef, sourceRefs: entry.sourceRefs, checks: entry.checks, controls: entry.controls };
 }
 
@@ -181,14 +198,41 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
 
     // 3-4. Saved tests run as they are; otherwise explore what the running app shows and plan.
     const planned: AutoTest[] = [];
+    // Visible names of the controls the page scan saw, for the repeat-click rule.
+    const controlLabels = new Map<string, string>();
+    const kinds = new Map<string, AutoTestKind>();
+    let smokeEntry: AutoTestEntry | null = null;
     for (const preset of session.presets ?? []) {
       const test = presetToTest(preset, { appUrl: first.server.url, projectId: session.projectId });
       if (test) planned.push(test); else session.dropped.push({ name: preset.name, reason: 'This saved test could not be rebuilt for the running app.' });
     }
     if (session.planning !== false) {
       await stage('exploring');
-      const discovery = await deps.discover(first.server.url, scanPaths(digest));
+      const suite = session.suite;
+      const discovery = await deps.discover(first.server.url, scanPaths(digest), suite?.smoke ? { collectHealth: true } : undefined);
+      for (const control of discovery.controls) controlLabels.set(control.selector, control.label);
       session.exploration = { pages: discovery.pages.map(page => ({ path: new URL(page.finalUrl).pathname, controls: page.controls })), controls: discovery.controls.length };
+      if (suite?.smoke) {
+        const smoke = smokeResult(discovery);
+        const failed = smoke.pages.filter(page => !page.ok).length;
+        smokeEntry = {
+          id: randomUUID(), kind: 'smoke', name: 'Pages open without errors', state: failed ? 'failed' : 'passed', smoke,
+          goal: `Open ${smoke.pages.length} page${smoke.pages.length === 1 ? '' : 's'} of the app and look for server errors and script errors.`,
+          rationale: 'Smoke test: ORIN loads each page itself and reads the status and errors. No AI is involved.',
+          requirementRef: null, sourceRefs: [], checks: [], startPath: '/',
+          reason: failed ? `${failed} of ${smoke.pages.length} pages showed an error.` : null, startedAt: now(), finishedAt: now(),
+        };
+        // Shown while tests are written, and kept if a later step fails.
+        session.tests = [smokeEntry];
+        await persist();
+        if (smokeBlocksTesting(smoke)) {
+          session.laneNote = 'The first page of the app answers with a server error, so the other browser tests did not run.';
+          await stage('summarizing');
+          session.summary = { passed: 0, failed: 1, uncertain: 0, blocked: 0, notTested: 0, limitations: [session.laneNote] };
+          session.stage = 'completed';
+          return session;
+        }
+      }
       checkCancelled();
 
       await stage('planning');
@@ -198,14 +242,28 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
       session.dropped.push(...plan.dropped);
       if (request) session.reply = planReply(raw);
       planned.push(...plan.tests);
+      // Fixed full-check tests. Exploration goes first in the queue because it takes the most steps.
+      const explorations = suite?.exploratory ? exploratoryTests({ appUrl: first.server.url, projectId: session.projectId, discovery }) : [];
+      const usability = suite?.usability ? usabilityTest({ appUrl: first.server.url, projectId: session.projectId }) : null;
+      for (const explore of [...explorations].reverse()) { planned.unshift(explore); kinds.set(explore.id, 'exploratory'); }
+      if (!explorations.length && suite?.exploratory) session.dropped.push({ name: 'Explore the app', reason: 'The page scan found no control that is safe to click without a person watching.' });
+      if (usability) { planned.push(usability); kinds.set(usability.id, 'usability'); }
     }
     const byId = new Map<string, AutoTest>(planned.map(test => [test.id, test]));
     await deps.validatePlanned?.(planned);
-    session.tests = planned.map(test => ({
-      id: test.id, name: test.name, goal: test.goal, rationale: test.rationale, requirementRef: test.requirementRef,
-      sourceRefs: test.sourceRefs, checks: test.mission.checks, startPath: test.startPath, state: 'queued', controls: test.controls,
-    }));
-    if (!session.tests.length && session.request && session.reply) {
+    session.tests = [
+      ...(smokeEntry ? [smokeEntry] : []),
+      ...planned.map((test): AutoTestEntry => {
+        const kind = kinds.get(test.id);
+        return {
+          id: test.id, name: test.name, goal: test.goal, rationale: test.rationale, requirementRef: test.requirementRef,
+          sourceRefs: test.sourceRefs, checks: test.mission.checks, startPath: test.startPath, state: 'queued',
+          // Fixed tests are not saved for rerunning from the conversation; they run with every full check.
+          ...(kind ? { kind } : { controls: test.controls }),
+        };
+      }),
+    ];
+    if (!planned.length && session.request && session.reply) {
       // A question or something the browser cannot test: answer in words, run nothing.
       session.summary = { passed: 0, failed: 0, uncertain: 0, blocked: 0, notTested: 0, limitations: [] };
       session.stage = 'completed';
@@ -216,7 +274,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
 
     // 5. Lanes: each gets its own app instance so tests never share in-memory state.
     await stage('testing');
-    let laneCount = Math.min(session.laneLimit, session.tests.length);
+    let laneCount = Math.min(session.laneLimit, Math.max(1, planned.length));
     if (laneCount > 1 && digest.persistenceHints.length) { laneCount = 1; session.laneNote = 'The app keeps data outside its own process (a database or file), so tests run one at a time to avoid sharing state.'; }
     else if (laneCount > 1 && !first.server.portHonored) { laneCount = 1; session.laneNote = 'The app always uses the same port, so only one copy can run at a time.'; }
     for (let index = 2; index <= laneCount; index++) {
@@ -234,9 +292,27 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         session.laneNote = 'A second copy of the app could not start, so fewer tests run at once.';
       }
     }
+    // The project's own unit tests run beside the browser lanes; dependencies were installed when the app started.
+    let unitWork: Promise<void> = Promise.resolve();
+    if (session.suite?.unit && deps.runUnitTests) {
+      const unitEntry: AutoTestEntry = {
+        id: randomUUID(), kind: 'unit', name: 'Project unit tests', state: 'running', startedAt: now(),
+        goal: "Run the project's own unit tests with its Vitest script.", rationale: 'Unit tests: Vitest\'s own report decides pass and fail.',
+        requirementRef: null, sourceRefs: [], checks: [], startPath: '/',
+      };
+      session.tests.push(unitEntry);
+      unitWork = deps.runUnitTests({ folder: session.folder, signal }).then(summary => {
+        unitEntry.unit = summary;
+        unitEntry.state = signal.aborted ? 'cancelled' : unitState(summary);
+        unitEntry.reason = summary.reason;
+      }, error => {
+        unitEntry.state = signal.aborted ? 'cancelled' : 'blocked';
+        unitEntry.reason = error instanceof Error ? error.message.slice(0, 300) : 'The unit tests could not run.';
+      }).then(async () => { unitEntry.finishedAt = now(); await persist(); });
+    }
     await persist();
 
-    const queue = [...session.tests];
+    const queue = session.tests.filter(entry => entry.state === 'queued');
     const finishedOnLane = new Map<string, number>();
     const runLane = async (lane: AutoTestLane) => {
       while (!signal.aborted && !persistenceError && !admissionError) {
@@ -265,7 +341,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
             targetUrl: origin + '/', allowedOrigins: [origin], viewport: { width: 1280, height: 720 },
             accountRole: 'Visitor', requiredVariables: [], targetVersion: digest.fingerprint.slice(0, 12),
             startupInstructions: `Started automatically by ORIN Auto test with "${first.recipe.label}".`,
-            actionPolicy: { schemaVersion: 1, interactions: test.controls.map(control => ({ selector: control.selector, actions: control.actions, ...(control.repeatable ? { repeatable: true } : {}) })), allowCoordinates: false },
+            actionPolicy: { schemaVersion: 1, interactions: test.controls.map(control => ({ selector: control.selector, actions: control.actions, ...(control.repeatable || autoRepeatable(control, controlLabels.get(control.selector)) ? { repeatable: true } : {}) })), allowCoordinates: false },
           }, lane.environmentId ?? undefined);
           lane.environmentId = environment.id;
           await deps.recordData(environment.id, 'preparation', 'ORIN started a fresh copy of the app for this test; its in-memory state is new.');
@@ -273,7 +349,7 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           entry.missionId = saved.missionId;
           entry.revisionId = saved.revisionId;
           await deps.beforeAction?.();
-          const runId = await deps.startRun({ revisionId: saved.revisionId, environmentId: environment.id, idempotencyKey: `autotest:${session.id.slice(0, 8)}:${entry.id}`, laneId: lane.id });
+          const runId = await deps.startRun({ revisionId: saved.revisionId, environmentId: environment.id, idempotencyKey: `autotest:${session.id.slice(0, 8)}:${entry.id}${entry.firstAttempt ? ':retry' : ''}`, laneId: lane.id });
           entry.runId = runId;
           await persist();
           let run = await deps.getRun(runId);
@@ -296,8 +372,15 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
           entry.state = verdictState(run);
           entry.reason = run.reason;
           entry.checkResults = run.checks;
+          if (entry.kind === 'exploratory') entry.exploration = explorationSummary(run.exploration, test.controls.map(control => control.selector));
+          if (entry.kind === 'usability') {
+            entry.usability = usabilitySummary(run.usability);
+            // Rule failures are ORIN's own deterministic observations, so they fail the test.
+            if (entry.state === 'passed' && entry.usability?.failures.length) entry.state = 'failed';
+            if (entry.state === 'passed' && !entry.usability) entry.state = 'uncertain';
+          }
           await deps.recordData(environment.id, 'cleanup', 'ORIN stopped this copy of the app after the test; nothing persists outside its process.').catch(() => undefined);
-          if (entry.state === 'failed' && deps.explainFailure && !signal.aborted) {
+          if (entry.state === 'failed' && !entry.kind && deps.explainFailure && !signal.aborted) {
             try {
               entry.explanation = await deps.explainFailure({ test: entry, run, excerpts: excerptsFor(entry, digest), signal });
             } catch (error) {
@@ -312,12 +395,35 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
         }
         entry.finishedAt = now();
         finishedOnLane.set(lane.id, (finishedOnLane.get(lane.id) ?? 0) + 1);
+        // A second run on a fresh copy of the app (19 Nov 2026, user decision):
+        // - a test that could not run (never an app failure) runs once more;
+        // - a failed written test runs once more to confirm it, because the AI driving the browser can
+        //   make a one-off mistake (an extra click). Fixed tests use deterministic checks and are not rerun.
+        // Capacity stops, lost progress and cancellation never retry.
+        const confirm = entry.state === 'failed' && !entry.kind;
+        if ((entry.state === 'blocked' || confirm) && !entry.firstAttempt && !signal.aborted && !persistenceError && !admissionError) {
+          entry.firstAttempt = { runId: entry.runId ?? null, reason: entry.reason ?? null, state: entry.state, checkResults: entry.checkResults, explanation: entry.explanation ?? null };
+          Object.assign(entry, { state: 'queued' as const, runId: undefined, missionId: undefined, revisionId: undefined, reason: null, checkResults: undefined, explanation: undefined, finishedAt: undefined });
+          queue.push(entry);
+        } else if (entry.firstAttempt?.state === 'failed') {
+          const first = entry.firstAttempt;
+          if (entry.state === 'passed') {
+            // Failed once, passed once: not a confirmed problem.
+            entry.state = 'uncertain';
+            entry.reason = 'It failed once and passed once on fresh copies of the app, so it is not counted as a problem.';
+          } else if (entry.state !== 'failed') {
+            // The confirming run could not run: keep the first run's failure as the result.
+            Object.assign(entry, { state: 'failed' as const, runId: first.runId ?? undefined, checkResults: first.checkResults, explanation: first.explanation ?? null, reason: first.reason });
+          }
+        }
         lane.currentTestId = null;
         lane.state = 'idle';
         await persist();
       }
     };
     const laneResults = await Promise.allSettled(session.lanes.filter(lane => lane.state === 'idle').map(runLane));
+    // The unit test process finishes (or stops on cancel) before any lane failure is reported.
+    await unitWork;
     const failedLane = laneResults.find(result => result.status === 'rejected');
     if (failedLane?.status === 'rejected') throw failedLane.reason;
     if (admissionError) throw admissionError;
@@ -333,6 +439,8 @@ export async function runAutoTest(session: AutoTestSession, deps: AutoTestDeps, 
       ...(session.dropped.length ? [`${session.dropped.length} proposed test(s) were dropped because they could not be checked safely.`] : []),
       ...(digest.truncated ? ['The repository was larger than what the AI could read at once; some files were not considered.'] : []),
       ...(session.laneNote ? [session.laneNote] : []),
+      ...(session.tests.some(test => test.kind === 'exploratory') ? ['Exploration is bounded to 25 steps and safe clicks; screens it did not reach were not tested.'] : []),
+      ...(session.tests.some(test => test.kind === 'usability') ? ['Usability rules cover labels, keyboard reach and focus on the first page only; they are not a full accessibility audit or a study with real users.'] : []),
     ];
     session.summary = { passed: count('passed'), failed: count('failed'), uncertain: count('uncertain'), blocked: count('blocked'), notTested: count('not_tested'), limitations };
     session.stage = 'completed';

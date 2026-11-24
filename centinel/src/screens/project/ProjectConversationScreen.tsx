@@ -7,11 +7,13 @@ import { stageHeadline } from '../../autotest/presentation';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
-import { browserProblem } from '../../check/result';
+import { browserProblem, type CheckProblem } from '../../check/result';
 import { addNote, isPinned, pinTest, setMode, setSideOpen, unpinTest, useProjectPrefs } from '../../check/projectPrefs';
-import { useLatestResult } from '../../check/latestResult';
+import { useLatestResult, type LatestResult } from '../../check/latestResult';
+import { useCheckData } from '../../check/useCheckData';
+import { checkName } from '../../check/checkName';
 import { startCheck } from '../../check/runner';
-import { useChecks } from '../../check/store';
+import { saveCheck, useChecks } from '../../check/store';
 import { type CheckMode, type CheckRecord, type StartCheckInput } from '../../check/types';
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import type { Artifact, Project, Screen } from '../../types';
@@ -25,7 +27,7 @@ import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
-import { conversationQuestionOptions, useConversationRequests } from '../../check/conversation';
+import { eligibleReplySource, readConversationDraft, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
 import { ConversationQuestion } from './ConversationQuestion';
 import { ConversationFailure, conversationFailureDetails } from './ConversationFailure';
 import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
@@ -270,10 +272,17 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(check => check.projectId === project.id);
   const conversationRequests = useConversationRequests(project.id, project.name);
+  const historyOwner = sessionStorage.getItem('centinel:supabase-user-id');
+  const replySources = useMemo(() => new Map(conversationRequests.records
+    .filter(request => eligibleReplySource(request, project.id, historyOwner))
+    .map(request => [request.id, replyExcerpt(request)])), [conversationRequests.records, project.id, historyOwner]);
+  const [replySelection, setReplySelection] = useState<{ projectId: string; ownerId: string | null; turnId: string } | null>(null);
+  const clearReplySelection = useCallback(() => setReplySelection(null), []);
   const [sessions, setSessions] = useState<AutoTestSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [base, setBase] = useState<(AutoTestRef & { name: string }) | null>(null);
+  const [composerVersion, setComposerVersion] = useState(0);
   const [pending, setPending] = useState<Pending | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -315,9 +324,10 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     return () => { active = false; clearTimeout(timer); };
   }, [refresh, anyActive]);
 
-  useEffect(() => {
-    api.listArtifacts(project.id).then(setArtifacts).catch(() => undefined);
+  const loadArtifacts = useCallback(async () => {
+    try { setArtifacts(await api.listArtifacts(project.id)); } catch { /* Keep the last complete source list visible. */ }
   }, [project.id]);
+  useEffect(() => { void loadArtifacts(); }, [loadArtifacts]);
 
   const timeline = useMemo(() => {
     const turns = sessions.filter(session => conversational(session)
@@ -402,13 +412,42 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   });
   const [sideChoice, setSideChoice] = useState<boolean | null>(null);
   const sideOpen = sideChoice ?? false;
-  const toggleSide = (open: boolean) => { setSideChoice(open); setSideOpen(project.id, open); };
+  const [focusCheck, setFocusCheck] = useState<CheckRecord | null>(null);
+  const focusData = useCheckData(focusCheck ?? undefined);
+  const panelLatest: LatestResult = focusCheck
+    ? focusData ? {
+      review: focusData.review, autoTest: focusData.autoTest, requirements: focusData.requirements, findings: focusData.findings,
+      result: focusData.requirementsState === 'unavailable' ? { ...focusData.result, requirements: null } : focusData.result,
+      at: focusCheck.finishedAt ?? focusCheck.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
+    } : { ...latest, loading: true }
+    : latest;
+  const panelCheckId = focusCheck?.id ?? checks.find(check =>
+    panelLatest.review && check.reviewId === panelLatest.review.id
+      || panelLatest.autoTest && check.autoTestId === panelLatest.autoTest.id)?.id;
+  const toggleSide = (open: boolean) => {
+    setSideChoice(open);
+    setSideOpen(project.id, open);
+    if (!open) setFocusCheck(null);
+  };
   const library = useCheckLibrary(project.id);
-  const openLatest = () => {
-    const local = latest.review ? checks.find(check => check.reviewId === latest.review!.id) : checks[0];
-    if (local) onNavigate({ name: 'check', checkId: local.id });
-    else if (latest.review) onNavigate({ name: 'review-activity', projectId: project.id, sessionId: latest.review.id });
-    else onNavigate({ name: 'dynamic-testing', projectId: project.id });
+  const openLatest = () => toggleSide(true);
+  const openCheck = (check: CheckRecord) => {
+    const saved = checks.find(item => item.id === check.id);
+    if (!saved && check.projectId === project.id) saveCheck(check);
+    setFocusCheck(saved ?? check);
+    toggleSide(true);
+  };
+  const runAgain = (problem: CheckProblem) => {
+    const reference = problem.testRef ? { autoTestId: problem.testRef.sessionId, testId: problem.testRef.testId }
+      : problem.findingId && panelLatest.review ? { reviewId: panelLatest.review.id, findingId: problem.findingId } : null;
+    const draft = readConversationDraft(project.id);
+    const problems = reference && !draft.problems.some(item => JSON.stringify(item.reference) === JSON.stringify(reference))
+      ? [...draft.problems, { label: problem.title, reference }] : draft.problems;
+    writeConversationDraft(project.id, { ...draft, problems, mode: 'browser',
+      text: draft.text.trim() ? draft.text : 'Run this again in the browser and check whether the problem still shows.' });
+    setComposerVersion(value => value + 1);
+    toggleSide(false);
+    inputRef.current?.focus({ preventScroll: true });
   };
   const latestCheck = checks[0];
   const projectCodeFallback = latestCheck?.mode === 'code' && latestCheck.requestedMode === 'both';
@@ -447,19 +486,21 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         : 'This project’s Google Drive sources cannot sync. Connect Google Drive in ORIN to resume syncing.'}</p>
     </Modal>
     <CheckProjectLayout projectHeader expanded={sideOpen} onCloseSidebar={() => toggleSide(false)}
-    composer={<CheckFollowUp key={project.id} check={{ id: '', projectId: project.id,
+    composer={<CheckFollowUp key={`${historyOwner}:${project.id}:${composerVersion}`} check={{ id: '', projectId: project.id,
       mode: projectCodeFallback ? 'code' : 'browser', requestedMode: projectCodeFallback ? 'both' : undefined }} projects={projects}
       onNavigate={onNavigate} available library={library} conversation={{
         editing: base && <span className="ck-chip is-project pc-base"><Icon icon={Pencil} /><span>Changing “{base.name}”</span><button type="button" onClick={() => setBase(null)} aria-label="Stop changing this test"><Icon icon={X} /></button></span>,
+        clearReplySelection, replySources, replySourcesLoaded: conversationRequests.loaded,
+        replySelection: replySelection?.projectId === project.id && replySelection.ownerId === historyOwner ? replySelection : null,
         inputRef, sending, send, savedChecks, onFocus: () => setSideChoice(false),
         latestRequest: !pending && latestRequest && (!conversationRequests.error || conversationRequests.directlyRefreshed.includes(latestRequest.id))
           ? latestRequest : undefined,
         placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
       }} />}
-    sidebar={<ProjectSidePanel project={project} latest={latest} onOpen={openLatest} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
-      documents={documents} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
-      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} />}>
+    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkId={panelCheckId} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
+      artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
+      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} />}>
       <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
           <CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library}
             projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={runFullCheck} disabled={!hasFolder} aria-label="Run a full check"
@@ -486,18 +527,23 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
             {conversationRequests.error && <p role="status">{conversationRequests.error}</p>}
             {timeline.map(item => 'check' in item ? <div className="pc-turn" key={item.key}>
                 {item.check.focus && !item.check.id.startsWith('request-') && <p className="pc-msg is-me">{item.check.focus}</p>}
-                <ProjectCheckCard check={item.check} onNavigate={onNavigate} />
+                <ProjectCheckCard check={item.check} onNavigate={onNavigate} onOpen={openCheck} />
               </div>
               : 'request' in item ? <ConversationTurn key={item.key} request={item.request} onOpenFailure={item.request.ownerId === owner ? id => {
                 if (id === failureId) chatCardsRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
                 else setOpenedFailureId(id);
-              } : undefined} />
+              } : undefined}
+                replySourceExcerpt={item.request.replyTo?.status === 'resolved' ? replySources.get(item.request.replyTo.turnId) : undefined}
+                onReplyTo={replySources.has(item.request.id) ? () => {
+                  setBase(null);
+                  setReplySelection({ projectId: project.id, ownerId: historyOwner, turnId: item.request.id });
+                } : undefined} />
               : 'session' in item
               ? <Fragment key={item.key}><SessionTurn session={item.session} projectId={project.id} prefs={prefs} onNavigate={onNavigate}
                   onChange={ref => { setBase(ref); inputRef.current?.focus(); }}
                   onRerun={ref => submit({ rerun: [ref] })}
                   onCancel={id => { void api.cancelAutoTest(project.id, id).then(() => refresh()).catch(() => undefined); }} />
-                {item.browserCard && <div className="pc-turn"><ProjectCheckCard check={item.browserCard} savedBrowserSession={item.session} onNavigate={onNavigate} /></div>}
+                {item.browserCard && <div className="pc-turn"><ProjectCheckCard check={item.browserCard} onNavigate={onNavigate} onOpen={openCheck} /></div>}
               </Fragment>
               : <p key={item.key} className="pc-note"><Icon icon={Info} />{item.note.text}</p>)}
             {pending && <div className="pc-msg is-me">{'rerun' in pending ? `Run again: ${pending.rerun.map(item => item.name).join(', ')}` : pending.text}</div>}

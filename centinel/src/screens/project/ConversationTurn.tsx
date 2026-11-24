@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Reply } from 'lucide-react';
 import { api } from '../../api/client';
 import { conversationQuestionOptions, isCodeReviewChoice, rememberAcknowledgedRequest } from '../../check/conversation';
 import { readPrefs } from '../../check/projectPrefs';
@@ -56,7 +57,12 @@ function attachmentLabels(reference: ConversationReference, explanation?: SavedC
   ].filter(Boolean);
 }
 
-export function ConversationTurn({ request, onOpenFailure }: { request: ConversationRequest; onOpenFailure?: (id: string) => void }) {
+export function ConversationTurn({ request, onOpenFailure, onReplyTo, replySourceExcerpt }: {
+  request: ConversationRequest;
+  onOpenFailure?: (id: string) => void;
+  onReplyTo?: () => void;
+  replySourceExcerpt?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [evidence, setEvidence] = useState<(SavedConversationExplanation & { unavailable: number })>();
@@ -102,7 +108,16 @@ export function ConversationTurn({ request, onOpenFailure }: { request: Conversa
     catch { setEvidenceError('Saved evidence could not be loaded. Try again.'); }
     finally { setEvidenceLoading(false); }
   };
-  const message = <div className="pc-msg is-me"><p>{request.input.text}</p>
+  const message = <div className="pc-msg is-me">
+      {(request.replyTo || request.input.replyToTurnId) && <div className="pc-reply-attribution">
+        <Reply size={14} aria-hidden="true" />
+        <div>
+          <strong>{request.replyTo?.status === 'resolved' ? 'In reply to ORIN'
+            : request.replyTo?.status === 'unavailable' ? 'Selected reply unavailable' : 'Reply target selected'}</strong>
+          {request.replyTo?.status === 'resolved' && replySourceExcerpt && <span>{replySourceExcerpt}</span>}
+        </div>
+      </div>}
+      <p>{request.input.text}</p>
       {!!attachments.length && <ul className="ck-attached pc-message-attachments" aria-label="Message attachments">{attachments.map((label, index) => <li className="ck-chip" key={index}>{label}</li>)}</ul>}
     </div>;
   if (options.length && selected === undefined && !failure) return <div className="pc-turn">{message}</div>;
@@ -114,11 +129,18 @@ export function ConversationTurn({ request, onOpenFailure }: { request: Conversa
       <div className="pc-markdown"><ReactMarkdown skipHtml disallowedElements={['img']} components={{ a: ({ children }) => <span>{children}</span> }}>{request.reviewContinuation.question}</ReactMarkdown></div>
       {selected && <p className="pc-msg is-me"><strong>You selected</strong> {selected}</p>}
     </>}
-    {request.reply && request.replyOrigin !== 'saved_evidence' && <p className="pc-label">{selected && !request.reviewContinuation ? 'Question' : request.replyOrigin === 'saved_recall' ? 'Earlier reply' : request.action === 'code' ? 'Review plan' : 'AI analysis'}</p>}
-    {request.reply && (request.replyOrigin !== 'saved_evidence' || !explanation?.sections.length) && (request.replyOrigin === 'saved_recall'
-      ? <p className="pc-ai-text">{request.reply}</p>
-      : <div className="pc-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['img']}
-          components={{ a: ({ children }) => <span>{children}</span>, table: ({ children }) => <div className="pc-table-scroll"><table>{children}</table></div> }}>
+    {request.reply && request.replyOrigin !== 'saved_evidence' && <p className="pc-label pc-reply-heading">
+      {selected && !request.reviewContinuation ? 'Question' : request.replyOrigin === 'saved_recall' ? 'Earlier reply' : request.action === 'code' ? 'Review plan' : 'AI analysis'}
+      {onReplyTo && <button type="button" className="pc-reply-action" onClick={onReplyTo}><Reply size={14} aria-hidden="true" /> Reply to</button>}
+    </p>}
+    {request.reply && (request.replyOrigin !== 'saved_evidence' || !explanation?.sections.length) && (request.replyOrigin === 'saved_recall' || request.replyFormat !== 'markdown'
+      ? <p className="pc-ai-text pc-ai-reply-literal">{request.reply}</p>
+      : <div className="pc-markdown pc-ai-reply"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['a', 'img', 'input']} unwrapDisallowed
+          components={{
+            h1: ({ children }) => <h3>{children}</h3>,
+            h2: ({ children }) => <h3>{children}</h3>,
+            table: ({ children }) => <div className="pc-table-scroll"><table>{children}</table></div>,
+          }}>
           {request.reply}
         </ReactMarkdown></div>)}
     {selected && !request.reviewContinuation && <p className="pc-msg is-me"><strong>You selected</strong> {selected}</p>}

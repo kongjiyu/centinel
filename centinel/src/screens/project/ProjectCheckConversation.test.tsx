@@ -63,11 +63,14 @@ it('opens a saved card, keeps the result while typing, attaches a problem and re
   const user = userEvent.setup();
   render(<Workspace />);
   const card = within(await screen.findByRole('region', { name: 'Check Order Access' }));
+  expect(card.getByText('Code', { exact: true })).toBeInTheDocument();
   expect(card.getByText('Found in code')).toBeInTheDocument();
   expect(card.queryByText('Proven in the browser')).toBeNull();
   await user.click(card.getByRole('button', { name: 'View' }));
-  expect(await screen.findByRole('region', { name: 'Found in code' })).toBeInTheDocument();
-  expect(screen.queryByRole('region', { name: 'Proven in the browser' })).toBeNull();
+  expect(await screen.findByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
+  expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).toHaveClass('is-open');
+  expect(screen.getByRole('button', { name: 'Open full Check' })).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
   expect(await screen.findByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain @ownership');
@@ -275,6 +278,7 @@ it('restores each draft when switching checks and posts only the sent draft to t
   render(<Workspace />);
   await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'My project draft');
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
   const prompt = () => screen.getByRole('textbox', { name: 'Follow-up check' });
   expect(prompt()).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
@@ -331,8 +335,8 @@ it('opens coverage gaps and exports the exact browser-only card as a saved Markd
     expect(card.getByText('Proven in the browser')).toBeInTheDocument();
     expect(card.queryByText('Found in code')).toBeNull();
     expect(card.getByText(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(Date.parse(timestamp)))).toHaveAttribute('datetime', timestamp);
-    expect(within(card.getByRole('group', { name: 'Check actions' })).getAllByRole('button').map(button => button.getAttribute('aria-label')))
-      .toEqual(['1 unchecked', 'Export', 'View']);
+    expect(within(card.getByRole('group', { name: 'Report actions' })).getAllByRole('button').map(button => button.getAttribute('aria-label')))
+      .toEqual(['Export', 'Ask about this check', 'View']);
     expect(gaps).toHaveAttribute('aria-expanded', 'false');
     await user.click(gaps);
     expect(gaps).toHaveAttribute('aria-expanded', 'true');
@@ -357,6 +361,7 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   const user = userEvent.setup();
   render(<Workspace />);
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain this check');
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));

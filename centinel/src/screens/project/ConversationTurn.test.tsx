@@ -29,6 +29,7 @@ afterEach(() => {
 it('keeps the attachment by the sent message and renders Markdown and saved excerpts inline', () => {
   render(<ConversationTurn request={{ ...request, input: { ...request.input, references: [{ reviewId: 'review', findingId: 'finding' }] },
     reply: '**Still open**\n\n- Check the saved result.\n\n| Field | Value |\n| --- | --- |\n| Status | `new` |\n\n```ts\nconst count = 1;\n```\n\n[Untrusted link](https://example.test) ![External image](https://example.test/image.png)',
+    replyFormat: 'markdown',
     explanation: { sections: [{ evidenceId: 'finding:finding', title: 'Saved checkout problem', excerpt: 'return total;', points: ['Cite the saved condition.'] }] },
   }} />);
   expect(within(screen.getByRole('list', { name: 'Message attachments' })).getByText('Saved checkout problem')).toBeInTheDocument();
@@ -99,4 +100,16 @@ it.each([
   sessionStorage.setItem('centinel:supabase-user-id', owner);
   render(<ConversationTurn request={request} />);
   expect(screen.queryByText('Harness trace')).toBeNull();
+});
+
+it('shows the selected earlier reply beside the message and offers the normal Reply to action', async () => {
+  const user = userEvent.setup();
+  const onReplyTo = vi.fn();
+  render(<ConversationTurn request={{ ...request, input: { ...request.input, replyToTurnId: 'source-turn' },
+    replyTo: { turnId: 'source-turn', status: 'resolved' }, reply: 'Follow-up answer', replyFormat: 'markdown' }}
+    onReplyTo={onReplyTo} replySourceExcerpt="The earlier saved answer." />);
+  const attribution = screen.getByText('In reply to ORIN');
+  expect(attribution.parentElement).toHaveTextContent('The earlier saved answer.');
+  await user.click(screen.getByRole('button', { name: 'Reply to' }));
+  expect(onReplyTo).toHaveBeenCalledOnce();
 });

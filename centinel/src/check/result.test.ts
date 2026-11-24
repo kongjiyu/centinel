@@ -55,6 +55,24 @@ describe('check result', () => {
     expect(browserProblem(test()).marks).toEqual(['browser']);
   });
 
+  it('allows saved assertion-only tests to replay but keeps fixed suite tests out of replay', () => {
+    const assertionOnly = test({ id: 'assertion-only', controls: [] });
+    const fixed = test({ id: 'fixed', kind: 'smoke', controls: [], smoke: { pages: [{ path: '/', status: 500, ok: false, problem: 'The page answered with HTTP 500.' }] } });
+    const result = buildCheckResult({ check: check(), review: review(), findings: [], autoTest: session([assertionOnly, fixed]), requirements: [] });
+    expect(result.proven.map(problem => problem.testRef?.reusable)).toEqual([true, false]);
+  });
+
+  it('keeps an earlier browser startup failure visible after falling back to Code', () => {
+    const result = buildCheckResult({
+      check: check({ mode: 'code', autoTestId: undefined, notes: ['Browser tests did not start: the browser test service was not available.'] }),
+      review: review(), findings: [], autoTest: null, requirements: [],
+    });
+    expect(result.codeState).toBe('done');
+    expect(result.browserState).toBe('not_requested');
+    expect(result.browserGaps).toEqual(['Browser tests did not start: the browser test service was not available.']);
+    expect(result.verdict).toBe('The check finished with gaps.');
+  });
+
   it('replaces the runner note with plain words and keeps real page text', () => {
     expect(browserProblem(test()).browserChecks).toEqual([{ expected: 'The generic message is shown.', observed: 'This was not shown on the page.' }]);
     const shown = browserProblem(test({ checkResults: [{ checkId: 'k1', criterionId: 'REQ-1', verdict: 'failed', observed: 'No account uses this email.', reason: '', evidenceIds: [] }] }));
@@ -90,9 +108,13 @@ describe('check result', () => {
     expect(result.notChecked).toEqual([
       '3 files in the folder were skipped (unsupported type or too large).',
       'src/big.js: The AI did not answer within the time limit.',
-      'Browser test “Login”: it could not run (no sign-in form).',
     ]);
-    expect(result.verdictDetail).toBe('Some parts were not checked. They are listed below.');
+    // A stuck test with a saved run is kept with that run, so its steps can be opened.
+    expect(result.stuckTests).toEqual([{ key: 'test:t3', text: 'Browser test “Login”: it could not run (no sign-in form).', runId: 'run-1', name: 'Login', why: 'It could not run', reason: 'no sign-in form' }]);
+    // Each gap belongs to its part: the skipped files and the review gap go with the code.
+    expect(result.codeGaps).toEqual(result.notChecked);
+    expect(result.browserGaps).toEqual([]);
+    expect(result.verdictDetail).toBe('Some parts could not be checked. Each is shown with its part below.');
   });
 
   it('reports a check that could not start', () => {
@@ -123,5 +145,83 @@ describe('requirement tally', () => {
   it('falls back to the requirement IDs the tests named, and returns null with none', () => {
     expect(tallyRequirements([], [test()], [])).toEqual({ total: 1, notMet: 1, met: 0, notChecked: 0, notMetNames: ['REQ-1'], metNames: [] });
     expect(tallyRequirements([], [test({ requirementRef: null })], [])).toBeNull();
+  });
+});
+
+describe('fixed full-check tests', () => {
+  it('turns failing smoke pages and usability rules into browser problems', () => {
+    const smoke = test({ id: 's', kind: 'smoke', name: 'Pages open without errors', state: 'failed', checks: [], checkResults: undefined,
+      smoke: { pages: [{ path: '/', status: 200, ok: true, problem: null }, { path: '/orders', status: 500, ok: false, problem: 'The page answered with HTTP 500.' }] } });
+    const usability = test({ id: 'u', kind: 'usability', name: 'Usability of the first page', state: 'failed', checks: [], checkResults: undefined,
+      usability: { sampled: 8, uncertain: 1, limitations: [], failures: [{ rule: 'labels', expected: 'Every control has a name.', observed: '2 controls have no label or name.', count: 2 }] } });
+    expect(browserProblem(smoke).browserChecks).toEqual([{ expected: '/orders opens without errors.', observed: 'The page answered with HTTP 500.' }]);
+    expect(browserProblem(usability).browserChecks).toEqual([{ expected: 'Every control has a name.', observed: '2 controls have no label or name.' }]);
+    const result = buildCheckResult({ check: check({ autoTestId: 'a', mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([smoke, usability]) });
+    expect(result.proven.map(problem => problem.title)).toEqual(['Pages open without errors', 'Usability of the first page']);
+    expect(result.proven.every(problem => problem.testRef?.reusable === false)).toBe(true);
+  });
+
+  it('says how far the exploration got and what it did not try', () => {
+    const explore = test({ id: 'e', kind: 'exploratory', name: 'Explore the app', state: 'passed', exploration: { screens: 4, actions: 6, untried: 9, truncated: false } });
+    const result = buildCheckResult({ check: check({ autoTestId: 'a', mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([explore]) });
+    expect(result.notChecked).toContain('The exploratory test reached 4 screens and pressed 6 controls. 9 controls it saw on the screens it reached were not pressed.');
+    const complete = test({ id: 'e2', kind: 'exploratory', name: 'Explore the app', state: 'passed', exploration: { screens: 5, actions: 5, untried: 0, outOfScope: 4, truncated: false } });
+    const done = buildCheckResult({ check: check({ autoTestId: 'a', mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([complete]) });
+    expect(done.notChecked).toEqual([]);
+    expect(done.notes).toContain('The exploratory test reached 5 screens and pressed 5 controls. It tried every control it was allowed to press. 4 controls that need typing or would order, pay, delete or send are never pressed by exploration.');
+  });
+});
+
+describe('project unit tests in a check', () => {
+  const unit = (patch: Partial<AutoTestEntry>) => test({ id: 'unit', kind: 'unit', name: 'Project unit tests', checks: [], checkResults: undefined, sourceRefs: [], requirementRef: null, ...patch });
+  it('keeps unit results apart from browser problems and counts', () => {
+    const failed = unit({ state: 'failed', unit: { outcome: 'failed', script: 'test:unit', framework: 'Vitest 3.2.4', reason: '', counts: { total: 54, passed: 43, failed: 1, skipped: 10 }, failures: [{ file: 'src/a.test.ts', name: 'adds', message: 'expected 2 to be 3' }] } });
+    const browser = test({ state: 'passed' });
+    const result = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([browser, failed]) });
+    expect(result.proven).toEqual([]);
+    expect(result.browserTestCount).toBe(1);
+    expect(result.unitTests).toEqual({ state: 'failed', line: '43 of 54 unit tests passed, 10 skipped, 1 failed.', failures: [{ file: 'src/a.test.ts', name: 'adds', message: 'expected 2 to be 3' }], failureTotal: 1 });
+  });
+
+  it('says why unit tests did not run', () => {
+    const skipped = unit({ state: 'not_tested', unit: { outcome: 'unsupported', script: null, framework: null, counts: null, failures: [], reason: "The project's tests use Jest. ORIN can only run a plain Vitest script for now." } });
+    const result = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([skipped]) });
+    expect(result.unitTests?.line).toBe("The unit tests did not run: The project's tests use Jest. ORIN can only run a plain Vitest script for now.");
+    expect(result.notChecked).toContain("Unit tests did not run: The project's tests use Jest. ORIN can only run a plain Vitest script for now.");
+  });
+});
+
+describe('what counts as not checked', () => {
+  it('does not list a project without unit tests as a gap, but does list tests Centinel cannot run', () => {
+    const unit = (present: boolean, reason: string) => test({ id: 'u', kind: 'unit', name: 'Project unit tests', state: 'not_tested', checks: [], checkResults: undefined, sourceRefs: [],
+      unit: { outcome: 'unsupported', script: null, framework: null, counts: null, failures: [], reason, present } });
+    const none = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([unit(false, 'The project has no unit tests.')]) });
+    expect(none.notChecked).toEqual([]);
+    expect(none.unitTests?.line).toBe('This project has no unit tests.');
+    const jest = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([unit(true, "The project's tests use Jest. ORIN can only run a plain Vitest script for now.")]) });
+    expect(jest.notChecked).toEqual(["Unit tests did not run: The project's tests use Jest. ORIN can only run a plain Vitest script for now."]);
+  });
+});
+
+describe('reruns and several explorations', () => {
+  it('says when a test was run a second time and adds up the explorations', () => {
+    const rerun = test({ id: 'r1', name: 'Discount', state: 'passed', firstAttempt: { runId: 'run-0', reason: 'control already activated' } });
+    const stuck = test({ id: 'r2', name: 'Totals', state: 'blocked', reason: 'target must be unique', firstAttempt: { runId: 'run-9', reason: 'x' } });
+    const explore = (id: string, screens: number, actions: number, untried: number) => test({ id, kind: 'exploratory', name: `Explore ${id}`, state: 'passed', exploration: { screens, actions, untried, truncated: false, seen: 10, outOfScope: 0 } });
+    const result = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([rerun, stuck, explore('a', 3, 5, 4), explore('b', 2, 6, 0)]) });
+    expect(result.notes).toContain('1 browser test could not run the first time and was run again on a fresh copy of the app; its result comes from the second run.');
+    expect(result.stuckTests[0].text).toBe('Browser test “Totals”: it could not run, also when run a second time (ORIN could not tell which control the AI meant, so it did not press it).');
+    expect(result.notChecked).toContain('2 exploratory runs reached 5 screens and pressed 11 controls in total. 4 controls it was allowed to press were not tried.');
+  });
+});
+
+describe('confirmed browser problems', () => {
+  it('lists a failure only once a second run confirmed it, and a one-off failure as unclear', () => {
+    const confirmed = test({ id: 'c1', name: 'Wrong email', state: 'failed', firstAttempt: { runId: 'run-0', reason: null, state: 'failed' } });
+    const flaky = test({ id: 'c2', name: 'Totals', state: 'uncertain', reason: 'It failed once and passed once on fresh copies of the app, so it is not counted as a problem.', firstAttempt: { runId: 'run-8', reason: null, state: 'failed' } });
+    const result = buildCheckResult({ check: check({ mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([confirmed, flaky]) });
+    expect(result.proven.map(problem => problem.title)).toEqual(['Wrong email']);
+    expect(result.notes).toContain('Every browser problem is run a second time on a fresh copy of the app before it is listed; 1 problem failed both times.');
+    expect(result.stuckTests[0].text).toContain('the result was unclear, also when run a second time (It failed once and passed once');
   });
 });

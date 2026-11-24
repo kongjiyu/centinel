@@ -50,4 +50,4 @@ export class WorkspaceRegistry {
  }
 }
 
-export function workspaceAuthorizationId(value:WorkspaceAuthorization){return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');}
+export function workspaceAuthorizationId(value:Omit<WorkspaceAuthorization,'packageManager'>&{packageManager:string}){return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');}

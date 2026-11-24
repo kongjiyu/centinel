@@ -55,10 +55,22 @@ function extractText(apiFormat: ModelProviderSettings['apiFormat'], json: unknow
   return { text: turn.content, usage: turn.usage };
 }
 
+/**
+ * API providers have no structured-output channel here (Codex receives the schema separately), so the
+ * required JSON Schema is appended to the prompt; otherwise the model must guess property names
+ * (18 Nov 2026: MiMo returned Auto test plans without `name`). Callers already count the schema's size
+ * toward context admission. Validation of the reply is unchanged.
+ */
+export function promptWithSchema(prompt: string, schema: unknown): string {
+  if (!schema || typeof schema !== 'object') return prompt;
+  return `${prompt}\n\nReturn one JSON object that matches this JSON Schema exactly. Use these property names and include every required property:\n${JSON.stringify(schema)}`;
+}
+
 function buildRequestBody(settings: ModelProviderSettings, request: ModelRequest, maxOutputTokens: number): Record<string, unknown> {
+  const base = promptWithSchema(request.prompt, request.outputSchema);
   const prompt = request.repair
-    ? `Return only a valid JSON object matching the requested schema. Repair the previous response without adding commentary.\n\n${request.prompt}`
-    : request.prompt;
+    ? `Return only a valid JSON object matching the requested schema. Repair the previous response without adding commentary.\n\n${base}`
+    : base;
   const images = (request.imagePaths ?? []).map(file => fs.readFileSync(file).toString('base64'));
   if (settings.apiFormat === 'anthropic-compatible') {
     return {
