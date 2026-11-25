@@ -299,8 +299,6 @@ The project row’s ellipsis shows a hover preview of its name, description, wor
 
 Details is the door to the full record and to the older screens: Requirements and traceability, Activity, Sources, Usage, Reports, approvals, and manual Review or Dynamic testing setup.
 
-When Browser Run copies are stored on the device, Recorded evidence uses Save and Delete saved copy. Show a copy's expiry only when it has one.
-
 - The three main screens never require Details to understand the result.
 - Details opens in the context of the current check or project and offers a clear way back.
 - Reviews are not held for a person's approval and problems are not decided by hand (16 November 2026). Screens and reports show a finished review as Completed (or Completed with gaps); the stored lifecycle and any earlier recorded decisions are unchanged, and no approval is recorded on anyone's behalf.

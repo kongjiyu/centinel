@@ -1,6 +1,7 @@
-import { resolveSavedProviderForTest, type ModelSettingsSource, type UpdateModelProviderSetting } from '../modelSettings.js';
+import { resolveSavedProviderForTest, type UpdateModelProviderSetting } from '../modelSettings.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-export async function listApiProviderModels(client: ModelSettingsSource, ownerId: string, input: Partial<UpdateModelProviderSetting>) {
+export async function listApiProviderModels(client: SupabaseClient, ownerId: string, input: Partial<UpdateModelProviderSetting>) {
   const base = typeof input.baseUrl === 'string' ? input.baseUrl.trim().replace(/\/+$/, '') : '';
   const gemini = input.provider === 'gemini' && input.apiFormat === 'google-native'
     && base === 'https://generativelanguage.googleapis.com/v1beta/models';

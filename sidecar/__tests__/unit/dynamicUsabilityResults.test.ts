@@ -8,53 +8,11 @@ import { DynamicService } from '../../src/dynamic/service.js';
 import { InMemoryDynamicRepository } from '../../src/dynamic/inMemoryRepository.js';
 import { verifyAndRetain } from '../../src/dynamic/runnerBridge.js';
 import { validateUsabilityResult } from '../../src/dynamic/usability/resultValidation.js';
-import { LocalWorkspace } from '../../src/store/localWorkspace.js';
 let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch(); });
 afterAll(async () => browser.close());
 const input = { name: 'Usability', goal: 'Observe Ready', targetUrl: 'http://localhost:3000/', maxSteps: 3, context: null, contextAcknowledged: false, checks: [{ id: 'ready', criterionId: 'one', description: 'Ready', kind: 'visible_text' as const, expected: 'Ready', required: true }], usability: { schemaVersion: 1 as const, persona: 'first_time' as const, rules: ['labels', 'keyboard', 'focus'] as ('labels' | 'keyboard' | 'focus')[], feedbackCheckIds: [], errorRecoveryCheckIds: [] } };
 describe('Retained independent usability result integration', () => {
-    it('reopens browser-generated check, screenshot and usability evidence from the local workspace', async () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'centinel-local-browser-proof-'));
-        const workspace = new LocalWorkspace(path.join(root, 'workspace'));
-        const page = await browser.newPage();
-        try {
-            const owner = 'fixture-owner';
-            const project = workspace.createProject(owner, { name: 'Browser evidence fixture', description: '', workspacePath: '' });
-            const service = new DynamicService(workspace.dynamicRuns(owner));
-            const revision = await service.saveMission(project.id, owner, input);
-            const { run } = await service.start(project.id, owner, revision.id, 'local-browser-evidence');
-            await service.claim(project.id, run.id);
-            await page.setContent('<h1>Ready</h1><input id="name" tabindex="-1"><button>Continue</button>');
-            const output = path.join(root, 'output');
-            const completed = await verifyAndRetain(service, run, page, output);
-            expect(completed).toMatchObject({ state: 'completed', verdict: 'passed' });
-            expect(completed.evidence.map(ref => ref.kind)).toEqual(['screenshot', 'checks', 'usability']);
-            workspace.close();
-            const reopened = new LocalWorkspace(path.join(root, 'workspace'));
-            try {
-                expect(await reopened.dynamicRuns(owner).getRun(project.id, run.id)).toEqual(completed);
-                const findings = await reopened.dynamicFindings(owner).collect(project.id, run.id);
-                expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({
-                    source: 'dynamic_usability', verification: 'unreviewed', category: 'usability',
-                })]));
-                const detail = await reopened.dynamicFindings(owner).get(project.id, findings[0].id);
-                expect(detail.observations[0].evidence.some(item => item.kind === 'usability')).toBe(true);
-                const names = { screenshot: 'criterion-page.png', checks: 'checks.json', usability: 'usability.json', file_manifest: 'file-manifest.json' };
-                for (const ref of completed.evidence) {
-                    expect(reopened.dynamicHistory(owner).evidence(project.id, run.id, ref.id)?.bytes)
-                        .toEqual(fs.readFileSync(path.join(output, names[ref.kind])));
-                    expect(reopened.dynamicHistory('another-owner').evidence(project.id, run.id, ref.id)).toBeNull();
-                }
-            } finally {
-                reopened.close();
-            }
-        } finally {
-            await page.close();
-            workspace.close();
-            fs.rmSync(root, { recursive: true, force: true });
-        }
-    });
     it('retains acknowledged keyboard progress when cancellation prevents terminal verification',async()=>{
       const root=fs.mkdtempSync(path.join(os.tmpdir(),'centinel-usability-progress-'));const page=await browser.newPage();try{await page.setContent('<h1>Ready</h1><input id="name"><button>Continue</button>');const service=new DynamicService(new InMemoryDynamicRepository());const rev=await service.saveMission('project','actor',input);const {run}=await service.start('project','actor',rev.id,'cancel-progress');await service.claim('project',run.id);const controller=new AbortController();const press=page.keyboard.press.bind(page.keyboard);vi.spyOn(page.keyboard,'press').mockImplementation(async key=>{await press(key);controller.abort();});await expect(verifyAndRetain(service,run,page,root,controller.signal)).rejects.toThrow('stopped');const progress=JSON.parse(fs.readFileSync(path.join(root,'usability-progress.json'),'utf8'));expect(progress).toMatchObject({criterionProof:false,phase:'stopped',keyboardActions:1,stopReason:'execution_stopped'});expect(progress.observations.some((row:any)=>row.ruleId==='labels')).toBe(true);expect(progress.observations.filter((row:any)=>row.ruleId==='keyboard').every((row:any)=>row.verdict==='not_tested')).toBe(true);expect((await service.requireRun('project',run.id)).state).toBe('running');}finally{await page.close();fs.rmSync(root,{recursive:true,force:true});}
     });

@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { dynamicWorkerId } from './recovery.js';
 import { aggregateChecks } from './checker.js';
 import {publicDownloadUrl} from './browser/fileTypes.js';
-import { DynamicContractError, MAX_MISSION_DISPLAY_NAME, type CheckResult, type DynamicRepository, type DynamicRun, type EvidenceReference, type Mission, type MissionInput, type RunEvidenceReader, type RunPatch } from './types.js';
+import { DynamicContractError, MAX_MISSION_DISPLAY_NAME, type CheckResult, type DynamicRepository, type DynamicRun, type EvidenceReference, type Mission, type MissionInput, type RunPatch } from './types.js';
 
 export function validateMission(value: unknown, projectId: string): MissionInput {
   const fail = (message: string): never => { throw new DynamicContractError(400, message); };
@@ -55,13 +55,6 @@ export function validateMission(value: unknown, projectId: string): MissionInput
   return structuredClone({...(input.usability!==undefined?{usability:validateUsability(input.usability,input.checks)}:{}),mode:input.mode??'guided', name: input.name.trim(), goal: input.goal.trim(), targetUrl: input.targetUrl.trim(), maxSteps: input.maxSteps, checks: input.checks.map(check => ({id:check.id,criterionId:check.criterionId,description:check.description,required:check.required,kind:check.kind,...(!['url','visible_text'].includes(check.kind)&&'selector' in check?{selector:check.selector}:{}),...(check.kind==='download_sha256'?{url:check.url}:{}),...(check.kind!=='element_visible'&&'expected' in check?{expected:check.expected}:{})} as import('./types.js').CheckDefinition)), context,criterionExclusions, contextAcknowledged: input.contextAcknowledged === true });
 }
 
-export function validateMissionDisplayName(name: unknown): string {
-  if (typeof name !== 'string' || !name.trim() || name.trim().length > MAX_MISSION_DISPLAY_NAME) {
-    throw new DynamicContractError(400, `Enter a test name of 1 to ${MAX_MISSION_DISPLAY_NAME} characters.`);
-  }
-  return name.trim();
-}
-
 export class DynamicService {
   private readonly leaseTokens = new Map<string, string>();
   constructor(readonly repository: DynamicRepository, readonly workerId = dynamicWorkerId) {}
@@ -82,9 +75,9 @@ export class DynamicService {
   }
   /** Renames the saved test only; revisions, Runs and evidence keep their recorded names. */
   async renameMission(projectId: string, actorId: string, missionId: string, name: unknown) {
-    const displayName = validateMissionDisplayName(name);
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > MAX_MISSION_DISPLAY_NAME) throw new DynamicContractError(400, `Enter a test name of 1 to ${MAX_MISSION_DISPLAY_NAME} characters.`);
     await this.requireMission(projectId, missionId);
-    return this.repository.updateMission(projectId, actorId, missionId, { displayName });
+    return this.repository.updateMission(projectId, actorId, missionId, { displayName: name.trim() });
   }
   /** Archive hides a saved test and blocks new Runs. Nothing is deleted; history stays readable. */
   async setMissionArchived(projectId: string, actorId: string, missionId: string, archived: boolean) {
@@ -119,8 +112,7 @@ export class DynamicService {
     return token ? this.repository.heartbeatRun(projectId, runId, this.workerId, token) : false;
   }
   recover(projectId: string) { return this.repository.recoverRuns(projectId); }
-  async finish(projectId: string, runId: string, results: CheckResult[], evidence: EvidenceReference[],
-    usability?: UsabilityAssessment, readEvidence?: RunEvidenceReader) {
+  async finish(projectId: string, runId: string, results: CheckResult[], evidence: EvidenceReference[], usability?:UsabilityAssessment) {
     const run = await this.requireRun(projectId, runId);
     if (run.state !== 'running') throw new DynamicContractError(409, 'Only a running Run can be verified.');
     const evidenceIds = new Set(evidence.map(item => item.id));
@@ -136,7 +128,7 @@ export class DynamicService {
       ? result.evidenceIds.length ? result : { ...result, verdict: 'uncertain' as const, reason: 'No retained evidence supports this observation.' }
       : result);
     const verdict = aggregateChecks(checks, verified);
-    const updated = await this.repository.compareAndSetRun(projectId, runId, 'running', this.patch(run, { state: 'completed', verdict, checks: verified, evidence, reason: null,...(assessment?{usability:assessment}:{}),...(run.exploration?{exploration:resolveExplorationObjectives(run.exploration,checks,verified)}:{}) }), readEvidence);
+    const updated = await this.repository.compareAndSetRun(projectId, runId, 'running', this.patch(run, { state: 'completed', verdict, checks: verified, evidence, reason: null,...(assessment?{usability:assessment}:{}),...(run.exploration?{exploration:resolveExplorationObjectives(run.exploration,checks,verified)}:{}) }));
     if (!updated) throw new DynamicContractError(409, 'Run was stopped while verification completed.');
     return updated;
   }

@@ -95,7 +95,6 @@ export function runStepScreenshot(workspace: string, run: DynamicRun, step: numb
 export async function handleRunStepsRoute(request: { method: string; pathname: string }, deps: {
   service: DynamicService; requireMember(projectId: string): Promise<void>; workspace(projectId: string): Promise<string>;
   privateValues?(projectId: string): Promise<string[]>;
-  finalScreenshot?(run: DynamicRun): Buffer | null;
 }): Promise<{ status: number; body: unknown } | { status: 200; body: Buffer; mimeType: string } | null> {
   const match = request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/runs\/([^/]+)\/steps(?:\/(\d{1,3}|final)\/screenshot)?$/);
   if (!match) return null;
@@ -105,21 +104,8 @@ export async function handleRunStepsRoute(request: { method: string; pathname: s
   try {
     const run = await deps.service.requireRun(projectId, runId);
     const workspace = await deps.workspace(projectId);
-    if (stepText) {
-      const bytes = stepText === 'final' && deps.finalScreenshot ? deps.finalScreenshot(run)
-        : runStepScreenshot(workspace, run, stepText === 'final' ? 'final' : Number(stepText));
-      if (!bytes) throw new DynamicContractError(404, 'This test has no saved check screenshot.');
-      return { status: 200, body: bytes, mimeType: 'image/png' };
-    }
-    const timeline = runTimeline(workspace, run, await deps.privateValues?.(projectId) ?? []);
-    if (deps.finalScreenshot) {
-      try { timeline.finalScreenshot = Boolean(deps.finalScreenshot(run)); }
-      catch (error) {
-        if (!(error instanceof DynamicContractError)) throw error;
-        timeline.finalScreenshot = false;
-      }
-    }
-    return { status: 200, body: timeline };
+    if (stepText) return { status: 200, body: runStepScreenshot(workspace, run, stepText === 'final' ? 'final' : Number(stepText)), mimeType: 'image/png' };
+    return { status: 200, body: runTimeline(workspace, run, await deps.privateValues?.(projectId) ?? []) };
   } catch (error) {
     if (error instanceof DynamicContractError) return { status: error.status, body: { error: error.message } };
     throw error;

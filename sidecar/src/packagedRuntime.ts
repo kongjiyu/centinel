@@ -5,7 +5,6 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { config as readEnv } from 'dotenv';
 import { centinelHome } from './paths.js';
-import { initializePackagedModelKey } from './tokenVault.js';
 
 /**
  * First-run setup for the packaged desktop app (CENTINEL_PACKAGED=1).
@@ -19,7 +18,6 @@ import { initializePackagedModelKey } from './tokenVault.js';
  */
 export function preparePackagedRuntime(log: (message: string) => void = console.log): void {
   if (process.env.CENTINEL_PACKAGED !== '1') return;
-  initializePackagedModelKey();
   const home = centinelHome();
   fs.mkdirSync(home, { recursive: true });
 

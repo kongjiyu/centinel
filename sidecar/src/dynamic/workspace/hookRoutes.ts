@@ -1,7 +1,7 @@
-import fs from 'node:fs';import type {HookStore} from './hookRepository.js';import type {WorkspaceRegistry} from './registry.js';import type {HookKind,HookOperation} from './operations.js';
+import fs from 'node:fs';import type {HookRepository} from './hookRepository.js';import type {WorkspaceRegistry} from './registry.js';import type {HookKind,HookOperation} from './operations.js';
 import {workspaceAuthorizationId} from './registry.js';
 import {DynamicContractError} from '../types.js';import {cancelHook,hookReceiptPath} from './hookExecutor.js';
-export async function handleHookRoute(request:{method:string;pathname:string;readBody():Promise<Record<string,unknown>>},deps:{ownerId:string;repository:HookStore;registry:WorkspaceRegistry;receiptRoot:string;requireMember(projectId:string):Promise<void>;requireEnvironment(projectId:string,id:string):Promise<unknown>;execute(operation:HookOperation):Promise<void>}){
+export async function handleHookRoute(request:{method:string;pathname:string;readBody():Promise<Record<string,unknown>>},deps:{ownerId:string;repository:HookRepository;registry:WorkspaceRegistry;receiptRoot:string;requireMember(projectId:string):Promise<void>;requireEnvironment(projectId:string,id:string):Promise<unknown>;execute(operation:HookOperation):Promise<void>}){
  const match=request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/environments\/([^/]+)\/hooks(?:\/([^/]+))?(?:\/(cancel|output))?$/);if(!match)return null;const [,projectId,profileId,id,action]=match;
  await deps.requireMember(projectId);await deps.requireEnvironment(projectId,profileId);
  try{

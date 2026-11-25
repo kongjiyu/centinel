@@ -15,7 +15,6 @@ vi.mock('../../src/applicationRepository.js', async importOriginal => ({
 vi.mock('../../src/modelSettings.js', () => ({ resolveSavedEmbeddingConfiguration: mocks.resolve }));
 vi.mock('../../src/review/openCodebaseIndex.js', () => ({
   INDEX_RELATIVE_DIRECTORY: '.codebase-index/index',
-  MAX_INDEX_BYTES: 128 * 1024 * 1024,
   openCodebaseIndex: mocks.open,
   portableIndexFiles: async (directory: string) => (await fs.readdir(directory)).sort(),
 }));
@@ -23,11 +22,6 @@ import { describeRepositoryIndex, indexFrozenArtifacts, retrieveFrozenContext } 
 import { syncPublishedRepositoryIndex } from '../../src/review/repositoryIndexSync.js';
 import { selectEvidencePackets } from '../../src/review/evidencePacketSelection.js';
 import { PDF_TEXT_POLICY, registerVerifiedSourceTexts, verifiedSourceText } from '../../src/review/sourceText.js';
-import { LocalWorkspace } from '../../src/store/localWorkspace.js';
-import { localIndexKey, removeLocalIndexDirectory } from '../../src/review/localIndexRetention.js';
-import { sourceIndexJobId } from '../../src/review/sourceIndexJobs.js';
-import { encodeRepositorySnapshot, repositoryIndexArchiveSha256 } from '../../src/review/repositoryIndexSnapshot.js';
-import { verifyPortableIndexArchives } from '../../src/review/localIndexArchive.js';
 
 const owner = '11111111-1111-4111-8111-111111111111';
 const secondOwner = '22222222-2222-4222-8222-222222222222';
@@ -90,109 +84,6 @@ beforeEach(() => {
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
 
 describe('frozen local repository index integration', () => {
-  it('opens an exact imported index without rebuilding and rebuilds when native readiness rejects the archive', async () => {
-    const workspace = new LocalWorkspace(await temp());
-    try {
-      const project = workspace.createProject(owner, { name: 'Archived index', description: '', workspacePath: '' });
-      const source = { ...artifact, projectId: project.id, versionId: 'original-frozen-version' };
-      workspace.importSnapshot(owner, project, [{ artifact: source, bytes: Buffer.from(content), mimeType: 'text/plain' }]);
-      const storage = { workspace };
-      const portableRoot = await temp();
-      await fs.writeFile(path.join(portableRoot, 'codebase.db'), 'closed fixture database');
-      const save = async (selected: Artifact) => {
-        const identity = await describeRepositoryIndex(storage, owner, project.id, [selected]);
-        const bytes = await encodeRepositorySnapshot(portableRoot, identity, ['codebase.db']);
-        const portable = { identity, archiveSha256: repositoryIndexArchiveSha256(bytes), contentBase64: bytes.toString('base64') };
-        const entries = await verifyPortableIndexArchives([portable], project.id, [selected]);
-        workspace.repositoryIndexArchives(owner).seed(project.id, entries);
-        return portable;
-      };
-      const matching = await save(source);
-      await expect(verifyPortableIndexArchives([matching], project.id, [])).rejects.toThrow(/frozen sources/);
-      await expect(verifyPortableIndexArchives([{ ...matching, archiveSha256: '2'.repeat(64) }], project.id, [source]))
-        .rejects.toThrow(/checksum/);
-      await indexFrozenArtifacts(storage, owner, project.id, [source]);
-      expect(mocks.index).not.toHaveBeenCalled();
-      expect((await retrieveFrozenContext(storage, owner, project.id, [source], 1000)).selectedChunks?.[0]?.content).toBe(content.trimEnd());
-
-      const second = { ...source, versionId: 'second-frozen-version' };
-      await save(second);
-      const open = mocks.open.getMockImplementation()!;
-      mocks.open.mockImplementationOnce(async (options: { projectRoot: string }) => ({ ...await open(options),
-        status: async () => ({ ready: false, detail: 'Incompatible native runtime' }) }));
-      await indexFrozenArtifacts(storage, owner, project.id, [second], undefined, undefined, async () => content);
-      expect(mocks.index).toHaveBeenCalledOnce();
-    } finally { workspace.close(); }
-  });
-
-  it('retains the current project index and evicts older scoped caches without deleting frozen source', async () => {
-    const workspace = new LocalWorkspace(await temp());
-    try {
-      const savedProject = workspace.createProject(owner, { name: 'Cache fixture', description: '', workspacePath: '' });
-      const projectId = savedProject.id;
-      const source = { ...artifact, projectId, versionId: 'fixture-source-version' };
-      workspace.importSnapshot(owner, savedProject, [{ artifact: source, bytes: Buffer.from(content), mimeType: 'text/plain' }]);
-      const storage = { workspace };
-      const current = workspace.artifacts(owner, projectId)[0];
-      const root = workspace.repositoryIndexRoot;
-      const cache = (fingerprint: string) => path.join(root, localIndexKey(owner, projectId, fingerprint));
-      const full = await describeRepositoryIndex(storage, owner, projectId, [current]);
-      await indexFrozenArtifacts(storage, owner, projectId, [current]);
-      expect(await workspace.sourceIndexJobs(owner).insert({ id: sourceIndexJobId(projectId, full.fingerprint), projectId,
-        ownerId: owner, fingerprint: full.fingerprint, revision: 0, state: 'ready', trigger: 'source_changed',
-        updatedAt: new Date().toISOString(), leaseToken: null, leaseUntil: null, errorCode: null })).toBe(true);
-      const retention = workspace.repositoryIndexRetention(owner, projectId);
-      retention.touch(full.fingerprint, 'ready', 1);
-      const scoped = { ...current, versionId: 'synthetic-frozen-scope' };
-      const old = await describeRepositoryIndex(storage, owner, projectId, [scoped]);
-      await indexFrozenArtifacts(storage, owner, projectId, [scoped], undefined, undefined, async () => content);
-      retention.touch(old.fingerprint, 'ready', 2);
-      for (let i = 0; i < 3; i++) {
-        await indexFrozenArtifacts(storage, owner, projectId, [{ ...scoped, versionId: 'scope-' + i }], undefined, undefined, async () => content);
-      }
-      await expect(fs.stat(cache(old.fingerprint))).rejects.toMatchObject({ code: 'ENOENT' });
-      expect((await fs.stat(cache(full.fingerprint))).isDirectory()).toBe(true);
-      expect(workspace.sourceBytes(owner, projectId, source.id)?.content.toString()).toBe(content);
-      expect((await retrieveFrozenContext(storage, owner, projectId, [current], 1000)).selectedChunks?.[0]?.content).toBe(content.trimEnd());
-      expect((await retrieveFrozenContext(storage, owner, projectId, [scoped], 1000, undefined, undefined, undefined,
-        async () => content)).retrievalPartialReason).toMatch(/compatible local index is missing/);
-      const location = await fs.readFile(path.join(cache(full.fingerprint), 'location.json'), 'utf8');
-      const previousStage = path.join(cache(full.fingerprint), JSON.parse(location));
-      await fs.writeFile(path.join(previousStage, '.codebase-index/index/codebase.db'), 'damaged recorded native index');
-      await indexFrozenArtifacts(storage, owner, projectId, [current]);
-      expect(await fs.readFile(path.join(cache(full.fingerprint), 'location.json'), 'utf8')).not.toBe(location);
-      expect(mocks.open.mock.lastCall?.[0].projectRoot).not.toBe(previousStage);
-      await expect(fs.stat(previousStage)).rejects.toMatchObject({ code: 'ENOENT' });
-    } finally { workspace.close(); }
-  });
-
-  it('protects paused work, active claims, other owners and redirected cache roots', async () => {
-    const workspace = new LocalWorkspace(await temp());
-    try {
-      const projectId = workspace.createProject(owner, { name: 'Owner', description: '', workspacePath: '' }).id;
-      const otherProject = workspace.createProject(secondOwner, { name: 'Other', description: '', workspacePath: '' }).id;
-      const retention = workspace.repositoryIndexRetention(owner, projectId);
-      const [revision, expired, paused, running] = ['1', '2', '3', '4'].map(digit => digit.repeat(64));
-      const now = 8 * 24 * 60 * 60_000;
-      for (const fingerprint of [revision, expired, paused, running]) retention.touch(fingerprint, 'pending', 1);
-      workspace.repositoryIndexRetention(secondOwner, otherProject).touch('5'.repeat(64), 'pending', 1);
-      for (const [fingerprint, state] of [[paused, 'paused'], [running, 'running']] as const) {
-        await workspace.sourceIndexJobs(owner).insert({ id: sourceIndexJobId(projectId, fingerprint), projectId, ownerId: owner,
-          fingerprint, revision: 0, state, trigger: 'review', updatedAt: new Date(now).toISOString(),
-          leaseToken: state === 'running' ? 'fixture-token' : null, leaseUntil: state === 'running' ? now + 1000 : null, errorCode: null });
-      }
-      expect(retention.candidates(revision, now)).toEqual([expired]);
-      const cacheRoot = workspace.repositoryIndexRoot;
-      const key = localIndexKey(owner, projectId, expired);
-      await fs.mkdir(cacheRoot, { recursive: true });
-      const outside = await temp();
-      await fs.writeFile(path.join(outside, 'marker.txt'), 'untouched');
-      await fs.symlink(outside, path.join(cacheRoot, key), process.platform === 'win32' ? 'junction' : 'dir');
-      expect(await removeLocalIndexDirectory(cacheRoot, key)).toBe(false);
-      expect(await fs.readFile(path.join(outside, 'marker.txt'), 'utf8')).toBe('untouched');
-    } finally { workspace.close(); }
-  });
-
   it.each([{ versionId: undefined }, { contentHash: 'invalid' }, { projectId: 'other-project' }])(
     'requires exact project versions before resolving settings or opening the index (%j)', async invalid => {
       const storage = client();

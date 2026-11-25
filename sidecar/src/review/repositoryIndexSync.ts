@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CentinelApplicationRepository } from '../applicationRepository.js';
 import { throwIfAborted } from './abort.js';
-import { DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, downloadRepositorySnapshot, MAX_REPOSITORY_INDEX_ARCHIVE_BYTES, repositoryIndexArchiveSha256, normalizeRepositoryIndexIdentity,
+import { DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, downloadRepositorySnapshot, MAX_REPOSITORY_INDEX_ARCHIVE_BYTES, repositoryIndexArchiveSha256,
   repositorySnapshotPath, uploadRepositorySnapshot, validateRepositorySnapshotArchive,
   type RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
 
@@ -62,11 +62,6 @@ function validPublication(row: PublicationRow | null | undefined, identity: Repo
     || !Number.isSafeInteger(payload.archiveBytes) || payload.archiveBytes! < 1
     || payload.archiveBytes! > MAX_REPOSITORY_INDEX_ARCHIVE_BYTES) return null;
   return payload as RepositoryIndexPublication;
-}
-
-export function archivedRepositoryIndexPublication(row: PublicationRow): RepositoryIndexPublication | null {
-  const identity = normalizeRepositoryIndexIdentity((row.payload as Partial<RepositoryIndexPublication> | undefined)?.identity);
-  return identity ? validPublication(row, identity) : null;
 }
 
 async function requireMember(client: SupabaseClient, ownerId: string, projectId: string, signal?: AbortSignal): Promise<void> {

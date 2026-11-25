@@ -201,29 +201,6 @@ describe('conversation request harness', () => {
     expect(store.records.size).toBe(0);
     expect(deps.resolve).not.toHaveBeenCalled();
   });
-  it('answers general questions without requiring a citation to ambient project inventory or history', async () => {
-    const { store, runtime, deps, input } = fixture();
-    const inventory = { id: 'project:project', text: '{"name":"Sample shop"}', hash: 'fixture' };
-    vi.mocked(deps.resolve).mockResolvedValue([inventory]);
-    await store.create({ id: randomUUID(), projectId: 'project', ownerId: deps.ownerId, revision: 0,
-      createdAt: '2000-01-01T00:00:00.000Z', updatedAt: '2000-01-01T00:00:00.000Z', input, inputHash: 'fixture',
-      policyVersion: 'fixture', state: 'completed', reply: 'Earlier discussion of the sample shop.', events: [] });
-    const reply = 'A unit test checks a small piece of behavior in isolation.';
-    vi.mocked(deps.plan).mockResolvedValue({ action: 'general', reply, citations: [], claims: [], scope: [] });
-    await runtime.accept('project', { ...input, text: 'What is a unit test?' }, deps);
-    expect(await waitFor(store, input.id, 'completed')).toMatchObject({ action: 'explain', reply, citations: [], scope: [] });
-    expect(vi.mocked(deps.plan).mock.calls[0][3]).toHaveLength(1);
-    expect(deps.execute).not.toHaveBeenCalled();
-    await runtime.close();
-  });
-
-  it('rejects general answers outside the allowed context or with evidence or executable scope', () => {
-    const general = { action: 'general', reply: 'A unit test checks isolated behavior.', citations: [], claims: [], scope: [] };
-    expect(() => validateConversationPlan(general, evidence, 'both')).toThrow();
-    expect(() => validateConversationPlan({ ...general, citations: ['finding:f1'] }, evidence, 'both', [], true)).toThrow();
-    expect(() => validateConversationPlan({ ...general, scope: ['source-1'] }, evidence, 'both', [], true)).toThrow();
-  });
-
   it('explains only from resolved evidence and stores a source-free context manifest', async () => {
     const { store, runtime, deps, input } = fixture();
     await runtime.accept('project', input, deps);

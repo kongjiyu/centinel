@@ -96,8 +96,6 @@ export type StoreRequirementMapping = {
   artifactId: string | null;
   fileId: string | null;
   symbolId: string | null;
-  mappingVersionId?: string | null;
-  mappingContentHash?: string | null;
   coverageStatus: string;
   confidence: number;
   createdAt: string;

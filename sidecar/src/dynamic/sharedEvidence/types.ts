@@ -13,7 +13,7 @@ export type EvidenceCopy = {
     sourceSha256?: string;
     privacyVersion?: 1;
     availability: 'pending' | 'available' | 'failed' | 'expired' | 'deleting' | 'deleted';
-    expiresAt: string | null;
+    expiresAt: string;
     executorId: string;
     syncedBy: string | null;
     deletedBy?: string | null;

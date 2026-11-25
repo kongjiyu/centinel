@@ -44,7 +44,7 @@ const UPSTREAM_ENTRY = require.resolve('open-codebase-index');
 const UPSTREAM_CLI = path.join(path.dirname(UPSTREAM_ENTRY), 'cli.js');
 const TRANSIENT_OR_PRIVATE_NAME = /(?:^|[._-])(?:config|credentials?|secrets?|tokens?|locks?|recovery|failed-batches|tmp|temp|log|shm|journal|mcp-runtime)(?:$|[._-])/i;
 const MAX_INDEX_FILES = 64;
-export const MAX_INDEX_BYTES = 128 * 1024 * 1024;
+const MAX_INDEX_BYTES = 128 * 1024 * 1024;
 const MAX_GRAPH_EDGES = 10;
 
 function isLoopbackEmbeddingUrl(value: string): URL {

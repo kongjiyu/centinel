@@ -1,4 +1,4 @@
-import type { AutoTestStore } from '../dynamic/autonomous/store.js';
+import { SupabaseAutoTestStore } from '../dynamic/autonomous/store.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact, ArtifactSource, ArtifactType } from '../artifacts.js';
 import type { DynamicEvidence, DynamicSession } from '../dynamicSessions.js';
@@ -284,7 +284,7 @@ function fallbackAssessment(projectId: string, findings: Finding[]): ProjectAsse
   return { projectId, status: 'available', policyVersion: RISK_POLICY_VERSION, ...calculateProjectRisk(findings), traceability: { status: 'unavailable', reviewId: null, summary: null } };
 }
 
-export function reportCurrentFinding(projected: StoreFinding & Record<string, unknown>, canonical: StoreFinding): ReportCurrentFinding {
+function reportCurrentFinding(projected: StoreFinding & Record<string, unknown>, canonical: StoreFinding): ReportCurrentFinding {
   const resolutionEvidence = projected.resolutionEvidence as ReportCurrentFinding['resolutionEvidence'] | undefined;
   const effectiveStatus = (projected.status === 'new' || projected.status === 'carryover')
     && resolutionEvidence?.basis === 'not_reproduced_in_comparable_review'
@@ -334,7 +334,7 @@ function standardRuleFromRow(row: Row): ReportStandardRule {
 }
 
 /** Present a shared Run in the report's Dynamic session shape, following its independent verdict. */
-export function runReportSession(run: DynamicRun): DynamicSession {
+function runReportSession(run: DynamicRun): DynamicSession {
   const status: DynamicSession['status'] = run.state === 'queued' ? 'queued' : run.state === 'running' ? 'running'
     : run.state === 'cancelled' ? 'cancelled'
       : run.state === 'completed' ? (run.verdict === 'passed' ? 'success' : run.verdict === 'failed' ? 'failure' : 'blocked') : 'blocked';
@@ -348,20 +348,12 @@ export function runReportSession(run: DynamicRun): DynamicSession {
   };
 }
 
-export function runReportActions(run: DynamicRun): ReportActionTrace[] {
-  const definitions = new Map(run.revision.checks.map(check => [check.id, check]));
-  return run.checks.map((result, index) => ({
-    step: index + 1, action: 'check',
-    target: definitions.get(result.checkId)?.description ?? result.checkId,
-    result: `${result.verdict}${result.reason ? `: ${result.reason}` : ''}`,
-  }));
-}
-
 export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
-  constructor(readonly client: SupabaseClient, readonly userId: string, private readonly autoTests?: AutoTestStore) {}
+  constructor(readonly client: SupabaseClient, readonly userId: string) {}
 
+  /** Auto test sessions are stored in the project-member RLS audit journal. */
   async listAutoTests(projectId: string) {
-    return this.autoTests ? this.autoTests.list(projectId, 30) : [];
+    return new SupabaseAutoTestStore(this.client, this.userId).list(projectId, 30);
   }
   /** Shared Runs read during this snapshot, by ID, so evidence/action reads stay consistent. */
   private readonly runs = new Map<string, DynamicRun>();
@@ -418,7 +410,14 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
   async listDynamicActions(projectId: string, sessionId: string): Promise<ReportActionTrace[]> {
     await assertMember(this.client, this.userId, projectId);
     const run = this.runs.get(sessionId);
-    if (run) return runReportActions(run);
+    if (run) {
+      const definitions = new Map(run.revision.checks.map(check => [check.id, check]));
+      return run.checks.map((result, index) => ({
+        step: index + 1, action: 'check',
+        target: definitions.get(result.checkId)?.description ?? result.checkId,
+        result: `${result.verdict}${result.reason ? `: ${result.reason}` : ''}`,
+      }));
+    }
     const rows = await requirePagedRows(this.client, 'dynamic_actions', query => query.select('id,step,action,target,result')
       .eq('project_id', projectId).eq('dynamic_session_id', sessionId).order('step').order('id'));
     return rows.map(row => ({
@@ -600,6 +599,6 @@ export class SupabaseReportSnapshotSource implements ReportSnapshotSource {
   }
 }
 
-export function createSupabaseReportSnapshotSource(client: SupabaseClient, userId: string, autoTests?: AutoTestStore): ReportSnapshotSource {
-  return new SupabaseReportSnapshotSource(client, userId, autoTests);
+export function createSupabaseReportSnapshotSource(client: SupabaseClient, userId: string): ReportSnapshotSource {
+  return new SupabaseReportSnapshotSource(client, userId);
 }

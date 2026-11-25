@@ -1,8 +1,5 @@
 import type {SupabaseClient} from '@supabase/supabase-js';import {DynamicContractError} from '../types.js';
-import type {CleanupSource,HookKind,HookOperation} from './operations.js';import type {ProcessResult} from './process.js';
-export type HookStore = Pick<HookRepository, 'get' | 'byKey' | 'list' | 'claim' | 'heartbeat' | 'finish' | 'cancel' | 'recover'> & {
- start(projectId:string,profileId:string,kind:HookKind,key:string,command:HookOperation['command'],source?:CleanupSource):Promise<{operation:HookOperation;reused:boolean}>;
-};
+import type {HookKind,HookOperation} from './operations.js';import type {ProcessResult} from './process.js';
 export class HookRepository {
  constructor(private readonly client:SupabaseClient){}
  private error(error:{code?:string}|null){if(error)throw new DynamicContractError(error.code==='P0001'||error.code==='23505'?409:error.code==='P0002'?404:503,'Data operation unavailable or state changed. Refresh its history and inspect cleanup readiness.');}

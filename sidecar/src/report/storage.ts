@@ -22,13 +22,12 @@ export function sha256(bytes: string | Buffer): string {
 }
 
 export function makeReportChecksums(rendered: ProjectReportRenderings): ReportChecksums {
-  return reportFileChecksums({ json: Buffer.from(rendered.json, 'utf8'), markdown: Buffer.from(rendered.markdown, 'utf8'), pdf: rendered.pdf });
-}
-
-export function reportFileChecksums(files: Record<'json' | 'markdown' | 'pdf', Buffer>): ReportChecksums {
-  const snapshotHash = sha256(files.json);
-  const markdownHash = sha256(files.markdown);
-  const pdfHash = sha256(files.pdf);
+  const snapshot = Buffer.from(rendered.json, 'utf8');
+  const markdown = Buffer.from(rendered.markdown, 'utf8');
+  const pdf = rendered.pdf;
+  const snapshotHash = sha256(snapshot);
+  const markdownHash = sha256(markdown);
+  const pdfHash = sha256(pdf);
   const packageHash = sha256(
     'json:' + snapshotHash + '\nmarkdown:' + markdownHash + '\npdf:' + pdfHash,
   );

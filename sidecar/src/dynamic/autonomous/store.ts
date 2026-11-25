@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LiveRunOptions } from '../live/liveHub.js';
 import type { AutoTestSession } from './orchestrator.js';
-import { DynamicContractError } from '../types.js';
 
 export interface AutoTestStore {
   list(projectId: string, limit?: number): Promise<AutoTestSession[]>;
@@ -11,12 +10,6 @@ export interface AutoTestStore {
 
 const ENTITY = 'dynamic_autonomous';
 const EVENT = 'dynamic_autonomous_session';
-
-function historyReadError(operation: 'list' | 'get', code: unknown) {
-  const safeCode = typeof code === 'string' && /^(?:[A-Z0-9]{5}|PGRST\d{3})$/.test(code) ? code : 'unknown';
-  console.warn(`[auto-test] History ${operation} failed (${safeCode}).`);
-  return new DynamicContractError(503, 'Auto test history is temporarily unavailable.');
-}
 
 function parse(projectId: string, payload: unknown): AutoTestSession | null {
   const session = (payload as { version?: number; session?: AutoTestSession } | null)?.session;
@@ -30,15 +23,14 @@ export class SupabaseAutoTestStore implements AutoTestStore {
   constructor(private readonly client: SupabaseClient, private readonly userId: string) {}
   async list(projectId: string, limit = 10) {
     const result = await this.client.from('audit_events').select('payload').eq('project_id', projectId)
-      .eq('entity_type', ENTITY).eq('event_type', EVENT)
-      .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit);
-    if (result.error) throw historyReadError('list', result.error.code);
+      .eq('entity_type', ENTITY).eq('event_type', EVENT).order('created_at', { ascending: false }).limit(limit);
+    if (result.error) throw new Error('Auto test history is unavailable');
     return (result.data ?? []).map(row => parse(projectId, row.payload)).filter((session): session is AutoTestSession => !!session);
   }
   async get(projectId: string, id: string) {
     const result = await this.client.from('audit_events').select('payload').eq('project_id', projectId).eq('id', id)
       .eq('entity_type', ENTITY).eq('event_type', EVENT).limit(1);
-    if (result.error) throw historyReadError('get', result.error.code);
+    if (result.error) throw new Error('Auto test history is unavailable');
     return result.data?.[0] ? parse(projectId, result.data[0].payload) : null;
   }
   async save(session: AutoTestSession) {
@@ -52,7 +44,7 @@ export class SupabaseAutoTestStore implements AutoTestStore {
 
 export class MemoryAutoTestStore implements AutoTestStore {
   readonly sessions = new Map<string, AutoTestSession>();
-  async list(projectId: string, limit = 10) { return [...this.sessions.values()].filter(session => session.projectId === projectId).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, limit).map(session => structuredClone(session)); }
+  async list(projectId: string, limit = 10) { return [...this.sessions.values()].filter(session => session.projectId === projectId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(session => structuredClone(session)); }
   async get(projectId: string, id: string) { const session = this.sessions.get(id); return session && session.projectId === projectId ? structuredClone(session) : null; }
   async save(session: AutoTestSession) { this.sessions.set(session.id, structuredClone(session)); }
 }

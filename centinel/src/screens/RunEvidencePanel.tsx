@@ -27,7 +27,6 @@ export function RunEvidencePanel({ projectId, run }: {
     } | null>(null);
     const [deleteId, setDeleteId] = useState('');
     const generation = useRef(0);
-    const device = run.evidenceStorage === 'device';
     const producer = sessionStorage.getItem('centinel:supabase-user-id') === run.createdBy;
     useEffect(() => { setOmitted([]); setPreview(null); }, [projectId, run.id]);
     useEffect(() => {
@@ -50,7 +49,7 @@ export function RunEvidencePanel({ projectId, run }: {
             }
             catch (e) {
                 if (ticket === generation.current)
-                    setError(userFacingError(e, device ? 'Saved evidence status could not be loaded.' : 'Shared evidence status could not be loaded. Local evidence may remain available.'));
+                    setError(userFacingError(e, 'Shared evidence status could not be loaded. Local evidence may remain available.'));
             }
             const manifestCopy=rows.find(row=>row.kind==='partial_manifest'&&row.availability==='available');
             if(manifestCopy){try{const blob=await api.dynamicRecordedEvidenceBlob(projectId,run.id,manifestCopy.id,'shared');if(blob.size!==manifestCopy.bytes||blob.size>4194304)throw Error('Manifest size mismatch');const manifest=JSON.parse(await blob.text());if(manifest.schemaVersion!==1||manifest.criterionProof!==false||!Array.isArray(manifest.omitted)||manifest.omitted.length>64)throw Error('Manifest schema mismatch');const missing=manifest.omitted.filter((item:unknown):item is {slot:string;reason:string}=>Boolean(item)&&typeof item==='object'&&typeof (item as {slot?:unknown}).slot==='string'&&typeof (item as {reason?:unknown}).reason==='string').map((item:{slot:string;reason:string})=>({slot:item.slot.slice(0,100),reason:item.reason.slice(0,500)}));if(ticket===generation.current)setOmitted(missing);}catch{if(ticket===generation.current)setError('Shared artifact availability manifest could not be verified.');}}
@@ -77,11 +76,11 @@ export function RunEvidencePanel({ projectId, run }: {
                     return;
                 url = URL.createObjectURL(blob);
                 setImage(url);
-                setImageStatus(device ? 'Screenshot verified on this device.' : fromShared ? 'Shared copy verified for this account.' : shared ? 'Shared copy unavailable; verified local copy shown.' : 'Local copy verified on this device.');
+                setImageStatus(fromShared ? 'Shared copy verified for this account.' : shared ? 'Shared copy unavailable; verified local copy shown.' : 'Local copy verified on this device.');
             }
             catch {
                 if (ticket === generation.current)
-                    setImageStatus(device ? 'Screenshot unavailable on this device. Recorded outcomes remain available.' : 'Screenshot unavailable here. Recorded outcomes remain available; sync a copy from the executing device.');
+                    setImageStatus('Screenshot unavailable here. Recorded outcomes remain available; sync a copy from the executing device.');
             }
         })().finally(() => {
             if (ticket === generation.current)
@@ -92,7 +91,7 @@ export function RunEvidencePanel({ projectId, run }: {
             if (url)
                 URL.revokeObjectURL(url);
         };
-    }, [projectId, run.id, refresh, device]);
+    }, [projectId, run.id, refresh]);
     async function sync() {
         const ticket = generation.current;
         setBusy(true);
@@ -104,7 +103,7 @@ export function RunEvidencePanel({ projectId, run }: {
         }
         catch (e) {
             if (ticket === generation.current) {
-                setError(userFacingError(e, device ? 'Evidence could not be saved. Refresh status before retrying.' : 'Evidence sync stopped. Refresh status before retrying.'));
+                setError(userFacingError(e, 'Evidence sync stopped. Refresh status before retrying.'));
                 try {
                     const rows = await api.dynamicEvidenceCopies(projectId, run.id);
                     if (ticket === generation.current)
@@ -147,7 +146,7 @@ export function RunEvidencePanel({ projectId, run }: {
     }
     catch (e) {
         if (ticket === generation.current)
-            setError(userFacingError(e, device ? 'Diagnostics or captured files could not be saved. Refresh status before retrying.' : 'Artifact sharing stopped. Inspect retained status before retrying.'));
+            setError(userFacingError(e, 'Artifact sharing stopped. Inspect retained status before retrying.'));
     }
     finally {
         if (ticket === generation.current)
@@ -187,26 +186,26 @@ export function RunEvidencePanel({ projectId, run }: {
     }
     return <section className="dw-shared-evidence" aria-labelledby="dw-evidence-copy-title">
     <h3 id="dw-evidence-copy-title">Recorded evidence</h3>
-    <p>{device ? 'Saved copies stay on this device.' : 'Sync verified independent checks from this device to share them with project members. Shared copies expire seven days after capture. Retries keep the original expiry date.'}</p>
+    <p>Sync verified independent checks from this device to share them with project members. Shared copies expire seven days after capture; retries do not extend that date.</p>
  <div className="dw-actions">
-    <button type="button" className="btn-secondary" disabled={busy || run.state !== 'completed' || !run.evidence.length} onClick={() => void sync()}>{device ? 'Save independent evidence' : 'Sync independent evidence'}</button>
-    <button type="button" className="btn-secondary" disabled={busy || !producer || ['queued', 'running'].includes(run.state)} onClick={() => void shareArtifacts()}>{device ? 'Save diagnostics and captured files' : 'Share diagnostics and captured files'}</button>
+    <button type="button" className="btn-secondary" disabled={busy || run.state !== 'completed' || !run.evidence.length} onClick={() => void sync()}>Sync independent evidence</button>
+    <button type="button" className="btn-secondary" disabled={busy || !producer || ['queued', 'running'].includes(run.state)} onClick={() => void shareArtifacts()}>Share diagnostics and captured files</button>
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh evidence status</button>
     </div>
- {!producer && <p className="dw-muted">{device ? 'Only the account that ran the check can save diagnostics and captured files.' : 'Diagnostics and captured files are published by the original executing account. Shared copies remain readable to project members.'}</p>}
+ {!producer && <p className="dw-muted">Diagnostics and captured files are published by the original executing account. Shared copies remain readable to project members.</p>}
  {error && <p role="alert" className="dw-error">{error}</p>}
  <p className="dw-muted">{imageStatus}</p>{image && <img src={image} className="dw-screenshot" alt="Verified screenshot for the selected Run's independent checks"/>}
- {!copies.length && <p className="dw-muted">{device ? 'No copies saved on this device.' : 'No shared copies recorded. Files on another device are unavailable until synced.'}</p>}
+ {!copies.length && <p className="dw-muted">No shared copies recorded. Files on another device are unavailable until synced.</p>}
  {copies.length > 0 && <ul className="dw-evidence-copies">{copies.map(copy => <li key={copy.id}>
             <strong>{copyLabel(copy.kind)}</strong>
-            <p>{copy.availability[0].toUpperCase() + copy.availability.slice(1)} · {copy.bytes} bytes{copy.expiresAt && ` · ${device ? 'Hosted expiry' : 'Expires'} ${formatActivityTime(copy.expiresAt)}`}</p>
+            <p>{copy.availability[0].toUpperCase() + copy.availability.slice(1)} · {copy.bytes} bytes · Expires {formatActivityTime(copy.expiresAt)}</p>
             {copy.criterionProof === false && <p className="dw-muted">Diagnostic or captured output; does not independently verify a criterion.</p>}
             {copy.availability === 'available' && copy.kind !== 'screenshot' && <button type="button" className="btn-secondary" disabled={busy} onClick={() => void inspect(copy)}>{copy.kind === 'download' ? 'Save captured file' : 'Inspect recorded JSON'}</button>}
             <details className="dw-advanced">
             <summary>Copy details</summary>
             <p>SHA-256 {copy.sha256}</p>{copy.sourceSha256 && <p>Original source SHA-256 {copy.sourceSha256} · privacy version {copy.privacyVersion}</p>}
-            <p>Executed by {copy.executorId} · {device ? 'Saved by' : 'Synced by'} {copy.syncedBy ?? 'Not recorded'}</p>{copy.availability === 'deleted' && <p>Deleted by {copy.deletedBy ?? 'Not recorded'}</p>}
-            </details>{copy.availability !== 'deleted' && <button type="button" className="btn-secondary" disabled={busy} onClick={() => setDeleteId(copy.id)}>{device ? 'Delete saved copy' : 'Delete shared copy'}</button>}</li>)}</ul>}
+            <p>Executed by {copy.executorId} · Synced by {copy.syncedBy ?? 'Not synced'}</p>{copy.availability === 'deleted' && <p>Deleted by {copy.deletedBy ?? 'Not recorded'}</p>}
+            </details>{copy.availability !== 'deleted' && <button type="button" className="btn-secondary" disabled={busy} onClick={() => setDeleteId(copy.id)}>Delete shared copy</button>}</li>)}</ul>}
  {omitted.length > 0 && <div className="dw-notice">
         <strong>Unavailable local artifacts</strong>
         <ul>{omitted.map(item => <li key={item.slot}>{item.slot}: {item.reason}</li>)}</ul>
@@ -217,8 +216,8 @@ export function RunEvidencePanel({ projectId, run }: {
         <pre className="dw-json-preview">{preview.content}</pre>
         <button type="button" className="btn-secondary" onClick={() => setPreview(null)}>Close preview</button>
         </div>}
-        {deleteId && <div className="dw-notice" role="group" aria-label={device ? 'Confirm saved-copy deletion' : 'Confirm shared-copy deletion'}>
-        <p>{device ? 'Delete this saved copy? The original Run evidence, copy history and checksum remain.' : 'Delete this shared copy? Its history and checksum remain. Local and previously downloaded copies are not removed.'}</p>
+        {deleteId && <div className="dw-notice" role="group" aria-label="Confirm shared-copy deletion">
+        <p>Delete this shared copy? Its history and checksum remain. Local and previously downloaded copies are not removed.</p>
         <div className="dw-actions">
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => setDeleteId('')}>Keep copy</button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => void remove()}>Confirm deletion</button>

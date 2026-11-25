@@ -6,7 +6,7 @@ import { listClientArtifacts, readClientArtifactContent } from '../applicationAp
 import { SupabaseConnectedSourceRepository } from '../integrations/supabaseRepository.js';
 import { createGroundingModelProvider } from '../review/groundingProvider.js';
 import { isAssessmentHeld } from '../review/assessmentHold.js';
-import { SupabaseModelConfigurationRepository, type ModelConfigurationRepository } from '../review/modelProviderResolver.js';
+import { SupabaseModelConfigurationRepository } from '../review/modelProviderResolver.js';
 import { SupabaseReadinessStore } from './repository.js';
 import { ProjectReadinessCoordinator, type ReadinessIndex } from './service.js';
 import type { ReadinessArtifact } from './types.js';
@@ -28,11 +28,8 @@ export function createReadinessModelProvider(auth: AuthenticatedRequest, current
 
 /** Hash-only identity of the configuration Readiness would resolve; never returns secrets or endpoints. */
 export async function readinessConfigurationRevision(auth: AuthenticatedRequest, projectId: string): Promise<string | null> {
-  return readinessConfigurationDigest(new SupabaseModelConfigurationRepository(auth.client), auth.userId, projectId);
-}
-
-export async function readinessConfigurationDigest(configurations: ModelConfigurationRepository, ownerId: string, projectId: string): Promise<string | null> {
-  const record = await configurations.getModelConfiguration({ ownerId, projectId, purpose: 'static_review' });
+  const record = await new SupabaseModelConfigurationRepository(auth.client)
+    .getModelConfiguration({ ownerId: auth.userId, projectId, purpose: 'static_review' });
   if (!record) return null;
   const digest = (value: string | null | undefined) => value ? crypto.createHash('sha256').update(value).digest('hex') : null;
   return crypto.createHash('sha256').update(JSON.stringify({

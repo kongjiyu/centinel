@@ -1,8 +1,4 @@
 import type {SupabaseClient} from '@supabase/supabase-js';import {DynamicContractError} from '../types.js';
-export type SessionCaptureStore = Pick<SessionCaptureRepository, 'heartbeat' | 'finish' | 'requireIdle'> & {
-  acquire(project: string, profile: string, id: string, token: string, worker: string, version?: number): Promise<boolean>;
-  mutateSession?<T>(project: string, profile: string, version: number, mutation: () => T): Promise<T>;
-};
 export class SessionCaptureRepository{
  constructor(private readonly client:SupabaseClient){}
  private check(error:{code?:string}|null){if(error)throw new DynamicContractError(error.code==='P0001'||error.code==='23505'?409:503,'Sign-in capture lease unavailable. Stop project work or refresh cleanup readiness.');}

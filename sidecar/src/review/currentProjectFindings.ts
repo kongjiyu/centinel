@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { StoreFinding } from '../store/types.js';
-import type { StaticReviewRepository } from './types.js';
 import { SupabaseStaticReviewRepository } from './supabaseRepository.js';
 import { reconcileProjectFindings, presentReconciledProjectFindings, type ReconciliationManifest } from './findingReconciliation.js';
 
@@ -8,37 +7,6 @@ import { reconcileProjectFindings, presentReconciledProjectFindings, type Reconc
  * Fail closed for risk/export callers when historical evidence is unavailable. */
 export async function loadCurrentProjectFindings(client: SupabaseClient, projectId: string, findings: StoreFinding[]) {
   const repository = new SupabaseStaticReviewRepository(client);
-  return projectCurrentFindings(repository, projectId, findings, async (reviewId, manifestId) => {
-    const { data, error } = await client.from('review_source_snapshots').select('*')
-      .eq('project_id', projectId).eq('review_session_id', reviewId).eq('id', manifestId).maybeSingle();
-    if (error) throw error;
-    if (!data || typeof data !== 'object') return null;
-    const row = data as Record<string, unknown>;
-    const snapshot = row.snapshot && typeof row.snapshot === 'object' && !Array.isArray(row.snapshot)
-      ? row.snapshot as Record<string, unknown>
-      : {};
-    const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts.flatMap(value => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
-      const artifact = value as Record<string, unknown>;
-      const metadata = artifact.metadata && typeof artifact.metadata === 'object' && !Array.isArray(artifact.metadata)
-        ? artifact.metadata as Record<string, unknown>
-        : {};
-      const id = typeof artifact.id === 'string' ? artifact.id : '';
-      const filePath = typeof artifact.path === 'string' ? artifact.path : typeof artifact.filePath === 'string' ? artifact.filePath : '';
-      const contentHash = typeof metadata.contentHash === 'string' ? metadata.contentHash : typeof artifact.contentHash === 'string' ? artifact.contentHash : '';
-      if (!id || !filePath || !contentHash) return [];
-      return [{ id, filePath, originalPath: typeof metadata.originalPath === 'string' ? metadata.originalPath : null, contentHash }];
-    }) : [];
-    return { id: manifestId, reviewId, status: typeof row.status === 'string' ? row.status : 'unavailable', artifacts };
-  });
-}
-
-export async function projectCurrentFindings(
-  repository: Required<Pick<StaticReviewRepository, 'listReviews' | 'getFindingCorrelationSnapshot'>>,
-  projectId: string,
-  findings: StoreFinding[],
-  readManifest: (reviewId: string, manifestId: string) => Promise<ReconciliationManifest | null>,
-) {
   const reviews = await repository.listReviews(projectId);
   const snapshotCandidates = await Promise.all(reviews.map(async review => ({
     childReviewId: review.id,
@@ -62,8 +30,27 @@ export async function projectCurrentFindings(
   for (const reviewId of relevantReviewIds) {
     const review = reviewsById.get(reviewId);
     if (!review?.sourceManifestId) continue;
-    const manifest = await readManifest(reviewId, review.sourceManifestId);
-    if (manifest) manifests.push(manifest);
+    const { data, error } = await client.from('review_source_snapshots').select('*')
+      .eq('project_id', projectId).eq('review_session_id', review.id).eq('id', review.sourceManifestId).maybeSingle();
+    if (error) throw error;
+    if (!data || typeof data !== 'object') continue;
+    const row = data as Record<string, unknown>;
+    const snapshot = row.snapshot && typeof row.snapshot === 'object' && !Array.isArray(row.snapshot)
+      ? row.snapshot as Record<string, unknown>
+      : {};
+    const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts.flatMap(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+      const artifact = value as Record<string, unknown>;
+      const metadata = artifact.metadata && typeof artifact.metadata === 'object' && !Array.isArray(artifact.metadata)
+        ? artifact.metadata as Record<string, unknown>
+        : {};
+      const id = typeof artifact.id === 'string' ? artifact.id : '';
+      const filePath = typeof artifact.path === 'string' ? artifact.path : typeof artifact.filePath === 'string' ? artifact.filePath : '';
+      const contentHash = typeof metadata.contentHash === 'string' ? metadata.contentHash : typeof artifact.contentHash === 'string' ? artifact.contentHash : '';
+      if (!id || !filePath || !contentHash) return [];
+      return [{ id, filePath, originalPath: typeof metadata.originalPath === 'string' ? metadata.originalPath : null, contentHash }];
+    }) : [];
+    manifests.push({ id: review.sourceManifestId, reviewId: review.id, status: typeof row.status === 'string' ? row.status : 'unavailable', artifacts });
   }
   const reconciled = reconcileProjectFindings({
     findings: findings.map(finding => ({

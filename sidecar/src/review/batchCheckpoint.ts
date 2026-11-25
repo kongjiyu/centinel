@@ -9,9 +9,9 @@ import type { CandidateSupportRecord } from './assessmentValidation.js';
 
 const CACHE_SCHEMA_VERSION = 1;
 const CACHE_BUCKET = 'project-artifacts';
-export const CACHE_EVENT = 'review_batch_cache_saved';
-export const CACHE_ENTITY = 'static_review';
-export const MAX_CACHE_JSON_BYTES = 4 * 1024 * 1024;
+const CACHE_EVENT = 'review_batch_cache_saved';
+const CACHE_ENTITY = 'static_review';
+const MAX_CACHE_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_CACHE_ARCHIVE_BYTES = 4 * 1024 * 1024;
 const compress = promisify(gzip);
 const decompress = promisify(gunzip);
@@ -67,7 +67,6 @@ type CacheReceipt = {
   archiveBytes: number;
   recordSha256: string;
 };
-export type PortableBatchCacheArchive = { receipt: CacheReceipt; contentBase64: string };
 type ReceiptRow = {
   id?: unknown;
   project_id?: unknown;
@@ -295,7 +294,7 @@ function sanitizeSupportRecords(value: unknown, findingCount: number): Candidate
   });
 }
 
-export function sanitizeBatchCacheRecord(value: unknown, expected?: { projectId: string; ownerId: string; requestHash: string }): ValidatedBatchCacheRecord {
+function sanitizeRecord(value: unknown, expected?: { projectId: string; ownerId: string; requestHash: string }): ValidatedBatchCacheRecord {
   const keys = ['version', 'projectId', 'ownerId', 'originReviewId', 'requestHash', 'policyVersion', 'validationVersion', 'providerFingerprint', 'generation', 'supportRecords'] as const;
   const item = assertObject(value, 'Validated batch cache record', new Set(keys), keys);
   if (item.version !== CACHE_SCHEMA_VERSION) throw new ValidatedBatchCacheError('Validated batch cache version is incompatible.', 'invalid_record');
@@ -315,14 +314,14 @@ export function sanitizeBatchCacheRecord(value: unknown, expected?: { projectId:
     providerFingerprint, generation, supportRecords };
 }
 
-export function canonicalBatchCacheJson(value: unknown): string {
+function canonicalJson(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) throw new ValidatedBatchCacheError('Cache JSON contains a non-finite number.', 'invalid_record');
     return JSON.stringify(value);
   }
-  if (Array.isArray(value)) return `[${value.map(canonicalBatchCacheJson).join(',')}]`;
-  if (object(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalBatchCacheJson(value[key])}`).join(',')}}`;
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (object(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
   throw new ValidatedBatchCacheError('Cache record is not canonical JSON.', 'invalid_record');
 }
 
@@ -330,7 +329,7 @@ function objectPath(ownerId: string, projectId: string, requestHash: string, arc
   return `${projectId}/_review-batch-cache/v1/${ownerId}/${projectId}/${requestHash}/${archiveSha256}.json.gz`;
 }
 
-export function batchCacheReceiptId(ownerId: string, projectId: string, requestHash: string): string {
+function receiptId(ownerId: string, projectId: string, requestHash: string): string {
   const bytes = Buffer.from(sha256(`centinel:review-batch-cache-receipt:v1:${ownerId}:${projectId}:${requestHash}`).slice(0, 32), 'hex');
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
@@ -377,42 +376,6 @@ function validReceipt(value: unknown, expected: { id: string; ownerId: string; p
   return receipt;
 }
 
-async function decodeHostedBatchArchive(receipt: CacheReceipt, archive: Buffer): Promise<ValidatedBatchCacheRecord> {
-  if (archive.length !== receipt.archiveBytes || sha256(archive) !== receipt.archiveSha256) {
-    throw new ValidatedBatchCacheError('Validated batch cache archive hash does not match its receipt.', 'invalid_archive');
-  }
-  let json: Buffer;
-  try { json = await decompress(archive, { maxOutputLength: MAX_CACHE_JSON_BYTES }); }
-  catch { throw new ValidatedBatchCacheError('Validated batch cache archive is corrupt or oversized.', 'invalid_archive'); }
-  if (sha256(json) !== receipt.recordSha256) {
-    throw new ValidatedBatchCacheError('Validated batch cache record does not match its receipt.', 'invalid_archive');
-  }
-  let plaintext: string;
-  try { plaintext = decryptSecret(json.toString('utf8')); }
-  catch { throw new ValidatedBatchCacheError('Validated batch cache record authentication failed.', 'invalid_archive'); }
-  let record: ValidatedBatchCacheRecord;
-  try { record = sanitizeBatchCacheRecord(JSON.parse(plaintext), receipt); }
-  catch { throw new ValidatedBatchCacheError('Validated batch cache record is incompatible.', 'invalid_archive'); }
-  if (record.originReviewId !== receipt.originReviewId || canonicalBatchCacheJson(record) !== plaintext) {
-    throw new ValidatedBatchCacheError('Validated batch cache record identity does not match its receipt.', 'invalid_archive');
-  }
-  return record;
-}
-
-export async function verifyPortableBatchCacheArchive(item: PortableBatchCacheArchive, ownerId: string, projectId: string) {
-  const receipt = item?.receipt;
-  const requestHash = assertHash(receipt?.requestHash, 'Cache request hash');
-  const id = batchCacheReceiptId(ownerId, projectId, requestHash);
-  const scoped = validReceipt({ id, project_id: projectId, actor_id: ownerId, event_type: CACHE_EVENT,
-    entity_type: CACHE_ENTITY, entity_id: receipt.originReviewId, payload: receipt }, { ownerId, projectId, requestHash, id });
-  if (typeof item.contentBase64 !== 'string' || item.contentBase64.length !== 4 * Math.ceil(scoped.archiveBytes / 3)) {
-    throw new ValidatedBatchCacheError('The batch cache archive has an invalid size.', 'invalid_archive');
-  }
-  const archive = Buffer.from(item.contentBase64, 'base64');
-  if (archive.toString('base64') !== item.contentBase64) throw new ValidatedBatchCacheError('The batch cache archive encoding is invalid.', 'invalid_archive');
-  return decodeHostedBatchArchive(scoped, archive);
-}
-
 /**
  * Stores only public, structured results under an owner/project/request key.
  * Production callers should pass a callback backed by RefreshableSupabaseRuntime
@@ -428,18 +391,6 @@ export class SupabaseValidatedBatchCache implements ValidatedBatchCache {
   }
 
   async load(projectId: string, requestHash: string, signal?: AbortSignal): Promise<ValidatedBatchCacheRecord | null> {
-    const item = await this.readEncryptedArchive(projectId, requestHash, signal);
-    return item ? decodeHostedBatchArchive(item.receipt, item.archive) : null;
-  }
-
-  async exportArchive(projectId: string, requestHash: string, signal?: AbortSignal): Promise<PortableBatchCacheArchive | null> {
-    const item = await this.readEncryptedArchive(projectId, requestHash, signal);
-    if (!item) return null;
-    await decodeHostedBatchArchive(item.receipt, item.archive);
-    return { receipt: item.receipt, contentBase64: item.archive.toString('base64') };
-  }
-
-  private async readEncryptedArchive(projectId: string, requestHash: string, signal?: AbortSignal) {
     const project = assertUuid(projectId, 'Cache project id');
     const hash = assertHash(requestHash, 'Cache request hash');
     const key = { ownerId: this.ownerId, projectId: project, requestHash: hash };
@@ -447,7 +398,7 @@ export class SupabaseValidatedBatchCache implements ValidatedBatchCache {
     const receiptResult = await this.receiptQuery(receiptClient, key, signal);
     if (receiptResult.error) throw new ValidatedBatchCacheError('Validated batch cache receipt could not be read.', 'persistence');
     if (!receiptResult.data) return null;
-    const receipt = validReceipt(receiptResult.data, { id: batchCacheReceiptId(key.ownerId, project, hash), ...key });
+    const receipt = validReceipt(receiptResult.data, { id: receiptId(key.ownerId, project, hash), ...key });
 
     const storageClient = await this.authorizedClient(project, signal);
     throwIfAborted(signal);
@@ -463,16 +414,36 @@ export class SupabaseValidatedBatchCache implements ValidatedBatchCache {
     let archive: Buffer;
     try { archive = Buffer.from(await download.data.arrayBuffer()); }
     catch { throw new ValidatedBatchCacheError('Validated batch cache archive could not be read.', 'persistence'); }
-    return { receipt, archive };
+    if (archive.length !== receipt.archiveBytes || sha256(archive) !== receipt.archiveSha256) {
+      throw new ValidatedBatchCacheError('Validated batch cache archive hash does not match its receipt.', 'invalid_archive');
+    }
+
+    let json: Buffer;
+    try { json = await decompress(archive, { maxOutputLength: MAX_CACHE_JSON_BYTES }); }
+    catch { throw new ValidatedBatchCacheError('Validated batch cache archive is corrupt or oversized.', 'invalid_archive'); }
+    if (json.length > MAX_CACHE_JSON_BYTES || sha256(json) !== receipt.recordSha256) {
+      throw new ValidatedBatchCacheError('Validated batch cache record does not match its receipt.', 'invalid_archive');
+    }
+    let decoded: unknown;
+    let plaintext: string;
+    try { plaintext = decryptSecret(json.toString('utf8')); decoded = JSON.parse(plaintext); }
+    catch { throw new ValidatedBatchCacheError('Validated batch cache record authentication failed.', 'invalid_archive'); }
+    let record: ValidatedBatchCacheRecord;
+    try { record = sanitizeRecord(decoded, key); }
+    catch { throw new ValidatedBatchCacheError('Validated batch cache record is incompatible.', 'invalid_archive'); }
+    if (record.originReviewId !== receipt.originReviewId || canonicalJson(record) !== plaintext) {
+      throw new ValidatedBatchCacheError('Validated batch cache record identity does not match its receipt.', 'invalid_archive');
+    }
+    return record;
   }
 
   async save(value: ValidatedBatchCacheRecord, signal?: AbortSignal): Promise<void> {
-    const record = sanitizeBatchCacheRecord(value);
+    const record = sanitizeRecord(value);
     if (record.ownerId !== this.ownerId) throw new ValidatedBatchCacheError('A different owner cannot write this validated batch cache.', 'owner_mismatch');
     const existing = await this.load(record.projectId, record.requestHash, signal);
     if (existing) return; // First valid receipt wins; never overwrite a memoized result.
 
-    const json = Buffer.from(canonicalBatchCacheJson(record), 'utf8');
+    const json = Buffer.from(canonicalJson(record), 'utf8');
     if (json.length < 1 || json.length > MAX_CACHE_JSON_BYTES) throw new ValidatedBatchCacheError('Validated batch cache JSON exceeds 4 MiB.', 'invalid_record');
     // Storage RLS is project-member scoped. Authenticated encryption protects
     // result confidentiality and provenance even against direct member writes.
@@ -510,7 +481,7 @@ export class SupabaseValidatedBatchCache implements ValidatedBatchCache {
       }
     }
 
-    const eventId = batchCacheReceiptId(this.ownerId, record.projectId, record.requestHash);
+    const eventId = receiptId(this.ownerId, record.projectId, record.requestHash);
     const row = {
       id: eventId,
       project_id: record.projectId,
@@ -559,7 +530,7 @@ export class SupabaseValidatedBatchCache implements ValidatedBatchCache {
 
   private async receiptQuery(client: SupabaseClient, key: { ownerId: string; projectId: string; requestHash: string }, signal?: AbortSignal) {
     let query = client.from('audit_events').select('id,project_id,actor_id,event_type,entity_type,entity_id,payload,created_at')
-      .eq('id', batchCacheReceiptId(key.ownerId, key.projectId, key.requestHash))
+      .eq('id', receiptId(key.ownerId, key.projectId, key.requestHash))
       .eq('project_id', key.projectId).eq('actor_id', key.ownerId)
       .eq('event_type', CACHE_EVENT).eq('entity_type', CACHE_ENTITY);
     if (signal) query = query.abortSignal(signal);

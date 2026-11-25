@@ -193,7 +193,7 @@ export async function toClientArtifact(repository: CentinelApplicationRepository
   return clientArtifact(artifact, latest);
 }
 
-export function clientArtifact(artifact: StoreArtifact, latest?: StoreArtifactVersion): Artifact {
+function clientArtifact(artifact: StoreArtifact, latest?: StoreArtifactVersion): Artifact {
   const type = validArtifactType(artifact.kind)
     ? artifact.kind
     : validArtifactType(artifact.metadata.type) ? artifact.metadata.type : detectArtifactType(artifact.name);
@@ -322,6 +322,7 @@ export async function importLocalRepositoryArtifacts(
   const stat = await fs.stat(root).catch(() => null);
   if (!stat?.isDirectory()) throw new Error('Path is not a valid directory');
   const observedInventory = options.observedInventory ?? await inspectLocalRepository(root);
+  const gitSnapshot = await readLocalGitSnapshot(root);
   if (observedInventory && (observedInventory.root !== root || observedInventory.rootHash !== localRootHash(root))) {
     throw new Error('Local repository inventory does not match the selected root.');
   }
@@ -332,22 +333,50 @@ export async function importLocalRepositoryArtifacts(
     skipped.push(filePath);
     failures.push({ filePath, reason });
   };
-  for await (const file of readLocalRepositoryFiles(root)) {
-    const { relativePath } = file;
-    if (file.kind === 'skipped') { skipped.push(relativePath); continue; }
-    if (file.kind === 'failed') { recordFailure(relativePath, file.reason); continue; }
-    try {
-      imported.push(await uploadClientArtifact(repository, {
-        projectId, fileName: file.name, content: file.content,
-        path: options.sourceId ? `local-repositories/${options.sourceId}/${relativePath}` : relativePath,
-        source: 'repository', sourceId: options.sourceId, originalPath: file.fullPath, git: file.git,
-        ...(options.sourceId ? { localRepositoryName: path.basename(root) } : {}),
-      }));
-    } catch (cause) {
-      const code = cause instanceof ApplicationRepositoryError ? cause.code : undefined;
-      const reason = code === 'artifact_upload_failed' ? 'storage_upload_failed'
-        : code === 'artifact_version_commit_failed' ? 'version_commit_failed' : 'artifact_save_failed';
-      recordFailure(relativePath, reason);
+  let eligibleCount = 0;
+  const directories = [root];
+  while (directories.length > 0) {
+    const current = directories.pop()!;
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      const relativePath = path.relative(root, fullPath).replaceAll('\\', '/');
+      if (entry.isSymbolicLink()) { skipped.push(relativePath); continue; }
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) directories.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      // Operating-system metadata is not project content: ignore it instead of reporting it as skipped.
+      if (isOsMetadataFile(entry.name)) continue;
+      if (!isImportableLocalFile(entry.name)) { skipped.push(relativePath); continue; }
+      if (++eligibleCount > MAX_IMPORT_FILES) { recordFailure(relativePath, 'file_limit'); continue; }
+      let content: Buffer;
+      try {
+        const fileStat = await fs.lstat(fullPath);
+        if (!fileStat.isFile()) { recordFailure(relativePath, 'file_unreadable'); continue; }
+        if (fileStat.size > MAX_IMPORT_FILE_BYTES) { recordFailure(relativePath, 'file_too_large'); continue; }
+        content = await fs.readFile(fullPath);
+      } catch {
+        recordFailure(relativePath, 'file_unreadable');
+        continue;
+      }
+      try {
+        const blob = gitSnapshot?.blobs.get(relativePath);
+        const git = gitSnapshot && blob && crypto.createHash(gitSnapshot.commit.length === 64 ? 'sha256' : 'sha1')
+          .update(`blob ${content.length}\0`).update(content).digest('hex') === blob
+          ? { repository: path.basename(root), commit: gitSnapshot.commit, branch: gitSnapshot.branch, subject: gitSnapshot.subject } : undefined;
+        imported.push(await uploadClientArtifact(repository, {
+          projectId, fileName: entry.name, content, path: options.sourceId ? `local-repositories/${options.sourceId}/${relativePath}` : relativePath,
+          source: 'repository', sourceId: options.sourceId, originalPath: fullPath, git,
+          ...(options.sourceId ? { localRepositoryName: path.basename(root) } : {}),
+        }));
+      } catch (cause) {
+        const code = cause instanceof ApplicationRepositoryError ? cause.code : undefined;
+        const reason = code === 'artifact_upload_failed' ? 'storage_upload_failed'
+          : code === 'artifact_version_commit_failed' ? 'version_commit_failed' : 'artifact_save_failed';
+        recordFailure(relativePath, reason);
+      }
     }
   }
   const importedIds = new Set(imported.map(artifact => artifact.id));
@@ -377,50 +406,6 @@ export async function importLocalRepositoryArtifacts(
     throw new Error('Local import coverage could not be recorded. Retry the import before assessing readiness.');
   }
   return { imported, skipped, complete, failures };
-}
-
-type LocalRepositoryRead =
-  | { kind: 'skipped'; relativePath: string }
-  | { kind: 'failed'; relativePath: string; reason: LocalImportFailure['reason'] }
-  | { kind: 'file'; relativePath: string; fullPath: string; name: string; content: Buffer; git?: Artifact['git'] };
-
-export async function* readLocalRepositoryFiles(root: string): AsyncGenerator<LocalRepositoryRead> {
-  const gitSnapshot = await readLocalGitSnapshot(root);
-  let eligibleCount = 0;
-  const directories = [root];
-  while (directories.length > 0) {
-    const current = directories.pop()!;
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      const relativePath = path.relative(root, fullPath).replaceAll('\\', '/');
-      if (entry.isSymbolicLink()) { yield { kind: 'skipped', relativePath }; continue; }
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) directories.push(fullPath);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      // Operating-system metadata is not project content: ignore it instead of reporting it as skipped.
-      if (isOsMetadataFile(entry.name)) continue;
-      if (!isImportableLocalFile(entry.name)) { yield { kind: 'skipped', relativePath }; continue; }
-      if (++eligibleCount > MAX_IMPORT_FILES) { yield { kind: 'failed', relativePath, reason: 'file_limit' }; continue; }
-      let content: Buffer;
-      try {
-        const fileStat = await fs.lstat(fullPath);
-        if (!fileStat.isFile()) { yield { kind: 'failed', relativePath, reason: 'file_unreadable' }; continue; }
-        if (fileStat.size > MAX_IMPORT_FILE_BYTES) { yield { kind: 'failed', relativePath, reason: 'file_too_large' }; continue; }
-        content = await fs.readFile(fullPath);
-      } catch {
-        yield { kind: 'failed', relativePath, reason: 'file_unreadable' };
-        continue;
-      }
-      const blob = gitSnapshot?.blobs.get(relativePath);
-      const git = gitSnapshot && blob && crypto.createHash(gitSnapshot.commit.length === 64 ? 'sha256' : 'sha1')
-        .update(`blob ${content.length}\0`).update(content).digest('hex') === blob
-        ? { repository: path.basename(root), commit: gitSnapshot.commit, branch: gitSnapshot.branch, subject: gitSnapshot.subject } : undefined;
-      yield { kind: 'file', name: entry.name, relativePath, fullPath, content, git };
-    }
-  }
 }
 
 /** Authenticated exact-version byte reader for binary-safe Review ingestion. */

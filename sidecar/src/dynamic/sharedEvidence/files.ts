@@ -8,14 +8,11 @@ const names = { screenshot: 'criterion-page.png', checks: 'checks.json', file_ma
 export function readBoundedArtifactSlot(workspace: string, run: DynamicRun, name: string, folder: 'logs' | 'screenshots' = 'logs'): Buffer {
     if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !(/^[a-z0-9-]+\.(json|png)$/.test(name)))
         throw new DynamicContractError(409, 'Recorded artifact slot is unavailable.');
-    return readBoundedFile(workspace, path.join(workspace, 'sessions', run.legacySessionId, folder, name));
-}
-
-function readBoundedFile(directory: string, file: string): Buffer {
+    const file = path.join(workspace, 'sessions', run.legacySessionId, folder, name);
     let data: Buffer;
     let fd: number | undefined;
     try {
-        const root = fs.realpathSync(directory);
+        const root = fs.realpathSync(workspace);
         const real = fs.realpathSync(file);
         if (!real.startsWith(root + path.sep) || fs.lstatSync(file).isSymbolicLink())
             throw Error('Outside workspace');
@@ -48,16 +45,6 @@ export function loadIndependentEvidence(workspace: string, run: DynamicRun, ref:
     if (!run.legacySessionId || !(/^[a-f0-9-]{36}$/i.test(run.legacySessionId)) || !Object.hasOwn(names, ref.kind))
         throw new DynamicContractError(409, 'Independent evidence is unavailable on this device.');
     const data = readBoundedArtifactSlot(workspace, run, names[ref.kind]);
-    verifyIndependentEvidence(data, ref);
-    return data;
-}
-
-export function loadNewRunEvidence(outputDirectory: string, ref: EvidenceReference): Buffer {
-    if (!Object.hasOwn(names, ref.kind)) throw new DynamicContractError(409, 'Unsupported evidence kind.');
-    return readBoundedFile(outputDirectory, path.join(outputDirectory, names[ref.kind]));
-}
-
-export function verifyIndependentEvidence(data: Buffer, ref: EvidenceReference): void {
     if (crypto.createHash('sha256').update(data).digest('hex') !== ref.sha256)
         throw new DynamicContractError(409, 'Local evidence no longer matches the immutable Run checksum.');
     if (ref.kind === 'screenshot') {
@@ -71,4 +58,5 @@ export function verifyIndependentEvidence(data: Buffer, ref: EvidenceReference):
         catch {
             throw new DynamicContractError(409, 'Recorded evidence JSON is unreadable.');
         }
+    return data;
 }

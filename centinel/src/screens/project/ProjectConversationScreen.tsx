@@ -38,7 +38,6 @@ type Pending = { text: string; base: (AutoTestRef & { name: string }) | null; ch
 
 const POLL_MS = 2000;
 const IDLE_POLL_MS = 15000;
-const MAX_HISTORY_RETRY_MS = 30000;
 
 /** Plain-language steps from a test goal (one per line or sentence). */
 export function goalSteps(goal: string): string[] {
@@ -304,10 +303,8 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
       const list = await api.autoTests(project.id);
       setSessions(list);
       setError(null);
-      return true;
     } catch (cause) {
-      setError(userFacingError(cause, 'Auto test history could not be loaded. ORIN will retry.'));
-      return false;
+      setError(userFacingError(cause, 'The conversation could not be loaded. It will try again.'));
     } finally {
       setLoaded(true);
     }
@@ -317,13 +314,7 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
-    const interval = anyActive ? POLL_MS : IDLE_POLL_MS;
-    let delay = interval;
-    const tick = async () => {
-      const succeeded = await refresh();
-      delay = succeeded ? interval : Math.min(delay * 2, MAX_HISTORY_RETRY_MS);
-      if (active) timer = setTimeout(tick, delay);
-    };
+    const tick = async () => { await refresh(); if (active) timer = setTimeout(tick, anyActive ? POLL_MS : IDLE_POLL_MS); };
     void tick();
     return () => { active = false; clearTimeout(timer); };
   }, [refresh, anyActive]);

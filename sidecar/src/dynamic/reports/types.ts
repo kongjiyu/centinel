@@ -7,7 +7,6 @@ export type DynamicReportSnapshot={
  metadata:{schemaVersion:'centinel-dynamic-report-v1';generatorVersion:'dynamic-report-1';reportId:string;projectId:string;runId:string;actorId:string;generatedAt:string};
  run:Omit<DynamicRun,'lease'|'idempotencyKey'|'legacySessionId'|'actionPolicy'>;
  findings:FindingDetail[];evidenceCopies:EvidenceCopy[];artifacts:RunArtifact[];dataEvents:DataEvent[];
- localEvidence?: Array<{ evidenceId: string; status: 'available' | 'missing' | 'unverifiable' }>;
  modelUsage:{status:'available'|'unavailable';calls:Array<{id:string;stage:string;provider:string;model:string;outcome:string;input:number|null;output:number|null;cacheRead:number|null;cacheCreation:number|null;durationMs:number|null;createdAt:string}>};
  limitations:string[];
 };

@@ -3,51 +3,17 @@ import { createStaticContextStub, type IncomingContextSource,type StaticContextF
 import { DynamicService } from './service.js';
 import { DynamicContractError, type DynamicRun } from './types.js';
 
-type MissionAuthoringDependencies = {
+export type DynamicRouteDependencies = {
   validateAuthoring?(projectId: string, body: Record<string, unknown>): Promise<void>;
   incomingContextSource?(scenario:StubScenario):IncomingContextSource;
   /** Rebuild Review-snapshot context from the frozen Review; the client copy is never trusted. */
   reviewContext?(projectId:string,reviewId:string):Promise<StaticContextFixture>;
   actorId: string;
-  service: Pick<DynamicService, 'saveMission' | 'renameMission' | 'setMissionArchived'>;
-};
-export type DynamicRouteDependencies = MissionAuthoringDependencies & {
   service: DynamicService;
   requireProjectMember(projectId: string): Promise<void>;
   prepareExecution(projectId: string, revisionId?: string, environmentId?: string): Promise<((run: DynamicRun) => Promise<void>) | {execute(run: DynamicRun): Promise<void>; environment: EnvironmentSnapshot}>;
   cancelExecution(run: DynamicRun): void;
 };
-
-export async function handleDynamicMissionAuthoring(projectId: string, route: { id?: string; action?: string },
-  readBody: () => Promise<Record<string, unknown>>, deps: MissionAuthoringDependencies) {
-  const { id, action } = route;
-  if ((!id && !action) || (id && action === 'revisions')) {
-    const body = await readBody();
-    if ('contextScenario' in body) {
-      const scenarios: StubScenario[] = ['normal', 'stale', 'conflicting', 'unapproved', 'incomplete', 'absent'];
-      if (!scenarios.includes(body.contextScenario as StubScenario)) throw new DynamicContractError(400, 'Unknown mock scenario.');
-      body.context = await (deps.incomingContextSource ?? createStaticContextStub)(body.contextScenario as StubScenario).load(projectId);
-    }
-    const supplied = body.context && typeof body.context === 'object' && !Array.isArray(body.context)
-      ? body.context as Record<string, unknown> : null;
-    if (supplied?.provenance === 'review-snapshot') {
-      if (typeof supplied.reviewId !== 'string' || !supplied.reviewId) throw new DynamicContractError(400, 'Choose a valid source Review.');
-      if (!deps.reviewContext) throw new DynamicContractError(503, 'Review requirements are unavailable in this runtime.');
-      body.context = await deps.reviewContext(projectId, supplied.reviewId);
-    }
-    await deps.validateAuthoring?.(projectId, body);
-    return { status: 201, body: await deps.service.saveMission(projectId, deps.actorId, body, id) };
-  }
-  if (id && action === 'rename') {
-    const { name } = await readBody();
-    await deps.validateAuthoring?.(projectId, { name });
-    return { status: 200, body: await deps.service.renameMission(projectId, deps.actorId, id, name) };
-  }
-  if (id && (action === 'archive' || action === 'unarchive')) {
-    return { status: 200, body: await deps.service.setMissionArchived(projectId, deps.actorId, id, action === 'archive') };
-  }
-  return null;
-}
 
 export async function handleDynamicRoute(request: { method: string; pathname: string; readBody(): Promise<Record<string, unknown>> }, deps: DynamicRouteDependencies): Promise<{ status: number; body: unknown } | null> {
   const match = request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/(missions|revisions|runs)(?:\/([^/]+))?(?:\/(revisions|cancel|rename|archive|unarchive))?$/);
@@ -63,9 +29,29 @@ export async function handleDynamicRoute(request: { method: string; pathname: st
       for (const run of recovered) deps.cancelExecution(run);
     }
     if (resource === 'missions' && !id && request.method === 'GET') return { status: 200, body: await service.repository.listMissions(projectId) };
-    if (resource === 'missions' && request.method === 'POST') {
-      const result = await handleDynamicMissionAuthoring(projectId, { id, action }, () => request.readBody(), deps);
-      if (result) return result;
+    if (resource === 'missions' && request.method === 'POST' && (!id || action === 'revisions')) {
+      const body = await request.readBody();
+      if ('contextScenario' in body) {
+        const scenarios: StubScenario[] = ['normal', 'stale', 'conflicting', 'unapproved', 'incomplete', 'absent'];
+        if (!scenarios.includes(body.contextScenario as StubScenario)) throw new DynamicContractError(400, 'Unknown mock scenario.');
+        // Explicit authoring input, not a fallback for missing/failed real context.
+        body.context = await (deps.incomingContextSource??createStaticContextStub)(body.contextScenario as StubScenario).load(projectId);
+      }
+      const supplied=body.context&&typeof body.context==='object'&&!Array.isArray(body.context)?body.context as Record<string,unknown>:null;
+      if(supplied?.provenance==='review-snapshot'){
+        if(typeof supplied.reviewId!=='string'||!supplied.reviewId)throw new DynamicContractError(400,'Choose a valid source Review.');
+        if(!deps.reviewContext)throw new DynamicContractError(503,'Review requirements are unavailable in this runtime.');
+        body.context=await deps.reviewContext(projectId,supplied.reviewId);
+      }
+      await deps.validateAuthoring?.(projectId,body);
+      return { status: 201, body: await service.saveMission(projectId, deps.actorId, body, id) };
+    }
+    if (resource === 'missions' && id && request.method === 'POST' && action === 'rename') {
+      const body = await request.readBody();
+      return { status: 200, body: await service.renameMission(projectId, deps.actorId, id, body.name) };
+    }
+    if (resource === 'missions' && id && request.method === 'POST' && (action === 'archive' || action === 'unarchive')) {
+      return { status: 200, body: await service.setMissionArchived(projectId, deps.actorId, id, action === 'archive') };
     }
     if (resource === 'revisions' && id && request.method === 'GET') {
       const revision = await service.repository.getRevision(projectId, id);

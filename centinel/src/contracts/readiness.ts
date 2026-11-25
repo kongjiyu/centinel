@@ -19,8 +19,7 @@ export type ReadinessFailureCode =
   | 'timeout'
   | 'persistence'
   | 'source_changes'
-  | 'assessment_failed'
-  | 'interrupted';
+  | 'assessment_failed';
 export type ReadinessReference = {
   artifactId: string;
   path: string;

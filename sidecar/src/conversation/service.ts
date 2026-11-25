@@ -90,30 +90,22 @@ class ConversationValidationError extends Error {
   constructor(readonly reason: NonNullable<ConversationRequest['validationReason']>, message: string) { super(message); }
 }
 
-export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode'], earlierTurns: Evidence[] = [], allowGeneralAnswer = false): ConversationPlan {
-  const plan = raw as (Omit<ConversationPlan, 'action'> & {
-    action: ConversationPlan['action'] | 'general';
-    claims?: Array<{ citation: string; excerpt: string }>;
-  }) | null;
+export function validateConversationPlan(raw: unknown, evidence: Evidence[], mode: ConversationInput['mode'], earlierTurns: Evidence[] = []): ConversationPlan {
+  const plan = raw as (ConversationPlan & { claims?: Array<{ citation: string; excerpt: string }> }) | null;
   const supported = [...evidence, ...earlierTurns];
   const ids = new Set(supported.map(item => item.id));
   const artifacts = new Set(evidence.filter(item => !item.unavailable).map(item => item.artifactId).filter(Boolean));
-  if (!plan || !['explain', 'suggest', 'code', 'browser', 'clarify', 'general'].includes(plan.action) || typeof plan.reply !== 'string'
+  if (!plan || !['explain', 'suggest', 'code', 'browser', 'clarify'].includes(plan.action) || typeof plan.reply !== 'string'
     || !plan.reply.trim() || plan.reply.length > 6000 || !Array.isArray(plan.citations) || plan.citations.length > 24
     || !Array.isArray(plan.scope) || plan.scope.length > 200) throw new ConversationValidationError('response_format', 'The agent response could not be validated.');
-  if (plan.action === 'general' && (!allowGeneralAnswer || plan.scope.length || plan.citations.length
-    || !Array.isArray(plan.claims) || plan.claims.length)) {
-    throw new ConversationValidationError('response_format', 'A general answer must be independent of saved evidence and executable scope.');
-  }
   if (plan.citations.some(id => typeof id !== 'string' || !ids.has(id))) {
     throw new ConversationValidationError('citation_unknown', 'The response referenced evidence that was not supplied.');
   }
   if (plan.scope.some(id => typeof id !== 'string' || !artifacts.has(id))) {
     throw new ConversationValidationError('scope_unbound', 'The proposed scope is not bound to supplied files.');
   }
-  const needsQuotes = supported.length && plan.action !== 'clarify' && plan.action !== 'general';
-  if (needsQuotes && !plan.citations.length) throw new ConversationValidationError('citation_missing', 'The response needs saved evidence references.');
-  if (needsQuotes) {
+  if (supported.length && plan.action !== 'clarify' && !plan.citations.length) throw new ConversationValidationError('citation_missing', 'The response needs saved evidence references.');
+  if (plan.action !== 'clarify' && supported.length) {
     if (!Array.isArray(plan.claims) || !plan.claims.length || plan.claims.length > 24
       || plan.claims.some(claim => !claim || typeof claim.excerpt !== 'string' || claim.excerpt.length < 2 || claim.excerpt.length > 512
         || !plan.citations.includes(claim.citation) || !supported.some(item => item.id === claim.citation && item.text.includes(claim.excerpt)))
@@ -136,14 +128,13 @@ export function validateConversationPlan(raw: unknown, evidence: Evidence[], mod
     || new Set(options.map(option => option.trim().toLowerCase())).size !== options.length || options.length && plan.action !== 'clarify')) {
     throw new ConversationValidationError('question_options', 'The question options could not be validated.');
   }
-  const action = plan.action === 'general' ? 'explain' : plan.action;
-  return { action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)],
+  return { action: plan.action, reply: plan.reply.trim(), ...(['explain', 'suggest'].includes(plan.action) && { replyFormat: 'markdown' as const }), citations: [...new Set(plan.citations)], scope: [...new Set(plan.scope)],
     ...(options?.length ? { questionOptions: options.map(option => option.trim()) } : {}) };
 }
 
-function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest, evidence: Evidence[], earlierTurns: Evidence[], allowGeneralAnswer: boolean) {
+function validatePlanWithLiteralRecall(raw: unknown, record: ConversationRequest, evidence: Evidence[], earlierTurns: Evidence[]) {
   try {
-    return validateConversationPlan(raw, evidence, record.input.mode, earlierTurns, allowGeneralAnswer);
+    return validateConversationPlan(raw, evidence, record.input.mode, earlierTurns);
   } catch (error) {
     const plan = raw as Partial<ConversationPlan> | null;
     const previous = evidence.find(item => item.kind === 'prior_reply') ?? earlierTurns.at(-1);
@@ -467,9 +458,7 @@ export class ConversationRuntime {
         }
         const current = await deps.resolve(record.projectId, record.input.references, signal, text);
         const evidence = prior ? [...current, prior] : current;
-        const promptContext = { request: text, mode: record.reviewContinuation ? 'code' : record.input.mode,
-          hasAttachments: record.input.references.length > 0, ...(targetId ? { replyToTurnId: targetId } : {}), evidence };
-        const promptLength = compactCanonicalJson({ ...promptContext, earlierTurns: [] }).length;
+        const promptLength = compactCanonicalJson({ request: text, mode: record.reviewContinuation ? 'code' : record.input.mode, evidence, earlierTurns: [] }).length;
         if (promptLength > MAX_CONTEXT_CHARACTERS) {
           await checkpoint({ state: 'failed', failureStage: 'context', failureReason: 'context_limit', error: 'The selected evidence exceeds the context limit.' });
           return;
@@ -478,7 +467,7 @@ export class ConversationRuntime {
         const namedReview = prior ? null : planNamedReview(record, current);
         const { earlierTurns, recall } = namedReview || prior ? { earlierTurns: [], recall: undefined }
           : await recallEarlierTurns(record, deps.store, Math.min(MAX_RECALL_CHARACTERS, MAX_CONTEXT_CHARACTERS - promptLength + 2));
-        if (compactCanonicalJson({ ...promptContext, earlierTurns }).length > MAX_CONTEXT_CHARACTERS) {
+        if (compactCanonicalJson({ request: text, mode: record.reviewContinuation ? 'code' : record.input.mode, evidence, earlierTurns }).length > MAX_CONTEXT_CHARACTERS) {
           await checkpoint({ state: 'failed', failureStage: 'context', failureReason: 'context_limit', error: 'The selected evidence exceeds the context limit.' });
           return;
         }
@@ -500,8 +489,7 @@ export class ConversationRuntime {
           plan = { action: 'clarify', reply: 'A Reply to request cannot start a check. Send a separate Check request with the intended evidence.', citations: [], scope: [] };
         } else {
           try {
-            const allowGeneralAnswer = !targetId && !record.input.references.length && !executionRequested;
-            plan = namedReview ?? validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns, allowGeneralAnswer);
+            plan = namedReview ?? validatePlanWithLiteralRecall(raw, record, evidence, earlierTurns);
           } catch (error) {
             if (error instanceof ConversationValidationError) {
               validationReason = error.reason;

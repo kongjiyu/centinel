@@ -151,8 +151,8 @@ export async function handleAutoTestRoute(request: { method: string; pathname: s
       const presets = await Promise.all([...rerun, ...pinned].map(loadPreset));
       const conversational = typed !== null || rerun.length > 0;
       const session = newAutoTestSession({ id: crypto.randomUUID(), projectId, ownerId: deps.ownerId, folder, lanes: lanes ?? (conversational ? 1 : undefined), request: typed, presets, planning: rerun.length ? false : undefined, startupPermission: permission });
-      const sideEffects = await deps.createDeps(projectId, session);
       await deps.store.save(session);
+      const sideEffects = await deps.createDeps(projectId, session);
       void runtime.start(session, sideEffects).catch(() => undefined);
       return { status: 202, body: session };
     }

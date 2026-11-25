@@ -18,7 +18,6 @@ export type CheckDefinition = {
 export type CheckVerdict = 'passed' | 'failed' | 'uncertain' | 'not_tested';
 export type RunState = 'queued' | 'running' | 'completed' | 'blocked' | 'cancelled' | 'interrupted';
 export type EvidenceReference = { id: string; kind: 'screenshot' | 'checks' | 'file_manifest' | 'usability'; sha256: string; availability: 'local'; capturedAt: string };
-export type RunEvidenceReader = (reference: EvidenceReference) => Buffer;
 export type CheckResult = { checkId: string; criterionId: string; verdict: CheckVerdict; observed: string | null; reason: string; evidenceIds: string[]; checkedAt: string };
 export type CriterionExclusion = {criterionId:string;reason:string};
 export type MissionInput = {usability?:UsabilityConfig;mode?:'guided'|'exploratory'; criterionExclusions?:CriterionExclusion[]; name: string; goal: string; targetUrl: string; maxSteps: number; checks: CheckDefinition[]; context: StaticContextFixture | null; contextAcknowledged: boolean };
@@ -33,7 +32,6 @@ export type Mission = { id: string; projectId: string; currentRevisionId: string
 export type MissionUpdate = { displayName?: string | null; archived?: boolean };
 export const MAX_MISSION_DISPLAY_NAME = 200;
 export type DynamicRun = {
-  evidenceStorage?: 'device';
   id: string; projectId: string; missionId: string; revision: MissionRevision;
   idempotencyKey: string; createdBy: string; createdAt: string; updatedAt: string;
   environment?: EnvironmentSnapshot;
@@ -60,7 +58,7 @@ export interface DynamicRepository {
   heartbeatRun(projectId: string, runId: string, workerId: string, leaseToken: string): Promise<boolean>;
   recoverRuns(projectId: string): Promise<DynamicRun[]>;
   checkpointExploration?(projectId:string,runId:string,workerId:string,token:string,snapshot:ExplorationSnapshot):Promise<boolean>;
-  compareAndSetRun(projectId: string, runId: string, expected: RunState, patch: RunPatch, readEvidence?: RunEvidenceReader): Promise<DynamicRun | null>;
+  compareAndSetRun(projectId: string, runId: string, expected: RunState, patch: RunPatch): Promise<DynamicRun | null>;
 }
 export class DynamicContractError extends Error {
   constructor(readonly status: 400 | 404 | 409 | 503, message: string) { super(message); }

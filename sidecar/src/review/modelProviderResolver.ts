@@ -44,7 +44,6 @@ export type ModelConfigurationRepository = {
    * project override exists. The repository must run in the caller's RLS
    * context; ownerId is a canonical auth.users.id, never a header value. */
   getModelConfiguration(scope: ModelConfigurationScope, signal?: AbortSignal): Promise<ModelConfigurationRecord | null>;
-  openCredential?(ciphertext: string): string;
 };
 
 export type ResolvedModelProviderChain = {
@@ -131,10 +130,10 @@ function asFormat(value: string | null | undefined, label: string, provider: AiP
   return format;
 }
 
-function unwrapSecret(ciphertext: string | null | undefined, label: string, open: (value: string) => string): string {
+function unwrapSecret(ciphertext: string | null | undefined, label: string): string {
   if (!ciphertext) throw new ModelConfigurationError(`${label} credentials are not configured.`, 'secret_unavailable');
   try {
-    const value = open(ciphertext);
+    const value = decryptSecret(ciphertext);
     if (!value.trim()) throw new Error('empty secret');
     return value;
   } catch (cause) {
@@ -143,8 +142,7 @@ function unwrapSecret(ciphertext: string | null | undefined, label: string, open
   }
 }
 
-function resolveSettings(record: ModelConfigurationRecord, repository: ModelConfigurationRepository): { primary: ModelProviderSettings; fallback: ModelProviderSettings | null } {
-  const open = repository.openCredential?.bind(repository) ?? decryptSecret;
+function resolveSettings(record: ModelConfigurationRecord): { primary: ModelProviderSettings; fallback: ModelProviderSettings | null } {
   if (record.enabled === false) throw new ModelConfigurationError('The static-analysis Model Provider configuration is disabled.', 'disabled');
   const provider = asProvider(record.provider, 'Primary');
   const apiFormat = asFormat(record.apiFormat, 'Primary', provider);
@@ -160,7 +158,7 @@ function resolveSettings(record: ModelConfigurationRecord, repository: ModelConf
   const primary: ModelProviderSettings = {
     provider,
     apiFormat,
-    apiKey: provider === 'codex' || oauthProject ? '' : unwrapSecret(record.secretCiphertext, 'Primary', open),
+    apiKey: provider === 'codex' || oauthProject ? '' : unwrapSecret(record.secretCiphertext, 'Primary'),
     ...(typeof oauthProject === 'string' ? { geminiOAuthProject: oauthProject } : {}),
     ...(provider === 'codex' && typeof record.metadata?.codexScreenshots === 'boolean' ? { codexScreenshots: record.metadata.codexScreenshots } : {}),
     baseUrl,
@@ -179,7 +177,7 @@ function resolveSettings(record: ModelConfigurationRecord, repository: ModelConf
   const fallback: ModelProviderSettings = {
     provider: fallbackProvider,
     apiFormat: fallbackApiFormat,
-    apiKey: unwrapSecret(record.fallbackSecretCiphertext, 'Fallback', open),
+    apiKey: unwrapSecret(record.fallbackSecretCiphertext, 'Fallback'),
     baseUrl: fallbackBaseUrl,
     model: fallbackModel,
   };
@@ -198,7 +196,7 @@ export async function resolveModelProviderChain(
   if (!rawRecord) throw new ModelConfigurationError('No static-analysis Model Provider is configured.', 'not_configured');
   const record = recordFromRow(rawRecord) ?? rawRecord;
   if (record.ownerId && record.ownerId !== scope.ownerId) throw new ModelConfigurationError('Model Provider owner mismatch.', 'invalid_configuration');
-  const settings = resolveSettings(record, repository);
+  const settings = resolveSettings(record);
   settings.primary.ownerId = scope.ownerId;
   const primaryProvider = new ConfiguredTextModelProvider({ projectId: scope.projectId, settings: settings.primary, fetchImpl: options.fetchImpl, maxOutputTokens: options.maxOutputTokens });
   const fallbackProvider = settings.fallback
@@ -234,7 +232,7 @@ export function createSupabaseModelSettingResolver(
     if (!rawRecord) return null;
     const record = recordFromRow(rawRecord) ?? rawRecord;
     if (record.ownerId && record.ownerId !== scope.ownerId) throw new ModelConfigurationError('Model Provider owner mismatch.', 'invalid_configuration');
-    const primary = resolveSettings(record, repository).primary;
+    const primary = resolveSettings(record).primary;
     primary.ownerId = scope.ownerId;
     return primary;
   };

@@ -4,14 +4,11 @@ import { CentinelApplicationRepository } from '../applicationRepository.js';
 import { listClientArtifacts, readClientArtifactContent } from '../applicationApi.js';
 import { SupabaseCentinelStore } from '../store/index.js';
 import { SupabaseStaticReviewRepository } from '../review/supabaseRepository.js';
-import type { AutoTestStore } from '../dynamic/autonomous/store.js';
+import { SupabaseAutoTestStore } from '../dynamic/autonomous/store.js';
 import { DynamicContractError } from '../dynamic/types.js';
 import { hash, type Evidence } from './service.js';
 import { compactCanonicalJson } from '../report/canonical.js';
 import { namedReviewScope } from './intent.js';
-import type { Artifact } from '../artifacts.js';
-import type { StaticReviewRepository } from '../review/types.js';
-import type { StoreFinding, StoreProject } from '../store/types.js';
 
 const automationDirectories = new Set(['cypress', 'e2e', 'playwright', 'selenium', 'test-automation', 'automation']);
 
@@ -34,30 +31,9 @@ function sourceWindow(text: string, citedLine: unknown) {
   return window.trim() ? { text: window, firstLine, citedLine } : undefined;
 }
 
-export async function resolveConversationEvidence(client: SupabaseClient, ownerId: string, projectId: string, references: ConversationReference[], signal: AbortSignal, includeSourceWindow = false, requestText = '', autoTests?: AutoTestStore) {
+export async function resolveConversationEvidence(client: SupabaseClient, ownerId: string, projectId: string, references: ConversationReference[], signal: AbortSignal, includeSourceWindow = false, requestText = '') {
+  const repository = new SupabaseStaticReviewRepository(client);
   const application = new CentinelApplicationRepository(client, ownerId);
-  return resolveSavedConversationEvidence(projectId, references, signal, includeSourceWindow, requestText, {
-    repository: new SupabaseStaticReviewRepository(client),
-    project: () => application.getProject(projectId),
-    artifacts: () => listClientArtifacts(application, projectId, signal),
-    findings: reviewId => new SupabaseCentinelStore(client).listFindings(projectId, reviewId),
-    content: source => readClientArtifactContent(client, ownerId, source.id, source.versionId, signal, projectId, source.contentHash),
-    autoTests,
-  });
-}
-
-type EvidenceSources = {
-  repository: Pick<StaticReviewRepository, 'getReview' | 'loadSourceManifestArtifacts' | 'getTraceabilitySnapshot'>;
-  project: () => Promise<Pick<StoreProject, 'name' | 'description'> | null>;
-  artifacts: () => Promise<Artifact[]>;
-  findings: (reviewId: string) => Promise<Array<Pick<StoreFinding, 'id' | 'artifactId' | 'artifactVersionId' | 'title' | 'description' | 'recommendation' | 'status' | 'location' | 'evidenceText' | 'requirementId'>>>;
-  content: (source: Artifact) => Promise<string>;
-  autoTests?: AutoTestStore;
-};
-
-export async function resolveSavedConversationEvidence(projectId: string, references: ConversationReference[], signal: AbortSignal,
-  includeSourceWindow: boolean, requestText: string, sources: EvidenceSources) {
-  const { repository, autoTests } = sources;
   const evidence = new Map<string, Evidence>();
   const add = (id: string, data: unknown, extra: Partial<Evidence> = {}) => {
     const text = compactCanonicalJson(data);
@@ -71,7 +47,7 @@ export async function resolveSavedConversationEvidence(projectId: string, refere
       if (!review || review.projectId !== projectId) throw new DynamicContractError(404, 'The attached Review is unavailable in this project.');
       const manifest = review.sourceManifestId ? await repository.loadSourceManifestArtifacts(review.sourceManifestId) : null;
       const traceability = reference.findingId ? await repository.getTraceabilitySnapshot(review.id) : null;
-      const all = await sources.findings(review.id);
+      const all = await new SupabaseCentinelStore(client).listFindings(projectId, review.id);
       const selected = reference.findingId ? all.filter(finding => finding.id === reference.findingId) : [];
       if (reference.findingId && selected.length !== 1) throw new DynamicContractError(404, 'The attached problem is unavailable in this Review.');
       const scopedSources = (manifest ?? []).filter(source => !reference.findingId || selected.some(finding => finding.artifactId === source.id && finding.artifactVersionId === source.versionId));
@@ -86,7 +62,7 @@ export async function resolveSavedConversationEvidence(projectId: string, refere
         let nearby: ReturnType<typeof sourceWindow>;
         if (source?.versionId) {
           try {
-            const text = await sources.content(source);
+            const text = await readClientArtifactContent(client, ownerId, source.id, source.versionId, signal, projectId, source.contentHash);
             if (finding.evidenceText && text.includes(finding.evidenceText)) excerpt = finding.evidenceText;
             if (includeSourceWindow && !excerpt) nearby = sourceWindow(text, finding.location?.lineNumber);
           } catch { signal.throwIfAborted(); }
@@ -105,7 +81,7 @@ export async function resolveSavedConversationEvidence(projectId: string, refere
       }
     }
     if (reference.autoTestId) {
-      const session = await autoTests?.get(projectId, reference.autoTestId);
+      const session = await new SupabaseAutoTestStore(client, ownerId).get(projectId, reference.autoTestId);
       if (!session || session.projectId !== projectId) throw new DynamicContractError(404, 'The attached browser check is unavailable.');
       const tests = reference.testId ? session.tests.filter(test => test.id === reference.testId) : session.tests;
       if (reference.testId && tests.length !== 1) throw new DynamicContractError(404, 'The attached browser problem is unavailable.');
@@ -116,19 +92,19 @@ export async function resolveSavedConversationEvidence(projectId: string, refere
       }, { unavailable: tests.some(test => !test.runId || !test.checkResults?.length) });
     }
     if (reference.artifactId) {
-      const source = (await sources.artifacts()).find(item => item.id === reference.artifactId && !item.currency?.deprecated);
+      const source = (await listClientArtifacts(application, projectId)).find(item => item.id === reference.artifactId && !item.currency?.deprecated);
       if (!source?.versionId) throw new DynamicContractError(404, 'The attached source version is unavailable.');
-      const text = await sources.content(source);
+      const text = await readClientArtifactContent(client, ownerId, source.id, source.versionId, signal, projectId, source.contentHash);
       add('artifact:' + source.id, { path: source.filePath, content: text }, { artifactId: source.id, versionId: source.versionId });
     }
   }
   if (!references.length) {
-    const project = await sources.project();
+    const project = await application.getProject(projectId);
     if (!project) throw new DynamicContractError(404, 'Project unavailable.');
-    const artifacts = await sources.artifacts();
+    const sources = await listClientArtifacts(application, projectId, signal);
     const module = namedReviewScope(requestText);
     if (module) {
-      const matches = artifacts.flatMap(source => {
+      const matches = sources.flatMap(source => {
         if (source.source !== 'repository' || !source.versionId || source.currency?.deprecated) return [];
         const path = source.filePath.replace(/\\/g, '/').replace(/^\.\//, '');
         const normalized = path.toLowerCase();
@@ -152,7 +128,7 @@ export async function resolveSavedConversationEvidence(projectId: string, refere
       }
       return [...evidence.values()];
     }
-    add('project:' + projectId, { name: project.name, description: project.description, sources: artifacts.slice(0, 100).map(item => ({ id: item.id, path: item.filePath })),
+    add('project:' + projectId, { name: project.name, description: project.description, sources: sources.slice(0, 100).map(item => ({ id: item.id, path: item.filePath })),
       limitation: 'Inventory only. Attach checks or source files for evidence-based explanations and code verification.' });
   }
   return [...evidence.values()];

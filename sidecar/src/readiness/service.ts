@@ -26,8 +26,6 @@ export type ReadinessDependencies = {
   /** Safe hash of the current owner/project Model Provider configuration, or null when none is configured. */
   configurationRevision?(auth: AuthenticatedRequest, projectId: string): Promise<string | null>;
   assessmentHeld?(projectId: string): boolean;
-  /** Preserve the last snapshot and require explicit confirmation before paying to repeat an interrupted local job. */
-  interruptRunningOnRecovery?: boolean;
 };
 
 /** Failures whose explanation is invalidated by a later configuration change. */
@@ -103,8 +101,6 @@ export class ProjectReadinessCoordinator {
   private active = new Map<string, Promise<void>>();
   private locks = new Map<string, Promise<unknown>>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private controllers = new Set<AbortController>();
-  private shuttingDown = false;
   constructor(private readonly deps: ReadinessDependencies) {}
   adoptSession(auth: AuthenticatedRequest) { this.sessions.set(auth.userId, auth); }
   private context(auth: AuthenticatedRequest) { return this.sessions.get(auth.userId) ?? auth; }
@@ -154,7 +150,6 @@ export class ProjectReadinessCoordinator {
 
   /** Coalesce file batches; import/sync completion or GET recovery supplies durability. */
   notify(auth: AuthenticatedRequest, projectId: string, trigger: string) {
-    if (this.shuttingDown) return;
     this.adoptSession(auth);
     clearTimeout(this.timers.get(projectId));
     this.timers.set(projectId, setTimeout(() => {
@@ -170,7 +165,6 @@ export class ProjectReadinessCoordinator {
   async request(auth: AuthenticatedRequest, projectId: string, trigger: string, force = false): Promise<ReadinessStatus> {
     this.adoptSession(auth);
     return this.serial(projectId, async () => {
-      if (this.shuttingDown) throw new ReadinessPersistenceError();
       const context = this.context(auth);
       const index = await this.deps.inspect(context, projectId);
       const store = this.deps.store(context);
@@ -192,12 +186,6 @@ export class ProjectReadinessCoordinator {
       // Reading status, syncing sources and restarting must not spend another
       // provider request after a capacity stop. Only manual Start/Retry releases it.
       if (latest?.status === 'paused' && !force) return { ...latest, stale: latest.snapshot?.sourceFingerprint !== index.fingerprint };
-      if (latest?.status === 'running' && !this.active.has(projectId) && this.deps.interruptRunningOnRecovery) {
-        latest = { ...latest, status: 'failed', completedAt: this.now(), errorCode: 'interrupted',
-          error: 'The app closed before Readiness finished. Select Start to check the sources again.', stale: true };
-        await this.save(store, latest);
-      }
-      if (latest?.errorCode === 'interrupted' && !force) return latest;
       // A remote-head check can temporarily queue readiness while a source run
       // is active. Reuse the verified assessment if that check changed nothing.
       if (!force && !index.importing && latest && latest.trigger !== 'manual' && ['queued', 'running'].includes(latest.status)
@@ -225,7 +213,7 @@ export class ProjectReadinessCoordinator {
   }
 
   private schedule(auth: AuthenticatedRequest, projectId: string) {
-    if (this.shuttingDown || this.active.has(projectId)) return;
+    if (this.active.has(projectId)) return;
     const task = new Promise<void>(resolve => setImmediate(() => {
       void this.drain(auth, projectId).catch(() => undefined).finally(() => { this.active.delete(projectId); resolve(); });
     }));
@@ -235,16 +223,8 @@ export class ProjectReadinessCoordinator {
   async waitForIdle() { while (this.active.size) await Promise.all([...this.active.values()]); }
   close() { for (const timer of this.timers.values()) clearTimeout(timer); this.timers.clear(); }
 
-  async shutdown() {
-    this.shuttingDown = true;
-    this.close();
-    for (const controller of this.controllers) controller.abort();
-    await this.waitForIdle();
-    await Promise.allSettled([...this.locks.values()]);
-  }
-
   private async drain(original: AuthenticatedRequest, projectId: string) {
-    while (!this.shuttingDown) {
+    for (;;) {
       let auth = this.context(original);
       let store = this.deps.store(auth);
       let job: ReadinessJob | null;
@@ -253,14 +233,12 @@ export class ProjectReadinessCoordinator {
       if (this.deps.assessmentHeld?.(projectId)) return;
       const startedAt = job.startedAt ?? this.now();
       let timeout: ReturnType<typeof setTimeout> | undefined;
-      const controller = new AbortController();
-      this.controllers.add(controller);
       try {
         const index = await this.inspectSources(auth, projectId);
         if (index.importing) return; // Source completion notification/GET resumes the saved job.
         if (index.fingerprint !== job.sourceFingerprint) { await this.request(auth, projectId, 'sources_changed'); continue; }
         await this.save(store, { ...job, status: 'running', startedAt, error: null, errorCode: null });
-        throwIfAborted(controller.signal);
+        const controller = new AbortController();
         timeout = setTimeout(() => controller.abort(), readinessJobTimeoutMs(this.deps.jobTimeoutMs));
         const artifacts: ReadinessArtifact[] = [
           ...index.unavailable,
@@ -288,7 +266,6 @@ export class ProjectReadinessCoordinator {
         if (snapshot.projectId !== projectId || snapshot.sourceFingerprint !== job.sourceFingerprint) throw new ReadinessSourceChangesError();
         await this.save(store, { ...job, status: 'completed', startedAt, completedAt: this.now(), snapshot, error: null, errorCode: null, stale: false });
       } catch (error) {
-        if (this.shuttingDown) return;
         auth = this.context(original); store = this.deps.store(auth);
         try {
           const latest = await this.latest(store, projectId);
@@ -301,10 +278,7 @@ export class ProjectReadinessCoordinator {
               error: failure.message, errorCode: failure.code, ...(configurationRevision !== undefined ? { configurationRevision } : {}) });
           }
         } catch { /* A failed persistence attempt cannot safely be recorded. */ }
-      } finally {
-        if (timeout !== undefined) clearTimeout(timeout);
-        this.controllers.delete(controller);
-      }
+      } finally { if (timeout !== undefined) clearTimeout(timeout); }
       let next: ReadinessJob | null;
       try { next = await this.latest(this.deps.store(this.context(original)), projectId); } catch { return; }
       if (!next || !['queued', 'running'].includes(next.status)) return;

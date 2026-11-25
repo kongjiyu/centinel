@@ -207,7 +207,7 @@ export type DeterministicAnalysisResult = {
 
 export type StaticReviewOrchestratorDependencies = {
   repository: StaticReviewRepository;
-  groundingRepository?: Pick<GroundingRepository, 'listConfirmedRequirements' | 'listRequirementCandidates' | 'listStandardRules'>;
+  groundingRepository?: GroundingRepository;
   artifacts?: (projectId: string, signal?: AbortSignal) => Promise<Artifact[]>;
   readArtifactBytes?: (artifact: Artifact, signal?: AbortSignal) => Promise<Uint8Array>;
   pdfVisualProvider?: (projectId: string, signal: AbortSignal) => Promise<Pick<ResolvedModelProviderChain, 'primaryProvider' | 'primaryMetadata'>>;

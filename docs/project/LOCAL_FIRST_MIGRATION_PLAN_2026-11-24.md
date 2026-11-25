@@ -8,8 +8,6 @@ Start with one owner, one device, and one scoped Static Review. Import its proje
 
 Keep account identity and integration callbacks hosted. The initial release assumes a single-device workspace owned by one account. Shared projects, collaborator access, and live cross-device use need an explicit product decision before any affected project moves.
 
-Windows and macOS are both release requirements. Use the packaged runtime and OS-provided app data location on each platform. Workspace objects and backup manifests use portable IDs, hashes, and project-relative paths. A saved absolute working-folder path is a device reference and must be reselected when restoring to another device or OS. Local data features must work with the standard packaged configuration on either platform, including when hosted application-data endpoints are unavailable.
-
 ## 1. Define the storage boundary
 
 | Area | Destination | Acceptance condition |
@@ -52,7 +50,7 @@ The existing Static Review storage contract stays in force until the approved im
 
 ## 5. Verify from the desktop
 
-1. Sign in as the pilot account in packaged Windows and macOS builds. On each platform, open the migrated project and confirm the project, Review history, and source versions match the export manifest.
+1. Sign in as the pilot account in the packaged Windows app. Open the migrated project and confirm the project, Review history, and source versions match the export manifest.
 2. Block Supabase PostgREST and Storage for the app and sidecar while keeping Auth reachable. Ask in chat to review the automation module. If ORIN needs a mode or scope, answer in the non-blocking question container. Confirm the selection is saved and the workflow continues. With an ambiguous module, confirm ORIN asks for the missing scope directly.
 3. Complete the Review with a controlled model fixture and a source finding with known exact lines. Verify that the run records analysis beyond deterministic SAST, that the saved evidence opens the exact frozen lines inline, and that an intentionally unsupported conclusion stays visibly unverified. Then verify source retrieval with a configured live provider as a separate test.
 4. Restart Centinel and reopen the conversation, Review, source evidence, and run history. Repeat with Supabase application-data access still blocked. Confirm navigating away from the result stays on the selected page. Switch accounts and verify that the pilot's workspace and evidence cannot be opened by the second account.

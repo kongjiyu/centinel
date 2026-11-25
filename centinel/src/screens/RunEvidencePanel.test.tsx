@@ -10,16 +10,6 @@ const run = { id: 'r',createdBy:'owner', state: 'completed', evidence: [{ id: 'p
 const copy = { id: 'copy', runId: 'r', projectId: 'p', evidenceId: 'proof', kind: 'screenshot', sha256: 'a'.repeat(64), bytes: 100, mimeType: 'image/png', availability: 'available', expiresAt: '2026-10-21T00:00:00Z', executorId: 'executor', syncedBy: 'sync-actor', createdAt: '', updatedAt: '' } as EvidenceCopy;
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.dynamicEvidenceCopies).mockResolvedValue([copy]); vi.mocked(api.dynamicRecordedEvidenceBlob).mockResolvedValue(new Blob(['PNG'], { type: 'image/png' })); URL.createObjectURL = vi.fn().mockReturnValue('blob:verified'); URL.revokeObjectURL = vi.fn();sessionStorage.setItem('centinel:supabase-user-id','owner'); });
 describe('Private Run evidence availability', () => {
-    it('labels device copies as saved and omits a cloud expiry', async () => {
-        vi.mocked(api.dynamicEvidenceCopies).mockResolvedValue([{ ...copy, expiresAt: null }]);
-        render(<RunEvidencePanel projectId="p" run={{ ...run, evidenceStorage: 'device' }} />);
-        await screen.findByRole('img');
-        expect(screen.getByText('Saved copies stay on this device.')).toBeInTheDocument();
-        expect(screen.getByText('Screenshot verified on this device.')).toBeInTheDocument();
-        expect(screen.queryByText(/Expires/)).not.toBeInTheDocument();
-        await userEvent.click(screen.getByRole('button', { name: 'Save independent evidence' }));
-        expect(api.syncDynamicEvidence).toHaveBeenCalledWith('p', 'r');
-    });
     it('reads a shared screenshot by project/Run/copy ID without exposing a signed URL or local path', async () => { render(<RunEvidencePanel projectId="p" run={run}/>); expect(await screen.findByRole('img')).toHaveAttribute('src', 'blob:verified'); expect(api.dynamicRecordedEvidenceBlob).toHaveBeenCalledWith('p', 'r', 'copy', 'shared'); expect(screen.getByText('Shared copy verified for this account.')).toBeInTheDocument(); });
     it('falls back to a verified local file when the cloud transfer is unavailable', async () => { vi.mocked(api.dynamicRecordedEvidenceBlob).mockRejectedValueOnce(Error('Offline')).mockResolvedValueOnce(new Blob(['PNG'])); render(<RunEvidencePanel projectId="p" run={run}/>); await screen.findByRole('img'); expect(api.dynamicRecordedEvidenceBlob).toHaveBeenNthCalledWith(2, 'p', 'r', 'proof', 'local'); expect(screen.getByText('Shared copy unavailable; verified local copy shown.')).toBeInTheDocument(); });
     it('does not fetch expired shared bytes and shows a missing local file honestly', async () => { vi.mocked(api.dynamicEvidenceCopies).mockResolvedValue([{ ...copy, availability: 'expired' }]); vi.mocked(api.dynamicRecordedEvidenceBlob).mockRejectedValue(Error('No local file')); render(<RunEvidencePanel projectId="p" run={run}/>); expect(await screen.findByText(/Screenshot unavailable here/)).toBeInTheDocument(); expect(api.dynamicRecordedEvidenceBlob).toHaveBeenCalledWith('p', 'r', 'proof', 'local'); expect(screen.queryByRole('img')).not.toBeInTheDocument(); });

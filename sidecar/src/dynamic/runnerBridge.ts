@@ -11,22 +11,21 @@ import path from 'node:path';
 import type { Page } from 'playwright';
 import type { ModelProviderSettings } from '../review/types.js';
 import type { TokenUsageInput } from '../tokenUsage.js';
-import { addEvidence, createDynamicSession, getDynamicSession, type DynamicSession } from '../dynamicSessions.js';
+import { addEvidence, createDynamicSession, getDynamicSession } from '../dynamicSessions.js';
 import { DYNAMIC_HEARTBEAT_MS } from './recovery.js';
 import { ExecutionLease } from './executionLease.js';
-import { cancelSession, runDynamicSession, type LocalRunModelUsage } from '../dynamicRunner.js';
+import { cancelSession, runDynamicSession } from '../dynamicRunner.js';
 import { checkPage } from './checker.js';
 import { buildCheckBrief } from './browser/checkBrief.js';
 import { DynamicService } from './service.js';
 import type { DynamicRun, EvidenceReference } from './types.js';
 import type { LiveRunOptions } from './live/liveHub.js';
-import { loadNewRunEvidence } from './sharedEvidence/files.js';
 
 /** Attach a frozen Mission revision to the existing local browser executor. */
 export async function executeMissionRun(service: DynamicService, run: DynamicRun, workspace: string,
   providers: { resolvePrivateValue?:(name:string)=>string|undefined;retainDownload?:(receipt:Omit<import('./browser/fileTypes.js').DownloadReceipt,'id'>,buffer:Buffer)=>import('./browser/fileTypes.js').DownloadReceipt;resolveUpload?:(grant:import('./browser/fileTypes.js').UploadGrant)=>import('./browser/fileTypes.js').UploadPayload;storageState?:BrowserSessionState; runtimeMs?:number; sensitiveValues?:readonly string[]; sensitiveSelectors?:readonly string[]; vision: ModelProviderSettings; text?: ModelProviderSettings; recordUsage?: (usage: TokenUsageInput) => Promise<unknown>;
     /** Opt-in live view for Autonomous runs; absent keeps the normal headed Run unchanged. */
-    live?: LiveRunOptions }, local?: { headless?: boolean; recordUsage(usage: LocalRunModelUsage): Promise<void> }) {
+    live?: LiveRunOptions }) {
   let legacySessionId: string | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let watchdogTimer: ReturnType<typeof setInterval> | undefined;
@@ -39,13 +38,7 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
     if (current.state !== 'queued') return;
     const limits=normalizeBudget(run.executionBudget??run.environment?.budgets);
     limits.maxSteps=Math.min(limits.maxSteps,run.revision.maxSteps);
-    const targetUrl = run.environment?.targetUrl ?? run.revision.targetUrl;
-    // A pilot Run is the durable record. Its original ID also scopes the runner's files.
-    const session: DynamicSession = local ? {
-      id: run.id, projectId: run.projectId, type: 'dynamic', name: run.revision.name, status: 'queued',
-      targetUrl, goal: run.revision.goal, missionType: 'user_journey', browserMode: 'headed', maxSteps: limits.maxSteps,
-      finalSummary: '', failureReason: '', createdAt: run.createdAt, updatedAt: run.updatedAt,
-    } : await createDynamicSession(run.projectId, targetUrl, run.revision.goal, 'user_journey', limits.maxSteps);
+    const session = await createDynamicSession(run.projectId, run.environment?.targetUrl ?? run.revision.targetUrl, run.revision.goal, 'user_journey', limits.maxSteps);
     legacySessionId = session.id;
     const claimStarted = performance.now();
     const durationMs = Math.min(providers.runtimeMs ?? 300_000,limits.runtimeMs);
@@ -84,31 +77,21 @@ export async function executeMissionRun(service: DynamicService, run: DynamicRun
       verifyOutcome: async (page, signal, privacy, budgetControl) => {
         if (!lease?.canForward() || signal.aborted) throw new DOMException('Execution lease unavailable', 'AbortError');
         const result = await verifyAndRetain(service, run, page, path.join(workspace, 'sessions', session.id, 'logs'), signal,privacy,()=>lease?.canForward()===true,budgetControl?.reserveKeyboardAction,budgetControl?.suggestUsability);
-        if (!local) {
-          await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
-          await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
-          for(const ref of result.evidence.slice(2))await addEvidence(run.projectId,session.id,'session_summary',path.join(workspace,'sessions',session.id,'logs',ref.kind==='usability'?'usability.json':'file-manifest.json'),ref.kind==='usability'?'Usability rule observations':'Independent captured-file manifest',ref.id);
-        }
+        await addEvidence(run.projectId, session.id, 'screenshot', path.join(workspace, 'sessions', session.id, 'logs', 'criterion-page.png'), 'Independent criterion screenshot', result.evidence[0].id);
+        await addEvidence(run.projectId, session.id, 'session_summary', path.join(workspace, 'sessions', session.id, 'logs', 'checks.json'), 'Independent criterion results', result.evidence[1].id);
+        for(const ref of result.evidence.slice(2))await addEvidence(run.projectId,session.id,'session_summary',path.join(workspace,'sessions',session.id,'logs',ref.kind==='usability'?'usability.json':'file-manifest.json'),ref.kind==='usability'?'Usability rule observations':'Independent captured-file manifest',ref.id);
         return {verdict:result.verdict,checks:result.checks};
-      },
-    }, local && {
-      headless: local.headless,
-      recordUsage: local.recordUsage,
-      updateStatus: async (_id, status, summary, reason) => {
-        session.status = status;
-        if (summary !== undefined) session.finalSummary = summary;
-        if (reason !== undefined) session.failureReason = reason;
       },
     });
     const final = await service.requireRun(run.projectId, run.id);
     if (final.state !== 'running') return;
-    const outcome = local ? session : await getDynamicSession(run.projectId, session.id);
-    await service.stop(run.projectId, run.id, leaseReason ? 'blocked' : outcome?.status === 'cancelled' ? 'cancelled' : 'blocked', leaseReason || outcome?.failureReason || 'Execution ended without independently verified criteria.');
+    const local = await getDynamicSession(run.projectId, session.id);
+    await service.stop(run.projectId, run.id, leaseReason ? 'blocked' : local?.status === 'cancelled' ? 'cancelled' : 'blocked', leaseReason || local?.failureReason || 'Execution ended without independently verified criteria.');
   } catch {
     const current = await service.requireRun(run.projectId, run.id);
     if (['queued', 'running'].includes(current.state)) await service.stop(run.projectId, run.id, 'blocked', leaseReason || 'Browser or persistence unavailable; inspect local evidence and retry.');
     // A lost claim may have created a queued legacy session; do not leave it active.
-    if (legacySessionId && !local) {
+    if (legacySessionId) {
       const { updateDynamicSessionStatus } = await import('../dynamicSessions.js');
       await updateDynamicSessionStatus(legacySessionId, 'blocked', '', 'Mission execution stopped.').catch(() => {});
     }
@@ -144,5 +127,5 @@ export async function verifyAndRetain(service: DynamicService, run: DynamicRun, 
   }
   if(!canForward())throw new DOMException('Execution lease unavailable','AbortError');
   if (signal?.aborted) throw new DOMException('Execution stopped before verification persisted', 'AbortError');
-  return service.finish(run.projectId, run.id, results, evidence, usability, ref => loadNewRunEvidence(outputDirectory, ref));
+  return service.finish(run.projectId, run.id, results, evidence,usability);
 }

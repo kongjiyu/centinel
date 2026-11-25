@@ -1,6 +1,6 @@
 import type {UploadVault} from './uploadVault.js';import type {EnvironmentRepository} from './repository.js';import {DynamicContractError} from '../types.js';
 import {containsLocalValue} from './secrets.js';
-export async function handleUploadRoute(request:{method:string;pathname:string;readBody():Promise<Record<string,unknown>>},deps:{ownerId:string;vault:UploadVault;repository:Pick<EnvironmentRepository,'get'|'saveUploadPermissions'>;requireMember(projectId:string):Promise<void>;secretValues?(project:string):Promise<string[]>}){
+export async function handleUploadRoute(request:{method:string;pathname:string;readBody():Promise<Record<string,unknown>>},deps:{ownerId:string;vault:UploadVault;repository:EnvironmentRepository;requireMember(projectId:string):Promise<void>;secretValues?(project:string):Promise<string[]>}){
  const match=request.pathname.match(/^\/projects\/([^/]+)\/dynamic\/environments\/([^/]+)\/uploads(?:\/([^/]+))?$/);if(!match)return null;const [,project,profile,id]=match;
  await deps.requireMember(project);await deps.repository.get(project,profile);
  try{

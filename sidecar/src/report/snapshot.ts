@@ -176,18 +176,10 @@ function sortFindings<T extends Finding>(findings: T[]): Array<T & { riskLevel: 
 
 function relativeReportPath(project: Project, value: string | null | undefined): string {
   if (!value) return '';
-  const windowsAbsolute = (input: string) => /^[a-z]:[\\/]|^\\\\/i.test(input);
-  const flavor = windowsAbsolute(value) ? path.win32 : path.posix;
-  const absolute = flavor.isAbsolute(value);
-  if (absolute && (!flavor.isAbsolute(project.workspacePath) || windowsAbsolute(project.workspacePath) !== windowsAbsolute(value))) {
-    return flavor.basename(value);
-  }
-  const candidate = absolute ? flavor.relative(project.workspacePath, value) : value;
+  const candidate = path.isAbsolute(value) ? path.relative(project.workspacePath, value) : value;
   const relative = candidate.replace(/\\/g, '/');
-  if (!relative || relative === '.') return flavor.basename(value);
-  if (relative === '..' || relative.startsWith('../') || path.posix.isAbsolute(relative) || path.win32.isAbsolute(relative)) {
-    return path.posix.basename(value.replace(/\\/g, '/'));
-  }
+  if (!relative || relative === '.') return path.basename(value);
+  if (relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) return path.basename(value);
   return relative;
 }
 

@@ -1,15 +1,11 @@
 import crypto from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Artifact } from '../../src/artifacts.js';
 import { createStaticReviewOrchestrator } from '../../src/review/orchestrator.js';
 import { InMemoryStaticReviewRepository } from '../../src/review/repository.js';
 import { ModelProviderError } from '../../src/review/retry.js';
-import { ValidatedBatchCacheError, type ValidatedBatchCache, type ValidatedBatchCacheRecord } from '../../src/review/batchCheckpoint.js';
-import type { StaticModelRequest, StaticReviewRepository } from '../../src/review/types.js';
-import { LocalWorkspace } from '../../src/store/localWorkspace.js';
+import { ValidatedBatchCacheError, type ValidatedBatchCacheRecord } from '../../src/review/batchCheckpoint.js';
+import type { StaticModelRequest } from '../../src/review/types.js';
 import { candidateSupportResult, isCandidateSupportRequest } from '../fixtures/semanticSupport.js';
 import { readPromptAnalysisMap } from '../fixtures/promptAnalysisMap.js';
 
@@ -37,9 +33,9 @@ function makeCache() {
   return cache;
 }
 
-type FixtureOptions = { disposition?: 'supported' | 'contradicted' | 'insufficient'; pauseAtCall?: number | null; cacheEnabled?: boolean };
-
-function reviewRunner(repository: StaticReviewRepository, cache: ValidatedBatchCache, options: FixtureOptions) {
+function makeHarness(options: { disposition?: 'supported' | 'contradicted' | 'insufficient'; pauseAtCall?: number | null; cacheEnabled?: boolean } = {}) {
+  const repository = new InMemoryStaticReviewRepository();
+  const cache = makeCache();
   const requests: StaticModelRequest[] = [];
   const pauseAtCall = { value: options.pauseAtCall === undefined ? 3 : options.pauseAtCall };
   const provider = { analyze: vi.fn(async (request: StaticModelRequest) => {
@@ -83,13 +79,7 @@ function reviewRunner(repository: StaticReviewRepository, cache: ValidatedBatchC
     batchCache: options.cacheEnabled === false ? undefined : cache,
     cacheOwnerId: ownerId,
   });
-  return { requests, provider, runner, fingerprint, pauseAtCall };
-}
-
-function makeHarness(options: FixtureOptions = {}) {
-  const repository = new InMemoryStaticReviewRepository();
-  const cache = makeCache();
-  return { ...reviewRunner(repository, cache, options), repository, cache };
+  return { repository, cache, requests, provider, runner, fingerprint, pauseAtCall };
 }
 
 async function runInitial(harness: ReturnType<typeof makeHarness>) {
@@ -99,38 +89,6 @@ async function runInitial(harness: ReturnType<typeof makeHarness>) {
 }
 
 describe('validated batch cache in the Review orchestrator', () => {
-  it('reopens the encrypted local cache and revalidates a prior supported batch without another provider call', async () => {
-    vi.stubEnv('CENTINEL_TOKEN_ENCRYPTION_KEY', 'synthetic-batch-cache-key');
-    const directory = mkdtempSync(join(tmpdir(), 'centinel-local-batch-'));
-    let workspace = new LocalWorkspace(directory);
-    try {
-      const stamp = new Date().toISOString();
-      const project = { id: projectId, ownerId, name: 'Saved source retry', description: '', workspacePath: '', createdAt: stamp, updatedAt: stamp };
-      workspace.importSnapshot(ownerId, project, [{ artifact: { ...sourceArtifact, versionId: sourceArtifact.versionId! },
-        mimeType: 'text/plain', bytes: Buffer.from(source) }], { requirements: [], mappings: [] });
-      const first = reviewRunner(workspace.reviews(ownerId), workspace.reviewBatchCache(ownerId), {});
-      const started = await first.runner.start({ projectId, reviewType: 'code_review', artifacts: [sourceArtifact], idempotencyKey: 'local-initial' });
-      const parent = await started.completion;
-      expect(parent.status, parent.failureReason).toBe('blocked');
-      expect(first.provider.analyze).toHaveBeenCalledTimes(3);
-      workspace.close();
-      workspace = new LocalWorkspace(directory);
-      const repository = workspace.reviews(ownerId);
-      const second = reviewRunner(repository, workspace.reviewBatchCache(ownerId), { pauseAtCall: null });
-      const retry = await second.runner.retry({ reviewId: parent.id, reuseValidatedBatches: true, idempotencyKey: 'local-explicit-retry' });
-      const child = await retry.completion;
-      expect(child.modelStatus).toBe('succeeded');
-      expect(second.provider.analyze).toHaveBeenCalledTimes(2);
-      expect(await repository.listAudit(projectId, child.id)).toEqual(expect.arrayContaining([expect.objectContaining({
-        event: 'review_batch_cache_reused', detail: expect.objectContaining({ originReviewId: parent.id, providerCallsAvoided: 2 }),
-      })]));
-    } finally {
-      workspace.close();
-      rmSync(directory, { recursive: true, force: true });
-      vi.unstubAllEnvs();
-    }
-  });
-
   it('rejects unavailable cache-basis wiring before creating or paying for a retry', async () => {
     const harness = makeHarness();
     const { finished: parent } = await runInitial(harness);
