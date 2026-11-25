@@ -10,7 +10,10 @@
     "build": "node scripts/bundle-sidecar.mjs && cd centinel && pnpm tauri build",
     "install:all": "pnpm install",
     "bundle:sidecar": "node scripts/bundle-sidecar.mjs",
-    "release:mac": "node scripts/release-macos.mjs"
+    "release:mac": "node scripts/release-macos.mjs",
+    "supabase:local": "node scripts/local-supabase.mjs start",
+    "supabase:local:env": "node scripts/local-supabase.mjs env",
+    "supabase:hosted": "node scripts/local-supabase.mjs hosted"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

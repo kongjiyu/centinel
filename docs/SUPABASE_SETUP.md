@@ -72,6 +72,8 @@ key in the desktop `.env` to work around a missing table.
 
 Development can run against a local Supabase stack while release builds keep the hosted project:
 
+Step-by-step setup for teammates, with `pnpm supabase:local` / `pnpm supabase:hosted`: [LOCAL_SUPABASE_GUIDE.md](LOCAL_SUPABASE_GUIDE.md).
+
 - `supabase/config.toml` configures the local stack (100 MiB uploads, dev and `centinel://` redirects, analytics off). Pin the storage image first (`echo v1.89.13 > supabase/.temp/storage-version`), then `supabase start` applies every migration.
 - The repository-root `.env` points `SUPABASE_URL`/`VITE_SUPABASE_URL` and the anon keys at the local stack (`supabase status -o env`).
 - Release builds read the hosted values from the git-ignored `.env.production.local`: Vite uses it for production builds, and `scripts/bundle-sidecar.mjs` prefers it over `.env` when writing the packaged `runtime.env`. Keep only public URL/anon key values there.
