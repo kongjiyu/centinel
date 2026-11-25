@@ -1,19 +1,17 @@
 import { useSyncExternalStore } from 'react';
-import type { AutoTestRef } from '../autotest/types';
 
 /**
  * Per-project conversation preferences on this device (DESIGN.md §4.4, §4.5):
- * the permission mode, tests saved for every check, and conversation notes
+ * the permission mode and conversation notes
  * (mode changes, the test-account reminder), and whether the side panel is open. Test definitions themselves stay in
  * the saved Auto test sessions; this keeps only references.
  */
 export type PermissionMode = 'ask' | 'auto' | 'bypass';
-export type PinnedTest = AutoTestRef & { name: string; pinnedAt: string };
 export type ConversationNote = { id: string; at: string; text: string };
-export type ProjectPrefs = { mode: PermissionMode; pinned: PinnedTest[]; notes: ConversationNote[]; accountReminderShown: boolean; sideOpen: boolean };
+export type ProjectPrefs = { mode: PermissionMode; notes: ConversationNote[]; accountReminderShown: boolean; sideOpen: boolean };
 
 const PREFIX = 'centinel:project-prefs:';
-const EMPTY: ProjectPrefs = { mode: 'auto', pinned: [], notes: [], accountReminderShown: false, sideOpen: false };
+const EMPTY: ProjectPrefs = { mode: 'auto', notes: [], accountReminderShown: false, sideOpen: false };
 const listeners = new Set<() => void>();
 const cache = new Map<string, ProjectPrefs>();
 
@@ -28,7 +26,6 @@ export function readPrefs(projectId: string): ProjectPrefs {
     const parsed = raw ? JSON.parse(raw) as Partial<ProjectPrefs> : {};
     value = {
       mode: parsed.mode === 'ask' || parsed.mode === 'bypass' ? parsed.mode : 'auto',
-      pinned: Array.isArray(parsed.pinned) ? parsed.pinned.filter(item => item && typeof item.sessionId === 'string' && typeof item.testId === 'string') : [],
       notes: Array.isArray(parsed.notes) ? parsed.notes.filter(item => item && typeof item.text === 'string').slice(-100) : [],
       accountReminderShown: parsed.accountReminderShown === true,
       sideOpen: parsed.sideOpen === true,
@@ -60,18 +57,6 @@ export function setMode(projectId: string, mode: PermissionMode) {
 /** Whether the project side panel shows the whole project (true) or only the latest check. */
 export function setSideOpen(projectId: string, open: boolean) {
   updatePrefs(projectId, current => ({ ...current, sideOpen: open }));
-}
-
-export function pinTest(projectId: string, test: PinnedTest) {
-  updatePrefs(projectId, current => ({ ...current, pinned: [...current.pinned.filter(item => item.name !== test.name), test] }));
-}
-
-export function unpinTest(projectId: string, ref: AutoTestRef) {
-  updatePrefs(projectId, current => ({ ...current, pinned: current.pinned.filter(item => !(item.sessionId === ref.sessionId && item.testId === ref.testId)) }));
-}
-
-export function isPinned(prefs: ProjectPrefs, ref: AutoTestRef) {
-  return prefs.pinned.some(item => item.sessionId === ref.sessionId && item.testId === ref.testId);
 }
 
 /** A message that probably contains an account and password (shown once per project). */

@@ -135,19 +135,12 @@ describe('project conversation', () => {
     expect(onNavigate).toHaveBeenCalledWith({ name: 'dynamic-testing', projectId: 'p1', runId: 'run-1' });
   });
 
-  it('saves a test for every check with Undo, and runs it again as a saved test', async () => {
+  it('runs a test again without offering to save it for every check', async () => {
     const user = userEvent.setup();
     vi.mocked(api.autoTests).mockResolvedValue([session()]);
     renderScreen();
-    await user.click(await screen.findByRole('button', { name: 'Save for every check' }));
-    expect(readPrefs('p1').pinned).toMatchObject([{ testId: test().id, name: 'Two mugs total $24.00' }]);
-    const side = screen.getByRole('complementary', { name: 'What ORIN knows' });
-    await user.click(within(side).getByRole('button', { name: 'Show the whole project' }));
-    expect(within(side).getByText('Two mugs total $24.00')).toBeInTheDocument();
-    await user.click(within(side).getByRole('button', { name: 'Back to the conversation' }));
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(readPrefs('p1').pinned).toEqual([]);
-    await user.click(screen.getByRole('button', { name: 'Run again' }));
+    await user.click(await screen.findByRole('button', { name: 'Run again' }));
+    expect(screen.queryByRole('button', { name: 'Save for every check' })).not.toBeInTheDocument();
     expect(api.startAutoTest).toHaveBeenCalledWith('p1', { rerun: [{ sessionId: session().id, testId: test().id }], lanes: 1, startupPermission: 'auto' });
   });
 
@@ -217,8 +210,7 @@ describe('project conversation', () => {
     await user.click(within(panel).getByRole('button', { name: 'Download report' }));
     expect(api.exportProjectReport).toHaveBeenCalledWith('p1', { reviewId: 'r1' });
     expect(open).toHaveBeenCalledWith('https://example.test/report.pdf', '_blank', 'noopener');
-    await user.click(within(panel).getByRole('button', { name: 'Open full Check' }));
-    expect(onNavigate).toHaveBeenCalledWith({ name: 'check', checkId: 'latest-project-check' });
+    expect(within(panel).queryByRole('button', { name: 'Open full Check' })).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(readPrefs('p1').sideOpen).toBe(false);
     expect(within(panel).queryByRole('heading', { name: 'Requirements' })).not.toBeInTheDocument();

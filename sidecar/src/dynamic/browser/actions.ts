@@ -1,4 +1,5 @@
 import type {ActionLedger} from './actionLedger.js';
+import {pageShowsText} from '../visibleText.js';
 import type {Page} from 'playwright';
 import {authorizeBrowserAction,type BrowserActionPolicy} from './actionPolicy.js';
 import {executeApprovedUpload} from './uploads.js';
@@ -64,7 +65,7 @@ export async function executeBrowserAction(page:Page,action:AgentAction,options:
   case 'navigate':try{await page.goto(action.url,{timeout:30000,waitUntil:'domcontentloaded'});}catch{stopped(options.signal);throw new BrowserActionUncertain();}stopped(options.signal);return {dispatch:'navigation',requestedUrl:action.url};
   case 'scroll':await page.mouse.wheel(0,(action.direction==='down'?1:-1)*({small:200,medium:500,large:1000}[action.amount]));stopped(options.signal);return {dispatch:'observation'};
   case 'wait':await waitForBrowserAction(action.milliseconds,options.signal);return {dispatch:'observation'};
-  case 'assert_visible':if(!(await page.locator('body').innerText({timeout:3000})).includes(action.text))throw new BrowserActionUnavailable('Proposed visible text was not observed.');stopped(options.signal);return {dispatch:'observation'};
+  case 'assert_visible':if(!pageShowsText(await page.locator('body').innerText({timeout:3000}),action.text))throw new BrowserActionUnavailable('Proposed visible text was not observed.');stopped(options.signal);return {dispatch:'observation'};
   default:throw new BrowserActionUnavailable('This proposal is not an executable browser action.');
  }
 }

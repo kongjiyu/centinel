@@ -11,7 +11,7 @@ import type { RepoDigest } from './repoDigest.js';
  * Verdicts later come only from independent checks, never from this plan.
  */
 export const MAX_AUTO_TESTS = 10;
-export const AUTO_TEST_MAX_STEPS = 15;
+export const AUTO_TEST_MAX_STEPS = 25;
 const MAX_CONTROLS_PER_TEST = 20;
 const MAX_CHECKS_PER_TEST = 5;
 const PLAN_CHECK_KINDS = ['url', 'visible_text', 'element_visible', 'field_value'] as const;
@@ -138,6 +138,8 @@ export function buildPlanPrompt(input: { appUrl: string; digest: RepoDigest; dis
     // 19 Nov 2026: a test once expected "Sign in to view orders." from an API route the page never calls.
     '- Every expected text must be something the page itself shows during the journey you describe, reached only through the allowed controls. Do not expect error messages from server routes the page never calls, and do not test pages or routes that no allowed control leads to.',
     '- Say exactly how many times to press each control (for example "click Add to cart for Ceramic Mug twice"), and make checks match those counts.',
+    '- Each expected text is the text of one place on the page, for example "Ceramic Mug" or "$12.50". Never join text from separate parts of the page into one expected text (not "Ceramic Mug$12.50"); write two checks instead.',
+    `- A test has at most ${AUTO_TEST_MAX_STEPS} browser steps, and each click, typing or finishing counts as one. Keep every test well inside that, using the fewest presses that show the behaviour.`,
     '',
     `Allowed controls (selector: actions — visible label):\n${[...selectors].map(([selector, actions]) => `${selector}: ${[...actions].join(', ')}${labels.get(selector) ? ` — ${labels.get(selector)}` : ''}`).join('\n') || '(none found)'}`,
     `Pages scanned:\n${discovery.pages.map(page => `${new URL(page.finalUrl).pathname} (${page.controls} controls${page.redirected ? ', redirected' : ''})`).join('\n')}`,

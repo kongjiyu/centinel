@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
-import type { AutoTestSession } from '../autotest/types';
+import { isActive as autoTestActive, type AutoTestSession } from '../autotest/types';
 import type { Finding, Requirement, StaticSession } from '../types';
 import { buildCheckResult, type CheckResult } from './result';
 import type { CheckRecord } from './types';
@@ -36,7 +36,9 @@ export function pickLatestReview(reviews: StaticSession[]): StaticSession | null
 }
 
 export function pickLatestFullAutoTest(sessions: AutoTestSession[]): AutoTestSession | null {
-  return [...sessions].filter(isFullCheckSession).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  // Like the code review, the panel shows the last finished browser tests; a running check plays in the conversation.
+  const sorted = [...sessions].filter(isFullCheckSession).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return sorted.find(session => !autoTestActive(session)) ?? sorted[0] ?? null;
 }
 
 export function latestResultFrom(input: { review: StaticSession | null; findings: Finding[]; autoTest: AutoTestSession | null; requirements: Requirement[] }): CheckResult | null {
