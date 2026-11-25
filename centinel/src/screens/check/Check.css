@@ -539,7 +539,7 @@
 }
 @keyframes ck-enter { from { opacity: 0; transform: translateY(6px); } }
 .ck-live-title { flex: 1; min-width: 0; font-size: 15px; }
-.ck-live-title small, .ck-row-title small { display: block; margin-top: var(--space-1); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-live-title small, .ck-row-title small { display: block; margin-top: var(--space-1); color: var(--color-text-muted); overflow-wrap: anywhere; }
 
 /* Evidence marks and risk words: an icon and a word, no fill (DESIGN.md §5). */
 .ck-mark { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-text-muted); font-size: 13px; white-space: nowrap; }

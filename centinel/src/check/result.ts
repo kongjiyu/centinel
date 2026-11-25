@@ -51,7 +51,8 @@ export type PartState = 'not_requested' | 'running' | 'paused' | 'done' | 'faile
 export type UnitTestsResult = { state: AutoTestState; line: string; failures: UnitTestSummary['failures']; failureTotal: number };
 
 /** A browser test that did not finish, with its saved run so its steps can be opened (19 Nov 2026). */
-export type StuckTest = { key: string; text: string; runId: string; name: string; why: string; reason: string | null; kind?: string };
+/** unclear: it failed once and passed once on fresh copies, so it has no result (not a test that could not run). */
+export type StuckTest = { key: string; text: string; runId: string; name: string; why: string; reason: string | null; kind?: string; unclear?: boolean };
 
 export type CheckResult = {
   unitTests: UnitTestsResult | null;
@@ -234,10 +235,13 @@ export function buildCheckResult(input: {
   if (review && codeState === 'failed') codeGaps.push(`The code review stopped before it finished${review.failureReason ? `: ${review.failureReason}` : '.'}`);
   if (codeState === 'cancelled') codeGaps.push('The code review was stopped.');
   if (codeState === 'paused') codeGaps.push('The code review is paused because the AI provider reached a limit. Resume it from Details.');
+  // Parts the review could not confirm ("Completed with gaps") are explained under How this was tested,
+  // not shown beside the problems (25 Nov 2026, user request). They still count as unchecked on the card.
+  const reviewLimits: string[] = [];
   if (review) {
     const gaps = reviewCoverageGaps(review);
-    for (const part of gaps?.parts ?? []) codeGaps.push(`${unverifiedPartLocation(part)}: ${unverifiedPartReason(part)}`);
-    if (gaps && gaps.total > gaps.parts.length) codeGaps.push(`${gaps.total - gaps.parts.length} more parts of the code could not be fully checked.`);
+    for (const part of gaps?.parts ?? []) reviewLimits.push(`${unverifiedPartLocation(part)}: ${unverifiedPartReason(part)}`);
+    if (gaps && gaps.total > gaps.parts.length) reviewLimits.push(`${gaps.total - gaps.parts.length} more parts of the code could not be fully checked.`);
   }
   for (const gap of input.evidenceAssessment?.gaps ?? []) {
     if (gap.code === 'pdf_visual_content_unverified') codeGaps.push(gap.detail);
@@ -259,9 +263,10 @@ export function buildCheckResult(input: {
     const skipped = outOfScope ? ` ${plural(outOfScope, 'control')} that need${outOfScope === 1 ? 's' : ''} typing or would order, pay, delete or send ${outOfScope === 1 ? 'is' : 'are'} never pressed by exploration.` : '';
     // Records saved before 19 Nov 2026 count a control once per screen, without separating controls exploration may not press.
     const legacy = explorations.some(item => item.seen === undefined);
-    const untriedText = legacy ? `${plural(sum('untried'), 'control')} it saw on the screens it reached ${sum('untried') === 1 ? 'was' : 'were'} not pressed.`
-      : `${plural(sum('untried'), 'control')} it was allowed to press ${sum('untried') === 1 ? 'was' : 'were'} not tried.`;
-    if (sum('untried')) browserGaps.push(`${reached} ${untriedText}${skipped}`);
+    const untriedText = `${plural(sum('untried'), 'control')} it was allowed to press ${sum('untried') === 1 ? 'was' : 'were'} not tried.`;
+    // An older record's count repeats controls on every screen, so it cannot show a real gap; it is a note only.
+    if (sum('untried') && legacy) explorationNotes.push(`${reached} This check was saved before ORIN counted each control once, so it cannot say whether any control was left unpressed.`);
+    else if (sum('untried')) browserGaps.push(`${reached} ${untriedText}${skipped}`);
     else explorationNotes.push(`${reached} It tried every control it was allowed to press.${skipped}`);
   }
   const stuckTests: StuckTest[] = [];
@@ -271,14 +276,17 @@ export function buildCheckResult(input: {
       const again = test.firstAttempt ? ', also when run a second time' : '';
       const reason = plainReason(test.reason);
       const text = `Browser test “${test.name}”: ${why}${again}${reason ? ` (${reason.replace(/\.$/, '')})` : ''}.`;
-      if (test.runId) stuckTests.push({ key: `test:${test.id}`, text, runId: test.runId, name: test.name, why: `${why[0].toUpperCase()}${why.slice(1)}${again}`, reason, ...(test.kind ? { kind: test.kind } : {}) });
+      if (test.runId) stuckTests.push({ key: `test:${test.id}`, text, runId: test.runId, name: test.name, why: `${why[0].toUpperCase()}${why.slice(1)}${again}`, reason, ...(test.kind ? { kind: test.kind } : {}), ...(test.state === 'uncertain' ? { unclear: true } : {}) });
       else browserGaps.push(text);
     }
   }
 
-  const notChecked = [...codeGaps, ...browserGaps, ...unitGaps];
+  const notChecked = [...codeGaps, ...reviewLimits, ...browserGaps, ...unitGaps];
   const finished = isTerminal(codeState) && isTerminal(browserState) && check.phase !== 'preparing';
   const total = proven.length + foundInCode.length;
+  // Review limits alone are explained under How this was tested, not beside a part.
+  const shownGaps = codeGaps.length + browserGaps.length + unitGaps.length + stuckTests.length > 0;
+  const LIMITS_ONLY = 'Part of the code review could not be confirmed. How this was tested, at the bottom, says which.';
   let verdict: string;
   let verdictDetail: string | null = null;
   if (check.phase === 'failed') {
@@ -292,13 +300,13 @@ export function buildCheckResult(input: {
   } else if (!total) {
     verdict = notChecked.length ? 'The check finished with gaps.' : 'No problems found.';
     const parts = [codeState === 'done' ? 'the code' : null, browserState === 'done' ? plural(tests.length, 'browser test') : null].filter(Boolean);
-    verdictDetail = notChecked.length ? 'Some parts were not checked. They are listed below.' : parts.length ? `ORIN checked ${parts.join(' and ')}.` : null;
+    verdictDetail = notChecked.length ? (shownGaps ? 'Some parts were not checked. They are listed below.' : LIMITS_ONLY) : parts.length ? `ORIN checked ${parts.join(' and ')}.` : null;
   } else if (proven.length) {
     verdict = `${plural(total, 'problem')} found. ${proven.length} proven in the browser.`;
   } else {
     verdict = `${plural(total, 'problem')} found in the code.`;
   }
-  if (finished && (notChecked.length || stuckTests.length) && check.phase !== 'failed') verdictDetail = verdictDetail ?? 'Some parts could not be checked. Each is shown with its part below.';
+  if (finished && (notChecked.length || stuckTests.length) && check.phase !== 'failed') verdictDetail = verdictDetail ?? (shownGaps ? 'Some parts could not be checked. Each is shown with its part below.' : LIMITS_ONLY);
 
   return {
     unitTests,
@@ -314,6 +322,7 @@ export function buildCheckResult(input: {
     codeGaps,
     browserGaps,
     notes: [
+      ...(reviewLimits.length ? ['The code review finished with gaps: some of what the AI proposed could not be confirmed against the exact source lines, so it is not listed as a problem.', ...reviewLimits] : []),
       ...(autoTest?.summary?.limitations ?? []),
       ...explorationNotes,
       ...(() => {

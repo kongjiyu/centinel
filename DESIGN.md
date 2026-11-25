@@ -220,7 +220,7 @@ Each compact check card shows the name and start time, with the check mode benea
 
 What a message can do (step 1: browser tests):
 
-- **Add a test.** "Test that coupon SAVE10 lowers the cart total." ORIN starts the app if needed, explores it, writes the test and shows a **test card**: its name, plain-language steps, and "Passes only if the page shows …". The card offers **Run now**, **Save for every check** and **Change it**.
+- **Add a test.** "Test that coupon SAVE10 lowers the cart total." ORIN starts the app if needed, explores it, writes the test and shows a **test card**: its name, plain-language steps, and "Passes only if the page shows …". The card offers **Run now** and **Change it**.
 - **Run a test.** The live browser tile from Live (§4.2) plays inside the conversation, then the result appears in place: expected, what the page showed, the AI explanation (labelled), **Screenshot** and **Replay**.
 - **Change a test.** "Also check that an expired coupon shows an error." ORIN answers with a **change card** that lists added lines in green and removed lines in red, and says where any test value came from.
 - **Give test data.** "Use admin@test.com / test123." The values are kept as this project's test data.
@@ -619,9 +619,9 @@ This document describes the target. Built on 12–13 November 2026 (frontend onl
 | Dropping a folder onto a check input | Reads the folder's documents as library files. Choose a local repository through the native folder picker to register its workspace path |
 | Migrating older screens to Aurora layouts | Not done. They keep their layouts under Details, in the new colours |
 | Project conversation, step 1: add, run, change and save browser tests by message (§4.4) | Built: `screens/project/ProjectConversationScreen.tsx`. Opening a project shows it. Its sidebar options open project details and editing |
-| Permission modes (§4.5) | Built for step 1. Ask first confirms before running; Auto and Bypass run at once. Saving a test shows Undo. Mode, saved tests and notes are stored on this device (`check/projectPrefs.ts`) |
+| Permission modes (§4.5) | Built for step 1. Ask first confirms before running; Auto and Bypass run at once. Mode and notes are stored on this device (`check/projectPrefs.ts`) |
 | Latest check in the project side panel, with Download report | Built. Collapsed shows the latest check and its problems; expanding covers the conversation with the whole project (§4.4). The report includes the latest full browser check (each test, its checks and what the page showed) |
-| Saved tests in every check | Built: tests saved in the conversation run alongside newly planned tests in each full check |
+| Saved tests in every check | Removed 25 Nov 2026 (user decision). Run again reruns a single test |
 | Conversation steps 2 and 3: settings by message (address, permissions), questions about results, deleting by message | Not built. A question gets a plain reply only when the AI cannot write a browser test for it |
 | Code review page under Details (redesigned 14 November by the team: issues in five categories, coverage table, live issues, per-issue feedback) | Kept under Details on the legacy guide. The Live screen reads the same run events (`review_assessment_batch_started` file and `assessmentPhase`), and Result titles use the same short title (`shortReviewIssueTitle`), so the two pages name the current file and each problem alike |
 
@@ -669,6 +669,10 @@ Before accepting a screen:
 
 Decision log (user-approved unless noted):
 
+- 2026-11-25 (user decision): The expanded panel takes over the check page's features and "Open full Check" is removed: each problem has Ask about this problem (attaches it to the conversation box), PDF page coverage closes the result. A running check plays in its card in the conversation (stages, files, problems so far, browser tiles, Stop), not in the panel; the card's unchecked count appears once it finishes. A test that failed once and passed once is marked Unclear, not Could not finish. A check's own page stays reachable from the sidebar's Checks list.
+- 2026-11-25 (user request): Parts the code review could not confirm ("Completed with gaps") are listed under How this was tested instead of beside the code problems; stopped, paused or skipped code stays beside them. An exploration count saved before 19 November (counted per screen) is a note, not a gap.
+- 2026-11-25 (user request): Notes, problem titles and requirement names in the expanded panel wrap on narrow windows instead of being cut with an ellipsis; the collapsed panel list stays one line. Browser notes without a stuck test sit under "Browser test notes", not under a "could not finish" heading with 0.
+- 2026-11-25 (user decision): Remove the AI review summary paragraph from the expanded panel; the risk counts and problem list lead it. Remove saved browser tests (Save for every check and the panel's Saved browser tests list); full checks no longer add earlier tests. Run again still reruns one test. The expanded panel uses two columns: the result and the review details with requirements.
 - 2026-11-21 (user request): Keep the Check card for single-mode runs and show counts only for the modes included (§4.4).
 
 - 2026-11-21 (user request): Add a temporary development-only harness trace to evidence-backed conversation turns (§4.4).

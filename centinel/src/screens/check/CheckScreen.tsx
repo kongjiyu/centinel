@@ -111,7 +111,8 @@ export function CheckScreen({ checkId, onNavigate, projects }: { checkId: string
     expanded={expanded} onCloseSidebar={() => setExpanded(false)}
     composer={<CheckFollowUp key={check.id} check={check} projects={projects} onNavigate={onNavigate} available={showResult} library={library}
       explainProblem={explanation?.checkId === checkId ? explanation.attachment : undefined} />}
-    sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)} />}>
+    sidebar={project && <CheckProjectSidebar key={check.id} project={project} check={check} data={data} onNavigate={onNavigate} open={expanded} onToggle={() => setExpanded(value => !value)}
+      onAsk={typeof api.sendConversationRequest === 'function' ? attachment => { setExpanded(false); setExplanation({ checkId, attachment }); } : undefined} />}>
     {content}
   </CheckProjectLayout></>;
 }
@@ -209,7 +210,8 @@ function CheckInterruptionNotices({ check, data, onNavigate }: { check: CheckRec
   </div>;
 }
 
-function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode }) {
+/** The running check. embedded: shown inside the project side panel, without the screen's own frame (25 Nov 2026). */
+export function LiveView({ check, data, onNavigate, header, embedded = false }: { check: CheckRecord; data: CheckData; onNavigate: Navigate; header?: React.ReactNode; embedded?: boolean }) {
   const now = useNow(true);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -236,13 +238,17 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
   const codeItems = result.codeState === 'running' || !data.evidenceLoaded ? live.problems : result.foundInCode;
   const runningTests = (autoTest?.tests ?? []).filter(test => test.state === 'running');
 
-  return (
+  const frame = (body: React.ReactNode) => embedded ? <div className="ck-live is-embedded">{body}</div> : (
     <div className="ck-screen ck-live">
       <div className="ck-glow is-low" aria-hidden="true" />
-      <div className="ck-panel">
+      <div className="ck-panel">{body}</div>
+    </div>
+  );
+  return frame(
+      <>
         {header}
         <header className="ck-live-head">
-          {header ? <h2 className="ck-live-status">Checking <span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h2>
+          {header || embedded ? <h2 className="ck-live-status">Checking <span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h2>
             : <h1 className="ck-title">Checking {check.title || check.projectName}<span className="ci-pair ck-elapsed"><Icon icon={Clock} /><span className="ci-text">{formatElapsed(now - Date.parse(check.createdAt))}</span></span></h1>}
           {check.phase === 'running' && <button type="button" className="ck-button" onClick={() => void stop()} disabled={stopping}><Icon icon={Square} />{stopping ? 'Stopping…' : 'Stop'}</button>}
         </header>
@@ -307,8 +313,7 @@ function LiveView({ check, data, onNavigate, header }: { check: CheckRecord; dat
             </section>
           )}
         </div>
-      </div>
-    </div>
+      </>
   );
 }
 
@@ -402,6 +407,10 @@ export function GapNotes({ items }: { items: string[] }) {
   );
 }
 
+function stuckTitle(items: StuckTest[]) {
+  return !items.length ? 'Browser test notes' : items.every(item => item.unclear) ? 'Browser tests with an unclear result' : 'Browser tests that could not finish';
+}
+
 /** A browser test that could not finish: its reason, and its steps showing where it stopped. */
 function StuckRow({ item, projectId, open, onToggle }: { item: StuckTest; projectId: string; open: boolean; onToggle(): void }) {
   const bodyId = `ck-stuck-${item.key.replace(/[^\w-]/g, '')}`;
@@ -409,7 +418,7 @@ function StuckRow({ item, projectId, open, onToggle }: { item: StuckTest; projec
     <li className={`ck-row is-stuck${open ? ' is-open' : ''}`}>
       <button type="button" className="ck-row-head" aria-expanded={open} aria-controls={bodyId} onClick={onToggle}>
         <span className="ck-row-title">{item.name}<small>{item.why}</small></span>
-        <span className="ck-mark is-stuck"><Icon icon={TriangleAlert} shape="triangle" />Could not finish</span>
+        <span className="ck-mark is-stuck"><Icon icon={TriangleAlert} shape="triangle" />{item.unclear ? 'Unclear' : 'Could not finish'}</span>
         <Icon icon={open ? ChevronUp : ChevronDown} className="ck-chevron" />
       </button>
       {open && (
@@ -551,8 +560,8 @@ function ResultView({ check, data, onNavigate, header, onExplain }: {
               </section>
             ))}
             {(result.stuckTests.length > 0 || result.browserGaps.length > 0) && (
-              <section className="ck-group" aria-label="Browser tests that could not finish">
-                <h2 className="ck-group-title ci-pair"><Icon icon={TriangleAlert} shape="triangle" /><span className="ci-text">Browser tests that could not finish</span></h2>
+              <section className="ck-group" aria-label={stuckTitle(result.stuckTests)}>
+                <h2 className="ck-group-title ci-pair"><Icon icon={result.stuckTests.length ? TriangleAlert : Info} shape={result.stuckTests.length ? 'triangle' : undefined} /><span className="ci-text">{stuckTitle(result.stuckTests)}</span></h2>
                 <GapNotes items={result.browserGaps} />
                 {result.stuckTests.length > 0 && check.projectId && (
                   <ul className="ck-rows">

@@ -183,11 +183,9 @@ async function prepare(checkId: string, input: StartCheckInput, deps: RunnerDeps
       } else {
         updateCheck(checkId, { prepStep: 'browser' });
         try {
-          // Tests saved for every check in the project conversation run alongside the newly planned ones.
-          const pinned = readPrefs(project.id).pinned.map(({ sessionId, testId }) => ({ sessionId, testId }));
           const request = input.browserRequest?.trim();
           const session = await api.startAutoTest(project.id, { folder: input.folder, startupPermission: input.startupPermission ?? readPrefs(project.id).mode,
-            ...(request ? { request } : pinned.length ? { pinned } : {}) });
+            ...(request ? { request } : {}) });
           updateCheck(checkId, { autoTestId: session.id });
         } catch (cause) {
           note(`Browser tests did not start: ${userFacingError(cause, 'the browser test service was not available.')}`);

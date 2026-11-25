@@ -31,8 +31,10 @@ const accepted = (input: ConversationRequest['input']): ConversationRequest => (
 });
 function Workspace() {
   const [route, navigate] = useState<Screen>({ name: 'project', projectId: project.id });
-  return route.name === 'check' ? <CheckScreen checkId={route.checkId} projects={[project]} onNavigate={navigate} />
-    : <ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} />;
+  // Stands in for the app sidebar's Checks list, the way to a check's own page.
+  const openCheck = <button type="button" onClick={() => navigate({ name: 'check', checkId: 'check-one' })}>Open Order Access</button>;
+  return route.name === 'check' ? <>{openCheck}<CheckScreen checkId={route.checkId} projects={[project]} onNavigate={navigate} /></>
+    : <>{openCheck}<ProjectConversationScreen project={project} projects={[project]} onNavigate={navigate} /></>;
 }
 beforeEach(() => {
   vi.resetAllMocks(); resetCheckStore(); localStorage.clear(); sessionStorage.clear();
@@ -69,8 +71,9 @@ it('opens a saved card, keeps the result while typing, attaches a problem and re
   await user.click(card.getByRole('button', { name: 'View' }));
   expect(await screen.findByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
   expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).toHaveClass('is-open');
-  expect(screen.getByRole('button', { name: 'Open full Check' })).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
+  // The panel holds the check page's features, so there is no separate Open full Check (25 Nov 2026).
+  expect(screen.queryByRole('button', { name: 'Open full Check' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
   expect(await screen.findByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain @ownership');
@@ -278,7 +281,7 @@ it('restores each draft when switching checks and posts only the sent draft to t
   render(<Workspace />);
   await user.type(screen.getByRole('textbox', { name: 'Message to ORIN' }), 'My project draft');
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
-  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
+  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
   const prompt = () => screen.getByRole('textbox', { name: 'Follow-up check' });
   expect(prompt()).toHaveValue('');
   expect(screen.getByRole('button', { name: 'Remove check Order Access' })).toBeInTheDocument();
@@ -361,7 +364,7 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   const user = userEvent.setup();
   render(<Workspace />);
   await user.click(within(screen.getByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
-  await user.click(screen.getByRole('button', { name: 'Open full Check' }));
+  await user.click(screen.getByRole('button', { name: 'Open Order Access' }));
   const prompt = screen.getByRole('textbox', { name: 'Follow-up check' });
   await user.type(prompt, 'Explain this check');
   await user.click(screen.getByRole('button', { name: 'Send follow-up' }));
@@ -372,4 +375,16 @@ it('retains a newer draft typed while a previous send is awaiting acknowledgemen
   const next = await screen.findByRole('textbox', { name: 'Message to ORIN' });
   expect(next).toHaveValue('');
   expect(readConversationDraft(project.id, 'check-one').text).toBe('Now explain the ownership evidence');
+});
+
+it('asks about a problem from the expanded panel and attaches it to the project message', async () => {
+  const user = userEvent.setup();
+  render(<Workspace />);
+  await user.click(within(await screen.findByRole('region', { name: 'Check Order Access' })).getByRole('button', { name: 'View' }));
+  const panel = within(screen.getByRole('complementary', { name: 'What ORIN knows' }));
+  await user.click(await panel.findByText('Order ownership check is missing'));
+  await user.click(panel.getByRole('button', { name: 'Ask about this problem' }));
+  expect(await screen.findByRole('button', { name: 'Remove problem Order ownership check is missing' })).toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message to ORIN' })).toHaveValue('Explain the attached problem.');
+  expect(screen.getByRole('complementary', { name: 'What ORIN knows' })).not.toHaveClass('is-open');
 });

@@ -181,17 +181,16 @@
 .pc-side-toggle:hover { background: var(--color-surface); border-color: var(--color-border); color: var(--color-text); }
 .pc-side-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .pc-latest-sub { margin-top: 2px; padding-left: calc(1.2em + var(--space-2)); color: var(--color-text-muted); font-size: 12px; }
-.pc-side-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4, 16px) var(--space-8, 32px); min-width: 0; }
-.pc-side.is-open .pc-side-body { grid-template-columns: minmax(0, 1fr) 280px; gap: var(--space-4, 16px) var(--space-8, 32px); }
 .pc-side-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 0fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0fr);
   row-gap: var(--space-4);
   min-width: 0;
   column-gap: 0;
   transition: grid-template-columns var(--ck-sidebar-motion) var(--ease-standard), column-gap var(--ck-sidebar-motion) var(--ease-standard);
 }
-.pc-side.is-open .pc-side-body { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)); column-gap: var(--space-6); }
+/* Expanded: the result on the left, the review details and requirements on the right (two sections, two columns). */
+.pc-side.is-open .pc-side-body { grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); column-gap: var(--space-8); }
 .pc-side-col { min-width: 0; }
 .pc-side-col > h2:first-child { margin-top: 0; }
 .pc-side .pc-side-latest-label {
@@ -330,7 +329,6 @@
 .pc-side.is-open .pc-latest-verdict { font-size: 20px; }
 .pc-side.is-open .pc-latest-numbers b { font-size: 22px; }
 .pc-ov-card { margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-inner); background: var(--color-surface); }
-.pc-ov-summary { font-size: 14px; line-height: 1.6; color: var(--color-text); }
 .pc-ov-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
 .pc-ov-row b { font-weight: 600; font-size: 14px; }
 .pc-ov-more { font-weight: 400; font-size: 13px; color: var(--color-text-muted); }
@@ -345,7 +343,9 @@
 .pc-ov-issue > summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .pc-ov-chevron { color: var(--color-text-muted); transition: transform var(--duration-fast, 100ms) var(--ease-standard, ease); }
 .pc-ov-issue[open] .pc-ov-chevron { transform: rotate(90deg); }
-.pc-ov-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pc-ov-title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.pc-ov-issue > summary { align-items: flex-start; }
+.pc-ov-issue > summary > :not(.pc-ov-title) { margin-top: 2px; }
 .pc-ov-risk { flex: none; font-size: 12px; font-weight: 500; }
 .pc-ov-mark { display: inline-flex; align-items: center; gap: var(--space-1); flex: none; padding: 1px var(--space-2); border-radius: var(--radius-pill); font-size: 12px; }
 .pc-ov-mark.is-browser { background: var(--color-browser-subtle); color: var(--color-browser); }
@@ -541,3 +541,13 @@
   .pc-label.pc-reply-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0; }
 .pc-reply-action, .pc-reply-chip button { min-block-size: 44px; min-inline-size: 44px; }
 }
+
+/* Narrow windows (25 Nov 2026, user request): notes, problem titles and requirement names in the
+   expanded panel wrap instead of being cut to one line. The collapsed 280 px list stays one line per problem. */
+.pc-side .ck-gaps li > span,
+.pc-side.is-open .pc-side-extra li > span { overflow: visible; white-space: normal; text-overflow: clip; overflow-wrap: anywhere; }
+.pc-side.is-open .pc-side-extra li { align-items: flex-start; }
+.pc-ov-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+/* A running check inside its conversation card (25 Nov 2026). */
+.ck-live.is-embedded { margin-top: var(--space-3); }
+.ck-live.is-embedded .ck-columns { grid-template-columns: minmax(0, 1fr); }

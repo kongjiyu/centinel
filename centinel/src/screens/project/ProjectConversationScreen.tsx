@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkCheck, Check, ChevronDown, ChevronRight, RotateCcw, Search, Wrench, FileText, Globe, Info, LoaderCircle, MonitorCheck, Pencil, Play, Plus, Save, ShieldCheck, TriangleAlert, Undo2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, RotateCcw, Search, Wrench, FileText, Globe, Info, LoaderCircle, MonitorCheck, Pencil, Play, Plus, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AutoTestEntry, AutoTestPreset, AutoTestRef, AutoTestSession } from '../../autotest/types';
 import { isActive } from '../../autotest/types';
@@ -8,7 +8,7 @@ import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { browserProblem, type CheckProblem } from '../../check/result';
-import { addNote, isPinned, pinTest, setMode, setSideOpen, unpinTest, useProjectPrefs } from '../../check/projectPrefs';
+import { addNote, setMode, setSideOpen, useProjectPrefs } from '../../check/projectPrefs';
 import { useLatestResult, type LatestResult } from '../../check/latestResult';
 import { useCheckData } from '../../check/useCheckData';
 import { checkName } from '../../check/checkName';
@@ -27,7 +27,7 @@ import { useCheckLibrary } from '../check/CheckSourceLibrary';
 import { ProjectSidePanel } from './ProjectSidePanel';
 import { ProjectCheckCard } from './ProjectCheckCard';
 import { ConversationTurn } from './ConversationTurn';
-import { eligibleReplySource, readConversationDraft, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
+import { eligibleReplySource, type ProblemAttachment, readConversationDraft, replyExcerpt, conversationQuestionOptions, useConversationRequests, writeConversationDraft } from '../../check/conversation';
 import { ConversationQuestion } from './ConversationQuestion';
 import { ConversationFailure, conversationFailureDetails } from './ConversationFailure';
 import { consumeConversationReturn, rememberProjectPosition, restoreProjectPosition } from '../../check/projectNavigation';
@@ -194,7 +194,6 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
   const active = isActive(session);
   const now = useTicker(active);
   const [workOpen, setWorkOpen] = useState(false);
-  const [justSaved, setJustSaved] = useState<string | null>(null);
   const userText = session.request?.text ?? `Run again: ${(session.presets ?? []).map(preset => preset.name).join(', ')}`;
   const base = session.request?.base ?? null;
   const changes = base && session.tests[0] ? testChanges(base, session.tests[0]) : null;
@@ -250,17 +249,13 @@ function SessionTurn({ session, projectId, prefs, onChange, onRerun, onCancel, o
       </section>
       {finished.map(test => {
         const ref = { sessionId: session.id, testId: test.id, name: test.name };
-        const pinned = isPinned(prefs, ref);
         const reusable = !!test.controls && test.checks.length > 0;
         if (!test.runId && !reusable) return null;
         return (
           <div key={test.id} className="pc-actions pc-turn-actions" role="group" aria-label={`Actions for ${test.name}`}>
             {test.runId && <IconAction icon={Play} shape="play" label="Replay" onClick={() => onNavigate({ name: 'dynamic-testing', projectId, runId: test.runId })} />}
             {reusable && <IconAction icon={RotateCcw} label="Run again" onClick={() => onRerun(ref)} />}
-            {reusable && !pinned && <IconAction icon={Bookmark} label="Save for every check" onClick={() => { pinTest(projectId, { ...ref, pinnedAt: new Date().toISOString() }); setJustSaved(test.id); }} />}
-            {pinned && <IconAction icon={BookmarkCheck} pressed label="Saved for every check. Select to stop running it in every check" onClick={() => { unpinTest(projectId, ref); setJustSaved(null); }} />}
             {reusable && <IconAction icon={Pencil} label="Change it" onClick={() => onChange(ref)} />}
-            {pinned && justSaved === test.id && <span className="pc-done">Saved for every check <button type="button" className="ck-link" onClick={() => { unpinTest(projectId, ref); setJustSaved(null); }}><Icon icon={Undo2} />Undo</button></span>}
           </div>
         );
       })}
@@ -413,7 +408,11 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const [sideChoice, setSideChoice] = useState<boolean | null>(null);
   const sideOpen = sideChoice ?? false;
   const [focusCheck, setFocusCheck] = useState<CheckRecord | null>(null);
-  const focusData = useCheckData(focusCheck ?? undefined);
+  // The expanded panel carries the check page's features (25 Nov 2026), so it reads the chosen check or the check
+  // behind the latest result. A running check plays in its card in the conversation, not here.
+  const latestRecord = checks.find(check => latest.review && check.reviewId === latest.review.id || latest.autoTest && check.autoTestId === latest.autoTest.id);
+  const targetRecord = focusCheck ?? (sideOpen ? latestRecord : undefined);
+  const focusData = useCheckData(targetRecord ?? undefined);
   const panelLatest: LatestResult = focusCheck
     ? focusData ? {
       review: focusData.review, autoTest: focusData.autoTest, requirements: focusData.requirements, findings: focusData.findings,
@@ -421,9 +420,6 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
       at: focusCheck.finishedAt ?? focusCheck.createdAt, loading: focusData.evidenceLoaded === false, reload: latest.reload,
     } : { ...latest, loading: true }
     : latest;
-  const panelCheckId = focusCheck?.id ?? checks.find(check =>
-    panelLatest.review && check.reviewId === panelLatest.review.id
-      || panelLatest.autoTest && check.autoTestId === panelLatest.autoTest.id)?.id;
   const toggleSide = (open: boolean) => {
     setSideChoice(open);
     setSideOpen(project.id, open);
@@ -436,6 +432,15 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
     if (!saved && check.projectId === project.id) saveCheck(check);
     setFocusCheck(saved ?? check);
     toggleSide(true);
+  };
+  /** Ask about this problem: attach it to the conversation box, as on the check page. */
+  const askAbout = (attachment: ProblemAttachment) => {
+    const draft = readConversationDraft(project.id);
+    const problems = draft.problems.some(item => JSON.stringify(item.reference) === JSON.stringify(attachment.reference)) ? draft.problems : [...draft.problems, attachment];
+    writeConversationDraft(project.id, { ...draft, problems, text: draft.text.trim() ? draft.text : 'Explain the attached problem.' });
+    setComposerVersion(value => value + 1);
+    toggleSide(false);
+    inputRef.current?.focus({ preventScroll: true });
   };
   const runAgain = (problem: CheckProblem) => {
     const reference = problem.testRef ? { autoTestId: problem.testRef.sessionId, testId: problem.testRef.testId }
@@ -453,7 +458,6 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
   const projectCodeFallback = latestCheck?.mode === 'code' && latestCheck.requestedMode === 'both';
   const documents = artifacts.filter(artifact => artifact.source === 'documents');
   const codeFiles = artifacts.filter(artifact => artifact.source === 'repository').length;
-  const lastStateOf = (ref: AutoTestRef) => sessions.find(session => session.id === ref.sessionId)?.tests.find(test => test.id === ref.testId)?.state;
 
   const startupSession = sessions.find(session => !!session.startupQuestion);
   const latestRequest = latestAction && 'request' in latestAction ? latestAction.request : undefined;
@@ -498,9 +502,9 @@ export function ProjectConversationScreen({ project, projects, onNavigate }: { p
         placeholder: base ? 'How should this test change?' : 'Ask ORIN to test or change something',
         setPermission: mode => setMode(project.id, mode),
       }} />}
-    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkId={panelCheckId} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
-      artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} pinned={prefs.pinned} lastStateOf={lastStateOf} mode={prefs.mode}
-      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} />}>
+    sidebar={<ProjectSidePanel project={project} latest={panelLatest} onOpen={openLatest} checkLabel={focusCheck ? checkName(focusCheck) : undefined} open={sideOpen} onToggle={() => toggleSide(!sideOpen)}
+      artifacts={artifacts} onSourcesChanged={loadArtifacts} codeFiles={codeFiles} mode={prefs.mode}
+      accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} onRunFullCheck={runFullCheck} onRunAgain={runAgain} onOpenCheck={openCheck} onAsk={askAbout} evidenceAssessment={focusData?.evidenceAssessment} />}>
       <div className="ck-screen"><section className="ck-panel pc-response" aria-label={`Conversation about ${project.name}`}>
           <CheckProjectHeader check={{ projectId: project.id, projectName: project.name }} project={project} onNavigate={onNavigate} library={library}
             projectAction={<button type="button" className="ck-toolbar-item" data-default onClick={runFullCheck} disabled={!hasFolder} aria-label="Run a full check"

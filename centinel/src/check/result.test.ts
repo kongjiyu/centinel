@@ -111,8 +111,9 @@ describe('check result', () => {
     ]);
     // A stuck test with a saved run is kept with that run, so its steps can be opened.
     expect(result.stuckTests).toEqual([{ key: 'test:t3', text: 'Browser test “Login”: it could not run (no sign-in form).', runId: 'run-1', name: 'Login', why: 'It could not run', reason: 'no sign-in form' }]);
-    // Each gap belongs to its part: the skipped files and the review gap go with the code.
-    expect(result.codeGaps).toEqual(result.notChecked);
+    // Skipped files stay with the code; parts the review could not confirm are explained under How this was tested.
+    expect(result.codeGaps).toEqual(['3 files in the folder were skipped (unsupported type or too large).']);
+    expect(result.notes).toContain('src/big.js: The AI did not answer within the time limit.');
     expect(result.browserGaps).toEqual([]);
     expect(result.verdictDetail).toBe('Some parts could not be checked. Each is shown with its part below.');
   });
@@ -164,7 +165,12 @@ describe('fixed full-check tests', () => {
   it('says how far the exploration got and what it did not try', () => {
     const explore = test({ id: 'e', kind: 'exploratory', name: 'Explore the app', state: 'passed', exploration: { screens: 4, actions: 6, untried: 9, truncated: false } });
     const result = buildCheckResult({ check: check({ autoTestId: 'a', mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([explore]) });
-    expect(result.notChecked).toContain('The exploratory test reached 4 screens and pressed 6 controls. 9 controls it saw on the screens it reached were not pressed.');
+    // An older record counts controls again on each screen, so its count is a note, not a gap.
+    expect(result.notChecked).toEqual([]);
+    expect(result.notes).toContain('The exploratory test reached 4 screens and pressed 6 controls. This check was saved before ORIN counted each control once, so it cannot say whether any control was left unpressed.');
+    const current = test({ id: 'e3', kind: 'exploratory', name: 'Explore the app', state: 'passed', exploration: { screens: 4, actions: 6, untried: 2, seen: 8, truncated: false } });
+    expect(buildCheckResult({ check: check({ autoTestId: 'a', mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([current]) }).browserGaps)
+      .toEqual(['The exploratory test reached 4 screens and pressed 6 controls. 2 controls it was allowed to press were not tried.']);
     const complete = test({ id: 'e2', kind: 'exploratory', name: 'Explore the app', state: 'passed', exploration: { screens: 5, actions: 5, untried: 0, outOfScope: 4, truncated: false } });
     const done = buildCheckResult({ check: check({ autoTestId: 'a', mode: 'browser' }), review: null, findings: [], requirements: [], autoTest: session([complete]) });
     expect(done.notChecked).toEqual([]);

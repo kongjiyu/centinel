@@ -1,4 +1,5 @@
 import type { Page } from 'playwright';
+import { pageShowsText } from './visibleText.js';
 import type { CheckDefinition, CheckResult, CheckVerdict } from './types.js';
 
 /** Checks use configured expectations, never a model's terminal declaration. */
@@ -20,7 +21,7 @@ export async function checkPage(page: Page, definitions: CheckDefinition[], evid
         } else if (check.kind === 'visible_text') {
           const text = await page.locator('body').innerText({ timeout: 3000 });
           // Store the expectation/match only, not arbitrary page text or secrets.
-          pass = text.includes(check.expected);
+          pass = pageShowsText(text, check.expected);
           result.observed = pass ? 'Expected visible text found.' : 'Expected visible text absent.';
         } else if(check.kind==='element_visible') {
           const locator = page.locator(check.selector);
