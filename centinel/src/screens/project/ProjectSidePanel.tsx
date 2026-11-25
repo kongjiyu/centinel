@@ -1,21 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Check, Download, LayoutList, LoaderCircle, Lock, MonitorCheck, Play, RotateCcw, SquareChartGantt, TriangleAlert, X, Globe, ShieldCheck } from 'lucide-react';
+import { Download, LayoutList, LoaderCircle, Lock, Play, RotateCcw, Globe, ShieldCheck } from 'lucide-react';
 import { api } from '../../api/client';
-import type { AutoTestRef } from '../../autotest/types';
 import { checkProblemSummary } from '../../check/result';
 import { problemCountTone, ProblemCountIcon } from '../../components/ProblemCountIcon';
 import { Icon } from '../../components/Icon';
 import { CornersIn, CornersOut } from '../../components/cornerIcons';
-import { MODE_LABEL, unpinTest, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
+import { MODE_LABEL, useProjectPrefs, type PermissionMode } from '../../check/projectPrefs';
 import type { LatestResult } from '../../check/latestResult';
 import type { CheckProblem } from '../../check/result';
+import type { ProblemAttachment } from '../../check/conversation';
 import { ProjectOverviewMain, ProjectOverviewRail, ReviewState, problemLook, useReviewTrace } from './ProjectOverview';
 import { RequirementsSection, SourcesSection } from './ProjectManage';
 import { useChecks } from '../../check/store';
 import { projectLocalFolder } from '../../check/projectWorkspace';
 import type { CheckData } from '../../check/useCheckData';
 import type { CheckRecord } from '../../check/types';
-import type { Artifact, Project, Screen } from '../../types';
+import type { Artifact, EvidenceSufficiencyAssessment, Project, Screen } from '../../types';
 import { userFacingError } from '../../utils/userFacingError';
 import './ProjectConversation.css';
 
@@ -25,13 +25,15 @@ const DAY: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
 /**
  * The project side panel (DESIGN.md §4.4). Collapsed: the latest check's problem count, numbers and problems.
  * Expanded over the conversation: risk counts, every problem with its evidence, requirements and sources
- * to manage, saved tests, how it is tested and checks. Everything is read from saved records.
+ * to manage, how it is tested and checks. Everything is read from saved records.
  */
-export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, artifacts, onSourcesChanged, codeFiles, pinned, lastStateOf, mode, accountGiven, checks, onNavigate, onRunFullCheck, onRunAgain, checkId, checkLabel, onOpenCheck }: {
+export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, artifacts, onSourcesChanged, codeFiles, mode, accountGiven, checks, onNavigate, onRunFullCheck, onRunAgain, checkLabel, onOpenCheck, onAsk, evidenceAssessment }: {
   project: Project; latest: LatestResult; onOpen(): void; open: boolean; onToggle(): void;
-  artifacts: Artifact[]; onSourcesChanged(): void; codeFiles: number; pinned: ReturnType<typeof useProjectPrefs>['pinned'];
-  lastStateOf(ref: AutoTestRef): string | undefined; mode: PermissionMode; accountGiven: boolean;
-  checks: ReturnType<typeof useChecks>; onNavigate: Navigate; onRunFullCheck?(): void; onRunAgain?(problem: CheckProblem): void; checkId?: string; checkLabel?: string;
+  artifacts: Artifact[]; onSourcesChanged(): void; codeFiles: number;
+  mode: PermissionMode; accountGiven: boolean;
+  checks: ReturnType<typeof useChecks>; onNavigate: Navigate; onRunFullCheck?(): void; onRunAgain?(problem: CheckProblem): void; checkLabel?: string;
+  /** The check page's features in the panel (25 Nov 2026): ask about a problem and PDF page coverage. */
+  onAsk?(attachment: ProblemAttachment): void; evidenceAssessment?: EvidenceSufficiencyAssessment | null;
   /** Opens a saved check in this panel instead of on its own page. */
   onOpenCheck?(check: ReturnType<typeof useChecks>[number]): void;
 }) {
@@ -110,9 +112,6 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
           {open && <span className="pc-side-meta">{latestLabel}</span>}
         </div>
         <div className="pc-side-actions">
-          {open && checkId && <button type="button" className="ck-button is-small" onClick={() => onNavigate({ name: 'check', checkId })}>
-            <Icon icon={SquareChartGantt} />Open full Check
-          </button>}
           {open && reviewDone && <button type="button" className="ck-button is-primary is-small" onClick={() => void download()} disabled={exporting}><Icon icon={Download} />{exporting ? 'Creating report…' : 'Download report'}</button>}
           {open && retryable && <button type="button" className="ck-button is-small" onClick={() => void retry()} disabled={retrying}><Icon icon={RotateCcw} />{retrying ? 'Starting…' : 'Retry the code review'}</button>}
           {open && !retryable && hasFolder && onRunFullCheck && <button type="button" className="ck-button is-small" onClick={onRunFullCheck} disabled={running}><Icon icon={Play} shape="play" />Run a full check</button>}
@@ -143,29 +142,12 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
         <div className="pc-side-body" id="pc-side-more">
           <section className="pc-side-col pc-side-main pc-side-extra" aria-label="Latest check">
             <ProjectOverviewMain projectId={project.id} latest={latest} trace={trace}
-              onReplay={onRunAgain} />
+              onReplay={onRunAgain} onAsk={onAsk} evidenceAssessment={evidenceAssessment} />
           </section>
           <section className="pc-side-col pc-side-extra">
             <ProjectOverviewRail latest={latest} trace={trace}>
               <RequirementsSection projectId={project.id} requirements={latest.requirements} tally={tally} documents={documents} tests={latest.autoTest?.tests ?? []} onChanged={latest.reload} />
               <SourcesSection project={project} artifacts={artifacts} onChanged={onSourcesChanged} />
-              <section aria-label="Saved browser tests">
-                <h3>Saved browser tests{pinned.length ? ` · ${pinned.length}` : ''}</h3>
-                {pinned.length ? (
-                  <ul>
-                    {pinned.map(test => {
-                      const state = lastStateOf(test);
-                      return (
-                        <li key={`${test.sessionId}:${test.testId}`}>
-                          {state === 'failed' ? <Icon icon={TriangleAlert} shape="triangle" className="pc-bad" /> : state === 'passed' ? <Icon icon={Check} /> : <Icon icon={MonitorCheck} />}
-                          <span>{test.name}</span>
-                          <button type="button" className="pc-unpin" onClick={() => unpinTest(project.id, test)} aria-label={`Stop running ${test.name} in every check`}><Icon icon={X} /></button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : <p className="pc-empty">None yet. Use Save for every check on a test.</p>}
-              </section>
               <section aria-label="How it is tested">
                 <h3>How it is tested</h3>
                 <ul>
@@ -198,8 +180,9 @@ export function ProjectSidePanel({ project, latest, onOpen, open, onToggle, arti
 }
 
 
-export function CheckProjectSidebar({ project, check, data, onNavigate, open, onToggle }: {
+export function CheckProjectSidebar({ project, check, data, onNavigate, open, onToggle, onAsk }: {
   project: Project; check: CheckRecord; data: CheckData; onNavigate: Navigate; open: boolean; onToggle(): void;
+  onAsk?(attachment: ProblemAttachment): void;
 }) {
   const prefs = useProjectPrefs(project.id);
   const checks = useChecks().filter(item => item.projectId === project.id);
@@ -218,6 +201,6 @@ export function CheckProjectSidebar({ project, check, data, onNavigate, open, on
     onOpen={() => { if (open) onToggle(); else document.querySelector<HTMLElement>('.ck-detail-content')?.scrollTo?.({ top: 0 }); }}
     artifacts={artifacts} onSourcesChanged={() => setVersion(value => value + 1)}
     codeFiles={artifacts.filter(item => item.source === 'repository').length}
-    pinned={prefs.pinned} lastStateOf={ref => ref.sessionId === data.autoTest?.id ? data.autoTest.tests.find(item => item.id === ref.testId)?.state : undefined}
-    mode={prefs.mode} accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate} />;
+    mode={prefs.mode} accountGiven={prefs.accountReminderShown} checks={checks} onNavigate={onNavigate}
+    onAsk={onAsk} evidenceAssessment={data.evidenceAssessment} />;
 }

@@ -10,6 +10,7 @@ import { animateCheckTransition, rememberCheckTransition } from '../../check/che
 import { rememberProjectPosition } from '../../check/projectNavigation';
 import { exportCheckSummary } from '../../check/exportCheckSummary';
 import { CheckActionLabel } from '../check/CheckProjectWorkspace';
+import { LiveView } from '../check/CheckScreen';
 import { CHECK_MODES, type CheckRecord } from '../../check/types';
 import type { Screen } from '../../types';
 
@@ -26,7 +27,8 @@ export function ProjectCheckCard({ check, onNavigate, onOpen }: { check: CheckRe
   useLayoutEffect(() => { animateCheckTransition(check.id, card.current); }, [check.id]);
   const result = data?.result;
   const ready = !!data && data.evidenceLoaded === true;
-  const gaps = ready && result ? [...result.notChecked, ...result.stuckTests.map(test => test.text)] : [];
+  const running = check.phase !== 'failed' && check.phase !== 'done' && !result?.finished;
+  const gaps = ready && result && !running ? [...result.notChecked, ...result.stuckTests.map(test => test.text)] : [];
   const startedAt = Date.parse(check.createdAt);
   const exportable = ready && result?.finished && data.requirementsState !== 'loading'
     && Boolean(data.review || data.autoTest);
@@ -81,7 +83,9 @@ export function ProjectCheckCard({ check, onNavigate, onOpen }: { check: CheckRe
       {gaps.map((gap, index) => <li key={index}>{gap}</li>)}
     </ul>}
     {data?.loadError && <p className="pc-sub" role="status">{data.loadError}</p>}
-    {!ready ? !data?.loadError && <LoadingSkeleton className="ck-metrics-skeleton" variant="cards" rows={check.mode === 'both' ? 3 : 2} label="Loading saved check" /> : <>
+    {/* A running check plays here in the conversation: stages, files, problems so far and the browsers (25 Nov 2026). */}
+    {running && data ? <LiveView check={check} data={data} onNavigate={onNavigate} embedded />
+    : !ready ? !data?.loadError && <LoadingSkeleton className="ck-metrics-skeleton" variant="cards" rows={check.mode === 'both' ? 3 : 2} label="Loading saved check" /> : <>
       {!result?.finished && <p role="status">{check.phase === 'failed' ? 'The check could not start.' : 'Check in progress'}</p>}
       <dl className="pc-check-card-counts">
         {check.mode !== 'code' && <div><dt><Icon icon={MonitorCheck} />Proven in the browser</dt><dd>{result?.browserState === 'done' ? result.proven.length : 'Not checked'}</dd></div>}

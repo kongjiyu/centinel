@@ -37,7 +37,7 @@ describe('Auto test planner validation', () => {
     const plan = validatePlan({ tests: [signInTest()] }, ctx);
     expect(plan.dropped).toEqual([]);
     expect(plan.tests[0]).toMatchObject({ requirementRef: 'REQ-1', startPath: '/', sourceRefs: [{ path: 'server.js', line: 45 }] });
-    expect(plan.tests[0].mission).toMatchObject({ targetUrl: 'http://localhost:5000/', maxSteps: 15, mode: 'guided' });
+    expect(plan.tests[0].mission).toMatchObject({ targetUrl: 'http://localhost:5000/', maxSteps: 25, mode: 'guided' });
     expect(plan.tests[0].mission.checks[0]).toMatchObject({ kind: 'visible_text', criterionId: 'REQ-1', required: true });
   });
 

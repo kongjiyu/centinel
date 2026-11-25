@@ -18,6 +18,11 @@ describe('latest project result', () => {
     expect(pickLatestFullAutoTest(sessions)?.id).toBe('full');
   });
 
+  it('prefers the newest finished browser tests, falling back to running ones', () => {
+    expect(pickLatestFullAutoTest([auto('done', '2026-11-12'), auto('now', '2026-11-14', { stage: 'testing' })])?.id).toBe('done');
+    expect(pickLatestFullAutoTest([auto('now', '2026-11-14', { stage: 'testing' })])?.id).toBe('now');
+  });
+
   it('builds the same result as the Result page from saved records, and nothing without them', () => {
     expect(latestResultFrom({ review: null, findings: [], autoTest: null, requirements: [] })).toBeNull();
     const result = latestResultFrom({ review: review('r', '2026-11-12'), findings: [], autoTest: null, requirements: [] });

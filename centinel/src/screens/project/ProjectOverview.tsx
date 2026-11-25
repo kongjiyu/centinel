@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Check, ChevronRight, Code, Info, MonitorCheck, Minus, OctagonAlert, RotateCcw, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { Check, ChevronRight, Code, Info, MessageCircle, MonitorCheck, Minus, OctagonAlert, RotateCcw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { Icon, type IconShape } from '../../components/Icon';
 import { IssueSourceContext, REVIEW_ISSUE_CATEGORIES, reviewIssueCategory, shortReviewIssueTitle, type ReviewIssueCategory } from '../../components/ReviewIssues';
 import type { CheckProblem, StuckTest } from '../../check/result';
 import type { LatestResult } from '../../check/latestResult';
+import type { ProblemAttachment } from '../../check/conversation';
+import { PdfVisualCoverage } from '../../components/PdfVisualCoverage';
+import type { EvidenceSufficiencyAssessment } from '../../types';
 import { TEST_KIND_LABEL } from '../../autotest/types';
 import { UnitTestsSummary } from '../check/UnitTestsSummary';
 import { RunTimeline } from '../check/RunTimeline';
@@ -13,7 +16,7 @@ import { findingSourceReferences } from '../../findingGroups';
 import { featureDisplayName, groupReviewFeatures } from '../../reviewFeatures';
 import type { ReviewHarnessTrace } from '../../reviewHarness';
 import { buildReviewNarrative, plainReviewText } from '../../reviewNarrative';
-import { parseReviewProgress, reviewLifecycleState } from '../../reviewViewModel';
+import { reviewLifecycleState } from '../../reviewViewModel';
 import type { Finding, FindingSourceReference } from '../../types';
 
 export const RISK_ICON: Record<string, { icon: typeof Check; shape?: IconShape; className: string }> = {
@@ -48,15 +51,28 @@ export function useReviewTrace(projectId: string, reviewId: string | null) {
 
 /**
  * The main column of the expanded project panel (DESIGN.md §4.4, 16 Nov 2026):
- * built from what the Review page shows — summary, coverage and issues by
+ * built from what the Review page shows — coverage and issues by
  * category — plus the browser's proof. Each problem starts as one title row and
  * opens to its code, overview and browser evidence. Read-only; decisions and
  * feedback stay on the Review page.
  */
-export function ProjectOverviewMain({ projectId, latest, trace, onReplay }: { projectId: string; latest: LatestResult; trace: ReviewHarnessTrace | null; onReplay?(problem: CheckProblem): void }) {
-  const { result, review, findings, autoTest } = latest;
+/** What to attach when asking about a problem: its saved finding or browser test, as on the check page. */
+export function problemAttachment(problem: CheckProblem, latest: Pick<LatestResult, 'review' | 'autoTest'>): ProblemAttachment | null {
+  const reference = problem.findingId && latest.review ? { findingId: problem.findingId, reviewId: latest.review.id }
+    : problem.testRef ? { testId: problem.testRef.testId, autoTestId: problem.testRef.sessionId }
+    : problem.testId && latest.autoTest ? { testId: problem.testId, autoTestId: latest.autoTest.id } : null;
+  return reference ? { label: problem.title, reference } : null;
+}
+
+export function ProjectOverviewMain({ projectId, latest, trace, onReplay, onAsk, evidenceAssessment }: {
+  projectId: string; latest: LatestResult; trace: ReviewHarnessTrace | null; onReplay?(problem: CheckProblem): void;
+  /** Attaches the problem to the conversation box (the check page's "Ask about this problem", 25 Nov 2026). */
+  onAsk?(attachment: ProblemAttachment): void;
+  evidenceAssessment?: EvidenceSufficiencyAssessment | null;
+}) {
+  const { result, findings, autoTest } = latest;
+  const ask = onAsk ? (problem: CheckProblem) => { const attachment = problemAttachment(problem, latest); return attachment ? () => onAsk(attachment) : undefined; } : () => undefined;
   const byId = useMemo(() => new Map(findings.map(finding => [finding.id, finding])), [findings]);
-  const progress = review ? parseReviewProgress(review.progressJson) : null;
   const behaviorOf = useMemo(() => {
     const names = new Map<string, string>();
     if (trace?.analysisMap) for (const { feature, operations } of groupReviewFeatures(trace.analysisMap, findings)) operations.forEach(operation => names.set(operation.id, featureDisplayName(feature.label)));
@@ -71,10 +87,8 @@ export function ProjectOverviewMain({ projectId, latest, trace, onReplay }: { pr
   })).filter(group => group.items.length);
   const tests = (autoTest?.tests ?? []).filter(test => test.kind !== 'unit');
   const failed = tests.filter(test => test.state === 'failed').length;
-  const summary = progress?.providerSummary?.trim();
 
   return <>
-    {summary && <p className="pc-ov-card pc-ov-summary" aria-label="Review summary">{summary}</p>}
     {/* Risk counts lead the expanded panel (user decision, 17 Nov 2026), in place of the earlier verdict, numbers and coverage card. */}
     <div className="pc-latest-numbers pc-ov-risks" aria-label="Problems by risk">
       {RISK_ORDER.map(level => (
@@ -83,18 +97,19 @@ export function ProjectOverviewMain({ projectId, latest, trace, onReplay }: { pr
     </div>
     {result.proven.length > 0 && (
       <IssueGroup title="Proven in the browser" count={result.proven.length}>
-        {result.proven.map(problem => <BrowserIssue key={problem.key} problem={problem} onReplay={onReplay} projectId={projectId} />)}
+        {result.proven.map(problem => <BrowserIssue key={problem.key} problem={problem} onReplay={onReplay} onAsk={ask(problem)} projectId={projectId} />)}
       </IssueGroup>
     )}
     {result.codeGaps.length > 0 && <div className="pc-ov-gaps"><GapNotes items={result.codeGaps} /></div>}
     {groups.map(group => (
       <IssueGroup key={group.category} title={`${group.category} issues`} count={group.items.length}>
-        {group.items.map(({ problem, finding }) => <CodeIssue key={problem.key} problem={problem} finding={finding} behavior={finding ? behaviorOf(finding) : null} projectId={projectId} category={group.category} />)}
+        {group.items.map(({ problem, finding }) => <CodeIssue key={problem.key} problem={problem} finding={finding} behavior={finding ? behaviorOf(finding) : null} projectId={projectId} category={group.category} onAsk={ask(problem)} />)}
       </IssueGroup>
     ))}
 
     {(result.stuckTests.length > 0 || result.browserGaps.length > 0) && (
-      <IssueGroup title="Browser tests that could not finish" count={result.stuckTests.length}>
+      // Notes such as what exploration covered are not stuck tests: without one, the group is only notes (25 Nov 2026).
+      <IssueGroup title={result.stuckTests.length ? (result.stuckTests.every(item => item.unclear) ? 'Browser tests with an unclear result' : 'Browser tests that could not finish') : 'Browser test notes'} count={result.stuckTests.length || null}>
         <GapNotes items={result.browserGaps} />
         {result.stuckTests.map(item => <StuckIssue key={item.key} item={item} projectId={projectId} />)}
       </IssueGroup>
@@ -125,13 +140,14 @@ export function ProjectOverviewMain({ projectId, latest, trace, onReplay }: { pr
         <ul className="ck-method-notes">{result.notes.map(note => <li key={note}>{note}</li>)}</ul>
       </details>
     )}
+    <PdfVisualCoverage assessment={evidenceAssessment} />
   </>;
 }
 
 function StuckIssue({ item, projectId }: { item: StuckTest; projectId: string }) {
   const problem: CheckProblem = { key: item.key, kind: 'browser', title: item.name, location: null, risk: null, marks: ['browser'] };
   return (
-    <IssueRow problem={problem} mark={<span className="pc-ov-mark is-stuck"><Icon icon={TriangleAlert} shape="triangle" />Could not finish</span>}>
+    <IssueRow problem={problem} mark={<span className="pc-ov-mark is-stuck"><Icon icon={TriangleAlert} shape="triangle" />{item.unclear ? 'Unclear' : 'Could not finish'}</span>}>
       {open => <>
         <p className="pc-ov-prose">{item.why}{item.reason ? `: ${item.reason}` : '.'}</p>
         {open && <div className="pc-ov-steps"><small>Steps in the browser</small><RunTimeline projectId={projectId} runId={item.runId} shownReason={item.reason} /></div>}
@@ -140,10 +156,10 @@ function StuckIssue({ item, projectId }: { item: StuckTest; projectId: string })
   );
 }
 
-function IssueGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+function IssueGroup({ title, count, children }: { title: string; count: number | null; children: ReactNode }) {
   return (
     <section className="pc-ov-group" aria-label={title}>
-      <h3>{title} <span>{count}</span></h3>
+      <h3>{title}{count !== null && <> <span>{count}</span></>}</h3>
       <div className="pc-ov-issues">{children}</div>
     </section>
   );
@@ -166,7 +182,11 @@ function IssueRow({ problem, mark, children }: { problem: CheckProblem; mark: Re
   );
 }
 
-function BrowserIssue({ problem, onReplay, projectId }: { problem: CheckProblem; onReplay?(problem: CheckProblem): void; projectId: string }) {
+function AskButton({ onAsk }: { onAsk?(): void }) {
+  return onAsk ? <button type="button" className="ck-button is-small" onClick={onAsk}><Icon icon={MessageCircle} />Ask about this problem</button> : null;
+}
+
+function BrowserIssue({ problem, onReplay, onAsk, projectId }: { problem: CheckProblem; onReplay?(problem: CheckProblem): void; onAsk?(): void; projectId: string }) {
   return (
     <IssueRow problem={problem} mark={<span className="pc-ov-mark is-browser"><Icon icon={MonitorCheck} />Browser</span>}>
       {open => <>
@@ -180,13 +200,16 @@ function BrowserIssue({ problem, onReplay, projectId }: { problem: CheckProblem;
         {open && problem.runId && <div className="pc-ov-steps"><small>Steps in the browser</small><RunTimeline projectId={projectId} runId={problem.runId} checkFailed checkSummary={problem.browserChecks?.[0]?.expected ?? null} /></div>}
         {problem.aiExplanation && <p className="pc-ov-prose"><b><Icon icon={Sparkles} /> AI explanation.</b> {withCode(problem.aiExplanation)}</p>}
         {/* Runs it again from the conversation, where the user sends it. */}
-        {onReplay && <div><button type="button" className="ck-button is-small" onClick={() => onReplay(problem)}><Icon icon={RotateCcw} />Run it again</button></div>}
+        {(onReplay || onAsk) && <div className="pc-ov-actions">
+          <AskButton onAsk={onAsk} />
+          {onReplay && <button type="button" className="ck-button is-small" onClick={() => onReplay(problem)}><Icon icon={RotateCcw} />Run it again</button>}
+        </div>}
       </>}
     </IssueRow>
   );
 }
 
-function CodeIssue({ problem, finding, behavior, projectId, category }: { problem: CheckProblem; finding?: Finding; behavior: string | null; projectId: string; category: ReviewIssueCategory }) {
+function CodeIssue({ problem, finding, behavior, projectId, category, onAsk }: { problem: CheckProblem; finding?: Finding; behavior: string | null; projectId: string; category: ReviewIssueCategory; onAsk?(): void }) {
   const risk = problem.risk;
   return (
     <IssueRow problem={{ ...problem, title: finding ? shortReviewIssueTitle(finding.title) : problem.title }}
@@ -213,6 +236,7 @@ function CodeIssue({ problem, finding, behavior, projectId, category }: { proble
           ))}
           {overview && <p className="pc-ov-prose"><b>Issue overview.</b> {withCode(overview)}</p>}
           {next && <p className="pc-ov-prose"><b>What to do.</b> {withCode(next)}</p>}
+          {open && onAsk && <div className="pc-ov-actions"><AskButton onAsk={onAsk} /></div>}
         </>;
       }}
     </IssueRow>
