@@ -50,7 +50,8 @@ function embeddingUsage(summary: Awaited<ReturnType<typeof getSupabaseModelUsage
  * Builds the published, non-entitlement model catalog and reads only the
  * owner's existing embedding usage ledger. It never contacts an embedding API.
  */
-export async function getEmbeddingSettingsCatalog(client: SupabaseClient, userId: string): Promise<EmbeddingSettingsCatalog> {
+export async function getEmbeddingSettingsCatalog(client: SupabaseClient, userId: string,
+  readUsage = () => getSupabaseModelUsageSummary(client, userId, { scope: 'embedding' })): Promise<EmbeddingSettingsCatalog> {
   const remaining = {
     status: 'not_reported' as const,
     tokens: null,
@@ -58,7 +59,7 @@ export async function getEmbeddingSettingsCatalog(client: SupabaseClient, userId
     dashboardUrl: VOYAGE_EMBEDDING_DASHBOARD_URL,
   };
   try {
-    const summary = await getSupabaseModelUsageSummary(client, userId, { scope: 'embedding' });
+    const summary = await readUsage();
     return {
       source: 'published_catalog',
       verifiedAt: EMBEDDING_SETTINGS_VERIFIED_AT,

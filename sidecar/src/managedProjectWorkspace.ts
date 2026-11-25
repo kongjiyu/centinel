@@ -23,6 +23,7 @@ export async function withManagedProjectWorkspace<T extends { id: string; worksp
   const directory = path.join(root, 'projects', accountId, project.id);
   try {
     await mkdir(root, { recursive: true });
+    if (!(await lstat(root)).isDirectory()) return project;
     let current = root;
     for (const part of ['projects', accountId, project.id]) {
       current = path.join(current, part);

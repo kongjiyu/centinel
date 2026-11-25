@@ -11,7 +11,7 @@ import {
 import { sourceManifestReference, type ReviewSourcePacketReference } from './review/usageContext.js';
 import { projectBatchCacheUsage } from './review/batchCacheUsage.js';
 
-type UsageRecord = ReviewUsageAttemptRow & {
+export type UsageRecord = ReviewUsageAttemptRow & {
   project_id: string | null;
   review_session_id: string | null;
   cache_read_tokens: number | null;
@@ -286,6 +286,14 @@ export async function getSupabaseModelUsageSummary(
     if (page.length < pageSize) break;
   }
 
+  const { result, reviewRows } = summarizeModelUsageRows(rows, filter);
+  if (filter.sessionId && filter.projectId && (filter.callKind ?? 'review') === 'review') {
+    result.reviewUsage = await reviewUsageProjection(client, filter.projectId, filter.sessionId, reviewRows);
+  }
+  return result;
+}
+
+export function summarizeModelUsageRows(rows: UsageRecord[], filter: TokenUsageListFilter) {
   // Stable ordering plus ID deduplication prevents overlapping offset pages
   // from inflating token totals when rows change during pagination.
   const uniqueRows = [...new Map(rows.map(row => [row.id, row])).values()];
@@ -404,8 +412,14 @@ export async function getSupabaseModelUsageSummary(
     byGroup: [...groups.values()].sort((a, b) => (b.totalTokens ?? 0) - (a.totalTokens ?? 0)),
     recent,
   };
-  if (filter.sessionId && filter.projectId && filter.callKind !== 'dynamic' && (filter.callKind ?? 'review') === 'review') {
-    result.reviewUsage = await reviewUsageProjection(client, filter.projectId, filter.sessionId, reviewRows);
-  }
-  return result;
+  return { result, reviewRows };
+}
+
+export function localReviewUsageProjection(records: ReviewUsageAttemptRow[], artifacts: unknown[] | null, auditRows: AuditRecord[],
+  status: string, progress: unknown): ReviewUsageProjection {
+  const manifest = sourceDescriptors({ artifacts: artifacts ?? [] });
+  const reads = auditRows.length ? physicalReadsFromAudit(auditRows, manifest) : null;
+  return { ...projectReviewUsageAccounting({ records, physicalReads: reads,
+    stageStates: progressStageStates(status, progress, records, reads), knownWorkflowStages: WORKFLOW_STAGES,
+    allowedSourceFiles: artifacts ? manifest : null }), reusedAssessments: projectBatchCacheUsage(auditRows, artifacts ? manifest : null) };
 }

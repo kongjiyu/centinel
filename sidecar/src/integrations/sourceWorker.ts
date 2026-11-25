@@ -47,7 +47,7 @@ export class ConnectedSourceWorkerCoordinator {
   /** Schedule after the project response has been written by the caller. */
   enqueue(auth: AuthenticatedRequest, job: BackgroundSourceJob): void {
     this.adoptSession(auth);
-    const key = this.jobKey(job);
+    const key = `${auth.userId}:${this.jobKey(job)}`;
     if (this.active.has(key)) return;
     const task = new Promise<void>(resolve => {
       setImmediate(() => {
@@ -80,6 +80,11 @@ export class ConnectedSourceWorkerCoordinator {
 
   async waitForIdle(): Promise<void> {
     await Promise.all(Array.from(this.active.values()));
+  }
+
+  async shutdown(): Promise<void> {
+    this.sessions.clear();
+    await this.waitForIdle();
   }
 
   private async drain(ownerId: string, job: BackgroundSourceJob): Promise<void> {

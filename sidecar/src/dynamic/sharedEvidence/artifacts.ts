@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DynamicContractError, type DynamicRun } from '../types.js';
+import { DynamicContractError, type DynamicRun, type RunEvidenceReader } from '../types.js';
 import { redactObservationRecord } from '../browser/privacy.js';
 import { DownloadVault } from '../environment/downloadVault.js';
 import { publicDownloadUrl } from '../browser/fileTypes.js';
@@ -118,11 +118,12 @@ export function partialArtifacts(workspace: string, run: DynamicRun, secrets: re
     if(result.some(entry=>entry.bytes.length>4*1024*1024)||result.reduce((sum,entry)=>sum+entry.bytes.length,0)>8*1024*1024)throw new DynamicContractError(409,'Partial evidence exceeds its bounded sharing package.');
     return { artifacts: result, omitted };
 }
-export function downloadArtifacts(workspace: string, run: DynamicRun, ownerId: string, vault: DownloadVault): LocalArtifact[] {
+export function downloadArtifacts(workspace: string, run: DynamicRun, ownerId: string, vault: DownloadVault,
+    readEvidence: RunEvidenceReader = ref => loadIndependentEvidence(workspace, run, ref)): LocalArtifact[] {
     const ref = run.evidence.find(item => item.kind === 'file_manifest');
     if (!ref || run.state !== 'completed')
         return [];
-    const manifest = JSON.parse(loadIndependentEvidence(workspace, run, ref).toString('utf8'));
+    const manifest = JSON.parse(readEvidence(ref).toString('utf8'));
     if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.downloads) || manifest.downloads.length > 10)
         throw new DynamicContractError(409, 'Captured-file manifest is invalid.');
     return manifest.downloads.map((receipt: any) => {

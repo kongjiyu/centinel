@@ -15,6 +15,11 @@ export async function readFrozenReviewSource(projectId: string, review: StaticRe
   if (!version || version.id !== artifact.versionId || version.artifactId !== artifactId || hash(version.contentHash) !== hash(artifact.contentHash)) throw new Error('Frozen Review source version unavailable.');
   const content = await storage.downloadArtifactVersion(projectId, version.id);
   if (hash(artifact.contentHash) !== crypto.createHash('sha256').update(content).digest('hex')) throw new Error('Frozen Review source content could not be verified.');
+  return presentFrozenReviewSource({ ...artifact, versionId: version.id }, content, version.contentHash, version.contentType);
+}
+
+export async function presentFrozenReviewSource(artifact: Artifact & { versionId: string }, content: Buffer,
+  contentHash: string, mimeType: string | null) {
   const extracted = isPdfSource(artifact) ? await verifiedSourceText(artifact, content) : undefined;
-  return { ...(extracted ? { textContent: extracted.text, textExtraction: { policy: extracted.policy, pageCount: extracted.pageCount, limitations: ['Diagrams and image-only content remain unverified.'] } } : {}), versionId: version.id, artifactVersionId: version.id, content: content.toString('base64'), contentHash: version.contentHash, mimeType: version.contentType };
+  return { ...(extracted ? { textContent: extracted.text, textExtraction: { policy: extracted.policy, pageCount: extracted.pageCount, limitations: ['Diagrams and image-only content remain unverified.'] } } : {}), versionId: artifact.versionId, artifactVersionId: artifact.versionId, content: content.toString('base64'), contentHash, mimeType };
 }

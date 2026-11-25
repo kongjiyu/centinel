@@ -344,6 +344,7 @@ export type ReviewRecoveryOptions = {
   now?: () => Date;
   maxAttempts?: number;
   recoverableStatuses?: StaticReviewStatus[];
+  admit?: (lease: ReviewLease) => boolean;
   requeueMessage?: string;
   unrecoverableMessage?: string;
   onAudit?: (event: ReviewAuditEvent) => void | Promise<void>;
@@ -369,6 +370,7 @@ export async function recoverExpiredReviews(
   const result: ReviewRecoveryResult = { requeued: [], failed: [], skipped: [] };
   const expired = await leases.listExpiredLeases(now().toISOString());
   for (const lease of expired) {
+    if (options.admit && !options.admit(lease)) continue;
     const review = await reviews.getReview(lease.reviewId);
     if (!review || !recoverable.has(review.status)) {
       result.skipped.push(lease.reviewId);

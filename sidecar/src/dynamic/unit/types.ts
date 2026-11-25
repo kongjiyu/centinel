@@ -62,6 +62,7 @@ export type UnitCommand = {
     cliSha256: string | null;
     nodeVersion: string | null;
 };
+export type UnitDataEvent = { kind: 'cleanup'; outcome: 'completed' | 'failed'; note: string; actorId: string; createdAt: string; operationId?: string };
 export type DynamicUnitRun = {
     id: string;
     projectId: string;

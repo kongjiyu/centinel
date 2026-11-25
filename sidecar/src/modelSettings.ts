@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { GEMINI_OAUTH_BASE_URL, geminiOAuthProject, isGeminiOAuthModelId } from './model/geminiOAuth.js';
-import { decryptSecret, encryptSecret } from './tokenVault.js';
+import { decryptModelSecret, decryptSecret, encryptLocalModelSecret, encryptSecret } from './tokenVault.js';
 import type { AiApiFormat, AiProvider } from './settings.js';
 import type { EmbeddingProviderId } from './embeddingSettingsTypes.js';
 import { isVoyageEmbeddingModel, VOYAGE_EMBEDDING_BASE_URL } from './embeddingSettings.js';
@@ -50,7 +50,12 @@ export type UpdateModelProviderSetting = {
   embeddingDimensions?: number;
 };
 
-type ModelRow = Record<string, unknown>;
+export type ModelRow = Record<string, unknown>;
+export interface LocalModelSettingRows {
+  readModelSetting(ownerId: string, purpose: string): ModelRow | null;
+  writeModelSettings(ownerId: string, rows: ModelRow[], preserveExisting?: boolean): void;
+}
+export type ModelSettingsSource = SupabaseClient | LocalModelSettingRows;
 
 const providerValues = new Set<AiProvider>(['mimo', 'gemini', 'custom', 'codex']);
 const formatValues = new Set<AiApiFormat>(['openai-compatible', 'anthropic-compatible', 'google-native', 'codex-app-server']);
@@ -216,7 +221,11 @@ export function validateModelProviderUpdate(input: UpdateModelProviderSetting, e
   if (!input.fallbackModel?.trim()) throw new Error('fallbackModel is required');
 }
 
-async function findRow(client: SupabaseClient, userId: string, id: ModelProviderSettingId, signal?: AbortSignal, savedPurpose = purpose(id)): Promise<ModelRow | null> {
+async function findRow(client: ModelSettingsSource, userId: string, id: ModelProviderSettingId, signal?: AbortSignal, savedPurpose = purpose(id)): Promise<ModelRow | null> {
+  if ('readModelSetting' in client) {
+    signal?.throwIfAborted();
+    return client.readModelSetting(userId, savedPurpose);
+  }
   let query = client.from('model_configurations').select('*')
     .eq('owner_id', userId).eq('purpose', savedPurpose).is('project_id', null)
     .order('updated_at', { ascending: false }).limit(1);
@@ -227,7 +236,7 @@ async function findRow(client: SupabaseClient, userId: string, id: ModelProvider
   return result.data as ModelRow | null;
 }
 
-export async function listModelProviderSettings(client: SupabaseClient, userId: string): Promise<ModelProviderSettingView[]> {
+export async function listModelProviderSettings(client: ModelSettingsSource, userId: string): Promise<ModelProviderSettingView[]> {
   const [textRow, visionRow, embeddingRow] = await Promise.all([findRow(client, userId, 'text'), findRow(client, userId, 'vision'), findRow(client, userId, 'embedding')]);
   const savedProviders: NonNullable<ModelProviderSettingView['savedProviders']> = {};
   await Promise.all((['api', 'codex', 'gemini'] as const).map(async slot => {
@@ -237,15 +246,16 @@ export async function listModelProviderSettings(client: SupabaseClient, userId: 
   return [{ ...mapModelProviderSetting('text', textRow), savedProviders }, mapModelProviderSetting('vision', visionRow), mapModelProviderSetting('embedding', embeddingRow)];
 }
 
-function modelSettingPayload(userId: string, id: ModelProviderSettingId, input: UpdateModelProviderSetting, existing: ModelRow | null) {
+function modelSettingPayload(source: ModelSettingsSource, userId: string, id: ModelProviderSettingId, input: UpdateModelProviderSetting, existing: ModelRow | null) {
   validateModelProviderUpdate(input, existing, id);
   const meta = metadata(existing ?? {});
   const quotaProject = input.geminiOAuth ? geminiOAuthProject(userId) : null;
   if (input.geminiOAuth && !quotaProject) throw new Error('Configure Gemini OAuth for this ORIN account first.');
-  const primarySecret = input.provider === 'codex' || quotaProject ? null : input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
+  const seal = (value: string) => 'readModelSetting' in source ? encryptLocalModelSecret(userId, value) : encryptSecret(value);
+  const primarySecret = input.provider === 'codex' || quotaProject ? null : input.apiKey.trim() ? seal(input.apiKey.trim()) : text(existing ?? {}, 'secret_ciphertext');
   const previousFallbackSecret = text(existing ?? {}, 'fallback_secret_ciphertext') || text(meta, 'fallbackSecretCiphertext');
   const fallbackSecret = input.fallbackEnabled
-    ? (input.fallbackApiKey?.trim() ? encryptSecret(input.fallbackApiKey.trim()) : previousFallbackSecret)
+    ? (input.fallbackApiKey?.trim() ? seal(input.fallbackApiKey.trim()) : previousFallbackSecret)
     : null;
   const cleanMetadata = { ...meta };
   delete cleanMetadata.geminiOAuthProject;
@@ -283,13 +293,18 @@ function modelSettingPayload(userId: string, id: ModelProviderSettingId, input: 
 }
 
 export async function saveModelProviderSetting(
-  client: SupabaseClient,
+  client: ModelSettingsSource,
   userId: string,
   id: ModelProviderSettingId,
   input: UpdateModelProviderSetting,
 ): Promise<ModelProviderSettingView> {
   const existing = await findRow(client, userId, id);
-  const payload = modelSettingPayload(userId, id, input, existing);
+  const payload = modelSettingPayload(client, userId, id, input, existing);
+  if ('writeModelSettings' in client) {
+    const row = { ...payload, id: existing?.id ?? crypto.randomUUID() };
+    client.writeModelSettings(userId, [row]);
+    return mapModelProviderSetting(id, row);
+  }
   const query = existing?.id
     ? client.from('model_configurations').update(payload).eq('id', String(existing.id)).select('*').single()
     : client.from('model_configurations').insert(payload).select('*').single();
@@ -309,62 +324,72 @@ function matchesDestination(row: ModelRow | null, input: Partial<UpdateModelProv
     && normalizedEndpoint(text(row, 'base_url')) === normalizedEndpoint(input.baseUrl ?? '');
 }
 
-export async function saveProviderDraft(client: SupabaseClient, userId: string, input: UpdateModelProviderSetting) {
+export async function saveProviderDraft(client: ModelSettingsSource, userId: string, input: UpdateModelProviderSetting) {
   const slot = input.provider === 'codex' ? 'codex' : input.geminiOAuth ? 'gemini' : 'api';
   const draftPurpose = providerDraftPurpose(slot);
   const [draft, active] = await Promise.all([
     findRow(client, userId, 'text', undefined, draftPurpose), findRow(client, userId, 'text'),
   ]);
   const existing = matchesDestination(draft, input) ? draft : matchesDestination(active, input) ? active : null;
-  const payload = modelSettingPayload(userId, 'text', input, existing);
-  const { error } = await client.from('model_configurations').upsert({
+  const payload = modelSettingPayload(client, userId, 'text', input, existing);
+  const row = {
     ...payload, id: draft?.id ?? crypto.randomUUID(), purpose: draftPurpose, enabled: false,
-  }, { onConflict: 'id' });
+  };
+  if ('writeModelSettings' in client) return client.writeModelSettings(userId, [row]);
+  const { error } = await client.from('model_configurations').upsert(row, { onConflict: 'id' });
   if (error) throw new Error('Could not save the provider configuration.');
 }
 
-export async function preserveActiveProvider(client: SupabaseClient, userId: string, nextSlot: ProviderSlot) {
+export async function preserveActiveProvider(client: ModelSettingsSource, userId: string, nextSlot: ProviderSlot) {
   const active = await findRow(client, userId, 'text');
   if (!active || !text(active, 'model')) return;
   const slot = active.provider === 'codex' ? 'codex' : metadata(active).geminiOAuthProject ? 'gemini' : 'api';
   if (slot === nextSlot || await findRow(client, userId, 'text', undefined, providerDraftPurpose(slot))) return;
   const { created_at: _createdAt, ...payload } = active;
-  const { error } = await client.from('model_configurations').insert({
+  const row = {
     ...payload, id: crypto.randomUUID(), purpose: providerDraftPurpose(slot), enabled: false,
-  });
+  };
+  if ('writeModelSettings' in client) return client.writeModelSettings(userId, [row], true);
+  const { error } = await client.from('model_configurations').insert(row);
   if (error && error.code !== '23505') throw new Error('Could not retain the previously active provider.');
 }
 
-export async function getProviderDraft(client: SupabaseClient, userId: string, slot: ProviderSlot): Promise<UpdateModelProviderSetting> {
+export async function getProviderDraft(client: ModelSettingsSource, userId: string, slot: ProviderSlot): Promise<UpdateModelProviderSetting> {
   const row = await findRow(client, userId, 'text', undefined, providerDraftPurpose(slot));
   const provider = asProvider(row?.provider);
   const apiFormat = asFormat(row?.api_format);
   if (!row || !provider || !apiFormat) throw new Error('Save this provider before using it.');
   return {
     provider, apiFormat, model: text(row, 'model'), baseUrl: text(row, 'base_url'),
-    apiKey: slot === 'api' ? decryptSecret(text(row, 'secret_ciphertext')) : '',
+    apiKey: slot === 'api' ? openModelSecret(client, userId, text(row, 'secret_ciphertext')) : '',
     geminiOAuth: slot === 'gemini', codexScreenshots: metadata(row).codexScreenshots === true,
   };
 }
 
 /** Apply one owner-level model to both workflows in a single database statement. */
-export async function saveSharedModelProvider(client: SupabaseClient, userId: string, input: UpdateModelProviderSetting): Promise<void> {
+export async function saveSharedModelProvider(client: ModelSettingsSource, userId: string, input: UpdateModelProviderSetting): Promise<void> {
   const [textRow, visionRow] = await Promise.all([findRow(client, userId, 'text'), findRow(client, userId, 'vision')]);
   if (input.provider !== 'codex' && !input.geminiOAuth && !input.apiKey.trim() && (!textRow || text(textRow, 'provider') !== input.provider
     || text(textRow, 'api_format') !== input.apiFormat || normalizedEndpoint(text(textRow, 'base_url')) !== normalizedEndpoint(input.baseUrl))) {
     throw new Error('Enter a new API key when changing provider or endpoint.');
   }
-  const textPayload = modelSettingPayload(userId, 'text', input, textRow);
-  const visionPayload = modelSettingPayload(userId, 'vision', input, { ...visionRow, secret_ciphertext: textPayload.secret_ciphertext });
-  const { error } = await client.from('model_configurations').upsert([
+  const textPayload = modelSettingPayload(client, userId, 'text', input, textRow);
+  const visionPayload = modelSettingPayload(client, userId, 'vision', input, { ...visionRow, secret_ciphertext: textPayload.secret_ciphertext });
+  const rows = [
     { ...textPayload, id: textRow?.id ?? crypto.randomUUID() },
     { ...visionPayload, id: visionRow?.id ?? crypto.randomUUID() },
-  ], { onConflict: 'id' });
+  ];
+  if ('writeModelSettings' in client) return client.writeModelSettings(userId, rows);
+  const { error } = await client.from('model_configurations').upsert(rows, { onConflict: 'id' });
   if (error) throw new Error(`Model Provider save failed: ${errorMessage(error)}`);
 }
 
+function openModelSecret(source: ModelSettingsSource, owner: string, value: string): string {
+  return 'readModelSetting' in source ? decryptModelSecret(owner, value) : decryptSecret(value);
+}
+
 export async function resolveSavedProviderForTest(
-  client: SupabaseClient,
+  client: ModelSettingsSource,
   userId: string,
   id: 'text' | 'vision',
   input: Partial<UpdateModelProviderSetting> = {},
@@ -396,9 +421,15 @@ export async function resolveSavedProviderForTest(
 
   const meta = metadata(row ?? {});
   const fallback = useFallback;
+  if (fallback && !input.fallbackApiKey?.trim() && row && (
+    input.fallbackProvider != null && input.fallbackProvider !== (row.fallback_provider ?? meta.fallbackProvider)
+    || input.fallbackApiFormat != null && input.fallbackApiFormat !== (row.fallback_api_format ?? meta.fallbackApiFormat)
+    || input.fallbackBaseUrl != null && normalizedEndpoint(input.fallbackBaseUrl)
+      !== normalizedEndpoint(text(row, 'fallback_base_url') || text(meta, 'fallbackBaseUrl'))
+  )) throw new Error('Enter a new fallback API key before testing a different provider or endpoint.');
   const secret = fallback
-    ? input.fallbackApiKey?.trim() || decryptSecret(text(row ?? {}, 'fallback_secret_ciphertext') || text(meta, 'fallbackSecretCiphertext'))
-    : input.apiKey?.trim() || decryptSecret(text(row ?? {}, 'secret_ciphertext'));
+    ? input.fallbackApiKey?.trim() || openModelSecret(client, userId, text(row ?? {}, 'fallback_secret_ciphertext') || text(meta, 'fallbackSecretCiphertext'))
+    : input.apiKey?.trim() || openModelSecret(client, userId, text(row ?? {}, 'secret_ciphertext'));
   const provider = fallback
     ? input.fallbackProvider ?? asProvider(row?.fallback_provider ?? meta.fallbackProvider)
     : input.provider ?? asProvider(row?.provider);
@@ -421,7 +452,7 @@ export type SavedEmbeddingConfiguration = EmbeddingProviderConfiguration & {
 };
 
 export async function resolveSavedEmbeddingConfiguration(
-  client: SupabaseClient,
+  client: ModelSettingsSource,
   userId: string,
   signal?: AbortSignal,
 ): Promise<SavedEmbeddingConfiguration | null> {
@@ -453,7 +484,7 @@ export async function resolveSavedEmbeddingConfiguration(
   const secret = text(row, 'secret_ciphertext');
   if (!secret) throw new Error('The source-indexing provider configuration is incomplete.');
   const baseUrl = provider === 'voyage' ? VOYAGE_EMBEDDING_BASE_URL : storedBaseUrl;
-  return { apiKey: decryptSecret(secret), baseUrl, model, embeddingProvider: provider, dimensions };
+  return { apiKey: openModelSecret(client, userId, secret), baseUrl, model, embeddingProvider: provider, dimensions };
 }
 
 export async function resolveSavedEmbeddingProvider(

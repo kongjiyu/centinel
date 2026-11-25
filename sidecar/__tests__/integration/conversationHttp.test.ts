@@ -1,6 +1,10 @@
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AuthGateway, AuthenticatedRequest } from '../../src/auth/gateway.js';
 import { AuthGatewayError } from '../../src/auth/gateway.js';
@@ -8,14 +12,16 @@ import { createSidecarServer } from '../../src/index.js';
 import type { ConversationRequest } from '../../src/conversation/types.js';
 import type { ProjectReadinessCoordinator } from '../../src/readiness/service.js';
 import { DynamicContractError } from '../../src/dynamic/types.js';
+import { newAutoTestSession } from '../../src/dynamic/autonomous/orchestrator.js';
 
-const { rows, plan, resolveEvidence, readHistory } = vi.hoisted(() => ({
-  rows: new Map<string, ConversationRequest>(), plan: vi.fn(), resolveEvidence: vi.fn(), readHistory: vi.fn(),
+const { rows, plan, resolveEvidence, readHistory, storage } = vi.hoisted(() => ({
+  rows: new Map<string, ConversationRequest>(), plan: vi.fn(), resolveEvidence: vi.fn(), readHistory: vi.fn(), storage: { real: false },
 }));
 vi.mock('../../src/conversation/plan.js', () => ({ planConversation: plan }));
 vi.mock('../../src/conversation/evidence.js', () => ({ resolveConversationEvidence: resolveEvidence }));
-vi.mock('../../src/conversation/store.js', () => ({
-  SupabaseConversationStore: class {
+vi.mock('../../src/store/localHistory.js', async importOriginal => {
+  const { LocalHistory } = await importOriginal<typeof import('../../src/store/localHistory.js')>();
+  class FixtureConversationStore {
     async list(project: string) {
       await readHistory();
       return [...rows.values()].filter(record => record.projectId === project).map(record => structuredClone(record));
@@ -34,14 +40,20 @@ vi.mock('../../src/conversation/store.js', () => ({
       if (rows.get(record.id)?.revision !== revision) return false;
       rows.set(record.id, structuredClone(record)); return true;
     }
-  },
-}));
+  }
+  return { LocalHistory: class extends LocalHistory {
+    override conversations(owner: string) { return storage.real ? super.conversations(owner) : new FixtureConversationStore(); }
+  } };
+});
 const projectId = '11111111-1111-4111-8111-111111111111';
 let server: Server;
 let base: string;
 let previousHold: string | undefined;
+let historyDirectory: string;
 beforeEach(async () => {
   rows.clear(); vi.clearAllMocks();
+  storage.real = false;
+  historyDirectory = mkdtempSync(join(tmpdir(), 'centinel-http-history-'));
   previousHold = process.env.CENTINEL_AI_ASSESSMENT_PAUSED;
   process.env.CENTINEL_AI_ASSESSMENT_PAUSED = '0';
   resolveEvidence.mockResolvedValue([{ id: 'review:one', text: 'saved evidence', hash: 'hash' }]);
@@ -57,17 +69,42 @@ beforeEach(async () => {
     requireProjectMember: async (_auth: unknown, id: string) => { if (id !== projectId) throw new AuthGatewayError('Forbidden.', 403, 'forbidden'); },
   } as unknown as AuthGateway;
   const readiness = { adoptSession() {}, close() {} } as unknown as ProjectReadinessCoordinator;
-  server = createSidecarServer(auth, { readinessCoordinator: readiness });
+  server = createSidecarServer(auth, { readinessCoordinator: readiness, historyPath: join(historyDirectory, 'history.sqlite') });
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
   base = 'http://127.0.0.1:' + (server.address() as AddressInfo).port;
 });
 afterEach(async () => {
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
+  await rm(historyDirectory, { recursive: true, force: true, maxRetries: 5 });
   if (previousHold === undefined) delete process.env.CENTINEL_AI_ASSESSMENT_PAUSED;
   else process.env.CENTINEL_AI_ASSESSMENT_PAUSED = previousHold;
 });
 const post = (path: string, body: unknown, token = true) => fetch(base + path, {
   method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer fixture' } : {}) }, body: JSON.stringify(body),
+});
+it('fetches local conversations and Auto Test history through the normal HTTP routes without a PostgREST client', async () => {
+  storage.real = true;
+  const { LocalHistory } = await vi.importActual<typeof import('../../src/store/localHistory.js')>('../../src/store/localHistory.js');
+  const history = new LocalHistory(join(historyDirectory, 'history.sqlite'));
+  const session = { ...newAutoTestSession({ id: randomUUID(), ownerId: 'owner', projectId, folder: historyDirectory }), stage: 'completed' as const };
+  try {
+    await history.autoTests('owner').save(session);
+  } finally {
+    history.close();
+  }
+  const path = '/projects/' + projectId;
+  const id = randomUUID();
+  expect((await post(path + '/conversation-requests', { id, text: 'Explain the evidence', mode: 'code', permission: 'auto', references: [] })).status).toBe(202);
+  const headers = { Authorization: 'Bearer fixture' };
+  await vi.waitFor(async () => {
+    const response = await fetch(base + path + '/conversation-requests', { headers });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject([{ id, state: 'completed' }]);
+  });
+  const auto = await fetch(base + path + '/dynamic/autonomous', { headers });
+  expect(auto.status).toBe(200);
+  expect(await auto.json()).toMatchObject([{ id: session.id, stage: 'completed' }]);
+  expect(readHistory).not.toHaveBeenCalled();
 });
 it('authenticates the public route and returns the same persisted request after duplicate POSTs', async () => {
   const path = '/projects/' + projectId + '/conversation-requests';
@@ -224,7 +261,7 @@ it('resumes an already answered automation question from the original user reque
   expect((await post(path + '/' + id + '/answer', { revision: 1, selectedOption: 0 })).status).toBe(200);
   await vi.waitFor(() => expect(rows.get(id)).toMatchObject({ state: 'awaiting_permission', action: 'code', scope: ['file'], selectedOption: 0,
     input: { text: 'try again' }, reviewContinuation: { sourceRequestId: priorId, text: priorText, question } }));
-  expect(resolveEvidence).toHaveBeenCalledWith(expect.anything(), 'owner', projectId, [], expect.any(AbortSignal), false, priorText);
+  expect(resolveEvidence).toHaveBeenCalledWith(expect.anything(), 'owner', projectId, [], expect.any(AbortSignal), false, priorText, expect.anything());
   expect(plan).not.toHaveBeenCalled();
   expect((await post(path + '/' + id + '/answer', { revision: 1, selectedOption: 0 })).status).toBe(200);
   expect(resolveEvidence).toHaveBeenCalledOnce();
@@ -297,7 +334,7 @@ it('loads an older turn’s inline evidence from its saved attachment without pl
   const response = await fetch(`${base}${path}/${id}/evidence`, { headers: { Authorization: 'Bearer fixture' } });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ unavailable: 0, sections: [{ title: 'Saved problem', sourceWindow: { text: 'return savedValue;' } }] });
-  expect(resolveEvidence).toHaveBeenCalledWith(expect.anything(), 'owner', projectId, references, expect.any(AbortSignal), true);
+  expect(resolveEvidence).toHaveBeenCalledWith(expect.anything(), 'owner', projectId, references, expect.any(AbortSignal), true, '', expect.anything());
   expect(rows.get(id)).toMatchObject({ state: 'failed', revision: 1 });
   expect(plan).not.toHaveBeenCalled();
   rows.set(id, { ...rows.get(id)!, ownerId: 'another-owner' });

@@ -132,7 +132,7 @@ function sourceItemPayload(input: NewConnectedSourceItem): Row {
   };
 }
 
-function safeArtifactPath(path: string): string {
+export function safeArtifactPath(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized || normalized.split('/').some(part => part === '.' || part === '..') || normalized.includes('\u0000')) {
     throw new Error('Connected artifact path is invalid.');
@@ -460,9 +460,13 @@ export class SupabaseConnectedSourceRepository implements ConnectedSourceReposit
   async disconnectIntegration(ownerId: string, provider: IntegrationProvider): Promise<void> {
     const integration = await this.getIntegration(ownerId, provider);
     if (!integration) return;
-    const { error: integrationError } = await this.client.from('integrations').update({ token_reference: null, status: 'disconnected', updated_at: new Date().toISOString() }).eq('owner_id', ownerId).eq('provider', provider);
-    asMessage(integrationError, 'connected-source disconnect');
+    await this.disconnectAccount(ownerId, provider);
     const { error: sourceError } = await this.client.from('project_sources').update({ status: 'disconnected', sync_status: 'idle', last_error: null, updated_at: new Date().toISOString() }).eq('integration_id', integration.id);
     asMessage(sourceError, 'connected-source disconnect');
+  }
+
+  async disconnectAccount(ownerId: string, provider: IntegrationProvider): Promise<void> {
+    const { error: integrationError } = await this.client.from('integrations').update({ token_reference: null, status: 'disconnected', updated_at: new Date().toISOString() }).eq('owner_id', ownerId).eq('provider', provider);
+    asMessage(integrationError, 'connected-source disconnect');
   }
 }

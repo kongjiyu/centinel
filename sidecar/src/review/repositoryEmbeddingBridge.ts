@@ -12,8 +12,8 @@ import { throwIfAborted } from './abort.js';
 import { configuredVoyageLimits, embeddingAdmissionEstimate, partitionEmbeddingInputs, waitForEmbeddingBudget, sleep } from './embeddingRateLimit.js';
 
 type Usage = Omit<StoreModelUsage, 'id' | 'createdAt'> & { id?: string };
+type UsageSink = (input: Usage) => Promise<unknown>;
 export type RepositoryBridgeOptions = {
-  client: SupabaseClient;
   ownerId: string;
   projectId: string;
   reviewId?: string;
@@ -26,10 +26,9 @@ export type RepositoryBridgeOptions = {
   indexTrigger?: 'source_changed' | 'review';
   indexFingerprint?: string;
   embed?: typeof createEmbeddingBatch;
-  saveUsage?: (input: Usage) => Promise<unknown>;
   retrySleep?: typeof sleep;
   admit?: (estimate: number) => Promise<{ reconcile: (actual: number | null) => void }>;
-};
+} & ({ client: SupabaseClient; saveUsage?: UsageSink } | { client?: never; saveUsage: UsageSink });
 
 /** Attributes only upstream-generated header paths that match the frozen
  * staging manifest. Unknown attribution remains incomplete, never all files. */
@@ -70,7 +69,8 @@ export async function openRepositoryEmbeddingBridge(options: RepositoryBridgeOpt
   let failure: unknown;
   let failed = false;
   let serial = Promise.resolve();
-  const saveUsage = options.saveUsage ?? (input => new SupabaseCentinelStore(options.client).saveModelUsage(input));
+  const client = options.client;
+  const saveUsage = options.saveUsage ?? (input => new SupabaseCentinelStore(client!).saveModelUsage(input));
   const embed = options.embed ?? createEmbeddingBatch;
   const send = (response: http.ServerResponse, status: number, body: unknown) => {
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });

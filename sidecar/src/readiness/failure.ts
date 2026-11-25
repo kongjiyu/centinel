@@ -34,6 +34,7 @@ const MESSAGES: Record<ReadinessFailureCode, string> = {
   context_limit: 'The selected sources exceed the Model Provider context limit. Reduce the selected source set or choose a larger-context model, then select Start to retry.',
   malformed_response: 'The Model Provider returned an unreadable assessment. Retry; if this continues, choose another configured provider.',
   timeout: 'The readiness assessment timed out. Retry, or reduce the selected source set if this continues.',
+  interrupted: 'The app closed before Readiness finished. Select Start to check the sources again.',
   persistence: 'Readiness could not be saved. Check the project connection and retry.',
   source_changes: 'Project sources changed or could not be verified while readiness was running. Refresh the source list and select Start to retry.',
   assessment_failed: 'Readiness could not finish. Check source access and Model Provider configuration, then select Start to retry.',

@@ -257,6 +257,7 @@ export type RegressionBaseline = {
 
 // sidecar dynamic/types.ts
 export type DynamicRun = {
+  evidenceStorage?: 'device';
   id: string;
   projectId: string;
   missionId: string;
@@ -495,7 +496,7 @@ export type EvidenceCopy = {
   sourceSha256?: string;
   privacyVersion?: 1;
   availability: 'pending' | 'available' | 'failed' | 'expired' | 'deleting' | 'deleted';
-  expiresAt: string;
+  expiresAt: string | null;
   executorId: string;
   syncedBy: string | null;
   deletedBy?: string | null;
@@ -517,6 +518,7 @@ export type DynamicReportSnapshot = {
   run: Omit<DynamicRun, 'lease' | 'idempotencyKey' | 'legacySessionId' | 'actionPolicy'>;
   findings: FindingDetail[];
   evidenceCopies: EvidenceCopy[];
+  localEvidence?: Array<{ evidenceId: string; status: 'available' | 'missing' | 'unverifiable' }>;
   artifacts: RunArtifact[];
   dataEvents: DataEvent[];
   modelUsage: {

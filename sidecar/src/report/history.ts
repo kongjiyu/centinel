@@ -49,7 +49,7 @@ async function requireMember(client: SupabaseClient, projectId: string): Promise
   if (!result.data) throw new Error(`You do not have access to project ${projectId}.`);
 }
 
-function mapHistory(value: unknown): ReportHistoryEntry {
+export function mapReportHistory(value: unknown): ReportHistoryEntry {
   const source = row(value);
   const snapshot = (source.snapshot && typeof source.snapshot === 'object' ? source.snapshot : {}) as ProjectReportSnapshot;
   return {
@@ -66,14 +66,14 @@ export async function listProjectReportHistory(client: SupabaseClient, projectId
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const result = await table(client, 'report_exports').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(limit);
   if (result.error) throw new Error(`Report history query failed: ${errorMessage(result.error)}`);
-  return (Array.isArray(result.data) ? result.data : []).map(mapHistory);
+  return (Array.isArray(result.data) ? result.data : []).map(mapReportHistory);
 }
 
 export async function getProjectReportHistoryEntry(client: SupabaseClient, projectId: string, reportId: string): Promise<ReportHistoryEntry | null> {
   await requireMember(client, projectId);
   const result = await table(client, 'report_exports').select('*').eq('project_id', projectId).eq('id', reportId).maybeSingle();
   if (result.error) throw new Error(`Report history query failed: ${errorMessage(result.error)}`);
-  return result.data ? mapHistory(result.data) : null;
+  return result.data ? mapReportHistory(result.data) : null;
 }
 
 async function sign(client: SupabaseClient, path: string, downloadName: string): Promise<string> {

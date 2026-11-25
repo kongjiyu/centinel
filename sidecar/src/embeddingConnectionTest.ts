@@ -1,5 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { resolveSavedEmbeddingConfiguration } from './modelSettings.js';
+import { resolveSavedEmbeddingConfiguration, type ModelSettingsSource } from './modelSettings.js';
 import { createEmbedding, EmbeddingProviderError, embeddingFailureUsage } from './review/embeddingProvider.js';
 import { SupabaseCentinelStore } from './store/supabase.js';
 import type { StoreModelUsage } from './store/types.js';
@@ -8,18 +7,21 @@ type UsageInput = Omit<StoreModelUsage, 'id' | 'createdAt'>;
 type Dependencies = {
   resolve: typeof resolveSavedEmbeddingConfiguration;
   embed: typeof createEmbedding;
-  saveUsage: (client: SupabaseClient, input: UsageInput) => Promise<unknown>;
+  saveUsage: (client: ModelSettingsSource, input: UsageInput) => Promise<unknown>;
 };
 
 const defaults: Dependencies = {
   resolve: resolveSavedEmbeddingConfiguration,
   embed: createEmbedding,
-  saveUsage: (client, input) => new SupabaseCentinelStore(client).saveModelUsage(input),
+  saveUsage: (client, input) => {
+    if ('readModelSetting' in client) throw new Error('A local usage writer is required.');
+    return new SupabaseCentinelStore(client).saveModelUsage(input);
+  },
 };
 
 /** A deliberate saved-settings probe. Never indexes files or retries/falls back. */
 export async function testSavedEmbeddingModel(
-  client: SupabaseClient,
+  client: ModelSettingsSource,
   ownerId: string,
   overrides: Partial<Dependencies> = {},
 ): Promise<{ statusCode: number; result: { status: 'pass' | 'fail'; message: string; code?: string; hint?: string } }> {

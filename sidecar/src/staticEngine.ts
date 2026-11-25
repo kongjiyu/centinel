@@ -52,8 +52,8 @@ export function getRules(category?: string): Rule[] {
 /**
  * Run static analysis on a set of artifacts for a project.
  * Applies all applicable rules based on file extension matching.
- * Returns findings for the Review orchestrator to normalize and persist in
- * Supabase. The analyzer has no local-file or SQLite execution path.
+ * Returns findings for the Review orchestrator to normalize and persist.
+ * The caller supplies the verified source reader.
  */
 export async function runStaticAnalysis(
   projectId: string,

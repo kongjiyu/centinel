@@ -6,14 +6,14 @@ import type { EnvironmentVault } from '../environment/vault.js';
 import { dynamicWorkerId, DYNAMIC_HEARTBEAT_MS } from '../recovery.js';
 import { runVitestWorkspace } from './runner.js';
 import type { DynamicUnitRun } from './types.js';
-import type { UnitRepository } from './repository.js';
+import type { UnitStore } from './repository.js';
 const controllers = new Map<string, AbortController>();
 export const cancelUnit = (id: string) => controllers.get(id)?.abort();
 export function unitReceiptPath(root: string, project: string, id: string) { return path.join(root, crypto.createHash('sha256').update(JSON.stringify([project, id])).digest('hex') + '.json'); }
 export async function executeUnit(input: {
     ownerId: string;
     run: DynamicUnitRun;
-    repository: UnitRepository;
+    repository: UnitStore;
     registry: WorkspaceRegistry;
     vault: EnvironmentVault;
     receiptRoot: string;

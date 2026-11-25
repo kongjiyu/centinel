@@ -237,11 +237,14 @@ dependencies = [
 name = "centinel"
 version = "0.2.4"
 dependencies = [
+ "getrandom 0.2.17",
+ "security-framework",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

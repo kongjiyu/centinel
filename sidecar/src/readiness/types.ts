@@ -2,7 +2,7 @@ import type { Artifact } from '../artifacts.js';
 
 export type ReadinessCategory = 'repository' | 'requirements' | 'design' | 'standards';
 export type ReadinessState = 'missing' | 'incomplete' | 'completed';
-export type ReadinessFailureCode = 'assessment_paused' | 'not_configured' | 'secret_unavailable' | 'codex_not_connected' | 'rate_limited' | 'quota_exhausted' | 'credits_exhausted' | 'billing_required' | 'context_limit' | 'malformed_response' | 'timeout' | 'persistence' | 'source_changes' | 'assessment_failed';
+export type ReadinessFailureCode = 'assessment_paused' | 'not_configured' | 'secret_unavailable' | 'codex_not_connected' | 'rate_limited' | 'quota_exhausted' | 'credits_exhausted' | 'billing_required' | 'context_limit' | 'malformed_response' | 'timeout' | 'persistence' | 'source_changes' | 'assessment_failed' | 'interrupted';
 export type ReadinessReference = { artifactId: string; path: string; excerpt: string; sourceVersion?: string; contentHash?: string };
 export type ReadinessGap = { id: string; category: ReadinessCategory; title: string; description: string; recommendation: string; severity: 'warning' | 'blocking'; references: ReadinessReference[] };
 export type ReadinessCriterionResult = { id: string; status: 'pass' | 'gap' | 'unknown'; basis: string; references: ReadinessReference[] };

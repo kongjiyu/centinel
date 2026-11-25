@@ -30,6 +30,7 @@ type Dependencies = {
     guard: () => Promise<void>, reviewId?: string, reader?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>): Promise<void>;
   now?: () => number; leaseMs?: number; heartbeatMs?: number; pollMs?: number;
   onError?: (code: string) => void;
+  local?: boolean;
 };
 export function sourceIndexJobId(projectId: string, fingerprint: string): string {
   const hex = crypto.createHash('sha256').update(`source-index-job-v1:${projectId}:${fingerprint}`).digest('hex');
@@ -46,16 +47,22 @@ export function assertSourceIndexProviderAllowed(projectId: string): void {
 /** Durable, member-scoped build claims shared by source events and Reviews.
  * GET recovery resumes recorded work only; it never creates a paid build. */
 export class SourceIndexCoordinator {
-  private sessions = new Map<string, { auth: AuthenticatedRequest; runtime: RefreshableSupabaseRuntime }>();
+  private sessions = new Map<string, { auth: AuthenticatedRequest; runtime?: RefreshableSupabaseRuntime }>();
   private active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
   private closed = false;
   private now: () => number;
   constructor(private deps: Dependencies) { this.now = deps.now ?? Date.now; }
   adoptSession(auth: AuthenticatedRequest): void {
+    if (this.closed) return;
+    if (this.deps.local) {
+      this.sessions.set(auth.userId, { auth });
+      return;
+    }
     const current = this.sessions.get(auth.userId);
     if (!current) this.sessions.set(auth.userId, { auth, runtime: new RefreshableSupabaseRuntime({ ...auth }) });
-    else if (current.runtime.adoptVerifiedSession(auth)) current.auth = auth;
+    else if (current.runtime?.adoptVerifiedSession(auth)) current.auth = auth;
   }
+  private activeKey(job: SourceIndexJob): string { return this.deps.local ? `${job.ownerId}:${job.id}` : job.id; }
   private auth(ownerId: string): AuthenticatedRequest {
     const session = this.sessions.get(ownerId);
     if (!session || this.closed) throw new SourceIndexStopped('session_unavailable');
@@ -122,7 +129,7 @@ export class SourceIndexCoordinator {
       const job = await this.queue(auth.userId, projectId, identity, 'review');
       // Review never silently resumes a capacity-paused source build.
       if (job.state === 'paused') throw new SourceIndexStopped(job.errorCode ?? 'index_paused');
-      if (job.state === 'running' && (job.leaseUntil ?? 0) > this.now() && !this.active.has(job.id)) {
+      if (job.state === 'running' && (job.leaseUntil ?? 0) > this.now() && !this.active.has(this.activeKey(job))) {
         await delay(this.deps.pollMs ?? 2_000, signal);
         const updated = await this.store(auth.userId).get(job.id);
         if (updated?.state === 'superseded' && updated.errorCode === 'source_superseded' && reclaimFrozenIndex) {
@@ -177,13 +184,14 @@ export class SourceIndexCoordinator {
     return await store.insert(job) ? job : (await store.get(id))!;
   }
   private schedule(job: SourceIndexJob, artifacts?: Artifact[]) {
-    if (this.closed || this.active.has(job.id) || !['queued', 'running'].includes(job.state)) return;
+    if (this.closed || this.active.has(this.activeKey(job)) || !['queued', 'running'].includes(job.state)) return;
     setImmediate(() => { if (!this.closed) void this.execute(job, artifacts).catch(() => this.deps.onError?.('source_index_job_stopped')); });
   }
   private async execute(job: SourceIndexJob, supplied?: Artifact[], signal?: AbortSignal, reviewId?: string,
     reader?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>): Promise<void> {
     signal?.throwIfAborted();
-    const active = this.active.get(job.id);
+    const key = this.activeKey(job);
+    const active = this.active.get(key);
     if (active) {
       // A Review abandoning its wait must not cancel a source-event build.
       await waitFor(active.promise, signal); return;
@@ -191,8 +199,8 @@ export class SourceIndexCoordinator {
     const controller = new AbortController();
     const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
     const promise = this.run(job, supplied, combined, reviewId, reader);
-    this.active.set(job.id, { controller, promise });
-    try { await promise; } finally { if (this.active.get(job.id)?.promise === promise) this.active.delete(job.id); }
+    this.active.set(key, { controller, promise });
+    try { await promise; } finally { if (this.active.get(key)?.promise === promise) this.active.delete(key); }
   }
   private async run(initial: SourceIndexJob, supplied: Artifact[] | undefined, requestSignal: AbortSignal, reviewId?: string,
     reader?: (artifact: Artifact, signal?: AbortSignal) => Promise<string>): Promise<void> {

@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { DynamicContractError } from '../types.js';
 import type { InteractionAction } from '../browser/actionPolicy.js';
 import type { BrowserSessionState } from './sessionVault.js';
+import { createRunNetworkProxy } from '../browser/networkProxy.js';
 
 /**
  * Read-only control discovery for environment permission authoring. It loads
@@ -96,22 +97,27 @@ export type DiscoveryResult = { controls: DiscoveredControl[]; pages: DiscoveryP
  * read; it is used only inside this short-lived, read-only browser context.
  */
 /** maxPaths/maxControls are raised only by Autonomous testing; the manual scan keeps 5 pages and 20 controls. */
-export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState; maxPaths?: number; maxControls?: number; collectHealth?: boolean } = {}): Promise<DiscoveryResult> {
+export async function discoverControls(target: URL, options: { timeoutMs?: number; paths?: string[]; storageState?: BrowserSessionState; maxPaths?: number; maxControls?: number; collectHealth?: boolean; confineToOrigin?: boolean } = {}): Promise<DiscoveryResult> {
   const maxPaths = Math.min(Math.max(options.maxPaths ?? 5, 0), 19);
   const maxControls = Math.min(Math.max(options.maxControls ?? MAX_CONTROLS, 1), 80);
   const pageUrls = [target, ...(options.paths ?? []).map(path => new URL(path, target))]
     .filter((url, index, all) => all.findIndex(other => other.href === url.href) === index);
   if (pageUrls.some(url => url.origin !== target.origin)) throw new DynamicContractError(400, 'Additional pages must be on the same website as the test address.');
   if (pageUrls.length > maxPaths + 1) throw new DynamicContractError(400, maxPaths === 5 ? 'Scan at most five additional pages at a time.' : `Scan at most ${maxPaths} additional pages at a time.`);
-  const browser = await chromium.launch({ headless: true });
+  const proxy = options.confineToOrigin ? await createRunNetworkProxy([target.origin], () => undefined) : undefined;
+  const browser = await chromium.launch({ headless: true, ...(proxy ? { proxy: { server: proxy.server },
+    args: ['--proxy-bypass-list=<-loopback>', '--disable-http2', '--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] } : {}) })
+    .catch(async error => { await proxy?.close(); throw error; });
   try {
-    const context = await browser.newContext({ acceptDownloads: false, ...(options.storageState ? { storageState: options.storageState } : {}) });
-    const page = await context.newPage();
+    const context = await browser.newContext({ acceptDownloads: false, ...(options.storageState ? { storageState: options.storageState } : {}),
+      ...(options.confineToOrigin ? { serviceWorkers: 'block' as const } : {}) });
     // Stay on the requested origin; the discovery never follows redirects elsewhere.
-    await page.route('**/*', route => {
+    await context.route('**/*', route => {
       const url = new URL(route.request().url());
-      return url.origin === target.origin || route.request().resourceType() !== 'document' ? route.continue() : route.abort();
+      return url.origin === target.origin || (!options.confineToOrigin && route.request().resourceType() !== 'document') ? route.continue() : route.abort();
     });
+    if (options.confineToOrigin) await context.routeWebSocket('**/*', socket => socket.close());
+    const page = await context.newPage();
     const controls: DiscoveredControl[] = [];
     const pages: DiscoveryPage[] = [];
     // Health counters for the page currently loading; read-only listeners, nothing is sent to the page.
@@ -146,5 +152,6 @@ export async function discoverControls(target: URL, options: { timeoutMs?: numbe
     return { controls, pages };
   } finally {
     await browser.close().catch(() => {});
+    await proxy?.close();
   }
 }

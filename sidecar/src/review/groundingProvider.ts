@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseCentinelStore } from '../store/index.js';
-import { resolveModelProviderChain, SupabaseModelConfigurationRepository } from './modelProviderResolver.js';
+import { resolveModelProviderChain, SupabaseModelConfigurationRepository, type ResolvedModelProviderChain } from './modelProviderResolver.js';
 import { runModelOperation } from './retry.js';
 import type { RequirementCandidateModel } from './grounding.js';
 import { toModelUsageRecord } from './usageAudit.js';
@@ -11,14 +11,18 @@ import type { ModelAttemptRecord } from './types.js';
  * persist each reserved attempt without inventing a Review foreign key. */
 export function createGroundingModelProvider(client: SupabaseClient | (() => SupabaseClient), ownerId: string): RequirementCandidateModel {
   const currentClient = typeof client === 'function' ? client : () => client;
+  return runGroundingWithProvider(
+    projectId => resolveModelProviderChain(new SupabaseModelConfigurationRepository(currentClient()), { ownerId, projectId, purpose: 'static_review' }),
+    attempt => saveGroundingAttempt(new SupabaseCentinelStore(currentClient()), attempt, ownerId, attempt.projectId),
+  );
+}
+
+export function runGroundingWithProvider(resolve: (projectId: string, signal?: AbortSignal) => Promise<Pick<ResolvedModelProviderChain,
+  'primaryProvider' | 'primaryMetadata' | 'fallbackProvider' | 'fallbackMetadata'>>,
+  persist: (attempt: ModelAttemptRecord) => Promise<void>): RequirementCandidateModel {
   return {
     analyze: async request => {
-      const configurations = new SupabaseModelConfigurationRepository(currentClient());
-      const chain = await resolveModelProviderChain(configurations, {
-        ownerId,
-        projectId: request.projectId,
-        purpose: 'static_review',
-      });
+      const chain = await resolve(request.projectId, request.signal);
       const operation = await runModelOperation(request, chain.primaryProvider, {
         reviewId: request.reviewId,
         projectId: request.projectId,
@@ -27,8 +31,8 @@ export function createGroundingModelProvider(client: SupabaseClient | (() => Sup
         fallback: chain.fallbackProvider ?? undefined,
         fallbackContext: chain.fallbackMetadata ?? undefined,
         signal: request.signal,
-        onAttemptStarted: attempt => saveGroundingAttempt(new SupabaseCentinelStore(currentClient()), attempt, ownerId, request.projectId),
-        onAttempt: attempt => saveGroundingAttempt(new SupabaseCentinelStore(currentClient()), attempt, ownerId, request.projectId),
+        onAttemptStarted: persist,
+        onAttempt: persist,
       });
       return operation.result;
     },

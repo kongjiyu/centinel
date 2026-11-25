@@ -28,7 +28,7 @@ export function createAutoTestDeps(input: {
   ownerId: string;
   session: AutoTestSession;
   store: AutoTestStore;
-  environments: EnvironmentRepository;
+  environments: Pick<EnvironmentRepository, 'list' | 'save' | 'recordData'>;
   service: DynamicService;
   dynamicRouteDeps: DynamicRouteDependencies;
   home: string;
@@ -100,8 +100,13 @@ export function createAutoTestDeps(input: {
     },
     startRun: async ({ revisionId, environmentId, idempotencyKey, laneId }) => {
       autoTestLiveRuns.register(idempotencyKey, { laneId, headless: true, perStepScreenshots: true, sink: liveHub.sinkFor(projectId, input.session.id, laneId) });
-      const run = await route('POST', `/projects/${projectId}/dynamic/runs`, { revisionId, environmentId, idempotencyKey }) as DynamicRun;
-      return run.id;
+      try {
+        const run = await route('POST', `/projects/${projectId}/dynamic/runs`, { revisionId, environmentId, idempotencyKey }) as DynamicRun;
+        return run.id;
+      } catch (error) {
+        autoTestLiveRuns.release(idempotencyKey);
+        throw error;
+      }
     },
     getRun: async runId => {
       const run = await input.service.requireRun(projectId, runId);

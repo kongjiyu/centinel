@@ -215,6 +215,17 @@ async function snapshotForAttempts(attempts: StaticSession[], overrides: Partial
 }
 
 describe('immutable project report from a persistence-neutral source', () => {
+  it.each([
+    ['C:\\Users\\qa\\workspace', 'C:\\Users\\qa\\workspace\\docs\\requirements.md', 'D:\\private\\requirements.md'],
+    ['/Users/qa/workspace', '/Users/qa/workspace/docs/requirements.md', '/private/requirements.md'],
+  ])('normalizes stored paths rooted in %s independently of the running platform', async (workspacePath, filePath, outside) => {
+    const snapshot = await buildProjectReportSnapshot(project.id, { source: {
+      ...fixtureSource(false), getProject: async () => ({ ...project, workspacePath }),
+      listArtifacts: async () => [{ ...artifact, filePath }, { ...artifact, id: 'outside', filePath: outside }],
+    } });
+    expect(snapshot.sourceInventory.artifacts.map(item => item.path)).toEqual(['docs/requirements.md', 'requirements.md']);
+  });
+
   it('marks absent history unavailable and deeply freezes one canonical snapshot', async () => {
     const snapshot = await buildProjectReportSnapshot(project.id, {
       source: fixtureSource(false), reportId: 'report-unavailable', generatedAt: '2026-09-21T00:00:00.000Z',

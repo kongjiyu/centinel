@@ -1,3 +1,4 @@
+import { isPublicReviewHarnessEvent } from './harnessEvents.js';
 import crypto from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { analysisMapFromEvents } from './assessmentBatches.js';
@@ -7,13 +8,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
 import type {
   FrozenReviewGrounding,
-  ReviewTraceabilityMapping,
   ReviewTraceabilityMetadata,
   ReviewTraceabilityRecord,
   ReviewTraceabilitySnapshot,
-  TraceabilityEvidenceStatus,
 } from './evidenceTypes.js';
-import { summarizeTraceability } from './traceabilitySummary.js';
+import { buildFrozenTraceability } from './frozenTraceability.js';
 import { isConfirmedMappingStatus, SUGGESTED_MAPPING_STATUS, type RequirementLinkSuggestion } from './requirementLinkSuggestions.js';
 import { mergeEvidenceSufficiencyAssessments, type EvidenceSufficiencyAssessment, type EvidenceContradictionDisposition } from './evidenceSufficiency.js';
 import type { FindingCorrelation, FindingCorrelationSnapshot, CorrelationAmbiguity, FindingResolutionEligibility } from './correlation.js';
@@ -154,7 +153,7 @@ function mapArtifact(artifact: Artifact): Record<string, unknown> {
   };
 }
 
-function mapSnapshotArtifact(value: unknown): Artifact {
+export function mapSnapshotArtifact(value: unknown): Artifact {
   const row = asRow(value);
   const metadata = objectValue(row.metadata);
   const git = objectValue(metadata.git);
@@ -216,11 +215,6 @@ function mapTraceabilitySnapshot(row: Row, reviewId = text(row, 'review_session_
     updatedAt: text(row, 'created_at'),
     metadata,
   };
-}
-
-function normalizedHash(value: string | null): string | null {
-  if (!value) return null;
-  return value.trim().replace(/^sha256:/i, '').toLowerCase();
 }
 
 function nonEmptyText(row: Row, keys: string[]): string | null {
@@ -530,27 +524,7 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       .select('id, project_id, entity_id, event_type, payload, created_at')
       .eq('project_id', projectId).eq('entity_type', 'review').eq('entity_id', reviewId)
       .order('created_at', { ascending: true }).order('id', { ascending: true }));
-    return rows.filter(row => text(row, 'event_type').startsWith('harness_step_')
-      || text(row, 'event_type') === 'model_attempt'
-      || text(row, 'event_type') === 'review_analysis_map_saved'
-      || text(row, 'event_type') === 'review_analysis_batch_saved'
-      || text(row, 'event_type') === 'review_live_finding_titles'
-      || text(row, 'event_type') === 'review_assessment_batch_started'
-      || text(row, 'event_type') === 'review_analysis_batch_unverified'
-      || text(row, 'event_type') === 'review_assessment_validated'
-      || text(row, 'event_type') === 'review_retry_scheduled'
-      || text(row, 'event_type') === 'review_assessment_rejected'
-      || text(row, 'event_type') === 'review_assessment_repair_scheduled'
-      || text(row, 'event_type') === 'review_candidate_support_scheduled'
-      || text(row, 'event_type') === 'review_candidate_support_incomplete'
-      || text(row, 'event_type') === 'review_candidate_support_saved'
-      || text(row, 'event_type') === 'review_candidate_support_limited'
-      || text(row, 'event_type') === 'review_candidate_support_conflict'
-      || text(row, 'event_type') === 'review_batch_needs_verification'
-      || text(row, 'event_type') === 'review_batch_cache_reused'
-      || text(row, 'event_type') === 'review_batch_cache_rejected'
-      || text(row, 'event_type') === 'review_source_batches_finished'
-      || text(row, 'event_type') === 'review_batches_planned')
+    return rows.filter(row => isPublicReviewHarnessEvent(text(row, 'event_type')))
       .map(row => {
         const payload = objectValue(row.payload);
         return { id: text(row, 'id'), projectId, reviewId, event: text(row, 'event_type'), stage: typeof payload.stage === 'string' ? payload.stage : undefined, detail: readReviewAuditDetail(payload), createdAt: text(row, 'created_at') };
@@ -729,113 +703,17 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
       ?? await this.listConfirmedRequirements(projectId, input.scope.requirementIds, signal);
     const enabledStandardRules = input.grounding?.enabledStandardRules
       ?? (await this.listStandardRules(projectId, input.scope.standardIds, signal)).filter(rule => rule.enabled);
-    const selectedRequirementSet = input.scope.requirementIds?.length ? new Set(input.scope.requirementIds) : null;
-    const selectedRequirements = requirements.filter(item => !selectedRequirementSet || selectedRequirementSet.has(item.id));
-    const requirementsById = new Map(selectedRequirements.map(item => [item.id, item]));
-    const explicitRequirementIds = input.scope.requirementIds?.length ? [...input.scope.requirementIds] : null;
-    const selectedRequirementIds = explicitRequirementIds ?? selectedRequirements.map(item => item.id);
-    const explicitArtifactIds = input.scope.artifactIds?.length ? [...input.scope.artifactIds] : null;
-    const selectedArtifactIds = explicitArtifactIds ?? input.artifacts.map(item => item.id);
-    const artifactsById = new Map(input.artifacts.map(item => [item.id, item]));
-    const unavailableArtifactIds = new Set(input.unavailableArtifactIds ?? []);
-    const records: ReviewTraceabilityRecord[] = [];
-
-    for (const requirementId of selectedRequirementIds) {
-      signal?.throwIfAborted();
-      const requirement = requirementsById.get(requirementId);
-      if (!requirement) {
-        records.push({
-          requirementId, title: '', description: '', category: '', state: 'incomplete',
-          mappingIds: [], sourceArtifactIds: [], sourceSymbolIds: [], confidence: null,
-          capturedAt, evidenceStatus: 'unavailable', evidenceReason: 'selected_requirement_unavailable_at_capture', mappings: [],
-        });
-        continue;
-      }
-
+    snapshot = await buildFrozenTraceability(reviewId, projectId, input, requirements, enabledStandardRules, async requirementId => {
       const rows = await this.allRows('requirement_mappings', 'traceability mappings query', query =>
-        query.select('*').eq('requirement_id', requirement.id).order('id'), signal);
-      const mappings: ReviewTraceabilityMapping[] = [];
-      for (const row of rows) {
-        // Suggested or rejected links are not traceability evidence.
-        if (!isConfirmedMappingStatus(text(row, 'coverage_status', 'unknown'))) continue;
-        const artifactId = nullableText(row, 'artifact_id');
-        const fileId = nullableText(row, 'file_id');
-        const targetArtifactId = artifactId ?? fileId;
-        // An explicit artifact scope excludes known mappings to other files.
-        if (explicitArtifactIds && targetArtifactId && !explicitArtifactIds.includes(targetArtifactId)) continue;
-        const targetConflict = Boolean(artifactId && fileId && artifactId !== fileId);
-        const target = targetArtifactId ? artifactsById.get(targetArtifactId) : undefined;
-        const mappingVersionId = nonEmptyText(row, ['artifact_version_id', 'mapped_version_id']);
-        const mappingContentHash = nonEmptyText(row, ['source_version', 'content_hash']);
-        let evidenceStatus: TraceabilityEvidenceStatus = 'unavailable';
-        let evidenceReason: string | null = null;
-        if (targetConflict) evidenceReason = 'mapping_target_identity_conflict';
-        else if (!targetArtifactId) evidenceReason = 'mapping_target_missing';
-        else if (!target) evidenceReason = 'target_not_in_reviewed_scope';
-        else if (unavailableArtifactIds.has(target.id)) evidenceReason = 'reviewed_target_unreadable';
-        else if (!target.versionId && !target.contentHash) evidenceReason = 'reviewed_target_version_missing';
-        else if (!mappingVersionId && !mappingContentHash) evidenceReason = 'mapping_version_proof_missing';
-        else {
-          const versionMatches = !mappingVersionId || (target.versionId != null && mappingVersionId === target.versionId);
-          const hashMatches = !mappingContentHash || normalizedHash(mappingContentHash) === normalizedHash(target.contentHash);
-          if (!versionMatches || !hashMatches) {
-            evidenceStatus = 'stale';
-            evidenceReason = 'mapping_version_does_not_match_reviewed_source';
-          } else {
-            evidenceStatus = 'verified';
-          }
-        }
-        mappings.push({
-          id: text(row, 'id'),
-          targetArtifactId,
-          targetSymbolId: nullableText(row, 'symbol_id'),
-          coverageStatus: text(row, 'coverage_status', 'unknown').trim().toLowerCase(),
-          confidence: row.confidence == null ? null : Number(row.confidence),
-          mappingVersionId,
-          mappingContentHash,
-          reviewedVersionId: target?.versionId ?? null,
-          reviewedContentHash: target?.contentHash ?? null,
-          evidenceStatus,
-          evidenceReason,
-        });
-      }
-      const complete = mappings.length > 0 && mappings.every(item => item.evidenceStatus === 'verified'
-        && /^(complete|covered|verified|full|pass|passed|fully[_ -]?covered)$/.test(item.coverageStatus));
-      const state: ReviewTraceabilityRecord['state'] = mappings.length === 0 ? 'missing' : complete ? 'complete' : 'incomplete';
-      const confidenceValues = mappings.map(item => item.confidence).filter((value): value is number => value !== null && Number.isFinite(value));
-      const unavailable = mappings.find(item => item.evidenceStatus !== 'verified');
-      records.push({
-        requirementId: requirement.id,
-        title: requirement.title,
-        description: requirement.description,
-        category: requirement.category,
-        state,
-        mappingIds: mappings.map(item => item.id),
-        sourceArtifactIds: Array.from(new Set(mappings.flatMap(item => item.targetArtifactId ? [item.targetArtifactId] : []))),
-        sourceSymbolIds: Array.from(new Set(mappings.flatMap(item => item.targetSymbolId ? [item.targetSymbolId] : []))),
-        confidence: confidenceValues.length ? Math.min(...confidenceValues) : null,
-        capturedAt,
-        ...(unavailable ? { evidenceStatus: unavailable.evidenceStatus, evidenceReason: unavailable.evidenceReason } : { evidenceStatus: 'verified' as const }),
-        mappings,
-      });
-    }
-
-    const summary = summarizeTraceability(records);
-    summary.unavailable = records.filter(item => item.evidenceStatus === 'stale' || item.evidenceStatus === 'unavailable').length;
-    const metadata: ReviewTraceabilityMetadata = {
-      snapshotVersion: 2,
-      sourceManifestId: input.sourceManifestId,
-      inclusionBasis: {
-        requirementSelection: explicitRequirementIds ? 'explicit' : 'project',
-        artifactSelection: explicitArtifactIds ? 'explicit' : 'full_manifest',
-        selectedRequirementIds,
-        selectedArtifactIds,
-        sourceManifestId: input.sourceManifestId,
-      },
-      grounding: structuredClone({ confirmedRequirements: selectedRequirements, enabledStandardRules }),
-      unavailableReason: null,
-    };
-    snapshot = { sessionId: reviewId, projectId, status: 'available', records, summary, capturedAt, updatedAt: capturedAt, metadata };
+        query.select('*').eq('requirement_id', requirementId).order('id'), signal);
+      return rows.map(row => ({
+        id: text(row, 'id'), artifactId: nullableText(row, 'artifact_id'), fileId: nullableText(row, 'file_id'),
+        symbolId: nullableText(row, 'symbol_id'), coverageStatus: text(row, 'coverage_status', 'unknown'),
+        confidence: row.confidence == null ? null : Number(row.confidence),
+        mappingVersionId: nonEmptyText(row, ['artifact_version_id', 'mapped_version_id']),
+        mappingContentHash: nonEmptyText(row, ['source_version', 'content_hash']),
+      }));
+    }, capturedAt);
     await this.insertTraceabilitySnapshot(snapshot);
     return structuredClone(snapshot);
   }
@@ -1073,9 +951,9 @@ export class SupabaseStaticReviewRepository implements StaticReviewRepository, G
     if (snapshotResult.error) throw errorFor('finding correlation snapshot lookup', snapshotResult.error);
     if (!snapshotResult.data) return null;
     const snapshotRow = asRow(snapshotResult.data);
-    const rowsResult = await this.from('review_finding_correlations').select('*').eq('child_review_id', childReviewId).order('created_at').order('id');
-    if (rowsResult.error) throw errorFor('finding correlations lookup', rowsResult.error);
-    const correlations: FindingCorrelation[] = (rowsResult.data ?? []).map((value: unknown) => {
+    const rows = await this.allRows('review_finding_correlations', 'finding correlations lookup', query =>
+      query.select('*').eq('child_review_id', childReviewId).order('created_at').order('id'));
+    const correlations: FindingCorrelation[] = rows.map((value: unknown) => {
       const row = asRow(value);
       const detail = objectValue(row.detail);
       const resolutionEligibility = mapResolutionEligibility(detail.resolutionEligibility);

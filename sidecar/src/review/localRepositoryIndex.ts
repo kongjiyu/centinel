@@ -6,16 +6,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Artifact } from '../artifacts.js';
 import { ApplicationRepositoryError, CentinelApplicationRepository } from '../applicationRepository.js';
 import { readClientArtifactContent, readClientArtifactBytes } from '../applicationApi.js';
-import { resolveSavedEmbeddingConfiguration } from '../modelSettings.js';
+import { resolveSavedEmbeddingConfiguration, type SavedEmbeddingConfiguration } from '../modelSettings.js';
+import type { LocalWorkspace } from '../store/localWorkspace.js';
+import type { StoreModelUsage } from '../store/types.js';
 import { SupabaseCentinelStore } from '../store/supabase.js';
 import { throwIfAborted } from './abort.js';
 import type { RetrievedContext } from './contextTypes.js';
-import { openCodebaseIndex, INDEX_RELATIVE_DIRECTORY, portableIndexFiles } from './openCodebaseIndex.js';
+import { openCodebaseIndex, INDEX_RELATIVE_DIRECTORY, MAX_INDEX_BYTES, portableIndexFiles } from './openCodebaseIndex.js';
 import { openRepositoryEmbeddingBridge } from './repositoryEmbeddingBridge.js';
 import { downloadRepositorySnapshot, encodeRepositorySnapshot, repositoryIndexIdentity, restoreRepositorySnapshot,
   DEFAULT_REPOSITORY_INDEX_CACHE_ROOT, type RepositoryIndexIdentity } from './repositoryIndexSnapshot.js';
 import { publishRepositoryIndex, readPreparedRepositorySnapshot } from './repositoryIndexSync.js';
 import { assertSourceIndexProviderAllowed, SourceIndexStopped } from './sourceIndexJobs.js';
+import { localIndexKey, removeLocalIndexDirectory, removeSupersededIndexStages } from './localIndexRetention.js';
 
 export { DEFAULT_REPOSITORY_INDEX_CACHE_ROOT } from './repositoryIndexSnapshot.js';
 const CACHE_ROOT = DEFAULT_REPOSITORY_INDEX_CACHE_ROOT;
@@ -26,6 +29,9 @@ const sourceHash = (value: string) => value.replace(/^sha256:/i, '').toLowerCase
 type FrozenReader = (artifact: Artifact, signal?: AbortSignal) => Promise<string>;
 type ClientSource = SupabaseClient | (() => SupabaseClient);
 const currentClient = (source: ClientSource): SupabaseClient => typeof source === 'function' ? source() : source;
+type IndexUsage = Omit<StoreModelUsage, 'id' | 'createdAt'> & { id?: string };
+type IndexStorage = ClientSource | { workspace: LocalWorkspace };
+const hostedSource = (storage: IndexStorage): ClientSource | null => 'workspace' in storage ? null : storage;
 type Source = { relativePath: string; artifact: Artifact; content: string };
 type SourceMetadata = { relativePath: string; artifact: Artifact };
 type Receipt = { identity: RepositoryIndexIdentity; files: Array<{ name: string; sha256: string }> };
@@ -35,6 +41,21 @@ async function locked<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const next = previous.catch(() => undefined).then(operation);
   locks.set(key, next);
   try { return await next; } finally { if (locks.get(key) === next) locks.delete(key); }
+}
+
+async function pruneLocalIndexes(workspace: LocalWorkspace, owner: string, project: string, fingerprint: string, signal?: AbortSignal) {
+  const retention = workspace.repositoryIndexRetention(owner, project);
+  const root = workspace.repositoryIndexRoot;
+  for (const stale of retention.candidates(fingerprint)) {
+    if (signal?.aborted) return;
+    const key = localIndexKey(owner, project, stale);
+    const directory = path.join(root, key);
+    if (locks.has(directory)) continue;
+    await locked(directory, async () => {
+      if (signal?.aborted || !retention.candidates(fingerprint).includes(stale)) return;
+      if (await removeLocalIndexDirectory(root, key)) retention.forget(stale);
+    });
+  }
 }
 
 function stagePath(artifact: Artifact): string {
@@ -48,9 +69,13 @@ function stagePath(artifact: Artifact): string {
   return `artifacts/${artifact.id}/${name}${isPdfSource(artifact) ? `.${PDF_TEXT_POLICY}.txt` : ''}`;
 }
 
-async function describe(clientSource: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal, cacheRoot = CACHE_ROOT) {
-  const client = currentClient(clientSource);
-  await new CentinelApplicationRepository(client, ownerId).requireProjectMember(projectId, signal);
+async function describe(storage: IndexStorage, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal, cacheRoot = CACHE_ROOT) {
+  const workspace = 'workspace' in storage ? storage.workspace : null;
+  const hosted = hostedSource(storage);
+  const client = hosted && currentClient(hosted);
+  throwIfAborted(signal);
+  if (client) await new CentinelApplicationRepository(client, ownerId).requireProjectMember(projectId, signal);
+  else if (!workspace?.project(ownerId, projectId)) throw new Error('The local project is unavailable to this account.');
   if (!/^[a-f\d-]{36}$/i.test(ownerId)) throw new Error('An authenticated owner UUID is required for the local index.');
   const sources: SourceMetadata[] = [];
   const usedPaths = new Set<string>();
@@ -66,9 +91,15 @@ async function describe(clientSource: ClientSource, ownerId: string, projectId: 
     sources.push({ relativePath, artifact });
   }
   throwIfAborted(signal);
-  const storageContract = await client.rpc('repository_index_storage_ready');
-  if (storageContract.error || storageContract.data !== 1) throw new Error('Apply the repository-index retention migration before building or sharing source indexes. No embedding request was made.');
-  const configuration = await resolveSavedEmbeddingConfiguration(client, ownerId, signal);
+  let configuration: SavedEmbeddingConfiguration | null;
+  if (client) {
+    const storageContract = await client.rpc('repository_index_storage_ready');
+    if (storageContract.error || storageContract.data !== 1) throw new Error('Apply the repository-index retention migration before building or sharing source indexes. No embedding request was made.');
+    configuration = await resolveSavedEmbeddingConfiguration(client, ownerId, signal);
+  } else {
+    configuration = await resolveSavedEmbeddingConfiguration(workspace!.modelConfigurations(ownerId), ownerId, signal);
+    cacheRoot = workspace!.repositoryIndexRoot;
+  }
   const identity = repositoryIndexIdentity({ projectId,
     embedding: { provider: configuration?.embeddingProvider ?? 'none', model: configuration?.model ?? 'structural-only',
       dimensions: configuration?.dimensions ?? 0, endpointHash: hash(configuration?.baseUrl ?? 'none') },
@@ -78,28 +109,48 @@ async function describe(clientSource: ClientSource, ownerId: string, projectId: 
   // Native SQLite/parser libraries on Windows still encounter MAX_PATH with
   // nested owner/project/fingerprint UUID directories. One full digest retains
   // all isolation/compatibility inputs without that avoidable path expansion.
-  const cacheIdentity = hash(`${ownerId}:${projectId}:${identity.fingerprint}`);
-  return { client, configuration, sources, identity, directory: path.join(cacheRoot, cacheIdentity) };
+  const cacheIdentity = localIndexKey(ownerId, projectId, identity.fingerprint);
+  return { client, workspace, configuration, sources, identity, directory: path.join(cacheRoot, cacheIdentity) };
 }
 
 /** Build the exact compatibility identity from latest artifact/version metadata
  * and saved settings. This performs no source-body reads and no provider calls. */
-export async function describeRepositoryIndex(clientSource: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[],
+export async function describeRepositoryIndex(clientSource: IndexStorage, ownerId: string, projectId: string, artifacts: Artifact[],
   signal?: AbortSignal, cacheRoot = CACHE_ROOT): Promise<RepositoryIndexIdentity> {
   return (await describe(clientSource, ownerId, projectId, artifacts, signal, cacheRoot)).identity;
 }
 
-async function prepare(clientSource: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal,
+export async function inspectLocalRepositoryIndex(workspace: LocalWorkspace, ownerId: string, projectId: string,
+  artifacts: Artifact[], signal?: AbortSignal) {
+  if (!artifacts.length) return { state: 'none' as const };
+  const prepared = await prepare({ workspace }, ownerId, projectId, artifacts, signal);
+  return locked(prepared.directory, async () => {
+    const root = await cachedStage(prepared.directory, prepared.identity, prepared.sources, signal);
+    if (!root) return { state: 'none' as const };
+    workspace.repositoryIndexRetention(ownerId, projectId).touch(prepared.identity.fingerprint, 'ready');
+    return { state: 'unchanged' as const, fingerprint: prepared.identity.fingerprint };
+  });
+}
+
+async function prepare(clientSource: IndexStorage, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal,
   reader?: FrozenReader, cacheRoot = CACHE_ROOT) {
   const description = await describe(clientSource, ownerId, projectId, artifacts, signal, cacheRoot);
   const sources: Source[] = [];
   for (const source of description.sources) {
     throwIfAborted(signal);
+    const readLocal = () => {
+      const saved = description.workspace?.sourceBytes(ownerId, projectId, source.artifact.id, source.artifact.versionId);
+      if (!saved || saved.contentHash !== sourceHash(source.artifact.contentHash)) throw new Error('The frozen local source is unavailable.');
+      return saved.content;
+    };
     const content = isPdfSource(source.artifact)
       ? (verifiedTextForReader(reader, source.artifact, signal)
-        ?? await verifiedSourceText(source.artifact, await readClientArtifactBytes(description.client, ownerId, source.artifact, signal), signal)).text
+        ?? await verifiedSourceText(source.artifact, description.client
+          ? await readClientArtifactBytes(description.client, ownerId, source.artifact, signal) : readLocal(), signal)).text
       : reader ? await reader(source.artifact, signal)
-      : await readClientArtifactContent(description.client, ownerId, source.artifact.id, source.artifact.versionId, signal, projectId, source.artifact.contentHash);
+      : description.client
+        ? await readClientArtifactContent(description.client, ownerId, source.artifact.id, source.artifact.versionId, signal, projectId, source.artifact.contentHash)
+        : readLocal().toString('utf8');
     if (!isPdfSource(source.artifact) && hash(content) !== sourceHash(source.artifact.contentHash)) throw new Error('Frozen source hash verification failed before local indexing.');
     sources.push({ ...source, content });
   }
@@ -197,19 +248,35 @@ async function pendingStage(prepared: Awaited<ReturnType<typeof prepare>>, signa
   candidates.push(...entries.filter(entry => entry.isDirectory() && /^stage-[a-f\d-]{36}$/.test(entry.name)).map(entry => entry.name));
   for (const candidate of new Set(candidates)) {
     const root = path.join(prepared.directory, candidate);
+    // A completed stage must pass cachedStage's file hashes. Treat a rejected
+    // receipt as a rebuild, never as an interrupted native database to reopen.
+    try { await fs.lstat(`${root}.receipt.json`); continue; }
+    catch (cause) { if ((cause as NodeJS.ErrnoException)?.code !== 'ENOENT') throw cause; }
     if (await verifyMaterialized(root, prepared.sources, signal)) return root;
   }
   return null;
 }
 
-async function session(prepared: Awaited<ReturnType<typeof prepare>>, root: string, clientSource: ClientSource, ownerId: string, projectId: string,
+async function requireLocalIndexCapacity(directory: string, sourceBytes: number): Promise<void> {
+  const volume = await fs.statfs(directory, { bigint: true }).catch(() => null);
+  if (!volume) throw new SourceIndexStopped('local_index_storage_unavailable', 'Local source search could not check available disk space.');
+  // Reserve the bounded index inventory and room for the native SQLite writer.
+  if (volume.bavail * volume.bsize < BigInt(sourceBytes + 2 * MAX_INDEX_BYTES)) {
+    throw new SourceIndexStopped('local_index_disk_full', 'Free up disk space on this device and resume source preparation.');
+  }
+}
+
+async function session(prepared: Awaited<ReturnType<typeof prepare>>, root: string, storage: IndexStorage, ownerId: string, projectId: string,
   inputType: 'document' | 'query', signal?: AbortSignal, reviewId?: string, beforeProvider?: () => Promise<void>) {
-  const bridge = prepared.configuration ? await openRepositoryEmbeddingBridge({ client: currentClient(clientSource), ownerId, projectId, reviewId,
+  const saveUsage = (input: IndexUsage) => 'workspace' in storage
+    ? storage.workspace.saveIndexUsage(ownerId, input)
+    : new SupabaseCentinelStore(currentClient(storage)).saveModelUsage(input);
+  const bridge = prepared.configuration ? await openRepositoryEmbeddingBridge({ ownerId, projectId, reviewId,
     configuration: prepared.configuration, inputType, sources: prepared.sources, stagingRoot: root, signal,
     beforeProvider: async () => { assertSourceIndexProviderAllowed(projectId); await beforeProvider?.(); },
     indexTrigger: reviewId ? 'review' : 'source_changed',
     indexFingerprint: prepared.identity.fingerprint,
-    saveUsage: input => new SupabaseCentinelStore(currentClient(clientSource)).saveModelUsage(input) }) : null;
+    saveUsage }) : null;
   try {
     const engine = await openCodebaseIndex({ projectRoot: root, mode: prepared.configuration ? 'hybrid' : 'structural', signal,
       embedding: { model: prepared.configuration?.model ?? 'structural-only', dimensions: prepared.configuration?.dimensions ?? 1,
@@ -220,27 +287,43 @@ async function session(prepared: Awaited<ReturnType<typeof prepare>>, root: stri
 
 /** Builds for a persisted source event or explicit Review. Ordinary reads only
  * recover already queued work; the shared index is source-derived data. */
-export async function indexFrozenArtifacts(client: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal,
+export async function indexFrozenArtifacts(client: IndexStorage, ownerId: string, projectId: string, artifacts: Artifact[], signal?: AbortSignal,
   reviewId?: string, frozenReader?: FrozenReader, cacheRoot = CACHE_ROOT, guard?: () => Promise<void>): Promise<void> {
   await guard?.();
   const prepared = await prepare(client, ownerId, projectId, artifacts, signal, frozenReader, cacheRoot);
   if (!prepared.sources.length) return;
+  const hosted = hostedSource(client);
+  const retention = prepared.workspace?.repositoryIndexRetention(ownerId, projectId);
+  const fingerprint = prepared.identity.fingerprint;
+  if (prepared.workspace) await pruneLocalIndexes(prepared.workspace, ownerId, projectId, fingerprint, signal);
   await locked(prepared.directory, async () => {
     throwIfAborted(signal);
     const existing = await cachedStage(prepared.directory, prepared.identity, prepared.sources, signal);
     if (existing) {
+      if (!hosted) {
+        retention?.touch(fingerprint, 'ready');
+        return;
+      }
       const indexDirectory = path.join(existing, INDEX_RELATIVE_DIRECTORY);
       const names = await portableIndexFiles(indexDirectory);
       const archive = await encodeRepositorySnapshot(indexDirectory, prepared.identity, names, signal);
       await guard?.();
-      await publishRepositoryIndex(currentClient(client), ownerId, prepared.identity, archive, { signal });
+      await publishRepositoryIndex(currentClient(hosted), ownerId, prepared.identity, archive, { signal });
       return;
     }
     // Startup sync only places validated bytes in this owner-specific prepared
     // area. Exact source identity and native status are still checked here.
-    const shared = await readPreparedRepositorySnapshot(ownerId, prepared.identity, cacheRoot, signal)
-      ?? await downloadRepositorySnapshot(currentClient(client), prepared.identity, signal);
-    const pending = shared ? null : await pendingStage(prepared, signal);
+    const shared = hosted ? await readPreparedRepositorySnapshot(ownerId, prepared.identity, cacheRoot, signal)
+      ?? await downloadRepositorySnapshot(currentClient(hosted), prepared.identity, signal)
+      : await prepared.workspace?.repositoryIndexArchives(ownerId).load(prepared.identity, signal);
+    const pending = hosted && shared ? null : await pendingStage(prepared, signal);
+    if (!hosted) {
+      await fs.mkdir(prepared.directory, { recursive: true, mode: 0o700 });
+      await requireLocalIndexCapacity(prepared.directory, pending ? 0
+        : prepared.sources.reduce((total, source) => total + Buffer.byteLength(source.content), 0));
+      throwIfAborted(signal);
+      retention?.touch(fingerprint, 'pending');
+    }
     const root = pending ?? path.join(prepared.directory, `stage-${crypto.randomUUID()}`);
     if (!pending) {
       await fs.mkdir(root, { recursive: true });
@@ -248,31 +331,59 @@ export async function indexFrozenArtifacts(client: ClientSource, ownerId: string
     }
     await fs.writeFile(path.join(prepared.directory, 'pending.json'), JSON.stringify({ identity: prepared.identity, stage: path.basename(root) }), { mode: 0o600 });
     let restored = false;
-    if (shared) {
+    if (shared && !pending) {
       // The pinned engine supplies the complete portable inventory; restore
       // validates every entry before native code can open the database.
       await restoreRepositorySnapshot(shared, path.join(root, INDEX_RELATIVE_DIRECTORY), prepared.identity, undefined, signal);
       restored = true;
     }
-    const opened = await session(prepared, root, client, ownerId, projectId, 'document', signal, reviewId, guard);
-    try {
-      const result = restored ? await opened.engine.status() : await opened.engine.index();
-      if (opened.bridge?.failure()) throw opened.bridge.failure();
-      if (!result.ready) throw new SourceIndexStopped('native_index_unavailable', 'The local repository index did not finish successfully.');
-    } catch (cause) { if (opened.bridge?.failure()) throw opened.bridge.failure(); throw cause; }
-    finally { await opened.close(); }
+    const beforeProvider = hosted ? guard : async () => {
+      await guard?.();
+      await requireLocalIndexCapacity(prepared.directory, 0);
+    };
+    const verifyOrBuild = async (checkRestored: boolean) => {
+      const opened = await session(prepared, root, client, ownerId, projectId, 'document', signal, reviewId, beforeProvider);
+      try {
+        const result = checkRestored ? await opened.engine.status() : await opened.engine.index();
+        if (opened.bridge?.failure()) throw opened.bridge.failure();
+        if (!result.ready) throw new SourceIndexStopped('native_index_unavailable', 'The local repository index did not finish successfully.');
+      } catch (cause) { if (opened.bridge?.failure()) throw opened.bridge.failure(); throw cause; }
+      finally { await opened.close(); }
+    };
+    try { await verifyOrBuild(restored); }
+    catch (error) {
+      if (!restored || !prepared.workspace || !(error instanceof SourceIndexStopped) || error.code !== 'native_index_unavailable') throw error;
+      throwIfAborted(signal);
+      await guard?.();
+      // A portable archive can pass its byte checks yet be incompatible with
+      // this engine runtime. Rebuild the fresh stage from frozen source.
+      await fs.rm(path.join(root, INDEX_RELATIVE_DIRECTORY), { recursive: true, force: true });
+      await verifyOrBuild(false);
+    }
     const names = await receipt(root, prepared.identity);
-    const archive = restored ? shared : await encodeRepositorySnapshot(path.join(root, INDEX_RELATIVE_DIRECTORY), prepared.identity, names, signal);
-    await guard?.();
-    if (archive) await publishRepositoryIndex(currentClient(client), ownerId, prepared.identity, archive, { upload: !restored, signal });
+    if (hosted) {
+      const archive = restored ? shared : await encodeRepositorySnapshot(path.join(root, INDEX_RELATIVE_DIRECTORY), prepared.identity, names, signal);
+      await guard?.();
+      if (archive) await publishRepositoryIndex(currentClient(hosted), ownerId, prepared.identity, archive, { upload: !restored, signal });
+    } else await guard?.();
     throwIfAborted(signal);
-    await fs.writeFile(path.join(prepared.directory, 'location.json'), JSON.stringify(path.basename(root)), { mode: 0o600 });
+    const location = path.join(prepared.directory, 'location.json');
+    const temporary = path.join(prepared.directory, `location-${crypto.randomUUID()}.partial`);
+    try {
+      await fs.writeFile(temporary, JSON.stringify(path.basename(root)), { mode: 0o600, flag: 'wx' });
+      await fs.rename(temporary, location);
+      retention?.touch(fingerprint, 'ready');
+      if (prepared.workspace) await removeSupersededIndexStages(prepared.directory, path.basename(root));
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
   });
+  if (prepared.workspace) await pruneLocalIndexes(prepared.workspace, ownerId, projectId, fingerprint, signal);
 }
 
 /** Local relevance search only. Every returned range is reconstructed from the
  * frozen reader, never trusted as code supplied by a shared index or model. */
-export async function retrieveFrozenContext(client: ClientSource, ownerId: string, projectId: string, artifacts: Artifact[], maxTokens: number,
+export async function retrieveFrozenContext(client: IndexStorage, ownerId: string, projectId: string, artifacts: Artifact[], maxTokens: number,
   signal?: AbortSignal, reviewId?: string, queryText?: string, frozenReader?: FrozenReader, cacheRoot = CACHE_ROOT): Promise<RetrievedContext> {
   const prepared = await prepare(client, ownerId, projectId, artifacts, signal, frozenReader, cacheRoot);
   const empty: RetrievedContext = { files: [], totalSymbols: 0, estimatedTokens: 0, reason: 'Local repository search was unavailable; frozen source sweeps remain required.' };
@@ -280,6 +391,7 @@ export async function retrieveFrozenContext(client: ClientSource, ownerId: strin
   return locked(prepared.directory, async () => {
     const root = await cachedStage(prepared.directory, prepared.identity, prepared.sources, signal);
     if (!root) return { ...empty, retrievalPartialReason: 'A compatible local index is missing. Build it through an explicit Review.' };
+    prepared.workspace?.repositoryIndexRetention(ownerId, projectId).touch(prepared.identity.fingerprint, 'ready');
     const opened = await session(prepared, root, client, ownerId, projectId, 'query', signal, reviewId);
     const selectedChunks: NonNullable<RetrievedContext['selectedChunks']> = [];
     let partial = false;

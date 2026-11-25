@@ -6,6 +6,7 @@ import { canonicalJson } from './report/canonical.js';
 import { renderProjectReportMarkdown } from './report/markdown.js';
 import { renderProjectReportPdf } from './report/pdf.js';
 import { persistReportPackage } from './report/storage.js';
+import type { AutoTestStore } from './dynamic/autonomous/store.js';
 import type {
   ProjectReportExportResult,
   ProjectReportRenderings,
@@ -76,6 +77,7 @@ export async function generateProjectReport(
   actorId: string | null,
   accessToken?: string | null,
   options: { reviewId?: string; actorEmail?: string | null } = {},
+  autoTests?: AutoTestStore,
 ): Promise<ProjectReportExportResult> {
   const client = createSupabaseClient(accessToken);
   if (!client) throw new Error('Supabase is required for private report export.');
@@ -85,7 +87,7 @@ export async function generateProjectReport(
   const snapshot = await buildProjectReportSnapshot(projectId, {
     ...reportContext(authenticatedUserId),
     ...options,
-    source: createSupabaseReportSnapshotSource(client, authenticatedUserId),
+    source: createSupabaseReportSnapshotSource(client, authenticatedUserId, autoTests),
   });
   const rendered = await renderProjectReportFiles(snapshot);
   const persisted = await persistReportPackage(client, snapshot, rendered);

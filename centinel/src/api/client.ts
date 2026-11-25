@@ -259,7 +259,7 @@ export type ProjectReportExportResult = {
   generatorVersion: string;
   riskPolicyVersion: string;
   expiresAt: string | null;
-  storage: 'private-supabase';
+  storage: 'private-supabase' | 'private-local';
   downloads: {
     json: string | null;
     markdown: string | null;

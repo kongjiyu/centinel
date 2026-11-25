@@ -79,7 +79,7 @@ export async function handleUnitReportRoute(req: {
     pathname: string;
     readBody(): Promise<Record<string, unknown>>;
 }, deps: {
-    repository: UnitReportRepository;
+    repository: Pick<UnitReportRepository, 'get' | 'list' | 'capture'>;
     requireMember(project: string): Promise<void>;
 }) {
     const m = req.pathname.match(/^\/projects\/([^/]+)\/dynamic\/(?:unit-runs\/([^/]+)\/reports|unit-reports\/([^/]+)(?:\/(json|markdown|pdf))?)$/);

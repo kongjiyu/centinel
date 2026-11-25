@@ -9,6 +9,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Manager;
+mod model_vault;
 
 const AUTH_CALLBACK_EVENT: &str = "centinel://auth-callback";
 const SIDECAR_PORT: u16 = 37701;
@@ -39,11 +40,20 @@ struct SidecarState {
 
 #[tauri::command]
 fn app_data_dir(app_handle: tauri::AppHandle) -> Result<String, String> {
-    let dir = app_handle
-        .path_resolver()
-        .app_data_dir()
-        .ok_or("Could not resolve app data dir")?;
+    let dir = app_home(&app_handle)?.0;
     Ok(dir.to_string_lossy().to_string())
+}
+
+fn app_home(app: &tauri::AppHandle) -> Result<(PathBuf, bool), String> {
+    if let Some(value) = std::env::var_os("CENTINEL_STAGING_HOME") {
+        let home = PathBuf::from(value);
+        if !home.is_absolute() || !home.is_dir() {
+            return Err("CENTINEL_STAGING_HOME must be an existing absolute directory.".into());
+        }
+        return Ok((home, true));
+    }
+    app.path_resolver().app_data_dir().map(|home| (home, false))
+        .ok_or_else(|| "Could not resolve the app data directory.".into())
 }
 
 #[tauri::command]
@@ -159,7 +169,7 @@ fn start_sidecar(app: &tauri::AppHandle) -> Result<Option<Child>, String> {
     let sample_shop = resolver
         .resolve_resource("resources/sample-shop")
         .filter(|path| path.join("server.js").exists());
-    let home = resolver.app_data_dir().ok_or("Could not resolve the app data directory.")?;
+    let (home, staged) = app_home(app)?;
     std::fs::create_dir_all(home.join("logs")).map_err(|error| error.to_string())?;
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -169,24 +179,38 @@ fn start_sidecar(app: &tauri::AppHandle) -> Result<Option<Child>, String> {
     let errors = log.try_clone().map_err(|error| error.to_string())?;
 
     let mut command = Command::new(node);
+    if staged {
+        command.env("CENTINEL_LOCAL_WORKSPACE_PILOT", "1");
+    }
     if codex.exists() {
         command.env("CENTINEL_BUNDLED_CODEX_BIN", &codex);
     }
     if let Some(sample_shop) = sample_shop {
         command.env("CENTINEL_SAMPLE_SHOP_DIR", sample_shop);
     }
-    let child = command
+    let mut device_key = model_vault::load_key(&home).map_err(|error| eprintln!("[centinel] {error}")).ok();
+    if device_key.is_some() {
+        command.env("CENTINEL_MODEL_KEY_PIPE", "1").stdin(Stdio::piped());
+    } else {
+        command.env_remove("CENTINEL_MODEL_KEY_PIPE").stdin(Stdio::null());
+    }
+    let mut child = command
         .arg(&script)
         .current_dir(&sidecar_dir)
         .env("CENTINEL_PACKAGED", "1")
         .env("CENTINEL_HOME", &home)
         .env("CENTINEL_RUNTIME_ENV", sidecar_dir.join("runtime.env"))
         .env("PATH", tool_path())
-        .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors))
         .spawn()
         .map_err(|error| format!("Could not start the local service: {error}"))?;
+    if let Some(key) = device_key.as_mut() {
+        use std::io::Write;
+        let delivered = child.stdin.take().is_some_and(|mut pipe| pipe.write_all(key).is_ok());
+        key.fill(0);
+        if !delivered { eprintln!("[centinel] Could not deliver the protected model key to the local service."); }
+    }
     Ok(Some(child))
 }
 

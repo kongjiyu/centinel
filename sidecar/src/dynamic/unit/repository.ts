@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DynamicContractError } from '../types.js';
 import type { DynamicUnitRun, UnitCommand, UnitExecutionResult } from './types.js';
+export type UnitStore = Pick<UnitRepository, 'get' | 'byKey' | 'list' | 'preflight' | 'start' | 'claim' | 'heartbeat' | 'finish' | 'cancel' | 'recover' | 'events'>;
 export class UnitRepository {
     constructor(private readonly client: SupabaseClient) { }
     private async rpc(name: string, args: Record<string, unknown>) { const { data, error } = await this.client.rpc(name, args).abortSignal(AbortSignal.timeout(15000)); if (error)

@@ -49,3 +49,45 @@ jobs:
 
       - name: Sidecar tests
         run: pnpm --filter @centinel/sidecar test
+
+      - name: Verify local workspace SQLite support
+        run: node scripts/local-workspace-pilot.mjs
+
+  packaged-workspace-macos:
+    name: Packaged local workspace (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_URL: http://127.0.0.1:9
+      SUPABASE_ANON_KEY: fixture-publishable-key
+      VITE_SUPABASE_URL: http://127.0.0.1:9
+      VITE_SUPABASE_ANON_KEY: fixture-publishable-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @centinel/sidecar exec playwright install chromium
+      - run: pnpm bundle:sidecar
+      - run: pnpm --filter centinel tauri build --bundles app
+      - name: Run the sidecar from the macOS app bundle
+        run: node scripts/packaged-workspace-smoke.mjs centinel/src-tauri/target/release/bundle/macos/ORIN.app/Contents/Resources/resources/sidecar centinel/src-tauri/target/release/bundle/macos/ORIN.app/Contents/MacOS/centinel-node
+
+  local-workspace-windows:
+    name: Local workspace (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @centinel/sidecar exec playwright install chromium
+      - run: node scripts/local-workspace-pilot.mjs
+      - run: pnpm --filter @centinel/sidecar test __tests__/integration/localWorkspaceHttp.test.ts __tests__/integration/localUnitHttp.test.ts __tests__/integration/exportWorkspace.test.ts __tests__/integration/workspaceBackup.test.ts

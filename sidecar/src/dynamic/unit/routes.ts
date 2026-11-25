@@ -2,7 +2,7 @@ import { DynamicContractError } from '../types.js';
 import type { WorkspaceRegistry } from '../workspace/registry.js';
 import { workspaceAuthorizationId } from '../workspace/registry.js';
 import { resolveVitestWorkspace, UnitPrerequisiteError } from './runner.js';
-import type { UnitRepository } from './repository.js';
+import type { UnitStore } from './repository.js';
 import type { DynamicUnitRun } from './types.js';
 export async function handleUnitRoute(request: {
     method: string;
@@ -10,7 +10,7 @@ export async function handleUnitRoute(request: {
     readBody(): Promise<Record<string, unknown>>;
 }, deps: {
     ownerId: string;
-    repository: UnitRepository;
+    repository: UnitStore;
     registry: WorkspaceRegistry;
     requireMember(project: string): Promise<void>;
     prepare?(project: string, profile: string): Promise<void>;

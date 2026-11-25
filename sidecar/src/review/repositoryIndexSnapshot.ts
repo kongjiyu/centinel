@@ -61,7 +61,7 @@ function canonical(value: unknown): string {
     .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
   return JSON.stringify(value);
 }
-function normalizedIdentity(value: unknown): RepositoryIndexIdentity | null {
+export function normalizeRepositoryIndexIdentity(value: unknown): RepositoryIndexIdentity | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const item = value as Partial<RepositoryIndexIdentity>;
   if (typeof item.projectId !== 'string' || !item.embedding || !Array.isArray(item.sources)
@@ -87,7 +87,7 @@ async function decodeAndValidateSnapshot(bytes: Buffer, expected?: RepositoryInd
   const decoded = await decompress(bytes, { maxOutputLength: MAX_EXPANDED_BYTES });
   const snapshot: unknown = JSON.parse(decoded.toString('utf8'));
   const value = snapshot as Partial<Snapshot> | null;
-  const identity = normalizedIdentity(value?.identity);
+  const identity = normalizeRepositoryIndexIdentity(value?.identity);
   if (!value || value.schemaVersion !== 1 || !identity || expected && canonical(identity) !== canonical(expected)
     || !Array.isArray(value.files) || !value.files.length || value.files.length > MAX_FILES) throw new Error('Repository snapshot is incompatible.');
   const names = new Set<string>();
